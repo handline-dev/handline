@@ -8,8 +8,9 @@ import { classify, sentence, useAgentDetail, usePending, useServes, useSettings,
 import { goAgent } from './route.ts';
 import { Schedules } from './Schedules.tsx';
 import { Button, Field as Input, Icon, Segmented, Select, Switch, type IconName } from './ui/index.ts';
+import { SCARD, SROW, SROW_CTL, SROW_TEXT, SROW_TITLE } from './settingsStyle.ts';
 import { View } from './View.tsx';
-import { SHEAD, VERB_SHEET_ACTIONS, VERB_SHEET_DANGER } from './sheetStyle.ts';
+import { SHEAD_SETTINGS, VERB_SHEET_ACTIONS, VERB_SHEET_DANGER } from './sheetStyle.ts';
 
 const SECTIONS: { id: Field['section']; title: string; icon: IconName }[] = [
   { id: 'model', title: 'Model', icon: 'agent' },
@@ -31,33 +32,33 @@ export function SettingsView({ agent }: { agent: string }) {
   const d: AgentDetail | undefined = q.data;
   const editable = served && (role === 'founder' || role === 'agent'); // agent.set is for the founder and an agent on itself
   return (
-    <section className="settings" aria-label={`${agent} settings`}>
-      <header className="settings-head settings-agent">
-        <Button className="back" icon="chevronRight" label={`Back to ${agent}`} onClick={() => goAgent(agent)}>
+    <section className="settings mx-auto h-full w-full overflow-auto px-4 pt-4 pb-6" aria-label={`${agent} settings`}>
+      <header className="settings-head settings-agent mx-auto flex max-w-[var(--w-form)] flex-wrap items-center gap-x-3 gap-y-1">
+        <Button className="back [&_svg]:rotate-180" icon="chevronRight" label={`Back to ${agent}`} onClick={() => goAgent(agent)}>
           {agent}
         </Button>
-        <h2>Settings</h2>
-        <p className="settings-lede">Each change saves as you make it.</p>
+        <h2 className="m-0 text-page font-semibold text-ink">Settings</h2>
+        <p className="settings-lede m-0 basis-full text-body text-ink-2">Each change saves as you make it.</p>
       </header>
       {served ? null : <p className="muted pad">This daemon does not edit agent settings.</p>}
       {served && !editable ? <p className="muted pad">Only the founder edits agent settings.</p> : null}
       <View q={q} served shape="settings" what={`${agent} settings`}>
         {d ? (
-          <div className="settings-body settings-agent">
-            <div className="scard">
-              <div className="srow">
-                <div className="srow-text">
-                  <span className="srow-title">Session runs on</span>
+          <div className="settings-body settings-agent mx-auto flex max-w-[var(--w-form)] min-w-0 flex-col gap-4 max-sm:hidden">
+            <div className={SCARD}>
+              <div className={SROW}>
+                <div className={SROW_TEXT}>
+                  <span className={SROW_TITLE}>Session runs on</span>
                 </div>
-                <div className="srow-ctl">{d.account ?? 'not chosen yet'}</div>
+                <div className={SROW_CTL}>{d.account ?? 'not chosen yet'}</div>
               </div>
             </div>
             {SECTIONS.map((s) => (
               <section key={s.id}>
-                <h3 className={SHEAD}>
+                <h3 className={SHEAD_SETTINGS}>
                   <Icon name={s.icon} size={14} label={s.title} aria-hidden /> {s.title}
                 </h3>
-                <div className="scard">
+                <div className={SCARD}>
                   {FIELDS.filter((f) => f.section === s.id).map((f) => (
                     <FieldRow key={f.key} agent={agent} f={f} stored={d.settings?.[f.key]} editable={editable} role={role} />
                   ))}
@@ -110,7 +111,7 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
   const control = () => {
     if (f.kind === 'select' && options.length <= 3)
       return (
-        <fieldset className="sctl" disabled={off}>
+        <fieldset className="sctl m-0 min-w-0 border-0 p-0 disabled:opacity-60" disabled={off}>
           <Segmented label={f.label} value={value} onChange={choose} options={options.map((o) => ({ value: o, label: o }))} />
         </fieldset>
       );
@@ -163,16 +164,16 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
     f.key === 'handoff_note' ? `default follows the global switch${global === undefined ? '' : global ? ' (on)' : ' (off)'}` : '';
   const more = [moreOf(f), follows].filter(Boolean).join('; ');
   return (
-    <div className="srow" data-field={f.key}>
-      <div className="srow-text" title={more || undefined}>
-        <span className="srow-title">
+    <div className={SROW} data-field={f.key}>
+      <div className={SROW_TEXT} title={more || undefined}>
+        <span className={SROW_TITLE}>
           {f.label}
           {pending ? <Icon name="sending" size={14} label="Saving" /> : null}
           {allowed ? null : <Icon name="permission" size={14} label="Founder only" />}
           {more ? <Icon name="info" size={14} label={more} /> : null}
         </span>
       </div>
-      <div className="srow-ctl">{control()}</div>
+      <div className={SROW_CTL}>{control()}</div>
       {draft !== null && stored !== base ? (
         <p className="ui-note warn">
           <Icon name="warn" size={14} label="Changed elsewhere" />
@@ -221,9 +222,12 @@ function Sites({ value, off, save }: { value: string; off: boolean; save: (v: st
     save([...sites, site].join(' '));
   };
   return (
-    <span className="sites">
+    <span className="sites flex flex-wrap items-center justify-end gap-1.5">
       {sites.map((s) => (
-        <span key={s} className="site-chip">
+        <span
+          key={s}
+          className="site-chip inline-flex items-center gap-1 rounded-chip border border-line-strong pl-2 font-mono text-[12px]/4 font-normal"
+        >
           {s}
           <Button
             icon="close"

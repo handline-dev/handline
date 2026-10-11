@@ -4,6 +4,7 @@ import { waitingCount } from '@handline/app-core';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useAgents, useHr, useServes, useTeam } from '@handline/app-data';
 import { chatTab } from './chatTab.ts';
+import { META, META_ITEM } from './teamStyle.ts';
 import { HrTab } from './HrTab.tsx';
 import { Empty, Icon, State, stateOfView } from './ui/index.ts';
 import { goAgent, goTeam, useTeamRoute } from './route.ts';
@@ -17,25 +18,15 @@ export function TeamPage() {
   const { served: hrServed } = useServes('hr.list');
   const count = useHrCount();
   return (
-    <section className="team" aria-label="Team">
+    <section className="team flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-3 pb-6" aria-label="Team">
       <div className="chat-tabs flex gap-1 border-b border-line px-3 pt-1.5" role="tablist" aria-label="Team pages">
-        <button
-          role="tab"
-          aria-selected={route.tab === 'team'}
-          className={chatTab(route.tab === 'team')}
-          onClick={() => goTeam('team')}
-        >
+        <button role="tab" aria-selected={route.tab === 'team'} className={chatTab(route.tab === 'team')} onClick={() => goTeam('team')}>
           Team
         </button>
         {hrServed ? (
-          <button
-            role="tab"
-            aria-selected={route.tab === 'hr'}
-            className={chatTab(route.tab === 'hr')}
-            onClick={() => goTeam('hr')}
-          >
+          <button role="tab" aria-selected={route.tab === 'hr'} className={chatTab(route.tab === 'hr')} onClick={() => goTeam('hr')}>
             {count ? (
-              <span className="hr-dot" aria-hidden="true">
+              <span className="hr-dot text-bad" aria-hidden="true">
                 ●{' '}
               </span>
             ) : null}
@@ -69,15 +60,15 @@ function TeamTable() {
       {team && !team.agents.length ? (
         <Empty icon="team" name="No agents in the team" />
       ) : (
-        <div className="team-board">
+        <div className="team-board grid gap-4">
           {groups(team?.agents ?? []).map((g) => (
             <section key={g.parent ?? ''} className="team-group" aria-label={g.parent ? `Reports to ${g.parent}` : 'Top of the team'}>
               {g.parent ? (
-                <h3 title="Reports to">
+                <h3 className="mx-0 mt-0 mb-2 flex items-center gap-1 text-label font-normal text-ink-3" title="Reports to">
                   <Icon name="agent" label="Reports to" size={14} aria-hidden="true" /> {g.parent}
                 </h3>
               ) : null}
-              <div className="team-cards">
+              <div className="team-cards grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2">
                 {g.agents.map((a) => (
                   <Card
                     key={a.name}
@@ -104,7 +95,11 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
   const chips = (names: string[]) =>
     names.length ? (
       names.map((n) => (
-        <button key={n} className="chip btn" onClick={() => goAgent(n)}>
+        <button
+          key={n}
+          className="chip inline-block rounded-[12px] border border-line bg-panel py-0 pr-1 pl-2 font-mono text-[12px]/4"
+          onClick={() => goAgent(n)}
+        >
           {n}
         </button>
       ))
@@ -113,23 +108,26 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
     );
   return (
     <article
-      className={`team-card${props.open ? ' open' : ''}`}
+      className={`team-card flex cursor-pointer flex-col gap-1 rounded-card border border-line p-3${props.open ? ' open bg-panel' : ' bg-surface hover:bg-panel'}`}
       data-agent={a.name}
       onClick={props.onOpen}
       title={`role file ${day(a.role_file.updated)} · base file ${day(a.base_file.updated)}`}
     >
-      <header>
+      <header className="flex items-center gap-2">
         {d ? (
           <State
             kind={stateOfView(d)}
             label={[d.block ? `blocked (${d.block.kind})` : d.state, d.state_detail].filter(Boolean).join(' · ')}
           />
         ) : null}
-        <button className="team-name" onClick={(e) => (e.stopPropagation(), goAgent(a.name))}>
+        <button
+          className="team-name border-0 bg-transparent p-0 text-body font-medium text-ink hover:underline"
+          onClick={(e) => (e.stopPropagation(), goAgent(a.name))}
+        >
           {a.name}
         </button>
         <button
-          className="team-more"
+          className="team-more ml-auto inline-flex rounded-ctl border-0 bg-transparent p-1 text-ink-3 hover:bg-raised hover:text-ink"
           aria-expanded={props.open}
           aria-label={`Who ${a.name} may ask`}
           title="Who may ask whom"
@@ -138,16 +136,16 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
           <Icon name={props.open ? 'less' : 'more'} label="Who may ask whom" size={14} aria-hidden="true" />
         </button>
       </header>
-      <p className="team-role">{a.role}</p>
+      <p className="team-role m-0 text-body text-ink-2">{a.role}</p>
       {d?.account || d?.model ? (
-        <p className="team-meta">
+        <p className={`team-meta ${META}`}>
           {d.account ? (
-            <span title="Account">
+            <span className={META_ITEM} title="Account">
               <Icon name="accounts" label="Account" size={14} aria-hidden="true" /> {d.account}
             </span>
           ) : null}
           {d.model ? (
-            <span title="Model">
+            <span className={META_ITEM} title="Model">
               <Icon name="model" label="Model" size={14} aria-hidden="true" /> {d.model}
               {d.effort ? ` · ${d.effort}` : ''}
             </span>
@@ -155,17 +153,17 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
         </p>
       ) : null}
       {d?.task ? (
-        <p className="team-task" title="Doing">
+        <p className="team-task m-0 flex flex-wrap items-center gap-1 text-label text-ink-2" title="Doing">
           <Icon name="tasks" label="Doing" size={14} aria-hidden="true" /> #{d.task.id} {d.task.title}
         </p>
       ) : null}
       {props.open ? (
-        <div className="edges">
-          <div>
+        <div className="edges mt-1.5 grid gap-1.5 border-t border-line pt-2 [&_svg]:text-ink-3">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Icon name="send" label="May ask" size={14} />
             {chips(props.edges.filter((e) => e.from === a.name).map((e) => e.to))}
           </div>
-          <div>
+          <div className="flex flex-wrap items-center gap-1.5">
             <Icon name="reply" label="May be asked by" size={14} />
             {chips(props.edges.filter((e) => e.to === a.name).map((e) => e.from))}
           </div>

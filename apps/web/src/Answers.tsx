@@ -5,7 +5,8 @@ import { useAnswers, useServes, useWrite } from '@handline/app-data';
 import { Button, Field, Icon, Select } from './ui/index.ts';
 import { useOff } from './useOff.ts';
 import { View } from './View.tsx';
-import { SHEAD } from './sheetStyle.ts';
+import { SHEAD_SETTINGS } from './sheetStyle.ts';
+import { SCARD, SROW_ANSWER, SROW_TITLE_PLAIN } from './settingsStyle.ts';
 
 const KINDS = [
   { value: 'trust', label: 'Trust a folder' },
@@ -26,7 +27,7 @@ function AddForm({ off, onDone }: { off: string | undefined; onDone: () => void 
     onDone();
   };
   return (
-    <form className="answer-form" onSubmit={submit} aria-label="Add a standing answer">
+    <form className="answer-form flex flex-wrap items-end gap-2" onSubmit={submit} aria-label="Add a standing answer">
       <Select label="Kind" options={KINDS} value={kind} onChange={(e) => setKind(e.target.value as 'trust' | 'dialog')} />
       {kind === 'trust' ? (
         <Field label="Folder" placeholder="/path/to/folder" value={f.folder} onChange={set('folder')} />
@@ -37,7 +38,7 @@ function AddForm({ off, onDone }: { off: string | undefined; onDone: () => void 
           <Field label="Option" placeholder="Yes, I trust" value={f.label} onChange={set('label')} />
         </>
       )}
-      <span className="answer-form-actions">
+      <span className="answer-form-actions flex gap-1.5">
         <Button variant="solid" type="submit" label="Add" disabled={!!off} title={off} />
         <Button label="Cancel" onClick={onDone} />
       </span>
@@ -55,7 +56,7 @@ export function Answers() {
   const rows = q.data?.answers ?? [];
   return (
     <>
-      <h3 className={SHEAD}>Standing answers</h3>
+      <h3 className={SHEAD_SETTINGS}>Standing answers</h3>
       <View
         q={q}
         served={served}
@@ -63,15 +64,15 @@ export function Answers() {
         what="standing answers"
         empty={!rows.length && 'none - you are asked when a dialog shows'}
       >
-        <ul className="scard answers">
+        <ul className={`${SCARD} answers`}>
           {rows.map((a) => (
-            <li key={`${a.kind}\0${a.key.join('\0')}`} className="srow" data-answer={a.kind}>
+            <li key={`${a.kind}\0${a.key.join('\0')}`} className={SROW_ANSWER} data-answer={a.kind}>
               <Icon
                 name={a.kind === 'trust' ? 'permission' : 'prompt'}
                 size={16}
                 label={a.kind === 'trust' ? 'Trusted folder' : 'Dialog'}
               />
-              <span className="srow-title answer-text">{a.text}</span>
+              <span className={`${SROW_TITLE_PLAIN} answer-text [overflow-wrap:anywhere]`}>{a.text}</span>
               <Button
                 icon="dismiss"
                 label={`Remove ${a.text}`}
@@ -84,7 +85,7 @@ export function Answers() {
         </ul>
       </View>
       {served ? (
-        <div className="answers-actions">
+        <div className="answers-actions mt-2">
           {adding ? (
             <AddForm off={off} onDone={() => setAdding(false)} />
           ) : (

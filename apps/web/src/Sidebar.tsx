@@ -103,7 +103,7 @@ export function Sidebar({
           <Icon name="tasks" size={14} aria-hidden /> Tasks
         </button>
         <button className={navOf(onTeam)} onClick={() => goTeam(hr ? 'hr' : 'team')}>
-          <Icon name="team" size={14} aria-hidden /> Team{hr ? <span className="hr-dot"> ● HR {hr}</span> : null}
+          <Icon name="team" size={14} aria-hidden /> Team{hr ? <span className="hr-dot text-bad"> ● HR {hr}</span> : null}
         </button>
         <button className={navOf(onPage === 'accounts')} onClick={() => void (location.hash = '#/accounts')}>
           <Icon name="accounts" size={14} aria-hidden /> Accounts

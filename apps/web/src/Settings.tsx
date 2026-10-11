@@ -9,7 +9,8 @@ import { Answers } from './Answers.tsx';
 import { Field, Icon, Switch, type IconName } from './ui/index.ts';
 import { useOff } from './useOff.ts';
 import { View } from './View.tsx';
-import { SHEAD } from './sheetStyle.ts';
+import { SHEAD_SETTINGS } from './sheetStyle.ts';
+import { SCARD, SROW, SROW_CTL, SROW_HINT, SROW_TEXT, SROW_TITLE } from './settingsStyle.ts';
 
 /** The note under a row: saving (an icon and a word), or why the value is not saved (an icon, never colour alone). */
 function Note({ error, pending, bad }: { error: unknown; pending: boolean; bad: string | null }) {
@@ -34,12 +35,12 @@ function Note({ error, pending, bad }: { error: unknown; pending: boolean; bad: 
 
 function Row(props: { label: string; hint: string; more?: string; children: ReactNode; note?: ReactNode }) {
   return (
-    <div className="srow" data-setting={props.label}>
-      <div className="srow-text" title={props.more}>
-        <span className="srow-title">{props.label}</span>
-        <span className="srow-hint">{props.hint}</span>
+    <div className={SROW} data-setting={props.label}>
+      <div className={SROW_TEXT} title={props.more}>
+        <span className={SROW_TITLE}>{props.label}</span>
+        <span className={SROW_HINT}>{props.hint}</span>
       </div>
-      <div className="srow-ctl">{props.children}</div>
+      <div className={SROW_CTL}>{props.children}</div>
       {props.note}
     </div>
   );
@@ -146,15 +147,15 @@ function SectionNav({ ready }: { ready: boolean }) {
     return () => io.disconnect();
   }, [ready]);
   return (
-    <nav className="settings-nav" aria-label="Settings sections">
+    <nav className="settings-nav sticky top-0 flex flex-col gap-3 self-start max-[960px]:hidden" aria-label="Settings sections">
       {groups.map((g) => (
-        <div key={g} className="settings-nav-group">
-          <span className="srow-hint settings-nav-title">{g}</span>
+        <div key={g} className="settings-nav-group flex flex-col gap-0.5">
+          <span className={`${SROW_HINT} settings-nav-title px-2 tracking-[0.04em] uppercase`}>{g}</span>
           {SECTIONS.filter((s) => s.group === g).map((s) => (
             <button
               key={s.id}
               type="button"
-              className="settings-nav-item"
+              className="settings-nav-item flex h-7 items-center gap-2 rounded-ctl border-0 bg-transparent px-2 text-left text-body font-normal text-ink-2 hover:bg-raised hover:text-ink aria-[current=true]:bg-raised aria-[current=true]:font-semibold aria-[current=true]:text-ink"
               aria-current={at === s.id ? 'true' : undefined}
               onClick={() => {
                 setAt(s.id);
@@ -176,15 +177,15 @@ export function SettingsPage() {
   const { served } = useServes('settings.get');
   const v = q.data?.values;
   return (
-    <section className="settings" aria-label="Settings">
-      <header className="settings-head">
-        <h2>Settings</h2>
-        <p className="settings-lede">Defaults for every agent. Each change saves as you make it.</p>
+    <section className="settings mx-auto h-full w-full overflow-auto px-4 pt-4 pb-6" aria-label="Settings">
+      <header className="settings-head mx-auto mb-4 flex max-w-[calc(var(--w-form)_+_160px_+_var(--sp-7))] flex-wrap items-center gap-x-3 gap-y-1">
+        <h2 className="m-0 text-page font-semibold text-ink">Settings</h2>
+        <p className="settings-lede m-0 basis-full text-body text-ink-2">Defaults for every agent. Each change saves as you make it.</p>
       </header>
-      <p className="settings-phone muted">Open this on a computer.</p>
-      <div className="settings-layout">
+      <p className="settings-phone muted hidden max-sm:block">Open this on a computer.</p>
+      <div className="settings-layout grid grid-cols-[160px_minmax(0,var(--w-form))] justify-center gap-6 max-[960px]:grid-cols-[minmax(0,var(--w-form))]">
         {served ? <SectionNav ready={!!v} /> : null}
-        <div className="settings-body">
+        <div className="settings-body flex min-w-0 flex-col gap-4 max-sm:hidden">
           {!served ? (
             <p className="muted pad">This daemon does not serve settings, or they are for the founder only.</p>
           ) : (
@@ -192,8 +193,8 @@ export function SettingsPage() {
               {v ? (
                 <>
                   <section id="set-concurrency">
-                    <h3 className={SHEAD}>Concurrency</h3>
-                    <div className="scard">
+                    <h3 className={SHEAD_SETTINGS}>Concurrency</h3>
+                    <div className={SCARD}>
                       <NumberRow
                         label="Default cap"
                         hint="Agents working at once on an account"
@@ -207,8 +208,8 @@ export function SettingsPage() {
                     </div>
                   </section>
                   <section id="set-closing">
-                    <h3 className={SHEAD}>Closing windows</h3>
-                    <div className="scard">
+                    <h3 className={SHEAD_SETTINGS}>Closing windows</h3>
+                    <div className={SCARD}>
                       <NumberRow
                         label="Idle close"
                         hint="Idle time before a session closes"
@@ -222,8 +223,8 @@ export function SettingsPage() {
                     </div>
                   </section>
                   <section id="set-automation">
-                    <h3 className={SHEAD}>Automation</h3>
-                    <div className="scard">
+                    <h3 className={SHEAD_SETTINGS}>Automation</h3>
+                    <div className={SCARD}>
                       <SwitchRow
                         label="Handoff note"
                         hint="A note for the next session before a close or move"

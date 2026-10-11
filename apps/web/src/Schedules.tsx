@@ -4,7 +4,7 @@ import { cronWords } from '@handline/app-core';
 import { classify, sentence, useSchedules, useServes, useWrite } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
 import type { Schedule } from '@handline/client';
-import { FNOTE_BAD, SHEAD, VERB_SHEET, VERB_SHEET_ACTIONS } from './sheetStyle.ts';
+import { FNOTE_BAD, SHEAD_SETTINGS, VERB_SHEET, VERB_SHEET_ACTIONS } from './sheetStyle.ts';
 
 const cut = (s: string, n = 60) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
@@ -37,7 +37,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
   };
   return (
     <div className="schedules">
-      <h3 className={SHEAD}>schedules</h3>
+      <h3 className={SHEAD_SETTINGS}>schedules</h3>
       {q.isError ? (
         <p className={FNOTE_BAD} role="alert">
           cannot read the schedules: {sentence(classify(q.error))}{' '}

@@ -6,8 +6,9 @@ import type { Proposal } from '@handline/client';
 import { useOnce, useStore } from '@handline/app-react';
 import { classify, sentence, useAgents, useHr, usePending, useWrite } from '@handline/app-data';
 import { Button, Empty, Icon, State, type StateKind } from './ui/index.ts';
-import { CARD_ACTIONS, COMPOSE, LINES } from './chatStyle.ts';
+import { COMPOSE, LINES } from './chatStyle.ts';
 import { goSettings } from './route.ts';
+import { HR_ACTIONS, HR_KV, META, META_ITEM } from './teamStyle.ts';
 import { View } from './View.tsx';
 import { FNOTE_BAD, FNOTE_WARN, SHEAD, VERB_SHEET, VERB_SHEET_ACTIONS, VERB_SHEET_DANGER } from './sheetStyle.ts';
 
@@ -79,8 +80,8 @@ export function HrTab({ focus }: { focus: number | null }) {
     });
   return (
     <View q={q} served shape="inbox" what="HR proposals" empty={false}>
-      <div className="hr">
-        <div className="hr-head">
+      <div className="hr mx-auto w-full max-w-[760px]">
+        <div className="hr-head flex items-center justify-between py-2">
           <strong>HR{waitingCount(list) ? ` · ${waitingCount(list)} waiting` : ''}</strong>
           {decider && waiting.length > 1 && all !== 'ask' && all !== 'reject' ? (
             <span className={VERB_SHEET_ACTIONS}>
@@ -194,35 +195,39 @@ function Card({
     sent(decide.mutateAsync({ proposal: p.id, decision: 'reject', note: why, subject: p.subject }), 'reject');
   };
   return (
-    <article className={`hr-card${focus ? ' focus' : ''}`} data-proposal={p.id} ref={el}>
-      <header className="hr-top">
-        <span className="hr-title">
+    <article
+      className={`hr-card mb-3 flex flex-col gap-2 rounded-card border border-line bg-surface p-3${focus ? ' focus outline-2 outline-focus' : ''}`}
+      data-proposal={p.id}
+      ref={el}
+    >
+      <header className="hr-top flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+        <span className="hr-title inline-flex min-w-0 items-center gap-1.5 text-title font-semibold [overflow-wrap:anywhere]">
           <Icon name="team" size={16} aria-hidden="true" /> {textSafe(p.title)}
         </span>
-        <span className={`hr-state ${state.tone}`}>
+        <span className={`hr-state ${state.tone} inline-flex items-center gap-1.5 text-label text-ink-2`}>
           <State kind={STATE_KIND[p.state] ?? 'idle'} label={state.word} />
           {state.word}
         </span>
       </header>
-      <p className="hr-meta">
+      <p className={`hr-meta ${META}`}>
         {p.requested_by ? (
-          <span title="Asked by">
+          <span className={META_ITEM} title="Asked by">
             <Icon name="agent" size={14} label="Asked by" /> {textSafe(p.requested_by)}
           </span>
         ) : null}
-        <span title="Raised">
+        <span className={META_ITEM} title="Raised">
           <Icon name="schedules" size={14} label="Raised" /> {new Date(p.created).toLocaleString()}
         </span>
-        {kindOf(p) ? <span className="hr-kind">{kindOf(p)}</span> : null}
+        {kindOf(p) ? <span className={`hr-kind ${META_ITEM} rounded-chip border border-line px-1.5`}>{kindOf(p)}</span> : null}
       </p>
       {askedLines(p).map(([k, v]) => (
-        <div key={k} className="hr-kv">
+        <div key={k} className={HR_KV}>
           <span className="muted">{k}</span>
           <span>{v}</span>
         </div>
       ))}
       {p.reason ? (
-        <div className="hr-kv">
+        <div className={HR_KV}>
           <span className="muted">why</span>
           <span>{textSafe(p.reason)}</span>
         </div>
@@ -233,9 +238,9 @@ function Card({
         </Button>
       ) : null}
       {showDiff ? (
-        <pre className={`${LINES} hr-diff`} aria-label="What approving does">
+        <pre className={`${LINES} hr-diff max-h-[20lh] overflow-auto`} aria-label="What approving does">
           {diff.map((l, i) => (
-            <div key={i} className={l.mark === '-' ? 'del' : l.mark === '+' ? 'add' : ''}>
+            <div key={i} className={l.mark === '-' ? 'del text-bad' : l.mark === '+' ? 'add text-ok' : ''}>
               {l.text}
             </div>
           ))}
@@ -253,7 +258,7 @@ function Card({
       ) : null}
       {waiting && narrow ? <p className="muted">Decide on a computer.</p> : null}
       {waiting && decider ? (
-        <div className={CARD_ACTIONS}>
+        <div className={HR_ACTIONS}>
           <Button
             variant="solid"
             icon="markRead"
@@ -279,7 +284,7 @@ function Card({
       ) : null}
       {reason !== null ? (
         <form
-          className={CARD_ACTIONS}
+          className={HR_ACTIONS}
           onSubmit={(e) => {
             e.preventDefault();
             reject();

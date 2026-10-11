@@ -38,12 +38,3 @@
     flex: 1;
   }
 }
-
-/* The team page's chip button: it must out-rank the legacy `.btn` (base.css), which a utility cannot. */
-.chip {
-  padding: 0 4px 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--bg-2);
-  font: var(--t-mono);
-}
