@@ -255,6 +255,22 @@ func (e *Env) firstRequest(tid int64) (row, error) {
 		"WHERE l.task_id = ? ORDER BY l.rowid LIMIT 1", tid)
 }
 
+// askerOf is actions.task_asker: who a task answers to when it closes. The founder, if any request linked to it came from the founder; else
+// the fallback, whoever opened it (the reporter, once tasks have one, is the one change: askerFallback).
+func (e *Env) askerOf(t row) (string, error) {
+	r, err := queryOne(e.DB, "SELECT 1 AS yes FROM task_requests l JOIN requests r ON r.id = l.request_id "+
+		"WHERE l.task_id = ? AND r.requester = ? LIMIT 1", t.i("id"), human)
+	if err != nil {
+		return "", err
+	}
+	if r != nil {
+		return human, nil
+	}
+	return askerFallback(t), nil
+}
+
+func askerFallback(t row) string { return t.str("opened_by") }
+
 func (e *Env) blockers(tid int64) ([]row, error) {
 	return query(e.DB, "SELECT t.* FROM tasks t JOIN task_blocks b ON b.blocks_on = t.id "+
 		"WHERE b.task_id = ? AND b.dormant = 0 AND t.discarded_by IS NULL AND t.done_evidence IS NULL ORDER BY t.id", tid)
@@ -278,13 +294,17 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	asker, err := e.askerOf(t)
+	if err != nil {
+		return nil, err
+	}
 	blockedBy := make([]int64, len(blockers))
 	for i, b := range blockers {
 		blockedBy[i] = b.i("id")
 	}
 	task := map[string]any{
 		"blocked_by": blockedBy, "time": clock,
-		"id": t.i("id"), "from": t.str("opened_by"), "to": t.str("owner"), "title": t.str("title"), "state": state,
+		"asker": asker, "id": t.i("id"), "from": t.str("opened_by"), "to": t.str("owner"), "title": t.str("title"), "state": state,
 		"relation": first.str("relation"), "response": first.str("response"), "time_box": nil,
 		"parent": t.intOrNil("parent_task"), "created": ts(t["created_at"]), "delivered": ts(t["delivered_at"]),
 		"done": ts(t["done_at"]), "priority": t.i("priority"), "hold_reason": hold, "block_reason": nil, "evidence": t.strOrNil("done_evidence"),
