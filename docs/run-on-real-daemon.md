@@ -77,7 +77,7 @@ If the app says the link has no certificate fingerprint and the address is not a
        cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
        adb install -r app/build/outputs/apk/release/app-release.apk
 
-   A build from before QR pairing lacks the camera module (`expo-camera`): run `expo prebuild` and the build again. Skip `adb reverse`: the phone reaches `<name>` itself. Open the app from the launcher.
+   An app built before QR pairing lacks the camera module (`expo-camera`): prebuild and build again. Skip `adb reverse`: the phone reaches `<name>` itself. Open the app from the launcher.
 3. Pair the same way as on the iPhone: **Pair a phone…** in the desktop app's tray menu, then **Scan the code** in the phone app; or `hl device pair` and paste the `uri:` line, then Pair.
 
 You should see the agent list.
