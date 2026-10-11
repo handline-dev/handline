@@ -2,11 +2,9 @@
 // icon and an Add row at the end (docs/design-gaps.md G82). Add and remove are authored: the row changes at once and comes back if the daemon refuses.
 import { useState } from 'react';
 import { useAnswers, useServes, useWrite } from '@handline/app-data';
-import { Button, Field, Icon, Select } from './ui/index.ts';
+import { Button, Field, Icon, RowTitle, SectionHead, Select, SettingsCard, SettingsRow } from './ui/index.ts';
 import { useOff } from './useOff.ts';
 import { View } from './View.tsx';
-import { SHEAD_SETTINGS } from './sheetStyle.ts';
-import { SCARD, SROW_ANSWER, SROW_TITLE_PLAIN } from './settingsStyle.ts';
 
 const KINDS = [
   { value: 'trust', label: 'Trust a folder' },
@@ -56,7 +54,7 @@ export function Answers() {
   const rows = q.data?.answers ?? [];
   return (
     <>
-      <h3 className={SHEAD_SETTINGS}>Standing answers</h3>
+      <SectionHead>Standing answers</SectionHead>
       <View
         q={q}
         served={served}
@@ -64,15 +62,15 @@ export function Answers() {
         what="standing answers"
         empty={!rows.length && 'none - you are asked when a dialog shows'}
       >
-        <ul className={`${SCARD} answers`}>
+        <SettingsCard as="ul" className="answers">
           {rows.map((a) => (
-            <li key={`${a.kind}\0${a.key.join('\0')}`} className={SROW_ANSWER} data-answer={a.kind}>
+            <SettingsRow answer as="li" key={`${a.kind}\0${a.key.join('\0')}`} data-answer={a.kind}>
               <Icon
                 name={a.kind === 'trust' ? 'permission' : 'prompt'}
                 size={16}
                 label={a.kind === 'trust' ? 'Trusted folder' : 'Dialog'}
               />
-              <span className={`${SROW_TITLE_PLAIN} answer-text [overflow-wrap:anywhere]`}>{a.text}</span>
+              <RowTitle plain className="answer-text [overflow-wrap:anywhere]">{a.text}</RowTitle>
               <Button
                 icon="dismiss"
                 label={`Remove ${a.text}`}
@@ -80,9 +78,9 @@ export function Answers() {
                 title={offRemove}
                 onClick={() => remove.mutate({ kind: a.kind, key: a.key })}
               />
-            </li>
+            </SettingsRow>
           ))}
-        </ul>
+        </SettingsCard>
       </View>
       {served ? (
         <div className="answers-actions mt-2">

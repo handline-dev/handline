@@ -21,8 +21,7 @@ import {
   OUTLOOK_END,
   tone,
 } from './outlookStyle.ts';
-import { CHART } from './pageStyle.ts';
-import { Button, Select, Segmented } from './ui/index.ts';
+import { Button, ChartCard, Select, Segmented } from './ui/index.ts';
 import { View } from './View.tsx';
 
 type Range = Outlook['range'];
@@ -204,7 +203,7 @@ export function OutlookSection() {
   const q = useOutlook(shown);
   const o = q.data;
   return (
-    <section className={`${CHART} outlook mt-3`} aria-label="Outlook">
+    <ChartCard className="outlook mt-3" aria-label="Outlook">
       <div className="outlook-controls mb-2 flex flex-wrap items-center gap-2">
         <h3 className="m-0 flex-1 text-title font-semibold">Outlook</h3>
         <Segmented
@@ -246,6 +245,6 @@ export function OutlookSection() {
           </>
         ) : null}
       </View>
-    </section>
+    </ChartCard>
   );
 }

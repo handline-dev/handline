@@ -3,10 +3,8 @@ import { useState } from 'react';
 import { waitingCount } from '@handline/app-core';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useAgents, useHr, useServes, useTeam } from '@handline/app-data';
-import { chatTab } from './chatTab.ts';
-import { META, META_ITEM } from './teamStyle.ts';
 import { HrTab } from './HrTab.tsx';
-import { Empty, Icon, State, stateOfView } from './ui/index.ts';
+import { Empty, Icon, MetaItem, MetaLine, State, TabStrip, stateOfView } from './ui/index.ts';
 import { goAgent, goTeam, useTeamRoute } from './route.ts';
 import { View } from './View.tsx';
 
@@ -19,21 +17,31 @@ export function TeamPage() {
   const count = useHrCount();
   return (
     <section className="team flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-3 pb-6" aria-label="Team">
-      <div className="chat-tabs flex gap-1 border-b border-line px-3 pt-1.5" role="tablist" aria-label="Team pages">
-        <button role="tab" aria-selected={route.tab === 'team'} className={chatTab(route.tab === 'team')} onClick={() => goTeam('team')}>
-          Team
-        </button>
-        {hrServed ? (
-          <button role="tab" aria-selected={route.tab === 'hr'} className={chatTab(route.tab === 'hr')} onClick={() => goTeam('hr')}>
-            {count ? (
-              <span className="hr-dot text-bad" aria-hidden="true">
-                ●{' '}
-              </span>
-            ) : null}
-            HR{count ? ` ${count}` : ''}
-          </button>
-        ) : null}
-      </div>
+      <TabStrip
+        label="Team pages"
+        value={route.tab}
+        onChange={goTeam}
+        tabs={[
+          { value: 'team', label: 'Team' },
+          ...(hrServed
+            ? [
+                {
+                  value: 'hr' as const,
+                  label: (
+                    <>
+                      {count ? (
+                        <span className="hr-dot text-bad" aria-hidden="true">
+                          ●{' '}
+                        </span>
+                      ) : null}
+                      HR{count ? ` ${count}` : ''}
+                    </>
+                  ),
+                },
+              ]
+            : []),
+        ]}
+      />
       {route.tab === 'hr' && hrServed ? <HrTab focus={route.proposal} /> : <TeamTable />}
     </section>
   );
@@ -138,19 +146,19 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
       </header>
       <p className="team-role m-0 text-body text-ink-2">{a.role}</p>
       {d?.account || d?.model ? (
-        <p className={`team-meta ${META}`}>
+        <MetaLine className="team-meta">
           {d.account ? (
-            <span className={META_ITEM} title="Account">
+            <MetaItem title="Account">
               <Icon name="accounts" label="Account" size={14} aria-hidden="true" /> {d.account}
-            </span>
+            </MetaItem>
           ) : null}
           {d.model ? (
-            <span className={META_ITEM} title="Model">
+            <MetaItem title="Model">
               <Icon name="model" label="Model" size={14} aria-hidden="true" /> {d.model}
               {d.effort ? ` · ${d.effort}` : ''}
-            </span>
+            </MetaItem>
           ) : null}
-        </p>
+        </MetaLine>
       ) : null}
       {d?.task ? (
         <p className="team-task m-0 flex flex-wrap items-center gap-1 text-label text-ink-2" title="Doing">

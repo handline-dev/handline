@@ -2,9 +2,8 @@
 import { useState } from 'react';
 import { useWrite } from '@handline/app-data';
 import { Icon } from './ui/Icon.tsx';
-import { VERB_SHEET_ACTIONS, VERB_SHEET_DANGER } from './sheetStyle.ts';
+import { Sheet, SheetActions, Textarea } from './ui/index.ts';
 
-const INPUT = 'tinput min-w-40 flex-1 rounded-ctl border border-line px-2 py-1.5 bg-canvas text-ink';
 const MEMO = 'tmemo mt-2 flex gap-2';
 
 export function MemoRow({
@@ -55,7 +54,7 @@ export function MemoRow({
         </>
       ) : (
         <span className={MEMO}>
-          <textarea className={INPUT} rows={2} aria-label="Memo text" value={text} onChange={(e) => setText(e.target.value)} />
+          <Textarea grow className="tinput" rows={2} aria-label="Memo text" value={text} onChange={(e) => setText(e.target.value)} />
           <button className="btn primary" disabled={!text.trim()} onClick={save}>
             Save
           </button>{' '}
@@ -65,17 +64,17 @@ export function MemoRow({
         </span>
       )}
       {ask ? (
-        <span className={VERB_SHEET_DANGER} role="alertdialog" aria-label="Delete memo">
+        <Sheet as="span" danger role="alertdialog" aria-label="Delete memo">
           <strong>Delete this memo?</strong>
-          <span className={VERB_SHEET_ACTIONS}>
+          <SheetActions>
             <button className="btn primary" onClick={() => del.mutate({ task, memo: memo.id }, { onSettled: () => setAsk(false) })}>
               Delete
             </button>
             <button className="btn" onClick={() => setAsk(false)}>
               Cancel
             </button>
-          </span>
-        </span>
+          </SheetActions>
+        </Sheet>
       ) : null}
     </li>
   );
@@ -100,9 +99,10 @@ export function MemoBox({
         if (text.trim()) add.mutate({ task: id, text: text.trim() }, { onSuccess: () => setText('') });
       }}
     >
-      <textarea
+      <Textarea
         ref={box}
-        className={INPUT}
+        grow
+        className="tinput"
         rows={2}
         value={text}
         disabled={!can.ok}

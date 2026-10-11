@@ -4,9 +4,8 @@ import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail } from '@handline/client';
 import { useHr, useWrite } from '@handline/app-data';
-import { Button, Dialog, Field, Icon, State, stateOf } from './ui/index.ts';
+import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOf } from './ui/index.ts';
 import { goTeam } from './route.ts';
-import { CARD, CARD_WHAT_COL } from './chatStyle.ts';
 
 const until = (iso: string | null): number | null => {
   const t = iso ? Date.parse(iso) : NaN;
@@ -20,32 +19,31 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
     <div className="chat-strip flex min-w-0 items-center gap-2 overflow-hidden text-hint text-ink-2">
       <State kind={stateOf(detail.state)} label={detail.state_detail ? `${detail.state}: ${detail.state_detail}` : detail.state} />
       {detail.model ? (
-        <span className="chip-ico inline-flex items-center gap-1 whitespace-nowrap text-inherit no-underline data-[lapsed]:text-bad" title={`Model ${detail.model}${detail.effort ? `, ${detail.effort}` : ''}`}>
+        <Chip title={`Model ${detail.model}${detail.effort ? `, ${detail.effort}` : ''}`}>
           <Icon name="agent" size={13} aria-hidden />
           {detail.model}
           {detail.effort ? <span className="muted"> · {detail.effort}</span> : null}
-        </span>
+        </Chip>
       ) : null}
       {detail.account ? (
-        <span className="chip-ico inline-flex items-center gap-1 whitespace-nowrap text-inherit no-underline data-[lapsed]:text-bad" title={`Account ${detail.account}`}>
+        <Chip title={`Account ${detail.account}`}>
           <Icon name="accounts" size={13} aria-hidden />
           {detail.account}
-        </span>
+        </Chip>
       ) : null}
       {detail.task ? (
-        <a className="chip-ico inline-flex items-center gap-1 whitespace-nowrap text-inherit no-underline data-[lapsed]:text-bad" href={`#/tasks/${detail.task.id}`} title={detail.task.title}>
+        <Chip as="a" href={`#/tasks/${detail.task.id}`} title={detail.task.title}>
           <Icon name="tasks" size={13} aria-hidden />T{detail.task.id}
-        </a>
+        </Chip>
       ) : null}
       {cache !== null ? (
-        <span
-          className="chip-ico inline-flex items-center gap-1 whitespace-nowrap text-inherit no-underline data-[lapsed]:text-bad"
+        <Chip
           title={cache > 0 ? `Prompt cache warm for ${cache} min` : 'Prompt cache has lapsed'}
           data-lapsed={cache <= 0 ? '' : undefined}
         >
           <Icon name={cache > 0 ? 'waiting' : 'unanswered'} size={13} aria-hidden />
           {cache > 0 ? `${cache}m` : null}
-        </span>
+        </Chip>
       ) : null}
     </div>
   );
@@ -81,12 +79,12 @@ export function HrCards({ agent }: { agent: string }) {
   return (
     <>
       {open.map((p) => (
-        <div key={p.id} className={`${CARD} card-hr`} data-kind="hr" data-proposal={p.id}>
+        <Card variant="chat" key={p.id} className="card-hr" data-kind="hr" data-proposal={p.id}>
           <Icon name="team" label="Proposal" />
-          <span className={CARD_WHAT_COL}>
+          <CardWhat stacked>
             <strong>{p.title}</strong>
             {p.reason ? <span className="muted">{p.reason}</span> : null}
-          </span>
+          </CardWhat>
           {can ? (
             <>
               <Button
@@ -99,7 +97,7 @@ export function HrCards({ agent }: { agent: string }) {
             </>
           ) : null}
           <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
-        </div>
+        </Card>
       ))}
       {rejecting ? (
         <Dialog title="Reject" onClose={() => setRejecting(null)} action={{ label: 'Reject', onClick: reject, disabled: !note.trim() }}>

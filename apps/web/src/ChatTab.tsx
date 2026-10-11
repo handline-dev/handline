@@ -24,10 +24,9 @@ import { PromptSlot } from './PromptCard.tsx';
 import { Compose } from './ChatCompose.tsx';
 import { Item, Message, jumpTo } from './ChatMessages.tsx';
 import { ChatBanner, ChatStrip, HrCards } from './ChatCards.tsx';
-import { Button, Empty, Icon, Segmented } from './ui/index.ts';
+import { Button, Empty, Icon, Segmented, Textarea, ComposeRow } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import { useWorkspace } from './Workspace.tsx';
-import { COMPOSE, COMPOSE_ROW } from './chatStyle.ts';
 
 /** The heading where the day turns — 'Oct 11'; null on the same day. */
 function dayHeading(at: string, before: string | null): string | null {
@@ -52,16 +51,16 @@ function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
       <div className="cards px-3">
         <PromptSlot agent={agent} prompt={detail.prompt} />
       </div>
-      <div className={COMPOSE_ROW}>
-        <textarea
-          className={COMPOSE}
+      <ComposeRow>
+        <Textarea
+          className="compose flex-1 resize-none"
           rows={2}
           placeholder="Chat is not available from this daemon yet"
           disabled
           aria-label="Message to the agent"
         />
         <Button variant="solid" icon="send" label="Send" disabled />
-      </div>
+      </ComposeRow>
     </section>
   );
 }

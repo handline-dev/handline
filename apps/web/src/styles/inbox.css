@@ -1,4 +1,4 @@
-/* The Inbox page, its cards, the confirm sheets and the section notes speak Tailwind utilities (Inbox.tsx, InboxCard*.tsx, sheetStyle.ts).
+/* The Inbox page, its cards, the confirm sheets and the section notes speak Tailwind utilities (Inbox.tsx, InboxCard*.tsx, ui/Sheet.tsx).
    What is left cannot move: rules that chain onto the legacy .btn, the base .menu-item and the rail's .nav, and the phone rules of the sheets. */
 
 /* A retry .btn that View draws inside the page keeps the link-free, inherited look. */

@@ -1,6 +1,6 @@
 // The header of the Tasks page: search, the Open / Mine / Closed pills, the Filters popover (agent and states), list or tree, select (phone), keys and New task.
 import { CLOSED, LISTED, TASK_STATES, type TaskColumn, type TaskFilter } from '@handline/app-core';
-import { Icon, Popup, Segmented, Select } from './ui/index.ts';
+import { BarInput, Icon, Popup, Segmented, Select, Toolbar } from './ui/index.ts';
 import { STATE_GLYPH } from './taskui.tsx';
 
 /** Which tasks the pills show: the open ones, the ones I own, or the closed ones. */
@@ -42,12 +42,12 @@ export function TasksHead(props: {
       <h1 className="m-0 mr-auto text-page font-semibold">Tasks</h1>
       <label className="tsearch relative inline-flex items-center" title="Search by number, title or agent">
         <Icon name="search" label="Search" size={14} aria-hidden="true" className="pointer-events-none absolute left-1.5 text-ink-3" />
-        <input
+        <BarInput
           type="search"
           value={props.query}
           placeholder="Search"
           aria-label="Search tasks"
-          className="h-[28px] w-[200px] rounded-ctl border border-line bg-panel pl-6 pr-1.5 text-body text-ink"
+          className="w-[200px] pl-6"
           onChange={(e) => props.onQuery(e.target.value)}
         />
       </label>
@@ -144,7 +144,7 @@ export function TasksBar(props: {
 }) {
   const { can } = props;
   return (
-    <div className="tbar flex flex-wrap items-center gap-2 pt-2" role="toolbar" aria-label="Actions on the marked tasks">
+    <Toolbar label="Actions on the marked tasks">
       <span className="muted mr-auto">{props.marked} marked</span>
       <button
         className="btn icon"
@@ -182,6 +182,6 @@ export function TasksBar(props: {
       >
         <Icon name="merge" aria-hidden="true" />
       </button>
-    </div>
+    </Toolbar>
   );
 }

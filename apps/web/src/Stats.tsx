@@ -5,9 +5,8 @@ import { agentTime, duration } from '@handline/app-core';
 import type { Stats } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useServes, useStats } from '@handline/app-data';
-import { CHART, CHART_TITLE, PAGE, PAGE_HEAD, PAGE_TITLE } from './pageStyle.ts';
 import { OutlookSection } from './Outlook.tsx';
-import { Icon, Segmented, type IconName } from './ui/index.ts';
+import { ChartCard, ChartTitle, Icon, PageHead, PageTitle, ScrollPage, Segmented, type IconName } from './ui/index.ts';
 import { View } from './View.tsx';
 
 const WINDOWS = ['24h', '7d'] as const;
@@ -46,8 +45,8 @@ function AgentTime({ s }: { s: Stats }) {
   const { rows, idle } = agentTime(s.working_seconds);
   const top = rows[0]?.seconds ?? 1;
   return (
-    <section className={CHART} aria-label="Agent time">
-      <h3 className={CHART_TITLE}>Agent time</h3>
+    <ChartCard aria-label="Agent time">
+      <ChartTitle>Agent time</ChartTitle>
       {rows.length ? (
         rows.map((r) => (
           <div key={r.agent} className="bar-row my-1 grid grid-cols-[minmax(70px,40%)_1fr_auto] items-center gap-2" data-agent={r.agent}>
@@ -66,7 +65,7 @@ function AgentTime({ s }: { s: Stats }) {
           {idle} idle {idle === 1 ? 'agent' : 'agents'}
         </p>
       ) : null}
-    </section>
+    </ChartCard>
   );
 }
 
@@ -97,11 +96,11 @@ export function StatsPage() {
   }, []);
   const s = q.data;
   return (
-    <section className={`stats ${PAGE}`} aria-label="Stats">
-      <header className={`stats-head ${PAGE_HEAD} [&_.ui-seg]:ml-auto`}>
-        <h2 className={PAGE_TITLE}>Stats</h2>
+    <ScrollPage className="stats" aria-label="Stats">
+      <PageHead className="stats-head [&_.ui-seg]:ml-auto">
+        <PageTitle>Stats</PageTitle>
         <Segmented label="Window" value={win} onChange={setWin} options={WINDOWS.map((w) => ({ value: w, label: WORD[w] }))} />
-      </header>
+      </PageHead>
       <View q={q} served={served} shape="stats" what="stats">
         {s ? (
           <>
@@ -117,6 +116,6 @@ export function StatsPage() {
         ) : null}
       </View>
       {outlook ? <OutlookSection /> : null}
-    </section>
+    </ScrollPage>
   );
 }

@@ -1,6 +1,6 @@
 /* ui/*: the primitives, drawn only from tokens.css. The markup in ui/ carries its utilities inline; what is left here is what cannot move:
    the state-glyph animations (keyframes are css, and tasks.css reuses ui-spin), and the classes other screens still render or style
-   (.ui-field, .ui-note, .ui-input-wrap's hook, .ui-prow, .ui-backdrop, .ui-page), plus the gallery demo. */
+   (.ui-field, .ui-note, .ui-input-wrap's hook, .ui-prow, .ui-page), plus the gallery demo. */
 
 /* A working agent's glyph turns, a booting one pulses; reduced motion stops both. */
 .ui-state[data-state='working'] svg {
@@ -71,17 +71,6 @@
 .ui-prow-hint {
   color: var(--ink-3);
   font: var(--t-hint);
-}
-.ui-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 12vh;
-  background: var(--scrim);
-  backdrop-filter: blur(3px);
 }
 
 /* Page's className is asserted verbatim by ui.test.tsx, so its rules stay until that hook moves. */

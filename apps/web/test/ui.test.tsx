@@ -41,7 +41,7 @@ afterEach(async () => {
 });
 const click = (el: Element | null) => act(async () => void (el as HTMLElement).click());
 const press = (key: string, init: KeyboardEventInit = {}) =>
-  act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init })));
+  act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init })));
 
 describe('State', () => {
   const KINDS: StateKind[] = ['working', 'booting', 'needs', 'blocked', 'idle', 'parked', 'done', 'noTerminal'];
@@ -249,6 +249,7 @@ describe('Popup and Dialog', () => {
       </Dialog>,
     );
     expect($('[role="dialog"]')!.getAttribute('aria-modal')).toBe('true');
+    await act(async () => void (await new Promise((r) => setTimeout(r, 50)))); // Base UI moves focus in on the next frame
     expect(document.activeElement?.tagName).toBe('INPUT');
     expect(box.querySelectorAll('.ui-btn.solid')).toHaveLength(1);
     await press('Enter', { metaKey: true });

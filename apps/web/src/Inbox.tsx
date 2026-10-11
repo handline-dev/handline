@@ -6,9 +6,8 @@ import { useConnection } from '@handline/app-react';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { InboxCard, open, waits } from './InboxCard.tsx';
 import { kindIcon, kindLabel, type Verbs } from './inboxKinds.ts';
-import { Button, Icon, Select } from './ui/index.ts';
+import { Button, Icon, Kbd, Select } from './ui/index.ts';
 import { View } from './View.tsx';
-import { KBD } from './kbdStyle.ts';
 
 const CONFIRM_ABOVE = 10;
 const KEYS: [string, string][] = [
@@ -173,7 +172,7 @@ export function InboxPage({ item }: { item: number | null }) {
           {KEYS.map(([k, what]) => (
             <div key={k} className="flex gap-1.5">
               <dt className="m-0">
-                <kbd className={KBD}>{k}</kbd>
+                <Kbd>{k}</Kbd>
               </dt>
               <dd className="m-0 text-ink-2">{what}</dd>
             </div>

@@ -1,29 +1,28 @@
 // The task detail's presentational parts: the meta grid, one verb button, the link and timeline sections, and the two small sheets.
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { timeoutText } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { useWrite } from '@handline/app-data';
 import { Icon, type IconName } from './ui/Icon.tsx';
-import { Sheet, VH } from './taskui.tsx';
+import { Sheet } from './taskui.tsx';
+import { Input, MetaField, MetaGrid, NativeSelect, Textarea, VisuallyHidden } from './ui/index.ts';
 import { when } from './TaskMemos.tsx';
 
 const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
 const LI = 'flex items-baseline gap-1.5 py-0.5';
-const INPUT = 'tinput min-w-40 flex-1 rounded-ctl border border-line px-2 py-1.5 bg-canvas text-ink';
-const SELECT = 'h-[28px] rounded-ctl border border-line bg-panel px-1.5 text-body text-ink';
 
 export function TaskMeta({ t, now }: { t: Detail; now: number }) {
   return (
-    <dl className="tmeta grid grid-cols-2 gap-x-4 gap-y-1.5 my-2">
-      <Field icon="owner" label="Owner" value={<strong>{t.to}</strong>} />
-      <Field icon="agent" label="Asked by" value={<strong>{t.from}</strong>} />
-      <Field icon="priority" label="Priority" value={`P${t.priority ?? 2}`} />
-      <Field icon="waiting" label="Time box" value={[t.time_box ?? 'none', timeoutText(t, now)].filter(Boolean).join(' · ')} />
-      <Field icon="schedules" label="Created" value={when(t.created)} />
-      {t.delivered ? <Field icon="delivered" label="Delivered" value={when(t.delivered)} /> : null}
-      {t.done ? <Field icon="taskDone" label="Closed" value={when(t.done)} /> : null}
+    <MetaGrid>
+      <MetaField icon="owner" label="Owner" value={<strong>{t.to}</strong>} />
+      <MetaField icon="agent" label="Asked by" value={<strong>{t.from}</strong>} />
+      <MetaField icon="priority" label="Priority" value={`P${t.priority ?? 2}`} />
+      <MetaField icon="waiting" label="Time box" value={[t.time_box ?? 'none', timeoutText(t, now)].filter(Boolean).join(' · ')} />
+      <MetaField icon="schedules" label="Created" value={when(t.created)} />
+      {t.delivered ? <MetaField icon="delivered" label="Delivered" value={when(t.delivered)} /> : null}
+      {t.done ? <MetaField icon="taskDone" label="Closed" value={when(t.done)} /> : null}
       {t.parent ? (
-        <Field
+        <MetaField
           icon="viewTree"
           label="Under"
           value={
@@ -33,19 +32,7 @@ export function TaskMeta({ t, now }: { t: Detail; now: number }) {
           }
         />
       ) : null}
-    </dl>
-  );
-}
-
-function Field({ icon, label, value }: { icon: IconName; label: string; value: ReactNode }) {
-  return (
-    <div className="tfield2 flex items-center gap-1.5 min-w-0 text-ink-2" title={label}>
-      <dt className="m-0 flex min-w-0">
-        <Icon name={icon} label={label} aria-hidden="true" />
-        <span className={`vh ${VH}`}>{label}</span>
-      </dt>
-      <dd className="m-0 flex min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-ink">{value}</dd>
-    </div>
+    </MetaGrid>
   );
 }
 
@@ -69,7 +56,7 @@ export function TaskLinks({ icon, label, items }: { icon: IconName; label: strin
     <>
       <h3 className={H3}>
         <Icon name={icon} label={label} aria-hidden="true" />
-        <span className={`vh ${VH}`}>{label}</span>
+        <VisuallyHidden>{label}</VisuallyHidden>
       </h3>
       <ul className="tlinks m-0 list-none p-0">
         {items.map((b) => (
@@ -114,7 +101,7 @@ export function CancelSheet(props: { running: boolean; id: number; onCancel: () 
       onCancel={props.onCancel}
       onSubmit={() => props.onSubmit(reason.trim() || undefined)}
     >
-      <input className={INPUT} value={reason} aria-label="Reason" onChange={(e) => setReason(e.target.value)} />
+      <Input grow className="tinput" value={reason} aria-label="Reason" onChange={(e) => setReason(e.target.value)} />
     </Sheet>
   );
 }
@@ -142,27 +129,27 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
       <div className="tform">
         <label>
           Title
-          <input className={INPUT} value={title} onChange={(e) => setTitle(e.target.value)} />
+          <Input grow className="tinput" value={title} onChange={(e) => setTitle(e.target.value)} />
         </label>
         <label>
           Owner
-          <input className={INPUT} value={owner} onChange={(e) => setOwner(e.target.value)} />
+          <Input grow className="tinput" value={owner} onChange={(e) => setOwner(e.target.value)} />
         </label>
         <label className="wide">
           Body
-          <textarea className={INPUT} rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
+          <Textarea grow className="tinput" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
         </label>
         <label>
           Time box
-          <input className={INPUT} value={box} onChange={(e) => setBox(e.target.value)} />
+          <Input grow className="tinput" value={box} onChange={(e) => setBox(e.target.value)} />
         </label>
         <label>
           Priority
-          <select className={SELECT} value={priority} onChange={(e) => setPriority(Number(e.target.value) as 1 | 2 | 3)}>
+          <NativeSelect value={priority} onChange={(e) => setPriority(Number(e.target.value) as 1 | 2 | 3)}>
             <option value={1}>1 high</option>
             <option value={2}>2</option>
             <option value={3}>3 low</option>
-          </select>
+          </NativeSelect>
         </label>
       </div>
     </Sheet>

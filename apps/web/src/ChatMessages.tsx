@@ -7,10 +7,9 @@ import { isOpenAsk, landingLabel, sideOf } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { useAgents, useChatActions } from '@handline/app-data';
 import { EditorButton } from './EditorButton.tsx';
-import { Button, Dialog, Icon, type IconName } from './ui/index.ts';
+import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, Input, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { PathText } from './PathText.tsx';
-import { CARD, CARD_CODE, CARD_OPEN, CARD_WHAT, LINES } from './chatStyle.ts';
 
 const clock = (at: string) => {
   const d = new Date(at);
@@ -234,7 +233,7 @@ export function Message(props: {
             setAnswer('');
           }}
         >
-          <input className="min-w-0 flex-1 rounded-ctl border border-line bg-canvas px-2 py-1" value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Answer" aria-label={`Answer to message ${m.id}`} />
+          <Input dense className="min-w-0 flex-1" value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Answer" aria-label={`Answer to message ${m.id}`} />
           <EditorButton text={answer} onText={setAnswer} />
           <button className="icon" aria-label="Answer" title="Answer" disabled={!answer.trim()}>
             <Icon name="send" />
@@ -266,7 +265,7 @@ function ToolLine({ i }: { i: TranscriptItem }) {
       ) : null}
       {open ? (
         <>
-          <pre className={`${LINES} tool-output`}>{i.output}</pre>
+          <CodeBlock className="tool-output">{i.output}</CodeBlock>
           {cut ? (
             <span className="muted">
               {cut} more line{cut === 1 ? '' : 's'} let go
@@ -283,17 +282,17 @@ function SessionCard({ i }: { i: TranscriptItem }) {
   const [open, setOpen] = useState(false);
   const handoff = i.session?.handoff;
   return (
-    <div className={`${CARD} card-session flex-wrap`} data-kind="session">
+    <Card variant="chat" className="card-session flex-wrap" data-kind="session">
       <Icon name="session" />
-      <span className={`${CARD_WHAT} muted`}>{handoff ? `Handoff: ${handoff}` : null}</span>
+      <CardWhat className="muted">{handoff ? `Handoff: ${handoff}` : null}</CardWhat>
       {handoff ? (
         <Button variant="outline" size="sm" label="Whole handoff" icon={open ? 'less' : 'more'} onClick={() => setOpen(!open)}>
           {open ? 'Hide' : 'Whole handoff'}
         </Button>
       ) : null}
       <span className="muted card-time">{clock(i.at)}</span>
-      {open ? <pre className={`${LINES} handoff-full`}>{handoff}</pre> : null}
-    </div>
+      {open ? <CodeBlock className="handoff-full">{handoff}</CodeBlock> : null}
+    </Card>
   );
 }
 
@@ -316,17 +315,17 @@ export function Item({ i, titles }: { i: TranscriptItem; titles?: Map<number, st
     const name = p?.kind === 'permission' ? 'permission' : 'prompt';
     const what = p?.kind === 'permission' ? `Asked permission: ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`;
     return (
-      <div className={`${CARD} card-prompt ${CARD_OPEN}`} data-kind="prompt" data-open={i.open ? '' : undefined}>
+      <Card variant="chat" className="card-prompt" data-kind="prompt" data-open={i.open ? '' : undefined}>
         <Icon name={name} label={what} />
-        <span className={CARD_WHAT}>
+        <CardWhat>
           {p?.kind === 'permission' ? <span className="mono">{p.tool}</span> : <span className="muted">{p?.kind}</span>}
-          {p?.command ? <code className={CARD_CODE}>{p.command}</code> : null}
-        </span>
+          {p?.command ? <CardCode>{p.command}</CardCode> : null}
+        </CardWhat>
         <span className="card-state" title={i.open ? 'Waiting for you' : 'Answered'}>
           <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Waiting for you' : 'Answered'} />
         </span>
         <span className="muted card-time">{clock(i.at)}</span>
-      </div>
+      </Card>
     );
   }
   if (i.kind === 'session') return <SessionCard i={i} />;
@@ -335,22 +334,22 @@ export function Item({ i, titles }: { i: TranscriptItem; titles?: Map<number, st
   const word = TASK_EVENT_WORD[ev] ?? ev;
   const title = titles?.get(e?.task ?? NaN);
   return (
-    <div className={`${CARD} card-task`} data-kind="task_event" data-event={ev}>
+    <Card variant="chat" className="card-task" data-kind="task_event" data-event={ev}>
       <Icon name={TASK_EVENT[ev] ?? 'changed'} label={`Task ${e?.task} ${word}`} />
       <span className="card-event">{word}</span>
       <a className="mono" href={`#/tasks/${e?.task}`} title={title ?? `Task ${e?.task} ${word}`}>
         T{e?.task}
       </a>
       {title || e?.evidence ? (
-        <span className={`${CARD_WHAT} muted`}>
+        <CardWhat className="muted">
           {title}
           {title && e?.evidence ? ' — ' : ''}
           {e?.evidence}
-        </span>
+        </CardWhat>
       ) : (
-        <span className={CARD_WHAT} />
+        <CardWhat />
       )}
       <span className="muted card-time">{clock(i.at)}</span>
-    </div>
+    </Card>
   );
 }

@@ -5,12 +5,25 @@ import { askedLines, cutError, diffLines, kindOf, isWaiting, ordered, stateWord,
 import type { Proposal } from '@handline/client';
 import { useOnce, useStore } from '@handline/app-react';
 import { classify, sentence, useAgents, useHr, usePending, useWrite } from '@handline/app-data';
-import { Button, Empty, Icon, State, type StateKind } from './ui/index.ts';
-import { COMPOSE, LINES } from './chatStyle.ts';
+import {
+  Button,
+  CardActions,
+  CodeBlock,
+  Empty,
+  FNote,
+  Icon,
+  Input,
+  KeyValueRow,
+  MetaItem,
+  MetaLine,
+  SectionHead,
+  Sheet,
+  SheetActions,
+  State,
+  type StateKind,
+} from './ui/index.ts';
 import { goSettings } from './route.ts';
-import { HR_ACTIONS, HR_KV, META, META_ITEM } from './teamStyle.ts';
 import { View } from './View.tsx';
-import { FNOTE_BAD, FNOTE_WARN, SHEAD, VERB_SHEET, VERB_SHEET_ACTIONS, VERB_SHEET_DANGER } from './sheetStyle.ts';
 
 const useNarrow = (): boolean => {
   const query = '(max-width: 640px)';
@@ -84,52 +97,52 @@ export function HrTab({ focus }: { focus: number | null }) {
         <div className="hr-head flex items-center justify-between py-2">
           <strong>HR{waitingCount(list) ? ` · ${waitingCount(list)} waiting` : ''}</strong>
           {decider && waiting.length > 1 && all !== 'ask' && all !== 'reject' ? (
-            <span className={VERB_SHEET_ACTIONS}>
+            <SheetActions>
               <button className="btn" onClick={() => setAll('ask')}>
                 Approve all
               </button>
               <button className="btn" onClick={() => setAll('reject')}>
                 Reject all
               </button>
-            </span>
+            </SheetActions>
           ) : null}
         </div>
         {all === 'ask' ? (
-          <div className={VERB_SHEET} role="alertdialog" aria-label="Approve all">
+          <Sheet role="alertdialog" aria-label="Approve all">
             <strong>Approve all {waiting.length}?</strong>
             <span className="muted">Each is applied as the card shows it; one that fails stays waiting.</span>
-            <span className={VERB_SHEET_ACTIONS}>
+            <SheetActions>
               <button className="btn primary" disabled={going} onClick={() => void approveAll()}>
                 Approve all
               </button>
               <button className="btn" disabled={going} onClick={() => setAll(null)}>
                 Cancel
               </button>
-            </span>
-          </div>
+            </SheetActions>
+          </Sheet>
         ) : all === 'reject' ? (
-          <div className={VERB_SHEET} role="alertdialog" aria-label="Reject all">
+          <Sheet role="alertdialog" aria-label="Reject all">
             <strong>Reject all {waiting.length}?</strong>
             <input aria-label="Reason" placeholder="Reason" value={why} onChange={(e) => setWhy(e.target.value)} />
-            <span className={VERB_SHEET_ACTIONS}>
+            <SheetActions>
               <button className="btn primary" disabled={going || !why.trim()} onClick={() => void rejectAll()}>
                 Reject all
               </button>
               <button className="btn" disabled={going} onClick={() => setAll(null)}>
                 Cancel
               </button>
-            </span>
-          </div>
+            </SheetActions>
+          </Sheet>
         ) : all ? (
-          <p className={FNOTE_WARN} role="status">
+          <FNote tone="warn" role="status">
             {all}
-          </p>
+          </FNote>
         ) : null}
         {list.length ? null : <Empty icon="inbox" name="Nothing to decide" hint="Roster and role changes agents propose land here." />}
         {waiting.map((p) => (
           <Card key={p.id} p={p} decider={decider} narrow={narrow} focus={focus === p.id} refresh={() => void q.refetch()} />
         ))}
-        {recent.length ? <h3 className={SHEAD}>Recent</h3> : null}
+        {recent.length ? <SectionHead variant="small">Recent</SectionHead> : null}
         {recent.map((p) => (
           <Card key={p.id} p={p} decider={false} narrow={narrow} focus={focus === p.id} refresh={() => void q.refetch()} />
         ))}
@@ -209,28 +222,28 @@ function Card({
           {state.word}
         </span>
       </header>
-      <p className={`hr-meta ${META}`}>
+      <MetaLine className="hr-meta">
         {p.requested_by ? (
-          <span className={META_ITEM} title="Asked by">
+          <MetaItem title="Asked by">
             <Icon name="agent" size={14} label="Asked by" /> {textSafe(p.requested_by)}
-          </span>
+          </MetaItem>
         ) : null}
-        <span className={META_ITEM} title="Raised">
+        <MetaItem title="Raised">
           <Icon name="schedules" size={14} label="Raised" /> {new Date(p.created).toLocaleString()}
-        </span>
-        {kindOf(p) ? <span className={`hr-kind ${META_ITEM} rounded-chip border border-line px-1.5`}>{kindOf(p)}</span> : null}
-      </p>
+        </MetaItem>
+        {kindOf(p) ? <MetaItem className="hr-kind rounded-chip border border-line px-1.5">{kindOf(p)}</MetaItem> : null}
+      </MetaLine>
       {askedLines(p).map(([k, v]) => (
-        <div key={k} className={HR_KV}>
+        <KeyValueRow key={k}>
           <span className="muted">{k}</span>
           <span>{v}</span>
-        </div>
+        </KeyValueRow>
       ))}
       {p.reason ? (
-        <div className={HR_KV}>
+        <KeyValueRow>
           <span className="muted">why</span>
           <span>{textSafe(p.reason)}</span>
-        </div>
+        </KeyValueRow>
       ) : null}
       {narrow ? (
         <Button variant="outline" size="sm" label="Diff" icon={showDiff ? 'less' : 'more'} onClick={() => setShowDiff(!showDiff)}>
@@ -238,16 +251,16 @@ function Card({
         </Button>
       ) : null}
       {showDiff ? (
-        <pre className={`${LINES} hr-diff max-h-[20lh] overflow-auto`} aria-label="What approving does">
+        <CodeBlock className="hr-diff max-h-[20lh] overflow-auto" aria-label="What approving does">
           {diff.map((l, i) => (
             <div key={i} className={l.mark === '-' ? 'del text-bad' : l.mark === '+' ? 'add text-ok' : ''}>
               {l.text}
             </div>
           ))}
-        </pre>
+        </CodeBlock>
       ) : null}
       {p.state === 'apply_failed' ? (
-        <p className={FNOTE_BAD}>{p.error ? cutError(textSafe(p.error)) : 'the change was not applied'}</p>
+        <FNote tone="bad">{p.error ? cutError(textSafe(p.error)) : 'the change was not applied'}</FNote>
       ) : null}
       {note === 'settled' ? (
         <p className="muted">already {p.state}</p>
@@ -258,7 +271,7 @@ function Card({
       ) : null}
       {waiting && narrow ? <p className="muted">Decide on a computer.</p> : null}
       {waiting && decider ? (
-        <div className={HR_ACTIONS}>
+        <CardActions wrap>
           <Button
             variant="solid"
             icon="markRead"
@@ -280,19 +293,20 @@ function Card({
           <Button variant="ghost" icon="discard" label="Withdraw" keys="w" disabled={busy || !!mark} onClick={() => setAsk(true)}>
             Withdraw
           </Button>
-        </div>
+        </CardActions>
       ) : null}
       {reason !== null ? (
-        <form
-          className={HR_ACTIONS}
+        <CardActions
+          as="form"
+          wrap
           onSubmit={(e) => {
             e.preventDefault();
             reject();
           }}
         >
-          <input
+          <Input
             type="text"
-            className={COMPOSE}
+            className="compose flex-1"
             autoFocus
             aria-label="Why reject"
             placeholder="why - Enter rejects, Esc cancels"
@@ -300,13 +314,13 @@ function Card({
             onChange={(e) => setReason(e.target.value)}
             onKeyDown={(e) => e.key === 'Escape' && setReason(null)}
           />
-        </form>
+        </CardActions>
       ) : null}
       {ask ? (
-        <div className={VERB_SHEET_DANGER} role="alertdialog" aria-label="Withdraw">
+        <Sheet danger role="alertdialog" aria-label="Withdraw">
           <strong>Withdraw {textSafe(p.title)}</strong>
           <span className="muted">Takes the proposal back; whoever raised it can raise it again.</span>
-          <span className={VERB_SHEET_ACTIONS}>
+          <SheetActions>
             <button
               className="btn primary"
               onClick={() => {
@@ -319,8 +333,8 @@ function Card({
             <button className="btn" onClick={() => setAsk(false)}>
               Cancel
             </button>
-          </span>
-        </div>
+          </SheetActions>
+        </Sheet>
       ) : null}
     </article>
   );

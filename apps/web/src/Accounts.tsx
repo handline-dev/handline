@@ -6,10 +6,8 @@ import { useConnection } from '@handline/app-react';
 import { useAccounts, useAgents, useServes, useWrite } from '@handline/app-data';
 import { AccountSettings } from './AccountSettings.tsx';
 import { Gauge, useNow } from './Gauge.tsx';
-import { chatTab } from './chatTab.ts';
-import { CARD, PAGE, PAGE_HEAD, PAGE_TITLE } from './pageStyle.ts';
 import { goAgent } from './route.ts';
-import { Button, Dialog, Icon, type IconName } from './ui/index.ts';
+import { Button, Card, Dialog, Icon, ScrollPage, PageHead, PageTitle, TabStrip, type IconName } from './ui/index.ts';
 import { View } from './View.tsx';
 
 const TABS = ['Overview', 'Agents', 'Settings'] as const;
@@ -87,20 +85,20 @@ export function AccountsPage({ name }: { name: string | null }) {
   const list = q.data?.accounts ?? [];
   const one = name === null ? null : list.find((a) => a.name === name);
   return (
-    <section className={`accounts ${PAGE}`} aria-label="Accounts">
-      <header className={`accounts-head ${PAGE_HEAD}`}>
+    <ScrollPage className="accounts" aria-label="Accounts">
+      <PageHead className="accounts-head">
         {name === null ? (
-          <h2 className={PAGE_TITLE}>Accounts</h2>
+          <PageTitle>Accounts</PageTitle>
         ) : (
           <>
             <Button className="back" icon="back" label="Back to accounts" onClick={() => (location.hash = '#/accounts')}>
               Accounts
             </Button>
-            <h2 className={PAGE_TITLE}>{one?.label ?? name}</h2>
+            <PageTitle>{one?.label ?? name}</PageTitle>
           </>
         )}
         {name === null ? <AddAccount /> : null}
-      </header>
+      </PageHead>
       <View
         q={q}
         served={served}
@@ -109,11 +107,11 @@ export function AccountsPage({ name }: { name: string | null }) {
         empty={!list.length && 'No accounts configured. Add one from the host with hl account add <name>.'}
       >
         {name === null ? (
-          <div className={`acct-list flex flex-col ${CARD}`}>
+          <Card className="acct-list flex flex-col">
             {list.map((a) => (
               <Row key={a.name} a={a} now={now} />
             ))}
-          </div>
+          </Card>
         ) : one ? (
           <AccountPageOne a={one} now={now} />
         ) : (
@@ -125,7 +123,7 @@ export function AccountsPage({ name }: { name: string | null }) {
           </div>
         )}
       </View>
-    </section>
+    </ScrollPage>
   );
 }
 
@@ -137,13 +135,7 @@ function AccountPageOne({ a, now }: { a: Account; now: number }) {
       <p className="acct-head m-0 flex items-center gap-2">
         <StateChip a={a} now={now} />
       </p>
-      <div role="tablist" className="chat-tabs flex gap-1 border-b border-line px-3 pt-1.5" aria-label="Account">
-        {TABS.map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={chatTab(tab === t)} onClick={() => setTab(t)}>
-            {t}
-          </button>
-        ))}
-      </div>
+      <TabStrip label="Account" value={tab} onChange={setTab} tabs={TABS.map((t) => ({ value: t, label: t }))} />
       {tab === 'Overview' ? (
         <div className="acct-overview flex flex-col gap-3">
           <Gauge label="5 h" window={a.five_hour} now={now} detail />

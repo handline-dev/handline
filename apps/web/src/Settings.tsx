@@ -6,11 +6,9 @@ import { INVALID, minutesOf, parseCap, parseMinutes } from '@handline/app-core';
 import type { SettingsChanges } from '@handline/client';
 import { classify, sentence, useServes, useSettings, useWrite } from '@handline/app-data';
 import { Answers } from './Answers.tsx';
-import { Field, Icon, Switch, type IconName } from './ui/index.ts';
+import { Field, Icon, RowControl, RowHint, RowText, RowTitle, SectionHead, SettingsCard, SettingsRow, Switch, type IconName } from './ui/index.ts';
 import { useOff } from './useOff.ts';
 import { View } from './View.tsx';
-import { SHEAD_SETTINGS } from './sheetStyle.ts';
-import { SCARD, SROW, SROW_CTL, SROW_HINT, SROW_TEXT, SROW_TITLE } from './settingsStyle.ts';
 
 /** The note under a row: saving (an icon and a word), or why the value is not saved (an icon, never colour alone). */
 function Note({ error, pending, bad }: { error: unknown; pending: boolean; bad: string | null }) {
@@ -35,14 +33,14 @@ function Note({ error, pending, bad }: { error: unknown; pending: boolean; bad: 
 
 function Row(props: { label: string; hint: string; more?: string; children: ReactNode; note?: ReactNode }) {
   return (
-    <div className={SROW} data-setting={props.label}>
-      <div className={SROW_TEXT} title={props.more}>
-        <span className={SROW_TITLE}>{props.label}</span>
-        <span className={SROW_HINT}>{props.hint}</span>
-      </div>
-      <div className={SROW_CTL}>{props.children}</div>
+    <SettingsRow data-setting={props.label}>
+      <RowText title={props.more}>
+        <RowTitle>{props.label}</RowTitle>
+        <RowHint>{props.hint}</RowHint>
+      </RowText>
+      <RowControl>{props.children}</RowControl>
       {props.note}
-    </div>
+    </SettingsRow>
   );
 }
 
@@ -150,7 +148,7 @@ function SectionNav({ ready }: { ready: boolean }) {
     <nav className="settings-nav sticky top-0 flex flex-col gap-3 self-start max-[960px]:hidden" aria-label="Settings sections">
       {groups.map((g) => (
         <div key={g} className="settings-nav-group flex flex-col gap-0.5">
-          <span className={`${SROW_HINT} settings-nav-title px-2 tracking-[0.04em] uppercase`}>{g}</span>
+          <RowHint className="settings-nav-title px-2 tracking-[0.04em] uppercase">{g}</RowHint>
           {SECTIONS.filter((s) => s.group === g).map((s) => (
             <button
               key={s.id}
@@ -193,8 +191,8 @@ export function SettingsPage() {
               {v ? (
                 <>
                   <section id="set-concurrency">
-                    <h3 className={SHEAD_SETTINGS}>Concurrency</h3>
-                    <div className={SCARD}>
+                    <SectionHead>Concurrency</SectionHead>
+                    <SettingsCard>
                       <NumberRow
                         label="Default cap"
                         hint="Agents working at once on an account"
@@ -205,11 +203,11 @@ export function SettingsPage() {
                         change={(n) => ({ active_cap: n })}
                         allowed="a whole number from 1, or empty for the default"
                       />
-                    </div>
+                    </SettingsCard>
                   </section>
                   <section id="set-closing">
-                    <h3 className={SHEAD_SETTINGS}>Closing windows</h3>
-                    <div className={SCARD}>
+                    <SectionHead>Closing windows</SectionHead>
+                    <SettingsCard>
                       <NumberRow
                         label="Idle close"
                         hint="Idle time before a session closes"
@@ -220,11 +218,11 @@ export function SettingsPage() {
                         change={(s) => ({ park_timeout_s: s })}
                         allowed="whole minutes, 0 for never, or empty for the default"
                       />
-                    </div>
+                    </SettingsCard>
                   </section>
                   <section id="set-automation">
-                    <h3 className={SHEAD_SETTINGS}>Automation</h3>
-                    <div className={SCARD}>
+                    <SectionHead>Automation</SectionHead>
+                    <SettingsCard>
                       <SwitchRow
                         label="Handoff note"
                         hint="A note for the next session before a close or move"
@@ -243,7 +241,7 @@ export function SettingsPage() {
                         on={!!v.ignore_cache_expiry}
                         change={(on) => ({ ignore_cache_expiry: on })}
                       />
-                    </div>
+                    </SettingsCard>
                   </section>
                   <section id="set-answers">
                     <Answers />

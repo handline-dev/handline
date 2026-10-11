@@ -4,9 +4,9 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useWrite } from '@handline/app-data';
-import { Icon } from './ui/Icon.tsx';
+import { Icon, VisuallyHidden } from './ui/index.ts';
 import { goTasks } from './route.ts';
-import { ReasonSheet, Sheet, StateChip, useCan, useNow, VH } from './taskui.tsx';
+import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
 import { MemoBox, MemoRow } from './TaskMemos.tsx';
 import { CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
 import { View } from './View.tsx';
@@ -191,7 +191,7 @@ function Body({ t }: { t: Detail }) {
         <>
           <h3 className={H3}>
             <Icon name="history" label="Delivery history" aria-hidden="true" />
-            <span className={`vh ${VH}`}>Delivery history</span>
+            <VisuallyHidden>Delivery history</VisuallyHidden>
           </h3>
           <TaskTimeline deliveries={t.deliveries} events={t.events} />
         </>

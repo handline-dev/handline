@@ -1,7 +1,7 @@
 // The small sheets of the Tasks list: owner, priority, merge and the key sheet.
 import { useState } from 'react';
 import { Sheet } from './taskui.tsx';
-import { KBD } from './kbdStyle.ts';
+import { Kbd, NativeSelect } from './ui/index.ts';
 
 /** The bridge's twelve keys (`TasksView.KEYS`) plus the web's `n`, for the key sheet. */
 export const LIST_KEYS: [string, string][] = [
@@ -25,8 +25,7 @@ export function OwnerSheet({ agents, onCancel, onPick }: { agents: string[]; onC
   const [owner, setOwner] = useState('');
   return (
     <Sheet label="new owner (agent name):" submit="Change owner" onCancel={onCancel} onSubmit={() => owner && onPick(owner)}>
-      <select
-        className="h-[28px] rounded-ctl border border-line bg-panel px-1.5 text-body text-ink"
+      <NativeSelect
         value={owner}
         aria-label="New owner"
         onChange={(e) => setOwner(e.target.value)}
@@ -35,7 +34,7 @@ export function OwnerSheet({ agents, onCancel, onPick }: { agents: string[]; onC
         {agents.map((a) => (
           <option key={a}>{a}</option>
         ))}
-      </select>
+      </NativeSelect>
     </Sheet>
   );
 }
@@ -60,7 +59,7 @@ export function KeysSheet({ onClose }: { onClose: () => void }) {
         {LIST_KEYS.map(([k, v]) => (
           <div key={k} className="flex gap-2">
             <dt className="m-0 min-w-[56px]">
-              <kbd className={KBD}>{k}</kbd>
+              <Kbd>{k}</Kbd>
             </dt>
             <dd className="m-0">{v}</dd>
           </div>

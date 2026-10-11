@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react';
 import { useAgents, useTasks } from '@handline/app-data';
 import { goAgent, goInbox, goTasks, goTeam } from './route.ts';
-import { Icon, type IconName } from './ui/index.ts';
+import { Backdrop, Icon, type IconName } from './ui/index.ts';
 
 interface Hit {
   key: string;
@@ -44,7 +44,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
   };
   const cur = Math.min(at, hits.length - 1);
   return (
-    <div className="ui-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+    <Backdrop onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
         className="palette w-[min(560px,calc(100vw-2*var(--sp-6)))] overflow-hidden rounded-dialog border border-line-strong bg-panel shadow-[var(--shadow-pop)]"
         role="dialog"
@@ -85,6 +85,6 @@ export function Palette({ onClose }: { onClose: () => void }) {
           {!hits.length ? <li className="palette-none muted">–</li> : null}
         </ul>
       </div>
-    </div>
+    </Backdrop>
   );
 }

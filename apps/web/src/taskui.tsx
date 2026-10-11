@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useServes } from '@handline/app-data';
 import { Icon, type IconName } from './Icon.tsx';
+import { Input, Sheet as SheetBox, SheetActions, VisuallyHidden } from './ui/index.ts';
 
 export const STATE_GLYPH: Record<string, IconName> = {
   draft: 'taskDraft',
@@ -13,8 +14,6 @@ export const STATE_GLYPH: Record<string, IconName> = {
   discarded: 'taskDiscarded',
 };
 
-/** The screen-reader-only clip, spelled out wherever `.vh` marks a word only assistive tech reads. */
-export const VH = 'absolute h-px w-px overflow-hidden whitespace-nowrap [clip-path:inset(50%)]';
 /** The chip look per state; the class is the hook, the utilities the look. `run` also spins the doing glyph (tasks.css). */
 const TONE: Record<string, string> = {
   doing: 'run text-working',
@@ -39,7 +38,7 @@ export function StateChip({ state, mark }: { state: string; mark?: 'authored' | 
     <span className={`tchip ${TONE[state] ?? 'idle'} data-[state=done]:text-ok ${CHIP}`} data-state={state} title={state}>
       {mark === 'authored' ? <span aria-hidden="true">○</span> : null}
       <Icon name={STATE_GLYPH[state] ?? 'taskPending'} label={state} size={16} aria-hidden="true" />
-      <span className={`vh ${VH}`}>{state}</span>
+      <VisuallyHidden>{state}</VisuallyHidden>
     </span>
   );
 }
@@ -91,9 +90,11 @@ export function Sheet(props: {
     ref.current?.querySelector<HTMLElement>('input,select,textarea,button')?.focus();
   }, []);
   return (
-    <form
+    <SheetBox
+      as="form"
+      kind="form"
       ref={ref}
-      className={`tsheet flex flex-wrap items-center gap-2 my-2 px-3 py-2 border border-line rounded-card bg-panel${props.full ? ' full' : ''}`}
+      className={props.full ? 'full' : undefined}
       role="group"
       aria-label={props.label}
       onSubmit={(e) => {
@@ -109,15 +110,15 @@ export function Sheet(props: {
     >
       <strong className="tsheet-label">{props.label}</strong>
       {props.children}
-      <span className="tsheet-actions ml-auto inline-flex gap-1.5">
+      <SheetActions kind="form">
         <button type="submit" className="btn primary" disabled={props.busy}>
           {props.busy ? '…' : props.submit}
         </button>
         <button type="button" className="btn" onClick={props.onCancel}>
           Cancel
         </button>
-      </span>
-    </form>
+      </SheetActions>
+    </SheetBox>
   );
 }
 
@@ -132,8 +133,9 @@ export function ReasonSheet(props: { label: string; submit: string; onCancel: ()
       onCancel={props.onCancel}
       onSubmit={() => (text.trim() ? props.onSubmit(text.trim()) : setEmpty(true))}
     >
-      <input
-        className="tinput min-w-40 flex-1 rounded-ctl border border-line px-2 py-1.5 bg-canvas text-ink"
+      <Input
+        grow
+        className="tinput"
         value={text}
         aria-label={props.label}
         aria-invalid={empty && !text.trim()}

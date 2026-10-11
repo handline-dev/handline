@@ -7,10 +7,24 @@ import { useStore } from '@handline/app-react';
 import { classify, sentence, useAgentDetail, usePending, useServes, useSettings, useWrite } from '@handline/app-data';
 import { goAgent } from './route.ts';
 import { Schedules } from './Schedules.tsx';
-import { Button, Field as Input, Icon, Segmented, Select, Switch, type IconName } from './ui/index.ts';
-import { SCARD, SROW, SROW_CTL, SROW_TEXT, SROW_TITLE } from './settingsStyle.ts';
+import {
+  Button,
+  Field as Input,
+  Icon,
+  RowControl,
+  RowText,
+  RowTitle,
+  SectionHead,
+  Segmented,
+  Select,
+  SettingsCard,
+  SettingsRow,
+  Sheet,
+  SheetActions,
+  Switch,
+  type IconName,
+} from './ui/index.ts';
 import { View } from './View.tsx';
-import { SHEAD_SETTINGS, VERB_SHEET_ACTIONS, VERB_SHEET_DANGER } from './sheetStyle.ts';
 
 const SECTIONS: { id: Field['section']; title: string; icon: IconName }[] = [
   { id: 'model', title: 'Model', icon: 'agent' },
@@ -45,24 +59,24 @@ export function SettingsView({ agent }: { agent: string }) {
       <View q={q} served shape="settings" what={`${agent} settings`}>
         {d ? (
           <div className="settings-body settings-agent mx-auto flex max-w-[var(--w-form)] min-w-0 flex-col gap-4 max-sm:hidden">
-            <div className={SCARD}>
-              <div className={SROW}>
-                <div className={SROW_TEXT}>
-                  <span className={SROW_TITLE}>Session runs on</span>
-                </div>
-                <div className={SROW_CTL}>{d.account ?? 'not chosen yet'}</div>
-              </div>
-            </div>
+            <SettingsCard>
+              <SettingsRow>
+                <RowText>
+                  <RowTitle>Session runs on</RowTitle>
+                </RowText>
+                <RowControl>{d.account ?? 'not chosen yet'}</RowControl>
+              </SettingsRow>
+            </SettingsCard>
             {SECTIONS.map((s) => (
               <section key={s.id}>
-                <h3 className={SHEAD_SETTINGS}>
+                <SectionHead>
                   <Icon name={s.icon} size={14} label={s.title} aria-hidden /> {s.title}
-                </h3>
-                <div className={SCARD}>
+                </SectionHead>
+                <SettingsCard>
                   {FIELDS.filter((f) => f.section === s.id).map((f) => (
                     <FieldRow key={f.key} agent={agent} f={f} stored={d.settings?.[f.key]} editable={editable} role={role} />
                   ))}
-                </div>
+                </SettingsCard>
               </section>
             ))}
             <Schedules agent={agent} role={role} />
@@ -164,16 +178,16 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
     f.key === 'handoff_note' ? `default follows the global switch${global === undefined ? '' : global ? ' (on)' : ' (off)'}` : '';
   const more = [moreOf(f), follows].filter(Boolean).join('; ');
   return (
-    <div className={SROW} data-field={f.key}>
-      <div className={SROW_TEXT} title={more || undefined}>
-        <span className={SROW_TITLE}>
+    <SettingsRow data-field={f.key}>
+      <RowText title={more || undefined}>
+        <RowTitle>
           {f.label}
           {pending ? <Icon name="sending" size={14} label="Saving" /> : null}
           {allowed ? null : <Icon name="permission" size={14} label="Founder only" />}
           {more ? <Icon name="info" size={14} label={more} /> : null}
-        </span>
-      </div>
-      <div className={SROW_CTL}>{control()}</div>
+        </RowTitle>
+      </RowText>
+      <RowControl>{control()}</RowControl>
       {draft !== null && stored !== base ? (
         <p className="ui-note warn">
           <Icon name="warn" size={14} label="Changed elsewhere" />
@@ -187,10 +201,10 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
         </p>
       ) : null}
       {danger ? (
-        <div className={VERB_SHEET_DANGER} role="alertdialog" aria-label={danger.title}>
+        <Sheet danger role="alertdialog" aria-label={danger.title}>
           <strong>{danger.title}</strong>
           <span className="muted">{danger.text}</span>
-          <span className={VERB_SHEET_ACTIONS}>
+          <SheetActions>
             <button
               className="btn primary"
               onClick={() => {
@@ -204,10 +218,10 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
             <button className="btn" onClick={() => setAsk(null)}>
               Cancel
             </button>
-          </span>
-        </div>
+          </SheetActions>
+        </Sheet>
       ) : null}
-    </div>
+    </SettingsRow>
   );
 }
 

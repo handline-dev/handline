@@ -9,8 +9,7 @@ import { EditorButton } from './EditorButton.tsx';
 import { replyTo } from './ChatMessages.tsx';
 import { menuOf, useEntries, useOpenTerminal, type Entry, type MenuKind } from './ChatMenus.tsx';
 import { VerbSheet } from './AgentVerbs.tsx';
-import { Button, Icon } from './ui/index.ts';
-import { COMPOSE, COMPOSE_ROW } from './chatStyle.ts';
+import { Button, Icon, Textarea, ComposeRow } from './ui/index.ts';
 
 export function Compose(props: {
   agent: string;
@@ -169,7 +168,7 @@ export function Compose(props: {
           <Icon name="warn" size={14} aria-hidden /> {refused}
         </p>
       ) : null}
-      <div className={COMPOSE_ROW}>
+      <ComposeRow>
         {menu ? (
           <ul
             className="compose-menu absolute inset-x-0 bottom-full z-10 m-0 mb-1 max-h-60 list-none overflow-auto rounded-card border border-line-strong bg-panel px-0 py-1 shadow-[var(--shadow-pop)]"
@@ -187,9 +186,9 @@ export function Compose(props: {
             ))}
           </ul>
         ) : null}
-        <textarea
+        <Textarea
           ref={box}
-          className={COMPOSE}
+          className="compose flex-1 resize-none"
           rows={2}
           value={text}
           disabled={!canSend}
@@ -224,7 +223,7 @@ export function Compose(props: {
           disabled={!canSend || !text.trim()}
           onClick={send}
         />
-      </div>
+      </ComposeRow>
     </div>
   );
 }

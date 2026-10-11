@@ -12,6 +12,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@base-ui/react": "^1.9.0",
     "@handline/app-core": "workspace:*",
     "@handline/app-data": "workspace:*",
     "@handline/app-react": "workspace:*",
