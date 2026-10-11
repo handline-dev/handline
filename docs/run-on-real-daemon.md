@@ -57,8 +57,9 @@ Run `hl device pair` and paste the code into the page. The agent list appears.
 
        cd apps/mobile && npx expo run:ios --device --configuration Release
 
-   A Debug build (the default) loads its JS from Metro on the Mac (`npx expo start --dev-client`, port 8081): it shows nothing once that terminal is closed or if the phone cannot reach the Mac.
-3. On the Mac: `hl device pair`. Send the `uri:` line to the phone (Messages, Notes) and paste the whole `handline://pair?host=<name>:7443&code=...` into the app's field, then Pair.
+   The QR scanner needs the camera module (`expo-camera`), so an app built before QR pairing must be rebuilt; paste pairing works without it. A Debug build (the default) loads its JS from Metro on the Mac (`npx expo start --dev-client`, port 8081): it shows nothing once that terminal is closed or if the phone cannot reach the Mac.
+3. Pair. With the desktop app, choose **Pair a phone…** in its menu-bar (tray) menu: a window shows a one-time QR. In the phone app tap **Scan the code**, allow the camera, and point it at the QR. The code works once and expires in a few minutes; close the window when the phone is connected.
+   Without the app, or if the camera cannot read it: on the Mac run `hl device pair`, send the `uri:` line to the phone (Messages, Notes) and paste the whole `handline://pair?host=<name>:7443&code=...` into the app's field, then Pair.
 
 You should see the agent list, then an agent's page.
 
@@ -76,8 +77,8 @@ If the app says the link has no certificate fingerprint and the address is not a
        cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
        adb install -r app/build/outputs/apk/release/app-release.apk
 
-   Skip `adb reverse`: the phone reaches `<name>` itself. Open the app from the launcher.
-3. On the Mac: `hl device pair`, send the `uri:` line to the phone, paste it into the app, Pair.
+   An app built before QR pairing lacks the camera module (`expo-camera`): prebuild and build again. Skip `adb reverse`: the phone reaches `<name>` itself. Open the app from the launcher.
+3. Pair the same way as on the iPhone: **Pair a phone…** in the desktop app's tray menu, then **Scan the code** in the phone app; or `hl device pair` and paste the `uri:` line, then Pair.
 
 You should see the agent list.
 
