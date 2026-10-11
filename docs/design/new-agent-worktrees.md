@@ -4,7 +4,7 @@ Layout, states and keys for the two screens `docs/web-ui-design.md` §3.7 (Workt
 
 **Pending:** the numbered daemon requests N8 to N16 and N18 of §3 continue the list of `pc-app-gaps.md` §5. Each screen is drawn so that it works with today's contract and gains one control when a request is listed; a control for an unlisted method is hidden, not greyed.
 
-**Role gates (contract).** `agent.create` is **founder-only**; `repos.list`, `worktrees.list`, `worktree.diff` and `worktree.set_status` need the member role. So New agent is founder's ("New agents are for the founder." and no button for anyone else), and Worktrees is open to a member, who may read and change a status.
+**Role gates.** `repos.list`, `worktrees.list` and `worktree.diff` are in the contract and need the member role. `agent.create` (founder-only) and `worktree.set_status` (member) are **not in the contract yet** and no daemon serves them (Go answers `agent.create` as not served); they are N19 and N20 below, and the units that need them wait for them. So New agent is founder's ("New agents are for the founder." and no button for anyone else), and Worktrees is open to a member, who may read and change a status.
 
 ## 1. New agent
 
@@ -128,6 +128,8 @@ List: `j` and `k` move, Enter opens, `o` opens the owner, `m` moves status, `/` 
 | N15 | `agent.create` accepts `account` | the account control of §1.2, disabled until then |
 | N16 | Whether the `repo` param of `worktrees.list` takes a name or a path (the contract says only a string) | the repo filter of §2.2; until answered the filter is client-side on `Worktree.repo` |
 | N18 | `agent.create` defaults `base` to `Repo.default_branch` instead of `main` | the form sends `base` always until then |
+| N19 | `agent.create` in the contract with the params of §1.2, founder-only, returning an `operation` id that the `operations` topic and `operation.get` follow | the New agent form; the Python `hl spawn` is the behaviour to port |
+| N20 | `worktree.set_status { path, status }` in the contract, member role, refusing a path that is not listed | Change status on the board and in the panel |
 
 ## 4. What the tests check
 

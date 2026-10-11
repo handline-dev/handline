@@ -124,7 +124,10 @@ describe('the Chat tab', () => {
 
   it('a session marker shows the whole handoff on request', async () => {
     const t = setup();
-    t.daemon.chat.seedItem(ARCH, { kind: 'session', session: { id: 's2', started: new Date().toISOString(), handoff: 'line one\nline two' } });
+    t.daemon.chat.seedItem(ARCH, {
+      kind: 'session',
+      session: { id: 's2', started: new Date().toISOString(), handoff: 'line one\nline two' },
+    });
     await mount(ARCH, t);
     await until(() => $$('[data-kind="session"]').some((c) => /Whole handoff/.test(text(c))), 'the marker');
     const card = $$('[data-kind="session"]').find((c) => /Whole handoff/.test(text(c)))!;

@@ -1,6 +1,7 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import { ARCH, sleep, until, box, $, text, rowHeightOf, press, mount } from './harness.tsx';
+import type { setup } from '@handline/fake-daemon/helpers';
 
 describe('the agent list', () => {
   it('shows its skeleton after 150 ms while the daemon is slow, then the rows', async () => {
@@ -414,6 +415,42 @@ describe('the task verbs', () => {
     expect($(`task-${MINE_DOING}`)).toBeNull();
     await press($('scope-open'));
     await until(() => $(`task-${MINE_DOING}`) && $('task-1650') === null, 'the open list');
+  }, 20000);
+
+  it('edits and deletes a memo, asks before deleting, and puts it back with the reason on a refusal', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DOING);
+    await fill('memo-text', 'first note');
+    await press($('memo-send'));
+    await until(() => m.daemon.tasks.get({ task: MINE_DOING }).memos.length === 1, 'the daemon memo');
+    const id = m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.id;
+    await until(() => $(`memo-edit-${id}`)?.getAttribute('aria-disabled') !== 'true', 'the numbered memo');
+    await press($(`memo-edit-${id}`));
+    await fill('memo-edit-text', 'second note');
+    m.daemon.knobs.refuse('task.memo.edit', 'state', 'that task is being merged');
+    await press($('sheet-submit'));
+    await until(() => text().includes('that task is being merged'), 'the reason', 3000);
+    expect($('sheet')).not.toBeNull();
+    expect(m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.text).toBe('first note');
+    m.daemon.knobs.clear();
+    await press($('sheet-submit'));
+    await until(() => $('sheet') === null, 'the sheet to close');
+    expect(m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.text).toBe('second note');
+    expect($(`memo-${id}`)?.textContent).toContain('second note');
+    await press($(`memo-delete-${id}`));
+    expect(text()).toContain('Delete this memo?');
+    await press($('sheet-cancel'));
+    expect(m.daemon.tasks.get({ task: MINE_DOING }).memos.length).toBe(1);
+    await press($(`memo-delete-${id}`));
+    m.daemon.knobs.refuse('task.memo.delete', 'state', 'that memo is locked');
+    await press($('sheet-submit'));
+    await until(() => text().includes('that memo is locked'), 'the reason', 3000);
+    expect($(`memo-${id}`)).not.toBeNull();
+    m.daemon.knobs.clear();
+    await press($('sheet-submit'));
+    await until(() => m.daemon.tasks.get({ task: MINE_DOING }).memos.length === 0, 'the daemon');
+    await until(() => $(`memo-${id}`) === null, 'the memo gone');
+    m.store.stop();
   }, 20000);
 
   it('disables a verb the daemon does not serve and says why', async () => {

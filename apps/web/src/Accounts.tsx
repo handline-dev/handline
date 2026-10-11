@@ -184,7 +184,7 @@ function Login({ a }: { a: Account }) {
   const login = useWrite('account.login', a.name);
   const { served } = useServes('account.login');
   const open = useConnection() === 'open';
-  const terminal = login.data?.terminal;
+  const terminal = login.data?.terminal as string | undefined;
   const inProgress = !!terminal && a.login_state !== 'ok';
   const off = !open ? 'daemon not connected' : served ? undefined : 'this daemon does not serve account.login';
   return (

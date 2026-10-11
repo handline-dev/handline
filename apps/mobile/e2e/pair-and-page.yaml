@@ -38,30 +38,10 @@ appId: dev.handline.mobile
     id: tab-terminal
 - assertVisible:
     id: terminal-text
-- takeScreenshot: shots/4-terminal-before-take
-- tapOn:
-    id: take
-- assertVisible: "Input: YOU"
-- tapOn:
-    id: key-shift-tab
-- takeScreenshot: shots/5-key-strip
-- tapOn:
+- takeScreenshot: shots/4-terminal-watch-only
+- assertNotVisible:
     id: composer
-- inputText: push the branch
-- tapOn: Send
-- assertVisible: ".*push the branch.*"
-- extendedWaitUntil:
-    visible:
-      id: prompt-card
-    timeout: 15000
-- takeScreenshot: shots/6-prompt-card-terminal
 - tapOn:
     id: tab-chat
 - assertVisible:
-    id: prompt-card
-- takeScreenshot: shots/7-prompt-card-chat
-- tapOn:
-    id: answer-1
-- assertNotVisible:
-    id: prompt-card
-- takeScreenshot: shots/8-card-answered
+    id: chat-input

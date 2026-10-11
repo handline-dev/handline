@@ -1,5 +1,5 @@
 // The fake daemon as the paired-device listener: wss with a fresh self-signed certificate, paired devices only.
-// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone]`
+// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt]`
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -42,6 +42,25 @@ const cert = fs.readFileSync(`${dir}/c.pem`);
 const daemon = new FakeDaemon();
 daemon.tasks.verbs = true; // done, reopen, queue... (the daemon's plan D3), so the phone's task verbs can be tried
 if (process.argv.includes('--founder-phone')) daemon.deviceRole = 'founder'; // so the HR verbs can be tried: a real phone is a member
+if (process.argv.includes('--prompt')) {
+  // The phone cannot type into a terminal, so a permission that waits on handline.architect is put in here, as the tests do.
+  const s = daemon.sessions.get('handline.architect')!;
+  s.state = 'waiting';
+  s.prompt = {
+    id: 'p-e2e',
+    agent: s.fx.name,
+    kind: 'permission',
+    tool: 'Bash',
+    command: 'git push origin main',
+    reason: null,
+    lines: [],
+    since: new Date().toISOString(),
+    options: [
+      { key: '1', label: 'Yes', answer: 'yes', highlighted: true },
+      { key: '2', label: 'No', answer: 'no' },
+    ],
+  };
+}
 daemon.raiseProposal({
   id: 1,
   title: 'settings handline.architect',

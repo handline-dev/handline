@@ -45,7 +45,8 @@ export function Start({
     else if (insecure) s.fail(`Refusing ${url}: use wss:// for a daemon that is not on this machine.`);
     return s;
   }, [url, insecure, failure, token, open]);
-  if (needsToken(url) && !token && !insecure && !failure) return <PairScreen url={url} storage={storage} open={open} lost={lost} onPaired={setToken} />;
+  if (needsToken(url) && !token && !insecure && !failure)
+    return <PairScreen url={url} storage={storage} open={open} lost={lost} onPaired={setToken} />;
   return <App store={store} daemon={url} storage={storage} connect={!insecure && !failure} />;
 }
 

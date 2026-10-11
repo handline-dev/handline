@@ -28,6 +28,7 @@ type Tick struct {
 	Messaging Messaging
 	Lifecycle Lifecycle
 	Handoff   Handoff
+	Login     Login
 	Reconcile Reconciler
 	Sweeps    Sweeps
 	Passes    []NamedSweep // the guarded passes after the per-agent turns, in order
@@ -161,6 +162,9 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 	acct := ""
 	if reading != nil {
 		acct = reading.Account
+	}
+	if t.loginExpired(agent, row, acct, actions) {
+		return
 	}
 	st := t.Usage.ReadForAgent(agent, acct)
 	ctxLimit := t.Usage.ContextLimit(agent, st.ModelID)

@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@handline/app-core';
 import { DataProvider } from '@handline/app-data';
 import { DaemonProvider } from '@handline/app-react';
@@ -214,6 +214,45 @@ describe('the HR list', () => {
     await press($('hr-all-go'));
     await until(() => stateOf(m, 1) === 'approved' && stateOf(m, 3) === 'approved', 'the daemon');
     expect(stateOf(m, 2)).toBe('apply_failed');
+    m.store.stop();
+  });
+
+  it('a second tap on Approve all while it runs sends nothing', async () => {
+    const m = await mount((s) => {
+      raise(s, 1);
+      raise(s, 2);
+      raise(s, 3);
+    });
+    await openHr();
+    await until(() => $('hr-all'), 'Approve all');
+    await press($('hr-all'));
+    const find = vi.spyOn(hrOf(m), 'find');
+    await act(async () => {
+      $('hr-all-go')?.click();
+      $('hr-all-go')?.click();
+    });
+    await until(() => hrOf(m).proposals[2]!.state === 'approved', 'the daemon');
+    expect(find).toHaveBeenCalledTimes(3);
+    m.store.stop();
+  });
+
+  it('rejects all with one reason, asked for first', async () => {
+    const m = await mount((s) => {
+      raise(s, 1);
+      raise(s, 2);
+      raise(s, 3);
+    });
+    await openHr();
+    await until(() => $('hr-reject-all'), 'Reject all');
+    await press($('hr-reject-all'));
+    expect(text()).toContain('Reject all 3?');
+    expect(($('hr-reject-all-go') as unknown as HTMLButtonElement).disabled).toBe(true);
+    await press($('hr-reject-all-cancel'));
+    expect(stateOf(m, 1)).toBe('open');
+    await press($('hr-reject-all'));
+    await fill('hr-reject-all-why', 'not now');
+    await press($('hr-reject-all-go'));
+    await until(() => [1, 2, 3].every((id) => stateOf(m, id) === 'rejected'), 'the daemon');
     m.store.stop();
   });
 

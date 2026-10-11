@@ -6,7 +6,7 @@ Compared on 2026-10-06: the bridge is `handline/ui/` on main @3cd99e69 (the scre
 
 ## 1. What apps/web has and lacks
 
-Status on 2026-10-08: see §4.1. The web app has every unit in §4. The phone app has the agent list and page with the terminal, Chat, the Inbox, the agent verbs, agent settings and schedules, Accounts, the task verbs, HR and Team; it has no stats or Home settings.
+Status on 2026-10-11: see §4.1. The web app has every unit in §4. The phone app has the agent list and page, Chat, prompt cards, the Inbox, the agent verbs, agent settings and schedules, Accounts, the task verbs, HR, Team, Stats and Home settings; every unit of §4 is built on both; §8 lists what comes next.
 
 ## 2. How the ranking was made
 
@@ -82,51 +82,50 @@ Order: **Q1, Q2, then U8 + U9, then U10, then U11**, because that is the order o
 
 E1 can start once unit 4a lands; E2 needs U9 and U10; E3 needs U8 and U10; E4 any time after E1.
 
-### 4.1 Status on 2026-10-08
+### 4.1 Status on 2026-10-11
 
-Read on main `033959e3`. "Built" means the code is there and a test names it; the unit's *done when* was not rerun. The phone has no unit numbers in §4: its column says which web unit it matches. Web files are in `apps/web/src`, phone files in `apps/mobile/src/screens`, desktop files in `apps/electron/src`.
+Read on main `74162cb9`; the phone cells that say "no Reject all", "no memo edit or delete", "shows no output" and "no e2e flow" were fixed by `9eef5905`. "Built" means the code is there and a test names it; the unit's *done when* was not rerun. The phone has no unit numbers in §4: its column says which web unit it matches. Web files are in `apps/web/src`, phone files in `apps/mobile/src/screens`, desktop files in `apps/electron/src`.
 
 | Unit | Web | Phone |
 |---|---|---|
 | Q1 `app-data` | built: `packages/app-data/src` (reads.ts, writes.ts, chat.ts, skeletons.ts), `test/guards.test.ts` | same package |
 | Q2 / Q3 / Q4 apps onto it | built: `test/q2.test.tsx`; the store keeps nothing the cache owns (`64c0ee3b`) | built: `useWrite`, `Loadable.tsx`, `skeleton.tsx` |
-| U8 Chat, session marks | built: `ChatTab.tsx`, `ChatCompose.tsx`, `ChatMessages.tsx` (send now, session mark with its handoff) | built: `Chat.tsx` (landing state, mine / all, send, reply, take back, answer, paging, session line), `e2e/chat.yaml` (`e745dd41`, merged `56214a66`) |
-| U9 Prompt cards | built: `PromptCard.tsx`, `test/u9.test.tsx` | partial: `AgentPage.tsx:147` answers `prompt.answer`; no "always", no multi-select |
-| U10 Inbox | built: `Inbox.tsx`, `InboxCard.tsx` | built: `Inbox.tsx` (answer, reply, mark read), `e2e/inbox-tasks.yaml` (`e74c29a6`) |
-| U11 Tasks | built: `Tasks.tsx`, `TaskDetail.tsx`, `TaskBar.tsx`, `NewTask.tsx`, `taskActions.ts` | built: `Tasks.tsx` (state filters, open / closed), `TaskActions.tsx` (new, done, reopen, memo, withdraw, cancel, queue, draft, discard, edit), `test/screens.test.tsx`, `e2e/task-verbs.yaml` (`fce7a51e`, merged `033959e3`); no start, tree, merge or bulk marks, left off a phone on purpose |
-| U12 Agent verbs | built: `AgentVerbs.tsx` (wake, restart, close, park, fold, move, clear stall; `test/u12.test.tsx`). Clear stall is served by the fake daemon only (N4); elsewhere it is off with its reason (`97a95a39`) | built: `AgentVerbs.tsx` (wake, restart, park, fold, move; close and clear stall hidden on purpose), `e2e/agent-verbs.yaml` (`3020f582`) |
-| U13 Settings, schedules | built: `SettingsView.tsx`, `Schedules.tsx`, `test/u13.test.tsx` | built: `AgentSettings.tsx`, `Schedules.tsx`, `test/agent-settings.test.tsx` (`42a9c187`, merged `dfb76709`); no entry from `AgentPage.tsx` yet |
-| U14 Accounts, usage popup | built: `Accounts.tsx`, `AccountSettings.tsx`, `AccountRemove.tsx` (dry run, typed confirmation, founder only; `63fa17c7`), `UsagePopup.tsx`, `Gauge.tsx` | built: `Accounts.tsx` (gauges, alias, cap, remove), `test/accounts.test.tsx`, `e2e/accounts.yaml` (`a9fb87e6`, merged `1318cd55`); no login (a phone never holds credentials) |
-| U15 HR, Team | built: `HrTab.tsx` (diff, approve, approve all, reject, Edit settings for an agent on the roster; `3f57d373`), `TeamPage.tsx`, `test/u15.test.tsx` | built: `Hr.tsx` (approve, reject, withdraw, Edit settings; founder only), `Team.tsx`, `TeamEntry.tsx` (the way in from `App.tsx`), `test/hr.test.tsx` (`fce7a51e`, merged `033959e3`) |
-| U16 Stats, Home settings | built: `Stats.tsx`, `Outlook.tsx`, `Settings.tsx`, `Answers.tsx`, `test/stats-settings.test.tsx` | **not started** |
-| E1 Shell, E2 notices, E3 open / editor, E4 updates | built: `main.ts:129` one instance, `main.ts:238` dock badge, `notices.ts`, `desk.ts`, `open.ts`, `editor.ts`, `update.ts` (asks only when idle) | n/a |
-| Connect / own modes | built: `mode.ts`, `own.ts`, `bridge.ts`, `tray.ts`; the pairing screen takes an address and code (`Start.tsx`); `README.md` (`f645a286`, merged `9b778035`) | n/a |
+| U8 Chat, session marks | built: `ChatTab.tsx`, `ChatCompose.tsx`, `ChatMessages.tsx` (send now, receipts, session mark with Whole handoff, tool output with Show all and the count of lines the store cut) | built: `Chat.tsx` (landing state and receipts, mine / all, send with now / queue, reply, take back, answer, paging, session mark that opens its handoff), `Transcript.tsx` (structured agents), `e2e/chat.yaml`; a tool line shows no output (see What is left) |
+| U9 Prompt cards | built: `PromptCard.tsx`, `test/u9.test.tsx` | built: `PromptCard.tsx` (permission without "always", dialog "always" only when `answer.add` is served, question with free text, multi-select with Submit, stale prompt), `test/prompts.test.tsx` (`e94bdf45`) |
+| U10 Inbox | built: `Inbox.tsx`, `InboxCard.tsx` | built: `Inbox.tsx` (answer, reply, mark read), `e2e/inbox-tasks.yaml` |
+| U11 Tasks | built: `Tasks.tsx`, `TaskDetail.tsx` (memo edit and delete), `TaskBar.tsx`, `NewTask.tsx`, `taskActions.ts` | built: `Tasks.tsx`, `TaskActions.tsx` (new, done, reopen, memo add, withdraw, cancel, queue, draft, discard, edit), `test/screens.test.tsx`, `e2e/task-verbs.yaml`; no start, tree, merge or bulk marks, left off a phone on purpose; no memo edit or delete |
+| U12 Agent verbs | built: `AgentVerbs.tsx` (wake, restart, close, park, fold, move, clear stall; Interrupt for a structured agent), `test/u12.test.tsx`. Clear stall is served by the fake daemon only (N4); elsewhere it is off with its reason | built: `AgentVerbs.tsx` (wake, restart, park, fold, move; close and clear stall hidden on purpose; Interrupt is on `AgentPage.tsx`), `test/verbs.test.tsx`, `e2e/agent-verbs.yaml` |
+| U13 Settings, schedules | built: `SettingsView.tsx`, `Schedules.tsx`, `test/u13.test.tsx` | built: `AgentSettings.tsx`, `Schedules.tsx`, reached from the "Settings and schedules" button in the ⋯ list of `AgentVerbs.tsx`, `test/agent-settings.test.tsx` |
+| U14 Accounts, usage popup | built: `Accounts.tsx`, `AccountSettings.tsx`, `AccountRemove.tsx`, `UsagePopup.tsx`, `Gauge.tsx` | built: `Accounts.tsx` (gauges, alias, cap, remove), `test/accounts.test.tsx`, `e2e/accounts.yaml`; no login (a phone never holds credentials) |
+| U15 HR, Team | built: `HrTab.tsx` (diff, approve, approve all, reject, Reject all with one reason, Edit settings), `TeamPage.tsx`, `test/u15.test.tsx` | built: `Hr.tsx` (approve, Approve all, reject, withdraw, Edit settings; founder only), `Team.tsx`, `TeamEntry.tsx`, `test/hr.test.tsx`; no Reject all |
+| U16 Stats, Home settings | built: `Stats.tsx`, `Outlook.tsx`, `Settings.tsx`, `Answers.tsx`, `test/stats-settings.test.tsx` | built: `Stats.tsx` (counts, agent time, outlook by range; its Stats / Settings switch is the founder's only way to `Settings.tsx`: default cap, idle close, switches, standing answers), the Stats tab in `Home.tsx`, `test/stats.test.tsx` (`4a590631`); no e2e flow |
+| E1 Shell, E2 notices, E3 open / editor, E4 updates | built: `main.ts` one instance and dock badge, `notices.ts`, `desk.ts`, `open.ts`, `editor.ts`, `update.ts` (asks only when idle) | n/a |
+| Connect / own modes | built: `mode.ts`, `own.ts`, `bridge.ts`, `tray.ts`; the pairing screen takes an address and code (`Start.tsx`); `README.md`; `DaemonDown.tsx` says the daemon is not running and how to start it | n/a |
+| Structured agents | built: a page with Chat and Transcript and no terminal (`642d68b9`); the fake runs the real shape (`9aa7868e`) | built: `Transcript.tsx`, Interrupt beside the working line, no terminal (`aef8eb51`, `be304279`) |
 
 **What is left**
 
 - Web: nothing buildable. Clear stall stays off on dev and real daemons by the founder's decision (N4).
-- Phone, in order of use:
-  1. **Prompt "always" and multi-select (U9).** `AgentPage.tsx` or a new card file.
-  2. **Stats and Home settings (U16).** New screens and one entry in `Home.tsx` or `TeamEntry.tsx`.
-  3. **Entry to agent settings and schedules** from `AgentPage.tsx`: the screens and their routes are on main, nothing opens them.
 - PC app: nothing in §4.
+- Phone: the four small items (tool output Show all, memo edit and delete, HR Reject all, the e2e flows) are on main as of `9eef5905`.
+- Not gaps: the phone's own "Disconnected" banner stands in for `DaemonDown.tsx`, because a phone never starts a daemon.
 
 ## 5. Requests to the daemon team: missing from the contract and their list, or pending a decision
 
-| # | Request | Why | Status 2026-10-08 |
+| # | Request | Why | Status 2026-10-11 |
 |---|---|---|---|
 | N1 | `chat.send_now { request }`: type a queued message now | the ⚡ button (`chat_page.py:826`); the contract has no such field, the table has `send_now` | in the contract and served (`rpc_chat_now.py:38`); web uses it (`ChatMessages.tsx:159`) |
 | N2 | `Task.priority` (1 high … 3 low) on the row, and `priority` on `task.edit` (`task.new` and `task.begin` already take it) | the `p` key and the sort column in `tasks_view.py` | in the contract (`Task.priority`, `task.edit`); web edits and sorts it (`TaskDetail.tsx:330`, `TaskBar.tsx:21`) |
 | N3 | `account.remove { account }`, founder only, with a dry-run that says which agents sit on it; the spec lists `hl account remove` as founder-only, pending the founder's decision | `x` on an account row | in the contract and served (`rpc_accounts.py`); web `AccountRemove.tsx` and phone `Accounts.tsx` use it |
 | N4 | `agent.unstall { agent }`, founder only; the spec listed `hl unstall` as founder-only; the founder allowed it in the test environment, not in dev or real | wake on a STALLED row, with its confirm (`tui.py:87`) | in the contract and the fake daemon only; the Python and Go daemons do not list it, so the web shows Clear stall off there (`AgentVerbs.tsx`) |
 | N5 | `stats.outlook { range }`: week left, runway, cost per day | `outlook_view.py`; `Stats` has only 24 h / 7 d counts and two percentages | in the contract and served (`rpc_outlook.py:63`); web shows it (`Outlook.tsx`) |
-| N6 | `Prompt.multi: boolean` (select several, then submit) | AskUserQuestion's multi-select (`question_modal.py`); `PromptOption` can say each option, not that several may be picked | in the contract (`Prompt.multi`, `protocol.json:7670`); web uses it (`PromptCard.tsx`); phone does not (§4.1, U9) |
+| N6 | `Prompt.multi: boolean` (select several, then submit) | AskUserQuestion's multi-select (`question_modal.py`); `PromptOption` can say each option, not that several may be picked | in the contract (`Prompt.multi`); web and phone use it (`PromptCard.tsx`) |
 | N7 | a `session` transcript item: session id, started, and the handoff text it began with | `SessionMark` and `HandoffModal` | in the contract (a `session` transcript item); web shows it (`ChatMessages.tsx:266`) |
 
 ## 6. Not gaps
 
 - Orca's browser, emulator and Markdown tabs: decided in `web-main-view.md` (R1–R5).
-- New agent and Worktrees screens, design §3.7–3.8: the bridge has no such screen (`hl spawn` is a command), so they stay design work, after U16.
+- New agent and Worktrees screens, design §3.7–3.8: the bridge has no such screen (`hl spawn` is a command). Designed in `docs/design/new-agent-worktrees.md`; built in §8.
 - The bridge's `$EDITOR` and open-path actions are not web features; E3 only.
 
 ## 7. Open points
@@ -134,3 +133,22 @@ Read on main `033959e3`. "Built" means the code is there and a test names it; th
 - **The ranking's ground is thin below G4.** Accounts, HR, stats and the row verbs are used from the home screen, which logs nothing. If the founder ranks them differently, only the unit order changes.
 - **Quick commands.** Design §6 turns F19 into saved messages; the bridge has none. Left out of U8 until asked for.
 - The D-labels' states move; re-ask the daemon team before starting a unit.
+
+## 8. Next units, 2026-10-11
+
+Read on main `9eef5905`. Everything in §4 is built on web, PC and phone. What is left is the one pair of screens the design docs describe and no app has: **Worktrees** and **New agent** (`docs/design/new-agent-worktrees.md`). Checked on main: `repos.list` and `worktrees.list` are served by the Python and Go daemons; `agent.create` and `worktree.set_status` are in no contract and no daemon (the design doc assumed they were; now N19 and N20); the TS fake refuses `repos.list` and `worktrees.list` as `unsupported` (`packages/fake-daemon/test/client.test.ts:39`), though `contract/fixtures/worktrees.json` has their fixtures. Each unit ends with the root gate green, a test on the fake daemon, and the auditor.
+
+| # | Unit | Files | Done when | Needs |
+|---|---|---|---|---|
+| X1 | **Worktrees, read only (web).** Route `#/worktrees` and `#/worktrees/:path`, a rail entry shown only when `hello.methods` lists `worktrees.list`; list with repo and owner filters (client-side, N16) and search, a side panel with the changed files (letter, path, +added −deleted), Open agent; the fake serves `repos.list` and `worktrees.list` | `packages/fake-daemon/src` (serve both from the `worktrees.json` fixtures; move the `unsupported` assertion in `test/client.test.ts` to a method still unserved), `apps/web/src/Worktrees.tsx`, `WorktreePanel.tsx`, `styles/worktrees.css`, `route.ts`, `RailIcons.tsx`, `apps/web/test/worktrees.test.tsx` | the fixtures render as rows; a null owner reads "no owner"; each filter narrows the list; the panel lists the files and Open agent lands on the workspace; skeleton of eight rows, empty, filtered-empty and not-served states; a "refreshed" note with Refresh past 30 s; no Changes tab while `capabilities.review` is false; `contract/fixtures/worktrees.json` passes on the fake | nothing |
+| X2 | **Contract: create and status.** `agent.create` (founder-only; `name role repo base model? effort? parent?`; result carries an `operation` id) and `worktree.set_status` (member) in `protocol.json`; the TS fake plays an operation through `operations` to done and to failed | `contract/protocol.json`, `contract/generate.py`, `contract/fixtures/agent_create.json` and `worktree_status.json` (own vars, `NOT_YET_IN_PYTHON`), `packages/fake-daemon/src`, `go/conformance-missing.txt`, `python3 tools/go_contract.py` | generate and go_contract leave no diff; fixtures cover done, failed (`registered` true and false), a name already used, an unknown repo, `account` refused, an agent session refused by role, a status on an unlisted path; they pass on the fake; the daemon team has the fixture names as their done-when | none; can run with X1 |
+| X3 | **New agent (web, founder).** The sheet and `#/new`, `#/new/:operation`, the form of design §1.2, progress from the `operations` topic, done and failed views, the first task as a `task.new` after done | `apps/web/src/NewAgent.tsx`, `NewAgentProgress.tsx`, `styles/new-agent.css`, `Sidebar.tsx` (the button), `route.ts`, `apps/web/test/new-agent.test.tsx` | the tests of design §4 "New agent": Create off with a required field empty; one call per click; `base` always sent from the repo; `effort` offers five values; a parent prefixes the name; progress shows only the steps sent; failed keeps the fields; done offers Open agent; a refused first task keeps its text; no button for a non-founder; hidden with "This daemon cannot create agents." when the method is not listed | X1 (the repo list), X2 |
+| X4 | **Worktree status and board (web).** Status select in the panel, Move to… menu, the List / Board toggle with the four columns and an "other" column, drag with the pending mark | `Worktrees.tsx`, `WorktreeBoard.tsx`, `WorktreePanel.tsx`, `apps/web/test/worktree-board.test.tsx` | the tests of design §4 "Worktrees" for the board: five columns from fixtures, the call sent once per drop, the card moves only after the refetch, a refusal leaves it with the reason, a member can change a status, keyboard `m` does what a drop does | X1, X2 |
+| X5 | **Phone: Worktrees and New agent.** Worktrees as cards with the status chip and Move to…, the panel as a page; New agent as one full page with the progress list (founder only) | `apps/mobile/src/screens/Worktrees.tsx`, `NewAgent.tsx`, the Home entry, `apps/mobile/test/worktrees.test.tsx`, `new-agent.test.tsx`, `e2e/worktrees.yaml` | the cards render the same fixtures; Move to… changes a status and rolls back on refusal; New agent runs to done on the fake and returns to the page on a reload at `/new/:operation`; one e2e flow on the simulator | X1 to X4 |
+
+Order: **X1 and X2 together, then X3, then X4, then X5.** X3 before X4 because starting agents is something the founder does with `hl spawn` often and worktree labels are bookkeeping.
+
+Daemon side, for the team: N19 and N20 above, and N9, N11, N15, N18 for a better create (the form works without them). `agent.create` is also the only unit that needs a daemon task to be useful outside the fake; X1 and X4's reading half work on the real daemon today.
+
+Not proposed, and why: **Add an account** (catalog gap 3) needs `account.add` in the contract first, which is a request, not a unit; **key lists per panel** (catalog gap 7) and **Login from the account's settings** (gap 8) are small and can ride on any web unit that touches those screens; the screenshot gaps in `design-gaps.md` were not compared again, so I do not know how many remain.
+
