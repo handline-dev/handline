@@ -21,7 +21,7 @@ export function AccountSettings({ account: a }: { account: Account }) {
   const pending = save.isPending;
   return (
     <form
-      className="acct-settings"
+      className="acct-settings flex flex-col gap-3"
       onSubmit={(e) => e.preventDefault()}
       aria-label={`Settings of ${a.label}`}
       data-pending={pending ? '' : undefined}
@@ -51,11 +51,11 @@ export function AccountSettings({ account: a }: { account: Account }) {
           if (cap !== '' && Number.isInteger(n) && n >= 1 && n !== a.cap) save.mutate({ account: a.name, cap: n });
         }}
       />
-      <div className="acct-switch" title="A dead usage read may spend one real turn to fix itself">
+      <div className="acct-switch flex items-center gap-2" title="A dead usage read may spend one real turn to fix itself">
         <Switch label="Usage recovery" on={a.recover} disabled={!!off} onChange={(on) => save.mutate({ account: a.name, recover: on })} />
         <span>Usage recovery</span>
       </div>
-      <div className="acct-switch">
+      <div className="acct-switch flex items-center gap-2">
         <Switch label="Ends this month" on={a.cycle.on} disabled={!!off} onChange={(on) => save.mutate({ account: a.name, cycle: on })} />
         <span>Ends this month</span>
       </div>

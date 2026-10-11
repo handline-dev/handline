@@ -7,12 +7,20 @@ import { useAccounts, useAgents, useServes, useWrite } from '@handline/app-data'
 import { AccountSettings } from './AccountSettings.tsx';
 import { Gauge, useNow } from './Gauge.tsx';
 import { chatTab } from './chatTab.ts';
+import { CARD, PAGE, PAGE_HEAD, PAGE_TITLE } from './pageStyle.ts';
 import { goAgent } from './route.ts';
 import { Button, Dialog, Icon, type IconName } from './ui/index.ts';
 import { View } from './View.tsx';
 
 const TABS = ['Overview', 'Agents', 'Settings'] as const;
 type Tab = (typeof TABS)[number];
+
+// Out and login-needed read bad, in use reads ok; the chip's glyph and word say the same, so the hue is never the only sign.
+const STATE_TONE =
+  'data-[state=out]:border-bad data-[state=out]:text-bad data-[state=needs_login]:border-bad data-[state=needs_login]:text-bad data-[state=in_use]:border-ok data-[state=in_use]:text-ok';
+const FACT = 'acct-fact m-0 flex items-center gap-2 [&_svg]:text-ink-3';
+const ROW =
+  'acct-row grid min-h-11 grid-cols-[minmax(8em,1.2fr)_auto_minmax(10em,1fr)_minmax(10em,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-2 text-inherit no-underline hover:bg-raised max-[960px]:grid-cols-[minmax(8em,1fr)_auto_auto] max-[960px]:[&_.gauge]:col-span-full [&:not(:first-child)]:border-t [&:not(:first-child)]:border-line';
 
 const STATE_ICON: Record<ReturnType<typeof stateOf>, IconName> = {
   needs_login: 'warn',
@@ -27,9 +35,9 @@ export function StateChip({ a, now }: { a: Account; now: number }) {
   const state = stateOf(a);
   const until = state === 'out' ? outUntil(a) : null;
   return (
-    <span className="acct-state-wrap">
+    <span className="acct-state-wrap inline-flex items-center gap-1.5">
       <Icon name={STATE_ICON[state]} size={14} label={STATE_WORD[state]} />
-      <span className={`badge acct-state ${state} mr-1.5 inline-block rounded-card border border-line px-1.5 text-hint text-ink-2`} data-state={state}>
+      <span className={`badge acct-state ${state} mr-1.5 inline-block rounded-card border border-line px-1.5 text-hint text-ink-2 ${STATE_TONE}`} data-state={state}>
         {state === 'out' && until ? `out until ${span(Date.parse(until) - now)} from now` : STATE_WORD[state]}
       </span>
     </span>
@@ -40,15 +48,15 @@ export const agentsLine = (a: Account) => `${a.agents.length} / cap ${a.cap_effe
 
 function Row({ a, now }: { a: Account; now: number }) {
   return (
-    <a className="acct-row" href={`#/accounts/${encodeURIComponent(a.name)}`} data-account={a.name}>
-      <span className="acct-name">
+    <a className={ROW} href={`#/accounts/${encodeURIComponent(a.name)}`} data-account={a.name}>
+      <span className="acct-name flex min-w-0 items-baseline gap-2">
         <strong>{a.label}</strong>
         {a.label !== a.name ? <span className="muted mono">{a.name}</span> : null}
       </span>
       <StateChip a={a} now={now} />
       <Gauge label="5 h" window={a.five_hour} now={now} />
       <Gauge label="week" window={a.weekly} now={now} />
-      <span className="acct-agents" title={`Agents on it, and its cap: ${agentsLine(a)}`}>
+      <span className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2" title={`Agents on it, and its cap: ${agentsLine(a)}`}>
         <Icon name="agent" size={14} label="Agents" />
         {a.agents.length}/{a.cap_effective}
       </span>
@@ -79,16 +87,16 @@ export function AccountsPage({ name }: { name: string | null }) {
   const list = q.data?.accounts ?? [];
   const one = name === null ? null : list.find((a) => a.name === name);
   return (
-    <section className="accounts" aria-label="Accounts">
-      <header className="accounts-head">
+    <section className={`accounts ${PAGE}`} aria-label="Accounts">
+      <header className={`accounts-head ${PAGE_HEAD}`}>
         {name === null ? (
-          <h2>Accounts</h2>
+          <h2 className={PAGE_TITLE}>Accounts</h2>
         ) : (
           <>
             <Button className="back" icon="back" label="Back to accounts" onClick={() => (location.hash = '#/accounts')}>
               Accounts
             </Button>
-            <h2>{one?.label ?? name}</h2>
+            <h2 className={PAGE_TITLE}>{one?.label ?? name}</h2>
           </>
         )}
         {name === null ? <AddAccount /> : null}
@@ -101,7 +109,7 @@ export function AccountsPage({ name }: { name: string | null }) {
         empty={!list.length && 'No accounts configured. Add one from the host with hl account add <name>.'}
       >
         {name === null ? (
-          <div className="acct-list">
+          <div className={`acct-list flex flex-col ${CARD}`}>
             {list.map((a) => (
               <Row key={a.name} a={a} now={now} />
             ))}
@@ -125,8 +133,8 @@ function AccountPageOne({ a, now }: { a: Account; now: number }) {
   const [tab, setTab] = useState<Tab>('Overview');
   const agents = useAgents().data?.agents ?? [];
   return (
-    <div className="acct-one">
-      <p className="acct-head">
+    <div className="acct-one mx-auto flex max-w-[var(--w-form)] flex-col gap-3">
+      <p className="acct-head m-0 flex items-center gap-2">
         <StateChip a={a} now={now} />
       </p>
       <div role="tablist" className="chat-tabs flex gap-1 border-b border-line px-3 pt-1.5" aria-label="Account">
@@ -137,16 +145,16 @@ function AccountPageOne({ a, now }: { a: Account; now: number }) {
         ))}
       </div>
       {tab === 'Overview' ? (
-        <div className="acct-overview">
+        <div className="acct-overview flex flex-col gap-3">
           <Gauge label="5 h" window={a.five_hour} now={now} detail />
           <Gauge label="week" window={a.weekly} now={now} detail />
-          <p className="acct-fact">
+          <p className={FACT}>
             <Icon name="schedules" size={14} label="Month" />
             {a.cycle.on
               ? `ends ${a.cycle.end ?? 'at the next anniversary'}${a.cycle.end_is_default ? ' (the monthly anniversary)' : ''}`
               : 'renewing'}
           </p>
-          <p className="acct-fact">
+          <p className={FACT}>
             <Icon name="refresh" size={14} label="Usage recovery" />
             {a.recover ? 'recovers a dead read' : 'no recovery'}
           </p>
@@ -189,15 +197,15 @@ function Login({ a }: { a: Account }) {
   const inProgress = !!terminal && a.login_state !== 'ok';
   const off = !open ? 'daemon not connected' : served ? undefined : 'this daemon does not serve account.login';
   return (
-    <div className="acct-login">
+    <div className="acct-login flex items-center gap-3">
       <Button
-        className="desktop-only"
+        className="desktop-only max-sm:hidden"
         label={login.isPending ? '…' : a.login_state === 'ok' ? 'Log in again' : 'Log in'}
         disabled={!!off || login.isPending || inProgress}
         title={off ?? `Or from the host: hl login ${a.name}`}
         onClick={() => login.mutate({ account: a.name })}
       />
-      <span className="muted phone-only">Log in from a computer.</span>
+      <span className="muted phone-only hidden max-sm:inline">Log in from a computer.</span>
       {inProgress ? (
         <p className="muted" role="status">
           Login in progress in terminal <span className="mono">{terminal}</span>.
