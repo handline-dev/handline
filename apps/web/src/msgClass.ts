@@ -20,7 +20,7 @@ export const bubbleClass = (side: keyof typeof SIDE, s: BubbleState = {}): strin
   [
     BUBBLE,
     SIDE[side],
-    s.nested ? 'answer mt-2 max-w-full' : 'max-w-[80%]',
+    s.nested ? 'answer mt-2 max-w-full' : '',
     s.failed ? 'failed border-bad' : '',
     s.picked ? 'picked outline-2 outline-offset-2 outline-primary' : '',
     s.pickable ? 'pickable cursor-pointer' : '',

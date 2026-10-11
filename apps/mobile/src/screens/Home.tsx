@@ -9,14 +9,19 @@ import { Accounts } from './Accounts.tsx';
 import { AgentList } from './AgentList.tsx';
 import { AgentPage } from './AgentPage.tsx';
 import { Inbox } from './Inbox.tsx';
+import { NewAgent, type Pending } from './NewAgent.tsx';
 import { Stats } from './Stats.tsx';
 import { Tasks } from './Tasks.tsx';
+import { Worktrees } from './Worktrees.tsx';
 import { Banner } from './parts.tsx';
 
 const TABS = ['agents', 'inbox', 'tasks', 'accounts', 'stats'] as const;
 type Tab = (typeof TABS)[number];
 
-export function Home(props: { store: Store; onUnpair: () => void }) {
+type Page = 'worktrees' | 'new' | null;
+
+/** `pending` is where New agent was left: with an operation in it, the app starts on that page. */
+export function Home(props: { store: Store; onUnpair: () => void; pending?: Pending }) {
   const c = usePalette();
   const open = useSelector((s) => s.page?.agent ?? null);
   const conn = useSelector((s) => s.conn);
@@ -25,6 +30,15 @@ export function Home(props: { store: Store; onUnpair: () => void }) {
   const [tab, setTab] = useState<Tab>('agents');
   const [task, setTask] = useState<number | null>(null);
   const [account, setAccount] = useState<string | null>(null);
+  const [page, setPage] = useState<Page>(props.pending?.operation ? 'new' : null);
+  const [kept, setKept] = useState<string | null>(props.pending?.operation ?? null);
+  const [first, setFirst] = useState(props.pending?.first ?? null);
+  const pending: Pending = {
+    operation: kept,
+    first,
+    save: (op, t = null) => (setKept(op), setFirst(t), props.pending?.save(op, t)),
+  };
+  const toAgent = (name: string) => (setPage(null), void props.store.openAgent(name));
   return (
     <View style={{ flex: 1 }}>
       {conn !== 'open' && <Banner text={conn === 'closed' ? 'Disconnected' : conn === 'connecting' ? 'Connecting…' : 'Reconnecting…'} />}
@@ -32,6 +46,10 @@ export function Home(props: { store: Store; onUnpair: () => void }) {
       <View style={{ flex: 1 }}>
         {open ? (
           <AgentPage />
+        ) : page === 'worktrees' ? (
+          <Worktrees onClose={() => setPage(null)} onAgent={toAgent} />
+        ) : page === 'new' ? (
+          <NewAgent pending={pending} onClose={() => setPage(null)} onAgent={toAgent} />
         ) : tab === 'inbox' ? (
           <Inbox />
         ) : tab === 'tasks' ? (
@@ -41,10 +59,10 @@ export function Home(props: { store: Store; onUnpair: () => void }) {
         ) : tab === 'stats' ? (
           <Stats />
         ) : (
-          <AgentList onUnpair={props.onUnpair} />
+          <AgentList onUnpair={props.onUnpair} onPage={setPage} />
         )}
       </View>
-      {!open && (
+      {!open && !page && (
         <View
           accessibilityRole="tablist"
           style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.panel }}

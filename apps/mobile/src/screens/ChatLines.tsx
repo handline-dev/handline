@@ -52,6 +52,7 @@ function ToolLine({ i }: { i: TranscriptItem }) {
       ⚙ {i.tool}
       {i.text ? ` ${i.text}` : ''}
       {i.output ? ' · Output' : ''}
+      {!i.output && cut > 0 ? ` · ${cut} more line${cut === 1 ? '' : 's'} let go` : ''}
     </Text>
   );
   if (!i.output) return line;

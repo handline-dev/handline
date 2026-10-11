@@ -7,7 +7,12 @@ import { until } from '../src/helpers.ts';
 // A daemon that hangs up on every hello while `down`, as one out of descriptors does, then serves again.
 function flaky(daemon: FakeDaemon) {
   const made: Transport[] = [];
-  const net = { down: false, reject: false, connects: 0, open: () => made.filter((t) => !(t as Transport & { closed: boolean }).closed).length };
+  const net = {
+    down: false,
+    reject: false,
+    connects: 0,
+    open: () => made.filter((t) => !(t as Transport & { closed: boolean }).closed).length,
+  };
   const connect = async (): Promise<Transport> => {
     // Loops that double on each failure would run the process out of memory: past this, a connect never finishes.
     if (++net.connects > 100) return new Promise<Transport>(() => {});
@@ -17,7 +22,10 @@ function flaky(daemon: FakeDaemon) {
       server.onmessage = () => server.close();
     } else if (net.reject) {
       // An error reply to every call, and the connection kept: only the client can close it.
-      server.onmessage = (m) => server.send(JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(m).id, error: { code: -32000, message: 'daemon_busy', data: { code: 'busy' } } }));
+      server.onmessage = (m) =>
+        server.send(
+          JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(m).id, error: { code: -32000, message: 'daemon_busy', data: { code: 'busy' } } }),
+        );
     } else {
       daemon.accept(server);
     }
@@ -70,7 +78,11 @@ test('a handshake the daemon answers with an error closes the connection the dae
 test('closing the client while it connects closes the connection that arrives', async () => {
   const daemon = new FakeDaemon();
   const { net, connect } = flaky(daemon);
-  const client = new DaemonClient({ client: 'electron', connect: async () => (await new Promise((r) => setTimeout(r, 20)), connect()), reconnect: { minMs: 1, maxMs: 2 } });
+  const client = new DaemonClient({
+    client: 'electron',
+    connect: async () => (await new Promise((r) => setTimeout(r, 20)), connect()),
+    reconnect: { minMs: 1, maxMs: 2 },
+  });
   const started = client.start().catch(() => {});
   client.close();
   await started;

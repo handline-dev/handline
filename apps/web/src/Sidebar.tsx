@@ -27,7 +27,20 @@ import { DOT_ORDER, Mark, MARKS, Meter } from './RailIcons.tsx';
 import { useNow } from './Gauge.tsx';
 import { Button, Icon } from './ui/index.ts';
 import { setting } from './daemon.ts';
-import { goAgent, goInbox, goSettings, goTasks, goTeam, useAccountsRoute, useInboxRoute, usePageRoute, useTeamRoute } from './route.ts';
+import {
+  goAgent,
+  goInbox,
+  goSettings,
+  goTasks,
+  goTeam,
+  goWorktrees,
+  useAccountsRoute,
+  useInboxRoute,
+  usePageRoute,
+  useTeamRoute,
+  useWorktreesRoute,
+} from './route.ts';
+import { NewAgentButton } from './NewAgent.tsx';
 import { View } from './View.tsx';
 
 // One shape per nav row. The `on` look stays in rail.css: it must out-rank inbox.css `.nav.on`, imported later.
@@ -72,6 +85,8 @@ export function Sidebar({
   const hr = useHrCount();
   const onTeam = !!useTeamRoute();
   const onAccounts = useAccountsRoute().open;
+  const onWorktrees = useWorktreesRoute().open;
+  const worktreesServed = useServes('worktrees.list').served;
   const pageRoute = usePageRoute();
   const onPage = onAccounts ? 'accounts' : pageRoute;
   return (
@@ -105,6 +120,11 @@ export function Sidebar({
         <button className={navOf(onTeam)} onClick={() => goTeam(hr ? 'hr' : 'team')}>
           <Icon name="team" size={14} aria-hidden /> Team{hr ? <span className="hr-dot text-bad"> ● HR {hr}</span> : null}
         </button>
+        {worktreesServed ? (
+          <button className={navOf(onWorktrees)} aria-current={onWorktrees ? 'page' : undefined} onClick={() => goWorktrees()}>
+            <Icon name="worktrees" size={14} aria-hidden /> Worktrees
+          </button>
+        ) : null}
         <button className={navOf(onPage === 'accounts')} onClick={() => void (location.hash = '#/accounts')}>
           <Icon name="accounts" size={14} aria-hidden /> Accounts
         </button>
@@ -182,6 +202,7 @@ export function Sidebar({
           ))}
         </View>
       </div>
+      <NewAgentButton />
       <footer className="rail-foot flex gap-0.5 border-t border-line px-2 py-1">
         <Button icon="settings" label="Settings" onClick={() => void (location.hash = '#/settings')} />
         <Button icon="help" label="Keys (?)" onClick={() => dispatchEvent(new KeyboardEvent('keydown', { key: '?' }))} />

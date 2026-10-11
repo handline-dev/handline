@@ -1,0 +1,426 @@
+{
+ "fixtures": [
+  {
+   "name": "account.add.an_agent_session_is_refused_by_role",
+   "spec": "account.add",
+   "about": "NOT_YET_IN_PYTHON A call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.add",
+      "params": {
+       "account": "conf.role",
+       "request_id": "conf-aa-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.add.needs_a_request_id",
+   "spec": "account.add",
+   "about": "NOT_YET_IN_PYTHON A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.add",
+      "params": {
+       "account": "conf.norid"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.add.needs_an_account",
+   "spec": "account.add",
+   "about": "NOT_YET_IN_PYTHON No account is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.add",
+      "params": {
+       "request_id": "conf-aa-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "account"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.add.a_slash_in_the_name_is_bad_request",
+   "spec": "account.add",
+   "about": "NOT_YET_IN_PYTHON A name with a slash or a leading dot is bad_request, field account; nothing is made.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.add",
+      "params": {
+       "account": "a/b",
+       "request_id": "conf-aa-4s"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "account"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.add.a_leading_dot_in_the_name_is_bad_request",
+   "spec": "account.add",
+   "about": "NOT_YET_IN_PYTHON A name with a slash or a leading dot is bad_request, field account; nothing is made.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.add",
+      "params": {
+       "account": ".hidden",
+       "request_id": "conf-aa-4l"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "account"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.add.an_unknown_vendor_is_bad_request",
+   "spec": "account.add",
+   "about": "NOT_YET_IN_PYTHON A vendor the daemon has no driver for is bad_request, field vendor.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.add",
+      "params": {
+       "account": "conf.vendor",
+       "vendor": "nosuch",
+       "request_id": "conf-aa-6"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "vendor"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.add.registers_without_a_login",
+   "spec": "account.add",
+   "about": "NOT_YET_IN_PYTHON A good call registers the account and logs nothing in: it answers the name, the accounts topic sends account.changed with login_state needs_login, and accounts.list shows it. Needs --var add_account (a name no account has).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "accounts"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "account.add",
+      "params": {
+       "account": "{{add_account}}",
+       "request_id": "conf-aa-7"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "account": "{{add_account}}"
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "accounts",
+        "type": "account.changed",
+        "data": {
+         "name": {
+          "$type": "string"
+         },
+         "login_state": "needs_login"
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "accounts.list",
+      "params": {}
+     },
+     "result": {
+      "accounts": {
+       "$contains": {
+        "name": "{{add_account}}",
+        "login_state": "needs_login"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.add.a_used_name_is_refused",
+   "spec": "account.add",
+   "about": "NOT_YET_IN_PYTHON A name an account already has is refused (gate state) and nothing changes. Needs --var add_used_account (a name no account has).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.add",
+      "params": {
+       "account": "{{add_used_account}}",
+       "request_id": "conf-aa-8"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "account.add",
+      "params": {
+       "account": "{{add_used_account}}",
+       "request_id": "conf-aa-9"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "state"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.add.a_retried_request_id_adds_once",
+   "spec": "account.add",
+   "about": "NOT_YET_IN_PYTHON The same request_id and params answer replayed true and add nothing. Needs --var add_retry_account (a name no account has).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.add",
+      "params": {
+       "account": "{{add_retry_account}}",
+       "request_id": "conf-aa-10"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "account.add",
+      "params": {
+       "account": "{{add_retry_account}}",
+       "request_id": "conf-aa-10"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "replayed": true
+     }
+    }
+   ]
+  }
+ ]
+}

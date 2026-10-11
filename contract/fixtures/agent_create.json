@@ -1,0 +1,685 @@
+{
+ "fixtures": [
+  {
+   "name": "agent.create.an_agent_session_is_refused_by_role",
+   "spec": "agent.create",
+   "about": "NOT_YET_IN_PYTHON Creating an agent is the founder's: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.create",
+      "params": {
+       "name": "conf.new",
+       "role": "worker",
+       "repo": "/no/such/repo",
+       "request_id": "conf-ac-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.create.needs_a_request_id",
+   "spec": "agent.create",
+   "about": "NOT_YET_IN_PYTHON A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.create",
+      "params": {
+       "name": "conf.new",
+       "role": "worker",
+       "repo": "/no/such/repo"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.create.needs_a_name",
+   "spec": "agent.create",
+   "about": "NOT_YET_IN_PYTHON No name is bad_request naming it, before the repo is looked up.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.create",
+      "params": {
+       "role": "worker",
+       "repo": "/no/such/repo",
+       "request_id": "conf-ac-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "name"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.create.needs_a_role",
+   "spec": "agent.create",
+   "about": "NOT_YET_IN_PYTHON No role is bad_request naming it, before the repo is looked up.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.create",
+      "params": {
+       "name": "conf.new",
+       "repo": "/no/such/repo",
+       "request_id": "conf-ac-4"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.create.effort_is_one_of_five",
+   "spec": "agent.create",
+   "about": "NOT_YET_IN_PYTHON An effort outside low, medium, high, xhigh and max is bad_request naming it, before the repo is looked up.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.create",
+      "params": {
+       "name": "conf.new",
+       "role": "worker",
+       "repo": "/no/such/repo",
+       "effort": "extreme",
+       "request_id": "conf-ac-5"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "effort"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.create.an_account_is_not_served",
+   "spec": "agent.create",
+   "about": "NOT_YET_IN_PYTHON A named account is bad_request naming account, never dropped, before the repo is looked up.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.create",
+      "params": {
+       "name": "conf.new",
+       "role": "worker",
+       "repo": "/no/such/repo",
+       "account": "alpha",
+       "request_id": "conf-ac-6"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "account"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.create.an_unknown_repo_is_not_found",
+   "spec": "agent.create",
+   "about": "NOT_YET_IN_PYTHON A repo directory the daemon does not know is not_found, what repo; nothing is registered.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.create",
+      "params": {
+       "name": "conf.new",
+       "role": "worker",
+       "repo": "/no/such/repo",
+       "request_id": "conf-ac-7"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "repo"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.create.an_unknown_parent_is_not_found",
+   "spec": "agent.create",
+   "about": "NOT_YET_IN_PYTHON A parent that is not an agent is not_found, what agent. Needs --var create_repo.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.create",
+      "params": {
+       "name": "no.such.parent.child",
+       "role": "worker",
+       "repo": "{{create_repo}}",
+       "base": "main",
+       "parent": "no.such.parent",
+       "request_id": "conf-ac-8"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "agent"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.create.a_child_name_starts_with_its_parent",
+   "spec": "agent.create",
+   "about": "NOT_YET_IN_PYTHON Under a parent the name must be <parent>.<rest>: any other is bad_request naming name. Needs --var create_repo and create_parent: an agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.create",
+      "params": {
+       "name": "wrongprefix",
+       "role": "worker",
+       "repo": "{{create_repo}}",
+       "base": "main",
+       "parent": "{{create_parent}}",
+       "request_id": "conf-ac-9"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "name"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.create.a_used_name_is_refused",
+   "spec": "agent.create",
+   "about": "NOT_YET_IN_PYTHON A name an agent already has is refused, gate state; no operation starts. Needs --var create_repo and create_parent: an agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.create",
+      "params": {
+       "name": "{{create_parent}}",
+       "role": "worker",
+       "repo": "{{create_repo}}",
+       "base": "main",
+       "request_id": "conf-ac-10"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "state"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.create.runs_to_done",
+   "spec": "agent.create",
+   "about": "NOT_YET_IN_PYTHON A good call replies with an operation id; the operations topic sends operation.progress until the operation is done, with the agent, and operation.get then says done. Needs --var create_repo, create_name (a name no agent has).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "operations"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agent.create",
+      "params": {
+       "name": "{{create_name}}",
+       "role": "worker",
+       "repo": "{{create_repo}}",
+       "base": "main",
+       "request_id": "conf-ac-11"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "operation": {
+       "$save": "op_id"
+      }
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "operations",
+        "type": "operation.progress",
+        "data": {
+         "kind": "agent.create",
+         "state": "running",
+         "agent": {
+          "$type": "string"
+         }
+        }
+       }
+      },
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "operations",
+        "type": "operation.progress",
+        "data": {
+         "kind": "agent.create",
+         "state": "done",
+         "agent": {
+          "$type": "string"
+         },
+         "result": {
+          "registered": true
+         }
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "operation.get",
+      "params": {
+       "operation": "{{op_id}}"
+      }
+     },
+     "result": {
+      "id": "{{op_id}}",
+      "kind": "agent.create",
+      "state": "done",
+      "agent": "{{create_name}}"
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.create.runs_to_failed",
+   "spec": "agent.create",
+   "about": "NOT_YET_IN_PYTHON A base that does not exist fails the operation, not the call: the reply carries an operation id, the last operation.progress is failed with a message and a result that says whether the agent was registered, and nothing is cleaned up. Needs --var create_repo, create_name.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "operations"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agent.create",
+      "params": {
+       "name": "{{create_name}}.bad",
+       "role": "worker",
+       "repo": "{{create_repo}}",
+       "base": "conf/no-such-base",
+       "request_id": "conf-ac-12"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "operation": {
+       "$save": "op_id"
+      }
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "operations",
+        "type": "operation.progress",
+        "data": {
+         "kind": "agent.create",
+         "state": "failed",
+         "message": {
+          "$type": "string"
+         },
+         "result": {
+          "registered": {
+           "$type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "operation.get",
+      "params": {
+       "operation": "{{op_id}}"
+      }
+     },
+     "result": {
+      "state": "failed",
+      "message": {
+       "$type": "string"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.create.a_retried_request_id_starts_nothing_twice",
+   "spec": "agent.create",
+   "about": "NOT_YET_IN_PYTHON The same request_id again replies with the same operation id and replayed true; no second operation. Needs --var create_repo, create_name.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.create",
+      "params": {
+       "name": "{{create_name}}.again",
+       "role": "worker",
+       "repo": "{{create_repo}}",
+       "base": "main",
+       "request_id": "conf-ac-13"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "operation": {
+       "$save": "op_id"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agent.create",
+      "params": {
+       "name": "{{create_name}}.again",
+       "role": "worker",
+       "repo": "{{create_repo}}",
+       "base": "main",
+       "request_id": "conf-ac-13"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "replayed": true,
+      "operation": "{{op_id}}"
+     }
+    }
+   ]
+  }
+ ]
+}

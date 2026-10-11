@@ -1,7 +1,6 @@
 // A fake daemon that answers the generated contract (contract/protocol.ts) from fixtures, with one
 // scripted fake session per agent. The UI cannot tell it from the real socket; the real daemon is a swap.
 // It serves the methods the UI's session screen needs; every other method is refused as `unsupported`.
-import crypto from 'node:crypto';
 import {
   METHODS,
   PROTOCOL,
@@ -20,7 +19,9 @@ import type { Transport } from '@handline/client';
 import { AGENTS, seedChat } from './fixtures.ts';
 import { FakeAccounts } from './accounts.ts';
 import { FakeAdmin } from './admin.ts';
+import { FakePairing } from './pairing.ts';
 import { FakeInbox } from './inbox.ts';
+import { FakeWork } from './workroom.ts';
 import { FakeTasks, taskCall } from './tasks.ts';
 import { chatMethod, FakeChat } from './chat.ts';
 import { HANDLERS } from './handlers.ts';
@@ -30,13 +31,13 @@ import { Knobs } from './knobs.ts';
 import { Replies } from './replies.ts';
 import { FakeTranscript } from './transcript.ts';
 import { watcherNotice } from './watchers.ts';
-import { accountsReply, detail, newSession, tid, view, type Attach, type Session } from './session.ts';
+import { accountsReply, detail, statusReply, newSession, tid, view, type Attach, type Session } from './session.ts';
 
 const TERMINAL_CAPS = { terminal_format: ['text', 'bytes', 'styled'], terminal_hosts: { fake: ['text', 'bytes', 'styled'] } };
 const TEXT_CAPS = { terminal_format: ['text'], terminal_hosts: { fake: ['text'] } };
 
-// Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once).
-const UNKEPT = new Set(['device.pair', 'device.redeem']);
+// Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once; a login code is kept nowhere).
+const UNKEPT = new Set(['device.pair', 'device.redeem', 'account.login_code']);
 
 interface Conn {
   transport: Transport;
@@ -54,7 +55,7 @@ export interface FakeDaemonOptions {
   now?: () => Date;
   accounts?: boolean; // serve the account methods (default); false is a daemon that does not yet
   transcript?: boolean; // serve the transcript stream (default); false is a daemon that does not yet
-  admin?: boolean; // serve stats, outlook, settings and standing answers (default); false is a daemon that does not yet
+  admin?: boolean; // serve stats, outlook, settings, standing answers, repos and worktrees (default); false is a daemon that does not yet
   chat?: boolean; // serve the chat methods (default); false is a daemon that does not yet
   inbox?: boolean; // serve the inbox methods (default); false is a daemon that does not yet
   bytes?: boolean; // offer the bytes terminal format (default); false is a daemon that serves text only
@@ -78,6 +79,8 @@ export class FakeDaemon {
   readonly tasks = new FakeTasks(this, () => this.iso());
   readonly accounts: FakeAccounts;
   readonly admin: FakeAdmin;
+  /** The repos, worktrees and the agent.create operation; `work.stepMs` slows its steps. */
+  readonly work = new FakeWork(this, () => this.iso());
   /** The agents played as structured sessions and their transcript events; `transcript.push` and `ask` drive the stream. */
   readonly transcript: FakeTranscript;
   private serveChat: boolean;
@@ -90,7 +93,7 @@ export class FakeDaemon {
   private timer: ReturnType<typeof setInterval> | null = null;
   private retention: number;
   private now: () => Date;
-  private codes = new Set<string>();
+  private pairing = new FakePairing();
   private script = new Script({
     iso: () => this.iso(),
     emit: (topic, type, f) => this.emit(topic, type, f),
@@ -110,7 +113,6 @@ export class FakeDaemon {
       }
     },
   });
-  private tokens = new Map<string, { id: string; name: string }>();
 
   constructor(opts: FakeDaemonOptions = {}) {
     this.retention = opts.retention ?? 1000;
@@ -130,9 +132,7 @@ export class FakeDaemon {
     seedChat(this.chat, this.iso());
   }
 
-  private iso(): Timestamp {
-    return this.now().toISOString();
-  }
+  private iso = (): Timestamp => this.now().toISOString();
 
   // ---- hosting ----
 
@@ -151,9 +151,7 @@ export class FakeDaemon {
     };
     this.conns.add(conn);
     transport.onmessage = (m) => this.onMessage(conn, m);
-    transport.onclose = () => {
-      this.conns.delete(conn);
-    };
+    transport.onclose = () => void this.conns.delete(conn);
   }
 
   /** A connection through the network listener: anonymous until hello carries a device token. */
@@ -163,10 +161,7 @@ export class FakeDaemon {
 
   /** What `device.pair` gives the founder: a one-time code to redeem. */
   issueCode(): string {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // the Go daemon's, so a code looks the same
-    const code = Array.from(crypto.randomBytes(12), (b, i) => (i && i % 4 === 0 ? '-' : '') + alphabet[b % alphabet.length]).join('');
-    this.codes.add(code);
-    return code;
+    return this.pairing.issueCode();
   }
 
   dropConnections(): void {
@@ -178,7 +173,7 @@ export class FakeDaemon {
     this.timer = setInterval(() => this.tick(), ms);
   }
   stop(): void {
-    if (this.timer) clearInterval(this.timer);
+    clearInterval(this.timer ?? undefined);
     this.timer = null;
     this.dropConnections();
   }
@@ -260,7 +255,7 @@ export class FakeDaemon {
     c.transport.send(JSON.stringify({ jsonrpc: '2.0', id, ...body }));
   }
   private fail(e: Failure): Body {
-    return { error: { code: RPC_CODES[e.code] ?? -32603, message: e.message, data: e.data } };
+    return { error: { code: e.rpc ?? RPC_CODES[e.code] ?? -32603, message: e.message, data: e.data } };
   }
 
   private onMessage(c: Conn, line: string) {
@@ -274,11 +269,7 @@ export class FakeDaemon {
       return this.reply(c, req.id ?? null, this.fail(badRequest('A request needs an id and a method.')));
     }
     const params = req.params ?? {};
-    if (
-      c.network &&
-      !c.paired &&
-      !(req.method === 'device.redeem' || (req.method === 'hello' && typeof params.token === 'string' && this.tokens.has(params.token)))
-    ) {
+    if (c.network && !c.paired && !(req.method === 'device.redeem' || (req.method === 'hello' && this.pairing.knows(params.token)))) {
       // The listener's one reply to anyone unpaired, the same words whatever was asked.
       return this.reply(c, req.id, this.fail(new Failure('refused', 'refused', { gate: 'unpaired', reason: 'not paired' })));
     }
@@ -304,7 +295,11 @@ export class FakeDaemon {
   private withReplay(c: Conn, method: string, p: Record<string, unknown>): unknown {
     const spec = METHODS[method as MethodName];
     if (!spec?.write || typeof p.request_id !== 'string' || UNKEPT.has(method)) return this.dispatch(c, method, p);
-    return this.replies.once(p, () => this.dispatch(c, method, p) as Record<string, unknown>, (r) => this.chat.refreshed(r));
+    return this.replies.once(
+      p,
+      () => this.dispatch(c, method, p) as Record<string, unknown>,
+      (r) => this.chat.refreshed(r),
+    );
   }
 
   // Replayed events follow the subscribe reply, never precede it.
@@ -321,38 +316,45 @@ export class FakeDaemon {
     return { kind: c.caller.kind === 'device' ? 'device' : c.caller.kind === 'agent' ? 'agent' : 'user', name: c.caller.name };
   }
 
+  private hello(c: Conn, p: Record<string, unknown>): unknown {
+    if (typeof p.client !== 'string') throw badRequest('hello needs client', 'client');
+    if (typeof p.protocol !== 'number') throw badRequest('hello needs protocol', 'protocol');
+    const device = c.network ? this.pairing.device(p.token) : undefined;
+    if (device) {
+      c.role = this.deviceRole;
+      c.paired = true;
+      c.caller = { kind: 'device', device: device.id, name: device.name };
+    }
+    c.helloed = true;
+    if (c.caller.name === 'unknown') c.caller = { ...c.caller, name: p.client };
+    return {
+      protocol: PROTOCOL,
+      min_client: 1,
+      daemon: 'fake0000',
+      schema: 1,
+      role: c.role,
+      caller: c.caller,
+      capabilities: {
+        chat: this.serveChat,
+        transcript: this.transcript.on,
+        review: false,
+        ...(this.serveBytes ? TERMINAL_CAPS : TEXT_CAPS),
+      },
+      transport: c.network ? 'network' : 'local',
+      methods: Object.entries(METHODS)
+        .filter(([name]) => this.served.every((m) => m.lists(name)))
+        .map(([name, m]) => ({
+          name,
+          since: m.since,
+          role: m.role,
+          allowed: this.mayCall(c.role, m.role),
+        })),
+    };
+  }
+
   private dispatch(c: Conn, method: string, p: Record<string, unknown>): unknown {
     const spec = METHODS[method as MethodName];
-    if (method === 'hello') {
-      if (typeof p.client !== 'string') throw badRequest('hello needs client', 'client');
-      if (typeof p.protocol !== 'number') throw badRequest('hello needs protocol', 'protocol');
-      const device = c.network && typeof p.token === 'string' ? this.tokens.get(p.token) : undefined;
-      if (device) {
-        c.role = this.deviceRole;
-        c.paired = true;
-        c.caller = { kind: 'device', device: device.id, name: device.name };
-      }
-      c.helloed = true;
-      if (c.caller.name === 'unknown') c.caller = { ...c.caller, name: p.client };
-      return {
-        protocol: PROTOCOL,
-        min_client: 1,
-        daemon: 'fake0000',
-        schema: 1,
-        role: c.role,
-        caller: c.caller,
-        capabilities: { chat: this.serveChat, transcript: this.transcript.on, review: false, ...(this.serveBytes ? TERMINAL_CAPS : TEXT_CAPS) },
-        transport: c.network ? 'network' : 'local',
-        methods: Object.entries(METHODS)
-          .filter(([name]) => this.served.every((m) => m.lists(name)))
-          .map(([name, m]) => ({
-            name,
-            since: m.since,
-            role: m.role,
-            allowed: this.mayCall(c.role, m.role),
-          })),
-      };
-    }
+    if (method === 'hello') return this.hello(c, p);
     if (!c.helloed && method !== 'device.redeem') throw badRequest('say hello first'); // an unpaired caller redeems with no hello
     if (!spec) throw new Failure('not_found', `unknown method ${method}`);
     if (!this.mayCall(c.role, spec.role)) throw refused('role', `the ${c.role} role may not call ${method}`);
@@ -366,7 +368,16 @@ export class FakeDaemon {
     if (owned) return owned.value;
     const handler = HANDLERS[method];
     if (handler)
-      return handler({ c, p, actor, script: this.script, transcript: this.transcript, agent, byTerminal: (id) => this.byTerminal(id), iso: () => this.iso() });
+      return handler({
+        c,
+        p,
+        actor,
+        script: this.script,
+        transcript: this.transcript,
+        agent,
+        byTerminal: (id) => this.byTerminal(id),
+        iso: () => this.iso(),
+      });
     switch (method as MethodName) {
       case 'whoami':
         return {
@@ -376,20 +387,8 @@ export class FakeDaemon {
             .filter(([, m]) => this.mayCall(c.role, m.role))
             .map(([n]) => n),
         };
-      case 'daemon.status': {
-        const by_state: Record<string, number> = {};
-        for (const s of this.sessions.values()) by_state[s.state] = (by_state[s.state] ?? 0) + 1;
-        return {
-          alive: true,
-          version: 'fake0000',
-          protocol: PROTOCOL,
-          schema: 1,
-          started_at: this.iso(),
-          terminal_host: { name: 'fake', health: 'ok' },
-          agents: { total: this.sessions.size, by_state },
-          inbox: { unread: this.inbox.unread() },
-        };
-      }
+      case 'daemon.status':
+        return statusReply(this.sessions, this.inbox.unread(), this.iso());
       case 'agents.list':
         return { agents: [...this.sessions.values()].map((s) => view(s)) };
       case 'agent.get':
@@ -407,24 +406,10 @@ export class FakeDaemon {
         const s = agent();
         return { prompts: s.prompt ? [s.prompt] : [] };
       }
-      case 'device.pair': {
-        const code = this.issueCode();
-        return this.script.accepted('Pairing code made.', {
-          code,
-          expires_at: new Date(this.now().getTime() + 300_000).toISOString(),
-          fingerprint: 'fa'.repeat(32),
-          uri: `handline://pair?${new URLSearchParams({ host: '127.0.0.1:0', fp: 'fa'.repeat(32), code })}`,
-        });
-      }
-      case 'device.redeem': {
-        if (typeof p.code !== 'string') throw badRequest('code is a string', 'code');
-        if (typeof p.name !== 'string' || p.name === '') throw badRequest("name is the device's name, a string", 'name');
-        if (!this.codes.delete(p.code.trim().toUpperCase())) throw refused('pairing_code', 'that pairing code is not valid');
-        const token = 'hld_' + crypto.randomBytes(32).toString('hex'),
-          id = 'dev_' + crypto.randomBytes(6).toString('hex');
-        this.tokens.set(token, { id, name: p.name });
-        return this.script.accepted('Paired.', { token, device: id });
-      }
+      case 'device.pair':
+        return this.pairing.pair(ok, this.now());
+      case 'device.redeem':
+        return this.pairing.redeem(ok, p);
       default:
         throw refused('unsupported', `the fake daemon does not serve ${method}`);
     }
@@ -432,7 +417,16 @@ export class FakeDaemon {
 
   /** Everything that may leave a method out of what this daemon lists and serves. */
   private get served(): { lists(name: string): boolean }[] {
-    return [this.tasks, this.inbox, this.accounts, this.admin, this.transcript, this.knobs, { lists: (n) => this.serveChat || !n.startsWith('chat.') }];
+    return [
+      this.tasks,
+      this.inbox,
+      this.accounts,
+      this.admin,
+      this.transcript,
+      this.knobs,
+      this.work,
+      { lists: (n) => this.serveChat || !n.startsWith('chat.') },
+    ];
   }
 
   /** The fake modules' methods (accounts, stats and settings, inbox, tasks); null for a method none of them owns. */
@@ -441,6 +435,7 @@ export class FakeDaemon {
       return { value: accountsReply(this.knobs.accounts, [...this.sessions.values()]) };
     if (/^accounts?\./.test(method)) return { value: this.accounts.call(method, p, ok) };
     if (this.admin.owns(method)) return { value: this.admin.call(method, p, ok) };
+    if (this.work.owns(method)) return { value: this.work.call(method, p, ok) };
     if (method.startsWith('inbox.')) return { value: this.inbox.call(method, p, c.caller.name, ok) };
     if (this.tasks.serves(method)) return { value: taskCall(this.tasks, method, p, c.caller.name, this.script) };
     return null;

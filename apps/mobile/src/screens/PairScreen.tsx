@@ -4,19 +4,22 @@ import { radius, space } from '@handline/tokens';
 import { RpcError } from '@handline/client';
 import { pair, type Pairing } from '../session.ts';
 import { Button } from './parts.tsx';
+import { ScanQr } from './ScanQr.tsx';
 import { usePalette } from '../theme.ts';
 
-/** Pairing from a pasted `handline://pair?...` uri. Scanning the QR with the camera is a follow-up. */
+/** Pairing from the QR the computer shows (camera), or from a pasted `handline://pair?...` uri. */
 export function PairScreen(props: { onPaired: (p: Pairing) => void }) {
   const c = usePalette();
   const [uri, setUri] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const go = async () => {
+  const [scanning, setScanning] = useState(false);
+  const go = async (text = uri) => {
+    setScanning(false);
     setBusy(true);
     setError(null);
     try {
-      props.onPaired(await pair(uri, 'phone'));
+      props.onPaired(await pair(text, 'phone'));
     } catch (e) {
       setError(e instanceof RpcError ? (e.reason ?? e.message) : (e as Error).message);
     } finally {
@@ -26,7 +29,14 @@ export function PairScreen(props: { onPaired: (p: Pairing) => void }) {
   return (
     <View style={{ padding: space.lg, gap: space.md }}>
       <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>Pair with a daemon</Text>
-      <Text style={{ color: c.muted }}>On the computer, run hl device pair. Paste the pairing link it prints.</Text>
+      <Text style={{ color: c.muted }}>
+        On the computer, choose Pair a phone in the Handline menu, and scan its code. Or run hl device pair and paste the link.
+      </Text>
+      {scanning ? (
+        <ScanQr onScan={(t) => void go(t)} onCancel={() => setScanning(false)} />
+      ) : (
+        <Button testID="pair-scan" label="Scan the code" onPress={() => setScanning(true)} kind="yes" disabled={busy} />
+      )}
       <TextInput
         testID="pair-uri"
         value={uri}
@@ -43,7 +53,7 @@ export function PairScreen(props: { onPaired: (p: Pairing) => void }) {
           {error}
         </Text>
       )}
-      <Button testID="pair-go" label={busy ? 'Pairing…' : 'Pair'} onPress={() => void go()} disabled={busy || !uri.trim()} kind="yes" />
+      <Button testID="pair-go" label={busy ? 'Pairing…' : 'Pair'} onPress={() => void go(uri)} disabled={busy || !uri.trim()} kind="yes" />
     </View>
   );
 }

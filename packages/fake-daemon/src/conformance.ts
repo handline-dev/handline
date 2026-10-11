@@ -4,7 +4,8 @@
 // and, for structured_controls.json, structured_agent=handline.auditor (idle) turn_agent=conf.working interrupt_agent=conf.interrupt (its turn is ended by
 // the fixture) asking_agent=conf.asking (a permission is open); and, for agent_view_fields.json, view_ready_agent=view.ready view_blocked_agent=view.blocked
 // view_busy_agent=view.busy view_walled_agent=view.walled view_plain_agent=view.plain; and, for agent_view_attention.json, view_fire_agent=view.fire
-// view_ask_agent=view.ask view_alert_agent=view.alert view_stuck_agent=view.stuck view_ignored_agent=view.ignored view_broken_agent=view.broken (plus busy and plain); and, for tasks_list_fields.json,
+// view_ask_agent=view.ask view_alert_agent=view.alert view_stuck_agent=view.stuck view_ignored_agent=view.ignored view_broken_agent=view.broken (plus busy and plain); and, for account_login.json and account_add.json, login_account=conf.login login_code=good-code login_wrong_code=wrong-code add_account=conf.added
+// add_used_account=conf.used add_retry_account=conf.retried; and, for tasks_list_fields.json,
 // tasks_blocked_owner=t.blocked tasks_timed_owner=t.timed tasks_overdue_owner=t.overdue tasks_done_owner=t.done; and, for transcript_output.json, output_agent=conf.output (three Bash tool items: one with output, one with output and dropped_lines 8, one with neither)
 import { DaemonClient, memoryPair } from '@handline/client';
 import type { FakeDaemon } from './daemon.ts';
@@ -24,13 +25,18 @@ export async function seedConformance(daemon: FakeDaemon): Promise<void> {
     if (state === 'running') daemon.chat.setTurn(name, true);
     if (name === 'conf.asking') daemon.transcript.ask(name, '6f1c0a52-0000-4000-8000-0000000000a1', 'Bash', 'ls');
   }
+  daemon.accounts.add({ name: 'conf.login', login_state: 'needs_login' });
   const wall = { account: 'alpha', clock: 1_790_000_000, assumed: true };
   for (const [name, state, view] of [
     ['view.ready', 'idle', { kind: 'opus high', task_count: 2, ready: true, wall: null }],
     ['view.blocked', 'idle', { kind: 'opus high', task_count: 1, ready: false, wall: null }],
     ['view.busy', 'running', { kind: 'codex gpt-5 mid', task_count: 1, ready: false, wall: null, attention: 'running' }],
     ['view.walled', 'closed', { kind: 'opus max', task_count: 0, ready: false, wall }],
-    ['view.plain', 'closed', { kind: 'opus max', task_count: 0, ready: false, wall: null, fire: null, attention: null, cache_ignored: false, config_error: null }],
+    [
+      'view.plain',
+      'closed',
+      { kind: 'opus max', task_count: 0, ready: false, wall: null, fire: null, attention: null, cache_ignored: false, config_error: null },
+    ],
     ['view.fire', 'idle', { kind: 'opus high', fire: 'context' }],
     ['view.ask', 'idle', { kind: 'opus high', attention: 'ask' }],
     ['view.alert', 'idle', { kind: 'opus high', attention: 'alert' }],

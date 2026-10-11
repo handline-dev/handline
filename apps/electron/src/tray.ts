@@ -61,6 +61,8 @@ export interface TrayMode {
   switchTo(): void;
   /** Connect mode: pair with the `handline://` link on the clipboard. */
   pair(): void;
+  /** Own mode, or Connect to this computer's daemon: show a QR a phone scans to pair. Absent when the app is on another device's gateway. */
+  phone?(): void;
 }
 
 const MODE_WORDS: Record<Mode, string> = { connect: 'Mode: Connect to a daemon', own: 'Mode: Own daemon' };
@@ -98,6 +100,7 @@ export function trayMenu(state: DaemonState, reason: string, a: TrayActions, fol
     if (state === 'failed' || state === 'stopped') items.push({ label: 'Start daemon', click: a.startDaemon });
   }
   if (m?.mode === 'connect') items.push({ label: 'Pair with the link on the clipboard', click: m.pair });
+  if (m?.phone) items.push({ label: 'Pair a phone…', click: m.phone });
   if (m) items.push({ label: m.mode === 'connect' ? 'Switch to Own daemon' : 'Switch to Connect', click: m.switchTo });
   if (follow) items.push({ type: 'separator' }, ...followItems(follow));
   items.push({ type: 'separator' }, { label: 'Quit Handline', click: a.quit });

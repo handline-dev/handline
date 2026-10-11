@@ -1,0 +1,333 @@
+{
+ "fixtures": [
+  {
+   "name": "worktree.set_status.an_agent_session_is_refused_by_role",
+   "spec": "worktree.set_status",
+   "about": "NOT_YET_IN_PYTHON A person's write: a call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.set_status",
+      "params": {
+       "path": "/",
+       "status": "done",
+       "request_id": "conf-ws-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.set_status.needs_a_request_id",
+   "spec": "worktree.set_status",
+   "about": "NOT_YET_IN_PYTHON A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.set_status",
+      "params": {
+       "path": "/",
+       "status": "done"
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.set_status.needs_a_path",
+   "spec": "worktree.set_status",
+   "about": "NOT_YET_IN_PYTHON No path is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.set_status",
+      "params": {
+       "status": "done",
+       "request_id": "conf-ws-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "path"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.set_status.needs_a_status",
+   "spec": "worktree.set_status",
+   "about": "NOT_YET_IN_PYTHON No status is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.set_status",
+      "params": {
+       "path": "/",
+       "request_id": "conf-ws-4"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "status"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.set_status.status_is_not_empty",
+   "spec": "worktree.set_status",
+   "about": "NOT_YET_IN_PYTHON An empty status is bad_request naming it, before the path is looked up.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.set_status",
+      "params": {
+       "path": "/",
+       "status": "",
+       "request_id": "conf-ws-5"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "status"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.set_status.status_is_at_most_40_characters",
+   "spec": "worktree.set_status",
+   "about": "NOT_YET_IN_PYTHON A status of 41 characters is bad_request naming it, before the path is looked up.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.set_status",
+      "params": {
+       "path": "/",
+       "status": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "request_id": "conf-ws-6"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "status"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.set_status.only_a_known_worktree",
+   "spec": "worktree.set_status",
+   "about": "NOT_YET_IN_PYTHON A path that is not a worktree an agent works in is not_found, what worktree; nothing is written.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.set_status",
+      "params": {
+       "path": "/",
+       "status": "done",
+       "request_id": "conf-ws-7"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "worktree"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.set_status.sets_the_label",
+   "spec": "worktree.set_status",
+   "about": "NOT_YET_IN_PYTHON The status of a listed worktree changes and worktrees.list shows it. Needs --var status_worktree: the path of a worktree worktrees.list lists.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.set_status",
+      "params": {
+       "path": "{{status_worktree}}",
+       "status": "in review",
+       "request_id": "conf-ws-8"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "worktrees.list",
+      "params": {}
+     },
+     "result": {
+      "worktrees": {
+       "$contains": {
+        "path": "{{status_worktree}}",
+        "status": "in review"
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

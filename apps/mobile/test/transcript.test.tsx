@@ -272,4 +272,13 @@ describe('tool output in the chat', () => {
     expect(opener()).toBeNull();
     m.store.stop();
   });
+
+  it('says how many lines were let go when all the output was', async () => {
+    const m = await chat({ output: '', dropped_lines: 5 });
+    const mine = () => [...document.body.querySelectorAll('[data-testid^="tool-"]')].find((e) => e.textContent?.includes('seq 1 10'));
+    await until(mine, 'the tool line');
+    expect(mine()!.textContent).toContain('5 more lines let go');
+    expect(opener()).toBeNull();
+    m.store.stop();
+  });
 });

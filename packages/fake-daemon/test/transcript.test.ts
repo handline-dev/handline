@@ -120,10 +120,17 @@ test('forgetting events makes first_seq rise and a read from before it say gap, 
   assert.equal(r.gap, true);
   assert.equal(r.first_seq, 5);
   assert.equal(r.last_seq, all.last_seq);
-  assert.deepEqual(r.events.map((e) => e.seq), all.events.slice(4).map((e) => e.seq));
+  assert.deepEqual(
+    r.events.map((e) => e.seq),
+    all.events.slice(4).map((e) => e.seq),
+  );
   assert.equal((await client.call('transcript.events', { agent: AUD, since_seq: 4 })).gap, false);
   daemon.transcript.push(AUD, { kind: 'text', text: 'after' });
-  assert.equal((await client.call('transcript.events', { agent: AUD, limit: 1 })).events[0]!.seq, all.last_seq + 1, 'seq goes on after forgetting');
+  assert.equal(
+    (await client.call('transcript.events', { agent: AUD, limit: 1 })).events[0]!.seq,
+    all.last_seq + 1,
+    'seq goes on after forgetting',
+  );
   client.close();
 });
 
@@ -131,7 +138,10 @@ test('agents.list and agent.get say which agent is structured, and a terminal ag
   const { client } = setup();
   await client.start();
   const { agents } = await client.call('agents.list', {});
-  assert.deepEqual(agents.filter((a) => a.structured).map((a) => a.name), [AUD]);
+  assert.deepEqual(
+    agents.filter((a) => a.structured).map((a) => a.name),
+    [AUD],
+  );
   assert.equal((await client.call('agent.get', { agent: AUD })).structured, true);
   assert.equal((await client.call('agent.get', { agent: 'handline.term-build' })).structured, undefined);
   client.close();

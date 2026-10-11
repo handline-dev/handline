@@ -72,6 +72,22 @@ describe('the list', () => {
     expect(text(card('gamma'))).toContain('no reading');
   });
 
+  it('says on each line the login, the plan, when the week resets, and whether it can take another agent and why not', async () => {
+    await mount();
+    await until(() => text(card('beta').querySelector('[data-usage]')).includes('cannot'), 'the usage line');
+    expect(text(card('alpha').querySelector('[data-usage]'))).toMatch(/^logged in · pro · week resets .*· can take another agent$/);
+    expect(text(card('beta').querySelector('[data-usage]'))).toContain('cannot take another agent: 5h 88% at last reading');
+    expect(text(card('gamma').querySelector('[data-usage]'))).toBe('needs login');
+  });
+
+  it('keeps the usage line when the accounts topic sends a row without those fields', async () => {
+    const s = await mount();
+    await until(() => text(card('beta').querySelector('[data-usage]')).includes('cannot'), 'the usage line');
+    await act(async () => void s.daemon.accounts.set({ account: 'beta', cap: 3 }));
+    await until(() => text(card('beta').querySelector('.acct-agents')).includes('/3'), 'the event');
+    expect(text(card('beta').querySelector('[data-usage]'))).toContain('cannot take another agent: 5h 88% at last reading');
+  });
+
   it('the gauge changes colour at 60 and 85 percent and always says the number', async () => {
     const s = setup();
     for (const p of [59, 60, 84, 85])
@@ -194,16 +210,13 @@ describe('one account', () => {
     expect($$('.acct-settings [role="switch"]')[0]!.getAttribute('aria-checked')).toBe('false');
   });
 
-  it('login runs in a terminal the daemon opens: the page asks for no credential, and the progress ends when the topic says ok', async () => {
+  it('login starts on the daemon and the page asks for no credential (the URL and code are not shown yet)', async () => {
     const s = await mount('#/accounts/gamma');
     await until(() => $('.acct-one'), 'the account');
     expect($('input[type="password"], input[name*="token" i], input[name*="password" i]')).toBeNull();
     await click(button('Log in'));
-    await until(() => text($('.acct-login')).includes('Login in progress in terminal term:login:gamma'), 'the progress');
+    await until(() => s.daemon.accounts.list().accounts.find((a) => a.name === 'gamma')?.login?.state === 'waiting', 'the login to start');
     expect(button('Log in')!.getAttribute('title')).toContain('hl login gamma');
-    expect(($$('button').find((b) => text(b) === 'Log in') as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => void s.daemon.accounts.loggedIn('gamma'));
-    await until(() => !text($('.acct-login')).includes('Login in progress'), 'the progress to end');
   });
   describe('remove', () => {
     const open = async (name: string, s = setup()) => {

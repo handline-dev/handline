@@ -45,14 +45,34 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
                         "parent": None}
                 con.execute("INSERT OR REPLACE INTO agent_view(agent, view, updated) VALUES(?, ?, 0)", (n, json.dumps(view)))
             seed_tool_items(con, output_agent)
+            seed_workroom(home, con)
             con.commit()
             con.close()
-            return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent}
+            return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, **WORKROOM}
         except sqlite3.Error:
             if daemon.poll() is not None:
                 break
             time.sleep(0.05)
     raise RuntimeError("the daemon's database did not come up to seed")
+
+
+# What agent_create.json and worktree_status.json need: a repo (a git directory with a commit), an agent that works in it, and the
+# repo's path as that agent's worktree. create_name is not seeded: a new agent is started in a terminal, which this run has none of, so
+# the done, failed and retry fixtures are named in go/conformance-needvar.txt and the Go tests play them over a fake host.
+WORKROOM = {"create_repo": "", "create_parent": "c.parent", "status_worktree": ""}
+
+
+def seed_workroom(home: Path, con: sqlite3.Connection) -> None:
+    repo = home.parent / "workroom"
+    repo.mkdir()
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
+    for args in (["init", "-q", "-b", "main"], ["commit", "-q", "--allow-empty", "-m", "first"]):
+        subprocess.run(["git", *args], cwd=repo, env=env, check=True)
+    agent = home / "agents" / WORKROOM["create_parent"]
+    agent.mkdir(parents=True)
+    (agent / "agent.yaml").write_text(f"role: seeded by conformance_fds\nrepo: {repo}\n")
+    con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'idle', 0, ?)", (WORKROOM["create_parent"], str(repo)))
+    WORKROOM["create_repo"] = WORKROOM["status_worktree"] = str(repo.resolve())
 
 
 def seed_tool_items(con: sqlite3.Connection, agent: str) -> None:

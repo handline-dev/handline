@@ -2,6 +2,9 @@
 .stream.col > .anim-item {
   max-width: 100%;
 }
+.stream.col > .anim-item:has(> .msg) {
+  max-width: 80%;
+}
 .stream.col > .anim-item:has(> .msg.person) {
   align-self: flex-end;
 }

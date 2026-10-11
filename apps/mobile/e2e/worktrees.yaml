@@ -1,0 +1,45 @@
+# On the agents list of a paired phone, on a fresh `pnpm fake-listener --founder-phone` (pair-and-page.yaml first): Worktrees as cards, Move to…, one worktree as a page, then New agent to done.  maestro test e2e/worktrees.yaml
+appId: dev.handline.mobile
+---
+- runFlow:
+    when: { notVisible: { id: worktrees-open } }
+    commands: [{ tapOn: { id: nav-agents } }]
+- tapOn:
+    id: worktrees-open
+- extendedWaitUntil:
+    visible: { id: 'wt-/work/handline.auditor' }
+    timeout: 15000
+- takeScreenshot: shots/worktrees-cards
+- tapOn:
+    id: 'wt-move-/work/handline.auditor'
+- tapOn:
+    id: 'wt-to-in review'
+- extendedWaitUntil:
+    visible: 'in review'
+    timeout: 10000
+- tapOn:
+    id: 'wt-open-/work/handline.auditor'
+- assertVisible: { id: wt-detail }
+- takeScreenshot: shots/worktrees-detail
+- tapOn: { id: wt-back }
+- tapOn: { id: wt-back }
+- tapOn:
+    id: new-agent-open
+- tapOn: { id: na-name }
+- inputText: phonemade
+- tapOn: { id: na-role }
+- inputText: reviewer
+- hideKeyboard
+- scrollUntilVisible: { element: { id: 'na-repo-/work/docs-site' } }
+- tapOn: { id: 'na-repo-/work/docs-site' }
+- takeScreenshot: shots/new-agent-form
+- scrollUntilVisible: { element: { id: na-create } }
+- tapOn: { id: na-create }
+- extendedWaitUntil:
+    visible: { id: na-done }
+    timeout: 20000
+- takeScreenshot: shots/new-agent-done
+- tapOn: { id: na-open }
+- extendedWaitUntil:
+    visible: { id: back }
+    timeout: 10000

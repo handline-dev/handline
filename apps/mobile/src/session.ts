@@ -22,7 +22,8 @@ export async function loadPairing(): Promise<Pairing | null> {
     return null;
   }
 }
-export const forgetPairing = () => SecureStore.deleteItemAsync(KEY);
+export const forgetPairing = () =>
+  Promise.all([SecureStore.deleteItemAsync(KEY), SecureStore.deleteItemAsync('handline.new-agent'), saveFirstTask(null)]).then(() => {});
 
 const connectTo = (host: string, fingerprint: string | null) => () =>
   fingerprint ? pinnedTransport(Native, listenerUrl(host), fingerprint) : webSocketTransport(listenerUrl(host, false));
@@ -49,3 +50,20 @@ export const storeFor = (p: Pairing): Store =>
       connect: connectTo(p.host, p.fingerprint),
     }),
   );
+
+const NEW_AGENT = 'handline.new-agent';
+/** The operation the New agent page was watching, so a relaunch returns to it. */
+export const loadOperation = () => SecureStore.getItemAsync(NEW_AGENT).catch(() => null);
+export const saveOperation = (op: string | null) =>
+  (op ? SecureStore.setItemAsync(NEW_AGENT, op) : SecureStore.deleteItemAsync(NEW_AGENT)).catch(() => {});
+/** The first task typed with that operation (text and time box), kept with it so a relaunch still sends it. */
+export interface FirstTask {
+  task: string;
+  box: string;
+}
+export const loadFirstTask = (): Promise<FirstTask | null> =>
+  SecureStore.getItemAsync(`${NEW_AGENT}.task`)
+    .then((s) => (s ? (JSON.parse(s) as FirstTask) : null))
+    .catch(() => null);
+export const saveFirstTask = (t: FirstTask | null) =>
+  (t ? SecureStore.setItemAsync(`${NEW_AGENT}.task`, JSON.stringify(t)) : SecureStore.deleteItemAsync(`${NEW_AGENT}.task`)).catch(() => {});

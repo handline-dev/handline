@@ -78,6 +78,7 @@ A method marked write takes a required `request_id`.
 | `agent.fold` | agent | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `agent.move` | agent | yes | `agent`, `account`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `agent.unstall` | founder | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | terminal_lock, state |
+| `agent.create` | founder | yes | `name`, `role`, `repo`, `base?`, `model?`, `effort?`, `parent?`, `account?`, `request_id` | `OperationStarted` | `refused`, `not_found`, `bad_request` | state |
 | `session.start` | agent | yes | `agent`, `account?`, `repo?`, `base?`, `request_id` | `Accepted` | `refused`, `not_found` | terminal_lock, state |
 | `session.wake` | agent | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | terminal_lock, state |
 | `session.stop` | agent | yes | `agent`, `mode`, `fresh?`, `request_id` | `Accepted` | `refused`, `not_found` | role, terminal_lock, state |
@@ -159,6 +160,7 @@ A method marked write takes a required `request_id`.
 | `accounts.list` | agent |  | `roster?`, `usage?` | `{accounts}` | `bad_request` |  |
 | `status.pick` | agent |  | none | `{picked, candidates, agent_costs}` |  |  |
 | `account.set` | founder | yes | `account`, `label?`, `cap?`, `recover?`, `cycle?`, `cycle_end?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `account.add` | founder | yes | `account`, `vendor?`, `request_id` | `Accepted & {account}` | `refused`, `bad_request` | role, state |
 | `account.login` | founder | yes | `account`, `request_id` | `Accepted & {login_id, state, url}` | `refused`, `not_found` | role, state |
 | `account.login_cancel` | founder | yes | `login_id`, `request_id` | `Accepted` | `refused`, `not_found` | role |
 | `account.login_code` | founder | yes | `login_id`, `code`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | role, state |
@@ -166,6 +168,7 @@ A method marked write takes a required `request_id`.
 | `repos.list` | member |  | none | `{repos}` |  |  |
 | `worktrees.list` | member |  | `repo?`, `owner?` | `{worktrees}` |  |  |
 | `worktree.diff` | member |  | `path`, `file?` | `{path, file, diff, truncated}` | `not_found` |  |
+| `worktree.set_status` | member | yes | `path`, `status`, `request_id` | `Accepted` | `not_found`, `bad_request` |  |
 | `schedules.list` | agent |  | none | `{schedules, errors}` |  |  |
 | `schedule.add` | founder | yes | `target`, `cron`, `message`, `request_id` | `Accepted & {schedule}` | `refused`, `bad_request`, `not_found` |  |
 | `schedule.edit` | founder | yes | `schedule`, `target?`, `cron?`, `message?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -243,6 +246,10 @@ Move an agent to another account (legacy move).
 ### `agent.unstall`
 
 Clear a STALLED agent: it goes to queued with its failure counters reset, as hl unstall does. Refused (gate state) when the agent is not stalled. Only a test daemon serves it; the real daemon does not list it, and an app then shows Clear stall off.
+
+### `agent.create`
+
+Register a new agent, give it a worktree on a branch of a repo, and start it there, as hl spawn does. A long-running operation: the reply carries the operation id, and the operations topic and operation.get follow it to done or failed. Founder only. Parameters are checked before anything is looked up, in this order: request_id, name, role, effort, account, then the repo, the parent, the name against its parent, and whether the name is used. The operation has kind agent.create and its agent is the new name from the first event. steps_total may be null while it is unknown; a client shows step as the daemon sent it and invents none. When it is done, result is {agent, registered: true}. When it failed, result is {agent, registered}: registered says whether the agent was added to the team before the failure, so a failed operation can leave a registered agent that is not started; nothing is cleaned up. A name already used by an agent is refused (gate state) and no operation starts. A name with a parent must be '<parent>.<rest>'; anything else is bad_request, field name. base omitted means the daemon's default branch name, which is main today; a client that knows the repo's default_branch sends it.
 
 ### `session.start`
 
@@ -568,9 +575,13 @@ Which account the next agent would be placed on, each account's reason, and what
 
 The account Settings form in one call: alias, cap, usage recovery and the month cycle; nothing is written if any is refused. Fields not given are left alone. Chosen over set_cycle_on/set_cycle_end methods because the UI saves these together and the CLI twins (cap, cycle, recover, alias) each write one of these fields.
 
+### `account.add`
+
+Register an account on this machine; it is not logged in until account.login runs. As `hl account add <name> --no-login`: the account's directory is made and linked to the shared files, and nothing is logged in, so accounts.list shows it with login_state needs_login and the accounts topic sends account.changed. A name already used is refused (gate `state`). A name that is empty, holds a slash, starts with a dot or would not be read back as text is bad_request, field `account`; a vendor the daemon has no driver for is bad_request, field `vendor`. Nothing is changed on a refusal. The app then calls account.login. Offering to trust the agents' worktrees on the new account is not part of it (settings.trust).
+
 ### `account.login`
 
-Start a login on the account; answers the login id and the URL to open. No terminal is opened: the CLI runs without one, its URL is read from its stdout and its code is fed to its stdin by account.login_code. Refused with gate `state` while the account is already logging in; not_found for an unknown account. The end of a login is not a method: the accounts topic reports it in the account's `login`.
+Start a login on the account; answers the login id and the URL to open. No terminal is opened: the CLI runs without one, its URL is read from its stdout and its code is fed to its stdin by account.login_code. Refused with gate `state` while the account is already logging in; not_found for an unknown account. The end of a login is not a method: the accounts topic reports it in the account's `login`, state waiting, then code_sent after account.login_code, then done, or failed with a `reason`, or cancelled by account.login_cancel. A login that is done leaves login_state ok.
 
 ### `account.login_cancel`
 
@@ -595,6 +606,10 @@ Worktrees with status and changed files.
 ### `worktree.diff`
 
 Read-only git diff run by the daemon.
+
+### `worktree.set_status`
+
+Set the status label of a worktree. The status is a free string (Worktree.status), 1 to 40 characters; the label changes nothing on disk, and worktrees.list shows it in place of the daemon's own word (dirty or clean). A path that is not a worktree an agent works in is not_found, what worktree, as for worktree.diff.
 
 ### `schedules.list`
 
@@ -722,7 +737,7 @@ Every `hl` command an agent runs today and the method that serves it.
 Agent commands the spec does not keep at agent role, for the founder to decide. Each is founder-only or a person's act today, or is not a daemon call.
 
 - **Founder only today:** `hl cancel`; `hl unstall`; `hl team seal`; `hl hr approve|reject|apply|relabel|rehome|links`; `hl trust remove|apply|mcp`; `hl schedule add|edit|remove`; `hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)`; `hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)`; `hl dev-mode`; `hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)`; `hl service ...`
-- **Needs a decision:** `hl spawn (a founder's act; no method serves it)`; `hl agent register (a roster change, founder)`
+- **Needs a decision:** `hl spawn (a founder's act; agent.create serves it to the founder's apps, and no agent-role method serves it)`; `hl agent register (a roster change, founder)`
 - **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl go`; `hl install-hooks`; `hl daemon`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl withdraw`; `hl memory migrate`; `hl task note (suppressed)`
 
 The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.

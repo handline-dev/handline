@@ -38,6 +38,11 @@ export const skeletons = {
     ],
     gap: space.lg,
   },
+  /** The Worktrees table row: repo, a wide branch, owner, status, file count. */
+  worktrees: {
+    repeat: 8,
+    of: { row: [bar(80), { col: [bar('100%')] }, bar(140), bar(72), bar(48)], gap: space.md, h: rowHeight.task },
+  },
   inbox: { repeat: 5, of: block('65%', rowHeight.inbox) },
   accounts: { repeat: 3, of: item(rowHeight.account, [bar('40%'), bar('90%', 12), bar('70%', 12)]) },
   settings: {

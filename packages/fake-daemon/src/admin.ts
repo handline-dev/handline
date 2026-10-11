@@ -1,6 +1,8 @@
-// The fake daemon's read-mostly admin surface: the stats windows, the usage outlook, the home settings and the standing answers.
+// The fake daemon's read-mostly admin surface: the stats windows, the usage outlook, the home settings, the standing answers, and the repos
+// and worktrees (worktrees.ts).
 import type { Outlook, Settings, SettingsChanges, StandingAnswer, Stats, Timestamp } from '@handline/contract';
 import { Failure, badRequest } from './errors.ts';
+import { FakeWorktrees } from './worktrees.ts';
 
 type Accepted = (said: string) => unknown;
 const HOUR = 3_600_000;
@@ -23,6 +25,7 @@ const OVERLAYS: Record<string, number[]> = {
 };
 
 export class FakeAdmin {
+  readonly worktrees: FakeWorktrees;
   private now: () => Timestamp;
   private on: boolean;
   private values: Settings['values'] = {
@@ -41,15 +44,17 @@ export class FakeAdmin {
   constructor(now: () => Timestamp, on: boolean) {
     this.now = now;
     this.on = on;
+    this.worktrees = new FakeWorktrees(on);
   }
 
   /** Whether the daemon lists this method. */
-  lists = (name: string): boolean => this.on || !ADMIN.test(name);
+  lists = (name: string): boolean => (this.on || !ADMIN.test(name)) && this.worktrees.lists(name);
 
   /** Whether this class answers the method. */
-  owns = (name: string): boolean => ADMIN.test(name);
+  owns = (name: string): boolean => ADMIN.test(name) || this.worktrees.owns(name);
 
   call(method: string, p: Record<string, unknown>, accepted: Accepted): unknown {
+    if (this.worktrees.owns(method)) return this.worktrees.call(method, p);
     switch (method) {
       case 'stats.get':
         return this.stats(p.window === '7d' ? '7d' : '24h');
@@ -123,7 +128,9 @@ export class FakeAdmin {
       ],
       cost_per_day,
       agent_use: AGENT_USE.map((u) => ({ ...u, fracs: { ...u.fracs } })),
-      ...(pick !== undefined && { overlay: (Object.hasOwn(OVERLAYS, pick) ? OVERLAYS[pick]! : []).map((v, i) => (i < past.length ? v : 0)).slice(0, past.length) }),
+      ...(pick !== undefined && {
+        overlay: (Object.hasOwn(OVERLAYS, pick) ? OVERLAYS[pick]! : []).map((v, i) => (i < past.length ? v : 0)).slice(0, past.length),
+      }),
     };
   }
 

@@ -140,7 +140,7 @@
    "hl service ..."
   ],
   "needs_a_decision": [
-   "hl spawn (a founder's act; no method serves it)",
+   "hl spawn (a founder's act; agent.create serves it to the founder's apps, and no agent-role method serves it)",
    "hl agent register (a roster change, founder)"
   ],
   "not_daemon_methods": [
@@ -1296,6 +1296,111 @@
    ],
    "x-gates": [
     "terminal_lock",
+    "state"
+   ]
+  },
+  {
+   "name": "agent.create",
+   "summary": "Register a new agent, give it a worktree on a branch of a repo, and start it there, as hl spawn does. A long-running operation: the reply carries the operation id, and the operations topic and operation.get follow it to done or failed. Founder only. Parameters are checked before anything is looked up, in this order: request_id, name, role, effort, account, then the repo, the parent, the name against its parent, and whether the name is used.",
+   "description": "The operation has kind agent.create and its agent is the new name from the first event. steps_total may be null while it is unknown; a client shows step as the daemon sent it and invents none. When it is done, result is {agent, registered: true}. When it failed, result is {agent, registered}: registered says whether the agent was added to the team before the failure, so a failed operation can leave a registered agent that is not started; nothing is cleaned up. A name already used by an agent is refused (gate state) and no operation starts. A name with a parent must be '<parent>.<rest>'; anything else is bad_request, field name. base omitted means the daemon's default branch name, which is main today; a client that knows the repo's default_branch sends it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "name",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "role",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "A free string today."
+     }
+    },
+    {
+     "name": "repo",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "A directory, as repos.list gives it in path. An unknown one is not_found, what repo."
+     }
+    },
+    {
+     "name": "base",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The branch to start from. The worktree takes the side, local or origin/, that leads, and the operation fails when they have diverged."
+     }
+    },
+    {
+     "name": "model",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "effort",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "low",
+       "medium",
+       "high",
+       "xhigh",
+       "max"
+      ]
+     }
+    },
+    {
+     "name": "parent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "account",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Not served: bad_request, field account, never dropped. A new agent's account is chosen when it starts; a client offers no account picker until a daemon serves this."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/OperationStarted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
     "state"
    ]
   },
@@ -6198,6 +6303,75 @@
    "description": "Fields not given are left alone. Chosen over set_cycle_on/set_cycle_end methods because the UI saves these together and the CLI twins (cap, cycle, recover, alias) each write one of these fields."
   },
   {
+   "name": "account.add",
+   "summary": "Register an account on this machine; it is not logged in until account.login runs.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "account",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The new account's name: one plain line, no slash, not starting with a dot."
+     }
+    },
+    {
+     "name": "vendor",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The tool the account is for; omitted means the default (claude)."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "account": {
+         "type": "string",
+         "description": "The name as registered."
+        }
+       },
+       "required": [
+        "account"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "As `hl account add <name> --no-login`: the account's directory is made and linked to the shared files, and nothing is logged in, so accounts.list shows it with login_state needs_login and the accounts topic sends account.changed. A name already used is refused (gate `state`). A name that is empty, holds a slash, starts with a dot or would not be read back as text is bad_request, field `account`; a vendor the daemon has no driver for is bad_request, field `vendor`. Nothing is changed on a refusal. The app then calls account.login. Offering to trust the agents' worktrees on the new account is not part of it (settings.trust).",
+   "x-gates": [
+    "role",
+    "state"
+   ]
+  },
+  {
    "name": "account.login",
    "summary": "Start a login on the account; answers the login id and the URL to open.",
    "paramStructure": "by-name",
@@ -6261,7 +6435,7 @@
      "$ref": "#/components/errors/not_found"
     }
    ],
-   "description": "No terminal is opened: the CLI runs without one, its URL is read from its stdout and its code is fed to its stdin by account.login_code. Refused with gate `state` while the account is already logging in; not_found for an unknown account. The end of a login is not a method: the accounts topic reports it in the account's `login`.",
+   "description": "No terminal is opened: the CLI runs without one, its URL is read from its stdout and its code is fed to its stdin by account.login_code. Refused with gate `state` while the account is already logging in; not_found for an unknown account. The end of a login is not a method: the accounts topic reports it in the account's `login`, state waiting, then code_sent after account.login_code, then done, or failed with a `reason`, or cancelled by account.login_cancel. A login that is done leaves login_state ok.",
    "x-gates": [
     "role",
     "state"
@@ -6569,6 +6743,53 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "worktree.set_status",
+   "summary": "Set the status label of a worktree. The status is a free string (Worktree.status), 1 to 40 characters; the label changes nothing on disk, and worktrees.list shows it in place of the daemon's own word (dirty or clean). A path that is not a worktree an agent works in is not_found, what worktree, as for worktree.diff.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "path",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "status",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -9328,6 +9549,10 @@
            "failed",
            "cancelled"
           ]
+         },
+         "reason": {
+          "type": "string",
+          "description": "Why the login ended failed, one plain line (a wrong code, or the account is logged in as the same Anthropic account as <names>); absent while it has not failed."
          }
         },
         "required": [
@@ -9980,6 +10205,26 @@
      "result",
      "agent"
     ]
+   },
+   "OperationStarted": {
+    "allOf": [
+     {
+      "$ref": "#/components/schemas/Accepted"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "operation": {
+        "type": "string",
+        "description": "The id of the operation; operation.get and the operations topic follow it."
+       }
+      },
+      "required": [
+       "operation"
+      ]
+     }
+    ],
+    "description": "The result of a write that starts a long-running operation."
    },
    "Schedule": {
     "type": "object",

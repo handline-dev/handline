@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { STATE_WORD, outUntil, stateOf, span } from '@handline/app-core';
 import type { Account } from '@handline/client';
 import { useConnection } from '@handline/app-react';
-import { useAccounts, useAgents, useServes, useWrite } from '@handline/app-data';
+import { useAccountUsage, useAccounts, useAgents, useServes, useWrite } from '@handline/app-data';
 import { AccountSettings } from './AccountSettings.tsx';
 import { Gauge, useNow } from './Gauge.tsx';
 import { goAgent } from './route.ts';
@@ -44,6 +44,24 @@ export function StateChip({ a, now }: { a: Account; now: number }) {
 
 export const agentsLine = (a: Account) => `${a.agents.length} / cap ${a.cap_effective}`;
 
+const LOGIN_WORD: Record<Account['login_state'], string> = { ok: 'logged in', needs_login: 'needs login', unknown: 'login unknown' };
+const resetAt = (iso: string) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+/** What `hl account list` adds to the gauges: the login, the plan, when the week resets, and whether it can take another agent and why not. */
+export function UsageLine({ a }: { a: Account }) {
+  const week = a.weekly?.resets_at;
+  return (
+    <span className="acct-usage col-span-full text-hint muted" data-usage={a.name}>
+      {[LOGIN_WORD[a.login_state], a.plan, week ? `week resets ${resetAt(week)}` : null].filter(Boolean).join(' · ')}
+      {a.assignable === undefined ? null : a.assignable ? (
+        <span className="acct-assign"> · can take another agent</span>
+      ) : (
+        <span className="acct-assign no"> · cannot take another agent: {a.assign_reason}</span>
+      )}
+    </span>
+  );
+}
+
 function Row({ a, now }: { a: Account; now: number }) {
   return (
     <a className={ROW} href={`#/accounts/${encodeURIComponent(a.name)}`} data-account={a.name}>
@@ -58,6 +76,7 @@ function Row({ a, now }: { a: Account; now: number }) {
         <Icon name="agent" size={14} label="Agents" />
         {a.agents.length}/{a.cap_effective}
       </span>
+      <UsageLine a={a} />
     </a>
   );
 }
@@ -80,9 +99,11 @@ function AddAccount() {
 
 export function AccountsPage({ name }: { name: string | null }) {
   const q = useAccounts();
+  const usage = useAccountUsage().data?.accounts;
   const { served } = useServes('accounts.list');
   const now = useNow();
-  const list = q.data?.accounts ?? [];
+  // The topic's rows are live; the usage read adds the fields only it carries.
+  const list = (q.data?.accounts ?? []).map((a) => ({ ...usage?.find((u) => u.name === a.name), ...a }));
   const one = name === null ? null : list.find((a) => a.name === name);
   return (
     <ScrollPage className="accounts" aria-label="Accounts">
@@ -135,6 +156,7 @@ function AccountPageOne({ a, now }: { a: Account; now: number }) {
       <p className="acct-head m-0 flex items-center gap-2">
         <StateChip a={a} now={now} />
       </p>
+      <UsageLine a={a} />
       <TabStrip label="Account" value={tab} onChange={setTab} tabs={TABS.map((t) => ({ value: t, label: t }))} />
       {tab === 'Overview' ? (
         <div className="acct-overview flex flex-col gap-3">

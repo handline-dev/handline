@@ -393,11 +393,20 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 		func(s *rpc.Server) { prompts.Register(s, d.prompts) },
 		func(s *rpc.Server) {
 			if d.cfg.Session != nil {
-				sessionrpc.Register(s, d.cfg.Session())
+				env := d.cfg.Session()
+				env.Emit = d.operationEvent
+				sessionrpc.Register(s, env)
 			}
 		},
 		func(s *rpc.Server) { taskwrites.Register(s, d.cfg.Home, d.teller()) },
 		func(s *rpc.Server) { termchan.Register(s, d.tchan) },
+	}
+}
+
+// operationEvent sends an operation's progress to the operations topic.
+func (d *Daemon) operationEvent(topic, typ string, data any, agent string) {
+	if _, err := d.hub.Append(stream.Entry{Topic: topic, Type: typ, Data: data, Agent: agent}); err != nil {
+		d.cfg.Log("  stream: %s: %v", typ, err)
 	}
 }
 
