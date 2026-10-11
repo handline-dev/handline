@@ -101,7 +101,7 @@ func begin(c *rpc.Conn, p map[string]any) (any, error) {
 		if len(used) > 0 {
 			return nil, refusal(fmt.Sprintf("request #%d already opened T%d", chat, used[0].ID))
 		}
-		tid, err := db.NewTask(tx, clean, me, me, 0, prio, expects, 0)
+		tid, err := db.NewTask(tx, clean, me, me, 0, prio, expects, 0, "")
 		if err != nil {
 			return nil, err
 		}

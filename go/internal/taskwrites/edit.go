@@ -8,6 +8,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
 	"github.com/handline/handline/go/internal/timefmt"
 )
@@ -58,9 +59,23 @@ type change struct {
 	body     bool
 }
 
-// editTask is actions.edit_task: a task's owner, title, priority, timeout and/or body changed by whoever opened it or the founder. It answers
-// the refusal ("" when it edited), the message and the fields that changed.
-func editTask(tx *sql.Tx, tid int64, by string, home string, owner, title, body *string, priority, timeoutS *int64) (string, string, error) {
+// ownerChangeGuard is _owner_change_guard: whoever may edit the task, or its owner's manager, may give it to someone else.
+func ownerChangeGuard(t *task, by, home string) string {
+	if t.Owner != human {
+		if tm, err := team.LoadTeam(home); err == nil && by == tm.SupervisorOf(t.Owner) {
+			return ""
+		}
+	}
+	if g := editGuard(guardRow(t), by); g != "" {
+		return g + ", or " + t.Owner + "'s manager"
+	}
+	return ""
+}
+
+// editTask is actions.edit_task: a task's owner, reporter, title, priority, timeout and/or body changed by whoever opened it, its reporter
+// or the founder, and the owner alone also by the owner's manager. It answers the refusal ("" when it edited), the message and the fields
+// that changed.
+func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, title, body *string, priority, timeoutS *int64) (string, string, error) {
 	t, err := getTask(tx, tid)
 	if err != nil {
 		return "", "", err
@@ -68,11 +83,18 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, title, body 
 	if t == nil {
 		return fmt.Sprintf("no task T%d", tid), "", nil
 	}
-	if g := editGuard(&mergeRow{ID: tid, OpenedBy: t.OpenedBy}, by); g != "" {
+	reshape := title != nil || priority != nil || timeoutS != nil || body != nil || reporter != nil
+	g := ""
+	if reshape || owner == nil {
+		g = editGuard(guardRow(t), by)
+	} else {
+		g = ownerChangeGuard(t, by, home)
+	}
+	if g != "" {
 		return g, "", nil
 	}
-	if owner == nil && title == nil && priority == nil && timeoutS == nil && body == nil {
-		return "edit needs a new owner, a new title, a new priority, --timeout, a new body, or any of them", "", nil
+	if owner == nil && !reshape {
+		return "edit needs a new owner, a new reporter, a new title, a new priority, --timeout, a new body, or any of them", "", nil
 	}
 	var changes []change
 	var newBody *string
@@ -104,6 +126,14 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, title, body 
 		}
 		newOwner = owner
 		changes = append(changes, change{key: "owner", old: t.Owner, new: *owner})
+	}
+	var newReporter *string
+	if reporter != nil && *reporter != t.reporter() {
+		if *reporter != human && !contains(paths.ListAgents(home), *reporter) {
+			return "no agent named " + *reporter, "", nil
+		}
+		newReporter = reporter
+		changes = append(changes, change{key: "reporter", old: t.reporter(), new: *reporter})
 	}
 	var newTitle *string
 	if title != nil {
@@ -154,7 +184,7 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, title, body 
 	if len(changes) == 0 {
 		return fmt.Sprintf("task T%d already reads that way - nothing to edit", tid), "", nil
 	}
-	if err := db.EditTask(tx, tid, by, db.TaskEdit{Owner: newOwner, Title: newTitle, Priority: newPriority, TimeoutS: timeoutS, IsDoing: doing}); err != nil {
+	if err := db.EditTask(tx, tid, by, db.TaskEdit{Owner: newOwner, Reporter: newReporter, Title: newTitle, Priority: newPriority, TimeoutS: timeoutS, IsDoing: doing}); err != nil {
 		return "", "", err
 	}
 	if newOwner != nil {
@@ -209,11 +239,11 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			}
 			return &s, nil
 		}
-		var owner, title, body *string
+		var owner, reporter, title, body *string
 		for _, f := range []struct {
 			key string
 			dst **string
-		}{{"owner", &owner}, {"title", &title}, {"body", &body}} {
+		}{{"owner", &owner}, {"reporter", &reporter}, {"title", &title}, {"body", &body}} {
 			if *f.dst, err = optText(f.key); err != nil {
 				return nil, err
 			}
@@ -241,12 +271,14 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 		if err != nil {
 			return nil, err
 		}
-		fields := owner != nil || title != nil || body != nil || timeoutS != nil || priority != nil
+		fields := owner != nil || reporter != nil || title != nil || body != nil || timeoutS != nil || priority != nil
 		if !fields && !hasBlocker && !hasUnblock {
-			return nil, badParam("edit needs an owner, a title, a priority, a body, a time_box, blocked_by or unblock", "")
+			return nil, badParam("edit needs an owner, a reporter, a title, a priority, a body, a time_box, blocked_by or unblock", "")
 		}
-		if owner != nil && *owner != human && !contains(paths.ListAgents(home), *owner) {
-			return nil, agentNotFound(*owner)
+		for _, who := range []*string{owner, reporter} {
+			if who != nil && *who != human && !contains(paths.ListAgents(home), *who) {
+				return nil, agentNotFound(*who)
+			}
 		}
 		me := c.Caller.Actor()
 		var done Edited
@@ -259,7 +291,7 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			}
 			var msgs []string
 			if fields {
-				why, msg, err := editTask(tx, tid, me, home, owner, title, body, priority, timeoutS)
+				why, msg, err := editTask(tx, tid, me, home, owner, reporter, title, body, priority, timeoutS)
 				if err != nil {
 					return nil, err
 				}

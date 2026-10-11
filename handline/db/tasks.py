@@ -20,14 +20,16 @@ TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by",
                "done_evidence", "done_at", "done_via",
                "edited_by", "edited_at", "created_at", "closed_by", "closed_at",
                "discarded_by", "discard_reason", "discarded_at", "priority", "merged_into",
-               "queued_by", "queued_at", "expects", "timeout_s", "timeout_at", "delivered_at", "sent_at")
+               "queued_by", "queued_at", "expects", "timeout_s", "timeout_at", "delivered_at", "sent_at",
+               "reporter")
 
 DEFAULT_PRIORITY = 2
 
 
 def new_task(con, title: str, owner: str, opened_by: str,
              parent_task: int | None = None, priority: int = DEFAULT_PRIORITY,
-             expects: str | None = None, timeout_s: int | None = None) -> int:
+             expects: str | None = None, timeout_s: int | None = None,
+             reporter: str | None = None) -> int:
     """`timeout_s` is optional here (many tests build a task without one) -
     `ocp task new` is what actually requires it, at the CLI (T286).
 
@@ -37,9 +39,14 @@ def new_task(con, title: str, owner: str, opened_by: str,
     yet. The daemon sweep starts it once a request is."""
     cur = con.execute(
         "INSERT INTO tasks(title, owner, parent_task, opened_by, created_at, priority, expects, "
-        "timeout_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (title, owner, parent_task, opened_by, int(time.time()), priority, expects, timeout_s))
+        "timeout_s, reporter) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (title, owner, parent_task, opened_by, int(time.time()), priority, expects, timeout_s, reporter))
     return int(cur.lastrowid)
+
+
+def task_reporter(row) -> str:
+    """Who task `row` answers to - its reporter, or its opener when none was set."""
+    return row["reporter"] or row["opened_by"]
 
 
 def add_memo(con, tid: int, author: str, body: str) -> int:
@@ -216,8 +223,9 @@ def pause_task_timeout(con, tid: int) -> None:
 
 def edit_task(con, tid: int, by: str, owner: str | None = None,
               title: str | None = None, priority: int | None = None,
-              timeout_s: int | None = None, is_doing: bool = False) -> None:
-    """Write a changed owner and/or title, stamped with who and when - the
+              timeout_s: int | None = None, is_doing: bool = False,
+              reporter: str | None = None) -> None:
+    """Write a changed owner, reporter and/or title, stamped with who and when - the
     same evidence a discard leaves on discarded_by/discarded_at. Caller has
     already checked permission and that something actually changed; this
     only writes.
@@ -234,6 +242,9 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     if owner is not None:
         sets += ["owner = ?", "delivered_at = NULL", "sent_at = NULL"]       # the new owner has not had it yet
         params.append(owner)
+    if reporter is not None:
+        sets.append("reporter = ?")
+        params.append(reporter)
     if title is not None:
         sets.append("title = ?")
         params.append(title)

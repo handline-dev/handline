@@ -107,7 +107,7 @@ func TestASayClosedWithNothingSaidAsksNothingBackAndADismissalReadsAsOne(t *test
 
 func TestADecisionTaskFollowsItsCardOutOfTheQueue(t *testing.T) {
 	q := open(t)
-	tid, _ := NewTask(q, "decide", Human, "a", 0, DefaultPriority, "", 0)
+	tid, _ := NewTask(q, "decide", Human, "a", 0, DefaultPriority, "", 0, "")
 	card := ask(t, q, "a", Human, "which?", "ask")
 	LinkRequest(q, tid, card)
 	if got, _ := DecisionTaskOfCard(q, card); got != tid {
@@ -121,7 +121,7 @@ func TestADecisionTaskFollowsItsCardOutOfTheQueue(t *testing.T) {
 	if task.DoneEvidence.String != "the first" {
 		t.Fatalf("%+v", task)
 	}
-	tid2, _ := NewTask(q, "decide2", Human, "a", 0, DefaultPriority, "", 0)
+	tid2, _ := NewTask(q, "decide2", Human, "a", 0, DefaultPriority, "", 0, "")
 	card2 := ask(t, q, "a", Human, "again?", "ask")
 	LinkRequest(q, tid2, card2)
 	RetireQueued(q, card2, "withdrawn", "taken back")
@@ -133,7 +133,7 @@ func TestADecisionTaskFollowsItsCardOutOfTheQueue(t *testing.T) {
 
 func TestATaskDeliveryIsHeldUntilItsTaskEnds(t *testing.T) {
 	q := open(t)
-	tid, _ := NewTask(q, "work", "b", "a", 0, DefaultPriority, "", 0)
+	tid, _ := NewTask(q, "work", "b", "a", 0, DefaultPriority, "", 0, "")
 	rid := ask(t, q, "a", "b", "do it", "task")
 	LinkRequest(q, tid, rid)
 	if task, _ := GetTask(q, tid); !task.SentAt.Valid {
@@ -158,10 +158,10 @@ func TestATaskDeliveryIsHeldUntilItsTaskEnds(t *testing.T) {
 
 func TestSettlingLeftoverDeliveriesClosesOnlyThoseWhoseTasksAllEnded(t *testing.T) {
 	q := open(t)
-	t1, _ := NewTask(q, "x", "b", "a", 0, DefaultPriority, "", 0)
+	t1, _ := NewTask(q, "x", "b", "a", 0, DefaultPriority, "", 0, "")
 	r1 := ask(t, q, "a", "b", "x", "task")
 	LinkRequest(q, t1, r1)
-	t2, _ := NewTask(q, "y", "b", "a", 0, DefaultPriority, "", 0)
+	t2, _ := NewTask(q, "y", "b", "a", 0, DefaultPriority, "", 0, "")
 	r2 := ask(t, q, "a", "b", "y", "task")
 	LinkRequest(q, t2, r2)
 	MarkTaskDone(q, t1, "ok", "reason")

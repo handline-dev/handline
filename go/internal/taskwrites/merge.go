@@ -72,28 +72,45 @@ func merge(c *rpc.Conn, p map[string]any) (any, error) {
 
 // mergeRow is the columns of a task the merge's checks and its title read.
 type mergeRow struct {
-	ID              int64
-	Title, OpenedBy string
-	Done, Discarded bool
+	ID                        int64
+	Title, OpenedBy, Reporter string
+	Done, Discarded           bool
 }
 
 func mergeRowOf(tx *sql.Tx, tid int64) (*mergeRow, error) {
 	r := &mergeRow{ID: tid}
-	var done, disc sql.NullString
-	err := tx.QueryRow("SELECT title, opened_by, done_evidence, discarded_by FROM tasks WHERE id = ?", tid).Scan(&r.Title, &r.OpenedBy, &done, &disc)
+	var done, disc, reporter sql.NullString
+	err := tx.QueryRow("SELECT title, opened_by, done_evidence, discarded_by, reporter FROM tasks WHERE id = ?", tid).Scan(&r.Title, &r.OpenedBy, &done, &disc, &reporter)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	r.Done, r.Discarded = done.Valid && done.String != "", disc.Valid && disc.String != ""
+	r.Reporter = r.OpenedBy
+	if reporter.String != "" {
+		r.Reporter = reporter.String
+	}
 	return r, err
 }
 
-// editGuard is _task_edit_guard: a task is reshaped by whoever opened it or the founder.
+// editGuard is _task_edit_guard: a task is reshaped by whoever opened it, its reporter or the founder.
 func editGuard(r *mergeRow, by string) string {
-	if by != r.OpenedBy && by != human {
-		return fmt.Sprintf("task T%d can only be edited by whoever opened it (%s) or the founder", r.ID, r.OpenedBy)
+	if by != r.OpenedBy && by != r.Reporter && by != human {
+		return fmt.Sprintf("task T%d can only be edited by whoever opened it (%s or the founder", r.ID, openerAndReporter(r.OpenedBy, r.Reporter))
 	}
 	return ""
+}
+
+// openerAndReporter is _opener_and_reporter: the opener named in a refusal, then the reporter when it is someone else.
+func openerAndReporter(opener, reporter string) string {
+	if reporter == opener {
+		return opener + ")"
+	}
+	return opener + "), its reporter (" + reporter + ")"
+}
+
+// guardRow is the part of a task editGuard reads.
+func guardRow(t *task) *mergeRow {
+	return &mergeRow{ID: t.ID, OpenedBy: t.OpenedBy, Reporter: t.reporter()}
 }
 
 // mergeChecks is _merge_checks: the refusal, if any, and the rows to fold, read in the merge's own transaction.

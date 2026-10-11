@@ -14,7 +14,7 @@ var _ taskwrites.Teller = (*Env)(nil)
 func TestTheTellerTypesTheMemoSayAndSendsAQueuedTaskToAFreeOwner(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
-	tid, _ := db.NewTask(r.DB, "job", "bob", "alice", 0, db.DefaultPriority, "", 0)
+	tid, _ := db.NewTask(r.DB, "job", "bob", "alice", 0, db.DefaultPriority, "", 0, "")
 	db.SetTaskQueued(r.DB, tid, "human")
 	msg := r.QueueDelivered(tid, "human", true)
 	if msg != "task T1 is queued (human) - bob was free, so it went out now" {
@@ -190,7 +190,7 @@ func TestTheTellerSendsATaskThatAnEditGaveToANewOwnerAndTellsTheOldOneToStop(t *
 	r := newRig(t)
 	r.agentUp("bob")
 	r.agentUp("alice")
-	tid, err := db.NewTask(r.DB, "job", "bob", "human", 0, db.DefaultPriority, "", 0)
+	tid, err := db.NewTask(r.DB, "job", "bob", "human", 0, db.DefaultPriority, "", 0, "")
 	r.must(err)
 	rid := r.ask("human", "bob", "the brief", "task")
 	r.must(db.LinkRequest(r.DB, tid, rid))

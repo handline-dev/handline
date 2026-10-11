@@ -145,7 +145,7 @@ func TestAFoldIsNotDueWhenTheAgentHoldsWorkOrHasNotBeenIdleLongEnough(t *testing
 		"not idle long":      func(tk *Tick, w *world) { w.idleSince = 10_000 - 10 },
 		"no idle clock":      func(tk *Tick, w *world) { w.idleHave = false },
 		"holds a task": func(tk *Tick, w *world) {
-			tid, _ := db.NewTask(tk.Q, "x", "a", "boss", 0, db.DefaultPriority, "report", 0)
+			tid, _ := db.NewTask(tk.Q, "x", "a", "boss", 0, db.DefaultPriority, "report", 0, "")
 			db.SetCurrentTask(tk.Q, "a", tid, true)
 		},
 		"a close just failed": func(tk *Tick, w *world) { db.AddEventAt(tk.Q, 10_000-60, "a", "close_failed") },

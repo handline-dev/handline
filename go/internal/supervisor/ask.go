@@ -160,7 +160,7 @@ func (e *Env) raiseDecision(q db.Q, after *After, agent, text, reason, files str
 	}
 	rid := must(db.AddRequest(q, db.NewRequest{Requester: agent, Target: db.Human, Body: text, Files: files, Response: "fire_and_forget", Kind: "task",
 		ChainDepth: depth, ParentID: parentID, ChainID: chainID}))
-	tid := must(db.NewTask(q, title, db.Human, agent, 0, db.DefaultPriority, "decision", 0))
+	tid := must(db.NewTask(q, title, db.Human, agent, 0, db.DefaultPriority, "decision", 0, ""))
 	must(db.SetTaskQueued(q, tid, db.Human))
 	check(db.LinkRequest(q, tid, rid))
 	e.deliverAfter(after, rid, agent, db.Human, text, files, team.Decision{Allowed: true, Reason: reason, Kind: ptr("task"), Response: "fire_and_forget", ChainDepth: int(depth)})
@@ -347,7 +347,7 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 	}
 	if !in.NoCard && in.Target == db.Human && in.Kind == "" && strOf(d.Kind) == "task" {
 		// What is asked of the founder is a decision task, and this row its card; `task new` opens its own task and says NoCard.
-		tid := must(db.NewTask(q, firstLineTitle(in.Body), db.Human, requester, 0, db.DefaultPriority, "decision", 0))
+		tid := must(db.NewTask(q, firstLineTitle(in.Body), db.Human, requester, 0, db.DefaultPriority, "decision", 0, ""))
 		must(db.SetTaskQueued(q, tid, db.Human))
 		check(db.LinkRequest(q, tid, rid))
 	}

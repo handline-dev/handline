@@ -139,8 +139,8 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		}
 		return nil, refusal(fmt.Sprintf("task T%d is already done (%s)", tid, t.DoneEvidence.String))
 	}
-	// a sha-expecting task's opener may close it another way when the sha is never going to land
-	shaOverride := by == t.OpenedBy && t.Expects.String == "sha"
+	// a sha-expecting task's opener or reporter may close it another way when the sha is never going to land
+	shaOverride := (by == t.OpenedBy || by == t.reporter()) && t.Expects.String == "sha"
 	if by != t.Owner && by != human && !shaOverride {
 		return nil, refusal(fmt.Sprintf("task T%d can only be marked done by its owner (%s) or the founder", tid, t.Owner))
 	}
@@ -170,8 +170,8 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 	default:
 		mark, via = words, "reason"
 	}
-	if t.Expects.String == "sha" && via != "sha" && by != t.OpenedBy && by != human {
-		return nil, refusal(fmt.Sprintf("task T%d expects a sha - `hl task done T%d <sha>`, or its opener (%s) or the founder may close it another way", tid, tid, t.OpenedBy))
+	if t.Expects.String == "sha" && via != "sha" && by != t.OpenedBy && by != t.reporter() && by != human {
+		return nil, refusal(fmt.Sprintf("task T%d expects a sha - `hl task done T%d <sha>`, or its opener (%s or the founder may close it another way", tid, tid, openerAndReporter(t.OpenedBy, t.reporter())))
 	}
 	kids, err := openChildren(tx, tid)
 	if err != nil {

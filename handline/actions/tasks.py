@@ -118,6 +118,8 @@ _UNBLOCK_REQUESTER = db.NOTICE_REQUESTER
 
 def _asker_of(row, requesters) -> str:
     """The rule of `task_asker`, given who made each request linked to the task."""
+    if row["reporter"]:
+        return row["reporter"]
     for who in requesters:
         if who == HUMAN:
             return HUMAN
@@ -125,7 +127,7 @@ def _asker_of(row, requesters) -> str:
 
 
 def task_asker(con, row) -> str:
-    """Who task `row` answers to when it closes (#71): the founder, if any
+    """Who task `row` answers to when it closes (#71): its reporter when one was set; else the founder, if any
     request linked to it came from the founder - the task exists because the
     founder asked for something. Otherwise whoever opened the task itself: a
     task the manager opens on its own (an auditor finding, internal cleanup)
@@ -410,7 +412,7 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
     # T292 (#1655 section 4): a sha-expecting task's opener or the founder
     # may close it another way when the sha is never going to land - the
     # one exception to #2195's rule that the opener alone is not enough.
-    sha_override = by == row["opened_by"] and row["expects"] == "sha"
+    sha_override = by in (row["opened_by"], db.task_reporter(row)) and row["expects"] == "sha"
     if by not in (row["owner"], HUMAN) and not sha_override:
         return False, (f"task T{tid} can only be marked done by its owner "
                        f"({row['owner']}) or the founder")
@@ -433,9 +435,9 @@ def mark_task_done(con, tid: int, by: str, sha: str | None = None,
         mark, via = reason, "reason"
     # T292 (#1655 section 4): a sha task can't close on a reason unless the
     # opener or the founder does it; verdict/decision/report are just labels.
-    if row["expects"] == "sha" and via != "sha" and by not in (row["opened_by"], HUMAN):
+    if row["expects"] == "sha" and via != "sha" and by not in (row["opened_by"], db.task_reporter(row), HUMAN):
         return False, (f"task T{tid} expects a sha - `hl task done T{tid} <sha>`, "
-                       f"or its opener ({row['opened_by']}) or the founder may close it "
+                       f"or its opener ({_opener_and_reporter(row)} or the founder may close it "
                        "another way")
     kids = db.open_child_tasks(con, tid)
     if kids:
@@ -859,14 +861,28 @@ def release_ended_blockers(con, log=lambda _m: None) -> list[int]:
 
 
 def _task_edit_guard(row, tid: int, by: str) -> str | None:
-    """None if `by` may reshape task `tid` (its opener, or the founder) - a
+    """None if `by` may reshape task `tid` (its opener, its reporter, or the founder) - a
     task is not a request, it has no `target` a supervisor could redirect -
     otherwise the refusal to show. Shared by every verb that changes a task
     without changing whose it is (edit_task, add_block, unblock)."""
-    if by != row["opened_by"] and by != HUMAN:
-        return (f"task T{tid} can only be edited by whoever opened it "
-               f"({row['opened_by']}) or the founder")
+    if by not in (row["opened_by"], db.task_reporter(row), HUMAN):
+        return f"task T{tid} can only be edited by whoever opened it ({_opener_and_reporter(row)} or the founder"
     return None
+
+
+def _opener_and_reporter(row) -> str:
+    """The opener named in a refusal, then the reporter when it is someone else."""
+    reporter = db.task_reporter(row)
+    return row["opened_by"] + ")" + ("" if reporter == row["opened_by"] else f", its reporter ({reporter})")
+
+
+def _owner_change_guard(row, tid: int, by: str) -> str | None:
+    """Who may give task `tid` to someone else - whoever may edit it, or its owner's manager. The owner
+    itself gives it up by handoff."""
+    if row["owner"] != HUMAN and by == supervisor_of(routing(), row["owner"]):
+        return None
+    guard = _task_edit_guard(row, tid, by)
+    return guard and f"{guard}, or {row['owner']}'s manager"
 
 
 def _blocker_guard(row, tid: int, by: str) -> str | None:
@@ -1125,9 +1141,9 @@ def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard
               also: list[str] = ()) -> list[tuple[int, str, str]]:
     """T776: what a task's end does to its requests, inside the transaction that ended it. Every
     delivery still queued on it is closed quietly (a landed one as read, the rest withdrawn) and
-    never answered with a verdict; whoever opened it and `also` are told in one say each, from the
-    task board - "T<n> done by <by>: <evidence>" - as rows written in this same transaction, so a
-    crash or a tick between the end and the notice cannot lose it. The opener is the one waiting, so
+    never answered with a verdict; its reporter (its opener, unless set) and `also` are told in one say
+    each, from the task board - "T<n> done by <by>: <evidence>" - as rows written in this same transaction, so a
+    crash or a tick between the end and the notice cannot lose it. The reporter is the one waiting, so
     its say is typed at once; `also`'s is a notice for the digest. Whoever only passed the task along
     (a linked delivery's asker, a manager) hears only a result that is a problem: a manager is no
     message hub. Not the closer; not the owner of a parent task, which hears of a child from
@@ -1147,15 +1163,16 @@ def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard
         if parent is not None:
             skip.add(parent["owner"])
     known = set(paths.list_agents()) | {HUMAN}
-    who = [row["opened_by"], *(r["requester"] for r in db.task_requests(con, tid) if r["kind"] == "task"), *also]
+    reporter = db.task_reporter(row)
+    who = [reporter, *(r["requester"] for r in db.task_requests(con, tid) if r["kind"] == "task"), *also]
     told = []
     for to in dict.fromkeys(who):
         if to in skip or to not in known:
             continue
-        if to != row["opened_by"] and to not in also and not urgent_result(done_text):
+        if to != reporter and to not in also and not urgent_result(done_text):
             continue
         rid = db.add_request(con, _UNBLOCK_REQUESTER, to, text, None, None, "fire_and_forget", "say", 0, None,
-                             notice=to != row["opened_by"] and not urgent_result(done_text))
+                             notice=to != reporter and not urgent_result(done_text))
         db.add_event(con, by, "task_end_told", {"task_id": tid, "request_id": rid, "to": to})
         told.append((rid, to, text))
     return told
@@ -1164,7 +1181,8 @@ def _end_task(con, tid: int, by: str, row, done_text: str | None = None, discard
 def task_new(me: str, owner: str, title: str, body: str | None = None,
             parent: int | None = None, expects: str | None = None,
             priority: int | None = None,
-            timeout_s: int | None = None, effect=None) -> tuple[bool, str, int | None]:
+            timeout_s: int | None = None, effect=None,
+            reporter: str | None = None) -> tuple[bool, str, int | None]:
     """T292 (auditor #1655 section 4): opens the task and asks its owner in
     one call, through the routing table (`askmod.ask`, C2) - a refused owner
     leaves no task row behind. The request is kind='task' except for a human
@@ -1192,6 +1210,10 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     if not (body or "").strip():
         return False, ("a task needs a body: the work itself, what done looks like - "
                        "the title alone is not a brief"), None
+    if reporter is not None and reporter != HUMAN and reporter not in paths.list_agents():
+        return False, f"no agent named {reporter}", None
+    if reporter == me:
+        reporter = None         # the opener is the reporter already
     if priority is None:
         priority = db.DEFAULT_PRIORITY
     if parent is not None:
@@ -1206,7 +1228,8 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
 
     def together(con, rid: int, _note: str) -> None:
         """In the transaction that writes the delivery: the task, its link and `effect` (the daemon's record of the write) land with it."""
-        tid = db.new_task(con, title, owner, me, parent, priority, expects=expects, timeout_s=timeout_s)
+        tid = db.new_task(con, title, owner, me, parent, priority, expects=expects, timeout_s=timeout_s,
+                          reporter=reporter)
         if me == HUMAN:         # the founder's own task needs no one's approval
             db.set_task_queued(con, tid, HUMAN)
         opened.append(tid)
@@ -1585,22 +1608,25 @@ def memo_delete(con, mid: int, by: str, tell: bool = True) -> tuple[bool, str]:
 
 def edit_task(con, tid: int, by: str, owner: str | None = None,
               title: str | None = None, priority: int | None = None,
-              timeout_s: int | None = None, body: str | None = None) -> tuple[bool, str]:
-    """Change a task's owner, title, priority, timeout and/or body; opener or founder only
+              timeout_s: int | None = None, body: str | None = None,
+              reporter: str | None = None) -> tuple[bool, str]:
+    """Change a task's owner, reporter, title, priority, timeout and/or body; its opener, its reporter or the
+    founder only - and for the owner alone, also the owner's manager
     (the body is the brief its first request carries - T689: fixing the text no longer takes
     a new task; a caller that changes it follows the commit with `tell_body_edited`)
-    (an owner change fixes a wrong name, it is not a handoff - #1914; a caller that changes
-    the owner follows it, once committed, with `send_moved_task`). Refused when
+    (an owner change gives the task to someone else without its owner's note, unlike a handoff; a caller that
+    changes the owner follows it, once committed, with `send_moved_task`). Refused when
     nothing changes, except --timeout, which always restarts the deadline (only while
     doing) so extending by the same length works."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
-    guard = _task_edit_guard(row, tid, by)
+    reshape = any(v is not None for v in (title, priority, timeout_s, body, reporter))
+    guard = _task_edit_guard(row, tid, by) if reshape or owner is None else _owner_change_guard(row, tid, by)
     if guard:
         return False, guard
-    if owner is None and title is None and priority is None and timeout_s is None and body is None:
-        return False, ("edit needs a new owner, a new title, a new priority, --timeout, "
+    if owner is None and not reshape:
+        return False, ("edit needs a new owner, a new reporter, a new title, a new priority, --timeout, "
                         "a new body, or any of them")
     changes: dict = {}
     new_body, body_rid = None, None
@@ -1621,6 +1647,12 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
             return False, f"no agent named {owner}"
         new_owner = owner
         changes["owner"] = {"old": row["owner"], "new": new_owner}
+    new_reporter = None
+    if reporter is not None and reporter != db.task_reporter(row):
+        if reporter != HUMAN and reporter not in paths.list_agents():
+            return False, f"no agent named {reporter}"
+        new_reporter = reporter
+        changes["reporter"] = {"old": db.task_reporter(row), "new": new_reporter}
     new_title = None
     if title is not None:
         t = textsafe.oneline(title).strip()
@@ -1652,7 +1684,7 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     if not changes:
         return False, f"task T{tid} already reads that way - nothing to edit"
     db.edit_task(con, tid, by, owner=new_owner, title=new_title, priority=new_priority,
-                 timeout_s=timeout_s, is_doing=doing_now)
+                 timeout_s=timeout_s, is_doing=doing_now, reporter=new_reporter)
     if new_owner is not None:
         _sync_self_blocks(con, tid, by, row["owner"])
     if new_body is not None:
@@ -1875,7 +1907,7 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
             continue
         out.append({
             "id": t["id"], "ref": task_ref(t["id"]), "title": t["title"],
-            "owner": t["owner"], "opened_by": t["opened_by"],
+            "owner": t["owner"], "opened_by": t["opened_by"], "reporter": db.task_reporter(t),
             "parent_task": t["parent_task"], "priority": t["priority"],
             "priority_ref": priority_ref(t["priority"]), "state": st,
             "closer": facts.asker(t),

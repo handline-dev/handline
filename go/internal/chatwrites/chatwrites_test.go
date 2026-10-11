@@ -252,7 +252,7 @@ func TestAnswerOnADecisionCardDecidesItsTask(t *testing.T) {
 	r := newRig(t)
 	s := r.server("")
 	card := r.request("alice", "human", "which one?")
-	tid, err := dbpkg.NewTask(r.db, "which one?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0)
+	tid, err := dbpkg.NewTask(r.db, "which one?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestDecideMarksATaskDoneWhenItsCardWasClosedSomeOtherWay(t *testing.T) {
 	gone := r.request("alice", "human", "which one?")
 	dbpkg.MarkDelivered(r.db, gone)
 	r.db.Exec("UPDATE requests SET state = 'landed' WHERE id = ?", gone)
-	tid, err := dbpkg.NewTask(r.db, "which one?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0)
+	tid, err := dbpkg.NewTask(r.db, "which one?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,9 +300,9 @@ func TestAnswerOnADecisionCardRefusesWhileTheTaskHasAnOpenChild(t *testing.T) {
 	r := newRig(t)
 	s := r.server("")
 	card := r.request("alice", "human", "which one?")
-	tid, _ := dbpkg.NewTask(r.db, "which one?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0)
+	tid, _ := dbpkg.NewTask(r.db, "which one?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0, "")
 	dbpkg.LinkRequest(r.db, tid, card)
-	dbpkg.NewTask(r.db, "first this", "alice", "alice", tid, dbpkg.DefaultPriority, "report", 0)
+	dbpkg.NewTask(r.db, "first this", "alice", "alice", tid, dbpkg.DefaultPriority, "report", 0, "")
 	r.refusedWith(r.one(s, "chat.answer", fmt.Sprintf(`{"request":%d,"text":"x","request_id":"d3"}`, card)), "")
 	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence IS NOT NULL", tid) != 0 || r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND state = 'queued'", card) != 1 {
 		t.Fatal("a refused decision writes nothing")

@@ -10,7 +10,7 @@ import (
 // newTask opens an approved task with no request out: queued, never delivered.
 func (r *rig) newTask(owner, opener, title string) int64 {
 	r.t.Helper()
-	tid, err := db.NewTask(r.DB, title, owner, opener, 0, db.DefaultPriority, "", 0)
+	tid, err := db.NewTask(r.DB, title, owner, opener, 0, db.DefaultPriority, "", 0, "")
 	r.must(err)
 	_, err = db.SetTaskQueued(r.DB, tid, opener)
 	r.must(err)
@@ -96,7 +96,7 @@ func TestAdvanceClearsACurrentTaskThatHasNothingLeft(t *testing.T) {
 func TestQueueDeliverSaysWhetherTheTaskWentOut(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
-	tid, _ := db.NewTask(r.DB, "job", "bob", "alice", 0, db.DefaultPriority, "", 0)
+	tid, _ := db.NewTask(r.DB, "job", "bob", "alice", 0, db.DefaultPriority, "", 0, "")
 	db.SetTaskQueued(r.DB, tid, "human")
 	row, _ := db.GetTask(r.DB, tid)
 	msg, err := r.QueueDeliver(r.DB, tid, "human", true, row)
@@ -116,7 +116,7 @@ func TestQueueDeliverSaysWhetherTheTaskWentOut(t *testing.T) {
 		t.Fatal(msg)
 	}
 	// the founder's task: the card goes back on their board
-	ft, _ := db.NewTask(r.DB, "decide", "human", "alice", 0, db.DefaultPriority, "decision", 0)
+	ft, _ := db.NewTask(r.DB, "decide", "human", "alice", 0, db.DefaultPriority, "decision", 0, "")
 	row, _ = db.GetTask(r.DB, ft)
 	msg, _ = r.QueueDeliver(r.DB, ft, "human", true, row)
 	if msg != "task T3 is queued (human) - its card is on the founder's board" {
@@ -156,7 +156,7 @@ func TestADoneBlockerReleasesOncePerFinishAndAChildTellsItsParentsOwner(t *testi
 	r := newRig(t)
 	r.agentUp("bob")
 	parent := r.newTask("bob", "alice", "parent")
-	child, _ := db.NewTask(r.DB, "child", "alice", "bob", parent, db.DefaultPriority, "", 0)
+	child, _ := db.NewTask(r.DB, "child", "alice", "bob", parent, db.DefaultPriority, "", 0, "")
 	db.AddBlock(r.DB, parent, child)
 	db.MarkTaskDone(r.DB, child, "built it", "reason")
 	freed, err := r.ReleaseEndedBlockers()

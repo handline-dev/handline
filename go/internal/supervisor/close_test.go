@@ -127,7 +127,7 @@ func TestResolveOpensTasksInTheSameWriteAndNamesThem(t *testing.T) {
 	r.must(err)
 	res, ok, msg, err := r.ResolveWrite(tx, ResolveIn{RID: rid, Verdict: "do it", Notify: true,
 		OpenTasks: func(q db.Q) ([]int64, error) {
-			a, _ := db.NewTask(q, "step", "bob", "bob", 0, db.DefaultPriority, "", 0)
+			a, _ := db.NewTask(q, "step", "bob", "bob", 0, db.DefaultPriority, "", 0, "")
 			return []int64{a}, nil
 		}})
 	r.must(err)

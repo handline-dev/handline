@@ -9365,6 +9365,49 @@ def test_siblings_give_each_other_work_and_their_manager_hears_only_its_own(home
         con.close()
 
 
+def test_a_task_has_a_reporter_apart_from_its_owner(home: Path) -> None:
+    """The reporter is who a task answers to - told when it ends, and may edit it. Its owner may be changed
+    by its opener, its reporter, the owner's manager or the founder, not by anyone else."""
+    use_home(home)
+    hand_edit_team("agents:\n  shop: {}\n  shop.a: {}\n  shop.b: {}\n  other: {}\n  other.c: {}\n"
+                   "edges:\n  - { from: \"*\", to: \"*\", relation: peer, response: fire_and_forget }\n")
+    for n in ("shop", "shop.a", "shop.b", "other", "other.c"):
+        agents.register(n)
+    con = db.connect()
+    try:
+        ok, msg, plain = actions.task_new("shop.a", "shop.b", "plain", "no reporter given")
+        row = db.get_task(con, plain)
+        check("reporter: none given, it is the opener", ok and row["reporter"] is None and db.task_reporter(row) == "shop.a", msg)
+        ok, msg, tid = actions.task_new("other.c", "shop.b", "for other", "work", reporter="other")
+        row = db.get_task(con, tid)
+        check("reporter: given, it is kept apart from the opener",
+              ok and row["opened_by"] == "other.c" and db.task_reporter(row) == "other", msg)
+        check("reporter: it is who the task answers to", actions.task_asker(con, row) == "other")
+        ok, msg, _ = actions.task_new("shop.a", "shop.b", "x", "x", reporter="nobody")
+        check("reporter: an unknown one is refused", not ok and "nobody" in msg, msg)
+        ok, msg = actions.edit_task(con, tid, "other", title="for other, renamed")
+        check("reporter: may edit the task", ok, msg)
+        ok, msg = actions.edit_task(con, tid, "shop.a", owner="shop.a")
+        check("owner: someone else's agent may not take it", not ok and "manager" in msg, msg)
+        ok, msg = actions.edit_task(con, tid, "shop", owner="shop.a")
+        check("owner: the owner's manager may give it to another agent", ok and db.get_task(con, tid)["owner"] == "shop.a", msg)
+        ok, msg = actions.edit_task(con, tid, "shop", reporter="shop")
+        check("reporter: the manager may not change the reporter", not ok, msg)
+        ok, msg = actions.edit_task(con, tid, "shop", owner="shop.b", title="both")
+        check("owner: nor change more than the owner", not ok, msg)
+        ok, msg = actions.edit_task(con, tid, "other.c", reporter="other.c")
+        check("reporter: the opener may change it", ok and db.task_reporter(db.get_task(con, tid)) == "other.c", msg)
+        ok, msg = actions.edit_task(con, tid, "other", owner="shop.b")
+        check("reporter: and the old reporter may no longer edit", not ok, msg)
+        ok, msg = actions.edit_task(con, tid, actions.HUMAN, reporter="other")
+        check("reporter: the founder may change it", ok, msg)
+        ok, msg = actions.mark_task_done(con, tid, "shop.a", reason="did it")
+        told = [r["target"] for r in con.execute("SELECT target FROM requests WHERE body LIKE ?", (f"T{tid} done by%",))]
+        check("done: the reporter is told, not the opener", ok and told == ["other"], f"{msg} {told}")
+    finally:
+        con.close()
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -9373,6 +9416,7 @@ def main() -> int:
         run(lambda: test_db_dedup(home))
         run(lambda: test_ask_flow(Path(td) / 'askhome'))
         run(lambda: test_siblings_give_each_other_work_and_their_manager_hears_only_its_own(Path(td) / 'siblings'))
+        run(lambda: test_a_task_has_a_reporter_apart_from_its_owner(Path(td) / 'reporter'))
         run(lambda: test_one_request_at_a_time(Path(td) / 'onetask'))
         run(lambda: test_a_landed_task_delivery_is_the_task_the_agent_holds(Path(td) / 'landedtask'))
         run(lambda: test_a_head_told_before_a_session_closed_is_told_again_when_it_runs_again(Path(td) / 'resume'))

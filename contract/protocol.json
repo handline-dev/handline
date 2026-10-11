@@ -3968,6 +3968,14 @@
      }
     },
     {
+     "name": "reporter",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Who the task answers to: told when it ends, and may edit or reassign it. Default: the caller."
+     }
+    },
+    {
      "name": "title",
      "required": true,
      "schema": {
@@ -5063,7 +5071,7 @@
   },
   {
    "name": "task.edit",
-   "summary": "Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the holder is told.",
+   "summary": "Change a task: owner, reporter, title and priority by its opener, its reporter or the founder; the owner also by the owner's manager (its owner may record what it waits on), body and time box until it is delivered. Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the holder is told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5078,6 +5086,14 @@
      "required": false,
      "schema": {
       "type": "string"
+     }
+    },
+    {
+     "name": "reporter",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "A new reporter (who the task answers to); by its opener, its reporter or the founder."
      }
     },
     {
@@ -8666,7 +8682,7 @@
      },
      "asker": {
       "type": "string",
-      "description": "Who the task answers to when it closes: the founder (`human`) if any request linked to it came from the founder, else whoever opened it."
+      "description": "Who the task answers to when it closes: its reporter when one was set; else the founder (`human`) if any request linked to it came from the founder, else whoever opened it."
      },
      "discarded": {
       "oneOf": [
@@ -8881,7 +8897,7 @@
        },
        "asker": {
         "type": "string",
-        "description": "Who the task answers to when it closes: the founder (`human`) if any request linked to it came from the founder, else whoever opened it. A client lets the founder reopen a done task only when this is the founder."
+        "description": "Who the task answers to when it closes: its reporter when one was set; else the founder (`human`) if any request linked to it came from the founder, else whoever opened it. A client lets the founder reopen a done task only when this is the founder."
        },
        "discarded": {
         "oneOf": [

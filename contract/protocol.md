@@ -120,7 +120,7 @@ A method marked write takes a required `request_id`.
 | `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `before?`, `limit?`, `all?`, `everyone?`, `reason_gaps?` | `{items, more, reason_gaps}` |  |  |
 | `task.get` | agent |  | `task` | `TaskDetail` | `not_found` |  |
-| `task.new` | agent | yes | `owner`, `title`, `body?`, `time_box`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `request_id` | `Accepted & {task}` | `refused` |  |
+| `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.handoff` | agent | yes | `task`, `to`, `note`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -140,7 +140,7 @@ A method marked write takes a required `request_id`.
 | `task.board` | agent |  | `everyone?` | `{mine, reports}` |  |  |
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.cancel` | member | yes | `task`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `blocked_by?`, `unblock?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.edit` | agent | yes | `task`, `owner?`, `reporter?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `blocked_by?`, `unblock?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.ask` | member | yes | `task`, `to`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
 | `land` | agent (only agent) | yes | `sha`, `message`, `tree?`, `fix?`, `squash?`, `request_id` | `Accepted` | `refused` | not_self, session_token |
@@ -497,7 +497,7 @@ Cancel a task.
 
 ### `task.edit`
 
-Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the holder is told.
+Change a task: owner, reporter, title and priority by its opener, its reporter or the founder; the owner also by the owner's manager (its owner may record what it waits on), body and time box until it is delivered. Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the holder is told.
 
 ### `task.ask`
 

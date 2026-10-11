@@ -95,6 +95,15 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if owner != human && !contains(paths.ListAgents(home), owner) {
 			return nil, agentNotFound(owner)
 		}
+		reporter := ""
+		if p["reporter"] != nil {
+			if reporter, err = text(p, "reporter"); err != nil {
+				return nil, err
+			}
+			if reporter != human && !contains(paths.ListAgents(home), reporter) {
+				return nil, agentNotFound(reporter)
+			}
+		}
 		prio := int64(db.DefaultPriority)
 		if p["priority"] != nil {
 			if prio, err = parsePriority(p["priority"]); err != nil {
@@ -130,7 +139,7 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 			var err error
 			tid, asked, err = OpenTask(tx, tell, me, NewIn{Owner: owner, Title: clean, Body: body, Secs: secs, Prio: prio, Expects: expects,
-				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker})
+				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter})
 			if err != nil {
 				return nil, err
 			}
@@ -163,6 +172,7 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 // NewIn is what OpenTask opens: the fields task.new has checked. Owner is an agent or the founder; Expects and Prio are set.
 type NewIn struct {
 	Owner, Title, Body string
+	Reporter           string // who the task answers to; "" is the opener
 	Secs, Prio         int64
 	Expects            string
 	Parent, Blocker    int64
@@ -206,7 +216,11 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 	}
 	asked, err = tell.TaskAsk(tx, AskReq{From: me, To: owner, Body: body, Kind: kind, NoCard: true, Notify: true, Within: func(rid int64) error {
 		var err error
-		if tid, err = db.NewTask(tx, clean, owner, me, parent, prio, expects, secs); err != nil {
+		reporter := in.Reporter
+		if reporter == me {
+			reporter = ""
+		}
+		if tid, err = db.NewTask(tx, clean, owner, me, parent, prio, expects, secs, reporter); err != nil {
 			return err
 		}
 		if me == human { // the founder's own task needs no one's approval

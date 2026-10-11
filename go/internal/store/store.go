@@ -151,6 +151,7 @@ func newerStepsOnlyAdd(db *sql.DB, latest int) (bool, error) {
 // run after the step's generated SQL (a comment only).
 var byHand = map[int]func(*sql.Tx) error{
 	10: addExtraWorktrees, // agent_extra_worktrees
+	13: addTaskReporter,   // task_reporter
 }
 
 // addExtraWorktrees is _agent_extra_worktrees in schema.py: a database made before the column has none.
@@ -160,6 +161,16 @@ func addExtraWorktrees(tx *sql.Tx) error {
 		return err
 	}
 	_, err := tx.Exec("ALTER TABLE agent_state ADD COLUMN extra_worktrees TEXT")
+	return err
+}
+
+// addTaskReporter is _task_reporter in schema.py: a database made before the column has none.
+func addTaskReporter(tx *sql.Tx) error {
+	var n int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'reporter'").Scan(&n); err != nil || n > 0 {
+		return err
+	}
+	_, err := tx.Exec("ALTER TABLE tasks ADD COLUMN reporter TEXT")
 	return err
 }
 

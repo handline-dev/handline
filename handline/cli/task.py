@@ -239,7 +239,7 @@ def cmd_task_new(args) -> int:
     body = textsafe.text(inline).strip() if inline else None
     params = {"owner": args.owner, "title": title, "time_box": f"{args.timeout}s", "body": body or None,
               "parent": args.parent, "blocked_by": args.blocked_by, "priority": args.priority,
-              "expects": args.expects}
+              "expects": args.expects, "reporter": args.reporter}
     ok, msg, got = client.written("task.new", {k: v for k, v in params.items() if v is not None})
     print(msg)
     if not ok:
@@ -374,11 +374,12 @@ def cmd_task_edit(args) -> int:
         if err:
             print(err)
             return 1
-    params = {"task": args.task, "owner": args.owner, "title": args.title, "priority": args.priority, "body": body,
+    params = {"task": args.task, "owner": args.owner, "reporter": args.reporter, "title": args.title,
+              "priority": args.priority, "body": body,
               "time_box": None if args.timeout is None else f"{args.timeout}s",
               "blocked_by": args.blocked_by, "unblock": args.unblock}
     if all(v is None for k, v in params.items() if k != "task"):
-        print("edit needs a new owner, a new title, --body, --priority, --blocked-by, --unblock, "
+        print("edit needs a new owner, a new reporter, a new title, --body, --priority, --blocked-by, --unblock, "
               "or --timeout")
         return 1
     return client.said(*client.write("task.edit", {k: v for k, v in params.items() if v is not None}))
@@ -436,7 +437,9 @@ def _detail_lines(t: dict, now: float) -> list[str]:
     """One task (the wire's task.get) as lines to read: where it stands, its brief, memos, what it waits on, its
     children and its handoffs, each note whole."""
     out = [f"T{t['id']}  {t['title']}",
-           f"state {t['state']}   owner {t['to']}   opened by {t['from']}   P{t['priority']}"
+           f"state {t['state']}   owner {t['to']}   opened by {t['from']}"
+           + (f"   reporter {t['asker']}" if t.get("asker") not in (None, t["from"]) else "")
+           + f"   P{t['priority']}"
            + (f"   parent T{t['parent']}" if t["parent"] else "")
            + f"   created {timefmt.stamp(client.epoch(t['created']))}"]
     if t["time"] is not None:
