@@ -9,10 +9,22 @@ import { AccountsPage } from './Accounts.tsx';
 import { InboxPage } from './Inbox.tsx';
 import { SettingsPage } from './Settings.tsx';
 import { StatsPage } from './Stats.tsx';
-import { useAccountsRoute, useInboxRoute, usePageRoute, useSelectedAgent, useSettingsOpen, useTasksRoute, useTeamRoute } from './route.ts';
+import {
+  useAccountsRoute,
+  useInboxRoute,
+  useNewAgentRoute,
+  usePageRoute,
+  useSelectedAgent,
+  useSettingsOpen,
+  useTasksRoute,
+  useTeamRoute,
+  useWorktreesRoute,
+} from './route.ts';
 import { useShell } from './shell.ts';
 import { SettingsView } from './SettingsView.tsx';
 import { TeamPage } from './TeamPage.tsx';
+import { Worktrees } from './Worktrees.tsx';
+import { NewAgent } from './NewAgent.tsx';
 import { KeysSheet } from './KeysSheet.tsx';
 import { Palette } from './Palette.tsx';
 import { Sidebar } from './Sidebar.tsx';
@@ -43,6 +55,8 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const settings = useSettingsOpen();
   const accounts = useAccountsRoute();
   const team = useTeamRoute();
+  const worktrees = useWorktreesRoute();
+  const newAgent = useNewAgentRoute();
   const page = usePageRoute();
   useShell(agent);
   const inbox = useInboxRoute();
@@ -112,6 +126,8 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           <DaemonDown />
           {team ? (
             <TeamPage />
+          ) : worktrees.open ? (
+            <Worktrees path={worktrees.path} storage={storage} />
           ) : inbox.open ? (
             <InboxPage item={inbox.item} />
           ) : accounts.open ? (
@@ -133,6 +149,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             </div>
           )}
         </main>
+        {newAgent.open ? <NewAgent onClose={() => void (location.hash = '')} /> : null}
         {error ? (
           <div className="toast" role="status" onClick={() => store.dismissError()} title="Click to dismiss">
             {error}

@@ -105,8 +105,8 @@ describe('the workspace', () => {
     expect($('.side')).toBeNull();
     const top = $$('.rail-top button').map((b) => b.getAttribute('aria-label') ?? '');
     expect(top.slice(0, 3)).toEqual(['Hide the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']);
-    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*Team.*Accounts.*Stats/);
-    expect($$('.rail-nav .nav svg').length).toBe(5);
+    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*Team.*Worktrees.*Accounts.*Stats/);
+    expect($$('.rail-nav .nav svg').length).toBe(6);
     expect($$('.rail-foot button').map((b) => b.getAttribute('aria-label'))).toEqual(['Settings', 'Keys (?)']);
     expect($('.rail-status')).toBeNull();
     const bar = $('.statusbar')!;

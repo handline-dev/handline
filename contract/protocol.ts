@@ -612,6 +612,12 @@ export type Operation = {
   agent: AgentName | null;
 };
 
+/** The result of a write that starts a long-running operation. */
+export type OperationStarted = Accepted & {
+  /** The id of the operation; operation.get and the operations topic follow it. */
+  operation: string;
+};
+
 export type Schedule = {
   id: number;
   target: AgentName;
@@ -1308,6 +1314,21 @@ export interface Methods {
   agent: AgentName;
   request_id: RequestId;
 }; result: Accepted };
+  "agent.create": { params: {
+  name: AgentName;
+  /** A free string today. */
+  role: string;
+  /** A directory, as repos.list gives it in path. An unknown one is not_found, what repo. */
+  repo: string;
+  /** The branch to start from. The worktree takes the side, local or origin/, that leads, and the operation fails when they have diverged. */
+  base?: string;
+  model?: string;
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  parent?: AgentName;
+  /** Not served: bad_request, field account, never dropped. A new agent's account is chosen when it starts; a client offers no account picker until a daemon serves this. */
+  account?: string;
+  request_id: RequestId;
+}; result: OperationStarted };
   "session.start": { params: {
   agent: AgentName;
   /** The Go daemon does not place sessions on a named account yet: it answers bad_request, field account, never drops it. A client offers no account picker until then. */
@@ -2002,6 +2023,11 @@ export interface Methods {
     diff: string;
     truncated: boolean;
   } };
+  "worktree.set_status": { params: {
+  path: string;
+  status: string;
+  request_id: RequestId;
+}; result: Accepted };
   "schedules.list": { params: { [key: string]: unknown }; result: {
     schedules: Schedule[];
     /** Present only when an agent's `schedules` value cannot be read: that agent, and why. */
@@ -2111,6 +2137,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "agent.fold": { role: "agent", callers: null, write: true, since: 1 },
   "agent.move": { role: "agent", callers: null, write: true, since: 1 },
   "agent.unstall": { role: "founder", callers: null, write: true, since: 1 },
+  "agent.create": { role: "founder", callers: null, write: true, since: 1 },
   "session.start": { role: "agent", callers: null, write: true, since: 1 },
   "session.wake": { role: "agent", callers: null, write: true, since: 1 },
   "session.stop": { role: "agent", callers: null, write: true, since: 1 },
@@ -2199,6 +2226,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "repos.list": { role: "member", callers: null, write: false, since: 1 },
   "worktrees.list": { role: "member", callers: null, write: false, since: 1 },
   "worktree.diff": { role: "member", callers: null, write: false, since: 1 },
+  "worktree.set_status": { role: "member", callers: null, write: true, since: 1 },
   "schedules.list": { role: "agent", callers: null, write: false, since: 1 },
   "schedule.add": { role: "founder", callers: null, write: true, since: 1 },
   "schedule.edit": { role: "founder", callers: null, write: true, since: 1 },
