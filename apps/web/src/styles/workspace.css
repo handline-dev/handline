@@ -42,6 +42,9 @@
 .stream.col > .anim-item {
   max-width: 100%;
 }
+.stream.col > .anim-item:has(> .msg) {
+  max-width: 80%;
+}
 .stream.col > .anim-item:has(> .msg.person) {
   align-self: flex-end;
 }
@@ -49,7 +52,6 @@
   align-self: flex-start;
 }
 .msg {
-  max-width: 80%;
   padding: 8px 12px;
   border-radius: 10px;
   background: var(--panel);

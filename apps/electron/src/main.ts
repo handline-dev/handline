@@ -47,7 +47,7 @@ async function editorEnv(): Promise<EditorEnv> {
 }
 
 function show(): void {
-  if (!win) return;
+  if (!win || win.isDestroyed()) return;
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
