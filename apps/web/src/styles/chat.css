@@ -1,9 +1,0 @@
-/* ---- Chat: what stays hand-written ----
-   The rest of the chat is Tailwind in the components; these rules chain onto base styles other screens own. */
-
-/* Out-ranks ui.css `.ui-prow` (background: transparent) for the selected row; a combinator on the list item. */
-.compose-menu li[aria-selected='true'] .ui-prow {
-  background: var(--bg-3);
-  box-shadow: inset 2px 0 0 var(--ink);
-}
-

@@ -75,7 +75,12 @@ export function Palette({ onClose }: { onClose: () => void }) {
         <ul role="listbox" aria-label="Results" className="m-0 max-h-80 list-none overflow-auto py-1">
           {hits.map((h, i) => (
             <li key={h.key} role="option" aria-selected={i === cur}>
-              <button type="button" className="ui-prow" onMouseDown={(e) => e.preventDefault()} onClick={() => go(h)}>
+              <button
+                type="button"
+                className={`ui-prow${i === cur ? ' bg-raised shadow-[inset_2px_0_0_var(--ink)]' : ''}`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => go(h)}
+              >
                 <Icon name={h.icon} size={14} aria-hidden />
                 <span className="ui-prow-name">{h.label}</span>
                 {h.hint ? <span className="ui-prow-hint">{h.hint}</span> : null}

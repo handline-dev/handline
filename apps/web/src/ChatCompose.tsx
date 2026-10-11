@@ -177,7 +177,12 @@ export function Compose(props: {
           >
             {menu.map((e, i) => (
               <li key={e.key} role="option" aria-selected={i === Math.min(at, menu.length - 1)}>
-                <button type="button" className="ui-prow" onMouseDown={(ev) => ev.preventDefault()} onClick={() => choose(e)}>
+                <button
+                  type="button"
+                  className={`ui-prow${i === Math.min(at, menu.length - 1) ? ' bg-raised shadow-[inset_2px_0_0_var(--ink)]' : ''}`}
+                  onMouseDown={(ev) => ev.preventDefault()}
+                  onClick={() => choose(e)}
+                >
                   <Icon name={e.icon} size={14} label={e.label} aria-hidden />
                   <span className="ui-prow-name">{e.label}</span>
                   {e.hint ? <span className="ui-prow-hint">{e.hint}</span> : null}
