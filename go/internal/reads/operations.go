@@ -3,16 +3,18 @@ package reads
 import (
 	"encoding/json"
 
+	"github.com/handline/handline/go/internal/operations"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
-// operationGet is operation.get: an operation's row. This daemon runs no operation of its own (agent.create is not served here), so
-// a row still `running` has no thread and is reported `failed`, as Python reports one whose daemon died; the row is not rewritten.
+// operationGet is operation.get: an operation's row. A row still `running` whose operation this process is not running was left by a
+// daemon that stopped: it is reported `failed`, as Python reports one whose daemon died; the row is not rewritten.
 func (e *Env) operationGet(_ *rpc.Conn, params map[string]any) (any, error) {
 	op, _ := params["operation"].(string)
 	if op == "" {
 		return nil, badParam("operation is an operation id", "operation")
 	}
+	live := operations.Live(op) // asked before the row is read: a thread writes its last state, then leaves
 	r, err := queryOne(e.DB, "SELECT * FROM operations WHERE id = ?", op)
 	if err != nil {
 		return nil, err
@@ -23,7 +25,7 @@ func (e *Env) operationGet(_ *rpc.Conn, params map[string]any) (any, error) {
 		return nil, nf
 	}
 	state, message := r.str("state"), r.strOrNil("message")
-	if state == "running" {
+	if state == "running" && !live {
 		state, message = "failed", "the daemon stopped before it finished"
 	}
 	var result any
