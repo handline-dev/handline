@@ -23,6 +23,7 @@ import {
   SheetActions,
   Switch,
   type IconName,
+  NOTE,
 } from './ui/index.ts';
 import { View } from './View.tsx';
 
@@ -48,7 +49,7 @@ export function SettingsView({ agent }: { agent: string }) {
   return (
     <section className="settings mx-auto h-full w-full overflow-auto px-4 pt-4 pb-6" aria-label={`${agent} settings`}>
       <header className="settings-head settings-agent mx-auto flex max-w-[var(--w-form)] flex-wrap items-center gap-x-3 gap-y-1">
-        <Button className="back [&_svg]:rotate-180" icon="chevronRight" label={`Back to ${agent}`} onClick={() => goAgent(agent)}>
+        <Button className="back self-end mb-4 [&_svg]:rotate-180" icon="chevronRight" label={`Back to ${agent}`} onClick={() => goAgent(agent)}>
           {agent}
         </Button>
         <h2 className="m-0 text-page font-semibold text-ink">Settings</h2>
@@ -189,13 +190,13 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
       </RowText>
       <RowControl>{control()}</RowControl>
       {draft !== null && stored !== base ? (
-        <p className="ui-note warn">
+        <p className={`${NOTE} text-wait`}>
           <Icon name="warn" size={14} label="Changed elsewhere" />
           changed elsewhere: {stored || 'empty'} <Button label="Use" onClick={() => (setDraft(null), setNote(''))} />
         </p>
       ) : null}
       {note ? (
-        <p className="ui-note bad" role="alert">
+        <p className={`${NOTE} text-bad`} role="alert">
           <Icon name="failed" size={14} label="Not saved" />
           {note}
         </p>
@@ -205,8 +206,10 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
           <strong>{danger.title}</strong>
           <span className="muted">{danger.text}</span>
           <SheetActions>
-            <button
-              className="btn primary"
+            <Button
+              variant="solid"
+              label={danger.go}
+              className="max-sm:min-h-12 max-sm:flex-1"
               onClick={() => {
                 const v = ask!;
                 setAsk(null);
@@ -214,10 +217,8 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
               }}
             >
               {danger.go}
-            </button>
-            <button className="btn" onClick={() => setAsk(null)}>
-              Cancel
-            </button>
+            </Button>
+            <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" onClick={() => setAsk(null)} />
           </SheetActions>
         </Sheet>
       ) : null}

@@ -20,7 +20,7 @@ export function WorktreePanel({
 }) {
   if (!w)
     return (
-      <aside className="wt-panel" aria-label="Worktree">
+      <aside className="wt-panel grid min-w-0 gap-3 rounded-card border border-line bg-panel p-3" aria-label="Worktree">
         <p className="muted">No worktree at {path}.</p>
         <Button variant="outline" label="Close" onClick={onClose} />
       </aside>
@@ -35,22 +35,22 @@ export function WorktreePanel({
     );
   };
   return (
-    <aside className="wt-panel" aria-label="Worktree">
-      <header>
+    <aside className="wt-panel grid min-w-0 gap-3 rounded-card border border-line bg-panel p-3" aria-label="Worktree">
+      <header className="flex items-center justify-between gap-2">
         <strong>{w.branch}</strong>
         <Button icon="close" label="Close the panel" onClick={onClose} />
       </header>
-      <dl>
-        <dt>Repo</dt>
-        <dd>{w.repo}</dd>
-        <dt>Path</dt>
-        <dd className="mono">{w.path}</dd>
-        <dt>Owner</dt>
-        <dd>
+      <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1.5">
+        <dt className="text-ink-3">Repo</dt>
+        <dd className="m-0 min-w-0 [overflow-wrap:anywhere]">{w.repo}</dd>
+        <dt className="text-ink-3">Path</dt>
+        <dd className="mono m-0 min-w-0 [overflow-wrap:anywhere]">{w.path}</dd>
+        <dt className="text-ink-3">Owner</dt>
+        <dd className="m-0 min-w-0 [overflow-wrap:anywhere]">
           <Owner w={w} />
         </dd>
-        <dt>Status</dt>
-        <dd>
+        <dt className="text-ink-3">Status</dt>
+        <dd className="m-0 min-w-0 [overflow-wrap:anywhere]">
           {moves.enabled ? (
             <Select
               label="Status"
@@ -69,7 +69,7 @@ export function WorktreePanel({
             </span>
           ) : null}
           {moves.errors[w.path] ? (
-            <span className="wt-error" role="alert">
+            <span className="wt-error text-bad" role="alert">
               {' '}
               {moves.errors[w.path]}
             </span>
@@ -77,30 +77,30 @@ export function WorktreePanel({
         </dd>
         {w.parent ? (
           <>
-            <dt>Parent</dt>
-            <dd>{link(w.parent)}</dd>
+            <dt className="text-ink-3">Parent</dt>
+            <dd className="m-0 min-w-0 [overflow-wrap:anywhere]">{link(w.parent)}</dd>
           </>
         ) : null}
         {w.children.length ? (
           <>
-            <dt>Children</dt>
-            <dd>{w.children.map(link)}</dd>
+            <dt className="text-ink-3">Children</dt>
+            <dd className="m-0 min-w-0 [overflow-wrap:anywhere]">{w.children.map(link)}</dd>
           </>
         ) : null}
       </dl>
       {w.owner ? <Button variant="solid" label="Open agent" onClick={() => goAgent(w.owner!)} /> : null}
       {w.changed.length ? (
-        <table className="wt-files" aria-label="Changed files">
-          <caption className="muted">
+        <table className="wt-files w-full border-collapse text-body" aria-label="Changed files">
+          <caption className="muted pb-1.5 text-left">
             {w.changed.length} changed +{added} −{deleted}
           </caption>
           <tbody>
             {w.changed.map((f) => (
               <tr key={f.path}>
-                <td className="wt-letter">{f.status}</td>
-                <td className="mono">{f.path}</td>
-                <td className="num">+{f.added}</td>
-                <td className="num">−{f.deleted}</td>
+                <td className="wt-letter w-[1.5em] border-t border-line px-1.5 py-1 font-semibold [overflow-wrap:anywhere]">{f.status}</td>
+                <td className="mono border-t border-line px-1.5 py-1 [overflow-wrap:anywhere]">{f.path}</td>
+                <td className="num border-t border-line px-1.5 py-1 text-right whitespace-nowrap [overflow-wrap:anywhere]">+{f.added}</td>
+                <td className="num border-t border-line px-1.5 py-1 text-right whitespace-nowrap [overflow-wrap:anywhere]">−{f.deleted}</td>
               </tr>
             ))}
           </tbody>

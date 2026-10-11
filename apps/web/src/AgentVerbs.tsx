@@ -1,12 +1,12 @@
 // The agent verbs of the ⋯ menu beyond stopping: wake, restart (resuming or fresh), close, park, fold, move account and clear stall.
 // Each is a decided write: the row shows the verb's gerund until the agents topic changes it. The ones in the bridge's CONFIRM ask first,
 // in a sheet under the row, and the sheet checks the row again on Confirm: a row that changed sends nothing.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { askOf, VERBS, verbsOf, type Verb } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useAccounts, useAgentDetail, useAgents, classify, sentence, useVerbRun } from '@handline/app-data';
-import { Sheet, SheetActions } from './ui/index.ts';
+import { Button, Sheet, SheetActions } from './ui/index.ts';
 
 /** Whether the daemon lists the verb's method; one it does not list shows disabled with the reason. */
 export function useServed(): (v: Verb) => boolean {
@@ -27,8 +27,6 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
   const [changed, setChanged] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const ok = useRef<HTMLButtonElement>(null);
-  useEffect(() => ok.current?.focus(), []);
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', esc);
@@ -56,9 +54,7 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
     return (
       <Sheet role="status">
         <span>It changed while you looked.</span>
-        <button className="btn" onClick={onClose}>
-          Close
-        </button>
+        <Button variant="outline" label="Close" className="max-sm:min-h-12 max-sm:flex-1" onClick={onClose} />
       </Sheet>
     );
   return (
@@ -70,7 +66,7 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
       {refused ? <span role="alert">{refused}</span> : null}
       {interruptFirst ? <span className="muted">{a.name} is mid-turn. Interrupt ends the turn and keeps the session.</span> : null}
       {move ? (
-        <select aria-label="Account" value={account} onChange={(e) => setAccount(e.target.value)}>
+        <select aria-label="Account" className="max-sm:min-h-12" value={account} onChange={(e) => setAccount(e.target.value)}>
           <option value="">choose an account</option>
           {accounts.map((x) => (
             <option key={x} value={x}>
@@ -80,17 +76,24 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
         </select>
       ) : null}
       <SheetActions>
-        <button ref={ok} className="btn primary" disabled={busy || (move && !account)} onClick={confirm}>
-          {move ? 'Move' : 'Confirm'}
-        </button>
+        <Button
+          variant="solid"
+          label={move ? 'Move' : 'Confirm'}
+          className="max-sm:min-h-12 max-sm:flex-1"
+          autoFocus
+          disabled={busy || (move && !account)}
+          onClick={confirm}
+        />
         {interruptFirst ? (
-          <button className="btn" disabled={busy} onClick={() => go(VERBS.interrupt)}>
-            Interrupt first
-          </button>
+          <Button
+            variant="outline"
+            label="Interrupt first"
+            className="max-sm:min-h-12 max-sm:flex-1"
+            disabled={busy}
+            onClick={() => go(VERBS.interrupt)}
+          />
         ) : null}
-        <button className="btn" onClick={onClose}>
-          Cancel
-        </button>
+        <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" onClick={onClose} />
       </SheetActions>
     </Sheet>
   );

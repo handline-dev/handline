@@ -198,8 +198,8 @@ describe('Select, Page and PopupRow', () => {
         </Page>
       </>,
     );
-    expect($('#a')!.parentElement!.className).toBe('ui-page form');
-    expect($('#b')!.parentElement!.className).toBe('ui-page wide');
+    expect($('#a')!.parentElement!.className).toBe('ui-page mx-auto p-4 max-w-[var(--w-form)]');
+    expect($('#b')!.parentElement!.className).toBe('ui-page mx-auto p-4');
   });
 
   it('a popup row has its icon and name, and a chevron only when it opens a second popup', async () => {

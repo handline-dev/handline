@@ -16,7 +16,7 @@ import {
 } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { ChatTab } from './ChatTab.tsx';
-import { Icon, type IconName } from './ui/index.ts';
+import { Button, Icon, Popup, PopupRow, type IconName } from './ui/index.ts';
 import { TasksTab } from './TasksTab.tsx';
 import { Badges } from './Badges.tsx';
 import { DropZones } from './DropZones.tsx';
@@ -58,6 +58,7 @@ export function Pane({ group }: { group: Group }) {
   const attention = needsAttention(badges);
   const wasAttention = useRef(attention);
   const [unread, setUnread] = useState(false);
+  const [menu, setMenu] = useState<'tab' | 'layout' | null>(null);
   useEffect(() => {
     if (attention && !wasAttention.current && termId !== undefined && !termShown) setUnread(true);
     wasAttention.current = attention;
@@ -139,67 +140,44 @@ export function Pane({ group }: { group: Group }) {
             </div>
           );
         })}
-        <span className="strip-end ml-auto flex items-center gap-0.5">
-          <details className="menu">
-            <summary className="icon" aria-label="Add a tab" title="Add a tab">
-              <Icon name="plus" size={14} aria-hidden />
-            </summary>
-            <div className="menu-list">
-              <button
-                className="menu-item"
-                onClick={(e) => {
-                  e.currentTarget.closest('details')!.removeAttribute('open');
-                  apply((w) => openTab(w, 'tasks', {}, group.id));
-                }}
-              >
-                <Icon name="tasks" size={14} aria-hidden /> Tasks
-              </button>
-              {structured ? (
-                <button
-                  className="menu-item"
-                  onClick={(e) => {
-                    e.currentTarget.closest('details')!.removeAttribute('open');
-                    apply((w) => openTab(w, 'transcript', {}, group.id));
-                  }}
-                >
-                  <Icon name="terminal" size={14} aria-hidden /> Transcript
-                </button>
-              ) : detail.terminal ? (
-                <button
-                  className="menu-item"
-                  onClick={(e) => {
-                    e.currentTarget.closest('details')!.removeAttribute('open');
-                    apply((w) => openTab(w, 'terminal', { handle: detail.terminal! }, group.id));
-                  }}
-                >
-                  <Icon name="terminal" size={14} aria-hidden /> Claude Code
-                </button>
-              ) : (
-                <span className="menu-item muted">
-                  <Icon name="noTerminal" size={14} label="No terminal: start the agent first" />
-                </span>
-              )}
-            </div>
-          </details>
-          <details className="menu">
-            <summary className="icon" aria-label="Layout" title="Layout">
-              <Icon name="layout" size={14} aria-hidden />
-            </summary>
-            <div className="menu-list">
-              {PRESETS.map(([p, name]) => (
-                <button
-                  key={p}
-                  className="menu-item"
-                  onClick={(e) => {
-                    e.currentTarget.closest('details')!.removeAttribute('open');
-                    apply((w) => applyPreset(w, p));
-                  }}
-                >
-                  {name}
-                </button>
-              ))}
-            </div>
-          </details>
+        <span className="strip-end relative ml-auto flex items-center gap-0.5">
+          <Button
+            icon="plus"
+            size="sm"
+            label="Add a tab"
+            aria-haspopup="menu"
+            aria-expanded={menu === 'tab'}
+            onClick={() => setMenu(menu === 'tab' ? null : 'tab')}
+          />
+          <Popup open={menu === 'tab'} onClose={() => setMenu(null)} title="Add a tab" align="right">
+            <PopupRow icon="tasks" label="Tasks" onClick={() => (setMenu(null), apply((w) => openTab(w, 'tasks', {}, group.id)))} />
+            {structured ? (
+              <PopupRow icon="terminal" label="Transcript" onClick={() => (setMenu(null), apply((w) => openTab(w, 'transcript', {}, group.id)))} />
+            ) : detail.terminal ? (
+              <PopupRow
+                icon="terminal"
+                label="Claude Code"
+                onClick={() => (setMenu(null), apply((w) => openTab(w, 'terminal', { handle: detail.terminal! }, group.id)))}
+              />
+            ) : (
+              <span className="ui-prow text-ink-3">
+                <Icon name="noTerminal" size={14} label="No terminal: start the agent first" />
+              </span>
+            )}
+          </Popup>
+          <Button
+            icon="layout"
+            size="sm"
+            label="Layout"
+            aria-haspopup="menu"
+            aria-expanded={menu === 'layout'}
+            onClick={() => setMenu(menu === 'layout' ? null : 'layout')}
+          />
+          <Popup open={menu === 'layout'} onClose={() => setMenu(null)} title="Layout" align="right">
+            {PRESETS.map(([p, name]) => (
+              <PopupRow key={p} label={name} onClick={() => (setMenu(null), apply((w) => applyPreset(w, p)))} />
+            ))}
+          </Popup>
         </span>
       </div>
       <div className="pane-body relative flex min-h-0 flex-1 flex-col [&>*]:min-h-0 [&>*]:flex-1" role="tabpanel">

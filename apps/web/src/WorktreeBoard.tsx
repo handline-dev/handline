@@ -2,7 +2,7 @@
 // A drop, the Move to… menu and the key `m` all ask the daemon for the same status; a card moves only when the refetch shows it.
 import { useState } from 'react';
 import type { Worktree } from '@handline/client';
-import { Button } from './ui/index.ts';
+import { Button, PROW } from './ui/index.ts';
 import { goWorktrees } from './route.ts';
 import { Owner, sums } from './Worktrees.tsx';
 
@@ -26,19 +26,19 @@ export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: s
     setDragging(null);
   };
   return (
-    <div className="wt-board" role="group" aria-label="Worktree board">
+    <div className="wt-board grid auto-cols-[minmax(200px,1fr)] grid-flow-col items-start gap-3 overflow-x-auto" role="group" aria-label="Worktree board">
       {columns.map((col) => {
         const cards = rows.filter((w) => (col === 'other' ? !known(w) : w.status === col));
         return (
           <section
             key={col}
-            className="wt-col"
+            className="wt-col grid min-h-[120px] content-start gap-2 rounded-card border border-line p-2"
             data-status={col}
             aria-label={`${col}, ${cards.length}`}
             onDragOver={(e) => col !== 'other' && moves.enabled && e.preventDefault()}
             onDrop={() => drop(col)}
           >
-            <h3>
+            <h3 className="m-0 text-label font-normal text-ink-2">
               {col} <span className="muted">{cards.length}</span>
             </h3>
             {cards.map((w) => {
@@ -46,7 +46,7 @@ export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: s
               return (
                 <article
                   key={w.path}
-                  className={`wt-card${w.path === path ? ' on' : ''}`}
+                  className={`wt-card relative grid gap-1 rounded-card border bg-panel p-2 ${w.path === path ? 'border-line-strong' : 'border-line'}`}
                   data-worktree={w.path}
                   tabIndex={0}
                   draggable={moves.enabled && !moves.moving[w.path]}
@@ -67,12 +67,12 @@ export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: s
                     {w.changed.length} files{w.changed.length ? ` +${added} −${deleted}` : ''}
                   </span>
                   {moves.moving[w.path] ? (
-                    <span className="wt-moving" role="status">
+                    <span className="wt-moving text-wait" role="status">
                       moving to {moves.moving[w.path]}…
                     </span>
                   ) : null}
                   {moves.errors[w.path] ? (
-                    <span className="wt-error" role="alert">
+                    <span className="wt-error text-bad" role="alert">
                       {moves.errors[w.path]}
                     </span>
                   ) : null}
@@ -90,9 +90,14 @@ export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: s
                     </Button>
                   ) : null}
                   {menu === w.path ? (
-                    <div className="wt-menu" role="menu" aria-label="Move to">
+                    <div className="wt-menu grid gap-1 rounded-card border border-line-strong bg-surface p-1.5" role="menu" aria-label="Move to">
                       {STATUSES.filter((s) => s !== w.status).map((s) => (
-                        <button key={s} role="menuitem" className="btn" onClick={() => (setMenu(null), moves.move(w.path, s))}>
+                        <button
+                          key={s}
+                          role="menuitem"
+                          className={`${PROW} rounded-chip max-sm:min-h-12`}
+                          onClick={() => (setMenu(null), moves.move(w.path, s))}
+                        >
                           {s}
                         </button>
                       ))}

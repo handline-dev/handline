@@ -5,7 +5,7 @@ import type { TaskDetail as Detail } from '@handline/client';
 import { useWrite } from '@handline/app-data';
 import { Icon, type IconName } from './ui/Icon.tsx';
 import { Sheet } from './taskui.tsx';
-import { Input, MetaField, MetaGrid, NativeSelect, Textarea, VisuallyHidden } from './ui/index.ts';
+import { Button, Input, MetaField, MetaGrid, NativeSelect, Textarea, VisuallyHidden } from './ui/index.ts';
 import { when } from './TaskMemos.tsx';
 
 export const TIMELINE = 'ttimeline m-0 list-none p-0 [&_svg]:shrink-0 [&_svg]:self-center [&_svg]:text-ink-3';
@@ -40,15 +40,17 @@ export function TaskMeta({ t, now }: { t: Detail; now: number }) {
 
 export function Verb(props: { k: string; icon: IconName; label: string; can: { ok: boolean; why?: string }; onClick: () => void; busy?: boolean }) {
   return (
-    <button
-      className="btn icon"
-      disabled={!props.can.ok || props.busy}
-      title={props.can.why ?? `${props.label} (${props.k})`}
+    <Button
+      icon={props.busy ? undefined : props.icon}
+      label={props.label}
       aria-label={props.label}
+      title={props.can.why ?? `${props.label} (${props.k})`}
+      disabled={!props.can.ok || props.busy}
+      className={`max-sm:min-h-[44px]${props.busy ? ' w-7 justify-center p-0' : ''}`}
       onClick={props.onClick}
     >
-      {props.busy ? '…' : <Icon name={props.icon} label={props.label} aria-hidden="true" />}
-    </button>
+      {props.busy ? '…' : undefined}
+    </Button>
   );
 }
 
@@ -128,7 +130,7 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
   };
   return (
     <Sheet label={`Edit #${t.id}`} submit="Save" onCancel={onClose} onSubmit={save} busy={edit.isPending}>
-      <div className="tform">
+      <div className="tform grid gap-5">
         <label>
           Title
           <Input grow className="tinput" value={title} onChange={(e) => setTitle(e.target.value)} />

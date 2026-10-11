@@ -4,7 +4,7 @@ import type { Account } from '@handline/client';
 import { useConnection } from '@handline/app-react';
 import { useServes, useWrite } from '@handline/app-data';
 import { AccountRemove } from './AccountRemove.tsx';
-import { Field, Icon, Switch } from './ui/index.ts';
+import { Field, Icon, Switch, NOTE } from './ui/index.ts';
 
 export function AccountSettings({ account: a }: { account: Account }) {
   const save = useWrite('account.set', a.name);
@@ -72,13 +72,13 @@ export function AccountSettings({ account: a }: { account: Account }) {
       />
       <AccountRemove account={a} />
       {pending ? (
-        <p className="ui-note" role="status">
+        <p className={NOTE} role="status">
           <Icon name="sending" size={14} />
           saving
         </p>
       ) : null}
       {off ? (
-        <p className="ui-note warn">
+        <p className={`${NOTE} text-wait`}>
           <Icon name="warn" size={14} label="Locked" />
           Locked: {off}.
         </p>

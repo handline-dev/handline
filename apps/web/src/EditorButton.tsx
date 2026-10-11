@@ -2,6 +2,7 @@
 // The box is never cleared by this: every failure leaves the draft where it was. Absent in a plain browser, where the box itself is the editor.
 import { useState } from 'react';
 import { shell } from './shell.ts';
+import { Button } from './ui/index.ts';
 
 export function EditorButton({ text, onText }: { text: string; onText: (v: string) => void }) {
   const [waiting, setWaiting] = useState(false);
@@ -20,15 +21,11 @@ export function EditorButton({ text, onText }: { text: string; onText: (v: strin
   return waiting ? (
     <span role="status">
       Waiting for the editor…{' '}
-      <button type="button" className="btn" onClick={() => void shell('cancelCompose')?.cancelCompose!()}>
-        Cancel
-      </button>
+      <Button variant="outline" size="sm" label="Cancel" onClick={() => void shell('cancelCompose')?.cancelCompose!()} />
     </span>
   ) : (
     <>
-      <button type="button" className="btn" onClick={() => void run()}>
-        In editor
-      </button>
+      <Button variant="outline" size="sm" label="In editor" onClick={() => void run()} />
       {note ? (
         <span className="muted" role="status">
           {' '}

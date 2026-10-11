@@ -2,5 +2,5 @@
 import type { ReactNode } from 'react';
 
 export function Page({ width = 'form', children }: { width?: 'form' | 'wide'; children: ReactNode }) {
-  return <div className={`ui-page ${width}`}>{children}</div>;
+  return <div className={`ui-page mx-auto p-4${width === 'form' ? ' max-w-[var(--w-form)]' : ''}`}>{children}</div>;
 }

@@ -5,14 +5,6 @@
 @import './tokens.css';
 @import './styles/base.css';
 @import './styles/agent-terminal.css';
-@import './styles/sidebar.css';
-@import './styles/workspace.css';
-@import './styles/rail.css';
-@import './styles/tasks.css';
-@import './styles/inbox.css';
-@import './styles/worktrees.css';
-@import './styles/new-agent.css';
-@import './styles/chat.css';
 @import './styles/ui.css';
 @import './styles/themes.css';
 

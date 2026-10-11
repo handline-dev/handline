@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { classify, sentence, useAgents, useRepos, useServes, useWrite } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { Button, Dialog, Field, Icon, Select } from './ui/index.ts';
+import { Button, Dialog, Field, Icon, Select, Textarea, NOTE, FIELD, FIELD_LABEL } from './ui/index.ts';
 import { goNew, useNewAgentRoute } from './route.ts';
 import { forgetFirstTask, keepFirstTask, NewAgentProgress } from './NewAgentProgress.tsx';
 
@@ -102,22 +102,28 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
       <form
         id="newagent-form"
         name="newagent-form"
-        className="tform na-form"
+        className="tform na-form grid gap-3"
         onSubmit={(e) => {
           e.preventDefault();
           send();
         }}
       >
         {refused ? (
-          <p className="ui-note bad" role="alert">
+          <p className={`${NOTE} text-bad`} role="alert">
             <Icon name="failed" size={14} label="Error" />
             {sentence(refused)}
           </p>
         ) : null}
-        <div className="tform-row">
-          <div className="na-name">
+        <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+          <div className="na-name flex min-w-0 items-end gap-1">
             {prefix ? <span className="muted mono">{prefix}</span> : null}
-            <Field label="Name" value={f.name} onChange={(e) => set('name', e.target.value)} note="Plain text: no /, no leading ." />
+            <Field
+              className="flex-1"
+              label="Name"
+              value={f.name}
+              onChange={(e) => set('name', e.target.value)}
+              note="Plain text: no /, no leading ."
+            />
           </div>
           <Field label="Role" list="na-roles" value={f.role} onChange={(e) => set('role', e.target.value)} />
           <datalist id="na-roles">
@@ -126,9 +132,9 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
             ))}
           </datalist>
         </div>
-        <div className="tform-row">
-          <div className="ui-field">
-            <span className="ui-field-label">Repo</span>
+        <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+          <div className={FIELD}>
+            <span className={FIELD_LABEL}>Repo</span>
             <Select
               label="Repo"
               value={f.repo}
@@ -143,10 +149,10 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
           </div>
           <Field label="Base" value={f.base} onChange={(e) => set('base', e.target.value)} />
         </div>
-        <div className="tform-row">
+        <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
           <Field label="Model" placeholder="default" value={f.model} onChange={(e) => set('model', e.target.value)} />
-          <div className="ui-field">
-            <span className="ui-field-label">Effort</span>
+          <div className={FIELD}>
+            <span className={FIELD_LABEL}>Effort</span>
             <Select
               label="Effort"
               value={f.effort}
@@ -155,14 +161,14 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
             />
           </div>
         </div>
-        <div className="tform-row">
-          <div className="ui-field">
-            <span className="ui-field-label">Account</span>
+        <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+          <div className={FIELD}>
+            <span className={FIELD_LABEL}>Account</span>
             <Select label="Account" disabled value="" onChange={() => {}} options={[{ value: '', label: 'auto' }]} />
-            <p className="ui-note">{ACCOUNT_NOTE}</p>
+            <p className={NOTE}>{ACCOUNT_NOTE}</p>
           </div>
-          <div className="ui-field">
-            <span className="ui-field-label">Parent</span>
+          <div className={FIELD}>
+            <span className={FIELD_LABEL}>Parent</span>
             <Select
               label="Parent"
               value={f.parent}
@@ -171,9 +177,9 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
             />
           </div>
         </div>
-        <div className="ui-field">
+        <div className={FIELD}>
           <label htmlFor="na-task">First task (optional)</label>
-          <textarea id="na-task" className="ui-textarea" rows={3} value={f.task} onChange={(e) => set('task', e.target.value)} />
+          <Textarea id="na-task" className="bg-panel border-line-strong px-3 py-2 resize-y" rows={3} value={f.task} onChange={(e) => set('task', e.target.value)} />
         </div>
         {f.task.trim() ? <Field label="Time box" value={f.box} onChange={(e) => set('box', e.target.value)} /> : null}
         <Button label="Cancel" onClick={onClose} />

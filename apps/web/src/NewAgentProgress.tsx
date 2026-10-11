@@ -2,7 +2,7 @@
 // creation offers the form back with its fields; a done one sends the first task, if there was one, as a task.new.
 import { useEffect, useRef, useState } from 'react';
 import { classify, sentence, Skeleton, useOperation, useWrite } from '@handline/app-data';
-import { Button, Dialog, Icon } from './ui/index.ts';
+import { Button, Dialog, Icon, Textarea, NOTE } from './ui/index.ts';
 import { goAgent, goNew } from './route.ts';
 import { browserStorage } from './daemon.ts';
 import type { Fields } from './NewAgent.tsx';
@@ -76,7 +76,7 @@ export function NewAgentProgress({
     return (
       <Dialog title="New agent" onClose={onClose}>
         {q.isError ? (
-          <p className="ui-note bad" role="alert">
+          <p className={`${NOTE} text-bad`} role="alert">
             <Icon name="failed" size={14} label="Error" />
             {sentence(classify(q.error))} <Button variant="outline" label="Retry" onClick={() => void q.refetch()} />
           </p>
@@ -88,11 +88,11 @@ export function NewAgentProgress({
   if (op.state === 'running')
     return (
       <Dialog title={`Creating ${agent ?? 'the agent'}`} onClose={onClose}>
-        <div className="na-progress" role="status">
+        <div className="na-progress grid gap-2" role="status">
           {op.step ? <p>{op.step}</p> : null}
           {op.steps_total ? (
             <>
-              <progress max={op.steps_total} value={op.steps_done} aria-label="Steps done" />
+              <progress className="w-full" max={op.steps_total} value={op.steps_done} aria-label="Steps done" />
               <p className="muted">
                 step {Math.min(op.steps_done + 1, op.steps_total)} of {op.steps_total}
               </p>
@@ -106,12 +106,12 @@ export function NewAgentProgress({
     const registered = (op.result as { registered?: boolean } | null)?.registered === true;
     return (
       <Dialog title="New agent" onClose={onClose}>
-        <p className="ui-note bad" role="alert">
+        <p className={`${NOTE} text-bad`} role="alert">
           <Icon name="failed" size={14} label="Failed" />
           {op.message ?? 'Creating the agent failed.'}
         </p>
         {registered && agent ? <p>{agent} is registered, not started.</p> : null}
-        <div className="na-actions">
+        <div className="na-actions mt-3 flex justify-end gap-2">
           {registered && agent ? <Button variant="outline" label="Open agent" onClick={() => (onClose(), goAgent(agent))} /> : null}
           <Button variant="solid" label="Edit and try again" onClick={() => goNew()} />
         </div>
@@ -126,15 +126,15 @@ export function NewAgentProgress({
       </p>
       {taskRefused ? (
         <>
-          <p className="ui-note bad" role="alert">
+          <p className={`${NOTE} text-bad`} role="alert">
             <Icon name="failed" size={14} label="Error" />
             {sentence(classify(ask.error))}
           </p>
-          <textarea className="ui-textarea" aria-label="First task" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
+          <Textarea className="bg-panel border-line-strong px-3 py-2 resize-y" aria-label="First task" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
           <Button variant="outline" label="Retry" disabled={ask.isPending} onClick={send} />
         </>
       ) : null}
-      <div className="na-actions">
+      <div className="na-actions mt-3 flex justify-end gap-2">
         {agent ? <Button variant="solid" label="Open agent" onClick={() => (onClose(), goAgent(agent))} /> : null}
         <Button label="Create another" onClick={onAnother} />
       </div>

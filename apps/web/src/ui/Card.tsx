@@ -36,7 +36,7 @@ export function ChartTitle({ className, ...rest }: ComponentProps<'h3'>) {
 
 /** A chat card's buttons; `wrap` is a card of the HR page, where they wrap and the card's own gap spaces them. */
 export function CardActions({ as: Tag = 'div', wrap, className, ...rest }: ComponentProps<'div'> & { as?: ElementType; wrap?: boolean }) {
-  return <Tag {...rest} className={join('card-actions flex gap-2', wrap ? 'm-0 flex-wrap' : 'mt-2', className)} />;
+  return <Tag {...rest} className={join('card-actions flex gap-2 max-sm:flex-col-reverse', wrap ? 'm-0 flex-wrap' : 'mt-2', className)} />;
 }
 
 /** The one-line body of a chat card: it takes the room the icons leave and cuts with an ellipsis; `stacked` puts a title over its reason. */
@@ -51,9 +51,10 @@ export function CardCode({ className, ...rest }: ComponentProps<'code'>) {
   return <code {...rest} className={join('card-code overflow-hidden text-ellipsis font-mono', className)} />;
 }
 
-/** The terminal-dark block of a few lines (`lines`) or of a command (`cmd`). */
-export function CodeBlock({ cmd, className, ...rest }: ComponentProps<'pre'> & { cmd?: boolean }) {
-  const look = 'm-0 block rounded-ctl bg-term-bg px-2 py-1.5 font-mono text-[13px] whitespace-pre-wrap text-term-ink';
-  const cls = join(cmd ? 'cmd' : 'lines', look, className);
+/** The terminal-dark block of a few lines (`lines`) or of a command (`cmd`); `scroll` cuts it at 12 lines and scrolls the rest. */
+export function CodeBlock({ cmd, scroll, className, ...rest }: ComponentProps<'pre'> & { cmd?: boolean; scroll?: boolean }) {
+  const look =
+    'm-0 block rounded-ctl bg-term-bg px-2 py-1.5 font-mono text-[13px] whitespace-pre-wrap text-term-ink max-sm:whitespace-pre max-sm:overflow-x-auto';
+  const cls = join(cmd ? 'cmd' : 'lines', scroll && 'max-h-[12lh] overflow-auto', look, className);
   return cmd ? <code {...rest} className={cls} /> : <pre {...rest} className={cls} />;
 }

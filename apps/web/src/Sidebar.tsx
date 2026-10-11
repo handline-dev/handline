@@ -1,6 +1,6 @@
 // The agent list. A row is an agent's only control surface: Start or Resume on the selected row, a ⋯ menu for stopping,
 // and under the selected row the facts the old agent header showed.
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   ago,
   controlsOf,
@@ -25,7 +25,7 @@ import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
 import { DOT_ORDER, Mark, MARKS, Meter } from './RailIcons.tsx';
 import { useNow } from './Gauge.tsx';
-import { Button, Icon } from './ui/index.ts';
+import { Button, Icon, Popup, PROW } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import {
   goAgent,
@@ -43,9 +43,10 @@ import {
 import { NewAgentButton } from './NewAgent.tsx';
 import { View } from './View.tsx';
 
-// One shape per nav row. The `on` look stays in rail.css: it must out-rank inbox.css `.nav.on`, imported later.
+// One shape per nav row; the current one is raised with the inset bar. The arbitrary background sorts after `bg-transparent`,
+// which a plain `bg-raised` here would lose to.
 const NAV = 'nav flex h-7 w-full items-center gap-2 rounded-ctl border-0 bg-transparent px-2 text-left text-ink hover:bg-raised';
-const navOf = (on: boolean): string => (on ? `${NAV} on` : NAV);
+const navOf = (on: boolean): string => (on ? `${NAV} on [background:var(--bg-3)] shadow-[inset_2px_0_0_var(--ink)]` : NAV);
 
 export function Sidebar({
   selected,
@@ -306,7 +307,7 @@ function RowControls({
   const agent = a.name;
   const store = useStore();
   const d = useAgentDetail(agent).data;
-  const menu = useRef<HTMLDetailsElement>(null);
+  const [open, setOpen] = useState(false);
   const start = useWrite('session.start', agent);
   const resume = useWrite('session.wake', agent);
   const stopWrite = useWrite('session.stop', agent);
@@ -318,12 +319,12 @@ function RowControls({
   if (!d) return null;
   const c = controlsOf(d, store.me);
   const verb = (v: Verb) => {
-    menu.current?.removeAttribute('open');
+    setOpen(false);
     if (asks(v) || v.id === 'move') onAsk(v);
     else run(v);
   };
   const stop = (mode: StopMode) => {
-    menu.current?.removeAttribute('open');
+    setOpen(false);
     if (
       mode === 'kill' &&
       !confirm(
@@ -336,73 +337,80 @@ function RowControls({
   };
   const verbs = verbsOf(a, d);
   return (
-    <span className="row-actions flex flex-none items-center gap-1">
+    <span className="row-actions relative flex flex-none items-center gap-1">
       {c.start ? (
-        <button
-          className="btn primary"
+        <Button
+          variant="solid"
+          label="Start"
           disabled={busy}
           onClick={() => start.mutate(d.structured ? { agent } : { agent, account: account || undefined })}
         >
           {start.isPending ? 'starting…' : '▶ Start'}
-        </button>
+        </Button>
       ) : null}
       {c.resume ? (
-        <button className="btn" disabled={busy} onClick={() => resume.mutate({ agent })}>
+        <Button variant="outline" label="Resume" disabled={busy} onClick={() => resume.mutate({ agent })}>
           {resume.isPending ? 'resuming…' : '⟳ Resume'}
-        </button>
+        </Button>
       ) : null}
-      <details className="menu" ref={menu}>
-        <summary className="btn" aria-label={`More actions for ${agent}`}>
-          {mark ?? (stopWrite.isPending || interrupt.isPending ? 'stopping…' : '⋯')}
-        </summary>
-        <div className="menu-list">
-          {c.start && !d.structured ? (
-            <select
-              aria-label="Account for this start"
-              title={`The daemon would pick: ${d.account_pick.account ?? 'none'} (${d.account_pick.reason})`}
-              value={account}
-              onChange={(e) => setAccount(e.target.value)}
-            >
-              <option value="">{`start on auto: ${d.account_pick.account ?? 'none'}`}</option>
-              {accounts.map((x) => (
-                <option key={x} value={x}>
-                  {x}
-                </option>
-              ))}
-            </select>
-          ) : null}
-          {verbs.map((v) => (
-            <button
-              key={v.id}
-              className="menu-item"
-              disabled={busy || !served(v)}
-              title={served(v) ? undefined : unserved(v)}
-              onClick={() => verb(v)}
-            >
-              <strong>{v.label}</strong>
-              {served(v) ? null : <span className="muted"> not served</span>}
-            </button>
-          ))}
-          <button className="menu-item" onClick={() => goSettings(agent)}>
-            <strong>Settings</strong>
+      <Button
+        label={`More actions for ${agent}`}
+        aria-label={`More actions for ${agent}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {mark ?? (stopWrite.isPending || interrupt.isPending ? 'stopping…' : '⋯')}
+      </Button>
+      <Popup open={open} onClose={() => setOpen(false)} title={`More actions for ${agent}`} align="right">
+        {c.start && !d.structured ? (
+          <select
+            aria-label="Account for this start"
+            title={`The daemon would pick: ${d.account_pick.account ?? 'none'} (${d.account_pick.reason})`}
+            value={account}
+            onChange={(e) => setAccount(e.target.value)}
+          >
+            <option value="">{`start on auto: ${d.account_pick.account ?? 'none'}`}</option>
+            {accounts.map((x) => (
+              <option key={x} value={x}>
+                {x}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        {verbs.map((v) => (
+          <button
+            key={v.id}
+            type="button"
+            className={`${PROW} max-sm:min-h-12 disabled:cursor-not-allowed disabled:opacity-55`}
+            disabled={busy || !served(v)}
+            title={served(v) ? undefined : unserved(v)}
+            onClick={() => verb(v)}
+          >
+            <strong>{v.label}</strong>
+            {served(v) ? null : <span className="muted"> not served</span>}
           </button>
-          {c.stop
-            ? stopModesOf(d)
-                .filter((m) => m.mode !== 'close' && !(d.structured && m.mode === 'interrupt'))
-                .map((m) => (
-                  <button
-                    key={m.mode}
-                    className={`menu-item${m.mode === 'kill' ? ' danger' : ''}`}
-                    disabled={busy}
-                    onClick={() => stop(m.mode)}
-                  >
-                    <strong>{m.label}</strong>
-                    <span className="muted"> {m.hint}</span>
-                  </button>
-                ))
-            : null}
-        </div>
-      </details>
+        ))}
+        <button className={`${PROW} max-sm:min-h-12`} onClick={() => goSettings(agent)}>
+          <strong>Settings</strong>
+        </button>
+        {c.stop
+          ? stopModesOf(d)
+              .filter((m) => m.mode !== 'close' && !(d.structured && m.mode === 'interrupt'))
+              .map((m) => (
+                <button
+                  key={m.mode}
+                  type="button"
+                  className={`${PROW} max-sm:min-h-12 disabled:cursor-not-allowed disabled:opacity-55${m.mode === 'kill' ? ' [&>strong]:text-bad' : ''}`}
+                  disabled={busy}
+                  onClick={() => stop(m.mode)}
+                >
+                  <strong>{m.label}</strong>
+                  <span className="muted"> {m.hint}</span>
+                </button>
+              ))
+          : null}
+      </Popup>
     </span>
   );
 }

@@ -1,6 +1,5 @@
 /* ui/*: the primitives, drawn only from tokens.css. The markup in ui/ carries its utilities inline; what is left here is what cannot move:
-   the state-glyph animations (keyframes are css, and tasks.css reuses ui-spin), and the classes other screens still render or style
-   (.ui-field, .ui-note, .ui-input-wrap's hook, .ui-prow, .ui-page), plus the gallery demo. */
+   the state-glyph animations (keyframes are css) and the gallery demo. */
 
 /* A working agent's glyph turns, a booting one pulses; reduced motion stops both. */
 .ui-state[data-state='working'] svg {
@@ -23,63 +22,6 @@
   .ui-state svg {
     animation: none !important;
   }
-}
-
-/* The field, note and row primitives are still rendered by hand in NewTask, Settings, the accounts sheet, Palette and ChatCompose. */
-.ui-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-}
-.ui-field label,
-.ui-field-label {
-  font: var(--t-label);
-  color: var(--ink-2);
-}
-.ui-note {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-  margin: 0;
-  font: var(--t-hint);
-  color: var(--ink-3);
-}
-.ui-note.warn {
-  color: var(--s-wait);
-}
-.ui-note.bad {
-  color: var(--s-bad);
-}
-.ui-prow {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-4);
-  width: 100%;
-  height: var(--h-row);
-  padding: 0 var(--sp-4);
-  border: 0;
-  background: transparent;
-  color: var(--ink);
-  text-align: left;
-}
-.ui-prow:hover {
-  background: var(--bg-3);
-}
-.ui-prow-name {
-  flex: 1;
-}
-.ui-prow-hint {
-  color: var(--ink-3);
-  font: var(--t-hint);
-}
-
-/* Page's className is asserted verbatim by ui.test.tsx, so its rules stay until that hook moves. */
-.ui-page {
-  margin: 0 auto;
-  padding: var(--sp-6);
-}
-.ui-page.form {
-  max-width: var(--w-form);
 }
 
 .gallery-title {

@@ -127,7 +127,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             <Icon name="sidebar" size={16} aria-hidden />
           </button>
         )}
-        <main className="main flex min-h-0 min-w-0 flex-1 bg-canvas" aria-label="Agent workspace">
+        <main className={`main flex min-h-0 min-w-0 flex-1 bg-canvas${railOpen ? ' max-[900px]:ml-0' : ''}`} aria-label="Agent workspace">
           <DaemonDown />
           {team ? (
             <TeamPage />

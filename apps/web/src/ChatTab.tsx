@@ -185,7 +185,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
       </div>
       <ChatBanner detail={detail} />
       <div
-        className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [&>*]:flex-none"
+        className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [&>*]:flex-none [&>.skeleton]:self-stretch"
         ref={stream}
         onScroll={(e) => {
           const el = e.currentTarget;
@@ -197,10 +197,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
         {chat.status === 'error' && sentence(classify(chat.error)) ? (
           <div className="banner" role="alert">
-            {sentence(classify(chat.error))}{' '}
-            <button className="btn" onClick={chat.refetch}>
-              Retry
-            </button>
+            {sentence(classify(chat.error))} <Button variant="outline" size="sm" label="Retry" onClick={chat.refetch} />
           </div>
         ) : null}
         {chat.hasOlder ? (
@@ -219,7 +216,12 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           {entries.flatMap((e, i): ReactNode[] => {
             const day = dayHeading(e.at, i === 0 ? null : entries[i - 1]!.at);
             const body = (
-              <AnimatedItem key={keyOf(e)} instant={i <= tail || tail < 0} onFrame={repin}>
+              <AnimatedItem
+                key={keyOf(e)}
+                instant={i <= tail || tail < 0}
+                onFrame={repin}
+                className="max-w-full has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start"
+              >
                 {e.kind === 'message' ? (
                   <Message
                     m={e.message}

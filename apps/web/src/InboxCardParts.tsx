@@ -116,7 +116,7 @@ export function InboxDetail(props: {
       ) : null}
       {i.evidence ? (
         <div>
-          <CodeBlock>{(props.whole ? lines : lines.slice(0, EVIDENCE_LINES)).join('\n')}</CodeBlock>
+          <CodeBlock scroll>{(props.whole ? lines : lines.slice(0, EVIDENCE_LINES)).join('\n')}</CodeBlock>
           {lines.length > EVIDENCE_LINES ? (
             <Button
               size="sm"
@@ -129,7 +129,7 @@ export function InboxDetail(props: {
       ) : null}
       {i.prompt ? (
         // The prompt's own card (permission, dialog) is the prompt-card unit's; here the item shows what is asked and where to answer.
-        <CodeBlock data-prompt-slot>{i.prompt.command ?? i.prompt.lines.join('\n')}</CodeBlock>
+        <CodeBlock scroll data-prompt-slot>{i.prompt.command ?? i.prompt.lines.join('\n')}</CodeBlock>
       ) : null}
       {props.pending ? (
         <p className="muted inbox-mark my-1" role="status">

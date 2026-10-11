@@ -23,6 +23,7 @@ import { Row } from './TaskRows.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from './TasksHead.tsx';
 import { TableHead } from './TaskTableHead.tsx';
 import { KeysSheet, OwnerSheet, PrioritySheet } from './TaskSheets.tsx';
+import { Button } from './ui/index.ts';
 import { AnimatedList } from './AnimatedList.tsx';
 import { useBulk } from './taskActions.ts';
 import { ReasonSheet, Sheet, useCan, useNow, useWide } from './taskui.tsx';
@@ -53,7 +54,7 @@ export function TasksPage({ storage, route }: { storage: KV | null; route: strin
   return (
     <div className={`tasks-split relative flex min-h-0 min-w-0 flex-1${id !== null ? ' with-pane' : ''}`}>
       <TaskList storage={storage} selected={id} />
-      {id !== null ? <TaskDetail id={id} onBack={() => goTasks()} embedded /> : null}
+      {id !== null ? <TaskDetail id={id} onBack={() => goTasks()} embedded drawer /> : null}
     </div>
   );
 }
@@ -185,8 +186,8 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
 
   const listBody = (
     <>
-      <div className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface" aria-busy={q.isFetching && !q.data}>
-        <table className={`ttable w-full table-fixed border-collapse${selecting || marked.size ? ' selecting' : ''}`} aria-label="Tasks">
+      <div className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface max-sm:bg-transparent max-sm:border-0" aria-busy={q.isFetching && !q.data}>
+        <table className={`ttable w-full table-fixed border-collapse max-sm:block${selecting || marked.size ? ' selecting' : ''}`} aria-label="Tasks">
           <TableHead
             tree={mode === 'tree'}
             sort={sort}
@@ -194,13 +195,13 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
             onToggleAll={toggleAll}
             onSort={(col) => setSort((s) => ({ by: col, reverse: s.by === col && !s.reverse }))}
           />
-          <tbody>
+          <tbody className="max-sm:block">
             <AnimatedList>
               {mode === 'tree'
                 ? tree.map(({ task: t, depth, dim }) => (
-                    <Row key={t.id} rows={tree.length} t={t} now={now} tree depth={depth} dim={dim} {...rowProps(t)} />
+                    <Row key={t.id} rows={tree.length} t={t} now={now} tree depth={depth} dim={dim} markCell={selecting || marked.size > 0} {...rowProps(t)} />
                   ))
-                : rows.map((t) => <Row key={t.id} rows={rows.length} t={t} now={now} {...rowProps(t)} />)}
+                : rows.map((t) => <Row key={t.id} rows={rows.length} t={t} now={now} markCell={selecting || marked.size > 0} {...rowProps(t)} />)}
             </AnimatedList>
           </tbody>
         </table>
@@ -256,7 +257,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
   const none = scope === 'closed' && all.length === 0;
   return (
     <section
-      className="tasks flex min-h-0 min-w-0 flex-1 flex-col px-4 py-3 outline-none"
+      className="tasks flex min-h-0 min-w-0 flex-1 flex-col px-4 py-3 outline-none max-sm:px-4 max-sm:py-3"
       ref={root}
       tabIndex={0}
       aria-label="Tasks"
@@ -284,17 +285,13 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
             {none ? (
               <>
                 <p>Nothing has been asked yet.</p>
-                <button className="btn primary" onClick={() => act('new')}>
-                  New task
-                </button>
+                <Button variant="solid" label="New task" onClick={() => act('new')} />
               </>
             ) : (
               <>
                 <p>No tasks in these states.</p>
                 {scope !== 'closed' ? (
-                  <button className="btn" onClick={() => setScope('closed')}>
-                    Show closed
-                  </button>
+                  <Button variant="outline" size="sm" label="Show closed" onClick={() => setScope('closed')} />
                 ) : null}
               </>
             )}

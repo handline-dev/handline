@@ -5,6 +5,7 @@ import { type AgentDetail, type ByteListener, type ByteTerminalView, type ByteVi
 import { useStore } from '@handline/app-react';
 import { keep, reclaim } from './terminal/keep.ts';
 import { MAX_UNWRITTEN, fontFor, guard, markerLabel, paint, type CreateTerm, type PaneTerm } from './terminal/core.ts';
+import { Button } from './ui/index.ts';
 
 const SKELETON_DELAY_MS = 150;
 const SKELETON_MIN_MS = 300;
@@ -120,9 +121,7 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
         <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">
           {note}
           {state === 'failed' && (
-            <button className="btn" onClick={() => setAttempt((n) => n + 1)}>
-              Retry
-            </button>
+            <Button variant="outline" size="sm" label="Retry" onClick={() => setAttempt((n) => n + 1)} />
           )}
         </div>
       </div>

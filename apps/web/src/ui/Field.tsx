@@ -2,17 +2,29 @@
 import { useId, type InputHTMLAttributes, type ReactNode } from 'react';
 import { Icon } from './Icon.tsx';
 
+/** The labelled field and its note, shared by the hand-rolled forms (NewTask, NewAgent, the account pages). */
+export const FIELD = 'ui-field flex flex-col gap-1';
+export const FIELD_LABEL = 'ui-field-label text-label text-ink-2';
+export const NOTE = 'ui-note m-0 flex items-center gap-3 text-hint text-ink-3';
+export const noteTone = (tone?: 'warn' | 'bad'): string => (tone === 'bad' ? ' text-bad' : tone === 'warn' ? ' text-wait' : '');
+
 export function Field({
   label,
   note,
   tone,
   unit,
+  className,
   ...rest
-}: { label: string; note?: ReactNode; tone?: 'warn' | 'bad'; unit?: string } & Omit<InputHTMLAttributes<HTMLInputElement>, 'children'>) {
+}: { label: string; note?: ReactNode; tone?: 'warn' | 'bad'; unit?: string; className?: string } & Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  'children' | 'className'
+>) {
   const id = useId();
   return (
-    <div className="ui-field">
-      <label htmlFor={id}>{label}</label>
+    <div className={`${FIELD}${className ? ` ${className}` : ''}`}>
+      <label htmlFor={id} className={FIELD_LABEL}>
+        {label}
+      </label>
       <div className="ui-input-wrap relative flex items-center">
         <input
           id={id}
@@ -24,7 +36,7 @@ export function Field({
         {unit ? <span className="ui-unit absolute right-3 text-hint text-ink-3">{unit}</span> : null}
       </div>
       {note ? (
-        <p id={`${id}-note`} className={`ui-note${tone ? ` ${tone}` : ''}`}>
+        <p id={`${id}-note`} className={`${NOTE}${noteTone(tone)}`}>
           {tone ? <Icon name={tone === 'bad' ? 'failed' : 'warn'} size={14} label={tone === 'bad' ? 'Error' : 'Warning'} /> : null}
           {note}
         </p>

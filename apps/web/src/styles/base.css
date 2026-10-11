@@ -21,6 +21,17 @@ a:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+/* A row's number is not a web link: it keeps the row's ink and only underlines on hover. Unlayered, or the `a` rule above beats any utility. */
+.tnum {
+  color: inherit;
+  text-decoration: none;
+}
+.tnum:hover {
+  text-decoration: underline;
+}
+kbd {
+  color: var(--ink-2);
+}
 button,
 select,
 input,
@@ -74,6 +85,30 @@ button:disabled {
 }
 .muted {
   color: var(--muted);
+}
+/* Element-level, as the rules above: the one <summary> left (the transcript's tr-fold). */
+summary {
+  list-style: none;
+  cursor: pointer;
+}
+summary::-webkit-details-marker {
+  display: none;
+}
+.mono {
+  font-family: var(--mono);
+}
+/* The small transparent icon button, shared by screens outside the rail (Pane, Inbox, ChatMessages, ChatCompose, InboxCard). */
+.icon {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 3px 7px;
+}
+/* The desktop shell: the frame's app fills the window, not the viewport; the floated rail frees the main column. */
+.frame > #app {
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 .pad {
   padding: 10px 12px;
@@ -150,50 +185,6 @@ button:disabled {
   margin-left: auto;
   font-size: 12px;
   color: var(--muted);
-}
-.btn {
-  display: inline-block;
-  padding: 5px 12px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
-  list-style: none;
-}
-.btn::-webkit-details-marker {
-  display: none;
-}
-.btn.primary {
-  background: var(--accent);
-  color: var(--accent-ink);
-  border-color: var(--accent);
-}
-.menu {
-  position: relative;
-}
-.menu-list {
-  position: absolute;
-  z-index: 5;
-  top: 100%;
-  left: 0;
-  margin-top: 4px;
-  min-width: 300px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: var(--shadow-pop);
-  padding: 4px;
-}
-.menu-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: 0;
-  padding: 6px 8px;
-  border-radius: 6px;
-}
-.menu-item:hover {
-  background: var(--bg);
 }
 .banner {
   padding: 6px 10px;

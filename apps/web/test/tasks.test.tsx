@@ -139,7 +139,7 @@ describe('the list', () => {
     expect(($('td.c-title', row(1688)!) as HTMLElement).style.paddingLeft).toBe('26px');
     expect(text(row(1688))).toContain('#1684'); // local-ref-ok
     expect(storage.data.get('tasksView')).toBe('tree');
-    await click($$('.seg button')[0]!); // back to the list
+    await click($('.ui-seg[aria-label="View"] button')!); // back to the list
     expect(rowIds()).toEqual([1684, 1688, 1700, 1690]);
   });
 

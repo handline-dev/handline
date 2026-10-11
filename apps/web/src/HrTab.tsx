@@ -98,12 +98,8 @@ export function HrTab({ focus }: { focus: number | null }) {
           <strong>HR{waitingCount(list) ? ` · ${waitingCount(list)} waiting` : ''}</strong>
           {decider && waiting.length > 1 && all !== 'ask' && all !== 'reject' ? (
             <SheetActions>
-              <button className="btn" onClick={() => setAll('ask')}>
-                Approve all
-              </button>
-              <button className="btn" onClick={() => setAll('reject')}>
-                Reject all
-              </button>
+              <Button variant="outline" label="Approve all" onClick={() => setAll('ask')} />
+              <Button variant="outline" label="Reject all" onClick={() => setAll('reject')} />
             </SheetActions>
           ) : null}
         </div>
@@ -112,12 +108,8 @@ export function HrTab({ focus }: { focus: number | null }) {
             <strong>Approve all {waiting.length}?</strong>
             <span className="muted">Each is applied as the card shows it; one that fails stays waiting.</span>
             <SheetActions>
-              <button className="btn primary" disabled={going} onClick={() => void approveAll()}>
-                Approve all
-              </button>
-              <button className="btn" disabled={going} onClick={() => setAll(null)}>
-                Cancel
-              </button>
+              <Button variant="solid" label="Approve all" className="max-sm:min-h-12 max-sm:flex-1" disabled={going} onClick={() => void approveAll()} />
+              <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" disabled={going} onClick={() => setAll(null)} />
             </SheetActions>
           </Sheet>
         ) : all === 'reject' ? (
@@ -125,12 +117,14 @@ export function HrTab({ focus }: { focus: number | null }) {
             <strong>Reject all {waiting.length}?</strong>
             <input aria-label="Reason" placeholder="Reason" value={why} onChange={(e) => setWhy(e.target.value)} />
             <SheetActions>
-              <button className="btn primary" disabled={going || !why.trim()} onClick={() => void rejectAll()}>
-                Reject all
-              </button>
-              <button className="btn" disabled={going} onClick={() => setAll(null)}>
-                Cancel
-              </button>
+              <Button
+                variant="solid"
+                label="Reject all"
+                className="max-sm:min-h-12 max-sm:flex-1"
+                disabled={going || !why.trim()}
+                onClick={() => void rejectAll()}
+              />
+              <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" disabled={going} onClick={() => setAll(null)} />
             </SheetActions>
           </Sheet>
         ) : all ? (
@@ -251,7 +245,7 @@ function Card({
         </Button>
       ) : null}
       {showDiff ? (
-        <CodeBlock className="hr-diff max-h-[20lh] overflow-auto" aria-label="What approving does">
+        <CodeBlock scroll className="hr-diff" aria-label="What approving does">
           {diff.map((l, i) => (
             <div key={i} className={l.mark === '-' ? 'del text-bad' : l.mark === '+' ? 'add text-ok' : ''}>
               {l.text}
@@ -321,18 +315,18 @@ function Card({
           <strong>Withdraw {textSafe(p.title)}</strong>
           <span className="muted">Takes the proposal back; whoever raised it can raise it again.</span>
           <SheetActions>
-            <button
-              className="btn primary"
+            <Button
+              variant="solid"
+              label="Withdraw"
+              className="max-sm:min-h-12 max-sm:flex-1"
               onClick={() => {
                 setAsk(false);
                 sent(withdraw.mutateAsync({ proposal: p.id }), 'withdraw');
               }}
             >
               Withdraw
-            </button>
-            <button className="btn" onClick={() => setAsk(false)}>
-              Cancel
-            </button>
+            </Button>
+            <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" onClick={() => setAsk(false)} />
           </SheetActions>
         </Sheet>
       ) : null}

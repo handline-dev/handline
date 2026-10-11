@@ -1,7 +1,7 @@
 // New task: owner, title, body, time box and priority. The row shows in the list at once with a hollow dot; a refusal leaves the text here.
 import { useState } from 'react';
 import { classify, sentence, useWrite } from '@handline/app-data';
-import { Dialog, Field, Icon, Select } from './ui/index.ts';
+import { Dialog, FIELD, FIELD_LABEL, Field, Icon, NOTE, Select, Textarea } from './ui/index.ts';
 
 export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => void }) {
   const ask = useWrite('task.new');
@@ -23,14 +23,14 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
       <form
         id="newtask-form"
         name="newtask-form"
-        className="tform"
+        className="tform grid gap-3"
         onSubmit={(e) => {
           e.preventDefault();
           send();
         }}
       >
-        <div className="ui-field">
-          <span className="ui-field-label">Owner</span>
+        <div className={FIELD}>
+          <span className={FIELD_LABEL}>Owner</span>
           <Select
             label="Owner"
             value={owner}
@@ -39,14 +39,16 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
           />
         </div>
         <Field label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <div className="ui-field">
-          <label htmlFor="newtask-body">Body</label>
-          <textarea id="newtask-body" className="ui-textarea" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
+        <div className={FIELD}>
+          <label htmlFor="newtask-body" className={FIELD_LABEL}>
+            Body
+          </label>
+          <Textarea id="newtask-body" className="bg-panel border-line-strong px-3 py-2 resize-y" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
         </div>
-        <div className="tform-row">
+        <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
           <Field label="Time box" value={box} onChange={(e) => setBox(e.target.value)} />
-          <div className="ui-field">
-            <span className="ui-field-label">Priority</span>
+          <div className={FIELD}>
+            <span className={FIELD_LABEL}>Priority</span>
             <Select
               label="Priority"
               value={String(priority)}
@@ -60,7 +62,7 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
           </div>
         </div>
         {said ? (
-          <p className="ui-note bad" role="alert">
+          <p className={`${NOTE} text-bad`} role="alert">
             <Icon name="failed" size={14} label="Error" />
             {said}
           </p>

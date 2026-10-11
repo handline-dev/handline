@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { useWrite } from '@handline/app-data';
 import { Icon } from './ui/Icon.tsx';
-import { Sheet, SheetActions, Textarea } from './ui/index.ts';
+import { Button, Sheet, SheetActions, Textarea } from './ui/index.ts';
 
 const MEMO = 'tmemo mt-2 flex gap-2';
 
@@ -33,46 +33,51 @@ export function MemoRow({
       {text === null ? (
         <>
           {memo.text}{' '}
-          <button
-            className="btn"
+          <Button
+            size="sm"
+            variant="outline"
+            label="Edit memo"
+            aria-label="Edit memo"
             disabled={!canEdit.ok || memo.id < 0}
             title={canEdit.why}
-            aria-label="Edit memo"
             onClick={() => setText(memo.text)}
           >
             Edit
-          </button>{' '}
-          <button
-            className="btn"
+          </Button>{' '}
+          <Button
+            size="sm"
+            variant="outline"
+            label="Delete memo"
+            aria-label="Delete memo"
             disabled={!canDelete.ok || memo.id < 0}
             title={canDelete.why}
-            aria-label="Delete memo"
             onClick={() => setAsk(true)}
           >
             Delete
-          </button>
+          </Button>
         </>
       ) : (
         <span className={MEMO}>
           <Textarea grow className="tinput" rows={2} aria-label="Memo text" value={text} onChange={(e) => setText(e.target.value)} />
-          <button className="btn primary" disabled={!text.trim()} onClick={save}>
+          <Button size="sm" variant="solid" label="Save" disabled={!text.trim()} onClick={save}>
             Save
-          </button>{' '}
-          <button className="btn" onClick={() => setText(null)}>
-            Cancel
-          </button>
+          </Button>{' '}
+          <Button size="sm" variant="outline" label="Cancel" onClick={() => setText(null)} />
         </span>
       )}
       {ask ? (
         <Sheet as="span" danger role="alertdialog" aria-label="Delete memo">
           <strong>Delete this memo?</strong>
           <SheetActions>
-            <button className="btn primary" onClick={() => del.mutate({ task, memo: memo.id }, { onSettled: () => setAsk(false) })}>
+            <Button
+              variant="solid"
+              label="Delete"
+              className="max-sm:min-h-12 max-sm:flex-1"
+              onClick={() => del.mutate({ task, memo: memo.id }, { onSettled: () => setAsk(false) })}
+            >
               Delete
-            </button>
-            <button className="btn" onClick={() => setAsk(false)}>
-              Cancel
-            </button>
+            </Button>
+            <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" onClick={() => setAsk(false)} />
           </SheetActions>
         </Sheet>
       ) : null}
@@ -111,9 +116,7 @@ export function MemoBox({
         aria-label="Memo"
         onChange={(e) => setText(e.target.value)}
       />
-      <button className="btn icon" disabled={!can.ok || !text.trim()} title={can.why ?? 'Add memo'} aria-label="Add memo">
-        <Icon name="send" label="Add memo" aria-hidden="true" />
-      </button>
+      <Button type="submit" icon="send" label="Add memo" disabled={!can.ok || !text.trim()} title={can.why ?? 'Add memo'} className="max-sm:min-h-[44px]" />
     </form>
   );
 }

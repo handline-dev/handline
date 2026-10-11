@@ -1,7 +1,0 @@
-/* The agent rows speak Tailwind utilities in Sidebar.tsx / RailIcons.tsx. What is left here is what cannot move:
-   the ⋯ menu position, which must out-rank base.css `.menu-list` (later import beats the utilities). */
-.row-actions .menu-list {
-  left: auto;
-  right: 0;
-  min-width: 260px;
-}

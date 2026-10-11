@@ -1,6 +1,7 @@
 // The states a data view draws besides its content (docs/turborepo-layout.md §8.3): skeleton, not served, error with Retry, empty.
 import type { ReactNode } from 'react';
 import { classify, sentence, Skeleton, viewState, type SkeletonName } from '@handline/app-data';
+import { Button } from './ui/index.ts';
 
 export function View(props: {
   q: { isPending: boolean; isFetching: boolean; isError: boolean; data: unknown; error: unknown; refetch: () => unknown };
@@ -22,10 +23,7 @@ export function View(props: {
     <>
       {text && failure?.kind !== 'not_found' ? (
         <div className="banner" role="alert">
-          {text}{' '}
-          <button className="btn" onClick={() => void q.refetch()}>
-            Retry
-          </button>
+          {text} <Button variant="outline" size="sm" label="Retry" onClick={() => void q.refetch()} />
         </div>
       ) : null}
       {props.children}

@@ -10,7 +10,7 @@ import { Gauge, SPANS, useNow } from './Gauge.tsx';
 const ROW = 'usage-row flex flex-col gap-1.5 rounded-card border border-line bg-panel px-3 py-2.5 text-inherit no-underline';
 // Fixed, not absolute: the rail clips what overflows it. On a phone it is a sheet along the bottom.
 const POP =
-  'usage-pop fixed bottom-10 left-2 z-20 flex w-[min(360px,calc(100vw_-_16px))] flex-col gap-2 rounded-card border border-line bg-panel p-2.5 shadow-[var(--shadow-pop)] max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:w-auto max-sm:rounded-b-none max-sm:rounded-t-dialog';
+  'usage-pop fixed top-auto bottom-[calc(100%+var(--sp-2))] left-2 right-0 z-20 flex w-[min(360px,calc(100vw_-_16px))] flex-col gap-2 rounded-card border border-line bg-panel p-2.5 shadow-[var(--shadow-pop)] max-sm:inset-x-0 max-sm:bottom-0 max-sm:w-auto max-sm:rounded-b-none max-sm:rounded-t-dialog';
 
 export function UsagePopup() {
   const { data } = useAccounts();

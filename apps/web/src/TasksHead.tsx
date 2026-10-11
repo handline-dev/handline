@@ -1,6 +1,6 @@
 // The header of the Tasks page: search, the Open / Mine / Closed pills, the Filters popover (agent and states), list or tree, select (phone), keys and New task.
 import { CLOSED, LISTED, TASK_STATES, type TaskColumn, type TaskFilter } from '@handline/app-core';
-import { BarInput, Icon, Popup, Segmented, Select, Toolbar } from './ui/index.ts';
+import { BarInput, Button, Icon, Popup, Segmented, Select, Toolbar } from './ui/index.ts';
 import { STATE_GLYPH } from './taskui.tsx';
 
 /** Which tasks the pills show: the open ones, the ones I own, or the closed ones. */
@@ -47,7 +47,7 @@ export function TasksHead(props: {
           value={props.query}
           placeholder="Search"
           aria-label="Search tasks"
-          className="w-[200px] pl-6"
+          className="w-[200px] pl-6 max-sm:w-full"
           onChange={(e) => props.onQuery(e.target.value)}
         />
       </label>
@@ -62,20 +62,23 @@ export function TasksHead(props: {
         ]}
       />
       <span className="tfilters relative inline-flex">
-        <button
-          className={`btn icon relative${props.filtering ? ' on' : ''}`}
-          onClick={() => props.onAct('states')}
+        <Button
+          icon="filter"
+          label={changed(filter) ? 'Filters, on' : 'Filters'}
           aria-label={changed(filter) ? 'Filters, on' : 'Filters'}
-          aria-expanded={props.filtering}
           title="Filters (v)"
+          variant={props.filtering ? 'outline' : 'ghost'}
+          className={`relative w-7 p-0 max-sm:min-h-[44px]${props.filtering ? ' [background:var(--bg-3)]' : ''}`}
+          aria-expanded={props.filtering}
+          onClick={() => props.onAct('states')}
         >
-          <Icon name="filter" label="Filters" aria-hidden="true" />
           {changed(filter) ? <span className="tdot absolute top-1 right-1 h-2 w-2 rounded-pill border border-canvas bg-ink" title="A filter is on" /> : null}
-        </button>
+        </Button>
         <Popup open={props.filtering} onClose={() => props.onAct('states')} title="Filters">
           <div className="tfilter-body grid gap-2 px-3 py-2">
             <Select
               label="Agent"
+              className="max-sm:min-h-[44px]"
               value={filter.agent}
               onChange={(e) => props.onFilter({ ...filter, agent: e.target.value })}
               options={[{ value: '', label: 'all agents' }, ...props.agents.map((a) => ({ value: a, label: a }))]}
@@ -95,41 +98,30 @@ export function TasksHead(props: {
                 <Icon name={STATE_GLYPH[s] ?? 'taskPending'} size={14} aria-hidden="true" /> {s}
               </label>
             ))}
-            <button type="button" className="btn" onClick={() => props.onFilter({ ...filter, states: new Set(LISTED), agent: '' })}>
-              Reset
-            </button>
+            <Button variant="outline" size="sm" label="Reset" onClick={() => props.onFilter({ ...filter, states: new Set(LISTED), agent: '' })} />
           </div>
         </Popup>
       </span>
-      <span className="seg" role="group" aria-label="View">
-        {(['list', 'tree'] as const).map((m) => (
-          <button
-            key={m}
-            className={`btn icon${mode === m ? ' on' : ''}`}
-            aria-pressed={mode === m}
-            aria-label={m}
-            title={`${m} (t)`}
-            onClick={() => props.onView(m)}
-          >
-            <Icon name={m === 'list' ? 'viewList' : 'viewTree'} label={m} aria-hidden="true" />
-          </button>
-        ))}
-      </span>
-      <button
-        className="btn icon select-btn"
-        aria-pressed={selecting}
-        aria-label="Select"
+      <Segmented
+        label="View"
+        value={mode}
+        onChange={props.onView}
+        options={[
+          { value: 'list', label: 'list', icon: 'viewList' },
+          { value: 'tree', label: 'tree', icon: 'viewTree' },
+        ]}
+      />
+      <Button
+        icon="select"
+        label="Select"
         title="Select rows"
+        aria-pressed={selecting}
+        variant={selecting ? 'outline' : 'ghost'}
+        className={`max-sm:min-h-[44px]${selecting ? ' [background:var(--bg-3)]' : ''}`}
         onClick={() => props.onSelecting()}
-      >
-        <Icon name="select" label="Select" aria-hidden="true" />
-      </button>
-      <button className="btn icon" onClick={() => props.onAct('keys')} aria-label="Keys" title="Keys (?)">
-        <Icon name="keys" label="Keys" aria-hidden="true" />
-      </button>
-      <button className="btn icon primary" onClick={() => props.onAct('new')} aria-label="New task" title="New task (n)">
-        <Icon name="plus" label="New task" aria-hidden="true" />
-      </button>
+      />
+      <Button icon="keys" label="Keys" title="Keys (?)" className="max-sm:min-h-[44px]" onClick={() => props.onAct('keys')} />
+      <Button icon="plus" label="New task" title="New task (n)" variant="solid" className="max-sm:min-h-[44px]" onClick={() => props.onAct('new')} />
     </header>
   );
 }
@@ -146,42 +138,24 @@ export function TasksBar(props: {
   return (
     <Toolbar label="Actions on the marked tasks">
       <span className="muted mr-auto">{props.marked} marked</span>
-      <button
-        className="btn icon"
-        onClick={() => props.onAct('discard')}
-        disabled={!can.discard.ok}
+      <Button
+        icon="dismiss"
+        label="Discard"
         title={can.discard.why ?? 'Discard (d)'}
-        aria-label="Discard"
-      >
-        <Icon name="dismiss" label="Discard" aria-hidden="true" />
-      </button>
-      <button
-        className="btn icon"
-        onClick={() => props.onAct('owner')}
-        disabled={!can.edit.ok}
-        title={can.edit.why ?? 'Owner (o)'}
-        aria-label="Owner"
-      >
-        <Icon name="owner" aria-hidden="true" />
-      </button>
-      <button
-        className="btn icon"
-        onClick={() => props.onAct('priority')}
-        disabled={!can.edit.ok}
-        title={can.edit.why ?? 'Priority (p)'}
-        aria-label="Priority"
-      >
-        <Icon name="priority" aria-hidden="true" />
-      </button>
-      <button
-        className="btn icon"
-        onClick={() => props.onAct('merge')}
-        disabled={!can.merge.ok}
+        disabled={!can.discard.ok}
+        className="max-sm:min-h-[44px]"
+        onClick={() => props.onAct('discard')}
+      />
+      <Button icon="owner" label="Owner" title={can.edit.why ?? 'Owner (o)'} disabled={!can.edit.ok} className="max-sm:min-h-[44px]" onClick={() => props.onAct('owner')} />
+      <Button icon="priority" label="Priority" title={can.edit.why ?? 'Priority (p)'} disabled={!can.edit.ok} className="max-sm:min-h-[44px]" onClick={() => props.onAct('priority')} />
+      <Button
+        icon="merge"
+        label="Merge"
         title={can.merge.why ?? 'Merge (m): mark tasks, put the cursor on the one to keep'}
-        aria-label="Merge"
-      >
-        <Icon name="merge" aria-hidden="true" />
-      </button>
+        disabled={!can.merge.ok}
+        className="max-sm:min-h-[44px]"
+        onClick={() => props.onAct('merge')}
+      />
     </Toolbar>
   );
 }
