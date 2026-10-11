@@ -152,6 +152,7 @@ test('watchMain calls back once when the main ref is replaced or packed-refs is 
     (e) => errors.push(e),
     50,
   );
+  t.after(stop);
   await new Promise((r) => setTimeout(r, 100));
   if (errors.length) return t.skip(`fs.watch is not available here: ${errors[0]!.message}`);
   if (!(await watchDelivers(git))) return t.skip('fs.watch delivers no events on this host');
@@ -171,7 +172,6 @@ test('watchMain calls back once when the main ref is replaced or packed-refs is 
   await wait(300);
   await until(() => n >= 2);
   assert.equal(n, 2);
-  stop();
 });
 
 test('a watch that cannot start or breaks is reported, not thrown', async () => {
