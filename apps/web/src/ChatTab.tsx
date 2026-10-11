@@ -40,7 +40,7 @@ function dayHeading(at: string, before: string | null): string | null {
 
 function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
   return (
-    <section className="chat relative flex min-h-0 min-w-0 flex-col border-r border-line [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]">
+    <section className={CHAT}>
       <div className="stream flex flex-1 overflow-auto">
         <Empty
           icon="chat"
@@ -64,6 +64,8 @@ function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
     </section>
   );
 }
+
+const CHAT = 'chat relative flex min-h-0 min-w-0 flex-col border-r border-line [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]';
 
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const { storage } = useWorkspace();
@@ -164,7 +166,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
 
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
-    <section className="chat relative flex min-h-0 min-w-0 flex-col border-r border-line [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]">
+    <section className={CHAT}>
       <div className="chat-head flex h-[var(--h-tabs)] items-center justify-between gap-2 border-b border-line px-2">
         <ChatStrip detail={detail} />
         <Segmented

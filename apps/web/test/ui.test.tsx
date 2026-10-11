@@ -249,7 +249,9 @@ describe('Popup and Dialog', () => {
       </Dialog>,
     );
     expect($('[role="dialog"]')!.getAttribute('aria-modal')).toBe('true');
-    await act(async () => void (await new Promise((r) => setTimeout(r, 50)))); // Base UI moves focus in on the next frame
+    for (let i = 0; i < 20 && document.activeElement?.tagName !== 'INPUT'; i++) {
+      await act(async () => void (await new Promise((r) => setTimeout(r, 10)))); // Base UI moves focus in on the next frame
+    }
     expect(document.activeElement?.tagName).toBe('INPUT');
     expect(box.querySelectorAll('.ui-btn.solid')).toHaveLength(1);
     await press('Enter', { metaKey: true });

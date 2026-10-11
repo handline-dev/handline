@@ -8,6 +8,8 @@ import { Sheet } from './taskui.tsx';
 import { Input, MetaField, MetaGrid, NativeSelect, Textarea, VisuallyHidden } from './ui/index.ts';
 import { when } from './TaskMemos.tsx';
 
+export const TIMELINE = 'ttimeline m-0 list-none p-0 [&_svg]:shrink-0 [&_svg]:self-center [&_svg]:text-ink-3';
+
 const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
 const LI = 'flex items-baseline gap-1.5 py-0.5';
 
@@ -74,7 +76,7 @@ export function TaskLinks({ icon, label, items }: { icon: IconName; label: strin
 
 export function TaskTimeline({ deliveries, events }: { deliveries: Detail['deliveries']; events: Detail['events'] }) {
   return (
-    <ol className="ttimeline m-0 list-none p-0 [&_svg]:shrink-0 [&_svg]:self-center [&_svg]:text-ink-3">
+    <ol className={TIMELINE}>
       {deliveries.map((d) => (
         <li key={d.at} title={`delivered by ${d.how}`} className={LI}>
           <Icon name="delivered" label="Delivered" aria-hidden="true" size={14} />

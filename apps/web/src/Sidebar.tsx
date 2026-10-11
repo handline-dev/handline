@@ -79,7 +79,7 @@ export function Sidebar({
       className="rail flex w-[var(--rail-w,280px)] flex-none flex-col overflow-hidden border-r border-line bg-panel min-h-0 max-[900px]:fixed max-[900px]:z-10 max-[900px]:[inset:0_auto_0_0] max-[900px]:w-[min(320px,90vw)] max-[900px]:shadow-[var(--shadow-pop)]"
       aria-label="Agents"
     >
-      {/* The shell's drag strip: 38 px row, its middle on the traffic lights' middle. `rail-top` stays as the tests' hook. */}
+      {/* The shell's drag strip: 38 px row centred on the traffic lights; `rail-top` is the tests' hook. */}
       <div className="rail-top flex items-center gap-0.5 pt-2 px-2.5 pb-1 shell:h-[38px] shell:py-0 shell:pl-[86px] shell:[-webkit-app-region:drag]">
         <Button className="shell:[-webkit-app-region:no-drag]" icon="sidebar" label="Hide the agent list (⌘B)" onClick={onToggle} />
         <Button className="shell:[-webkit-app-region:no-drag]" icon="back" label="Back (⌘[)" onClick={() => history.back()} />
@@ -230,7 +230,7 @@ function Row({ agent: a, depth, team, selected }: { agent: AgentView; depth: num
   const ctx = ctxOf(a);
   const badges = badgesOf(a, store.me).filter((b) => b.kind !== 'no_terminal'); // the mark already says it
   const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `#${a.task.id} ${a.task.title}` : ''].filter(Boolean).join(' · ');
-  // The left edge: the waiting hue outranks the selection (the old `.row.attn` came after `.row.on`).
+  // The left edge: the waiting hue outranks the selection.
   const edge = dot === 'waiting' ? 'border-l-wait' : selected ? 'border-l-primary' : 'border-l-transparent';
   return (
     <div className={`row-wrap${selected ? ' on bg-canvas' : ''}`} data-agent={a.name}>

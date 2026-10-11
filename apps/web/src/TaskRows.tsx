@@ -33,7 +33,7 @@ export function Row(props: {
   ]
     .filter(Boolean)
     .join(' · ');
-  // An open row keeps its raised ground even hovered (the css rule used to win over :hover); a cursor row carries the inset bar.
+  // An open row keeps its raised ground when hovered; a cursor row carries the inset bar.
   const row = `trow group/trow cursor-default ${props.open ? 'open bg-raised hover:bg-raised' : 'hover:bg-panel'}${
     props.cursor ? ` cursor shadow-[inset_2px_0_0_var(--ink)]${props.open ? '' : ' bg-panel'}` : ''
   }${props.dim ? ' dim' : ''}${authored ? ' pending' : ''}`;

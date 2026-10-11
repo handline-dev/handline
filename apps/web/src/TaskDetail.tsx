@@ -8,7 +8,7 @@ import { Icon, VisuallyHidden } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
 import { MemoBox, MemoRow } from './TaskMemos.tsx';
-import { CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
+import { CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, TIMELINE, Verb } from './TaskDetailParts.tsx';
 import { View } from './View.tsx';
 
 type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'edit';
@@ -18,7 +18,6 @@ const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|T
 /** The bridge's own sentence for a key that does not apply. */
 const REOPEN_ONLY = 'only a done task that you asked for can be reopened';
 const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
-const TIMELINE = 'ttimeline m-0 list-none p-0 [&_svg]:shrink-0 [&_svg]:self-center [&_svg]:text-ink-3';
 
 export function TaskDetail({ id, onBack, embedded }: { id: number; onBack: () => void; embedded?: boolean }) {
   const q = useTask(id);

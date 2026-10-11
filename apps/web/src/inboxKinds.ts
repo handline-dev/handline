@@ -40,7 +40,7 @@ export const cardClass = (s: { read: boolean; on: boolean; go: boolean; more: bo
     'inbox-card group/card rounded-ctl border border-line bg-panel',
     s.read && 'read',
     s.on && 'on outline-2 outline-offset-1 outline-focus',
-    // The old rule named an undefined token, so the border fell to the current colour.
+    // The border falls to the current colour.
     s.go && 'go cursor-pointer hover:border-current',
     s.more && 'more',
   ]
