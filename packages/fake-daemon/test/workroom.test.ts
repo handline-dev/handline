@@ -26,7 +26,10 @@ test('agent.create replies with an operation that runs to done, and the agent ap
   const op = await client.call('operation.get', { operation: r.operation });
   assert.deepEqual([op.state, op.agent, op.result], ['done', 'conf.made', { agent: 'conf.made', registered: true }]);
   assert.equal(daemon.sessions.get('conf.made')?.state, 'idle');
-  assert.equal(daemon.admin.worktrees.rows.some((w) => w.owner === 'conf.made' && w.repo === 'handline'), true);
+  assert.equal(
+    daemon.admin.worktrees.rows.some((w) => w.owner === 'conf.made' && w.repo === 'handline'),
+    true,
+  );
   client.close();
 });
 
@@ -68,7 +71,10 @@ test('only a founder creates an agent; a daemon that does not list it refuses it
   const { client, daemon } = setup();
   daemon.knobs.unserve('agent.create');
   await client.start();
-  assert.equal(client.hello?.methods.some((m) => m.name === 'agent.create'), false);
+  assert.equal(
+    client.hello?.methods.some((m) => m.name === 'agent.create'),
+    false,
+  );
   client.close();
 });
 
@@ -79,10 +85,19 @@ test('worktree.set_status sets a label that worktrees.list shows, and refuses a 
   assert.equal(daemon.admin.worktrees.rows.find((w) => w.path === path)?.status, 'todo');
   await client.call('worktree.set_status', { path, status: 'in review', request_id: 'ws-1' });
   const { worktrees } = await client.call('worktrees.list', { owner: 'handline.auditor' });
-  assert.deepEqual(worktrees.map((w) => [w.path, w.status, w.parent]), [[path, 'in review', '/work/handline.architect']]);
+  assert.deepEqual(
+    worktrees.map((w) => [w.path, w.status, w.parent]),
+    [[path, 'in review', '/work/handline.architect']],
+  );
   assert.equal(daemon.admin.worktrees.rows.find((w) => w.path === path)?.status, 'in review');
-  await assert.rejects(client.call('worktree.set_status', { path: '/', status: 'done', request_id: 'ws-2' }), (e: RpcError) => e.data?.what === 'worktree');
-  await assert.rejects(client.call('worktree.set_status', { path, status: 'x'.repeat(41), request_id: 'ws-3' }), (e: RpcError) => e.data?.field === 'status');
-  
+  await assert.rejects(
+    client.call('worktree.set_status', { path: '/', status: 'done', request_id: 'ws-2' }),
+    (e: RpcError) => e.data?.what === 'worktree',
+  );
+  await assert.rejects(
+    client.call('worktree.set_status', { path, status: 'x'.repeat(41), request_id: 'ws-3' }),
+    (e: RpcError) => e.data?.field === 'status',
+  );
+
   client.close();
 });

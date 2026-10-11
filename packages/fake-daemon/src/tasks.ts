@@ -221,7 +221,17 @@ export class FakeTasks {
 
 // The task methods the fake serves; the rest (memos, release, handoff) are refused as `unsupported`.
 const BASIC = new Set(['tasks.list', 'task.get', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel']);
-const VERBS = new Set(['task.done', 'task.reopen', 'task.queue', 'task.draft', 'task.discard', 'task.merge', 'task.memo.add', 'task.memo.edit', 'task.memo.delete']);
+const VERBS = new Set([
+  'task.done',
+  'task.reopen',
+  'task.queue',
+  'task.draft',
+  'task.discard',
+  'task.merge',
+  'task.memo.add',
+  'task.memo.edit',
+  'task.memo.delete',
+]);
 
 /** Answers one task method, turning the store's refusals into the daemon's errors. */
 export function taskCall(

@@ -14,7 +14,11 @@ export type ReadResult<M extends ReadMethod> = UseQueryResult<Methods[M]['result
  * A read of the daemon as a query. It runs only while the connection is open and the daemon lists the method; an event-fed read
  * is never stale (the bridge keeps it current) and a snapshot read is stale after 30 s. A list keeps its rows while a filter changes.
  */
-export function useRead<M extends ReadMethod>(method: M, params: CallParams<M>, opts: { enabled?: boolean; refetchMs?: number } = {}): ReadResult<M> {
+export function useRead<M extends ReadMethod>(
+  method: M,
+  params: CallParams<M>,
+  opts: { enabled?: boolean; refetchMs?: number } = {},
+): ReadResult<M> {
   const store = useStore();
   const { daemon } = useData();
   const { served, open } = useServes(method);

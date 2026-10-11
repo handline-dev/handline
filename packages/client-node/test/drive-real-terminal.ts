@@ -14,7 +14,12 @@ const until = async (cond: () => boolean, what: string, ms = 15000) => {
   }
 };
 
-const client = new DaemonClient({ client: 'drive-real-terminal', token: process.env.HANDLINE_TOKEN, reconnect: false, connect: () => webSocketTransport(url) });
+const client = new DaemonClient({
+  client: 'drive-real-terminal',
+  token: process.env.HANDLINE_TOKEN,
+  reconnect: false,
+  connect: () => webSocketTransport(url),
+});
 try {
   const hello = await client.start();
   seen.formats = hello.capabilities.terminal_format;
@@ -36,7 +41,12 @@ try {
   // scrolled off has none to page back through: attach again, and page back from there.
   const later = await client.attachTerminal(agent);
   await client.loadOlder(later, 30);
-  seen.history = { count: later.history.length, first: later.historyFirst, more: later.historyMore, spans: later.historySpans.filter(Boolean).length };
+  seen.history = {
+    count: later.history.length,
+    first: later.historyFirst,
+    more: later.historyMore,
+    spans: later.historySpans.filter(Boolean).length,
+  };
 
   await client.call('terminal.resize', { terminal: view.terminal, cols: 100, rows: 30 });
   await until(() => view.cols === 100 && view.rows === 30, 'the resize reaches the view');

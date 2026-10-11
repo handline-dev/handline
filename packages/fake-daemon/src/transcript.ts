@@ -47,7 +47,10 @@ export class FakeTranscript {
 
   /** Retention: drops the events of `agent` up to and including `seq`, as a daemon that keeps no more would; a read from before that says gap. */
   forget(agent: string, seq: number): void {
-    this.logs.set(agent, this.events(agent).filter((e) => e.seq > seq));
+    this.logs.set(
+      agent,
+      this.events(agent).filter((e) => e.seq > seq),
+    );
   }
 
   /** The topic needs member, as the read does: an agent session that subscribes to it is refused. */

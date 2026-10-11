@@ -3,7 +3,11 @@ import { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { RpcError } from '@handline/client';
 
-const cam = vi.hoisted(() => ({ permission: { granted: false } as { granted: boolean } | null, ask: vi.fn(), scan: undefined as ((r: { data: string }) => void) | undefined }));
+const cam = vi.hoisted(() => ({
+  permission: { granted: false } as { granted: boolean } | null,
+  ask: vi.fn(),
+  scan: undefined as ((r: { data: string }) => void) | undefined,
+}));
 vi.mock('expo-camera', () => ({
   useCameraPermissions: () => [cam.permission, cam.ask],
   CameraView: (p: { onBarcodeScanned?: (r: { data: string }) => void }) => {
@@ -27,7 +31,9 @@ describe('ScanQr', () => {
     await render(<ScanQr onScan={() => {}} onCancel={onCancel} />);
     expect(text()).toContain('Allow the camera');
     expect($('scan-camera')).toBeNull();
-    const type = [...box.querySelectorAll<HTMLElement>('[role="button"], button, div')].find((e) => e.textContent === 'Type the link instead');
+    const type = [...box.querySelectorAll<HTMLElement>('[role="button"], button, div')].find(
+      (e) => e.textContent === 'Type the link instead',
+    );
     await press(type!);
     expect(onCancel).toHaveBeenCalled();
   });

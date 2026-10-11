@@ -29,7 +29,9 @@ export function PairScreen(props: { onPaired: (p: Pairing) => void }) {
   return (
     <View style={{ padding: space.lg, gap: space.md }}>
       <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>Pair with a daemon</Text>
-      <Text style={{ color: c.muted }}>On the computer, choose Pair a phone in the Handline menu, and scan its code. Or run hl device pair and paste the link.</Text>
+      <Text style={{ color: c.muted }}>
+        On the computer, choose Pair a phone in the Handline menu, and scan its code. Or run hl device pair and paste the link.
+      </Text>
       {scanning ? (
         <ScanQr onScan={(t) => void go(t)} onCancel={() => setScanning(false)} />
       ) : (
