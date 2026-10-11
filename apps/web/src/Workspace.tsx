@@ -22,7 +22,10 @@ import type { AgentDetail } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { classify, useAgentDetail, useAgents, useServes } from '@handline/app-data';
 import { View } from './View.tsx';
-import { DropZones, Pane } from './Pane.tsx';
+import { DropZones } from './DropZones.tsx';
+import { Pane } from './Pane.tsx';
+
+const CELL = 'cell flex min-h-0 min-w-0 [&>*]:min-h-0 [&>*]:min-w-0 [&>*]:flex-1';
 
 export interface WorkspaceCtx {
   ws: Workspace;
@@ -56,7 +59,7 @@ export function AgentWorkspace({ agent, daemon, storage }: { agent: string; daem
     );
   if (!q.data)
     return (
-      <div className="workspace-loading">
+      <div className="workspace-loading min-w-0 flex-1 p-3">
         {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
         <View q={q} served={served} shape="terminal" what={`${agent}'s workspace`}>
           {null}
@@ -113,7 +116,7 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   const active = groupsOf(ws.root).find((g) => g.id === ws.active) ?? groupsOf(ws.root)[0]!;
   return (
     <Ctx.Provider value={value}>
-      <div className="workspace" ref={root} data-panes={groupsOf(ws.root).length} data-merged={arr.merged}>
+      <div className="workspace relative flex min-h-0 min-w-0 flex-1" ref={root} data-panes={groupsOf(ws.root).length} data-merged={arr.merged}>
         {arr.merged ? (
           <Pane group={{ type: 'group', id: active.id, tabs: arr.tabs, activeTab: arr.activeTab }} />
         ) : (
@@ -136,12 +139,12 @@ function Tree({ node, path }: { node: Node; path: Path }): ReactNode {
     apply((w) => setSplit(w, path, row ? (e.clientX - r.left) / r.width : (e.clientY - r.top) / r.height));
   };
   return (
-    <div className={`split split-${node.dir}`} ref={box}>
-      <div className="cell" style={{ flex: `${node.at} 1 0` }}>
+    <div className={`split split-${node.dir} flex min-h-0 min-w-0 flex-1${row ? '' : ' flex-col'}`} ref={box}>
+      <div className={CELL} style={{ flex: `${node.at} 1 0` }}>
         <Tree node={node.a} path={[...path, 'a']} />
       </div>
       <div
-        className="divider"
+        className={`divider flex-none touch-none bg-line hover:bg-primary ${row ? 'w-[5px] cursor-col-resize' : 'h-[5px] cursor-row-resize'}`}
         role="separator"
         aria-orientation={row ? 'vertical' : 'horizontal'}
         title="Drag to resize; double-click to reset"
@@ -149,7 +152,7 @@ function Tree({ node, path }: { node: Node; path: Path }): ReactNode {
         onPointerMove={drag}
         onDoubleClick={() => apply((w) => setSplit(w, path, 0.5))}
       />
-      <div className="cell" style={{ flex: `${1 - node.at} 1 0` }}>
+      <div className={CELL} style={{ flex: `${1 - node.at} 1 0` }}>
         <Tree node={node.b} path={[...path, 'b']} />
       </div>
     </div>

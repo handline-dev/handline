@@ -13,9 +13,15 @@ export function Field({
   return (
     <div className="ui-field">
       <label htmlFor={id}>{label}</label>
-      <div className="ui-input-wrap">
-        <input id={id} aria-describedby={note ? `${id}-note` : undefined} aria-invalid={tone === 'bad' || undefined} {...rest} />
-        {unit ? <span className="ui-unit">{unit}</span> : null}
+      <div className="ui-input-wrap relative flex items-center">
+        <input
+          id={id}
+          className="h-9 w-full rounded-ctl border border-line-strong bg-panel px-3 py-0 text-ink placeholder:text-ink-3 disabled:border-dashed disabled:text-ink-3"
+          aria-describedby={note ? `${id}-note` : undefined}
+          aria-invalid={tone === 'bad' || undefined}
+          {...rest}
+        />
+        {unit ? <span className="ui-unit absolute right-3 text-hint text-ink-3">{unit}</span> : null}
       </div>
       {note ? (
         <p id={`${id}-note`} className={`ui-note${tone ? ` ${tone}` : ''}`}>

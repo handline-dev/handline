@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react';
 import { useAgents, useTasks } from '@handline/app-data';
 import { goAgent, goInbox, goTasks, goTeam } from './route.ts';
-import { Icon, type IconName } from './ui/index.ts';
+import { Backdrop, Icon, type IconName } from './ui/index.ts';
 
 interface Hit {
   key: string;
@@ -44,12 +44,18 @@ export function Palette({ onClose }: { onClose: () => void }) {
   };
   const cur = Math.min(at, hits.length - 1);
   return (
-    <div className="ui-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="palette" role="dialog" aria-modal="true" aria-label="Search everything">
-        <div className="palette-box">
+    <Backdrop onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div
+        className="palette w-[min(560px,calc(100vw-2*var(--sp-6)))] overflow-hidden rounded-dialog border border-line-strong bg-panel shadow-[var(--shadow-pop)]"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Search everything"
+      >
+        <div className="palette-box flex items-center gap-2 border-b border-line px-3">
           <Icon name="search" size={16} aria-hidden />
           <input
             autoFocus
+            className="h-9 flex-1 border-0 bg-transparent outline-none"
             aria-label="Search agents, tasks and pages"
             placeholder="Agents, tasks, pages…"
             value={q}
@@ -66,7 +72,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
             }}
           />
         </div>
-        <ul role="listbox" aria-label="Results">
+        <ul role="listbox" aria-label="Results" className="m-0 max-h-80 list-none overflow-auto py-1">
           {hits.map((h, i) => (
             <li key={h.key} role="option" aria-selected={i === cur}>
               <button type="button" className="ui-prow" onMouseDown={(e) => e.preventDefault()} onClick={() => go(h)}>
@@ -79,6 +85,6 @@ export function Palette({ onClose }: { onClose: () => void }) {
           {!hits.length ? <li className="palette-none muted">–</li> : null}
         </ul>
       </div>
-    </div>
+    </Backdrop>
   );
 }

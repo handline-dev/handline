@@ -309,7 +309,7 @@ describe('the bridge items: send now, take back, message numbers, new, menus, se
     expect($('[role="dialog"][aria-modal="true"]')).not.toBeNull();
     expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
     await press(compose(), 'Escape'); // the dialog's own key closes it
-    await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    await act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))); // Base UI listens on the document
     expect($('[role="dialog"][aria-modal="true"]')).toBeNull();
     expect(chatOf(t).messages.find((m) => m.body === 'Use the contract fixtures.')!.landing).toBe('delivered_unanswered');
     await click(labelled(msg('Use the contract fixtures.'), 'Take back')!);

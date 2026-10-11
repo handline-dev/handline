@@ -3,12 +3,12 @@ import { Icon, type IconName } from './Icon.tsx';
 
 export function Empty({ icon, name, hint }: { icon: IconName; name: string; hint?: string }) {
   return (
-    <div className="ui-empty">
-      <span className="ui-empty-ring">
+    <div className="ui-empty flex flex-col items-center gap-1.5 px-4 py-8 text-center font-sans font-medium text-body">
+      <span className="ui-empty-ring inline-flex h-10 w-10 items-center justify-center rounded-pill border border-line-strong text-ink-2">
         <Icon name={icon} size={20} label={name} aria-hidden />
       </span>
       <strong>{name}</strong>
-      {hint ? <span>{hint}</span> : null}
+      {hint ? <span className="font-normal text-body text-ink-3">{hint}</span> : null}
     </div>
   );
 }

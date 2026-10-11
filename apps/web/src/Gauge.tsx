@@ -16,6 +16,11 @@ export function useNow(everyMs = 60_000): number {
   return now;
 }
 
+const GAUGE = 'gauge grid min-w-0 grid-cols-[3.2em_minmax(3em,1fr)_3em_var(--icon)] items-center gap-x-2 gap-y-0.5';
+const LABEL = 'gauge-label text-label text-ink-2';
+const FILL = { ok: 'bg-ok', warn: 'bg-wait', bad: 'bg-bad' } as const;
+const NOTE = 'col-[2/-1] flex items-center gap-1.5 text-label';
+
 export const SPANS = { '5 h': FIVE_HOURS_MS, week: WEEK_MS } as const;
 
 /** From this percent a window shows a warning glyph; at 100 it shows the full one. */
@@ -25,22 +30,22 @@ export function Gauge(props: { label: keyof typeof SPANS; window: Window | null;
   const { label, window: w, now, detail = false } = props;
   if (!w)
     return (
-      <div className="gauge" data-gauge={label}>
-        <span className="gauge-label">{label}</span>
-        <span className="muted gauge-none">no reading</span>
+      <div className={GAUGE} data-gauge={label}>
+        <span className={LABEL}>{label}</span>
+        <span className="muted gauge-none col-[2/-1]">no reading</span>
       </div>
     );
   const g = gaugeOf(w, SPANS[label], now);
   const reset = g.resetIn === null ? undefined : `resets in ${span(g.resetIn)}`;
   return (
-    <div className="gauge" data-gauge={label} data-tone={g.tone} title={reset}>
-      <span className="gauge-label">{label}</span>
-      <span className="gauge-bar" role="meter" aria-label={`${label} usage`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={g.pct}>
-        <span className="gauge-fill" style={{ width: `${g.pct}%` }} />
-        {g.through !== null ? <span className="gauge-tick" style={{ left: `${g.through}%` }} aria-hidden /> : null}
+    <div className={GAUGE} data-gauge={label} data-tone={g.tone} title={reset}>
+      <span className={LABEL}>{label}</span>
+      <span className="gauge-bar relative h-2 overflow-hidden rounded-chip bg-raised" role="meter" aria-label={`${label} usage`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={g.pct}>
+        <span className={`gauge-fill block h-full ${FILL[g.tone]}`} style={{ width: `${g.pct}%` }} />
+        {g.through !== null ? <span className="gauge-tick absolute inset-y-0 w-0.5 bg-ink opacity-60" style={{ left: `${g.through}%` }} aria-hidden /> : null}
       </span>
-      <span className="gauge-pct">{g.pct}%</span>
-      <span className="gauge-glyph">
+      <span className="gauge-pct text-right font-mono text-label tabular-nums">{g.pct}%</span>
+      <span className="gauge-glyph inline-flex text-bad">
         {g.pct >= 100 ? (
           <Icon name="full" size={14} label="Full" />
         ) : g.pct >= WARN_PCT ? (
@@ -50,12 +55,12 @@ export function Gauge(props: { label: keyof typeof SPANS; window: Window | null;
       {detail ? (
         <>
           {reset ? (
-            <span className="gauge-reset muted">
+            <span className={`gauge-reset muted ${NOTE}`}>
               <Icon name="waiting" size={14} aria-hidden />
               {reset}
             </span>
           ) : null}
-          <span className="gauge-more muted">
+          <span className={`gauge-more muted ${NOTE}`}>
             <Icon name="stats" size={14} aria-hidden />
             {g.runway !== null ? `lasts about ${span(g.runway)} at this pace` : g.pct ? 'lasts to the reset' : ''} · {w.source}
           </span>

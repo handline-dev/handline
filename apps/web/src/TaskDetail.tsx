@@ -1,14 +1,14 @@
 // One task: its title, state, people and timing, the body, the delivery history, evidence, memos, what it waits on and what hangs under it,
 // and the verbs of the bridge's task detail. A verb that does not apply is hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { timeoutText } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useWrite } from '@handline/app-data';
-import { Icon, type IconName } from './ui/Icon.tsx';
+import { Icon, VisuallyHidden } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
-import { MemoBox, MemoRow, when } from './TaskMemos.tsx';
+import { MemoBox, MemoRow } from './TaskMemos.tsx';
+import { CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, TIMELINE, Verb } from './TaskDetailParts.tsx';
 import { View } from './View.tsx';
 
 type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'edit';
@@ -17,12 +17,16 @@ const CLOSED = ['done', 'discarded'];
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
 /** The bridge's own sentence for a key that does not apply. */
 const REOPEN_ONLY = 'only a done task that you asked for can be reopened';
+const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
 
 export function TaskDetail({ id, onBack, embedded }: { id: number; onBack: () => void; embedded?: boolean }) {
   const q = useTask(id);
   const gone = q.isError && classify(q.error).kind === 'not_found';
   return (
-    <article className={`tdetail${embedded ? ' pane' : ''}`} aria-label={`Task #${id}`}>
+    <article
+      className={`tdetail flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-4 py-3 outline-none${embedded ? ' pane relative bg-panel -outline-offset-1' : ''}`}
+      aria-label={`Task #${id}`}
+    >
       <button className="btn icon back" onClick={onBack} aria-label="Back" title="Back (Esc)">
         <Icon name="close" label="Back" aria-hidden="true" />
       </button>
@@ -111,33 +115,14 @@ function Body({ t }: { t: Detail }) {
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
   return (
     <div className="tbody" ref={root} tabIndex={-1} onKeyDown={key}>
-      <header className="tdetail-head">
-        <h2>
+      <header className="tdetail-head flex flex-wrap items-baseline gap-2">
+        <h2 className="m-0 text-title font-semibold">
           <span className="mono">#{t.id}</span> {t.title}
         </h2>
         <StateChip state={t.state} mark={mark} />
       </header>
-      <dl className="tmeta">
-        <Field icon="owner" label="Owner" value={<strong>{t.to}</strong>} />
-        <Field icon="agent" label="Asked by" value={<strong>{t.from}</strong>} />
-        <Field icon="priority" label="Priority" value={`P${t.priority ?? 2}`} />
-        <Field icon="waiting" label="Time box" value={[t.time_box ?? 'none', timeoutText(t, now)].filter(Boolean).join(' · ')} />
-        <Field icon="schedules" label="Created" value={when(t.created)} />
-        {t.delivered ? <Field icon="delivered" label="Delivered" value={when(t.delivered)} /> : null}
-        {t.done ? <Field icon="taskDone" label="Closed" value={when(t.done)} /> : null}
-        {t.parent ? (
-          <Field
-            icon="viewTree"
-            label="Under"
-            value={
-              <a href={`#/tasks/${t.parent}`} className="mono">
-                #{t.parent}
-              </a>
-            }
-          />
-        ) : null}
-      </dl>
-      <div className="tverbs" role="toolbar" aria-label="Task actions">
+      <TaskMeta t={t} now={now} />
+      <div className="tverbs flex flex-wrap gap-1.5 my-2" role="toolbar" aria-label="Task actions">
         {open && t.state === 'draft' ? (
           <Verb k="u" icon="taskQueued" label="Queue" can={can.queue} onClick={verbs.u} busy={queue.isPending} />
         ) : null}
@@ -196,181 +181,37 @@ function Body({ t }: { t: Detail }) {
       ) : null}
       {ask === 'edit' ? <EditForm t={t} onClose={() => setAsk(null)} /> : null}
 
-      {t.body ? <p className="tbody-text">{t.body}</p> : null}
+      {t.body ? <p className="tbody-text m-0 whitespace-pre-wrap">{t.body}</p> : null}
 
-      {t.blockers.length ? (
-        <>
-          <h3>
-            <Icon name="waiting" label="Waits on" aria-hidden="true" />
-            <span className="vh">Waits on</span>
-          </h3>
-          <ul className="tlinks">
-            {t.blockers.map((b) => (
-              <li key={b.task}>
-                <a href={`#/tasks/${b.task}`} className="mono">
-                  #{b.task}
-                </a>{' '}
-                <span className="muted">{b.reason}</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
-      {t.children.length ? (
-        <>
-          <h3>
-            <Icon name="tasks" label="Sub-tasks" aria-hidden="true" />
-            <span className="vh">Sub-tasks</span>
-          </h3>
-          <ul className="tlinks">
-            {t.children.map((c) => (
-              <li key={c}>
-                <a href={`#/tasks/${c}`} className="mono">
-                  #{c}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
+      {t.blockers.length ? <TaskLinks icon="waiting" label="Waits on" items={t.blockers} /> : null}
+      {t.children.length ? <TaskLinks icon="tasks" label="Sub-tasks" items={t.children.map((c) => ({ task: c }))} /> : null}
 
       {t.deliveries.length || t.events.length ? (
         <>
-          <h3>
+          <h3 className={H3}>
             <Icon name="history" label="Delivery history" aria-hidden="true" />
-            <span className="vh">Delivery history</span>
+            <VisuallyHidden>Delivery history</VisuallyHidden>
           </h3>
-          <ol className="ttimeline">
-            {t.deliveries.map((d) => (
-              <li key={d.at} title={`delivered by ${d.how}`}>
-                <Icon name="delivered" label="Delivered" aria-hidden="true" size={14} />
-                <span className="mono">{when(d.at)}</span> {d.how}: {d.outcome}
-              </li>
-            ))}
-            {t.events.map((e, i) => (
-              <li key={i}>
-                <Icon name="changed" label="Event" aria-hidden="true" size={14} />
-                <span className="mono">{when(e.at)}</span> {e.type}
-                {e.agent ? ` · ${e.agent}` : ''}
-              </li>
-            ))}
-          </ol>
+          <TaskTimeline deliveries={t.deliveries} events={t.events} />
         </>
       ) : null}
 
       {t.evidence ? (
         <>
-          <h3>Evidence</h3>
-          <p className="tbody-text mono">{t.evidence}</p>
+          <h3 className={H3}>Evidence</h3>
+          <p className="tbody-text mono m-0 whitespace-pre-wrap">{t.evidence}</p>
         </>
       ) : null}
       {t.hold_reason || t.block_reason ? <p className="muted">{t.hold_reason ?? t.block_reason}</p> : null}
 
       {t.memos.length ? (
-        <ol className="ttimeline">
+        <ol className={TIMELINE}>
           {t.memos.map((m) => (
             <MemoRow key={m.id} task={t.id} memo={m} canEdit={can.memoEdit} canDelete={can.memoDelete} />
           ))}
         </ol>
       ) : null}
       <MemoBox id={t.id} box={memoBox} can={can.memo} />
-    </div>
-  );
-}
-
-function CancelSheet(props: { running: boolean; id: number; onCancel: () => void; onSubmit: (reason?: string) => void }) {
-  const [reason, setReason] = useState('');
-  return (
-    <Sheet
-      label={props.running ? `stop #${props.id}? why (optional):` : `cancel #${props.id}? why (optional):`}
-      submit={props.running ? 'Stop it' : 'Cancel task'}
-      onCancel={props.onCancel}
-      onSubmit={() => props.onSubmit(reason.trim() || undefined)}
-    >
-      <input className="tinput" value={reason} aria-label="Reason" onChange={(e) => setReason(e.target.value)} />
-    </Sheet>
-  );
-}
-
-function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
-  const edit = useWrite('task.edit');
-  const [title, setTitle] = useState(t.title);
-  const [body, setBody] = useState(t.body);
-  const [owner, setOwner] = useState(t.to);
-  const [box, setBox] = useState(t.time_box ?? '');
-  const [priority, setPriority] = useState<1 | 2 | 3>(t.priority ?? 2);
-  const save = () => {
-    const change = {
-      ...(title.trim() && title !== t.title ? { title: title.trim() } : {}),
-      ...(body !== t.body ? { body } : {}),
-      ...(owner.trim() && owner !== t.to ? { owner: owner.trim() } : {}),
-      ...(box.trim() && box !== t.time_box ? { time_box: box.trim() } : {}),
-      ...(priority !== (t.priority ?? 2) ? { priority } : {}),
-    };
-    if (!Object.keys(change).length) return onClose();
-    edit.mutate({ task: t.id, ...change }, { onSuccess: onClose });
-  };
-  return (
-    <Sheet label={`Edit #${t.id}`} submit="Save" onCancel={onClose} onSubmit={save} busy={edit.isPending}>
-      <div className="tform">
-        <label>
-          Title
-          <input className="tinput" value={title} onChange={(e) => setTitle(e.target.value)} />
-        </label>
-        <label>
-          Owner
-          <input className="tinput" value={owner} onChange={(e) => setOwner(e.target.value)} />
-        </label>
-        <label className="wide">
-          Body
-          <textarea className="tinput" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
-        </label>
-        <label>
-          Time box
-          <input className="tinput" value={box} onChange={(e) => setBox(e.target.value)} />
-        </label>
-        <label>
-          Priority
-          <select value={priority} onChange={(e) => setPriority(Number(e.target.value) as 1 | 2 | 3)}>
-            <option value={1}>1 high</option>
-            <option value={2}>2</option>
-            <option value={3}>3 low</option>
-          </select>
-        </label>
-      </div>
-    </Sheet>
-  );
-}
-
-function Verb(props: {
-  k: string;
-  icon: IconName;
-  label: string;
-  can: { ok: boolean; why?: string };
-  onClick: () => void;
-  busy?: boolean;
-}) {
-  return (
-    <button
-      className="btn icon"
-      disabled={!props.can.ok || props.busy}
-      title={props.can.why ?? `${props.label} (${props.k})`}
-      aria-label={props.label}
-      onClick={props.onClick}
-    >
-      {props.busy ? '…' : <Icon name={props.icon} label={props.label} aria-hidden="true" />}
-    </button>
-  );
-}
-
-function Field({ icon, label, value }: { icon: IconName; label: string; value: React.ReactNode }) {
-  return (
-    <div className="tfield2" title={label}>
-      <dt>
-        <Icon name={icon} label={label} aria-hidden="true" />
-        <span className="vh">{label}</span>
-      </dt>
-      <dd>{value}</dd>
     </div>
   );
 }

@@ -41,7 +41,7 @@ afterEach(async () => {
 });
 const click = (el: Element | null) => act(async () => void (el as HTMLElement).click());
 const press = (key: string, init: KeyboardEventInit = {}) =>
-  act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init })));
+  act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init })));
 
 describe('State', () => {
   const KINDS: StateKind[] = ['working', 'booting', 'needs', 'blocked', 'idle', 'parked', 'done', 'noTerminal'];
@@ -249,6 +249,9 @@ describe('Popup and Dialog', () => {
       </Dialog>,
     );
     expect($('[role="dialog"]')!.getAttribute('aria-modal')).toBe('true');
+    for (let i = 0; i < 20 && document.activeElement?.tagName !== 'INPUT'; i++) {
+      await act(async () => void (await new Promise((r) => setTimeout(r, 10)))); // Base UI moves focus in on the next frame
+    }
     expect(document.activeElement?.tagName).toBe('INPUT');
     expect(box.querySelectorAll('.ui-btn.solid')).toHaveLength(1);
     await press('Enter', { metaKey: true });
@@ -287,7 +290,7 @@ describe('the gallery and the css rules', () => {
   });
 
   const dir = join(import.meta.dirname, '../src/styles');
-  const screens = readdirSync(dir).filter((f) => f.endsWith('.css'));
+  const screens = readdirSync(dir).filter((f) => f.endsWith('.css') && f !== 'themes.css'); // themes.css overrides token values by design
   it('no screen css gives a colour a value: colours come from tokens.css', () => {
     for (const f of screens) expect(readFileSync(join(dir, f), 'utf8').match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g) ?? [], f).toEqual([]);
   });

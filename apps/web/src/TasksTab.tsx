@@ -22,19 +22,19 @@ export function TasksTab({ agent }: { agent: string }) {
   );
   if (open !== null) return <TaskDetail id={open} onBack={() => setOpen(null)} embedded />;
   return (
-    <section className="tasks-tab" aria-label={`Tasks of ${agent}`}>
+    <section className="tasks-tab h-full overflow-auto p-2" aria-label={`Tasks of ${agent}`}>
       <View q={q} served={served} shape="tasks" what="the tasks" empty={!mine.length && `${agent} holds no tasks.`}>
-        <ul className="tasks-tab-list">
+        <ul className="tasks-tab-list m-0 flex list-none flex-col gap-1 p-0">
           {mine.map((t) => (
             <li key={t.id}>
               <button
-                className={`tasks-tab-row${CLOSED.includes(t.state) ? ' closed' : ''}`}
+                className={`tasks-tab-row flex w-full cursor-pointer items-center gap-2 rounded-card border border-line bg-panel px-2.5 py-1.5 text-left${CLOSED.includes(t.state) ? ' closed opacity-60' : ''}`}
                 data-task={t.id}
                 onClick={() => setOpen(t.id)}
               >
                 <Icon name="tasks" size={14} label="Task" />
                 <span className="mono">#{t.id}</span>
-                <span className="ttitle">{t.title}</span>
+                <span className="ttitle min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-body font-medium">{t.title}</span>
                 <StateChip state={t.state} />
               </button>
             </li>

@@ -2,6 +2,9 @@
 import { useState } from 'react';
 import { useWrite } from '@handline/app-data';
 import { Icon } from './ui/Icon.tsx';
+import { Sheet, SheetActions, Textarea } from './ui/index.ts';
+
+const MEMO = 'tmemo mt-2 flex gap-2';
 
 export function MemoRow({
   task,
@@ -24,7 +27,7 @@ export function MemoRow({
     edit.mutate({ task, memo: memo.id, text: next }, { onSuccess: () => setText(null) });
   };
   return (
-    <li>
+    <li className="flex items-baseline gap-1.5 py-0.5">
       <Icon name="say" label="Memo" aria-hidden="true" size={14} />
       <span className="mono">{when(memo.at)}</span> <strong>{memo.author}</strong>:{' '}
       {text === null ? (
@@ -50,8 +53,8 @@ export function MemoRow({
           </button>
         </>
       ) : (
-        <span className="tmemo">
-          <textarea className="tinput" rows={2} aria-label="Memo text" value={text} onChange={(e) => setText(e.target.value)} />
+        <span className={MEMO}>
+          <Textarea grow className="tinput" rows={2} aria-label="Memo text" value={text} onChange={(e) => setText(e.target.value)} />
           <button className="btn primary" disabled={!text.trim()} onClick={save}>
             Save
           </button>{' '}
@@ -61,17 +64,17 @@ export function MemoRow({
         </span>
       )}
       {ask ? (
-        <span className="verb-sheet danger" role="alertdialog" aria-label="Delete memo">
+        <Sheet as="span" danger role="alertdialog" aria-label="Delete memo">
           <strong>Delete this memo?</strong>
-          <span className="verb-sheet-actions">
+          <SheetActions>
             <button className="btn primary" onClick={() => del.mutate({ task, memo: memo.id }, { onSettled: () => setAsk(false) })}>
               Delete
             </button>
             <button className="btn" onClick={() => setAsk(false)}>
               Cancel
             </button>
-          </span>
-        </span>
+          </SheetActions>
+        </Sheet>
       ) : null}
     </li>
   );
@@ -90,14 +93,15 @@ export function MemoBox({
   const [text, setText] = useState('');
   return (
     <form
-      className="tmemo"
+      className={MEMO}
       onSubmit={(e) => {
         e.preventDefault();
         if (text.trim()) add.mutate({ task: id, text: text.trim() }, { onSuccess: () => setText('') });
       }}
     >
-      <textarea
+      <Textarea
         ref={box}
+        grow
         className="tinput"
         rows={2}
         value={text}

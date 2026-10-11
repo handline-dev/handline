@@ -1,6 +1,7 @@
 // The small sheets of the Tasks list: owner, priority, merge and the key sheet.
 import { useState } from 'react';
 import { Sheet } from './taskui.tsx';
+import { Kbd, NativeSelect } from './ui/index.ts';
 
 /** The bridge's twelve keys (`TasksView.KEYS`) plus the web's `n`, for the key sheet. */
 export const LIST_KEYS: [string, string][] = [
@@ -24,12 +25,16 @@ export function OwnerSheet({ agents, onCancel, onPick }: { agents: string[]; onC
   const [owner, setOwner] = useState('');
   return (
     <Sheet label="new owner (agent name):" submit="Change owner" onCancel={onCancel} onSubmit={() => owner && onPick(owner)}>
-      <select value={owner} aria-label="New owner" onChange={(e) => setOwner(e.target.value)}>
+      <NativeSelect
+        value={owner}
+        aria-label="New owner"
+        onChange={(e) => setOwner(e.target.value)}
+      >
         <option value="">pick an agent</option>
         {agents.map((a) => (
           <option key={a}>{a}</option>
         ))}
-      </select>
+      </NativeSelect>
     </Sheet>
   );
 }
@@ -50,13 +55,13 @@ export function PrioritySheet({ onCancel, onPick }: { onCancel: () => void; onPi
 export function KeysSheet({ onClose }: { onClose: () => void }) {
   return (
     <Sheet label="Keys on this page" submit="Close" onCancel={onClose} onSubmit={onClose}>
-      <dl className="keysheet">
+      <dl className="keysheet m-0 grid grid-cols-2 gap-x-4 gap-y-1 basis-full">
         {LIST_KEYS.map(([k, v]) => (
-          <div key={k}>
-            <dt>
-              <kbd>{k}</kbd>
+          <div key={k} className="flex gap-2">
+            <dt className="m-0 min-w-[56px]">
+              <Kbd>{k}</Kbd>
             </dt>
-            <dd>{v}</dd>
+            <dd className="m-0">{v}</dd>
           </div>
         ))}
       </dl>

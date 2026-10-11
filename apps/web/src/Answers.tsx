@@ -2,7 +2,7 @@
 // icon and an Add row at the end (docs/design-gaps.md G82). Add and remove are authored: the row changes at once and comes back if the daemon refuses.
 import { useState } from 'react';
 import { useAnswers, useServes, useWrite } from '@handline/app-data';
-import { Button, Field, Icon, Select } from './ui/index.ts';
+import { Button, Field, Icon, RowTitle, SectionHead, Select, SettingsCard, SettingsRow } from './ui/index.ts';
 import { useOff } from './useOff.ts';
 import { View } from './View.tsx';
 
@@ -25,7 +25,7 @@ function AddForm({ off, onDone }: { off: string | undefined; onDone: () => void 
     onDone();
   };
   return (
-    <form className="answer-form" onSubmit={submit} aria-label="Add a standing answer">
+    <form className="answer-form flex flex-wrap items-end gap-2" onSubmit={submit} aria-label="Add a standing answer">
       <Select label="Kind" options={KINDS} value={kind} onChange={(e) => setKind(e.target.value as 'trust' | 'dialog')} />
       {kind === 'trust' ? (
         <Field label="Folder" placeholder="/path/to/folder" value={f.folder} onChange={set('folder')} />
@@ -36,7 +36,7 @@ function AddForm({ off, onDone }: { off: string | undefined; onDone: () => void 
           <Field label="Option" placeholder="Yes, I trust" value={f.label} onChange={set('label')} />
         </>
       )}
-      <span className="answer-form-actions">
+      <span className="answer-form-actions flex gap-1.5">
         <Button variant="solid" type="submit" label="Add" disabled={!!off} title={off} />
         <Button label="Cancel" onClick={onDone} />
       </span>
@@ -54,7 +54,7 @@ export function Answers() {
   const rows = q.data?.answers ?? [];
   return (
     <>
-      <h3 className="shead">Standing answers</h3>
+      <SectionHead>Standing answers</SectionHead>
       <View
         q={q}
         served={served}
@@ -62,15 +62,15 @@ export function Answers() {
         what="standing answers"
         empty={!rows.length && 'none - you are asked when a dialog shows'}
       >
-        <ul className="scard answers">
+        <SettingsCard as="ul" className="answers">
           {rows.map((a) => (
-            <li key={`${a.kind}\0${a.key.join('\0')}`} className="srow" data-answer={a.kind}>
+            <SettingsRow answer as="li" key={`${a.kind}\0${a.key.join('\0')}`} data-answer={a.kind}>
               <Icon
                 name={a.kind === 'trust' ? 'permission' : 'prompt'}
                 size={16}
                 label={a.kind === 'trust' ? 'Trusted folder' : 'Dialog'}
               />
-              <span className="srow-title answer-text">{a.text}</span>
+              <RowTitle plain className="answer-text [overflow-wrap:anywhere]">{a.text}</RowTitle>
               <Button
                 icon="dismiss"
                 label={`Remove ${a.text}`}
@@ -78,12 +78,12 @@ export function Answers() {
                 title={offRemove}
                 onClick={() => remove.mutate({ kind: a.kind, key: a.key })}
               />
-            </li>
+            </SettingsRow>
           ))}
-        </ul>
+        </SettingsCard>
       </View>
       {served ? (
-        <div className="answers-actions">
+        <div className="answers-actions mt-2">
           {adding ? (
             <AddForm off={off} onDone={() => setAdding(false)} />
           ) : (

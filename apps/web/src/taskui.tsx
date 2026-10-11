@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useServes } from '@handline/app-data';
 import { Icon, type IconName } from './Icon.tsx';
+import { Input, Sheet as SheetBox, SheetActions, VisuallyHidden } from './ui/index.ts';
 
 export const STATE_GLYPH: Record<string, IconName> = {
   draft: 'taskDraft',
@@ -13,29 +14,31 @@ export const STATE_GLYPH: Record<string, IconName> = {
   discarded: 'taskDiscarded',
 };
 
+/** The chip look per state; the class is the hook, the utilities the look. `run` also spins the doing glyph (tasks.css). */
 const TONE: Record<string, string> = {
-  doing: 'run',
-  queued: 'wait',
-  pending: 'wait',
+  doing: 'run text-working',
+  queued: 'wait text-wait',
+  pending: 'wait text-wait',
   draft: 'idle',
-  blocked: 'block',
+  blocked: 'block text-bad',
   done: 'idle',
   discarded: 'idle',
 };
+const CHIP = 'inline-flex items-center gap-0.5 align-middle text-ink-2 [&>svg]:shrink-0';
 
 /** A state is a shape of its own (the glyph), then a tooltip, then colour; the word stays for a screen reader. `mark` says what the write in flight is: hollow dot, or the decided "…". */
 export function StateChip({ state, mark }: { state: string; mark?: 'authored' | 'decided' | null }) {
   if (mark === 'decided')
     return (
-      <span className="tchip pending" title="waiting for the daemon">
+      <span className={`tchip pending ${CHIP}`} title="waiting for the daemon">
         …
       </span>
     );
   return (
-    <span className={`tchip ${TONE[state] ?? 'idle'}`} data-state={state} title={state}>
+    <span className={`tchip ${TONE[state] ?? 'idle'} data-[state=done]:text-ok ${CHIP}`} data-state={state} title={state}>
       {mark === 'authored' ? <span aria-hidden="true">○</span> : null}
       <Icon name={STATE_GLYPH[state] ?? 'taskPending'} label={state} size={16} aria-hidden="true" />
-      <span className="vh">{state}</span>
+      <VisuallyHidden>{state}</VisuallyHidden>
     </span>
   );
 }
@@ -87,9 +90,11 @@ export function Sheet(props: {
     ref.current?.querySelector<HTMLElement>('input,select,textarea,button')?.focus();
   }, []);
   return (
-    <form
+    <SheetBox
+      as="form"
+      kind="form"
       ref={ref}
-      className={`tsheet${props.full ? ' full' : ''}`}
+      className={props.full ? 'full' : undefined}
       role="group"
       aria-label={props.label}
       onSubmit={(e) => {
@@ -105,15 +110,15 @@ export function Sheet(props: {
     >
       <strong className="tsheet-label">{props.label}</strong>
       {props.children}
-      <span className="tsheet-actions">
+      <SheetActions kind="form">
         <button type="submit" className="btn primary" disabled={props.busy}>
           {props.busy ? '…' : props.submit}
         </button>
         <button type="button" className="btn" onClick={props.onCancel}>
           Cancel
         </button>
-      </span>
-    </form>
+      </SheetActions>
+    </SheetBox>
   );
 }
 
@@ -128,7 +133,8 @@ export function ReasonSheet(props: { label: string; submit: string; onCancel: ()
       onCancel={props.onCancel}
       onSubmit={() => (text.trim() ? props.onSubmit(text.trim()) : setEmpty(true))}
     >
-      <input
+      <Input
+        grow
         className="tinput"
         value={text}
         aria-label={props.label}
@@ -139,7 +145,7 @@ export function ReasonSheet(props: { label: string; submit: string; onCancel: ()
         }}
       />
       {empty ? (
-        <span className="tsheet-err" role="alert">
+        <span className="tsheet-err basis-full text-bad" role="alert">
           A reason is required.
         </span>
       ) : null}

@@ -1,192 +1,7 @@
-/* Inbox page */
-.inbox {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 0 16px 24px;
-  overflow: auto;
-  height: 100%;
-}
-.inbox-top {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 0;
-  background: var(--bg);
-}
-.inbox-top h2 {
-  margin: 0 auto 0 0;
-  font-size: 18px;
-}
-.inbox-top select {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--ink);
-  padding: 5px 6px;
-}
-.inbox-keys {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  margin: 0 0 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
-}
-.inbox-keys div {
-  display: flex;
-  gap: 6px;
-}
-.inbox-keys dd {
-  margin: 0;
-  color: var(--muted);
-}
-.inbox-keys dt {
-  margin: 0;
-}
-.inbox-confirm {
-  margin: 0 0 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
-}
-.inbox-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-}
-.inbox-card {
-  border: 1px solid var(--line);
-  border-radius: var(--r-ctl);
-  background: var(--bg-2);
-}
-.inbox-card.on {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-/* Read dims to the second ink level, not lower (G42); the filled and hollow marks keep the difference by shape. */
-.inbox-card.read .inbox-title,
-.inbox-card.read .inbox-body {
-  color: var(--ink-2);
-  font-weight: 400;
-}
-.inbox-row {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-4);
-  min-height: 52px;
-  padding: 0 var(--sp-4);
-  min-width: 0;
-}
-.inbox-row .badge {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 1px;
-  border: 0;
-  padding: 0;
-}
-.inbox-who {
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-.inbox-age {
-  white-space: nowrap;
-}
-.inbox-title {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font: var(--t-name);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.inbox-seen {
-  display: inline-flex;
-  color: var(--ink);
-}
-.inbox-card.read .inbox-seen {
-  color: var(--ink-2);
-}
-.inbox-hover {
-  display: inline-flex;
-  gap: var(--sp-1);
-  opacity: 0;
-}
-/* On touch there is no hover: the verbs of a row are always there. */
-@media (hover: none) {
-  .inbox-hover {
-    opacity: 1;
-  }
-}
-.inbox-card:hover .inbox-hover,
-.inbox-card:focus-within .inbox-hover,
-.inbox-card.on .inbox-hover,
-.inbox-card.more .inbox-hover {
-  opacity: 1;
-}
-.inbox-detail {
-  padding: 0 var(--sp-4) var(--sp-4) calc(var(--sp-4) + 24px);
-}
-.inbox-body {
-  color: var(--muted);
-  font-weight: 400;
-}
-.inbox-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.inbox-dot {
-  color: var(--accent);
-}
-.inbox-card.read .inbox-dot {
-  color: var(--muted);
-}
-.inbox-age {
-  margin-left: auto;
-}
-.inbox-title {
-  margin: 6px 0 4px;
-  font-size: 15px;
-  overflow-wrap: anywhere;
-}
-.inbox-body {
-  margin: 0 0 6px;
-  overflow-wrap: anywhere;
-}
-.inbox-actions {
-  flex-wrap: wrap;
-  align-items: center;
-}
-.inbox-actions .grow {
-  flex: 1;
-}
-.inbox-mark {
-  margin: 4px 0;
-}
-.inbox-box {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-}
-.inbox-box textarea {
-  flex: 1 1 100%;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--ink);
-  padding: 6px 8px;
-  font: inherit;
-}
+/* The Inbox page, its cards, the confirm sheets and the section notes speak Tailwind utilities (Inbox.tsx, InboxCard*.tsx, ui/Sheet.tsx).
+   What is left cannot move: rules that chain onto the legacy .btn, the base .menu-item and the rail's .nav, and the phone rules of the sheets. */
+
+/* A retry .btn that View draws inside the page keeps the link-free, inherited look. */
 .inbox .btn {
   text-decoration: none;
   color: inherit;
@@ -194,23 +9,8 @@
 .inbox .btn.primary {
   color: var(--accent-ink);
 }
-@media (max-width: 640px) {
-  .inbox-actions .btn {
-    min-height: 44px;
-    display: inline-flex;
-    align-items: center;
-  }
-  .inbox-actions .grow {
-    display: none;
-  }
-}
-.bell {
-  border: 0;
-}
-.nav.on {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
 
+/* Chains onto base.css `.menu-item` (the pane and agent menus): the danger label, the off look and the phone height. */
 .menu-item.danger strong {
   color: var(--block);
 }
@@ -218,23 +18,13 @@
   opacity: 0.55;
   cursor: not-allowed;
 }
-.verb-sheet {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  align-items: center;
-  padding: 8px 10px;
-  margin: 2px 0 4px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  font-size: 12px;
+
+/* The accent tint of the current nav row; rail.css `.rail-nav .nav.on` must out-rank it, so it stays the earlier file's rule. */
+.nav.on {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
-.verb-sheet-actions {
-  display: flex;
-  gap: 6px;
-  margin-left: auto;
-}
+
+/* Legacy .btn and select inside the sheets, and the actions of a sheet outside one (HR head): descendant rules in a phone block. */
 @media (max-width: 640px) {
   .menu-item,
   .verb-sheet .btn,
@@ -247,77 +37,4 @@
   .verb-sheet-actions .btn {
     flex: 1;
   }
-}
-
-.shead {
-  margin: 18px 0 6px;
-  font-size: 11px;
-  font-variant: small-caps;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-}
-.fnote {
-  flex-basis: 100%;
-  margin-left: 170px;
-  font-size: 12px;
-}
-.fnote.bad {
-  color: var(--block);
-}
-.fnote.warn {
-  color: var(--wait);
-}
-.chip {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 0 4px 0 8px;
-}
-.chip .btn {
-  border: 0;
-  padding: 0 4px;
-}
-.verb-sheet.danger {
-  flex-basis: 100%;
-  border-color: var(--block);
-}
-.schedule {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  align-items: center;
-  padding: 4px 0;
-}
-.smsg {
-  flex: 1;
-  min-width: 12ch;
-}
-@media (max-width: 640px) {
-  .fnote {
-    margin-left: 0;
-  }
-}
-
-/* ---- Inbox: icons, the clickable card ---- */
-.inbox-card.go {
-  cursor: pointer;
-}
-.inbox-card.go:hover {
-  border-color: var(--text);
-}
-.inbox-top h2 svg,
-.inbox-head svg {
-  vertical-align: middle;
-}
-.inbox-kinds {
-  display: flex;
-  gap: 4px;
-}
-/* A pressed filter is shown by a frame and a heavier stroke, not by colour. */
-.inbox-kinds .icon[aria-pressed='true'] {
-  outline: 2px solid currentColor;
-  outline-offset: 1px;
-  border-radius: 6px;
-}
-.inbox-kinds .icon[aria-pressed='true'] svg {
-  stroke-width: 3;
 }

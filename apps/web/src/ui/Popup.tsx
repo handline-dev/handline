@@ -36,8 +36,13 @@ export function Popup({
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className={`ui-popup ${align}${up ? ' up' : ''}`} role="dialog" aria-label={title} ref={box}>
-      <header>
+    <div
+      className={`ui-popup ${align}${up ? ' up' : ''} absolute z-20 mt-1 min-w-[220px] rounded-card border border-line-strong bg-panel pb-1 shadow-[var(--shadow-pop)]${align === 'right' ? ' right-0' : ''}${up ? ' bottom-full mb-1' : ''}`}
+      role="dialog"
+      aria-label={title}
+      ref={box}
+    >
+      <header className="flex items-center justify-between border-b border-line px-2 py-1.5 font-sans text-body font-medium">
         <strong>{title}</strong>
         {onRefresh ? <Button icon="refresh" label="Refresh" size="sm" onClick={onRefresh} /> : null}
       </header>

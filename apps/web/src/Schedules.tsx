@@ -4,6 +4,7 @@ import { cronWords } from '@handline/app-core';
 import { classify, sentence, useSchedules, useServes, useWrite } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
 import type { Schedule } from '@handline/client';
+import { FNote, SectionHead, Sheet, SheetActions } from './ui/index.ts';
 
 const cut = (s: string, n = 60) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
@@ -36,25 +37,25 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
   };
   return (
     <div className="schedules">
-      <h3 className="shead">schedules</h3>
+      <SectionHead>schedules</SectionHead>
       {q.isError ? (
-        <p className="fnote bad" role="alert">
+        <FNote tone="bad" role="alert">
           cannot read the schedules: {sentence(classify(q.error))}{' '}
           <button className="btn" onClick={() => void q.refetch()}>
             Retry
           </button>
-        </p>
+        </FNote>
       ) : null}
       {mine.length ? null : <p className="muted">none</p>}
       {mine.map((s) => (
-        <div key={s.id} className="schedule">
+        <div key={s.id} className="schedule flex flex-wrap items-center gap-x-3 gap-y-1 py-1">
           <span>
             {s.id < 0 ? '○ ' : ''}
             {cronWords(s.cron) ?? s.cron}
             {cronWords(s.cron) ? <code className="muted"> {s.cron}</code> : null}
           </span>
           <span className="muted">{s.next_run ? `next ${new Date(s.next_run).toLocaleString()}` : ''}</span>
-          <span className="smsg">{cut(s.message)}</span>
+          <span className="smsg min-w-[12ch] flex-1">{cut(s.message)}</span>
           {write ? (
             <span className="sact">
               <button className="btn" aria-label="Edit schedule" onClick={() => setForm({ id: s.id, cron: s.cron, message: s.message })}>
@@ -68,9 +69,9 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
         </div>
       ))}
       {note ? (
-        <p className="fnote bad" role="alert">
+        <FNote tone="bad" role="alert">
           {note}
-        </p>
+        </FNote>
       ) : null}
       {write && !form ? (
         <button className="btn" onClick={() => setForm({ cron: '', message: '' })}>
@@ -78,7 +79,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
         </button>
       ) : null}
       {form ? (
-        <div className="verb-sheet" role="dialog" aria-label="Schedule">
+        <Sheet role="dialog" aria-label="Schedule">
           <input
             type="text"
             aria-label="When (cron)"
@@ -88,15 +89,15 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
           />
           <span className="muted">{cronWords(form.cron) ?? ''}</span>
           <textarea aria-label="Message" rows={2} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
-          <span className="verb-sheet-actions">
+          <SheetActions>
             <button className="btn primary" onClick={save}>
               Save
             </button>
             <button className="btn" onClick={() => setForm(null)}>
               Cancel
             </button>
-          </span>
-        </div>
+          </SheetActions>
+        </Sheet>
       ) : null}
     </div>
   );

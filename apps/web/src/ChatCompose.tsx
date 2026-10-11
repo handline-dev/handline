@@ -9,7 +9,7 @@ import { EditorButton } from './EditorButton.tsx';
 import { replyTo } from './ChatMessages.tsx';
 import { menuOf, useEntries, useOpenTerminal, type Entry, type MenuKind } from './ChatMenus.tsx';
 import { VerbSheet } from './AgentVerbs.tsx';
-import { Button, Icon } from './ui/index.ts';
+import { Button, Icon, Textarea, ComposeRow } from './ui/index.ts';
 
 export function Compose(props: {
   agent: string;
@@ -39,6 +39,7 @@ export function Compose(props: {
   const [at, setAt] = useState(0);
   const [verb, setVerb] = useState<Verb | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null); // a /word this agent does not take: said, never sent
   const [now, setNow] = useState(false); // join the running turn instead of queueing behind it; back to queue after each send
   const back = useRef(-1);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -58,10 +59,13 @@ export function Compose(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restore]);
 
-  const asked = ctrlR ? { kind: 'history' as MenuKind, query: '' } : menuOf(text);
+  const asked = ctrlR ? { kind: 'history' as MenuKind, query: text } : menuOf(text);
   const open = asked && shut !== text ? asked : null;
   const entries = useEntries(agent, detail, open?.kind ?? null, open?.query ?? '', messages, history);
   const menu = open && entries.length ? entries : null;
+  // The verb list again, for a typed /word with the menu closed.
+  const typed = /^\/(\w+)(?:\s+(.*))?$/.exec(text.trim());
+  const slashEntries = useEntries(agent, detail, typed ? 'slash' : null, typed?.[1] ?? '', messages, history);
 
   const choose = (e: Entry) => {
     setCtrlR(false);
@@ -80,7 +84,22 @@ export function Compose(props: {
   // The message shows at once and the box clears; a refused one stays in the list as a failed row with Retry, so its words are not lost.
   const choosing = !!running && !!view?.structured;
   const send = () => {
-    if (!text.trim()) return;
+    if (!text.trim() || ctrlR) return;
+    // A / line is a command, never words to the agent: run it or refuse it here.
+    if (typed) {
+      const id = typed[2] === 'fresh' ? `${typed[1]}_fresh` : typed[1]!;
+      const hit = slashEntries.find((e) => e.key === id);
+      if (hit?.verb || hit?.terminal) {
+        set('');
+        setRefused(null);
+        if (hit.verb) setVerb(hit.verb);
+        else openTerminal();
+        return;
+      }
+      setRefused(`No command /${typed[1]}. / lists what this agent takes.`);
+      return;
+    }
+    setRefused(null);
     const delivery = choosing && now ? ('now' as const) : undefined;
     // Replying to a question that waits for you answers it; to anything else sends a linked message to whoever said it.
     if (target && isOpenAsk(target, agent)) act.answer(target.id, text);
@@ -132,22 +151,27 @@ export function Compose(props: {
     }
   };
   return (
-    <div className="compose-wrap">
+    <div className="compose-wrap flex flex-col">
       {target ? (
-        <div className="compose-ref" role="status">
+        <div className="compose-ref flex items-center gap-1.5 border-t border-t-line border-l-[3px] border-l-primary px-2 py-1 text-[12px]" role="status">
           <Icon name="reference" size={14} label={`Replying to #${target.id}`} />
           <span className="mono">#{target.id}</span>
-          <span className="compose-ref-body muted">{target.body}</span>
+          <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>
           <button className="icon" aria-label="Drop the reply" title="Drop the reply (Esc)" onClick={onClear}>
             <Icon name="close" size={14} label="Drop the reply" />
           </button>
         </div>
       ) : null}
       {verb && view ? <VerbSheet a={view} verb={verb} onClose={() => setVerb(null)} /> : null}
-      <div className="compose-row">
+      {refused ? (
+        <p role="status" className="flex items-center gap-2 px-1 pb-1 text-label text-bad">
+          <Icon name="warn" size={14} aria-hidden /> {refused}
+        </p>
+      ) : null}
+      <ComposeRow>
         {menu ? (
           <ul
-            className="compose-menu"
+            className="compose-menu absolute inset-x-0 bottom-full z-10 m-0 mb-1 max-h-60 list-none overflow-auto rounded-card border border-line-strong bg-panel px-0 py-1 shadow-[var(--shadow-pop)]"
             role="listbox"
             aria-label={open!.kind === 'slash' ? 'Verbs' : open!.kind === 'hash' ? 'References' : 'History'}
           >
@@ -162,9 +186,9 @@ export function Compose(props: {
             ))}
           </ul>
         ) : null}
-        <textarea
+        <Textarea
           ref={box}
-          className="compose"
+          className="compose flex-1 resize-none"
           rows={2}
           value={text}
           disabled={!canSend}
@@ -172,19 +196,20 @@ export function Compose(props: {
           placeholder={canSend ? 'Send a message…' : 'This daemon does not accept chat messages'}
           onChange={(e) => {
             back.current = -1;
-            setCtrlR(false);
             setAt(0);
+            setRefused(null);
+            // Ctrl+R stays on while typing: the words narrow the search.
             set(e.target.value);
           }}
           onKeyDown={onKey}
         />
         {clearing ? (
-          <span className="compose-clear" role="status" title="Esc again clears the draft">
+          <span className="compose-clear self-center text-wait" role="status" title="Esc again clears the draft">
             <Icon name="warn" size={14} label="Esc again clears the draft" />
           </span>
         ) : null}
         {choosing ? (
-          <label className="compose-now" title="Join the running turn now; otherwise it waits and is sent when the turn ends">
+          <label className="compose-now inline-flex gap-0.5 self-center text-ink-2" title="Join the running turn now; otherwise it waits and is sent when the turn ends">
             <input type="checkbox" checked={now} onChange={(e) => setNow(e.target.checked)} /> Now
           </label>
         ) : null}
@@ -198,7 +223,7 @@ export function Compose(props: {
           disabled={!canSend || !text.trim()}
           onClick={send}
         />
-      </div>
+      </ComposeRow>
     </div>
   );
 }

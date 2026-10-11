@@ -4,7 +4,7 @@ import { waitingCount } from '@handline/app-core';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useAgents, useHr, useServes, useTeam } from '@handline/app-data';
 import { HrTab } from './HrTab.tsx';
-import { Empty, Icon, State, stateOfView } from './ui/index.ts';
+import { Empty, Icon, MetaItem, MetaLine, State, TabStrip, stateOfView } from './ui/index.ts';
 import { goAgent, goTeam, useTeamRoute } from './route.ts';
 import { View } from './View.tsx';
 
@@ -16,32 +16,32 @@ export function TeamPage() {
   const { served: hrServed } = useServes('hr.list');
   const count = useHrCount();
   return (
-    <section className="team" aria-label="Team">
-      <div className="chat-tabs" role="tablist" aria-label="Team pages">
-        <button
-          role="tab"
-          aria-selected={route.tab === 'team'}
-          className={`chat-tab${route.tab === 'team' ? ' on' : ''}`}
-          onClick={() => goTeam('team')}
-        >
-          Team
-        </button>
-        {hrServed ? (
-          <button
-            role="tab"
-            aria-selected={route.tab === 'hr'}
-            className={`chat-tab${route.tab === 'hr' ? ' on' : ''}`}
-            onClick={() => goTeam('hr')}
-          >
-            {count ? (
-              <span className="hr-dot" aria-hidden="true">
-                ●{' '}
-              </span>
-            ) : null}
-            HR{count ? ` ${count}` : ''}
-          </button>
-        ) : null}
-      </div>
+    <section className="team flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-3 pb-6" aria-label="Team">
+      <TabStrip
+        label="Team pages"
+        value={route.tab}
+        onChange={goTeam}
+        tabs={[
+          { value: 'team', label: 'Team' },
+          ...(hrServed
+            ? [
+                {
+                  value: 'hr' as const,
+                  label: (
+                    <>
+                      {count ? (
+                        <span className="hr-dot text-bad" aria-hidden="true">
+                          ●{' '}
+                        </span>
+                      ) : null}
+                      HR{count ? ` ${count}` : ''}
+                    </>
+                  ),
+                },
+              ]
+            : []),
+        ]}
+      />
       {route.tab === 'hr' && hrServed ? <HrTab focus={route.proposal} /> : <TeamTable />}
     </section>
   );
@@ -68,15 +68,15 @@ function TeamTable() {
       {team && !team.agents.length ? (
         <Empty icon="team" name="No agents in the team" />
       ) : (
-        <div className="team-board">
+        <div className="team-board grid gap-4">
           {groups(team?.agents ?? []).map((g) => (
             <section key={g.parent ?? ''} className="team-group" aria-label={g.parent ? `Reports to ${g.parent}` : 'Top of the team'}>
               {g.parent ? (
-                <h3 title="Reports to">
+                <h3 className="mx-0 mt-0 mb-2 flex items-center gap-1 text-label font-normal text-ink-3" title="Reports to">
                   <Icon name="agent" label="Reports to" size={14} aria-hidden="true" /> {g.parent}
                 </h3>
               ) : null}
-              <div className="team-cards">
+              <div className="team-cards grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2">
                 {g.agents.map((a) => (
                   <Card
                     key={a.name}
@@ -103,7 +103,11 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
   const chips = (names: string[]) =>
     names.length ? (
       names.map((n) => (
-        <button key={n} className="chip btn" onClick={() => goAgent(n)}>
+        <button
+          key={n}
+          className="chip inline-block rounded-[12px] border border-line bg-panel py-0 pr-1 pl-2 font-mono text-[12px]/4"
+          onClick={() => goAgent(n)}
+        >
           {n}
         </button>
       ))
@@ -112,23 +116,26 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
     );
   return (
     <article
-      className={`team-card${props.open ? ' open' : ''}`}
+      className={`team-card flex cursor-pointer flex-col gap-1 rounded-card border border-line p-3${props.open ? ' open bg-panel' : ' bg-surface hover:bg-panel'}`}
       data-agent={a.name}
       onClick={props.onOpen}
       title={`role file ${day(a.role_file.updated)} · base file ${day(a.base_file.updated)}`}
     >
-      <header>
+      <header className="flex items-center gap-2">
         {d ? (
           <State
             kind={stateOfView(d)}
             label={[d.block ? `blocked (${d.block.kind})` : d.state, d.state_detail].filter(Boolean).join(' · ')}
           />
         ) : null}
-        <button className="team-name" onClick={(e) => (e.stopPropagation(), goAgent(a.name))}>
+        <button
+          className="team-name border-0 bg-transparent p-0 text-body font-medium text-ink hover:underline"
+          onClick={(e) => (e.stopPropagation(), goAgent(a.name))}
+        >
           {a.name}
         </button>
         <button
-          className="team-more"
+          className="team-more ml-auto inline-flex rounded-ctl border-0 bg-transparent p-1 text-ink-3 hover:bg-raised hover:text-ink"
           aria-expanded={props.open}
           aria-label={`Who ${a.name} may ask`}
           title="Who may ask whom"
@@ -137,34 +144,34 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
           <Icon name={props.open ? 'less' : 'more'} label="Who may ask whom" size={14} aria-hidden="true" />
         </button>
       </header>
-      <p className="team-role">{a.role}</p>
+      <p className="team-role m-0 text-body text-ink-2">{a.role}</p>
       {d?.account || d?.model ? (
-        <p className="team-meta">
+        <MetaLine className="team-meta">
           {d.account ? (
-            <span title="Account">
+            <MetaItem title="Account">
               <Icon name="accounts" label="Account" size={14} aria-hidden="true" /> {d.account}
-            </span>
+            </MetaItem>
           ) : null}
           {d.model ? (
-            <span title="Model">
+            <MetaItem title="Model">
               <Icon name="model" label="Model" size={14} aria-hidden="true" /> {d.model}
               {d.effort ? ` · ${d.effort}` : ''}
-            </span>
+            </MetaItem>
           ) : null}
-        </p>
+        </MetaLine>
       ) : null}
       {d?.task ? (
-        <p className="team-task" title="Doing">
+        <p className="team-task m-0 flex flex-wrap items-center gap-1 text-label text-ink-2" title="Doing">
           <Icon name="tasks" label="Doing" size={14} aria-hidden="true" /> #{d.task.id} {d.task.title}
         </p>
       ) : null}
       {props.open ? (
-        <div className="edges">
-          <div>
+        <div className="edges mt-1.5 grid gap-1.5 border-t border-line pt-2 [&_svg]:text-ink-3">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Icon name="send" label="May ask" size={14} />
             {chips(props.edges.filter((e) => e.from === a.name).map((e) => e.to))}
           </div>
-          <div>
+          <div className="flex flex-wrap items-center gap-1.5">
             <Icon name="reply" label="May be asked by" size={14} />
             {chips(props.edges.filter((e) => e.to === a.name).map((e) => e.from))}
           </div>

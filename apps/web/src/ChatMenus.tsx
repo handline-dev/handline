@@ -80,10 +80,12 @@ export function useEntries(
         .map((m): Entry => ({ key: `m${m.id}`, icon: 'reference', label: `#${m.id}`, hint: m.body.slice(0, 50), insert: `#${m.id} ` }));
       return [...mine, ...said].filter((e) => !q || e.label.slice(1).startsWith(q));
     }
-    if (kind === 'history')
-      return history
+    if (kind === 'history') {
+      const hits = history.filter((h) => h.toLowerCase().includes(q));
+      return hits
         .slice(0, 12)
         .map((h, i): Entry => ({ key: `h${i}`, icon: 'typed', label: h.length > 70 ? `${h.slice(0, 70)}…` : h, insert: h }));
+    }
     return [];
   }, [kind, query, view, detail, served, tasks.data, agent, messages, history]);
 }

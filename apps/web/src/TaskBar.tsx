@@ -1,4 +1,6 @@
 // The bar under the Tasks list: what acts on the marked tasks, as icons with the key beside them; the words are for the tooltip and a screen reader.
+import { Kbd, Toolbar, VisuallyHidden } from './ui/index.ts';
+
 type Can = { ok: boolean; why: string | undefined };
 
 export function ActionBar(props: {
@@ -9,17 +11,17 @@ export function ActionBar(props: {
   const { discard, edit, merge } = props.can;
   const one = (what: 'discard' | 'owner' | 'priority' | 'merge', word: string, glyph: string, key: string, can: Can, tip = word) => (
     <button className="btn" onClick={() => props.onAct(what)} disabled={!can.ok} title={can.why ?? tip}>
-      <span className="vh">{word}</span>
-      <span aria-hidden>{glyph}</span> <kbd>{key}</kbd>
+      <VisuallyHidden>{word}</VisuallyHidden>
+      <span aria-hidden>{glyph}</span> <Kbd>{key}</Kbd>
     </button>
   );
   return (
-    <div className="tbar" role="toolbar" aria-label="Actions on the marked tasks">
-      <span className="muted">{props.marked ? `${props.marked} marked` : ''}</span>
+    <Toolbar label="Actions on the marked tasks">
+      <span className="muted mr-auto">{props.marked ? `${props.marked} marked` : ''}</span>
       {one('discard', 'Discard', '⊘', 'd', discard)}
       {one('owner', 'Owner', '@', 'o', edit)}
       {one('priority', 'Priority', '▰', 'p', edit)}
       {one('merge', 'Merge', '⇢', 'm', merge, 'Merge: mark tasks, put the cursor on the one to keep')}
-    </div>
+    </Toolbar>
   );
 }

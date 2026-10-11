@@ -1,5 +1,5 @@
-// The keys of the app on every screen (G08), opened by `?`. The Inbox and Tasks pages keep their own `?` for their own keys.
-import { Dialog } from './ui/index.ts';
+// The app's keys, opened by `?`. The Inbox and Tasks pages keep their own `?` for their own keys.
+import { Dialog, Kbd } from './ui/index.ts';
 
 const KEYS: [string, string][] = [
   ['⌘K', 'search everything'],
@@ -9,16 +9,37 @@ const KEYS: [string, string][] = [
   ['Esc', 'close what is open'],
 ];
 
+const COMPOSE: [string, string][] = [
+  ['Enter', 'send the message'],
+  ['Shift+Enter', 'a new line in the message'],
+  ['↑ ↓', 'walk through what you sent before'],
+  ['Ctrl+R', 'search what you sent'],
+  ['/ Tab', 'the verbs of this agent'],
+  ['#', 'refer to a task or a message'],
+  ['Esc Esc', 'clear the box (the draft is kept)'],
+];
+
 export function KeysSheet({ onClose }: { onClose: () => void }) {
   return (
     <Dialog title="Keys" onClose={onClose}>
-      <dl className="keys-list">
+      <dl className="keys-list m-0 grid gap-1.5">
         {KEYS.map(([k, what]) => (
-          <div key={k}>
-            <dt>
-              <kbd>{k}</kbd>
+          <div key={k} className="flex items-baseline gap-3">
+            <dt className="min-w-20">
+              <Kbd>{k}</Kbd>
             </dt>
-            <dd>{what}</dd>
+            <dd className="m-0 text-ink-2">{what}</dd>
+          </div>
+        ))}
+      </dl>
+      <h3 className="mt-2 text-label text-ink-3">In the message box</h3>
+      <dl className="keys-list m-0 grid gap-1.5">
+        {COMPOSE.map(([k, what]) => (
+          <div key={k} className="flex items-baseline gap-3">
+            <dt className="min-w-20">
+              <Kbd>{k}</Kbd>
+            </dt>
+            <dd className="m-0 text-ink-2">{what}</dd>
           </div>
         ))}
       </dl>

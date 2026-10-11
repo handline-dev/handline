@@ -5,7 +5,7 @@ import { useConnection } from '@handline/app-react';
 import { useAgents } from '@handline/app-data';
 import { DOT_ORDER, Mark, MARKS } from './RailIcons.tsx';
 import { UsagePopup } from './UsagePopup.tsx';
-import { Icon } from './ui/index.ts';
+import { Chip, Icon } from './ui/index.ts';
 
 export function StatusBar() {
   const conn = useConnection();
@@ -14,21 +14,21 @@ export function StatusBar() {
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const up = conn === 'open';
   return (
-    <footer className="statusbar" aria-label="Status">
-      <span className="status-cell" title={`Daemon ${conn}`} role="img" aria-label={`daemon ${conn}`}>
+    <footer className="statusbar flex h-6 items-center gap-3 border-t border-line bg-surface px-2 text-hint text-ink-2" aria-label="Status">
+      <Chip variant="cell" title={`Daemon ${conn}`} role="img" aria-label={`daemon ${conn}`}>
         <Icon name={up ? 'online' : 'offline'} size={14} aria-hidden />
-      </span>
-      <span className="status-cell" title={`${agents.length} agents`}>
+      </Chip>
+      <Chip variant="cell" title={`${agents.length} agents`}>
         <Icon name="agent" size={14} aria-hidden />
         {agents.length}
-      </span>
+      </Chip>
       {DOT_ORDER.filter((d) => counts.get(d)).map((d) => (
-        <span key={d} className="status-cell" title={`${counts.get(d)} ${MARKS[d].label}`}>
+        <Chip variant="cell" key={d} title={`${counts.get(d)} ${MARKS[d].label}`}>
           <Mark dot={d} />
           {counts.get(d)}
-        </span>
+        </Chip>
       ))}
-      <span className="status-end">
+      <span className="status-end relative ml-auto">
         <UsagePopup />
       </span>
     </footer>

@@ -1,8 +1,6 @@
 // U10: the Inbox page on the fake daemon's inbox: skeleton, the cards of each kind, filters, the bell, the verbs and their refusals, the keys,
 // deep links, and a daemon that does not serve the inbox.
 import { act } from 'react';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
@@ -183,14 +181,13 @@ describe('read = gone', () => {
     await until(() => $$('.inbox-card').length === 3, 'the cards');
     const row = card(3).querySelector('.inbox-row')!;
     const mark = row.firstElementChild!;
-    expect(mark.className).toBe('inbox-seen');
+    expect(mark.classList.contains('inbox-seen')).toBe(true);
     const glyph = mark.querySelector('svg')!;
     expect(glyph.getAttribute('data-icon')).toBe('unread');
     expect(Number(glyph.getAttribute('width'))).toBeGreaterThanOrEqual(14);
     await click(button(card(3), 'Mark read'));
     await until(() => card(3).querySelector('.inbox-seen svg')!.getAttribute('data-icon') === 'read', 'the hollow mark');
-    const css = readFileSync(join(import.meta.dirname, '../src/styles/inbox.css'), 'utf8');
-    expect(css).toMatch(/@media \(hover: none\) \{\s*\.inbox-hover \{\s*opacity: 1;/);
+    expect(card(3).querySelector('.inbox-hover')!.className).toContain('[@media(hover:none)]:opacity-100');
   });
 
   it('Enter on the cursor card opens it the same way: marks it read, goes to its task, and the card is gone on return', async () => {

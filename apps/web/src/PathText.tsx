@@ -18,7 +18,7 @@ export function PathText({ text, agent }: { text: string; agent?: string }) {
       <button
         key={s.start}
         type="button"
-        className="path"
+        className="path cursor-pointer border-0 bg-transparent p-0 font-mono text-link no-underline hover:underline hover:underline-offset-2"
         title="Open"
         onClick={() =>
           void api.openPath!({ path: s.path, ...(agent ? { agent } : {}) }).then((r) =>

@@ -76,10 +76,10 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
   }, [store, agent, hasTerminal]);
 
   return (
-    <div className="terminal-tab">
-      <div className="terminal">
+    <div className="terminal-tab flex min-h-0 flex-col">
+      <div className="terminal relative flex min-h-0 flex-1 flex-col bg-term-bg">
         <pre
-          className="grid"
+          className="grid m-0 flex-1 overflow-auto px-2.5 py-2 font-mono text-[13px]/[1.35] whitespace-pre text-term-ink -outline-offset-2"
           ref={grid}
           aria-label={`Terminal of ${agent}`}
           onScroll={(e) => {
@@ -87,10 +87,10 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
             if (e.currentTarget.scrollTop === 0 && v?.historyMore) void store.client.loadOlder(v).catch(() => {});
           }}
         />
-        <div className="grid-skeleton">
+        <div className="grid-skeleton pointer-events-none absolute inset-0 overflow-hidden px-2.5 py-2 empty:hidden [&_.sk]:bg-[color-mix(in_srgb,var(--term-ink)_16%,transparent)]">
           <Skeleton shape="terminalGrid" loading={attaching} label="the terminal" />
         </div>
-        <div className="grid-status">{status}</div>
+        <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">{status}</div>
       </div>
     </div>
   );

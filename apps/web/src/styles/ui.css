@@ -1,45 +1,13 @@
-/* ui/*: the primitives, drawn only from tokens.css. */
-.ui-state {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-3);
-  vertical-align: middle;
-}
-.ui-state[data-state='working'] {
-  color: var(--s-working);
-}
-.ui-state[data-state='needs'] {
-  color: var(--s-wait);
-}
-.ui-state[data-state='blocked'],
-.ui-state[data-state='rejected'] {
-  color: var(--s-bad);
-}
-.ui-state[data-state='done'] {
-  color: var(--s-ok);
-}
-.ui-state[data-state='idle'],
-.ui-state[data-state='parked'],
-.ui-state[data-state='noTerminal'] {
-  color: var(--ink-2);
-}
+/* ui/*: the primitives, drawn only from tokens.css. The markup in ui/ carries its utilities inline; what is left here is what cannot move:
+   the state-glyph animations (keyframes are css, and tasks.css reuses ui-spin), and the classes other screens still render or style
+   (.ui-field, .ui-note, .ui-input-wrap's hook, .ui-prow, .ui-page), plus the gallery demo. */
+
+/* A working agent's glyph turns, a booting one pulses; reduced motion stops both. */
 .ui-state[data-state='working'] svg {
   animation: ui-spin 1.2s linear infinite;
 }
 .ui-state[data-state='booting'] svg {
   animation: ui-pulse 2s ease-in-out infinite;
-}
-.ui-state-word {
-  font: var(--t-hint);
-  color: var(--ink-2);
-}
-.ui-state-slash {
-  position: relative;
-  display: inline-flex;
-}
-.ui-state-slash > svg:last-child {
-  position: absolute;
-  inset: 0;
 }
 @keyframes ui-spin {
   to {
@@ -57,56 +25,7 @@
   }
 }
 
-.ui-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--sp-3);
-  height: var(--h-btn);
-  padding: 0 var(--sp-4);
-  border: 1px solid transparent;
-  border-radius: var(--r-ctl);
-  background: transparent;
-  color: var(--ink);
-  font: var(--t-body);
-  white-space: nowrap;
-}
-.ui-btn:hover:not(:disabled) {
-  background: var(--bg-3);
-}
-.ui-btn.sm {
-  height: var(--h-btn-sm);
-  padding: 0 var(--sp-3);
-}
-.ui-btn.lg {
-  height: var(--h-btn-lg);
-  padding: 0 var(--sp-5);
-}
-.ui-btn.outline {
-  border-color: var(--line-strong);
-}
-.ui-btn.solid {
-  background: var(--primary);
-  color: var(--on-primary);
-  font-weight: 500;
-}
-.ui-btn.solid:hover:not(:disabled) {
-  background: var(--primary);
-  opacity: 0.88;
-}
-.ui-btn.icon-only {
-  width: var(--h-btn);
-  padding: 0;
-}
-.ui-btn.icon-only.sm {
-  width: var(--h-btn-sm);
-}
-.ui-keys {
-  margin-left: var(--sp-2);
-  font: var(--t-hint);
-  opacity: 0.7;
-}
-
+/* The field, note and row primitives are still rendered by hand in NewTask, Settings, the accounts sheet, Palette and ChatCompose. */
 .ui-field {
   display: flex;
   flex-direction: column;
@@ -116,33 +35,6 @@
 .ui-field-label {
   font: var(--t-label);
   color: var(--ink-2);
-}
-.ui-input-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-.ui-input-wrap input {
-  width: 100%;
-  height: var(--h-field);
-  padding: 0 var(--sp-5);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-ctl);
-  background: var(--bg-2);
-  color: var(--ink);
-}
-.ui-input-wrap input::placeholder {
-  color: var(--ink-3);
-}
-.ui-input-wrap input:disabled {
-  color: var(--ink-3);
-  border-style: dashed;
-}
-.ui-unit {
-  position: absolute;
-  right: var(--sp-5);
-  font: var(--t-hint);
-  color: var(--ink-3);
 }
 .ui-note {
   display: flex;
@@ -157,104 +49,6 @@
 }
 .ui-note.bad {
   color: var(--s-bad);
-}
-
-.ui-select {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-.ui-select select {
-  appearance: none;
-  height: var(--h-input);
-  padding: 0 var(--sp-7) 0 var(--sp-4);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-ctl);
-  background: var(--bg-2);
-  color: var(--ink);
-}
-.ui-select svg {
-  position: absolute;
-  right: var(--sp-3);
-  pointer-events: none;
-  color: var(--ink-2);
-}
-
-.ui-switch {
-  width: 28px;
-  height: 16px;
-  padding: 2px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-pill);
-  background: var(--bg-3);
-  display: inline-flex;
-  align-items: center;
-}
-.ui-switch[aria-checked='true'] {
-  background: var(--primary);
-  justify-content: flex-end;
-}
-.ui-knob {
-  width: 10px;
-  height: 10px;
-  border-radius: var(--r-pill);
-  background: var(--ink-2);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary);
-}
-.ui-switch[aria-checked='true'] .ui-knob {
-  background: var(--on-primary);
-}
-
-.ui-seg {
-  display: inline-flex;
-  padding: var(--sp-1);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-ctl);
-  background: var(--bg-1);
-}
-.ui-seg button {
-  min-width: var(--h-btn-sm);
-  height: var(--h-btn-sm);
-  padding: 0 var(--sp-4);
-  border: 0;
-  border-radius: var(--r-chip);
-  background: transparent;
-  color: var(--ink-2);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.ui-seg button.on {
-  background: var(--bg-3);
-  color: var(--ink);
-  font-weight: 600;
-  box-shadow: inset 0 -2px 0 var(--ink);
-}
-
-.ui-popup {
-  position: absolute;
-  z-index: 20;
-  min-width: 220px;
-  margin-top: var(--sp-2);
-  padding-bottom: var(--sp-2);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-card);
-  background: var(--bg-2);
-  box-shadow: var(--shadow-pop);
-}
-.ui-popup.right {
-  right: 0;
-}
-.ui-popup header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--sp-3) var(--sp-4);
-  border-bottom: 1px solid var(--line);
-  font: var(--t-name);
 }
 .ui-prow {
   display: flex;
@@ -279,66 +73,7 @@
   font: var(--t-hint);
 }
 
-.ui-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 12vh;
-  background: var(--scrim);
-  backdrop-filter: blur(3px);
-}
-.ui-dialog {
-  width: min(var(--w-dialog), calc(100vw - 2 * var(--sp-6)));
-  padding: var(--sp-6);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-dialog);
-  background: var(--bg-2);
-  box-shadow: var(--shadow-pop);
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-5);
-}
-.ui-dialog h2 {
-  margin: 0;
-  font: var(--t-title);
-}
-.ui-dialog-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-5);
-}
-.ui-dialog footer {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.ui-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--sp-3);
-  padding: var(--sp-8) var(--sp-6);
-  text-align: center;
-  font: var(--t-name);
-}
-.ui-empty > span:last-child {
-  font: var(--t-body);
-  color: var(--ink-3);
-}
-.ui-empty-ring {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-pill);
-  color: var(--ink-2);
-}
-
+/* Page's className is asserted verbatim by ui.test.tsx, so its rules stay until that hook moves. */
 .ui-page {
   margin: 0 auto;
   padding: var(--sp-6);
@@ -365,8 +100,4 @@
 }
 .gallery-anchor {
   position: relative;
-}
-.ui-popup.up {
-  bottom: 100%;
-  margin-bottom: var(--sp-2);
 }

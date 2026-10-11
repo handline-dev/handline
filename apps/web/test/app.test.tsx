@@ -167,7 +167,7 @@ describe('the workspace', () => {
     await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: '?' })));
     expect($('[role="dialog"][aria-label="Keys"]')).not.toBeNull();
     expect(text($('.keys-list'))).toContain('⌘K');
-    await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    await act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))); // Base UI listens on the document
     expect($('[role="dialog"][aria-label="Keys"]')).toBeNull();
     await click($('.rail-foot [aria-label="Keys (?)"]')!);
     expect($('[role="dialog"][aria-label="Keys"]')).not.toBeNull();

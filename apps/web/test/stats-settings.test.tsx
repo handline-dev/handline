@@ -142,7 +142,7 @@ describe('outlook', () => {
     await click(button('Cost per day'));
     await until(() => $$('.cost-day').length === 7, 'seven days');
     expect($$('.agent-cost .cost-pick b').map(text)).toEqual(['A', 'B', 'C']);
-    expect($$('.agent-cost .cost-swatch').map((w) => w.className)).toEqual(['cost-swatch c0', 'cost-swatch c1', 'cost-swatch c2']);
+    expect($$('.agent-cost .cost-swatch').map((w) => [...w.classList].filter((c) => /^c\d$/.test(c)).join())).toEqual(['c0', 'c1', 'c2']);
     expect($('.cost')!.getAttribute('aria-label')).toBe('Cost per day, by agent');
     await click($('[data-agent="handline.auditor"] .cost-pick'));
     expect($('.cost')!.getAttribute('aria-label')).toBe('Cost per day, handline.auditor alone');

@@ -1,4 +1,7 @@
-/* The app's styles, one file per screen after the tokens (docs/design-gaps.md §1). A screen reads tokens.css and ui.css and adds nothing of its own to them. */
+/* One file per screen after the tokens (docs/design-gaps.md §1). Tailwind rides on the same tokens: default theme is reference-only,
+   preflight stays out while hand CSS remains, @theme inline maps tokens.css. */
+@import 'tailwindcss/theme.css' theme(reference);
+@import 'tailwindcss/utilities.css';
 @import './tokens.css';
 @import './styles/base.css';
 @import './styles/agent-terminal.css';
@@ -7,12 +10,51 @@
 @import './styles/rail.css';
 @import './styles/tasks.css';
 @import './styles/inbox.css';
-@import './styles/accounts.css';
-@import './styles/team.css';
 @import './styles/worktrees.css';
 @import './styles/new-agent.css';
-@import './styles/accounts-stats.css';
-@import './styles/stats-settings.css';
-@import './styles/settings.css';
 @import './styles/chat.css';
 @import './styles/ui.css';
+@import './styles/themes.css';
+
+/* `shell:` — the page runs in the desktop shell (main.tsx marks <html data-shell>). */
+@custom-variant shell (:root[data-shell='desktop'] &);
+
+/* Token names the utilities speak; `inline` keeps the dark/light flips in tokens.css working. */
+@theme inline {
+  --color-canvas: var(--bg-0);
+  --color-surface: var(--bg-1);
+  --color-panel: var(--bg-2);
+  --color-raised: var(--bg-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-primary: var(--primary);
+  --color-on-primary: var(--on-primary);
+  --color-focus: var(--focus);
+  --color-link: var(--link);
+  --color-working: var(--s-working);
+  --color-wait: var(--s-wait);
+  --color-bad: var(--s-bad);
+  --color-ok: var(--s-ok);
+  --color-term-bg: var(--term-bg);
+  --color-term-ink: var(--term-ink);
+  --font-sans: var(--sans);
+  --font-mono: var(--mono);
+  --text-hint: var(--fs-hint);
+  --text-hint--line-height: 14px;
+  --text-label: var(--fs-label);
+  --text-label--line-height: 16px;
+  --text-body: var(--fs-body);
+  --text-body--line-height: 18px;
+  --text-title: var(--fs-title);
+  --text-title--line-height: 20px;
+  --text-page: var(--fs-page);
+  --text-page--line-height: 26px;
+  --radius-chip: var(--r-chip);
+  --radius-ctl: var(--r-ctl);
+  --radius-card: var(--r-card);
+  --radius-dialog: var(--r-dialog);
+  --radius-pill: var(--r-pill);
+}
