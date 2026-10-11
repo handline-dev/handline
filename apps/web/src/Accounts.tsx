@@ -6,6 +6,7 @@ import { useConnection } from '@handline/app-react';
 import { useAccounts, useAgents, useServes, useWrite } from '@handline/app-data';
 import { AccountSettings } from './AccountSettings.tsx';
 import { Gauge, useNow } from './Gauge.tsx';
+import { chatTab } from './chatTab.ts';
 import { goAgent } from './route.ts';
 import { Button, Dialog, Icon, type IconName } from './ui/index.ts';
 import { View } from './View.tsx';
@@ -128,9 +129,9 @@ function AccountPageOne({ a, now }: { a: Account; now: number }) {
       <p className="acct-head">
         <StateChip a={a} now={now} />
       </p>
-      <div role="tablist" className="chat-tabs" aria-label="Account">
+      <div role="tablist" className="chat-tabs flex gap-1 border-b border-line px-3 pt-1.5" aria-label="Account">
         {TABS.map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={`chat-tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>
+          <button key={t} role="tab" aria-selected={tab === t} className={chatTab(tab === t)} onClick={() => setTab(t)}>
             {t}
           </button>
         ))}

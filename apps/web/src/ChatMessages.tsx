@@ -8,6 +8,7 @@ import { useSelector } from '@handline/app-react';
 import { useAgents, useChatActions } from '@handline/app-data';
 import { EditorButton } from './EditorButton.tsx';
 import { Button, Dialog, Icon, type IconName } from './ui/index.ts';
+import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { PathText } from './PathText.tsx';
 
 const clock = (at: string) => {
@@ -118,7 +119,7 @@ export function Message(props: {
   };
   return (
     <div
-      className={`msg ${side}${failed ? ' failed' : ''}${props.picked ? ' picked' : ''}${unnumbered || failed ? '' : ' pickable'}`}
+      className={bubbleClass(side, { failed, picked: props.picked, pickable: !unnumbered && !failed })}
       data-landing={m.landing}
       data-id={m.id}
       title={full(m.at)}
@@ -127,7 +128,7 @@ export function Message(props: {
       onClick={pick}
     >
       {side === 'other' ? (
-        <div className="msg-from muted">
+        <div className={`${MSG_FROM} muted`}>
           {m.from} → {m.to}
         </div>
       ) : null}
@@ -138,10 +139,10 @@ export function Message(props: {
           {parent ? <span className="muted"> {snippet(parent.body)}</span> : null}
         </button>
       ) : null}
-      <div className="msg-body">
+      <div className={MSG_BODY}>
         <RefText text={m.body} agent={agent} onRef={props.onRef} />
       </div>
-      <div className="msg-meta muted">
+      <div className={`${MSG_META} muted`}>
         {!unnumbered ? <span className="mono">#{m.id}</span> : null}
         {side === 'person' && !failed && m.receipt ? (
           <span className="landing receipt" data-receipt={m.receipt.state} title={receiptOf(m.receipt.state).label}>
@@ -187,13 +188,13 @@ export function Message(props: {
         </Dialog>
       ) : null}
       {m.receipt?.state === 'unknown' ? (
-        <div className="msg-meta failed-line" role="note">
+        <div className={MSG_FAILED} role="note">
           <Icon name="maybeRan" size={13} /> This message may or may not have run. It is not sent again; send it again yourself if it
           matters.
         </div>
       ) : null}
       {failed ? (
-        <div className="msg-meta failed-line" role="alert">
+        <div className={MSG_FAILED} role="alert">
           <Icon name="failed" size={13} /> {m.sending_reason}{' '}
           <button className="icon" aria-label="Retry" title="Retry" onClick={() => act.retry(m.id)}>
             <Icon name="retry" size={14} />
@@ -204,23 +205,23 @@ export function Message(props: {
         </div>
       ) : null}
       {side === 'agent' && m.answer ? (
-        <div className="msg person answer">
-          <div className="msg-body">
+        <div className={bubbleClass('person', { nested: true })}>
+          <div className={MSG_BODY}>
             <PathText text={m.answer.text} agent={agent} />
           </div>
-          <div className="msg-meta muted">
+          <div className={`${MSG_META} muted`}>
             {clock(m.answer.at)} <Icon name="answered" size={13} label="Your answer" />
           </div>
         </div>
       ) : null}
       {side === 'agent' && m.dismissed ? (
-        <div className="msg-meta muted">
+        <div className={`${MSG_META} muted`}>
           <Icon name="dismissed" size={13} />
         </div>
       ) : null}
       {open ? (
         <form
-          className="ask"
+          className="ask mt-2 flex gap-1.5"
           onSubmit={(e) => {
             e.preventDefault();
             if (!answer.trim()) return;
@@ -228,7 +229,7 @@ export function Message(props: {
             setAnswer('');
           }}
         >
-          <input value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Answer" aria-label={`Answer to message ${m.id}`} />
+          <input className="min-w-0 flex-1 rounded-ctl border border-line bg-canvas px-2 py-1" value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Answer" aria-label={`Answer to message ${m.id}`} />
           <EditorButton text={answer} onText={setAnswer} />
           <button className="icon" aria-label="Answer" title="Answer" disabled={!answer.trim()}>
             <Icon name="send" />
@@ -249,7 +250,7 @@ function ToolLine({ i }: { i: TranscriptItem }) {
   const [open, setOpen] = useState(false);
   const cut = i.dropped_lines ?? 0;
   return (
-    <div className="line tool" data-kind="tool">
+    <div className="line tool self-start font-mono text-[12px] text-ink-2" data-kind="tool">
       <Icon name="tool" size={14} label={i.tool ?? 'Tool'} />
       <span className="mono"> {i.tool}</span>
       {i.text ? <span className="muted"> {i.text}</span> : null}
@@ -298,8 +299,8 @@ const TASK_EVENT_WORD: Record<string, string> = { opened: 'opened', changed: 'ch
 export function Item({ i, titles }: { i: TranscriptItem; titles?: Map<number, string> }) {
   if (i.kind === 'reply')
     return (
-      <div className="msg agent" data-kind="reply" title={full(i.at)}>
-        <div className="msg-body">
+      <div className={bubbleClass('agent')} data-kind="reply" title={full(i.at)}>
+        <div className={MSG_BODY}>
           <PathText text={i.text ?? ''} />
         </div>
       </div>

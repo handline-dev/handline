@@ -183,7 +183,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
       </div>
       <ChatBanner detail={detail} />
       <div
-        className="stream col"
+        className="stream col flex-col gap-2 p-3 [&>*]:flex-none"
         ref={stream}
         onScroll={(e) => {
           const el = e.currentTarget;
@@ -203,7 +203,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         ) : null}
         {chat.hasOlder ? (
           <button
-            className="icon older"
+            className="icon older self-center"
             disabled={chat.loadingOlder}
             aria-label="Older messages"
             title="Older messages"
@@ -253,7 +253,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         </AnimatedList>
         <HrCards agent={agent} />
         {chat.working.turn_running ? (
-          <div className="line working" role="status" title={chat.working.line ?? 'Working'}>
+          <div className="line working self-start text-[12px] text-working" role="status" title={chat.working.line ?? 'Working'}>
             <Icon name="working" size={14} label={chat.working.line ?? 'Working'} aria-hidden />
             <span>{chat.working.line ?? 'Working'}…</span>
           </div>

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { waitingCount } from '@handline/app-core';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useAgents, useHr, useServes, useTeam } from '@handline/app-data';
+import { chatTab } from './chatTab.ts';
 import { HrTab } from './HrTab.tsx';
 import { Empty, Icon, State, stateOfView } from './ui/index.ts';
 import { goAgent, goTeam, useTeamRoute } from './route.ts';
@@ -17,11 +18,11 @@ export function TeamPage() {
   const count = useHrCount();
   return (
     <section className="team" aria-label="Team">
-      <div className="chat-tabs" role="tablist" aria-label="Team pages">
+      <div className="chat-tabs flex gap-1 border-b border-line px-3 pt-1.5" role="tablist" aria-label="Team pages">
         <button
           role="tab"
           aria-selected={route.tab === 'team'}
-          className={`chat-tab${route.tab === 'team' ? ' on' : ''}`}
+          className={chatTab(route.tab === 'team')}
           onClick={() => goTeam('team')}
         >
           Team
@@ -30,7 +31,7 @@ export function TeamPage() {
           <button
             role="tab"
             aria-selected={route.tab === 'hr'}
-            className={`chat-tab${route.tab === 'hr' ? ' on' : ''}`}
+            className={chatTab(route.tab === 'hr')}
             onClick={() => goTeam('hr')}
           >
             {count ? (

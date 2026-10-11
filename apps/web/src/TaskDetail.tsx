@@ -25,7 +25,7 @@ export function TaskDetail({ id, onBack, embedded }: { id: number; onBack: () =>
   const gone = q.isError && classify(q.error).kind === 'not_found';
   return (
     <article
-      className={`tdetail flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-4 py-3 outline-none${embedded ? ' pane' : ''}`}
+      className={`tdetail flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-4 py-3 outline-none${embedded ? ' pane relative bg-panel -outline-offset-1' : ''}`}
       aria-label={`Task #${id}`}
     >
       <button className="btn icon back" onClick={onBack} aria-label="Back" title="Back (Esc)">

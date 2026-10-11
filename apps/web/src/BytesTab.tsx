@@ -107,7 +107,7 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
   const note = !hasTerminal ? 'No terminal. Start the agent to open one.' : state === 'failed' ? failure : NOTE[state];
 
   return (
-    <div className="terminal-tab">
+    <div className="terminal-tab flex min-h-0 flex-col">
       <div className={`terminal xterm-pane${state === 'stale' || !hasTerminal ? ' dim' : ''}`} title={title}>
         <div className="xterm-host" ref={host} aria-label={`Terminal of ${agent}`} />
         {skeleton && (

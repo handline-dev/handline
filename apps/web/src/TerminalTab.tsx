@@ -76,7 +76,7 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
   }, [store, agent, hasTerminal]);
 
   return (
-    <div className="terminal-tab">
+    <div className="terminal-tab flex min-h-0 flex-col">
       <div className="terminal">
         <pre
           className="grid"

@@ -10,9 +10,6 @@ import {
   moveTab,
   moveTabBy,
   openTab,
-  splitRoot,
-  splitTab,
-  type Edge,
   type Group,
   type Preset,
   type Tab,
@@ -22,6 +19,7 @@ import { ChatTab } from './ChatTab.tsx';
 import { Icon, type IconName } from './ui/index.ts';
 import { TasksTab } from './TasksTab.tsx';
 import { Badges } from './Badges.tsx';
+import { DropZones } from './DropZones.tsx';
 import { BytesTab } from './BytesTab.tsx';
 import { wantsBytes } from './terminal/choose.ts';
 import { Watch } from './TranscriptTab.tsx';
@@ -45,7 +43,6 @@ const PRESETS: [Preset, string][] = [
   ['rows', 'Two rows'],
   ['grid', '2 × 2'],
 ];
-const EDGES: Edge[] = ['left', 'right', 'top', 'bottom'];
 
 export function Pane({ group }: { group: Group }) {
   const { ws, detail, agent, storage, apply, dragging, setDragging } = useWorkspace();
@@ -82,11 +79,11 @@ export function Pane({ group }: { group: Group }) {
   };
   return (
     <section
-      className={`pane${ws.active === group.id ? ' focus' : ''}`}
+      className={`pane relative flex min-h-0 min-w-0 flex-1 flex-col bg-panel -outline-offset-1${ws.active === group.id ? ' focus outline-1 outline-[color-mix(in_srgb,var(--primary)_40%,transparent)]' : ''}`}
       data-group={group.id}
       onPointerDownCapture={() => ws.active !== group.id && apply((w) => ({ ...w, active: group.id }))}
     >
-      <div className="strip" role="tablist" ref={strip} onDragOver={(e) => dragging && e.preventDefault()} onDrop={dropOnStrip}>
+      <div className="strip flex h-[var(--h-tabs)] items-stretch border-b border-line bg-surface px-2" role="tablist" ref={strip} onDragOver={(e) => dragging && e.preventDefault()} onDrop={dropOnStrip}>
         {group.tabs.map((id) => {
           const t = ws.tabs[id]!;
           return (
@@ -95,7 +92,7 @@ export function Pane({ group }: { group: Group }) {
               role="tab"
               tabIndex={0}
               aria-selected={id === group.activeTab}
-              className={`tab${id === group.activeTab ? ' on' : ''}`}
+              className={`tab group inline-flex max-w-[200px] cursor-default select-none items-center gap-1.5 whitespace-nowrap border-b-2 px-3 font-sans text-body font-medium ${id === group.activeTab ? 'on border-b-ink text-ink' : 'border-b-transparent text-ink-2'}`}
               data-tab={id}
               draggable
               onDragStart={(e) => {
@@ -112,7 +109,7 @@ export function Pane({ group }: { group: Group }) {
               }}
             >
               <Icon name={TAB_ICON[t.kind] ?? 'tasks'} size={14} label={label(t, structured)} aria-hidden />
-              <span className="tab-label">{label(t, structured)}</span>
+              <span className="tab-label overflow-hidden text-ellipsis">{label(t, structured)}</span>
               {t.kind === 'terminal' || t.kind === 'transcript' ? (
                 <>
                   <Badges badges={badges} onClick={{ dialog: () => apply((w) => activate(w, CHAT)) }} />
@@ -121,7 +118,7 @@ export function Pane({ group }: { group: Group }) {
               ) : null}
               {id === CHAT ? null : (
                 <button
-                  className="x"
+                  className="x inline-flex border-0 bg-transparent p-0.5 text-ink-3 opacity-0 focus-visible:opacity-100 group-hover:opacity-100 group-aria-selected:opacity-100"
                   aria-label={`Close ${label(t, structured)}`}
                   title={t.kind === 'terminal' || t.kind === 'transcript' ? 'Close the tab; the agent keeps running' : 'Close the tab'}
                   onClick={(e) => {
@@ -142,7 +139,7 @@ export function Pane({ group }: { group: Group }) {
             </div>
           );
         })}
-        <span className="strip-end">
+        <span className="strip-end ml-auto flex items-center gap-0.5">
           <details className="menu">
             <summary className="icon" aria-label="Add a tab" title="Add a tab">
               <Icon name="plus" size={14} aria-hidden />
@@ -205,7 +202,7 @@ export function Pane({ group }: { group: Group }) {
           </details>
         </span>
       </div>
-      <div className="pane-body" role="tabpanel">
+      <div className="pane-body relative flex min-h-0 flex-1 flex-col [&>*]:min-h-0 [&>*]:flex-1" role="tabpanel">
         {!tab ? null : tab.kind === 'chat' ? (
           <ChatTab agent={agent} detail={detail} />
         ) : tab.kind === 'tasks' ? (
@@ -231,34 +228,5 @@ export function Pane({ group }: { group: Group }) {
         {dragging ? <DropZones group={group.id} /> : null}
       </div>
     </section>
-  );
-}
-
-/** The edges of a pane (or, with `root`, of the whole view) that a dragged tab can be dropped on to split. */
-export function DropZones({ group, root }: { group?: string; root?: boolean }) {
-  const { ws, dragging, drop } = useWorkspace();
-  const [over, setOver] = useState<Edge | null>(null);
-  return (
-    <>
-      {EDGES.map((edge) => (
-        <div
-          key={edge}
-          className={`dz${root ? ' root' : ''} ${edge}${over === edge ? ' over' : ''}`}
-          data-edge={edge}
-          data-root={root ? 'true' : undefined}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setOver(edge);
-          }}
-          onDragLeave={() => setOver(null)}
-          onDrop={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setOver(null);
-            if (dragging) drop(root ? splitRoot(ws, dragging, edge) : splitTab(ws, dragging, group!, edge));
-          }}
-        />
-      ))}
-    </>
   );
 }
