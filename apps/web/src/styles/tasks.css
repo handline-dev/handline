@@ -9,30 +9,6 @@
   box-shadow: var(--shadow-pop);
   overflow: auto;
 }
-.seg {
-  display: inline-flex;
-}
-.seg .btn:first-child {
-  border-radius: var(--r-ctl) 0 0 var(--r-ctl);
-}
-.seg .btn:last-child {
-  border-radius: 0 var(--r-ctl) var(--r-ctl) 0;
-  border-left: 0;
-}
-.btn.icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--h-btn);
-  height: var(--h-btn);
-  padding: 0 var(--sp-3);
-}
-.btn.on,
-.tcheck.btn.icon:has(input:checked) {
-  background: var(--bg-3);
-  color: var(--ink);
-  border-color: var(--line-strong);
-}
 .ttable:not(.selecting) .c-mark {
   display: none;
 }
@@ -72,27 +48,13 @@ kbd {
   font: var(--t-body);
   resize: vertical;
 }
-.back {
-  align-self: flex-end;
-  margin-bottom: var(--sp-4);
-}
 @media (max-width: 639px) {
   .tasks,
   .tdetail {
     padding: var(--sp-5) var(--sp-6);
   }
-  .tasks-head select,
-  .tasks-head .btn,
-  .tverbs .btn,
-  .tbar .btn {
-    min-height: 44px;
-  }
   .tsearch input {
     width: 100%;
-  }
-  .tverbs .btn kbd,
-  .tbar kbd {
-    display: none;
   }
   /* cards: #number, priority and state on line one; the title; time */
   .tasks-scroll {

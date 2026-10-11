@@ -116,9 +116,7 @@ export function MemoBox({
         aria-label="Memo"
         onChange={(e) => setText(e.target.value)}
       />
-      <button className="btn icon" disabled={!can.ok || !text.trim()} title={can.why ?? 'Add memo'} aria-label="Add memo">
-        <Icon name="send" label="Add memo" aria-hidden="true" />
-      </button>
+      <Button type="submit" icon="send" label="Add memo" disabled={!can.ok || !text.trim()} title={can.why ?? 'Add memo'} className="max-sm:min-h-[44px]" />
     </form>
   );
 }

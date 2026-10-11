@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useWrite } from '@handline/app-data';
-import { Icon, VisuallyHidden } from './ui/index.ts';
+import { Button, Icon, VisuallyHidden } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
 import { MemoBox, MemoRow } from './TaskMemos.tsx';
@@ -27,9 +27,7 @@ export function TaskDetail({ id, onBack, embedded }: { id: number; onBack: () =>
       className={`tdetail flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-4 py-3 outline-none${embedded ? ' pane relative bg-panel -outline-offset-1' : ''}`}
       aria-label={`Task #${id}`}
     >
-      <button className="btn icon back" onClick={onBack} aria-label="Back" title="Back (Esc)">
-        <Icon name="close" label="Back" aria-hidden="true" />
-      </button>
+      <Button icon="close" label="Back" title="Back (Esc)" className="back self-end mb-4" onClick={onBack} />
       {gone ? (
         <div className="empty">
           <p>This task no longer exists.</p>
