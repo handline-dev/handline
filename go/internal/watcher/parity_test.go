@@ -161,8 +161,8 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 	if len(py) != len(events) || len(py) != 4 {
 		t.Fatalf("python wrote %d rows, go %d", len(py), len(events))
 	}
-	// The Task Go's reads serve leaves out five optional fields Python's carries, on purpose: no app reads them from a Task (the asker column
-	// sorts on `from`, a discarded task is told by its state). Go's data must equal Python's on every field it has.
+	// The Task Go's reads serve leaves out five optional fields Python's carries, on purpose: no app reads them from a Task (a discarded task
+	// is told by its state). Go's data must equal Python's on every field it has.
 	missing := map[string]bool{"last_activity": true, "edited_by": true, "discarded": true, "mismatch": true, "requests": true}
 	for i, e := range events {
 		sameRow(t, i, py[i], e)

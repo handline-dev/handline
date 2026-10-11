@@ -255,9 +255,12 @@ func (e *Env) firstRequest(tid int64) (row, error) {
 		"WHERE l.task_id = ? ORDER BY l.rowid LIMIT 1", tid)
 }
 
-// askerOf is actions.task_asker: who a task answers to when it closes. The founder, if any request linked to it came from the founder; else
-// the fallback, whoever opened it (the reporter, once tasks have one, is the one change: askerFallback).
+// askerOf is actions.task_asker: who a task answers to when it closes. Its reporter when one was set; else the founder, if any request
+// linked to it came from the founder; else whoever opened it.
 func (e *Env) askerOf(t row) (string, error) {
+	if r := t.str("reporter"); r != "" {
+		return r, nil
+	}
 	r, err := queryOne(e.DB, "SELECT 1 AS yes FROM task_requests l JOIN requests r ON r.id = l.request_id "+
 		"WHERE l.task_id = ? AND r.requester = ? LIMIT 1", t.i("id"), human)
 	if err != nil {
@@ -266,10 +269,8 @@ func (e *Env) askerOf(t row) (string, error) {
 	if r != nil {
 		return human, nil
 	}
-	return askerFallback(t), nil
+	return t.str("opened_by"), nil
 }
-
-func askerFallback(t row) string { return t.str("opened_by") }
 
 func (e *Env) blockers(tid int64) ([]row, error) {
 	return query(e.DB, "SELECT t.* FROM tasks t JOIN task_blocks b ON b.blocks_on = t.id "+
