@@ -130,6 +130,17 @@ test('the tray says what the app is on, and offers the restart once main has mov
   assert.match(followItems({ ...base, state: 'failed', reason: 'vite failed' })[0]!.label!, /vite failed/);
 });
 
+// fs.watch can start and then deliver nothing (macOS with an overloaded fseventsd); a bare watch on the same folder tells that from a bug in watchMain.
+async function watchDelivers(dir: string): Promise<boolean> {
+  let seen = false;
+  const w = fs.watch(dir, () => (seen = true));
+  await new Promise((r) => setTimeout(r, 100));
+  fs.writeFileSync(path.join(dir, 'probe'), 'x');
+  for (let i = 0; i < 20 && !seen; i++) await new Promise((r) => setTimeout(r, 50));
+  w.close();
+  return seen;
+}
+
 test('watchMain calls back once when the main ref is replaced or packed-refs is rewritten, and not for another branch', async (t) => {
   const git = fs.mkdtempSync(path.join(os.tmpdir(), 'watch-'));
   fs.mkdirSync(path.join(git, 'refs', 'heads'), { recursive: true });
@@ -143,6 +154,7 @@ test('watchMain calls back once when the main ref is replaced or packed-refs is 
   );
   await new Promise((r) => setTimeout(r, 100));
   if (errors.length) return t.skip(`fs.watch is not available here: ${errors[0]!.message}`);
+  if (!(await watchDelivers(git))) return t.skip('fs.watch delivers no events on this host');
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const until = async (f: () => boolean) => {
     for (let i = 0; i < 60 && !f(); i++) await wait(50);
