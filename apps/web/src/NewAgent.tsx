@@ -5,7 +5,7 @@ import { classify, sentence, useAgents, useRepos, useServes, useWrite } from '@h
 import { useStore } from '@handline/app-react';
 import { Button, Dialog, Field, Icon, Select } from './ui/index.ts';
 import { goNew, useNewAgentRoute } from './route.ts';
-import { NewAgentProgress } from './NewAgentProgress.tsx';
+import { forgetFirstTask, keepFirstTask, NewAgentProgress } from './NewAgentProgress.tsx';
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 type Effort = (typeof EFFORTS)[number];
@@ -59,7 +59,14 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
       </Dialog>
     );
   if (route.operation)
-    return <NewAgentProgress operation={route.operation} fields={f} onClose={onClose} onAnother={() => (setF(EMPTY), goNew())} />;
+    return (
+      <NewAgentProgress
+        operation={route.operation}
+        fields={f}
+        onClose={onClose}
+        onAnother={() => (setF(EMPTY), forgetFirstTask(), goNew())}
+      />
+    );
   const list = repos.data?.repos ?? [];
   const repo = list.find((r) => r.path === f.repo);
   const prefix = f.parent ? `${f.parent}.` : '';
@@ -76,7 +83,13 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
         ...(f.effort ? { effort: f.effort as Effort } : {}),
         ...(f.parent ? { parent: f.parent } : {}),
       },
-      { onSuccess: (r) => goNew((r as { operation: string }).operation) },
+      {
+        onSuccess: (r) => {
+          const operation = (r as { operation: string }).operation;
+          keepFirstTask(operation, f.task, f.box);
+          goNew(operation);
+        },
+      },
     );
   };
   const refused = create.isError ? classify(create.error) : null;

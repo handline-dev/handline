@@ -4,7 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
-import { setup } from '@handline/fake-daemon/helpers';
+import { second, setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -76,6 +76,7 @@ afterEach(async () => {
   root = null;
   box?.remove();
   location.hash = '';
+  localStorage.clear();
 });
 
 describe('X3 New agent', () => {
@@ -231,6 +232,26 @@ describe('X3 New agent', () => {
     const asks = spy.mock.calls.filter((c) => c[0] === 'task.new');
     expect(asks).toHaveLength(1);
     expect(asks[0]![1]).toMatchObject({ owner: 'fresh', title: 'Read the docs', body: 'then report', time_box: '3h' });
+  });
+
+  it('still sends the typed first task after a relaunch at the progress route, once', async () => {
+    const s = setup();
+    s.daemon.work.stepMs = 400;
+    await mount('#/new', s);
+    await fill();
+    await type($('#na-task'), 'Read the docs');
+    await type(findInput('Time box'), '3h');
+    await click(create());
+    await until(() => location.hash.startsWith('#/new/'), 'the progress route');
+    await act(async () => root?.unmount());
+    box?.remove();
+    const again = second(s.daemon, s.net);
+    const spy = vi.spyOn(again, 'call');
+    await mount(location.hash, { ...s, client: again });
+    await until(() => spy.mock.calls.some((c) => c[0] === 'task.new'), 'the task after the relaunch', 300);
+    expect(spy.mock.calls.filter((c) => c[0] === 'task.new')).toHaveLength(1);
+    expect(spy.mock.calls.find((c) => c[0] === 'task.new')![1]).toMatchObject({ owner: 'fresh', title: 'Read the docs', time_box: '3h' });
+    expect(localStorage.getItem('handline.new-agent.task')).toBeFalsy();
   });
 
   it('keeps the first task text with a Retry when task.new is refused', async () => {

@@ -1,6 +1,7 @@
 // New agent (founder, docs/pc-app-gaps.md X5): one full page with the form of docs/design/new-agent-worktrees.md §1.2, then the progress of
 // the operation it started. One agent.create per tap; the fields stay here, so a failed creation returns to them as they were.
 import { useState } from 'react';
+import type { FirstTask } from '../session.ts';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { classify, sentence, useAgents, useRepos, useServes, useWrite } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
@@ -28,7 +29,9 @@ const EMPTY: Fields = { name: '', role: '', repo: '', base: '', model: '', effor
 /** Where the page is, kept past a reload: the operation it is watching, or null for the form. */
 export interface Pending {
   operation: string | null;
-  save: (operation: string | null) => void;
+  /** The first task typed before the operation started: what a relaunch still has to send. */
+  first?: FirstTask | null;
+  save: (operation: string | null, first?: FirstTask | null) => void;
 }
 
 function Label(props: { text: string; note?: string }) {
@@ -151,7 +154,8 @@ export function NewAgent({ pending, onClose, onAgent }: { pending: Pending; onCl
     return (
       <NewAgentProgress
         operation={pending.operation}
-        fields={f}
+        fields={f.task ? f : { ...f, ...pending.first }}
+        onSent={() => pending.save(pending.operation)}
         onClose={() => (pending.save(null), onClose())}
         onAgent={(name) => (pending.save(null), onAgent(name))}
         onForm={() => pending.save(null)}
@@ -174,7 +178,7 @@ export function NewAgent({ pending, onClose, onAgent }: { pending: Pending; onCl
         ...(f.effort ? { effort: f.effort as Effort } : {}),
         ...(f.parent ? { parent: f.parent } : {}),
       },
-      { onSuccess: (r) => pending.save((r as { operation: string }).operation) },
+      { onSuccess: (r) => pending.save((r as { operation: string }).operation, f.task.trim() ? { task: f.task, box: f.box } : null) },
     );
   };
   const refused = create.isError ? classify(create.error) : null;
