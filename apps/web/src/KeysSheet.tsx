@@ -22,24 +22,24 @@ const COMPOSE: [string, string][] = [
 export function KeysSheet({ onClose }: { onClose: () => void }) {
   return (
     <Dialog title="Keys" onClose={onClose}>
-      <dl className="keys-list">
+      <dl className="keys-list m-0 grid gap-1.5">
         {KEYS.map(([k, what]) => (
-          <div key={k}>
-            <dt>
+          <div key={k} className="flex items-baseline gap-3">
+            <dt className="min-w-20">
               <kbd>{k}</kbd>
             </dt>
-            <dd>{what}</dd>
+            <dd className="m-0 text-ink-2">{what}</dd>
           </div>
         ))}
       </dl>
       <h3 className="mt-2 text-label text-ink-3">In the message box</h3>
-      <dl className="keys-list">
+      <dl className="keys-list m-0 grid gap-1.5">
         {COMPOSE.map(([k, what]) => (
-          <div key={k}>
-            <dt>
+          <div key={k} className="flex items-baseline gap-3">
+            <dt className="min-w-20">
               <kbd>{k}</kbd>
             </dt>
-            <dd>{what}</dd>
+            <dd className="m-0 text-ink-2">{what}</dd>
           </div>
         ))}
       </dl>

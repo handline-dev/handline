@@ -116,7 +116,7 @@ export function Pane({ group }: { group: Group }) {
               {t.kind === 'terminal' || t.kind === 'transcript' ? (
                 <>
                   <Badges badges={badges} onClick={{ dialog: () => apply((w) => activate(w, CHAT)) }} />
-                  {unread && id !== group.activeTab ? <span className="unread-dot" title="Needs you" /> : null}
+                  {unread && id !== group.activeTab ? <span className="unread-dot ml-1 inline-block h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" /> : null}
                 </>
               ) : null}
               {id === CHAT ? null : (

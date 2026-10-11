@@ -123,7 +123,7 @@ export function InboxCard(props: { item: InboxItem; on: boolean; pending: boolea
         <span className="inbox-seen" title={i.read ? 'Read' : 'Unread'}>
           <Icon name={i.read ? 'read' : 'unread'} size={14} label={i.read ? 'Read' : 'Unread'} />
         </span>
-        <span className="badge" title={kindLabel(i.kind)}>
+        <span className="badge mr-1.5 inline-block rounded-card border border-line px-1.5 text-hint text-ink-2" title={kindLabel(i.kind)}>
           <Icon name={kindIcon(i.kind)} label={kindLabel(i.kind)} />
         </span>
         <h3 className="inbox-title">{i.title}</h3>

@@ -28,7 +28,7 @@ export function StateChip({ a, now }: { a: Account; now: number }) {
   return (
     <span className="acct-state-wrap">
       <Icon name={STATE_ICON[state]} size={14} label={STATE_WORD[state]} />
-      <span className={`badge acct-state ${state}`} data-state={state}>
+      <span className={`badge acct-state ${state} mr-1.5 inline-block rounded-card border border-line px-1.5 text-hint text-ink-2`} data-state={state}>
         {state === 'out' && until ? `out until ${span(Date.parse(until) - now)} from now` : STATE_WORD[state]}
       </span>
     </span>
@@ -159,7 +159,7 @@ function AccountPageOne({ a, now }: { a: Account; now: number }) {
               const v = agents.find((x) => x.name === n);
               return (
                 <li key={n}>
-                  <button className="nav" onClick={() => goAgent(n)}>
+                  <button className="nav rounded-ctl border-0 bg-transparent px-2 py-[5px]" onClick={() => goAgent(n)}>
                     {n}
                   </button>
                   <span className="muted"> {v ? v.state : ''}</span>

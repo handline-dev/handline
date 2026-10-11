@@ -87,13 +87,13 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   }, [unread]);
   // Everything but the workspace lives in the sidebar, so the main view gets the whole window height.
   return (
-    <div className="frame">
+    <div className="frame flex h-screen flex-col">
       <div id="app" data-rail={railOpen ? 'open' : 'closed'} style={{ '--rail-w': `${railW}px` } as React.CSSProperties}>
         {railOpen ? (
           <>
             <Sidebar selected={agent} onTasks={tasks !== null} storage={storage} onToggle={toggle} />
             <div
-              className="rail-divider"
+              className="rail-divider z-[1] -ml-0.75 w-[5px] flex-none cursor-col-resize touch-none hover:bg-primary max-[760px]:hidden"
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize the sidebar"
@@ -104,11 +104,16 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             />
           </>
         ) : (
-          <button className="rail-handle" aria-label="Show the agent list" title="Show the agent list" onClick={toggle}>
+          <button
+            className="rail-handle flex w-7 flex-none justify-center self-stretch border-0 border-r border-line bg-panel pt-2 align-top"
+            aria-label="Show the agent list"
+            title="Show the agent list"
+            onClick={toggle}
+          >
             <Icon name="sidebar" size={16} aria-hidden />
           </button>
         )}
-        <main className="main" aria-label="Agent workspace">
+        <main className="main flex-1" aria-label="Agent workspace">
           <DaemonDown />
           {team ? (
             <TeamPage />

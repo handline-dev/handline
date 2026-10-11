@@ -1,123 +1,7 @@
-/* the sidebar carries everything that is not the workspace */
-/* (.rail-top now speaks Tailwind utilities in Sidebar.tsx — the shell's traffic-light row) */
-.rail-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  padding: 0 6px;
-}
-.rail-opts .search {
-  flex: 1 1 100%;
-  max-width: none;
-  width: 100%;
-}
-.rail-list {
-  flex: 1;
-  overflow: auto;
-  min-height: 0;
-}
-.rail-status {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px 12px;
-  border-top: 1px solid var(--line);
-  font-size: 12px;
-}
-.rail-status .dot {
-  margin: 0 2px 0 0;
-  width: 8px;
-  height: 8px;
-}
-.rail-handle {
-  flex: none;
-  width: 28px;
-  align-self: stretch;
-  background: var(--panel);
-  border: 0;
-  border-right: 1px solid var(--line);
-  padding: 8px 0 0;
-  vertical-align: top;
-}
-.rail-handle {
-  display: flex;
-  justify-content: center;
-}
-.timeline summary {
-  cursor: pointer;
-  padding: 3px 0;
-}
-.timeline .note {
-  padding: 3px 12px 3px 0;
-  border: 0;
-}
-.main {
-  flex: 1;
-}
-.brand {
-  margin-right: auto;
-}
-.nav {
-  background: none;
-  border: 0;
-  padding: 5px 8px;
-  border-radius: 6px;
-}
-.icon {
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 3px 7px;
-}
-.bell {
-  padding: 0 6px;
-  border-radius: 9px;
-  background: var(--wait);
-  color: var(--bg-0);
-  font-size: 12px;
-}
-.rail-opts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 10px;
-  align-items: center;
-  border-bottom: 1px solid var(--line);
-}
-.rail-opts select {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg);
-  padding: 2px 4px;
-}
-.search {
-  padding: 5px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg);
-}
-@media (max-width: 900px) {
-  .rail {
-    position: fixed;
-    z-index: 10;
-    inset: 0 auto 0 0;
-    width: min(320px, 90vw);
-    box-shadow: var(--shadow-pop);
-  }
-  #app[data-rail='open'] .main {
-    margin-left: 0;
-  }
-}
-.rail {
-  background: var(--panel);
-  border-right: 1px solid var(--line);
-  width: var(--rail-w, 280px);
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
+/* The rail speaks Tailwind utilities in Sidebar.tsx / App.tsx / StatusBar.tsx / Palette.tsx / KeysSheet.tsx. What is left here is what
+   cannot move: element-level summary resets, overrides of later-imported class rules, and an ancestor-gated media rule. */
+
+/* Element-level, as base.css: every <summary> in the app (Pane tabs, the ⋯ menu, tr-fold). */
 summary {
   list-style: none;
   cursor: pointer;
@@ -126,93 +10,15 @@ summary::-webkit-details-marker {
   display: none;
 }
 
-.badge {
-  display: inline-block;
-  margin-right: 6px;
-  padding: 0 6px;
-  border-radius: 8px;
-  font-size: 11px;
-  border: 1px solid var(--line);
-  color: var(--muted);
-}
-.badge.dialog {
-  border-color: var(--wait);
-  color: var(--wait);
-  font-weight: 600;
-}
-.badge.stalled {
-  border-color: var(--block);
-  color: var(--block);
-}
-.badge.you {
-  border-color: var(--accent);
-  color: var(--link);
-}
-.badge.no_terminal {
-  border-style: dashed;
-}
-.badge[role='button'] {
-  cursor: pointer;
-}
-.unread-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-left: 4px;
-  border-radius: 50%;
-  background: var(--wait);
+/* Shared by screens outside the rail (Pane, Inbox, ChatMessages, ChatCompose, InboxCard). */
+.icon {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 3px 7px;
 }
 
-/* the sidebar's footer reads as icons and counts, in one line */
-.rail .rail-status {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.rail-divider {
-  flex: none;
-  width: 5px;
-  margin-left: -3px;
-  z-index: 1;
-  cursor: col-resize;
-  touch-action: none;
-}
-.rail-divider:hover {
-  background: var(--accent);
-}
-@media (max-width: 760px) {
-  .rail-divider {
-    display: none;
-  }
-}
-
-/* ---- Shell: the window row, nav rows, the foot, the status bar, the palette ---- */
-.frame {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-}
-.frame > #app {
-  flex: 1;
-  min-height: 0;
-  height: auto;
-}
-.rail-nav .nav {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-4);
-  width: 100%;
-  height: var(--h-row);
-  padding: 0 var(--sp-4);
-  border: 0;
-  border-radius: var(--r-ctl);
-  background: transparent;
-  color: var(--ink);
-  text-align: left;
-  text-decoration: none;
-}
+/* Out-ranks inbox.css `.nav.on` (an accent tint): the current nav row stays raised, with the inset bar. */
 .rail-nav .nav:hover,
 .rail-nav .nav.on {
   background: var(--bg-3);
@@ -220,84 +26,30 @@ summary::-webkit-details-marker {
 .rail-nav .nav.on {
   box-shadow: inset 2px 0 0 var(--ink);
 }
-.rail-foot {
-  display: flex;
-  gap: var(--sp-1);
-  padding: var(--sp-2) var(--sp-4);
-  border-top: 1px solid var(--line);
+
+/* Out-ranks ui.css `.ui-prow` (background: transparent) for the selected palette row. */
+.palette li[aria-selected='true'] .ui-prow {
+  background: var(--bg-3);
+  box-shadow: inset 2px 0 0 var(--ink);
 }
-.statusbar {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-5);
-  height: var(--h-bar);
-  padding: 0 var(--sp-4);
-  border-top: 1px solid var(--line);
-  background: var(--bg-1);
-  font: var(--t-hint);
-  color: var(--ink-2);
-}
-.status-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-}
-.status-end {
-  margin-left: auto;
-  position: relative;
-}
+
+/* The usage popup bases itself in the status bar's last cell; its own rules live with the usage css. */
 .statusbar .usage-pop {
   bottom: calc(100% + var(--sp-2));
   top: auto;
   right: 0;
 }
-.palette {
-  width: min(560px, calc(100vw - 2 * var(--sp-6)));
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-dialog);
-  background: var(--bg-2);
-  box-shadow: var(--shadow-pop);
-  overflow: hidden;
-}
-.palette-box {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-4);
-  padding: 0 var(--sp-5);
-  border-bottom: 1px solid var(--line);
-}
-.palette-box input {
+
+/* base.css `#app { height: 100vh }` wins by ID specificity — a h-auto utility never could. */
+.frame > #app {
   flex: 1;
-  height: var(--h-field);
-  border: 0;
-  background: transparent;
-  outline: none;
+  min-height: 0;
+  height: auto;
 }
-.palette ul {
-  list-style: none;
-  margin: 0;
-  padding: var(--sp-2) 0;
-  max-height: 320px;
-  overflow: auto;
-}
-.palette li[aria-selected='true'] .ui-prow {
-  background: var(--bg-3);
-  box-shadow: inset 2px 0 0 var(--ink);
-}
-.keys-list {
-  display: grid;
-  gap: var(--sp-3);
-  margin: 0;
-}
-.keys-list div {
-  display: flex;
-  gap: var(--sp-5);
-  align-items: baseline;
-}
-.keys-list dt {
-  min-width: 80px;
-}
-.keys-list dd {
-  margin: 0;
-  color: var(--ink-2);
+
+/* Only when the rail floats over the workspace; the rail half moved into Sidebar.tsx (max-[900px]:). */
+@media (max-width: 900px) {
+  #app[data-rail='open'] .main {
+    margin-left: 0;
+  }
 }
