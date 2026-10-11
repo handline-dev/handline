@@ -244,7 +244,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 <div
                   key={`day ${day}`}
                   role="separator"
-                  className="mt-2 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
+                  className="mt-3 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
                 >
                   {day}
                 </div>,

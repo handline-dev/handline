@@ -1,12 +1,13 @@
-// Cards: `box` is the bordered surface of a page or a chart; `chat` is the one-line card of the chat stream and the prompt; plus their parts.
+// Cards: `box` is the bordered surface of a page or a chart; `chat` is the stream's quiet one-line row — a card that must be
+// heard (a prompt, a proposal) carries its own surface, and one that waits for you gets the wait-coloured frame. Plus their parts.
 import type { ComponentProps, ElementType } from 'react';
 
 const join = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 const BOX = 'rounded-card border border-line bg-surface';
 const CHAT =
-  'card my-2 flex items-center gap-2 rounded-card border border-transparent bg-surface px-2.5 py-1.5 text-[13px] shadow-[var(--shadow-card)] [&_svg]:align-middle [&_a]:text-inherit';
+  'card my-1 flex items-center gap-2 rounded-card border border-transparent px-2.5 py-1.5 text-[13px] [&_svg]:align-middle [&_a]:text-inherit';
 
-/** `open` is told by a thicker frame (an open prompt), not by colour. */
+/** `open` is told by the wait-coloured frame (an open prompt), not by colour alone — the icon says it too. */
 export function Card({
   variant = 'box',
   as: Tag = 'div',
@@ -18,7 +19,7 @@ export function Card({
       {...rest}
       className={join(
         variant === 'box' ? BOX : CHAT,
-        variant === 'chat' && 'data-[open]:border-2 data-[open]:border-line-strong',
+        variant === 'chat' && 'data-[open]:border-2 data-[open]:border-[color:var(--s-wait)]',
         className,
       )}
     />

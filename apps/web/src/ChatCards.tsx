@@ -79,7 +79,13 @@ export function HrCards({ agent }: { agent: string }) {
   return (
     <>
       {open.map((p) => (
-        <Card variant="chat" key={p.id} className="card-hr" data-kind="hr" data-proposal={p.id}>
+        <Card
+          variant="chat"
+          key={p.id}
+          className="card-hr border-l-2 border-l-[color:var(--s-wait)] bg-surface shadow-[var(--shadow-card)]"
+          data-kind="hr"
+          data-proposal={p.id}
+        >
           <Icon name="team" label="Proposal" />
           <CardWhat stacked>
             <strong>{p.title}</strong>

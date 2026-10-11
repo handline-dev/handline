@@ -131,6 +131,10 @@ export function Message(props: {
         <div className={`${MSG_FROM} muted`}>
           {m.from} → {m.to}
         </div>
+      ) : side === 'agent' ? (
+        <div className={MSG_FROM}>
+          <span style={{ color: 'var(--s-ok)' }}>{m.from}</span> <span className="muted">{clock(m.at)}</span>
+        </div>
       ) : null}
       {m.parent != null ? (
         <button
@@ -147,7 +151,7 @@ export function Message(props: {
         <RefText text={m.body} agent={agent} onRef={props.onRef} />
       </div>
       <div className={`${MSG_META} muted`}>
-        {!unnumbered ? <span className="mono">#{m.id}</span> : null}
+        {!unnumbered ? <span className="mono hidden group-hover:inline group-aria-current:inline">#{m.id}</span> : null}
         {side === 'person' && !failed && m.receipt ? (
           <span className="landing receipt" data-receipt={m.receipt.state} title={receiptOf(m.receipt.state).label}>
             {' '}
@@ -300,6 +304,9 @@ export function Item({ i, titles }: { i: TranscriptItem; titles?: Map<number, st
   if (i.kind === 'reply')
     return (
       <div className={bubbleClass('agent')} data-kind="reply" title={full(i.at)}>
+        <div className={MSG_FROM}>
+          <span className="muted">{clock(i.at)}</span>
+        </div>
         <div className={MSG_BODY}>
           <PathText text={i.text ?? ''} />
         </div>
