@@ -154,7 +154,7 @@ Not proposed, and why: **Add an account** (catalog gap 3) needs `account.add` in
 
 ## 9. Next units, 2026-10-11 (after §8)
 
-Read on main `0efaa40d`. X1 to X5 of §8 are on main. Nothing was run and no screenshot was taken: every claim below comes from reading the source, with file and line. The checks of `design-gaps.md` and `tui-catalog/app-gaps.md` are redone against it. Cut methods stay cut: `worktree.set_status` and `agent.create` are served by the fake only, and `account.login`, `account.remove` and `settings.trust` stay on the Python daemon, so `account.add` below is Python only too.
+Read on main `0efaa40d`. X1 to X5 of §8 are on main. Nothing was run and no screenshot was taken: every claim below comes from reading the source, with file and line. The checks of `design-gaps.md` and `tui-catalog/app-gaps.md` are redone against it. New features are built on the Go daemon only, and the Python daemon goes at the cutover. `agent.create` and `worktree.set_status` are served by Go and the fake; Go does not serve `account.remove` yet (`go/conformance-missing.txt`).
 
 ### 9.1 The screenshot gaps, rechecked
 
@@ -186,7 +186,7 @@ Read on main `0efaa40d`. X1 to X5 of §8 are on main. Nothing was run and no scr
 
 Order: **Y1 and Y2 first, together** (a wrong double send and a colour-blind founder's phone are the two that cost something today), **then Y3, Y4, Y5** in that order, **Y6 and Y7 any time** in parallel (different files). Y4 is the larger of the two fixes: it is a bug against the contract, not a new feature, and it should land before Y5 because Add account ends in a login.
 
-Daemon side, for the team: N21 and N22 above. `account.login`, `login_code` and `login_cancel` are in the contract already, so Y4 works against the real Python daemon as soon as Y3's fake matches it.
+Daemon side, for the team: N21 and N22 above. `account.login`, `login_code` and `login_cancel` are in the contract already, but the Python daemon still answers `account.login` with `{terminal}` (`rpc_accounts.py:104`) and serves neither of the other two; only the Go daemon serves the URL and code flow. Y4 therefore works on the fake and against Go; the live daemon follows at the cutover to Go, so nothing is asked of Python.
 
 Not proposed, and why: the **phone's own gap list** (a 375 px comparison against Orca does not exist, and Orca's phone screens are not in `docs/img`); **Login on the phone** (a phone never holds credentials; the account page says so); **`!command`, attach and model chips** (no method or backend).
 
