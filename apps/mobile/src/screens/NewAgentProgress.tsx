@@ -31,7 +31,13 @@ export function NewAgentProgress(props: {
     const [title = '', ...rest] = text.trim().split('\n');
     if (!agent || !title) return;
     ask.mutate(
-      { owner: agent, title: title.slice(0, 80), body: rest.join('\n').trim(), time_box: props.fields.box.trim() || '2h' },
+      {
+        owner: agent,
+        title: title.slice(0, 80),
+        body: rest.join('\n').trim(),
+        time_box: props.fields.box.trim() || '2h',
+        request_id: `first-task:${props.operation}`.slice(0, 128),
+      },
       { onSuccess: () => props.onSent?.() },
     );
   };

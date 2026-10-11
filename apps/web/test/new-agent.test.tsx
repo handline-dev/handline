@@ -254,6 +254,41 @@ describe('X3 New agent', () => {
     expect(localStorage.getItem('handline.new-agent.task')).toBeFalsy();
   });
 
+  it('sends the first task once when its reply is lost and the page is relaunched: the same request_id, answered as replayed', async () => {
+    const s = setup();
+    const real = s.client.call.bind(s.client) as (m: string, p: unknown) => Promise<unknown>;
+    vi.spyOn(s.client, 'call').mockImplementation((async (m: string, p: unknown) => {
+      const r = await real(m, p);
+      return m === 'task.new' ? new Promise(() => {}) : r;
+    }) as never);
+    await mount('#/new', s);
+    await fill();
+    await type($('#na-task'), 'Read the docs');
+    await click(create());
+    await until(() => location.hash.startsWith('#/new/'), 'the progress route');
+    const first = vi.mocked(s.client.call);
+    await until(() => first.mock.calls.some((c) => c[0] === 'task.new'), 'the first send');
+    await act(async () => root?.unmount());
+    box?.remove();
+    const again = second(s.daemon, s.net);
+    const realAgain = again.call.bind(again) as (m: string, p: unknown) => Promise<unknown>;
+    const replies: unknown[] = [];
+    vi.spyOn(again, 'call').mockImplementation((async (m: string, p: unknown) => {
+      const r = await realAgain(m, p);
+      if (m === 'task.new') replies.push(r);
+      return r;
+    }) as never);
+    await mount(location.hash, { ...s, client: again });
+    await until(() => replies.length > 0, 'the second send');
+    const ids = [...first.mock.calls, ...vi.mocked(again.call).mock.calls]
+      .filter((c) => c[0] === 'task.new')
+      .map((c) => (c[1] as { request_id?: string }).request_id);
+    expect(ids).toEqual(['first-task:op-1', 'first-task:op-1']);
+    expect(replies[0]).toMatchObject({ replayed: true });
+    const list = (await again.call('tasks.list', {})) as { items: { title: string }[] };
+    expect(list.items.filter((t) => t.title === 'Read the docs')).toHaveLength(1);
+  });
+
   it('keeps the first task text with a Retry when task.new is refused', async () => {
     const s = setup();
     s.daemon.knobs.refuse('task.new', 'state', 'the task board is closed');
