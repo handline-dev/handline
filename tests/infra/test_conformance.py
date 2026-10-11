@@ -356,7 +356,7 @@ NOT_YET = "NOT_YET_IN_PYTHON"      # a fixture whose `about` starts with this is
 
 
 
-SPEC_ONLY = {"terminal.open", "agent.create", "worktree.set_status"}      # pinned by NOT_YET_IN_PYTHON fixtures; no daemon in Python serves them, so the fake does not either
+SPEC_ONLY = {"terminal.open", "agent.create", "worktree.set_status", "account.add"}      # pinned by NOT_YET_IN_PYTHON fixtures; no daemon in Python serves them, so the fake does not either
 
 
 def _fakes(*roles: str, mutate=None, **kw) -> dict:

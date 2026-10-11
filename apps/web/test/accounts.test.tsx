@@ -210,16 +210,13 @@ describe('one account', () => {
     expect($$('.acct-settings [role="switch"]')[0]!.getAttribute('aria-checked')).toBe('false');
   });
 
-  it('login runs in a terminal the daemon opens: the page asks for no credential, and the progress ends when the topic says ok', async () => {
+  it('login starts on the daemon and the page asks for no credential (the URL and code are not shown yet)', async () => {
     const s = await mount('#/accounts/gamma');
     await until(() => $('.acct-one'), 'the account');
     expect($('input[type="password"], input[name*="token" i], input[name*="password" i]')).toBeNull();
     await click(button('Log in'));
-    await until(() => text($('.acct-login')).includes('Login in progress in terminal term:login:gamma'), 'the progress');
+    await until(() => s.daemon.accounts.list().accounts.find((a) => a.name === 'gamma')?.login?.state === 'waiting', 'the login to start');
     expect(button('Log in')!.getAttribute('title')).toContain('hl login gamma');
-    expect(($$('button').find((b) => text(b) === 'Log in') as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => void s.daemon.accounts.loggedIn('gamma'));
-    await until(() => !text($('.acct-login')).includes('Login in progress'), 'the progress to end');
   });
   describe('remove', () => {
     const open = async (name: string, s = setup()) => {
