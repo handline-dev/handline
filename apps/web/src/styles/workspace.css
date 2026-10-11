@@ -15,9 +15,3 @@
   align-self: stretch;
 }
 
-/* Out-ranks base.css `.menu-list` (a later import beats the utilities): the add-tab menu opens from the strip's right edge. */
-.strip-end .menu-list {
-  left: auto;
-  right: 0;
-  min-width: 180px;
-}

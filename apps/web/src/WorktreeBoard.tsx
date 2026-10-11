@@ -95,7 +95,7 @@ export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: s
                         <button
                           key={s}
                           role="menuitem"
-                          className="ui-prow rounded-chip hover:bg-raised max-sm:min-h-12"
+                          className="ui-prow rounded-chip max-sm:min-h-12"
                           onClick={() => (setMenu(null), moves.move(w.path, s))}
                         >
                           {s}

@@ -43,6 +43,7 @@ export function Verb(props: { k: string; icon: IconName; label: string; can: { o
     <Button
       icon={props.busy ? undefined : props.icon}
       label={props.label}
+      aria-label={props.label}
       title={props.can.why ?? `${props.label} (${props.k})`}
       disabled={!props.can.ok || props.busy}
       className={`max-sm:min-h-[44px]${props.busy ? ' w-7 justify-center p-0' : ''}`}

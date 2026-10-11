@@ -336,7 +336,7 @@ function RowControls({
   };
   const verbs = verbsOf(a, d);
   return (
-    <span className="row-actions flex flex-none items-center gap-1">
+    <span className="row-actions relative flex flex-none items-center gap-1">
       {c.start ? (
         <Button
           variant="solid"
@@ -380,6 +380,7 @@ function RowControls({
         {verbs.map((v) => (
           <button
             key={v.id}
+            type="button"
             className="ui-prow max-sm:min-h-12 disabled:cursor-not-allowed disabled:opacity-55"
             disabled={busy || !served(v)}
             title={served(v) ? undefined : unserved(v)}
@@ -398,6 +399,7 @@ function RowControls({
               .map((m) => (
                 <button
                   key={m.mode}
+                  type="button"
                   className={`ui-prow max-sm:min-h-12 disabled:cursor-not-allowed disabled:opacity-55${m.mode === 'kill' ? ' [&>strong]:text-bad' : ''}`}
                   disabled={busy}
                   onClick={() => stop(m.mode)}

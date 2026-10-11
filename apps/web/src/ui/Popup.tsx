@@ -65,7 +65,7 @@ export function PopupRow({
   onClick?: () => void;
 }) {
   return (
-    <button type="button" className="ui-prow" onClick={onClick}>
+    <button type="button" className="ui-prow max-sm:min-h-12" onClick={onClick}>
       {icon ? <Icon name={icon} size={14} label={label} aria-hidden /> : null}
       <span className="ui-prow-name">{label}</span>
       {hint ? <span className="ui-prow-hint">{hint}</span> : null}
