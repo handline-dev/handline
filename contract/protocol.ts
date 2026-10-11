@@ -462,6 +462,8 @@ export type Account = {
   login?: {
     login_id: string;
     state: "waiting" | "code_sent" | "done" | "failed" | "cancelled";
+    /** Why the login ended failed, one plain line (a wrong code, or the account is logged in as the same Anthropic account as <names>); absent while it has not failed. */
+    reason?: string;
   } | null;
   /** Only with accounts.list `usage: true`. The plan claude reports (`max`, `pro`), null when not recorded. */
   plan?: string | null;
@@ -1972,6 +1974,16 @@ export interface Methods {
   cycle_end?: string | null;
   request_id: RequestId;
 }; result: Accepted };
+  "account.add": { params: {
+  /** The new account's name: one plain line, no slash, not starting with a dot. */
+  account: string;
+  /** The tool the account is for; omitted means the default (claude). */
+  vendor?: string;
+  request_id: RequestId;
+}; result: Accepted & {
+    /** The name as registered. */
+    account: string;
+  } };
   "account.login": { params: {
   account: string;
   request_id: RequestId;
@@ -2219,6 +2231,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "accounts.list": { role: "agent", callers: null, write: false, since: 1 },
   "status.pick": { role: "agent", callers: null, write: false, since: 1 },
   "account.set": { role: "founder", callers: null, write: true, since: 1 },
+  "account.add": { role: "founder", callers: null, write: true, since: 1 },
   "account.login": { role: "founder", callers: null, write: true, since: 1 },
   "account.login_cancel": { role: "founder", callers: null, write: true, since: 1 },
   "account.login_code": { role: "founder", callers: null, write: true, since: 1 },

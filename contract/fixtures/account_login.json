@@ -1,0 +1,660 @@
+{
+ "fixtures": [
+  {
+   "name": "account.login.runs_to_done",
+   "spec": "account.login",
+   "about": "NOT_YET_IN_PYTHON A login answers its id and URL; the code brings it to code_sent and then done, the accounts topic says each step, and accounts.list then shows login_state ok. Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "accounts"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "account.login",
+      "params": {
+       "account": "{{login_account}}",
+       "request_id": "conf-lg-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "login_id": {
+       "$save": "login_id"
+      },
+      "state": "waiting",
+      "url": {
+       "$type": "string"
+      }
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "accounts",
+        "type": "account.changed",
+        "data": {
+         "name": {
+          "$type": "string"
+         },
+         "login": {
+          "login_id": {
+           "$type": "string"
+          },
+          "state": "waiting"
+         }
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "account.login_code",
+      "params": {
+       "login_id": "{{login_id}}",
+       "code": "{{login_code}}",
+       "request_id": "conf-lg-2"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "accounts",
+        "type": "account.changed",
+        "data": {
+         "name": {
+          "$type": "string"
+         },
+         "login": {
+          "login_id": {
+           "$type": "string"
+          },
+          "state": "code_sent"
+         }
+        }
+       }
+      },
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "accounts",
+        "type": "account.changed",
+        "data": {
+         "name": {
+          "$type": "string"
+         },
+         "login": {
+          "login_id": {
+           "$type": "string"
+          },
+          "state": "done"
+         },
+         "login_state": "ok"
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "accounts.list",
+      "params": {}
+     },
+     "result": {
+      "accounts": {
+       "$contains": {
+        "name": "{{login_account}}",
+        "login_state": "ok",
+        "login": {
+         "login_id": "{{login_id}}",
+         "state": "done"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.login.a_wrong_code_ends_failed_with_a_reason",
+   "spec": "account.login",
+   "about": "NOT_YET_IN_PYTHON A code the login refuses ends it failed with a reason, and the account is not logged in by it. Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "accounts"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "account.login",
+      "params": {
+       "account": "{{login_account}}",
+       "request_id": "conf-lg-3"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "login_id": {
+       "$save": "login_id"
+      },
+      "state": "waiting",
+      "url": {
+       "$type": "string"
+      }
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "accounts",
+        "type": "account.changed",
+        "data": {
+         "name": {
+          "$type": "string"
+         },
+         "login": {
+          "login_id": {
+           "$type": "string"
+          },
+          "state": "waiting"
+         }
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "account.login_code",
+      "params": {
+       "login_id": "{{login_id}}",
+       "code": "{{login_wrong_code}}",
+       "request_id": "conf-lg-4"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "accounts",
+        "type": "account.changed",
+        "data": {
+         "name": {
+          "$type": "string"
+         },
+         "login": {
+          "login_id": {
+           "$type": "string"
+          },
+          "state": "code_sent"
+         }
+        }
+       }
+      },
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "accounts",
+        "type": "account.changed",
+        "data": {
+         "name": {
+          "$type": "string"
+         },
+         "login": {
+          "login_id": {
+           "$type": "string"
+          },
+          "state": "failed",
+          "reason": {
+           "$type": "string"
+          }
+         }
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    }
+   ]
+  },
+  {
+   "name": "account.login.cancel_ends_cancelled_and_is_idempotent",
+   "spec": "account.login",
+   "about": "NOT_YET_IN_PYTHON Cancel ends a waiting login as cancelled; cancelling it again is accepted and changes nothing. Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "accounts"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "account.login",
+      "params": {
+       "account": "{{login_account}}",
+       "request_id": "conf-lg-5"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "login_id": {
+       "$save": "login_id"
+      },
+      "state": "waiting",
+      "url": {
+       "$type": "string"
+      }
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "accounts",
+        "type": "account.changed",
+        "data": {
+         "name": {
+          "$type": "string"
+         },
+         "login": {
+          "login_id": {
+           "$type": "string"
+          },
+          "state": "waiting"
+         }
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "account.login_cancel",
+      "params": {
+       "login_id": "{{login_id}}",
+       "request_id": "conf-lg-6"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "accounts",
+        "type": "account.changed",
+        "data": {
+         "name": {
+          "$type": "string"
+         },
+         "login": {
+          "login_id": {
+           "$type": "string"
+          },
+          "state": "cancelled"
+         }
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "account.login_cancel",
+      "params": {
+       "login_id": "{{login_id}}",
+       "request_id": "conf-lg-7"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.login.a_second_login_is_refused_while_one_waits",
+   "spec": "account.login",
+   "about": "NOT_YET_IN_PYTHON While a login waits, another on the same account is refused (gate state) and the first goes on. Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "accounts"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "account.login",
+      "params": {
+       "account": "{{login_account}}",
+       "request_id": "conf-lg-8"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "login_id": {
+       "$save": "login_id"
+      },
+      "state": "waiting",
+      "url": {
+       "$type": "string"
+      }
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "accounts",
+        "type": "account.changed",
+        "data": {
+         "name": {
+          "$type": "string"
+         },
+         "login": {
+          "login_id": {
+           "$type": "string"
+          },
+          "state": "waiting"
+         }
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "account.login",
+      "params": {
+       "account": "{{login_account}}",
+       "request_id": "conf-lg-9"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "state"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "account.login_cancel",
+      "params": {
+       "login_id": "{{login_id}}",
+       "request_id": "conf-lg-10"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.login.a_code_after_the_end_is_refused",
+   "spec": "account.login",
+   "about": "NOT_YET_IN_PYTHON A code for a login that has ended is refused (gate state). Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "accounts"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "account.login",
+      "params": {
+       "account": "{{login_account}}",
+       "request_id": "conf-lg-11"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "login_id": {
+       "$save": "login_id"
+      },
+      "state": "waiting",
+      "url": {
+       "$type": "string"
+      }
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "accounts",
+        "type": "account.changed",
+        "data": {
+         "name": {
+          "$type": "string"
+         },
+         "login": {
+          "login_id": {
+           "$type": "string"
+          },
+          "state": "waiting"
+         }
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "account.login_cancel",
+      "params": {
+       "login_id": "{{login_id}}",
+       "request_id": "conf-lg-12"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "account.login_code",
+      "params": {
+       "login_id": "{{login_id}}",
+       "code": "{{login_code}}",
+       "request_id": "conf-lg-13"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "state"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

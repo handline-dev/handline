@@ -305,6 +305,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'hr.withdraw': 'withdraw',
     'chat.seen': 'mark seen',
     'account.login': 'log in',
+    'account.add': 'add account',
     'terminal.close': 'close terminal',
     'task.discard': 'discard',
     'device.pair': 'pair',
