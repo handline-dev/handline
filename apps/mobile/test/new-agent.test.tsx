@@ -241,6 +241,36 @@ describe('X5 phone New agent', () => {
     expect($('new-agent')).toBeNull();
     m.store.stop();
   });
+
+  it('still sends the typed first task after a relaunch, once', async () => {
+    let kept: string | null = null;
+    let task: { task: string; box: string } | null = null;
+    const pending = (): Pending => ({
+      operation: kept,
+      first: task,
+      save: (op, t = null) => ((kept = op), (task = t)),
+    });
+    let reload: () => void = () => {};
+    const screen = (store: Store): ReactNode => <Reload store={store} pending={pending} expose={(r) => (reload = r)} />;
+    const m = await mount((s) => (s.daemon.work.stepMs = 400), undefined, undefined, { screen });
+    const spy = vi.spyOn(m.client, 'call');
+    await open(m);
+    await fill();
+    await type('na-task', 'Read the docs');
+    await type('na-box', '3h');
+    await press(create());
+    await until(() => $('na-progress'), 'the progress');
+    expect(task).toEqual({ task: 'Read the docs', box: '3h' });
+    await act(async () => reload());
+    await until(() => spy.mock.calls.some((c) => c[0] === 'task.new'), 'the task after the relaunch', 3000);
+    expect(spy.mock.calls.filter((c) => c[0] === 'task.new')[0]![1]).toMatchObject({
+      owner: 'fresh',
+      title: 'Read the docs',
+      time_box: '3h',
+    });
+    await until(() => task === null, 'the kept task cleared');
+    m.store.stop();
+  });
 });
 
 /** Home as the app mounts it, remountable to stand for a relaunch: the pending page is kept outside, as the phone keeps it. */

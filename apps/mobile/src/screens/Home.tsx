@@ -32,9 +32,11 @@ export function Home(props: { store: Store; onUnpair: () => void; pending?: Pend
   const [account, setAccount] = useState<string | null>(null);
   const [page, setPage] = useState<Page>(props.pending?.operation ? 'new' : null);
   const [kept, setKept] = useState<string | null>(props.pending?.operation ?? null);
+  const [first, setFirst] = useState(props.pending?.first ?? null);
   const pending: Pending = {
     operation: kept,
-    save: (op) => (setKept(op), props.pending?.save(op)),
+    first,
+    save: (op, t = null) => (setKept(op), setFirst(t), props.pending?.save(op, t)),
   };
   const toAgent = (name: string) => (setPage(null), void props.store.openAgent(name));
   return (

@@ -16,6 +16,8 @@ export function NewAgentProgress(props: {
   onAgent: (name: string) => void;
   onForm: () => void;
   onAnother: () => void;
+  /** The first task went out: it need not be kept for a relaunch. */
+  onSent?: () => void;
 }) {
   const c = usePalette();
   const q = useOperation(props.operation);
@@ -28,7 +30,10 @@ export function NewAgentProgress(props: {
   const send = () => {
     const [title = '', ...rest] = text.trim().split('\n');
     if (!agent || !title) return;
-    ask.mutate({ owner: agent, title: title.slice(0, 80), body: rest.join('\n').trim(), time_box: props.fields.box.trim() || '2h' });
+    ask.mutate(
+      { owner: agent, title: title.slice(0, 80), body: rest.join('\n').trim(), time_box: props.fields.box.trim() || '2h' },
+      { onSuccess: () => props.onSent?.() },
+    );
   };
   useEffect(() => {
     if (done && !sent.current && text.trim()) {

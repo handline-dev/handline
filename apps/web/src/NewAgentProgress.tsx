@@ -4,7 +4,33 @@ import { useEffect, useRef, useState } from 'react';
 import { classify, sentence, Skeleton, useOperation, useWrite } from '@handline/app-data';
 import { Button, Dialog, Icon } from './ui/index.ts';
 import { goAgent, goNew } from './route.ts';
+import { browserStorage } from './daemon.ts';
 import type { Fields } from './NewAgent.tsx';
+
+const KEY = 'handline.new-agent.task';
+/** The first task typed for one operation, kept so a relaunch of `#/new/:operation` still sends it. */
+export function keepFirstTask(operation: string, task: string, box: string): void {
+  try {
+    if (task.trim()) browserStorage()?.setItem(KEY, JSON.stringify({ operation, task, box }));
+  } catch {
+    /* blocked: the task is then only in this page */
+  }
+}
+function kept(operation: string): { task: string; box: string } | null {
+  try {
+    const s = JSON.parse(browserStorage()?.getItem(KEY) ?? 'null') as { operation?: string; task?: string; box?: string } | null;
+    return s?.operation === operation && s.task ? { task: s.task, box: s.box ?? '' } : null;
+  } catch {
+    return null;
+  }
+}
+export function forgetFirstTask(): void {
+  try {
+    browserStorage()?.setItem(KEY, '');
+  } catch {
+    /* blocked */
+  }
+}
 
 export function NewAgentProgress({
   operation,
@@ -21,13 +47,17 @@ export function NewAgentProgress({
   const op = q.data;
   const ask = useWrite('task.new');
   const sent = useRef(false);
-  const [text, setText] = useState(fields.task);
+  const [first] = useState(() => (fields.task.trim() ? fields : { ...fields, ...kept(operation) }));
+  const [text, setText] = useState(first.task);
   const agent = op?.agent ?? null;
   const done = op?.state === 'done';
   const send = () => {
     const [title = '', ...rest] = text.trim().split('\n');
     if (!agent || !title) return;
-    ask.mutate({ owner: agent, title: title.slice(0, 80), body: rest.join('\n').trim(), time_box: fields.box.trim() || '2h' });
+    ask.mutate(
+      { owner: agent, title: title.slice(0, 80), body: rest.join('\n').trim(), time_box: first.box.trim() || '2h' },
+      { onSuccess: forgetFirstTask },
+    );
   };
   useEffect(() => {
     if (done && !sent.current && text.trim()) {
