@@ -36,8 +36,8 @@ import { accountsReply, detail, statusReply, newSession, tid, view, type Attach,
 const TERMINAL_CAPS = { terminal_format: ['text', 'bytes', 'styled'], terminal_hosts: { fake: ['text', 'bytes', 'styled'] } };
 const TEXT_CAPS = { terminal_format: ['text'], terminal_hosts: { fake: ['text'] } };
 
-// Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once).
-const UNKEPT = new Set(['device.pair', 'device.redeem']);
+// Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once; a login code is kept nowhere).
+const UNKEPT = new Set(['device.pair', 'device.redeem', 'account.login_code']);
 
 interface Conn {
   transport: Transport;

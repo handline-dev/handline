@@ -71,3 +71,16 @@ test('account.add registers an account that needs a login, and refuses a used na
   );
   client.close();
 });
+
+test('a login code is kept in no request record: the same request_id is judged again, not replayed', async () => {
+  const { client } = setup();
+  await client.start();
+  const login = (await client.call('account.login', { account: 'gamma', request_id: 'k1' })) as unknown as Login;
+  const first = await client.call('account.login_code', { login_id: login.login_id, code: GOOD_LOGIN_CODE, request_id: 'k2' });
+  assert.equal(first.replayed, undefined);
+  const again = (await client
+    .call('account.login_code', { login_id: login.login_id, code: GOOD_LOGIN_CODE, request_id: 'k2' })
+    .catch((e: RpcError) => e)) as RpcError;
+  assert.equal(again.data?.gate, 'state');
+  client.close();
+});
