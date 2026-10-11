@@ -27,7 +27,9 @@ export class FakeAccounts {
   lists = (name: string): boolean => this.on || !/^accounts?\./.test(name);
 
   private emit(a: Account) {
-    this.host.emit('accounts', 'account.changed', { title: a.label, data: a as unknown as Record<string, unknown> });
+    // The topic row is the one without the usage fields, as the gateway sends it.
+    const { plan: _p, assignable: _a, assign_reason: _r, ...row } = a;
+    this.host.emit('accounts', 'account.changed', { title: a.label, data: row });
   }
   private agentsOn(account: string): string[] {
     return [...this.host.sessions.values()].filter((s) => s.fx.account === account).map((s) => s.fx.name);
