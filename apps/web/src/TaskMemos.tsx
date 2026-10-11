@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useWrite } from '@handline/app-data';
 import { Icon } from './ui/Icon.tsx';
+import { VERB_SHEET_ACTIONS, VERB_SHEET_DANGER } from './sheetStyle.ts';
 
 const INPUT = 'tinput min-w-40 flex-1 rounded-ctl border border-line px-2 py-1.5 bg-canvas text-ink';
 const MEMO = 'tmemo mt-2 flex gap-2';
@@ -64,9 +65,9 @@ export function MemoRow({
         </span>
       )}
       {ask ? (
-        <span className="verb-sheet danger" role="alertdialog" aria-label="Delete memo">
+        <span className={VERB_SHEET_DANGER} role="alertdialog" aria-label="Delete memo">
           <strong>Delete this memo?</strong>
-          <span className="verb-sheet-actions">
+          <span className={VERB_SHEET_ACTIONS}>
             <button className="btn primary" onClick={() => del.mutate({ task, memo: memo.id }, { onSettled: () => setAsk(false) })}>
               Delete
             </button>

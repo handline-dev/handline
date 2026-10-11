@@ -6,6 +6,7 @@ import { askOf, VERBS, verbsOf, type Verb } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useAccounts, useAgentDetail, useAgents, classify, sentence, useVerbRun } from '@handline/app-data';
+import { VERB_SHEET, VERB_SHEET_ACTIONS } from './sheetStyle.ts';
 
 /** Whether the daemon lists the verb's method; one it does not list shows disabled with the reason. */
 export function useServed(): (v: Verb) => boolean {
@@ -53,7 +54,7 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
   };
   if (changed)
     return (
-      <div className="verb-sheet" role="status">
+      <div className={VERB_SHEET} role="status">
         <span>It changed while you looked.</span>
         <button className="btn" onClick={onClose}>
           Close
@@ -61,7 +62,7 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
       </div>
     );
   return (
-    <div className="verb-sheet" role="alertdialog" aria-label={`${verb.label} ${a.name}`}>
+    <div className={VERB_SHEET} role="alertdialog" aria-label={`${verb.label} ${a.name}`}>
       <strong>
         {verb.label} {a.name}?
       </strong>
@@ -78,7 +79,7 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
           ))}
         </select>
       ) : null}
-      <span className="verb-sheet-actions">
+      <span className={VERB_SHEET_ACTIONS}>
         <button ref={ok} className="btn primary" disabled={busy || (move && !account)} onClick={confirm}>
           {move ? 'Move' : 'Confirm'}
         </button>

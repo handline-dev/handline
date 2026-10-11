@@ -9,6 +9,7 @@ import { Answers } from './Answers.tsx';
 import { Field, Icon, Switch, type IconName } from './ui/index.ts';
 import { useOff } from './useOff.ts';
 import { View } from './View.tsx';
+import { SHEAD } from './sheetStyle.ts';
 
 /** The note under a row: saving (an icon and a word), or why the value is not saved (an icon, never colour alone). */
 function Note({ error, pending, bad }: { error: unknown; pending: boolean; bad: string | null }) {
@@ -191,7 +192,7 @@ export function SettingsPage() {
               {v ? (
                 <>
                   <section id="set-concurrency">
-                    <h3 className="shead">Concurrency</h3>
+                    <h3 className={SHEAD}>Concurrency</h3>
                     <div className="scard">
                       <NumberRow
                         label="Default cap"
@@ -206,7 +207,7 @@ export function SettingsPage() {
                     </div>
                   </section>
                   <section id="set-closing">
-                    <h3 className="shead">Closing windows</h3>
+                    <h3 className={SHEAD}>Closing windows</h3>
                     <div className="scard">
                       <NumberRow
                         label="Idle close"
@@ -221,7 +222,7 @@ export function SettingsPage() {
                     </div>
                   </section>
                   <section id="set-automation">
-                    <h3 className="shead">Automation</h3>
+                    <h3 className={SHEAD}>Automation</h3>
                     <div className="scard">
                       <SwitchRow
                         label="Handoff note"

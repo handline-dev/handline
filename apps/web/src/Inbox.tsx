@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useServes, useInbox, usePending, useUnread, useWrite } from '@handline/app-data';
 import { useConnection } from '@handline/app-react';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
-import { InboxCard, kindIcon, kindLabel, open, waits, type Verbs } from './InboxCard.tsx';
+import { InboxCard, open, waits } from './InboxCard.tsx';
+import { kindIcon, kindLabel, type Verbs } from './inboxKinds.ts';
 import { Button, Icon, Select } from './ui/index.ts';
 import { View } from './View.tsx';
 
@@ -18,6 +19,11 @@ const KEYS: [string, string][] = [
   ['j / k', 'next / previous'],
   ['?', 'this list'],
 ];
+// The header sticks; its agent picker takes the page's frame over the Select's own.
+const TOP =
+  'inbox-top sticky top-0 z-1 flex flex-wrap items-center gap-2 bg-canvas py-3 [&_select]:rounded-ctl [&_select]:border [&_select]:border-line [&_select]:bg-panel [&_select]:px-1.5 [&_select]:py-[5px] [&_select]:text-ink';
+// A pressed filter is shown by a frame and a heavier stroke, not by colour.
+const KIND = 'icon aria-pressed:outline-2 aria-pressed:outline-offset-1 aria-pressed:outline-current aria-pressed:[&_svg]:stroke-3';
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable]');
 
 function useVerbs(): Verbs {
@@ -120,20 +126,20 @@ export function InboxPage({ item }: { item: number | null }) {
   });
 
   return (
-    <section className="inbox" aria-label="Inbox">
-      <header className="inbox-top">
-        <h2 title="Inbox">
+    <section className="inbox mx-auto h-full max-w-[760px] overflow-auto px-4 pb-6" aria-label="Inbox">
+      <header className={TOP}>
+        <h2 className="m-0 mr-auto text-[18px] [&_svg]:align-middle" title="Inbox">
           <Icon name="inbox" size={20} />
           <span className="muted" aria-label={`${unread.length} unread`}>
             {' '}
             {unread.length}
           </span>
         </h2>
-        <div className="inbox-kinds" role="group" aria-label="Kind">
+        <div className="inbox-kinds flex gap-1" role="group" aria-label="Kind">
           {kinds.map((k) => (
             <button
               key={k}
-              className="icon"
+              className={KIND}
               aria-pressed={kind === k}
               aria-label={kindLabel(k)}
               title={kindLabel(k)}
@@ -159,19 +165,26 @@ export function InboxPage({ item }: { item: number | null }) {
         <Button icon="keys" label="Keys" aria-expanded={sheet} onClick={() => setSheet(!sheet)} />
       </header>
       {sheet ? (
-        <dl className="inbox-keys" aria-label="Keys of this page">
+        <dl
+          className="inbox-keys m-0 mb-2 flex flex-wrap gap-x-4 gap-y-1 rounded-ctl border border-line bg-panel px-2.5 py-2"
+          aria-label="Keys of this page"
+        >
           {KEYS.map(([k, what]) => (
-            <div key={k}>
-              <dt>
+            <div key={k} className="flex gap-1.5">
+              <dt className="m-0">
                 <kbd>{k}</kbd>
               </dt>
-              <dd>{what}</dd>
+              <dd className="m-0 text-ink-2">{what}</dd>
             </div>
           ))}
         </dl>
       ) : null}
       {confirm ? (
-        <div className="inbox-confirm" role="alertdialog" aria-label="Mark all read">
+        <div
+          className="inbox-confirm m-0 mb-2 rounded-ctl border border-line bg-panel px-2.5 py-2"
+          role="alertdialog"
+          aria-label="Mark all read"
+        >
           Mark all {unread.length} unread items read?{' '}
           <button className="icon" autoFocus aria-label="Mark all read" title="Mark all read" onClick={readAll}>
             <Icon name="markAllRead" />
@@ -194,7 +207,7 @@ export function InboxPage({ item }: { item: number | null }) {
         empty={!waiting.length && 'Nothing waits on you. Results, questions and blocks from your agents land here.'}
       >
         {shown.length ? (
-          <div className="inbox-list">
+          <div className="inbox-list flex flex-col gap-1">
             <AnimatedList>
               {shown.map((i) => (
                 <AnimatedItem key={i.id} layout={shown.length <= 60}>

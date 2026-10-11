@@ -5,6 +5,7 @@ import { useAnswers, useServes, useWrite } from '@handline/app-data';
 import { Button, Field, Icon, Select } from './ui/index.ts';
 import { useOff } from './useOff.ts';
 import { View } from './View.tsx';
+import { SHEAD } from './sheetStyle.ts';
 
 const KINDS = [
   { value: 'trust', label: 'Trust a folder' },
@@ -54,7 +55,7 @@ export function Answers() {
   const rows = q.data?.answers ?? [];
   return (
     <>
-      <h3 className="shead">Standing answers</h3>
+      <h3 className={SHEAD}>Standing answers</h3>
       <View
         q={q}
         served={served}

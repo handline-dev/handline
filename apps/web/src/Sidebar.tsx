@@ -86,7 +86,7 @@ export function Sidebar({
         <Button className="shell:[-webkit-app-region:no-drag]" icon="forward" label="Forward (⌘])" onClick={() => history.forward()} />
         {unread ? (
           <button
-            className="bell ml-auto rounded-[9px] bg-wait px-1.5 text-label text-canvas shell:[-webkit-app-region:no-drag]"
+            className="bell ml-auto border-0 rounded-[9px] bg-wait px-1.5 text-label text-canvas shell:[-webkit-app-region:no-drag]"
             title="Unread in the inbox"
             aria-label={`${unread} unread in the inbox`}
             onClick={goInbox}

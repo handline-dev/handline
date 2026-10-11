@@ -9,6 +9,7 @@ import { goAgent } from './route.ts';
 import { Schedules } from './Schedules.tsx';
 import { Button, Field as Input, Icon, Segmented, Select, Switch, type IconName } from './ui/index.ts';
 import { View } from './View.tsx';
+import { SHEAD, VERB_SHEET_ACTIONS, VERB_SHEET_DANGER } from './sheetStyle.ts';
 
 const SECTIONS: { id: Field['section']; title: string; icon: IconName }[] = [
   { id: 'model', title: 'Model', icon: 'agent' },
@@ -53,7 +54,7 @@ export function SettingsView({ agent }: { agent: string }) {
             </div>
             {SECTIONS.map((s) => (
               <section key={s.id}>
-                <h3 className="shead">
+                <h3 className={SHEAD}>
                   <Icon name={s.icon} size={14} label={s.title} aria-hidden /> {s.title}
                 </h3>
                 <div className="scard">
@@ -185,10 +186,10 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
         </p>
       ) : null}
       {danger ? (
-        <div className="verb-sheet danger" role="alertdialog" aria-label={danger.title}>
+        <div className={VERB_SHEET_DANGER} role="alertdialog" aria-label={danger.title}>
           <strong>{danger.title}</strong>
           <span className="muted">{danger.text}</span>
-          <span className="verb-sheet-actions">
+          <span className={VERB_SHEET_ACTIONS}>
             <button
               className="btn primary"
               onClick={() => {

@@ -8,6 +8,7 @@ import { classify, sentence, useAgents, useHr, usePending, useWrite } from '@han
 import { Button, Empty, Icon, State, type StateKind } from './ui/index.ts';
 import { goSettings } from './route.ts';
 import { View } from './View.tsx';
+import { FNOTE_BAD, FNOTE_WARN, SHEAD, VERB_SHEET, VERB_SHEET_ACTIONS, VERB_SHEET_DANGER } from './sheetStyle.ts';
 
 const useNarrow = (): boolean => {
   const query = '(max-width: 640px)';
@@ -81,7 +82,7 @@ export function HrTab({ focus }: { focus: number | null }) {
         <div className="hr-head">
           <strong>HR{waitingCount(list) ? ` · ${waitingCount(list)} waiting` : ''}</strong>
           {decider && waiting.length > 1 && all !== 'ask' && all !== 'reject' ? (
-            <span className="verb-sheet-actions">
+            <span className={VERB_SHEET_ACTIONS}>
               <button className="btn" onClick={() => setAll('ask')}>
                 Approve all
               </button>
@@ -92,10 +93,10 @@ export function HrTab({ focus }: { focus: number | null }) {
           ) : null}
         </div>
         {all === 'ask' ? (
-          <div className="verb-sheet" role="alertdialog" aria-label="Approve all">
+          <div className={VERB_SHEET} role="alertdialog" aria-label="Approve all">
             <strong>Approve all {waiting.length}?</strong>
             <span className="muted">Each is applied as the card shows it; one that fails stays waiting.</span>
-            <span className="verb-sheet-actions">
+            <span className={VERB_SHEET_ACTIONS}>
               <button className="btn primary" disabled={going} onClick={() => void approveAll()}>
                 Approve all
               </button>
@@ -105,10 +106,10 @@ export function HrTab({ focus }: { focus: number | null }) {
             </span>
           </div>
         ) : all === 'reject' ? (
-          <div className="verb-sheet" role="alertdialog" aria-label="Reject all">
+          <div className={VERB_SHEET} role="alertdialog" aria-label="Reject all">
             <strong>Reject all {waiting.length}?</strong>
             <input aria-label="Reason" placeholder="Reason" value={why} onChange={(e) => setWhy(e.target.value)} />
-            <span className="verb-sheet-actions">
+            <span className={VERB_SHEET_ACTIONS}>
               <button className="btn primary" disabled={going || !why.trim()} onClick={() => void rejectAll()}>
                 Reject all
               </button>
@@ -118,7 +119,7 @@ export function HrTab({ focus }: { focus: number | null }) {
             </span>
           </div>
         ) : all ? (
-          <p className="fnote warn" role="status">
+          <p className={FNOTE_WARN} role="status">
             {all}
           </p>
         ) : null}
@@ -126,7 +127,7 @@ export function HrTab({ focus }: { focus: number | null }) {
         {waiting.map((p) => (
           <Card key={p.id} p={p} decider={decider} narrow={narrow} focus={focus === p.id} refresh={() => void q.refetch()} />
         ))}
-        {recent.length ? <h3 className="shead">Recent</h3> : null}
+        {recent.length ? <h3 className={SHEAD}>Recent</h3> : null}
         {recent.map((p) => (
           <Card key={p.id} p={p} decider={false} narrow={narrow} focus={focus === p.id} refresh={() => void q.refetch()} />
         ))}
@@ -240,7 +241,7 @@ function Card({
         </pre>
       ) : null}
       {p.state === 'apply_failed' ? (
-        <p className="fnote bad">{p.error ? cutError(textSafe(p.error)) : 'the change was not applied'}</p>
+        <p className={FNOTE_BAD}>{p.error ? cutError(textSafe(p.error)) : 'the change was not applied'}</p>
       ) : null}
       {note === 'settled' ? (
         <p className="muted">already {p.state}</p>
@@ -296,10 +297,10 @@ function Card({
         </form>
       ) : null}
       {ask ? (
-        <div className="verb-sheet danger" role="alertdialog" aria-label="Withdraw">
+        <div className={VERB_SHEET_DANGER} role="alertdialog" aria-label="Withdraw">
           <strong>Withdraw {textSafe(p.title)}</strong>
           <span className="muted">Takes the proposal back; whoever raised it can raise it again.</span>
-          <span className="verb-sheet-actions">
+          <span className={VERB_SHEET_ACTIONS}>
             <button
               className="btn primary"
               onClick={() => {
