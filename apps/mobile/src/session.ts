@@ -22,7 +22,8 @@ export async function loadPairing(): Promise<Pairing | null> {
     return null;
   }
 }
-export const forgetPairing = () => SecureStore.deleteItemAsync(KEY);
+export const forgetPairing = () =>
+  Promise.all([SecureStore.deleteItemAsync(KEY), SecureStore.deleteItemAsync('handline.new-agent')]).then(() => {});
 
 const connectTo = (host: string, fingerprint: string | null) => () =>
   fingerprint ? pinnedTransport(Native, listenerUrl(host), fingerprint) : webSocketTransport(listenerUrl(host, false));
@@ -49,3 +50,9 @@ export const storeFor = (p: Pairing): Store =>
       connect: connectTo(p.host, p.fingerprint),
     }),
   );
+
+const NEW_AGENT = 'handline.new-agent';
+/** The operation the New agent page was watching, so a relaunch returns to it. */
+export const loadOperation = () => SecureStore.getItemAsync(NEW_AGENT).catch(() => null);
+export const saveOperation = (op: string | null) =>
+  (op ? SecureStore.setItemAsync(NEW_AGENT, op) : SecureStore.deleteItemAsync(NEW_AGENT)).catch(() => {});
