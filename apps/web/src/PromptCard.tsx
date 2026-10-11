@@ -88,7 +88,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
           This prompt changed
         </p>
       ) : null}
-      {p.command ? <CodeBlock cmd>{p.command}</CodeBlock> : <CodeBlock>{p.lines.join('\n')}</CodeBlock>}
+      {p.command ? <CodeBlock cmd scroll>{p.command}</CodeBlock> : <CodeBlock scroll>{p.lines.join('\n')}</CodeBlock>}
       {p.reason ? <p className="muted">{p.reason}</p> : null}
       {question || multi ? (
         <ol className="opts m-0 mt-2 grid list-none gap-1.5 p-0">

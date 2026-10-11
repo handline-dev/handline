@@ -263,7 +263,7 @@ function ToolLine({ i }: { i: TranscriptItem }) {
           {open ? 'Hide output' : 'Show all'}
         </Button>
       ) : null}
-      {open ? <CodeBlock className="tool-output">{i.output}</CodeBlock> : null}
+      {open ? <CodeBlock className="tool-output basis-full max-h-[20lh] overflow-auto">{i.output}</CodeBlock> : null}
       {cut && (open || !i.output) ? (
         <span className="muted">
           {cut} more line{cut === 1 ? '' : 's'} let go
@@ -287,7 +287,7 @@ function SessionCard({ i }: { i: TranscriptItem }) {
         </Button>
       ) : null}
       <span className="muted card-time">{clock(i.at)}</span>
-      {open ? <CodeBlock className="handoff-full">{handoff}</CodeBlock> : null}
+      {open ? <CodeBlock className="handoff-full basis-full max-h-[20lh] overflow-auto">{handoff}</CodeBlock> : null}
     </Card>
   );
 }

@@ -24,7 +24,11 @@ export function TaskDetail({ id, onBack, embedded }: { id: number; onBack: () =>
   const gone = q.isError && classify(q.error).kind === 'not_found';
   return (
     <article
-      className={`tdetail flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-4 py-3 outline-none${embedded ? ' pane relative bg-panel -outline-offset-1' : ''}`}
+      className={`tdetail flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-6 max-sm:py-5${
+        embedded
+          ? ' pane absolute top-[calc(var(--sp-5)+var(--h-btn)+var(--sp-4))] right-0 bottom-0 left-auto z-[5] w-[min(480px,100%)] border-l border-line bg-surface shadow-[var(--shadow-pop)] -outline-offset-1'
+          : ''
+      }`}
       aria-label={`Task #${id}`}
     >
       <Button icon="close" label="Back" title="Back (Esc)" className="back self-end mb-4" onClick={onBack} />
@@ -120,7 +124,11 @@ function Body({ t }: { t: Detail }) {
         <StateChip state={t.state} mark={mark} />
       </header>
       <TaskMeta t={t} now={now} />
-      <div className="tverbs flex flex-wrap gap-1.5 my-2" role="toolbar" aria-label="Task actions">
+      <div
+        className="tverbs flex flex-wrap gap-1.5 my-2 max-sm:sticky max-sm:bottom-0 max-sm:mt-auto max-sm:-mx-6 max-sm:-mb-5 max-sm:px-6 max-sm:py-4 max-sm:bg-canvas max-sm:border-t max-sm:border-line"
+        role="toolbar"
+        aria-label="Task actions"
+      >
         {open && t.state === 'draft' ? (
           <Verb k="u" icon="taskQueued" label="Queue" can={can.queue} onClick={verbs.u} busy={queue.isPending} />
         ) : null}

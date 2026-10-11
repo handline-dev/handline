@@ -37,7 +37,13 @@ export function StateChip({ state, mark }: { state: string; mark?: 'authored' | 
   return (
     <span className={`tchip ${TONE[state] ?? 'idle'} data-[state=done]:text-ok ${CHIP}`} data-state={state} title={state}>
       {mark === 'authored' ? <span aria-hidden="true">○</span> : null}
-      <Icon name={STATE_GLYPH[state] ?? 'taskPending'} label={state} size={16} aria-hidden="true" />
+      <Icon
+        name={STATE_GLYPH[state] ?? 'taskPending'}
+        label={state}
+        size={16}
+        aria-hidden="true"
+        className={state === 'doing' ? 'animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none' : undefined}
+      />
       <VisuallyHidden>{state}</VisuallyHidden>
     </span>
   );
@@ -94,7 +100,7 @@ export function Sheet(props: {
       as="form"
       kind="form"
       ref={ref}
-      className={props.full ? 'full' : undefined}
+      className={props.full ? 'full max-sm:fixed max-sm:inset-0 max-sm:z-20 max-sm:m-0 max-sm:p-6 max-sm:rounded-none max-sm:overflow-auto max-sm:content-start' : undefined}
       role="group"
       aria-label={props.label}
       onSubmit={(e) => {

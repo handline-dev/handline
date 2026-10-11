@@ -186,8 +186,8 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
 
   const listBody = (
     <>
-      <div className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface" aria-busy={q.isFetching && !q.data}>
-        <table className={`ttable w-full table-fixed border-collapse${selecting || marked.size ? ' selecting' : ''}`} aria-label="Tasks">
+      <div className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface max-sm:bg-none max-sm:border-0" aria-busy={q.isFetching && !q.data}>
+        <table className={`ttable w-full table-fixed border-collapse max-sm:block${selecting || marked.size ? ' selecting' : ''}`} aria-label="Tasks">
           <TableHead
             tree={mode === 'tree'}
             sort={sort}
@@ -195,13 +195,13 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
             onToggleAll={toggleAll}
             onSort={(col) => setSort((s) => ({ by: col, reverse: s.by === col && !s.reverse }))}
           />
-          <tbody>
+          <tbody className="max-sm:block">
             <AnimatedList>
               {mode === 'tree'
                 ? tree.map(({ task: t, depth, dim }) => (
-                    <Row key={t.id} rows={tree.length} t={t} now={now} tree depth={depth} dim={dim} {...rowProps(t)} />
+                    <Row key={t.id} rows={tree.length} t={t} now={now} tree depth={depth} dim={dim} markCell={selecting || marked.size > 0} {...rowProps(t)} />
                   ))
-                : rows.map((t) => <Row key={t.id} rows={rows.length} t={t} now={now} {...rowProps(t)} />)}
+                : rows.map((t) => <Row key={t.id} rows={rows.length} t={t} now={now} markCell={selecting || marked.size > 0} {...rowProps(t)} />)}
             </AnimatedList>
           </tbody>
         </table>
@@ -257,7 +257,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
   const none = scope === 'closed' && all.length === 0;
   return (
     <section
-      className="tasks flex min-h-0 min-w-0 flex-1 flex-col px-4 py-3 outline-none"
+      className="tasks flex min-h-0 min-w-0 flex-1 flex-col px-4 py-3 outline-none max-sm:px-6 max-sm:py-5"
       ref={root}
       tabIndex={0}
       aria-label="Tasks"

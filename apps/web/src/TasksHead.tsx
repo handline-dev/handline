@@ -47,7 +47,7 @@ export function TasksHead(props: {
           value={props.query}
           placeholder="Search"
           aria-label="Search tasks"
-          className="w-[200px] pl-6"
+          className="w-[200px] pl-6 max-sm:w-full"
           onChange={(e) => props.onQuery(e.target.value)}
         />
       </label>

@@ -67,22 +67,22 @@ function PairScreen(p: { url: string; storage: KV | null; open: Open; lost: bool
   };
   return (
     <form
-      className="pair-screen"
+      className="pair-screen mx-auto mt-[18vh] mb-0 grid max-w-[420px] gap-3 px-4"
       onSubmit={(e) => {
         e.preventDefault();
         if (text.trim() && !busy) void submit();
       }}
     >
-      <h1>Pair this computer</h1>
-      {lost && <p role="status">This computer is no longer paired.</p>}
-      <p>
+      <h1 className="m-0 text-page">Pair this computer</h1>
+      {lost && <p className="m-0" role="status">This computer is no longer paired.</p>}
+      <p className="m-0">
         In a terminal run <code>hl device pair</code> and paste the code, or the <code>handline://</code> line, here.
       </p>
       <input autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder="Pairing code" aria-label="Pairing code" />
       <button type="submit" disabled={busy || !text.trim()}>
         {busy ? 'Pairing…' : 'Pair'}
       </button>
-      {error && <p role="alert">{error}</p>}
+      {error && <p className="m-0" role="alert">{error}</p>}
       <Connection />
     </form>
   );
@@ -140,7 +140,7 @@ function Connection() {
           </button>
         </>
       )}
-      {error && <p role="alert">{error}</p>}
+      {error && <p className="m-0" role="alert">{error}</p>}
     </fieldset>
   );
 }

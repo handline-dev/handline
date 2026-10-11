@@ -13,7 +13,7 @@ export function TableHead(props: {
 }) {
   const { sort } = props;
   return (
-    <thead>
+    <thead className="max-sm:hidden">
       <tr>
         <th className={`${TH} c-mark w-8 text-center`}>
           <input type="checkbox" aria-label="Mark every row shown" checked={props.allMarked} onChange={props.onToggleAll} />

@@ -21,6 +21,17 @@ a:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+/* A row's number is not a web link: it keeps the row's ink and only underlines on hover. Unlayered, or the `a` rule above beats any utility. */
+.tnum {
+  color: inherit;
+  text-decoration: none;
+}
+.tnum:hover {
+  text-decoration: underline;
+}
+kbd {
+  color: var(--ink-2);
+}
 button,
 select,
 input,

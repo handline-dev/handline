@@ -245,7 +245,7 @@ function Card({
         </Button>
       ) : null}
       {showDiff ? (
-        <CodeBlock className="hr-diff max-h-[20lh] overflow-auto" aria-label="What approving does">
+        <CodeBlock scroll className="hr-diff" aria-label="What approving does">
           {diff.map((l, i) => (
             <div key={i} className={l.mark === '-' ? 'del text-bad' : l.mark === '+' ? 'add text-ok' : ''}>
               {l.text}

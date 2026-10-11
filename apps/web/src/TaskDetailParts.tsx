@@ -130,7 +130,7 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
   };
   return (
     <Sheet label={`Edit #${t.id}`} submit="Save" onCancel={onClose} onSubmit={save} busy={edit.isPending}>
-      <div className="tform">
+      <div className="tform grid gap-5">
         <label>
           Title
           <Input grow className="tinput" value={title} onChange={(e) => setTitle(e.target.value)} />

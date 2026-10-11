@@ -2,7 +2,7 @@
 // creation offers the form back with its fields; a done one sends the first task, if there was one, as a task.new.
 import { useEffect, useRef, useState } from 'react';
 import { classify, sentence, Skeleton, useOperation, useWrite } from '@handline/app-data';
-import { Button, Dialog, Icon } from './ui/index.ts';
+import { Button, Dialog, Icon, Textarea } from './ui/index.ts';
 import { goAgent, goNew } from './route.ts';
 import { browserStorage } from './daemon.ts';
 import type { Fields } from './NewAgent.tsx';
@@ -130,7 +130,7 @@ export function NewAgentProgress({
             <Icon name="failed" size={14} label="Error" />
             {sentence(classify(ask.error))}
           </p>
-          <textarea className="ui-textarea" aria-label="First task" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
+          <Textarea className="bg-panel border-line-strong px-5 py-4 resize-y" aria-label="First task" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
           <Button variant="outline" label="Retry" disabled={ask.isPending} onClick={send} />
         </>
       ) : null}
