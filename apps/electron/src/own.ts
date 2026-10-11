@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { app, clipboard, ipcMain, Menu, nativeImage, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Tray } from 'electron';
 import { webSocketTransport } from '@handline/client';
 import { pinnedWebSocketTransport, unixSocketTransport } from '@handline/client-node';
 import { CHANNELS, fromWindow } from './bridge.ts';
@@ -21,10 +21,30 @@ import {
   type SettingsFile,
 } from './mode.ts';
 import { commands, Owner, type Child, type Cmd } from './owner.ts';
-import { ensureToken, founderKeyFile, TokenFile } from './pair.ts';
+import { ensureToken, founderKeyFile, phoneLink, TokenFile, type PairDeps } from './pair.ts';
+import { phoneHtml } from './phone-html.ts';
 import { grant } from './grant.ts';
 import { onTailnet } from './tailnet.ts';
 import { trayMenu, type TrayFollow } from './tray.ts';
+
+/** A window with the QR of a fresh one-time link; the gateway says why when it cannot make one (no network listener, no key). */
+async function showPhone(pairing: PairDeps): Promise<void> {
+  try {
+    const l = await phoneLink(pairing);
+    const minutes = Math.max(1, Math.round((Date.parse(l.expiresAt) - Date.now()) / 60_000));
+    const w = new BrowserWindow({ width: 340, height: 440, resizable: false, title: 'Pair a phone', webPreferences: { sandbox: true } });
+    w.setMenuBarVisibility(false);
+    await w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(phoneHtml(l.uri, minutes))}`);
+  } catch (e) {
+    dialog.showErrorBox('Cannot pair a phone', e instanceof Error ? e.message : String(e));
+  }
+}
+/** How the app proves itself to its own gateway's local socket. */
+const localPairing = (home: string, gatewaySocket: string): PairDeps => ({
+  readKey: () => readFounderKey(home),
+  open: () => unixSocketTransport(gatewaySocket),
+  name: 'Handline desktop',
+});
 
 /** Whether something is listening on this Unix socket. */
 const answers = (file: string): Promise<boolean> =>
@@ -153,6 +173,7 @@ export function ownDaemon(o: {
             link,
             switchTo: () => relaunchAs({ ...o.current, mode: mode === 'connect' ? 'own' : 'connect' }),
             pair: () => void pairClipboard(),
+            phone: o.current.remote ? undefined : () => void showPhone(pairing),
           },
         ),
       ),
@@ -167,11 +188,7 @@ export function ownDaemon(o: {
   ipcMain.on(CHANNELS.token, (e) => {
     e.returnValue = fromWindow(e, o.origin) ? grant(token, ownHost, owner) : null;
   });
-  const pairing = {
-    readKey: () => readFounderKey(o.home),
-    open: () => unixSocketTransport(o.gatewaySocket),
-    name: 'Handline desktop',
-  };
+  const pairing = localPairing(o.home, o.gatewaySocket);
   /** Connect mode: attach to what is there and never start it. */
   async function connect(): Promise<string | undefined> {
     const remote = o.current.remote;

@@ -15,7 +15,8 @@
   "dependencies": {
     "@handline/app-core": "workspace:*",
     "@handline/client": "workspace:*",
-    "@handline/client-node": "workspace:*"
+    "@handline/client-node": "workspace:*",
+    "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
     "@handline/config": "workspace:*",

@@ -89,6 +89,19 @@ export async function pairSelf(d: PairDeps): Promise<Kept> {
   return { token, device };
 }
 
+/** A one-time `handline://pair` link for another device to scan, and when it stops working. The code is not redeemed here. */
+export async function phoneLink(d: PairDeps): Promise<{ uri: string; expiresAt: string }> {
+  const key = d.readKey();
+  if (!key) throw new NoFounderKey();
+  const r = await once(d.open, [
+    ['hello', { client: 'electron-pair', protocol: PROTOCOL, key }],
+    ['device.pair', { name: d.name, request_id: rid() }],
+  ]);
+  const { uri, expires_at } = r.result ?? {};
+  if (typeof uri !== 'string' || typeof expires_at !== 'string') throw new Error('device.pair gave no link');
+  return { uri, expiresAt: expires_at };
+}
+
 /** Whether the gateway still lists this device (a revoked one is gone). Null when it could not ask. */
 export async function stillPaired(d: PairDeps, device: string): Promise<boolean | null> {
   const key = d.readKey();
