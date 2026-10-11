@@ -66,7 +66,7 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
       {refused ? <span role="alert">{refused}</span> : null}
       {interruptFirst ? <span className="muted">{a.name} is mid-turn. Interrupt ends the turn and keeps the session.</span> : null}
       {move ? (
-        <select aria-label="Account" value={account} onChange={(e) => setAccount(e.target.value)}>
+        <select aria-label="Account" className="max-sm:min-h-12" value={account} onChange={(e) => setAccount(e.target.value)}>
           <option value="">choose an account</option>
           {accounts.map((x) => (
             <option key={x} value={x}>

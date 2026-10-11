@@ -270,8 +270,8 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
   it("the Add a tab menu opens the agent's Tasks, a click opens a task in the pane and Back returns to the list", async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
-    await click($('summary[aria-label="Add a tab"]')!);
-    await click($$('.menu-item').find((b) => text(b).includes('Tasks'))!);
+    await click($('button[aria-label="Add a tab"]')!);
+    await click($$('.strip-end .ui-prow').find((b) => text(b).includes('Tasks'))!);
     await until(() => $('.tasks-tab-row'), 'the agent tasks');
     const rows = $$('.tasks-tab-row');
     expect(rows.length).toBeGreaterThan(0);

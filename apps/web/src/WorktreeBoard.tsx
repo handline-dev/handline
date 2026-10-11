@@ -92,7 +92,12 @@ export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: s
                   {menu === w.path ? (
                     <div className="wt-menu" role="menu" aria-label="Move to">
                       {STATUSES.filter((s) => s !== w.status).map((s) => (
-                        <button key={s} role="menuitem" className="btn" onClick={() => (setMenu(null), moves.move(w.path, s))}>
+                        <button
+                          key={s}
+                          role="menuitem"
+                          className="ui-prow rounded-chip hover:bg-raised max-sm:min-h-12"
+                          onClick={() => (setMenu(null), moves.move(w.path, s))}
+                        >
                           {s}
                         </button>
                       ))}

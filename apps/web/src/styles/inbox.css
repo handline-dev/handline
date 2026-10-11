@@ -1,40 +1,14 @@
 /* The Inbox page, its cards, the confirm sheets and the section notes speak Tailwind utilities (Inbox.tsx, InboxCard*.tsx, ui/Sheet.tsx).
-   What is left cannot move: rules that chain onto the legacy .btn, the base .menu-item and the rail's .nav, and the phone rules of the sheets. */
-
-/* A retry .btn that View draws inside the page keeps the link-free, inherited look. */
-.inbox .btn {
-  text-decoration: none;
-  color: inherit;
-}
-.inbox .btn.primary {
-  color: var(--accent-ink);
-}
-
-/* Chains onto base.css `.menu-item` (the pane and agent menus): the danger label, the off look and the phone height. */
-.menu-item.danger strong {
-  color: var(--block);
-}
-.menu-item:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
+   What is left cannot move: the rail's .nav, and the phone rules of the sheets. */
 
 /* The accent tint of the current nav row; rail.css `.rail-nav .nav.on` must out-rank it, so it stays the earlier file's rule. */
 .nav.on {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-/* Legacy .btn and select inside the sheets, and the actions of a sheet outside one (HR head): descendant rules in a phone block. */
+/* The actions of a sheet outside one (the HR head): a descendant rule in a phone block. */
 @media (max-width: 640px) {
-  .menu-item,
-  .verb-sheet .btn,
-  .verb-sheet select {
-    min-height: 48px;
-  }
   .verb-sheet-actions {
     width: 100%;
-  }
-  .verb-sheet-actions .btn {
-    flex: 1;
   }
 }

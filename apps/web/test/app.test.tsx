@@ -231,7 +231,7 @@ describe('the workspace', () => {
     expect($$('.pane')).toHaveLength(2);
     expect($('.dz')).toBeNull(); // the drag ended
     await click($('.pane[data-group="g1"] [aria-label="Add a tab"]')!);
-    await click($$('.pane[data-group="g1"] .menu-item').find((b) => text(b).trim() === 'Claude Code')!);
+    await click($$('.pane[data-group="g1"] .ui-prow').find((b) => text(b).trim() === 'Claude Code')!);
     expect($$('[data-tab^="terminal:"]')).toHaveLength(1);
   });
 
@@ -294,11 +294,15 @@ describe('the sidebar', () => {
     const { daemon } = await mount(TB);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     await until(() => $('.row-actions .ui-btn.solid'), 'Start on the selected row');
-    expect($$('.row-actions .menu-item').map((b) => text(b.querySelector('strong')))).toEqual(['Move account', 'Settings']); // nothing to stop yet
+    await click($('.row-actions [aria-haspopup="menu"]')!);
+    await until(() => $('.row-actions .ui-popup'), 'the ⋯ menu');
+    expect($$('.row-actions .ui-popup button').map((b) => text(b.querySelector('strong')))).toEqual(['Move account', 'Settings']); // nothing to stop yet
+    await click($('.row-actions [aria-haspopup="menu"]')!); // shut it
     await click($('.row-actions .ui-btn.solid')!);
     await until(() => daemon.sessions.get(TB)!.state !== 'parked', 'session started');
-    await until(() => $('.row-actions summary'), 'the ⋯ menu');
-    expect($$('.row-actions .menu-item').map((b) => text(b.querySelector('strong')))).toEqual([
+    await click($('.row-actions [aria-haspopup="menu"]')!);
+    await until(() => $('.row-actions .ui-popup'), 'the ⋯ menu');
+    expect($$('.row-actions .ui-popup button').map((b) => text(b.querySelector('strong')))).toEqual([
       'Restart',
       'Restart fresh',
       'Close',
@@ -311,10 +315,12 @@ describe('the sidebar', () => {
       'Kill',
     ]);
     vi.stubGlobal('confirm', () => false);
-    await click($$('.row-actions .menu-item').find((b) => text(b).startsWith('Kill'))!);
-    expect($('.row-actions summary')).not.toBeNull(); // refused at the confirm
+    await click($$('.row-actions .ui-popup button').find((b) => text(b).startsWith('Kill'))!);
+    expect($('.row-actions [aria-haspopup="menu"]')).not.toBeNull(); // refused at the confirm
     vi.stubGlobal('confirm', () => true);
-    await click($$('.row-actions .menu-item').find((b) => text(b).startsWith('Close'))!);
+    await click($('.row-actions [aria-haspopup="menu"]')!); // the refusal shut the menu: open it again
+    await until(() => $('.row-actions .ui-popup'), 'the ⋯ menu again');
+    await click($$('.row-actions .ui-popup button').find((b) => text(b).startsWith('Close'))!);
     await click($$('.verb-sheet .ui-btn').find((b) => text(b) === 'Confirm')!); // Close always asks first
     await until(() => $$('.row-actions .ui-btn').some((b) => text(b).includes('Resume')), 'Resume after close');
   });

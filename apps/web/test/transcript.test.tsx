@@ -126,8 +126,10 @@ describe('the transcript of a structured agent', () => {
     await mount(AUD);
     expect(text($('[data-tab="transcript"]'))).toContain('Transcript');
     expect($('[data-tab^="terminal:"]')).toBeNull();
-    expect(text($('.strip-end .menu-list'))).toContain('Transcript');
-    expect(text($('.strip-end .menu-list'))).not.toContain('Claude Code');
+    await click($('button[aria-label="Add a tab"]')!);
+    await until(() => $('.strip-end .ui-popup'), 'the add-tab menu');
+    expect(text($('.strip-end .ui-popup'))).toContain('Transcript');
+    expect(text($('.strip-end .ui-popup'))).not.toContain('Claude Code');
   });
 
   it('says Working with an Interrupt while a turn runs, and says why when it is refused', async () => {
@@ -171,7 +173,7 @@ describe('the transcript of a structured agent', () => {
     const menu = $(`[aria-label="More actions for ${AUD}"]`)!;
     await click(menu);
     expect(text(menu.parentElement)).not.toContain('start on auto'); // no account picker for a structured agent
-    await click([...$$('.menu-item')].find((b) => text(b) === 'Close')!);
+    await click($$('.row-actions .ui-popup button').find((b) => text(b) === 'Close')!);
     const sheet = $('.verb-sheet')!;
     expect(text(sheet)).toContain('mid-turn');
     expect(text(sheet)).not.toContain('terminal');
@@ -186,7 +188,7 @@ describe('the transcript of a structured agent', () => {
     await act(async () => s.daemon.chat.setTurn(AUD, true));
     s.daemon.knobs.refuse('session.stop', 'state', 'A turn is running', undefined, 1);
     await click($(`[aria-label="More actions for ${AUD}"]`)!);
-    await click([...$$('.menu-item')].find((b) => text(b) === 'Close')!);
+    await click($$('.row-actions .ui-popup button').find((b) => text(b) === 'Close')!);
     await click([...$('.verb-sheet')!.querySelectorAll('button')].find((b) => text(b) === 'Confirm')!);
     await until(() => text($('.verb-sheet [role=alert]')).includes('A turn is running'), 'the reason on the sheet');
     expect($('.verb-sheet')).not.toBeNull();

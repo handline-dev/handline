@@ -30,7 +30,11 @@ const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null) => el?.textContent ?? '';
-const item = (label: string) => $$('.row-actions .menu-item').find((b) => text(b.querySelector('strong')) === label)!;
+const item = async (label: string) => {
+  if (!$('.row-actions .ui-popup')) await click($('.row-actions [aria-haspopup="menu"]')!);
+  await until(() => $('.row-actions .ui-popup'), 'the ⋯ menu');
+  return $$('.row-actions .ui-popup button').find((b) => text(b.querySelector('strong')) === label)!;
+};
 const sheetBtn = (label: string) => $$('.verb-sheet .ui-btn').find((b) => text(b) === label)!;
 
 async function mount(agent: string, s = setup()) {
@@ -40,7 +44,7 @@ async function mount(agent: string, s = setup()) {
   await act(async () => {
     root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
   });
-  await until(() => $('.row-actions summary') && $('.row-actions .menu-item'), 'the ⋯ menu');
+  await until(() => $('.row-actions [aria-haspopup="menu"]'), 'the ⋯ menu');
   return s;
 }
 const session = (s: ReturnType<typeof setup>, a = ARCH) => s.daemon.sessions.get(a)!;
@@ -61,33 +65,34 @@ describe('U12 agent verbs', () => {
     const s = setup();
     open(s);
     await mount(ARCH, s);
-    await click(item('Park'));
+    await click(await item('Park'));
     expect(text($('.verb-sheet'))).toContain('Park handline.architect?');
     await click(sheetBtn('Cancel'));
     expect($('.verb-sheet')).toBeNull();
     expect(session(s).open).toBe(true);
-    await click(item('Park'));
+    await click(await item('Park'));
     const park = s.daemon.knobs.hold('session.park'); // held open: the pending mark does not depend on timing
     await click(sheetBtn('Confirm'));
     await until(() => ($(`[data-agent="${ARCH}"] .row-main`)?.getAttribute('title') ?? '').includes('parking…'), 'the gerund in the row');
-    expect(text($(`[data-agent="${ARCH}"] summary`))).toContain('parking…'); // and in the menu button
+    expect(text($(`[data-agent="${ARCH}"] .row-actions [aria-haspopup="menu"]`))).toContain('parking…'); // and in the menu button
     expect(session(s).open).toBe(true);
     park();
     await until(() => !session(s).open, 'parked');
-    await until(() => !text($(`[data-agent="${ARCH}"] summary`)).includes('parking…'), 'the mark gone');
+    await until(() => !text($(`[data-agent="${ARCH}"] .row-actions [aria-haspopup="menu"]`)).includes('parking…'), 'the mark gone');
   });
 
   it('Restart fresh drops the session id; Restart keeps the conversation', async () => {
     const s = setup();
     open(s);
     await mount(ARCH, s);
-    await click(item('Restart fresh'));
+    await click(await item('Restart fresh'));
     expect(text($('.verb-sheet'))).toContain('context is dropped');
     await click(sheetBtn('Confirm'));
     await until(() => session(s).sessionId !== 's-1', 'a fresh session');
     const fresh = session(s).sessionId;
-    await until(() => item('Restart'), 'the menu back');
-    await click(item('Restart'));
+    await click($('.row-actions [aria-haspopup="menu"]')!); // reopen the ⋯ menu
+    await until(() => $$('.row-actions .ui-popup button').some((b) => text(b.querySelector('strong')) === 'Restart'), 'the menu back');
+    await click($$('.row-actions .ui-popup button').find((b) => text(b.querySelector('strong')) === 'Restart')!);
     await click(sheetBtn('Confirm'));
     await until(() => session(s).open && session(s).sessionId === fresh, 'resumed');
   });
@@ -96,7 +101,7 @@ describe('U12 agent verbs', () => {
     const s = setup();
     open(s);
     await mount(ARCH, s);
-    await click(item('Close'));
+    await click(await item('Close'));
     expect($('.verb-sheet')).not.toBeNull();
     expect(session(s).open).toBe(true);
     await click(sheetBtn('Confirm'));
@@ -107,7 +112,7 @@ describe('U12 agent verbs', () => {
     const s = setup();
     open(s);
     await mount(ARCH, s);
-    await click(item('Fold into handoff'));
+    await click(await item('Fold into handoff'));
     await click(sheetBtn('Confirm'));
     await until(() => !session(s).open && session(s).sessionId === null, 'folded');
   });
@@ -116,7 +121,7 @@ describe('U12 agent verbs', () => {
     const s = setup();
     open(s);
     await mount(ARCH, s);
-    await click(item('Move account'));
+    await click(await item('Move account'));
     expect(sheetBtn('Move').hasAttribute('disabled')).toBe(true);
     const sel = $('.verb-sheet select') as HTMLSelectElement;
     await act(async () => {
@@ -132,7 +137,7 @@ describe('U12 agent verbs', () => {
     s.daemon.knobs.accounts = ['alpha', 'beta', 'gamma'];
     open(s);
     await mount(ARCH, s);
-    await click(item('Move account'));
+    await click(await item('Move account'));
     await until(() => $$('.verb-sheet option').some((o) => text(o) === 'gamma'), 'gamma among the accounts');
     expect($$('.verb-sheet option').map((o) => text(o))).toEqual(['choose an account', 'alpha', 'gamma']);
   });
@@ -142,7 +147,7 @@ describe('U12 agent verbs', () => {
     open(s);
     s.daemon.knobs.refuse('session.park', 'state', 'The agent is mid-turn; park it when it is idle.');
     await mount(ARCH, s);
-    await click(item('Park'));
+    await click(await item('Park'));
     await click(sheetBtn('Confirm'));
     await until(() => text($('.toast')).includes('mid-turn'), 'the reason');
     expect($(`[data-agent="${ARCH}"] .row-main`)?.getAttribute('title')).not.toContain('parking…');
@@ -153,7 +158,7 @@ describe('U12 agent verbs', () => {
     const s = setup();
     session(s, TB).sessionId = 's-9';
     await mount(TB, s);
-    await click(item('Wake'));
+    await click(await item('Wake'));
     expect($('.verb-sheet')).toBeNull();
     await until(() => session(s, TB).open, 'woken');
   });
@@ -163,7 +168,7 @@ describe('U12 agent verbs', () => {
     open(s);
     const net = { down: false };
     await mount(ARCH, s);
-    await click(item('Park'));
+    await click(await item('Park'));
     const other = second(s.daemon, net);
     await other.start();
     await other.call('session.stop', { agent: ARCH, mode: 'close', request_id: 'x1' }); // another client closes it
@@ -178,18 +183,18 @@ describe('U12 agent verbs', () => {
     open(s);
     session(s).state = 'stalled';
     await mount(ARCH, s);
-    await click(item('Clear stall'));
+    await click(await item('Clear stall'));
     expect(text($('.verb-sheet'))).toContain('Clear stall handline.architect?');
     await click(sheetBtn('Cancel'));
     expect(session(s).state).toBe('stalled');
-    await click(item('Clear stall'));
+    await click(await item('Clear stall'));
     const clear = s.daemon.knobs.hold('agent.unstall');
     await click(sheetBtn('Confirm'));
-    await until(() => text($(`[data-agent="${ARCH}"] summary`)).includes('waking…'), 'the gerund in the menu button');
+    await until(() => text($(`[data-agent="${ARCH}"] .row-actions [aria-haspopup="menu"]`)).includes('waking…'), 'the gerund in the menu button');
     expect(session(s).state).toBe('stalled');
     clear();
     await until(() => session(s).state === 'queued', 'cleared');
-    await until(() => !text($(`[data-agent="${ARCH}"] summary`)).includes('waking…'), 'the mark gone');
+    await until(() => !text($(`[data-agent="${ARCH}"] .row-actions [aria-haspopup="menu"]`)).includes('waking…'), 'the mark gone');
   });
 
   it('Clear stall is disabled, with the reason, on a daemon that does not serve agent.unstall', async () => {
@@ -198,7 +203,7 @@ describe('U12 agent verbs', () => {
     session(s).state = 'stalled';
     s.daemon.knobs.unserve('agent.unstall');
     await mount(ARCH, s);
-    const clear = item('Clear stall');
+    const clear = await item('Clear stall');
     expect(clear.hasAttribute('disabled')).toBe(true);
     expect(clear.getAttribute('title')).toBe('This daemon does not serve agent.unstall.');
   });
