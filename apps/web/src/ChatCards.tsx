@@ -55,7 +55,7 @@ export function ChatBanner({ detail }: { detail: AgentDetail }) {
     detail.blocker || detail.wall_reason || (detail.state === 'stalled' ? detail.state_detail || 'The session has stalled' : null);
   if (!why) return null;
   return (
-    <div className="chat-banner flex items-center gap-2 border-b border-l-[3px] border-b-line border-l-bad bg-panel px-2 py-1.5 text-body" role="status">
+    <div className="chat-banner flex items-center gap-2 border-l-[3px] border-l-bad bg-panel px-2 py-1.5 text-body" role="status">
       <Icon name="blocked" size={14} label="Blocked" />
       <span>{why}</span>
     </div>
@@ -79,13 +79,7 @@ export function HrCards({ agent }: { agent: string }) {
   return (
     <>
       {open.map((p) => (
-        <Card
-          variant="chat"
-          key={p.id}
-          className="card-hr border-l-2 border-l-[color:var(--s-wait)] bg-surface shadow-[var(--shadow-card)]"
-          data-kind="hr"
-          data-proposal={p.id}
-        >
+        <Card variant="chat" key={p.id} className="card-hr bg-surface" data-kind="hr" data-proposal={p.id}>
           <Icon name="team" label="Proposal" />
           <CardWhat stacked>
             <strong>{p.title}</strong>

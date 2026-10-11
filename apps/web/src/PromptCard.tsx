@@ -76,7 +76,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
 
   const mark = (key: string, label: string) => (answering && clicked === key ? '…' : label);
   return (
-    <Card variant="chat" className="prompt bg-surface shadow-[var(--shadow-card)]" role="alert" ref={card} tabIndex={-1} onKeyDown={onKey} aria-busy={answering}>
+    <Card variant="chat" className="prompt bg-surface" role="alert" ref={card} tabIndex={-1} onKeyDown={onKey} aria-busy={answering}>
       <div className="card-title mb-1.5 font-semibold">
         ⚠ {promptTitle(p)}
         <span className="muted font-normal">

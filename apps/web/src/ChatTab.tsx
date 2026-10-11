@@ -264,7 +264,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         ) : null}
       </div>
       {newer ? (
-        <button className="newer absolute right-4 bottom-[96px] inline-flex items-center gap-1 rounded-pill border border-line-strong bg-panel px-2 py-1 shadow-[var(--shadow-pop)]" onClick={bottom} title="New messages">
+        <button className="newer absolute right-4 bottom-[96px] inline-flex items-center gap-1 rounded-pill bg-panel px-2 py-1 shadow-[var(--shadow-pop)]" onClick={bottom} title="New messages">
           <Icon name="newer" size={14} aria-hidden />
           {newer}
         </button>
