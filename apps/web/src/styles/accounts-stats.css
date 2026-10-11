@@ -50,6 +50,13 @@
 .acct-row:hover {
   background: var(--bg-3);
 }
+.acct-usage {
+  grid-column: 1 / -1;
+  font: var(--t-hint);
+}
+.acct-assign.no {
+  color: var(--warn, inherit);
+}
 .acct-name {
   display: flex;
   align-items: baseline;

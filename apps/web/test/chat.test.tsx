@@ -102,6 +102,14 @@ describe('the Chat tab', () => {
     await until(() => msg('Review is done'), 'the all tab');
   });
 
+  it('a tool line cut to nothing still says how many lines were let go', async () => {
+    const t = setup();
+    t.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'ls', output: '', dropped_lines: 5 });
+    await mount(ARCH, t);
+    await until(() => $$('[data-kind="tool"]').some((c) => /5 more lines let go/.test(text(c))), 'the cut note');
+    expect($$('[data-kind="tool"]')[0]!.querySelector('button')).toBeNull();
+  });
+
   it('a tool line shows what it printed on request, and how many lines were cut', async () => {
     const t = setup();
     t.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'ls', output: 'a\nb', dropped_lines: 3 });

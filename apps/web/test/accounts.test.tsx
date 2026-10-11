@@ -72,6 +72,22 @@ describe('the list', () => {
     expect(text(card('gamma'))).toContain('no reading');
   });
 
+  it('says on each line the login, the plan, when the week resets, and whether it can take another agent and why not', async () => {
+    await mount();
+    await until(() => text(card('beta').querySelector('[data-usage]')).includes('cannot'), 'the usage line');
+    expect(text(card('alpha').querySelector('[data-usage]'))).toMatch(/^logged in · pro · week resets .*· can take another agent$/);
+    expect(text(card('beta').querySelector('[data-usage]'))).toContain('cannot take another agent: 5h 88% at last reading');
+    expect(text(card('gamma').querySelector('[data-usage]'))).toBe('needs login');
+  });
+
+  it('keeps the usage line when the accounts topic sends a row without those fields', async () => {
+    const s = await mount();
+    await until(() => text(card('beta').querySelector('[data-usage]')).includes('cannot'), 'the usage line');
+    await act(async () => void s.daemon.accounts.set({ account: 'beta', cap: 3 }));
+    await until(() => text(card('beta').querySelector('.acct-agents')).includes('/3'), 'the event');
+    expect(text(card('beta').querySelector('[data-usage]'))).toContain('cannot take another agent: 5h 88% at last reading');
+  });
+
   it('the gauge changes colour at 60 and 85 percent and always says the number', async () => {
     const s = setup();
     for (const p of [59, 60, 84, 85])

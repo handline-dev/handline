@@ -14,7 +14,7 @@ export type ReadResult<M extends ReadMethod> = UseQueryResult<Methods[M]['result
  * A read of the daemon as a query. It runs only while the connection is open and the daemon lists the method; an event-fed read
  * is never stale (the bridge keeps it current) and a snapshot read is stale after 30 s. A list keeps its rows while a filter changes.
  */
-export function useRead<M extends ReadMethod>(method: M, params: CallParams<M>, opts: { enabled?: boolean } = {}): ReadResult<M> {
+export function useRead<M extends ReadMethod>(method: M, params: CallParams<M>, opts: { enabled?: boolean; refetchMs?: number } = {}): ReadResult<M> {
   const store = useStore();
   const { daemon } = useData();
   const { served, open } = useServes(method);
@@ -25,6 +25,7 @@ export function useRead<M extends ReadMethod>(method: M, params: CallParams<M>, 
     queryFn: () => store.client.call(method, params),
     enabled: served && open && (opts.enabled ?? true),
     staleTime: spec.feed ? Infinity : SNAPSHOT_STALE_MS,
+    refetchInterval: opts.refetchMs,
     placeholderData: spec.id ? undefined : keepPreviousData,
   });
 }
@@ -52,6 +53,8 @@ export const useTriggers = (agent?: string) => useRead('agent.triggers', { agent
 export const usePrompts = (agent: string) => useRead('prompt.list', { agent });
 export const useStatus = () => useRead('daemon.status', {});
 export const useAccounts = () => useRead('accounts.list', {});
+/** The accounts with what `hl account list` adds (plan, windows, can it take work and why): a read of its own, fetched again every 30 s because the accounts topic does not carry those fields. */
+export const useAccountUsage = () => useRead('accounts.list', { usage: true, roster: true }, { refetchMs: SNAPSHOT_STALE_MS });
 export const useInbox = (filter: CallParams<'inbox.list'> = {}) => useRead('inbox.list', filter);
 /** The unread items of the whole inbox: the bell, the tab title and the unread dot of the page all read the one cached list, so a mark drops them together. */
 export function useUnread(): InboxItem[] {
