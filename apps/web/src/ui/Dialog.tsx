@@ -38,11 +38,17 @@ export function Dialog({
   }, []);
   return (
     <div className="ui-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="ui-dialog" role="dialog" aria-modal="true" aria-label={title} ref={box}>
-        <h2>{title}</h2>
-        <div className="ui-dialog-body">{children}</div>
+      <div
+        className="ui-dialog flex w-[min(var(--w-dialog),calc(100vw_-_2_*_var(--sp-6)))] flex-col gap-3 rounded-dialog border border-line-strong bg-panel p-4 shadow-[var(--shadow-pop)]"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        ref={box}
+      >
+        <h2 className="m-0 text-title font-semibold">{title}</h2>
+        <div className="ui-dialog-body flex flex-col gap-3">{children}</div>
         {action ? (
-          <footer>
+          <footer className="flex justify-end">
             <Button
               variant="solid"
               label={action.label}

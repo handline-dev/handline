@@ -13,19 +13,29 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
   children?: ReactNode;
 }
 
+const H = { sm: 'h-6', md: 'h-7', lg: 'h-8' } as const;
+const PAD = { sm: 'px-1.5', md: 'px-2', lg: 'px-3' } as const;
+
 export function Button({ variant = 'ghost', size = 'md', icon, label, keys, children, className, type = 'button', ...rest }: ButtonProps) {
   const iconOnly = !!icon && children == null;
+  const fit = iconOnly ? (size === 'sm' ? 'w-6 p-0' : 'w-7 p-0') : PAD[size];
+  const look =
+    variant === 'solid'
+      ? 'bg-primary font-medium text-on-primary hover:enabled:opacity-88'
+      : 'bg-transparent font-normal hover:enabled:bg-raised';
   return (
     <button
       {...rest}
       type={type}
-      className={`ui-btn ${variant} ${size}${iconOnly ? ' icon-only' : ''}${className ? ` ${className}` : ''}`}
+      className={`ui-btn ${variant} ${size}${iconOnly ? ' icon-only' : ''} inline-flex items-center justify-center gap-1.5 ${H[size]} ${fit} rounded-ctl border ${
+        variant === 'outline' ? 'border-line-strong' : 'border-transparent'
+      } font-sans text-body text-ink whitespace-nowrap ${look}${className ? ` ${className}` : ''}`}
       title={rest.title ?? label}
       aria-label={iconOnly ? label : undefined}
     >
       {icon ? <Icon name={icon} label={label} size={size === 'sm' ? 14 : 16} /> : null}
       {children ?? (icon ? null : label)}
-      {keys ? <kbd className="ui-keys">{keys}</kbd> : null}
+      {keys ? <kbd className="ui-keys ml-1 font-sans text-hint opacity-70">{keys}</kbd> : null}
     </button>
   );
 }

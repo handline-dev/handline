@@ -287,7 +287,7 @@ describe('the gallery and the css rules', () => {
   });
 
   const dir = join(import.meta.dirname, '../src/styles');
-  const screens = readdirSync(dir).filter((f) => f.endsWith('.css'));
+  const screens = readdirSync(dir).filter((f) => f.endsWith('.css') && f !== 'themes.css'); // themes.css overrides token values by design
   it('no screen css gives a colour a value: colours come from tokens.css', () => {
     for (const f of screens) expect(readFileSync(join(dir, f), 'utf8').match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g) ?? [], f).toEqual([]);
   });

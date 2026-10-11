@@ -18,6 +18,19 @@ const GLYPH: Record<StateKind, { icon: IconName; label: string }> = {
   noTerminal: { icon: 'noTerminal', label: 'No terminal' },
 };
 
+// The hue repeats the glyph; booting keeps the ink (the pulse says starting).
+const HUE: Record<StateKind, string> = {
+  working: 'text-working',
+  booting: '',
+  needs: 'text-wait',
+  blocked: 'text-bad',
+  idle: 'text-ink-2',
+  parked: 'text-ink-2',
+  done: 'text-ok',
+  rejected: 'text-bad',
+  noTerminal: 'text-ink-2',
+};
+
 const WORDS: Record<string, StateKind> = {
   running: 'working',
   working: 'working',
@@ -60,19 +73,24 @@ export const stateOfView = (a: AgentView): StateKind => DOT[dotOf(a)];
 export function State({ kind, label, word, size = 16 }: { kind: StateKind; label?: string; word?: boolean; size?: number }) {
   const g = GLYPH[kind];
   const text = label ?? g.label;
+  const hue = HUE[kind];
   return (
-    <span className="ui-state" data-state={kind} title={text}>
+    <span
+      className={`ui-state inline-flex items-center gap-1.5 align-middle${hue ? ` ${hue}` : ''}`}
+      data-state={kind}
+      title={text}
+    >
       {kind === 'noTerminal' ? (
-        <span className="ui-state-slash">
+        <span className="ui-state-slash relative inline-flex">
           <Icon name={g.icon} size={size} label={text} />
-          <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+          <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true" className="absolute inset-0">
             <line x1="2" y1="14" x2="14" y2="2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
         </span>
       ) : (
         <Icon name={g.icon} size={size} label={text} />
       )}
-      {word ? <span className="ui-state-word">{g.label}</span> : null}
+      {word ? <span className="ui-state-word text-hint text-ink-2">{g.label}</span> : null}
     </span>
   );
 }

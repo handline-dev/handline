@@ -20,10 +20,14 @@ export function Switch({
       aria-label={label}
       title={label}
       disabled={disabled}
-      className="ui-switch"
+      className={`ui-switch inline-flex h-4 w-7 items-center rounded-pill border border-line-strong p-0.5 ${on ? 'justify-end bg-primary' : 'bg-raised'}`}
       onClick={() => onChange(!on)}
     >
-      <span className="ui-knob">{on ? <Icon name="markRead" size={10} label="On" aria-hidden /> : null}</span>
+      <span
+        className={`ui-knob inline-flex h-2.5 w-2.5 items-center justify-center rounded-pill text-primary ${on ? 'bg-on-primary' : 'bg-ink-2'}`}
+      >
+        {on ? <Icon name="markRead" size={10} label="On" aria-hidden /> : null}
+      </span>
     </button>
   );
 }
