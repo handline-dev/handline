@@ -2,7 +2,7 @@
 // creation offers the form back with its fields; a done one sends the first task, if there was one, as a task.new.
 import { useEffect, useRef, useState } from 'react';
 import { classify, sentence, Skeleton, useOperation, useWrite } from '@handline/app-data';
-import { Button, Dialog, Icon, Textarea } from './ui/index.ts';
+import { Button, Dialog, Icon, Textarea, NOTE } from './ui/index.ts';
 import { goAgent, goNew } from './route.ts';
 import { browserStorage } from './daemon.ts';
 import type { Fields } from './NewAgent.tsx';
@@ -76,7 +76,7 @@ export function NewAgentProgress({
     return (
       <Dialog title="New agent" onClose={onClose}>
         {q.isError ? (
-          <p className="ui-note bad" role="alert">
+          <p className={`${NOTE} text-bad`} role="alert">
             <Icon name="failed" size={14} label="Error" />
             {sentence(classify(q.error))} <Button variant="outline" label="Retry" onClick={() => void q.refetch()} />
           </p>
@@ -106,7 +106,7 @@ export function NewAgentProgress({
     const registered = (op.result as { registered?: boolean } | null)?.registered === true;
     return (
       <Dialog title="New agent" onClose={onClose}>
-        <p className="ui-note bad" role="alert">
+        <p className={`${NOTE} text-bad`} role="alert">
           <Icon name="failed" size={14} label="Failed" />
           {op.message ?? 'Creating the agent failed.'}
         </p>
@@ -126,7 +126,7 @@ export function NewAgentProgress({
       </p>
       {taskRefused ? (
         <>
-          <p className="ui-note bad" role="alert">
+          <p className={`${NOTE} text-bad`} role="alert">
             <Icon name="failed" size={14} label="Error" />
             {sentence(classify(ask.error))}
           </p>

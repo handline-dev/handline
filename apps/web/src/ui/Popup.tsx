@@ -51,6 +51,11 @@ export function Popup({
   );
 }
 
+/** One row of a popup or menu; Sidebar's ⋯ rows and the palette's list ride the same look. */
+export const PROW = 'ui-prow flex h-7 w-full items-center gap-4 border-0 bg-transparent px-4 text-left text-ink hover:bg-raised';
+export const PROW_NAME = 'ui-prow-name flex-1';
+export const PROW_HINT = 'ui-prow-hint text-hint text-ink-3';
+
 export function PopupRow({
   icon,
   label,
@@ -65,10 +70,10 @@ export function PopupRow({
   onClick?: () => void;
 }) {
   return (
-    <button type="button" className="ui-prow max-sm:min-h-12" onClick={onClick}>
+    <button type="button" className={`${PROW} max-sm:min-h-12`} onClick={onClick}>
       {icon ? <Icon name={icon} size={14} label={label} aria-hidden /> : null}
-      <span className="ui-prow-name">{label}</span>
-      {hint ? <span className="ui-prow-hint">{hint}</span> : null}
+      <span className={PROW_NAME}>{label}</span>
+      {hint ? <span className={PROW_HINT}>{hint}</span> : null}
       {opens ? <Icon name="chevronRight" size={14} label="Opens a list" aria-hidden /> : null}
     </button>
   );

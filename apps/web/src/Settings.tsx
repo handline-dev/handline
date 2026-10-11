@@ -6,7 +6,7 @@ import { INVALID, minutesOf, parseCap, parseMinutes } from '@handline/app-core';
 import type { SettingsChanges } from '@handline/client';
 import { classify, sentence, useServes, useSettings, useWrite } from '@handline/app-data';
 import { Answers } from './Answers.tsx';
-import { Field, Icon, RowControl, RowHint, RowText, RowTitle, SectionHead, SettingsCard, SettingsRow, Switch, type IconName } from './ui/index.ts';
+import { Field, Icon, RowControl, RowHint, RowText, RowTitle, SectionHead, SettingsCard, SettingsRow, Switch, type IconName, NOTE } from './ui/index.ts';
 import { useOff } from './useOff.ts';
 import { View } from './View.tsx';
 
@@ -16,13 +16,13 @@ function Note({ error, pending, bad }: { error: unknown; pending: boolean; bad: 
   return (
     <>
       {pending ? (
-        <p className="ui-note" role="status">
+        <p className={NOTE} role="status">
           <Icon name="sending" size={14} />
           saving
         </p>
       ) : null}
       {text ? (
-        <p className="ui-note bad" role="alert">
+        <p className={`${NOTE} text-bad`} role="alert">
           <Icon name="failed" size={14} label="Not saved" />
           {text}
         </p>

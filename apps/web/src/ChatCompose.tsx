@@ -9,7 +9,7 @@ import { EditorButton } from './EditorButton.tsx';
 import { replyTo } from './ChatMessages.tsx';
 import { menuOf, useEntries, useOpenTerminal, type Entry, type MenuKind } from './ChatMenus.tsx';
 import { VerbSheet } from './AgentVerbs.tsx';
-import { Button, Icon, Textarea, ComposeRow } from './ui/index.ts';
+import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow } from './ui/index.ts';
 
 export function Compose(props: {
   agent: string;
@@ -179,13 +179,13 @@ export function Compose(props: {
               <li key={e.key} role="option" aria-selected={i === Math.min(at, menu.length - 1)}>
                 <button
                   type="button"
-                  className={`ui-prow${i === Math.min(at, menu.length - 1) ? ' bg-raised shadow-[inset_2px_0_0_var(--ink)]' : ''}`}
+                  className={`${PROW}${i === Math.min(at, menu.length - 1) ? ' bg-raised shadow-[inset_2px_0_0_var(--ink)]' : ''}`}
                   onMouseDown={(ev) => ev.preventDefault()}
                   onClick={() => choose(e)}
                 >
                   <Icon name={e.icon} size={14} label={e.label} aria-hidden />
-                  <span className="ui-prow-name">{e.label}</span>
-                  {e.hint ? <span className="ui-prow-hint">{e.hint}</span> : null}
+                  <span className={PROW_NAME}>{e.label}</span>
+                  {e.hint ? <span className={PROW_HINT}>{e.hint}</span> : null}
                 </button>
               </li>
             ))}

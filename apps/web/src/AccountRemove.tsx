@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import type { Account } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { classify, sentence, useServes, useWrite } from '@handline/app-data';
-import { Button, Dialog, Field, Icon } from './ui/index.ts';
+import { Button, Dialog, Field, Icon, NOTE } from './ui/index.ts';
 
 function RemoveDialog({ account: a, onClose }: { account: Account; onClose: () => void }) {
   const plan = useWrite('account.remove', a.name);
@@ -26,7 +26,7 @@ function RemoveDialog({ account: a, onClose }: { account: Account; onClose: () =
     >
       {plan.isPending ? <p className="muted">Checking what removing it would do…</p> : null}
       {a.agents.length ? (
-        <p className="ui-note warn">
+        <p className={`${NOTE} text-wait`}>
           <Icon name="warn" size={14} label="Warning" />
           On it now: {a.agents.join(', ')}. Move them off first.
         </p>
@@ -39,7 +39,7 @@ function RemoveDialog({ account: a, onClose }: { account: Account; onClose: () =
         </ul>
       ) : null}
       {failed ? (
-        <p className="ui-note bad" role="alert">
+        <p className={`${NOTE} text-bad`} role="alert">
           <Icon name="failed" size={14} label="Error" />
           {sentence(classify(failed))}
         </p>

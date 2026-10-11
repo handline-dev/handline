@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react';
 import { useAgents, useTasks } from '@handline/app-data';
 import { goAgent, goInbox, goTasks, goTeam } from './route.ts';
-import { Backdrop, Icon, type IconName } from './ui/index.ts';
+import { Backdrop, Icon, PROW, PROW_HINT, PROW_NAME, type IconName } from './ui/index.ts';
 
 interface Hit {
   key: string;
@@ -77,13 +77,13 @@ export function Palette({ onClose }: { onClose: () => void }) {
             <li key={h.key} role="option" aria-selected={i === cur}>
               <button
                 type="button"
-                className={`ui-prow${i === cur ? ' bg-raised shadow-[inset_2px_0_0_var(--ink)]' : ''}`}
+                className={`${PROW}${i === cur ? ' bg-raised shadow-[inset_2px_0_0_var(--ink)]' : ''}`}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => go(h)}
               >
                 <Icon name={h.icon} size={14} aria-hidden />
-                <span className="ui-prow-name">{h.label}</span>
-                {h.hint ? <span className="ui-prow-hint">{h.hint}</span> : null}
+                <span className={PROW_NAME}>{h.label}</span>
+                {h.hint ? <span className={PROW_HINT}>{h.hint}</span> : null}
               </button>
             </li>
           ))}

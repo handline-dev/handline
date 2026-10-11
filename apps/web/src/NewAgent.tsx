@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { classify, sentence, useAgents, useRepos, useServes, useWrite } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { Button, Dialog, Field, Icon, Select, Textarea } from './ui/index.ts';
+import { Button, Dialog, Field, Icon, Select, Textarea, NOTE, FIELD, FIELD_LABEL } from './ui/index.ts';
 import { goNew, useNewAgentRoute } from './route.ts';
 import { forgetFirstTask, keepFirstTask, NewAgentProgress } from './NewAgentProgress.tsx';
 
@@ -109,7 +109,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
         }}
       >
         {refused ? (
-          <p className="ui-note bad" role="alert">
+          <p className={`${NOTE} text-bad`} role="alert">
             <Icon name="failed" size={14} label="Error" />
             {sentence(refused)}
           </p>
@@ -127,8 +127,8 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
           </datalist>
         </div>
         <div className="tform-row grid grid-cols-2 gap-5 max-sm:grid-cols-1">
-          <div className="ui-field">
-            <span className="ui-field-label">Repo</span>
+          <div className={FIELD}>
+            <span className={FIELD_LABEL}>Repo</span>
             <Select
               label="Repo"
               value={f.repo}
@@ -145,8 +145,8 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
         </div>
         <div className="tform-row grid grid-cols-2 gap-5 max-sm:grid-cols-1">
           <Field label="Model" placeholder="default" value={f.model} onChange={(e) => set('model', e.target.value)} />
-          <div className="ui-field">
-            <span className="ui-field-label">Effort</span>
+          <div className={FIELD}>
+            <span className={FIELD_LABEL}>Effort</span>
             <Select
               label="Effort"
               value={f.effort}
@@ -156,13 +156,13 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="tform-row grid grid-cols-2 gap-5 max-sm:grid-cols-1">
-          <div className="ui-field">
-            <span className="ui-field-label">Account</span>
+          <div className={FIELD}>
+            <span className={FIELD_LABEL}>Account</span>
             <Select label="Account" disabled value="" onChange={() => {}} options={[{ value: '', label: 'auto' }]} />
-            <p className="ui-note">{ACCOUNT_NOTE}</p>
+            <p className={NOTE}>{ACCOUNT_NOTE}</p>
           </div>
-          <div className="ui-field">
-            <span className="ui-field-label">Parent</span>
+          <div className={FIELD}>
+            <span className={FIELD_LABEL}>Parent</span>
             <Select
               label="Parent"
               value={f.parent}
@@ -171,7 +171,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
             />
           </div>
         </div>
-        <div className="ui-field">
+        <div className={FIELD}>
           <label htmlFor="na-task">First task (optional)</label>
           <Textarea id="na-task" className="bg-panel border-line-strong px-5 py-4 resize-y" rows={3} value={f.task} onChange={(e) => set('task', e.target.value)} />
         </div>

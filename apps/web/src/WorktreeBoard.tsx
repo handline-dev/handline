@@ -2,7 +2,7 @@
 // A drop, the Move to… menu and the key `m` all ask the daemon for the same status; a card moves only when the refetch shows it.
 import { useState } from 'react';
 import type { Worktree } from '@handline/client';
-import { Button } from './ui/index.ts';
+import { Button, PROW } from './ui/index.ts';
 import { goWorktrees } from './route.ts';
 import { Owner, sums } from './Worktrees.tsx';
 
@@ -95,7 +95,7 @@ export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: s
                         <button
                           key={s}
                           role="menuitem"
-                          className="ui-prow rounded-chip max-sm:min-h-12"
+                          className={`${PROW} rounded-chip max-sm:min-h-12`}
                           onClick={() => (setMenu(null), moves.move(w.path, s))}
                         >
                           {s}

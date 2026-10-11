@@ -23,6 +23,7 @@ import {
   SheetActions,
   Switch,
   type IconName,
+  NOTE,
 } from './ui/index.ts';
 import { View } from './View.tsx';
 
@@ -189,13 +190,13 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
       </RowText>
       <RowControl>{control()}</RowControl>
       {draft !== null && stored !== base ? (
-        <p className="ui-note warn">
+        <p className={`${NOTE} text-wait`}>
           <Icon name="warn" size={14} label="Changed elsewhere" />
           changed elsewhere: {stored || 'empty'} <Button label="Use" onClick={() => (setDraft(null), setNote(''))} />
         </p>
       ) : null}
       {note ? (
-        <p className="ui-note bad" role="alert">
+        <p className={`${NOTE} text-bad`} role="alert">
           <Icon name="failed" size={14} label="Not saved" />
           {note}
         </p>

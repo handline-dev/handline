@@ -25,7 +25,7 @@ import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
 import { DOT_ORDER, Mark, MARKS, Meter } from './RailIcons.tsx';
 import { useNow } from './Gauge.tsx';
-import { Button, Icon, Popup } from './ui/index.ts';
+import { Button, Icon, Popup, PROW } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import {
   goAgent,
@@ -381,7 +381,7 @@ function RowControls({
           <button
             key={v.id}
             type="button"
-            className="ui-prow max-sm:min-h-12 disabled:cursor-not-allowed disabled:opacity-55"
+            className={`${PROW} max-sm:min-h-12 disabled:cursor-not-allowed disabled:opacity-55`}
             disabled={busy || !served(v)}
             title={served(v) ? undefined : unserved(v)}
             onClick={() => verb(v)}
@@ -390,7 +390,7 @@ function RowControls({
             {served(v) ? null : <span className="muted"> not served</span>}
           </button>
         ))}
-        <button className="ui-prow max-sm:min-h-12" onClick={() => goSettings(agent)}>
+        <button className={`${PROW} max-sm:min-h-12`} onClick={() => goSettings(agent)}>
           <strong>Settings</strong>
         </button>
         {c.stop
@@ -400,7 +400,7 @@ function RowControls({
                 <button
                   key={m.mode}
                   type="button"
-                  className={`ui-prow max-sm:min-h-12 disabled:cursor-not-allowed disabled:opacity-55${m.mode === 'kill' ? ' [&>strong]:text-bad' : ''}`}
+                  className={`${PROW} max-sm:min-h-12 disabled:cursor-not-allowed disabled:opacity-55${m.mode === 'kill' ? ' [&>strong]:text-bad' : ''}`}
                   disabled={busy}
                   onClick={() => stop(m.mode)}
                 >
