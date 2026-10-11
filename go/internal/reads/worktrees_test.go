@@ -3,6 +3,8 @@ package reads
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/handline/handline/go/internal/operations"
 )
 
 func TestAWorktreeLabelStandsInForTheDaemonsWord(t *testing.T) {
@@ -31,5 +33,23 @@ func TestAWorktreeLabelStandsInForTheDaemonsWord(t *testing.T) {
 	}
 	if s := status(); s != "in review" {
 		t.Fatalf("labelled: %q", s)
+	}
+}
+
+func TestARunningOperationNobodyRunsIsReportedFailed(t *testing.T) {
+	e := testEnv(t)
+	if _, err := e.DB.Exec("INSERT INTO operations(id, kind, state, steps_done, agent, created_at, updated_at) VALUES('gone', 'agent.create', 'running', 0, 'x', 0, 0), ('here', 'agent.create', 'running', 0, 'y', 0, 0)"); err != nil {
+		t.Fatal(err)
+	}
+	operations.Begin("here")
+	defer operations.End("here")
+	for id, want := range map[string]string{"gone": "failed", "here": "running"} {
+		got, err := e.operationGet(nil, map[string]any{"operation": id})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s := got.(map[string]any)["state"]; s != want {
+			t.Fatalf("%s: %v, want %s", id, s, want)
+		}
 	}
 }

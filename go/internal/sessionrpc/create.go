@@ -38,6 +38,9 @@ func (e *Env) create(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if strings.Contains(name, "/") || strings.HasPrefix(name, ".") || textsafe.HasUnsafe(name) || !yamlcompat.IsPlainText(name) {
+		return nil, bad("name is an agent's name, plain text", "name")
+	}
 	role, err := createText(params, "role", true)
 	if err != nil {
 		return nil, err
@@ -51,9 +54,6 @@ func (e *Env) create(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	if params["account"] != nil {
 		return nil, bad("a new agent's account is chosen when it starts; none can be named yet", "account")
-	}
-	if strings.Contains(name, "/") || strings.HasPrefix(name, ".") || textsafe.HasUnsafe(name) || !yamlcompat.IsPlainText(name) {
-		return nil, bad("name is an agent's name, plain text", "name")
 	}
 	repo, err := createText(params, "repo", true)
 	if err != nil {
@@ -119,7 +119,7 @@ func (e *Env) create(c *rpc.Conn, params map[string]any) (any, error) {
 			}
 		}
 		now := e.now().Unix()
-		if _, qerr = tx.Exec("DELETE FROM operations WHERE updated_at < ?", now-int64(createKeep/time.Second)); qerr != nil {
+		if _, qerr = tx.Exec("DELETE FROM operations WHERE kind = ? AND updated_at < ?", createKind, now-int64(createKeep/time.Second)); qerr != nil {
 			return nil, qerr
 		}
 		if _, qerr = tx.Exec("INSERT INTO operations(id, kind, state, step, steps_done, steps_total, message, agent, created_at, updated_at) "+

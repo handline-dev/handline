@@ -152,3 +152,36 @@ func TestCreateRefusesASecondOfTheNameWhileTheFirstRuns(t *testing.T) {
 		t.Fatalf("%q", g)
 	}
 }
+
+func TestCreatePrunesOnlyItsOwnOldOperations(t *testing.T) {
+	r, _, c := createRig(t)
+	rows := [][2]string{{"send:ann:q", "queued"}, {"send:ann:s", "sent"}, {"send:ann:w", "withdrawn"}, {"send:ann:r", "delivered"}, {"old-create", "done"}}
+	for _, row := range rows {
+		kind := "send"
+		if row[0] == "old-create" {
+			kind = createKind
+		}
+		if _, err := r.e.DB.Exec("INSERT INTO operations(id, kind, state, steps_done, created_at, updated_at) VALUES(?, ?, ?, 0, 0, 0)", row[0], kind, row[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	op := result(t, c.call("agent.create", map[string]any{"name": "fresh", "role": "worker", "repo": t.TempDir(), "request_id": rid("p1")}))["operation"].(string)
+	waitEnded(t, r, op)
+	var n int
+	r.e.DB.QueryRow("SELECT count(*) FROM operations WHERE kind = 'send'").Scan(&n)
+	if n != 4 {
+		t.Fatalf("every send row stays, %d left", n)
+	}
+	r.e.DB.QueryRow("SELECT count(*) FROM operations WHERE id = 'old-create'").Scan(&n)
+	if n != 0 {
+		t.Fatal("an old create operation is pruned")
+	}
+}
+
+func TestCreateChecksTheNameBeforeEffortAndAccount(t *testing.T) {
+	_, _, c := createRig(t)
+	got := c.call("agent.create", map[string]any{"name": "a/b", "role": "worker", "repo": "/x", "effort": "extreme", "account": "a1", "request_id": rid("n1")})
+	if f := badField(got); f != "name" {
+		t.Fatalf("field %q", f)
+	}
+}
