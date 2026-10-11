@@ -6,6 +6,10 @@ button.path {
   border: 0;
   padding: 0;
   color: var(--link);
-  text-decoration: underline;
+  text-decoration: none;
   cursor: pointer;
+}
+button.path:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }

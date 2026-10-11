@@ -6,6 +6,9 @@ import { useBusy, useUnread } from '@handline/app-data';
 
 type Call = 'screen' | 'unsent' | 'onNavigate' | 'openPath' | 'compose' | 'cancelCompose' | 'mode' | 'setMode' | 'pairRemote';
 
+/** True in the desktop shell; main.tsx marks <html data-shell=desktop> from it. */
+export const inShell = (): boolean => typeof window !== 'undefined' && 'handline' in window;
+
 /** The shell's API if this shell has `call` (a call is checked before it is used, never a version). */
 export function shell(call: Call): ShellApi | null {
   const s = (window as { handline?: Partial<ShellApi> }).handline;

@@ -14,6 +14,10 @@ body {
 }
 a {
   color: var(--link);
+  text-decoration: none;
+}
+/* The underline is a hover reply, not a permanent label: a link that is always underlined reads as a web page, not a control. */
+a:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -26,6 +30,39 @@ textarea {
 }
 button {
   cursor: pointer;
+  transition: background-color 80ms ease, border-color 80ms ease, color 80ms ease;
+}
+/* The browser's defaults are not the app's: a thin scroll bar, a toned selection and an accent caret are the small tells of a native pane. */
+::selection {
+  background: color-mix(in srgb, var(--focus) 30%, transparent);
+}
+textarea,
+input {
+  caret-color: var(--link);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 5px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+/* The desktop shell: the tab strip drags the window, its controls stay clickable (rail-top's shell styles live in Sidebar.tsx). */
+:root[data-shell='desktop'] .strip {
+  -webkit-app-region: drag;
+}
+:root[data-shell='desktop'] .strip :is(button, [role='tab'], input, select) {
+  -webkit-app-region: no-drag;
 }
 button:disabled {
   cursor: default;

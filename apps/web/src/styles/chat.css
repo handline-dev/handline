@@ -1,4 +1,10 @@
 /* ---- Chat: a reference to reply to, message marks, cards ---- */
+/* The conversation reads in a column; the whole tab shares the measure. */
+.chat > * {
+  width: 100%;
+  max-width: 56rem;
+  margin-inline: auto;
+}
 .msg.pickable {
   cursor: pointer;
 }
@@ -61,14 +67,17 @@
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: var(--panel);
+  /* Tone and a hair of shadow, not an outline. */
+  background: var(--bg-1);
+  box-shadow: 0 1px 2px #0003;
   font-size: 13px;
 }
 /* An open prompt is told by a thicker frame and its clock icon, not by colour. */
 .card.open {
   border-width: 2px;
+  border-color: var(--line-strong);
 }
 .card-what {
   flex: 1;
@@ -257,6 +266,12 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
+}
+/* The transcript reads at the same measure as the chat column, whatever the pane's width. */
+.tr-scroll > * {
+  width: 100%;
+  max-width: 56rem;
+  margin-inline: auto;
 }
 .tr-turn {
   display: flex;

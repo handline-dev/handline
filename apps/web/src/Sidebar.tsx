@@ -72,12 +72,18 @@ export function Sidebar({
   const onPage = onAccounts ? 'accounts' : pageRoute;
   return (
     <nav className="rail" aria-label="Agents">
-      <div className="rail-top">
-        <Button icon="sidebar" label="Hide the agent list (⌘B)" onClick={onToggle} />
-        <Button icon="back" label="Back (⌘[)" onClick={() => history.back()} />
-        <Button icon="forward" label="Forward (⌘])" onClick={() => history.forward()} />
+      {/* The shell's drag strip: 38 px row, its middle on the traffic lights' middle. */}
+      <div className="flex items-center gap-0.5 pt-2 px-2.5 pb-1 shell:h-[38px] shell:py-0 shell:pl-[86px] shell:[-webkit-app-region:drag]">
+        <Button className="shell:[-webkit-app-region:no-drag]" icon="sidebar" label="Hide the agent list (⌘B)" onClick={onToggle} />
+        <Button className="shell:[-webkit-app-region:no-drag]" icon="back" label="Back (⌘[)" onClick={() => history.back()} />
+        <Button className="shell:[-webkit-app-region:no-drag]" icon="forward" label="Forward (⌘])" onClick={() => history.forward()} />
         {unread ? (
-          <button className="bell" title="Unread in the inbox" aria-label={`${unread} unread in the inbox`} onClick={goInbox}>
+          <button
+            className="bell ml-auto shell:[-webkit-app-region:no-drag]"
+            title="Unread in the inbox"
+            aria-label={`${unread} unread in the inbox`}
+            onClick={goInbox}
+          >
             {unread}
           </button>
         ) : null}

@@ -294,8 +294,8 @@ function SessionCard({ i }: { i: TranscriptItem }) {
 const TASK_EVENT: Record<string, IconName> = { opened: 'opened', changed: 'changed', done: 'done', withdrawn: 'withdrawn' };
 const TASK_EVENT_WORD: Record<string, string> = { opened: 'opened', changed: 'changed', done: 'done', withdrawn: 'withdrawn' };
 
-/** A line of the transcript that is not a message: the agent's reply and its tool, prompt, task and session lines. */
-export function Item({ i }: { i: TranscriptItem }) {
+/** A transcript line that is not a message. A task line names what happened — opened, changed, done, withdrawn — with title and evidence. */
+export function Item({ i, titles }: { i: TranscriptItem; titles?: Map<number, string> }) {
   if (i.kind === 'reply')
     return (
       <div className="msg agent" data-kind="reply" title={full(i.at)}>
@@ -326,14 +326,24 @@ export function Item({ i }: { i: TranscriptItem }) {
   if (i.kind === 'session') return <SessionCard i={i} />;
   const e = i.task_event;
   const ev = e?.event ?? 'changed';
-  const word = `Task ${e?.task} ${TASK_EVENT_WORD[ev] ?? ev}`;
+  const word = TASK_EVENT_WORD[ev] ?? ev;
+  const title = titles?.get(e?.task ?? NaN);
   return (
     <div className="card card-task" data-kind="task_event" data-event={ev}>
-      <Icon name={TASK_EVENT[ev] ?? 'changed'} label={word} />
-      <a className="mono" href={`#/tasks/${e?.task}`} title={word}>
+      <Icon name={TASK_EVENT[ev] ?? 'changed'} label={`Task ${e?.task} ${word}`} />
+      <span className="card-event">{word}</span>
+      <a className="mono" href={`#/tasks/${e?.task}`} title={title ?? `Task ${e?.task} ${word}`}>
         T{e?.task}
       </a>
-      {e?.evidence ? <span className="card-what muted">{e.evidence}</span> : <span className="card-what" />}
+      {title || e?.evidence ? (
+        <span className="card-what muted">
+          {title}
+          {title && e?.evidence ? ' — ' : ''}
+          {e?.evidence}
+        </span>
+      ) : (
+        <span className="card-what" />
+      )}
       <span className="muted card-time">{clock(i.at)}</span>
     </div>
   );

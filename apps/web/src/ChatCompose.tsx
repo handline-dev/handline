@@ -39,6 +39,7 @@ export function Compose(props: {
   const [at, setAt] = useState(0);
   const [verb, setVerb] = useState<Verb | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null); // a /word this agent does not take: said, never sent
   const [now, setNow] = useState(false); // join the running turn instead of queueing behind it; back to queue after each send
   const back = useRef(-1);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -58,10 +59,13 @@ export function Compose(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restore]);
 
-  const asked = ctrlR ? { kind: 'history' as MenuKind, query: '' } : menuOf(text);
+  const asked = ctrlR ? { kind: 'history' as MenuKind, query: text } : menuOf(text);
   const open = asked && shut !== text ? asked : null;
   const entries = useEntries(agent, detail, open?.kind ?? null, open?.query ?? '', messages, history);
   const menu = open && entries.length ? entries : null;
+  // The verb list again, for a typed /word with the menu closed.
+  const typed = /^\/(\w+)(?:\s+(.*))?$/.exec(text.trim());
+  const slashEntries = useEntries(agent, detail, typed ? 'slash' : null, typed?.[1] ?? '', messages, history);
 
   const choose = (e: Entry) => {
     setCtrlR(false);
@@ -80,7 +84,22 @@ export function Compose(props: {
   // The message shows at once and the box clears; a refused one stays in the list as a failed row with Retry, so its words are not lost.
   const choosing = !!running && !!view?.structured;
   const send = () => {
-    if (!text.trim()) return;
+    if (!text.trim() || ctrlR) return;
+    // A / line is a command, never words to the agent: run it or refuse it here.
+    if (typed) {
+      const id = typed[2] === 'fresh' ? `${typed[1]}_fresh` : typed[1]!;
+      const hit = slashEntries.find((e) => e.key === id);
+      if (hit?.verb || hit?.terminal) {
+        set('');
+        setRefused(null);
+        if (hit.verb) setVerb(hit.verb);
+        else openTerminal();
+        return;
+      }
+      setRefused(`No command /${typed[1]}. / lists what this agent takes.`);
+      return;
+    }
+    setRefused(null);
     const delivery = choosing && now ? ('now' as const) : undefined;
     // Replying to a question that waits for you answers it; to anything else sends a linked message to whoever said it.
     if (target && isOpenAsk(target, agent)) act.answer(target.id, text);
@@ -144,6 +163,11 @@ export function Compose(props: {
         </div>
       ) : null}
       {verb && view ? <VerbSheet a={view} verb={verb} onClose={() => setVerb(null)} /> : null}
+      {refused ? (
+        <p role="status" className="flex items-center gap-2 px-1 pb-1 text-label text-bad">
+          <Icon name="warn" size={14} aria-hidden /> {refused}
+        </p>
+      ) : null}
       <div className="compose-row">
         {menu ? (
           <ul
@@ -172,8 +196,9 @@ export function Compose(props: {
           placeholder={canSend ? 'Send a message…' : 'This daemon does not accept chat messages'}
           onChange={(e) => {
             back.current = -1;
-            setCtrlR(false);
             setAt(0);
+            setRefused(null);
+            // Ctrl+R stays on while typing: the words narrow the search.
             set(e.target.value);
           }}
           onKeyDown={onKey}

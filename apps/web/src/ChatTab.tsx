@@ -2,6 +2,7 @@
 // replies, tool lines and task events follow in time, and a question from the agent can be answered or dismissed here.
 // A daemon that does not serve chat gets an empty state; the permission card shows either way.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage } from '@handline/client';
 import { timeline } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
@@ -13,6 +14,8 @@ import {
   useChatActions,
   useChatLocate,
   useInbox,
+  useServes,
+  useTasks,
   useWrite,
   type ChatScope,
 } from '@handline/app-data';
@@ -22,7 +25,18 @@ import { Compose } from './ChatCompose.tsx';
 import { Item, Message, jumpTo } from './ChatMessages.tsx';
 import { ChatBanner, ChatStrip, HrCards } from './ChatCards.tsx';
 import { Button, Empty, Icon, Segmented } from './ui/index.ts';
+import { setting } from './daemon.ts';
 import { useWorkspace } from './Workspace.tsx';
+
+/** The heading where the day turns — 'Oct 11'; null on the same day. */
+function dayHeading(at: string, before: string | null): string | null {
+  const d = new Date(at);
+  if (Number.isNaN(+d)) return null;
+  const p = before ? new Date(before) : null;
+  if (p && !Number.isNaN(+p) && d.toDateString() === p.toDateString()) return null;
+  const year = d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric';
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric', year });
+}
 
 function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
   return (
@@ -54,7 +68,9 @@ function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const { storage } = useWorkspace();
   const canSend = useSelector((s) => s.can('chat.send'));
-  const [scope, setScope] = useState<ChatScope>('mine');
+  // The scope comes back next visit, as the bridge kept it.
+  const keptScope = setting(storage, 'handline.chatScope', 'mine');
+  const [scope, setScope] = useState<ChatScope>(keptScope.value === 'all' ? 'all' : 'mine');
   const chat = useChat(agent, scope);
   const [picked, setPicked] = useState<number | null>(null);
   const [restore, setRestore] = useState<{ text: string; n: number } | null>(null);
@@ -65,6 +81,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const stream = useRef<HTMLDivElement>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
   const entries = timeline(chat.messages, chat.items);
+  // Task titles for the transcript's task lines, so a card can say what it is about without opening the task.
+  const { served } = useServes('tasks.list');
+  const tasks = useTasks({});
+  const titles = new Map((served ? (tasks.data?.items ?? []) : []).map((t) => [t.id, t.title]));
   const history = chat.messages
     .filter((m) => m.to === agent && m.from !== agent && m.landing !== 'withdrawn' && m.id > 0)
     .sort((a, b) => b.id - a.id)
@@ -152,6 +172,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           value={scope}
           onChange={(v) => {
             setScope(v);
+            keptScope.save(v);
             setPicked(null);
           }}
           options={[
@@ -193,24 +214,42 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         ) : null}
         {chat.status === 'ready' && !entries.length ? <Empty icon="chat" name="No messages yet" hint={agent} /> : null}
         <AnimatedList>
-          {entries.map((e, i) => (
-            <AnimatedItem key={keyOf(e)} instant={i <= tail || tail < 0} onFrame={repin}>
-              {e.kind === 'message' ? (
-                <Message
-                  m={e.message}
-                  agent={agent}
-                  picked={e.id === picked}
-                  onPick={pick}
-                  byId={byId}
-                  working={chat.working.turn_running}
-                  onRestore={(text) => setRestore({ text, n: (restore?.n ?? 0) + 1 })}
-                  onRef={jump}
-                />
-              ) : (
-                <Item i={e.item} />
-              )}
-            </AnimatedItem>
-          ))}
+          {entries.flatMap((e, i): ReactNode[] => {
+            const day = dayHeading(e.at, i === 0 ? null : entries[i - 1]!.at);
+            const body = (
+              <AnimatedItem key={keyOf(e)} instant={i <= tail || tail < 0} onFrame={repin}>
+                {e.kind === 'message' ? (
+                  <Message
+                    m={e.message}
+                    agent={agent}
+                    picked={e.id === picked}
+                    onPick={pick}
+                    byId={byId}
+                    working={chat.working.turn_running}
+                    onRestore={(text) => setRestore({ text, n: (restore?.n ?? 0) + 1 })}
+                    onRef={jump}
+                  />
+                ) : (
+                  <Item i={e.item} titles={titles} />
+                )}
+              </AnimatedItem>
+            );
+            // A plain child of the list: never animated in or out.
+            return day ? (
+              [
+                <div
+                  key={`day ${day}`}
+                  role="separator"
+                  className="mt-2 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
+                >
+                  {day}
+                </div>,
+                body,
+              ]
+            ) : (
+              [body]
+            );
+          })}
         </AnimatedList>
         <HrCards agent={agent} />
         {chat.working.turn_running ? (

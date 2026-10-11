@@ -1,10 +1,5 @@
 /* the sidebar carries everything that is not the workspace */
-.rail-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px 4px;
-}
+/* (.rail-top now speaks Tailwind utilities in Sidebar.tsx — the shell's traffic-light row) */
 .rail-nav {
   display: flex;
   flex-wrap: wrap;
@@ -203,14 +198,6 @@ summary::-webkit-details-marker {
   flex: 1;
   min-height: 0;
   height: auto;
-}
-.rail-top {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-1);
-}
-.rail-top .bell {
-  margin-left: auto;
 }
 .rail-nav .nav {
   display: flex;
