@@ -16,3 +16,8 @@ The tests live in `tests/<group>/test_<area>.py` over the shared fixtures in
 many at once) and adds their counts.
 
 Design notes are in `design/` and `docs/`.
+
+Working on the desktop app itself — the page with hot reload, a dev Electron
+instance next to the everyday one, pairing — is in
+[app-dev-loop](app-dev-loop.md); running it for real (phones, Tailscale) in
+[run-on-real-daemon](run-on-real-daemon.md).

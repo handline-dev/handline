@@ -53,6 +53,12 @@ function show(): void {
   win.focus();
 }
 
+/** HANDLINE_DEV_URL: a vite dev server stands in for the built dist, so the page hot-reloads as the sources change (a dev aid). */
+async function pageServer(): Promise<{ url: string; close: () => void }> {
+  const devUrl = env('DEV_URL');
+  return devUrl ? { url: devUrl, close: () => undefined } : serveDir(dist, Number(env('WEB_PORT') ?? (gateway ? 17443 : 17444)));
+}
+
 /** `name.ts.net:port` for the gateway when Tailscale is up and names this machine, else null (the pairing link then carries the address). */
 async function advertised(gateway: string): Promise<string | null> {
   for (const cli of TAILSCALE_CLIS) {
@@ -103,6 +109,10 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
     height: 860,
     title: 'Handline',
     show: false,
+    // No OS title bar; the traffic lights sit over the sidebar (styles/base.css makes room).
+    ...(os.platform() === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 13 } }
+      : {}),
     // The page gets window.handline from the preload and nothing else (docs/electron-bridge.md §2).
     webPreferences: {
       contextIsolation: true,
@@ -126,6 +136,11 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
 // A port for DevTools protocol checks of a run (HANDLINE_DEBUG_PORT=9333).
 if (env('DEBUG_PORT')) app.commandLine.appendSwitch('remote-debugging-port', env('DEBUG_PORT')!);
 
+// HANDLINE_DATA: a data folder of one's own - a dev instance then keeps its settings, its device
+// token and its single-instance lock apart from the everyday app and runs next to it (a dev aid).
+const data = env('DATA');
+if (data) app.setPath('userData', data);
+
 if (!app.requestSingleInstanceLock()) {
   app.quit(); // the first instance gets 'second-instance' and focuses its window
 } else {
@@ -147,7 +162,7 @@ if (!app.requestSingleInstanceLock()) {
       trustFingerprint(remote);
     }
     // The device token, the layouts and the settings are kept per page origin, so the page keeps one port from launch to launch.
-    const web = await serveDir(dist, Number(env('WEB_PORT') ?? (gateway ? 17443 : 17444)));
+    const web = await pageServer();
     const origin = new URL(web.url).origin;
     const page = new Page(origin);
     const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket) });
