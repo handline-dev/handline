@@ -24,7 +24,7 @@ import { PromptSlot } from './PromptCard.tsx';
 import { Compose } from './ChatCompose.tsx';
 import { Item, Message, jumpTo } from './ChatMessages.tsx';
 import { ChatBanner, ChatStrip, HrCards } from './ChatCards.tsx';
-import { Button, Empty, Icon, Segmented, Textarea, ComposeRow } from './ui/index.ts';
+import { Button, Empty, Icon, Segmented, State, Textarea, ComposeRow } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import { useWorkspace } from './Workspace.tsx';
 
@@ -258,7 +258,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         <HrCards agent={agent} />
         {chat.working.turn_running ? (
           <div className="line working flex items-center gap-1.5 self-start text-[12px] text-working" role="status" title={chat.working.line ?? 'Working'}>
-            <Icon name="working" size={14} label={chat.working.line ?? 'Working'} aria-hidden />
+            <State kind="working" size={14} label={chat.working.line ?? 'Working'} />
             <span>{chat.working.line ?? 'Working'}…</span>
           </div>
         ) : null}
