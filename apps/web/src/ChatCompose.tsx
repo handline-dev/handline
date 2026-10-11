@@ -153,7 +153,7 @@ export function Compose(props: {
   return (
     <div className="compose-wrap flex flex-col">
       {target ? (
-        <div className="compose-ref flex items-center gap-1.5 border-t border-t-line border-l-[3px] border-l-primary px-2 py-1 text-[12px]" role="status">
+        <div className="compose-ref mx-3 flex items-center gap-1.5 border-t border-t-line border-l-[3px] border-l-primary px-2 py-1 text-[12px]" role="status">
           <Icon name="reference" size={14} label={`Replying to #${target.id}`} />
           <span className="mono">#{target.id}</span>
           <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>
@@ -164,7 +164,7 @@ export function Compose(props: {
       ) : null}
       {verb && view ? <VerbSheet a={view} verb={verb} onClose={() => setVerb(null)} /> : null}
       {refused ? (
-        <p role="status" className="flex items-center gap-2 px-1 pb-1 text-label text-bad">
+        <p role="status" className="mx-3 flex items-center gap-2 px-1 pb-1 text-label text-bad">
           <Icon name="warn" size={14} aria-hidden /> {refused}
         </p>
       ) : null}
@@ -193,7 +193,7 @@ export function Compose(props: {
         ) : null}
         <Textarea
           ref={box}
-          className="compose flex-1 resize-none"
+          className="compose flex-1 resize-none border-0 bg-transparent px-1.5"
           rows={2}
           value={text}
           disabled={!canSend}
@@ -220,7 +220,7 @@ export function Compose(props: {
         ) : null}
         {canSend ? <EditorButton text={text} onText={set} /> : null}
         <Button
-          className="compose-send"
+          className="compose-send rounded-pill"
           variant="solid"
           icon="send"
           label="Send"

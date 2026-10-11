@@ -53,7 +53,7 @@ function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
       </div>
       <ComposeRow>
         <Textarea
-          className="compose flex-1 resize-none"
+          className="compose flex-1 resize-none border-0 bg-transparent px-1.5"
           rows={2}
           placeholder="Chat is not available from this daemon yet"
           disabled

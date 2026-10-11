@@ -27,7 +27,7 @@ export function NativeSelect({ className, ...rest }: ComponentProps<'select'>) {
   return <select {...rest} className={join(BAR, className)} />;
 }
 
-/** The row under a chat: the message box and its send button. */
+/** The row under a chat: a floating rounded surface holding the message box and its send button. */
 export function ComposeRow({ className, ...rest }: ComponentProps<'div'>) {
-  return <div {...rest} className={join('compose-row relative flex items-end gap-1.5 border-t border-line px-3 py-2.5', className)} />;
+  return <div {...rest} className={join('compose-row relative mx-3 mb-3 flex items-end gap-1.5 rounded-dialog border border-line bg-surface px-2 py-1.5 shadow-[var(--shadow-card)]', className)} />;
 }
