@@ -13,11 +13,15 @@ export function Field({
   note,
   tone,
   unit,
+  className,
   ...rest
-}: { label: string; note?: ReactNode; tone?: 'warn' | 'bad'; unit?: string } & Omit<InputHTMLAttributes<HTMLInputElement>, 'children'>) {
+}: { label: string; note?: ReactNode; tone?: 'warn' | 'bad'; unit?: string; className?: string } & Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  'children' | 'className'
+>) {
   const id = useId();
   return (
-    <div className={FIELD}>
+    <div className={`${FIELD}${className ? ` ${className}` : ''}`}>
       <label htmlFor={id} className={FIELD_LABEL}>
         {label}
       </label>

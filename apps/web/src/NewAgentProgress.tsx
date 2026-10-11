@@ -88,11 +88,11 @@ export function NewAgentProgress({
   if (op.state === 'running')
     return (
       <Dialog title={`Creating ${agent ?? 'the agent'}`} onClose={onClose}>
-        <div className="na-progress" role="status">
+        <div className="na-progress grid gap-4" role="status">
           {op.step ? <p>{op.step}</p> : null}
           {op.steps_total ? (
             <>
-              <progress max={op.steps_total} value={op.steps_done} aria-label="Steps done" />
+              <progress className="w-full" max={op.steps_total} value={op.steps_done} aria-label="Steps done" />
               <p className="muted">
                 step {Math.min(op.steps_done + 1, op.steps_total)} of {op.steps_total}
               </p>
@@ -111,7 +111,7 @@ export function NewAgentProgress({
           {op.message ?? 'Creating the agent failed.'}
         </p>
         {registered && agent ? <p>{agent} is registered, not started.</p> : null}
-        <div className="na-actions">
+        <div className="na-actions mt-5 flex justify-end gap-4">
           {registered && agent ? <Button variant="outline" label="Open agent" onClick={() => (onClose(), goAgent(agent))} /> : null}
           <Button variant="solid" label="Edit and try again" onClick={() => goNew()} />
         </div>
@@ -134,7 +134,7 @@ export function NewAgentProgress({
           <Button variant="outline" label="Retry" disabled={ask.isPending} onClick={send} />
         </>
       ) : null}
-      <div className="na-actions">
+      <div className="na-actions mt-5 flex justify-end gap-4">
         {agent ? <Button variant="solid" label="Open agent" onClick={() => (onClose(), goAgent(agent))} /> : null}
         <Button label="Create another" onClick={onAnother} />
       </div>

@@ -115,9 +115,15 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
           </p>
         ) : null}
         <div className="tform-row grid grid-cols-2 gap-5 max-sm:grid-cols-1">
-          <div className="na-name">
+          <div className="na-name flex min-w-0 items-end gap-2">
             {prefix ? <span className="muted mono">{prefix}</span> : null}
-            <Field label="Name" value={f.name} onChange={(e) => set('name', e.target.value)} note="Plain text: no /, no leading ." />
+            <Field
+              className="flex-1"
+              label="Name"
+              value={f.name}
+              onChange={(e) => set('name', e.target.value)}
+              note="Plain text: no /, no leading ."
+            />
           </div>
           <Field label="Role" list="na-roles" value={f.role} onChange={(e) => set('role', e.target.value)} />
           <datalist id="na-roles">

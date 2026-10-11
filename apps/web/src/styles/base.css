@@ -94,6 +94,9 @@ summary {
 summary::-webkit-details-marker {
   display: none;
 }
+.mono {
+  font-family: var(--mono);
+}
 /* The small transparent icon button, shared by screens outside the rail (Pane, Inbox, ChatMessages, ChatCompose, InboxCard). */
 .icon {
   background: none;
