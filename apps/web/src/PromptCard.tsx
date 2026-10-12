@@ -88,7 +88,13 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
           This prompt changed
         </p>
       ) : null}
-      {p.command ? <CodeBlock cmd scroll>{p.command}</CodeBlock> : <CodeBlock scroll>{p.lines.join('\n')}</CodeBlock>}
+      {p.command ? (
+        <CodeBlock cmd scroll>
+          {p.command}
+        </CodeBlock>
+      ) : (
+        <CodeBlock scroll>{p.lines.join('\n')}</CodeBlock>
+      )}
       {p.reason ? <p className="muted">{p.reason}</p> : null}
       {question || multi ? (
         <ol className="opts m-0 mt-2 grid list-none gap-1.5 p-0">
@@ -99,7 +105,13 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
                   <input type="checkbox" checked={picked.includes(o.key)} disabled={answering} onChange={() => toggle(o.key)} /> {o.label}
                 </label>
               ) : (
-                <Button variant="outline" label={o.label} className="w-full justify-start text-left max-sm:min-h-12" disabled={answering} onClick={() => send(o.key, o.key)}>
+                <Button
+                  variant="outline"
+                  label={o.label}
+                  className="w-full justify-start text-left max-sm:min-h-12"
+                  disabled={answering}
+                  onClick={() => send(o.key, o.key)}
+                >
                   <Kbd>{o.key || i + 1}</Kbd> {mark(o.key, o.label)}
                 </Button>
               )}
@@ -128,7 +140,13 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
       ) : null}
       {multi ? (
         <CardActions>
-          <Button variant="solid" label="Submit" className="max-sm:min-h-12 max-sm:w-full" disabled={answering || !picked.length} onClick={submit}>
+          <Button
+            variant="solid"
+            label="Submit"
+            className="max-sm:min-h-12 max-sm:w-full"
+            disabled={answering || !picked.length}
+            onClick={submit}
+          >
             {mark('submit', 'Submit')}
           </Button>
         </CardActions>
@@ -151,17 +169,35 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
               disabled={answering}
               onChange={(e) => setText(e.target.value)}
             />
-            <Button type="submit" variant="solid" label="Send" className="max-sm:min-h-12 max-sm:w-full" disabled={answering || !text.trim()}>
+            <Button
+              type="submit"
+              variant="solid"
+              label="Send"
+              className="max-sm:min-h-12 max-sm:w-full"
+              disabled={answering || !text.trim()}
+            >
               {mark('text', 'Send')}
             </Button>
           </CardActions>
         ) : (
-          <Button variant="outline" label="Type something" className="w-full justify-start text-left max-sm:min-h-12" disabled={answering} onClick={() => setTyping(true)} />
+          <Button
+            variant="outline"
+            label="Type something"
+            className="w-full justify-start text-left max-sm:min-h-12"
+            disabled={answering}
+            onClick={() => setTyping(true)}
+          />
         )
       ) : null}
       {cancel ? (
         <CardActions>
-          <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:w-full" disabled={answering} onClick={() => send(cancel.key, cancel.key)}>
+          <Button
+            variant="outline"
+            label="Cancel"
+            className="max-sm:min-h-12 max-sm:w-full"
+            disabled={answering}
+            onClick={() => send(cancel.key, cancel.key)}
+          >
             {mark(cancel.key, 'Cancel')} <Kbd>esc</Kbd>
           </Button>
         </CardActions>

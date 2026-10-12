@@ -1,5 +1,6 @@
 // The ⌘K palette (G14): one box for agents, tasks by number or title, the pages and a few actions. Arrows move, Enter goes, Escape closes.
 import { useMemo, useState } from 'react';
+import { taskRef } from '@handline/app-core';
 import { useAgents, useTasks } from '@handline/app-data';
 import { goAgent, goInbox, goTasks, goTeam } from './route.ts';
 import { Backdrop, Icon, PROW, PROW_HINT, PROW_NAME, type IconName } from './ui/index.ts';
@@ -33,7 +34,13 @@ export function Palette({ onClose }: { onClose: () => void }) {
     const all: Hit[] = [
       ...PAGES.map(([label, icon, run]): Hit => ({ key: `p:${label}`, icon, label, hint: 'page', run })),
       ...agents.map((a): Hit => ({ key: `a:${a.name}`, icon: 'agent', label: a.name, hint: a.state, run: () => goAgent(a.name) })),
-      ...tasks.map((t): Hit => ({ key: `t:${t.id}`, icon: 'tasks', label: `T${t.id} ${t.title}`, hint: t.to, run: () => goTasks(t.id) })),
+      ...tasks.map((t): Hit => ({
+        key: `t:${t.id}`,
+        icon: 'tasks',
+        label: `${taskRef(t.id)} ${t.title}`,
+        hint: t.to,
+        run: () => goTasks(t.id),
+      })),
     ];
     return (needle ? all.filter((h) => h.label.toLowerCase().includes(needle)) : all.filter((h) => h.key.startsWith('p:'))).slice(0, 12);
   }, [q, agentData, taskData]);

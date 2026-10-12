@@ -26,7 +26,11 @@ export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: s
     setDragging(null);
   };
   return (
-    <div className="wt-board grid auto-cols-[minmax(200px,1fr)] grid-flow-col items-start gap-3 overflow-x-auto" role="group" aria-label="Worktree board">
+    <div
+      className="wt-board grid auto-cols-[minmax(200px,1fr)] grid-flow-col items-start gap-3 overflow-x-auto"
+      role="group"
+      aria-label="Worktree board"
+    >
       {columns.map((col) => {
         const cards = rows.filter((w) => (col === 'other' ? !known(w) : w.status === col));
         return (
@@ -90,7 +94,11 @@ export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: s
                     </Button>
                   ) : null}
                   {menu === w.path ? (
-                    <div className="wt-menu grid gap-1 rounded-card border border-line-strong bg-surface p-1.5" role="menu" aria-label="Move to">
+                    <div
+                      className="wt-menu grid gap-1 rounded-card border border-line-strong bg-surface p-1.5"
+                      role="menu"
+                      aria-label="Move to"
+                    >
                       {STATUSES.filter((s) => s !== w.status).map((s) => (
                         <button
                           key={s}

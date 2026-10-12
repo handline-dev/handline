@@ -49,7 +49,12 @@ export function SettingsView({ agent }: { agent: string }) {
   return (
     <section className="settings mx-auto h-full w-full overflow-auto px-4 pt-4 pb-6" aria-label={`${agent} settings`}>
       <header className="settings-head settings-agent mx-auto flex max-w-[var(--w-form)] flex-wrap items-center gap-x-3 gap-y-1">
-        <Button className="back self-end mb-4 [&_svg]:rotate-180" icon="chevronRight" label={`Back to ${agent}`} onClick={() => goAgent(agent)}>
+        <Button
+          className="back self-end mb-4 [&_svg]:rotate-180"
+          icon="chevronRight"
+          label={`Back to ${agent}`}
+          onClick={() => goAgent(agent)}
+        >
           {agent}
         </Button>
         <h2 className="m-0 text-page font-semibold text-ink">Settings</h2>

@@ -16,6 +16,7 @@ import {
   type GroupBy,
   type KV,
   type StopMode,
+  taskRef,
 } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
@@ -248,7 +249,9 @@ function Row({ agent: a, depth, team, selected }: { agent: AgentView; depth: num
   const cache = cacheLeft(a.cache_until, now);
   const ctx = ctxOf(a);
   const badges = badgesOf(a, store.me).filter((b) => b.kind !== 'no_terminal'); // the mark already says it
-  const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `T${a.task.id} ${a.task.title}` : ''].filter(Boolean).join(' · ');
+  const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
+    .filter(Boolean)
+    .join(' · ');
   // The left edge: the waiting hue outranks the selection.
   const edge = dot === 'waiting' ? 'border-l-wait' : selected ? 'border-l-primary' : 'border-l-transparent';
   return (
@@ -268,7 +271,7 @@ function Row({ agent: a, depth, team, selected }: { agent: AgentView; depth: num
           <Badges badges={badges} />
           {a.task ? (
             <span className="task-ref flex-none text-hint text-ink-2" title={a.task.title}>
-              T{a.task.id}
+              {taskRef(a.task.id)}
             </span>
           ) : null}
           {ctx !== null ? <Meter pct={ctx} label="context used" /> : null}

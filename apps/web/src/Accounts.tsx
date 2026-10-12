@@ -36,7 +36,10 @@ export function StateChip({ account, now }: { account: Account; now: number }) {
   return (
     <span className="acct-state-wrap inline-flex items-center gap-1.5">
       <Icon name={STATE_ICON[state]} size={14} label={STATE_WORD[state]} />
-      <span className={`badge acct-state ${state} mr-1.5 inline-block rounded-card border border-line px-1.5 text-hint text-ink-2 ${STATE_TONE}`} data-state={state}>
+      <span
+        className={`badge acct-state ${state} mr-1.5 inline-block rounded-card border border-line px-1.5 text-hint text-ink-2 ${STATE_TONE}`}
+        data-state={state}
+      >
         {state === 'out' && until ? `out until ${span(Date.parse(until) - now)} from now` : STATE_WORD[state]}
       </span>
     </span>
@@ -73,7 +76,10 @@ function Row({ account, now }: { account: Account; now: number }) {
       <StateChip account={account} now={now} />
       <Gauge label="5 h" window={account.five_hour} now={now} />
       <Gauge label="week" window={account.weekly} now={now} />
-      <span className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2" title={`Agents on it, and its cap: ${agentsLine(account)}`}>
+      <span
+        className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2"
+        title={`Agents on it, and its cap: ${agentsLine(account)}`}
+      >
         <Icon name="agent" size={14} label="Agents" />
         {account.agents.length}/{account.cap_effective}
       </span>

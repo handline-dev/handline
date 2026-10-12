@@ -40,9 +40,18 @@ export function Gauge(props: { label: keyof typeof SPANS; window: Window | null;
   return (
     <div className={GAUGE} data-gauge={label} data-tone={g.tone} title={reset}>
       <span className={LABEL}>{label}</span>
-      <span className="gauge-bar relative h-2 overflow-hidden rounded-chip bg-raised" role="meter" aria-label={`${label} usage`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={g.pct}>
+      <span
+        className="gauge-bar relative h-2 overflow-hidden rounded-chip bg-raised"
+        role="meter"
+        aria-label={`${label} usage`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={g.pct}
+      >
         <span className={`gauge-fill block h-full ${FILL[g.tone]}`} style={{ width: `${g.pct}%` }} />
-        {g.through !== null ? <span className="gauge-tick absolute inset-y-0 w-0.5 bg-ink opacity-60" style={{ left: `${g.through}%` }} aria-hidden /> : null}
+        {g.through !== null ? (
+          <span className="gauge-tick absolute inset-y-0 w-0.5 bg-ink opacity-60" style={{ left: `${g.through}%` }} aria-hidden />
+        ) : null}
       </span>
       <span className="gauge-pct text-right font-mono text-label tabular-nums">{g.pct}%</span>
       <span className="gauge-glyph inline-flex text-bad">

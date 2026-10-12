@@ -11,6 +11,7 @@ import {
   type KV,
   type TaskColumn,
   type TaskFilter,
+  taskRef,
 } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useStore } from '@handline/app-react';
@@ -36,7 +37,7 @@ type Open = null | 'discard' | 'owner' | 'priority' | 'merge' | 'states' | 'keys
 const matches = (query: string) => {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   return (t: Task) => {
-    const hay = `T${t.id} ${t.title} ${t.to} ${t.from}`.toLowerCase();
+    const hay = `${taskRef(t.id)} ${t.title} ${t.to} ${t.from}`.toLowerCase();
     return words.every((w) => hay.includes(w));
   };
 };
@@ -186,8 +187,14 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
 
   const listBody = (
     <>
-      <div className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface max-sm:bg-transparent max-sm:border-0" aria-busy={q.isFetching && !q.data}>
-        <table className={`ttable w-full table-fixed border-collapse max-sm:block${selecting || marked.size ? ' selecting' : ''}`} aria-label="Tasks">
+      <div
+        className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface max-sm:bg-transparent max-sm:border-0"
+        aria-busy={q.isFetching && !q.data}
+      >
+        <table
+          className={`ttable w-full table-fixed border-collapse max-sm:block${selecting || marked.size ? ' selecting' : ''}`}
+          aria-label="Tasks"
+        >
           <TableHead
             tree={mode === 'tree'}
             sort={sort}
@@ -200,9 +207,21 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
             <AnimatedList>
               {mode === 'tree'
                 ? tree.map(({ task: t, depth, dim }) => (
-                    <Row key={t.id} rows={tree.length} t={t} now={now} tree depth={depth} dim={dim} markCell={selecting || marked.size > 0} {...rowProps(t)} />
+                    <Row
+                      key={t.id}
+                      rows={tree.length}
+                      t={t}
+                      now={now}
+                      tree
+                      depth={depth}
+                      dim={dim}
+                      markCell={selecting || marked.size > 0}
+                      {...rowProps(t)}
+                    />
                   ))
-                : rows.map((t) => <Row key={t.id} rows={rows.length} t={t} now={now} markCell={selecting || marked.size > 0} {...rowProps(t)} />)}
+                : rows.map((t) => (
+                    <Row key={t.id} rows={rows.length} t={t} now={now} markCell={selecting || marked.size > 0} {...rowProps(t)} />
+                  ))}
             </AnimatedList>
           </tbody>
         </table>
@@ -219,12 +238,12 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
       {open === 'priority' ? <PrioritySheet onCancel={shut} onPick={setPriority} /> : null}
       {open === 'merge' ? (
         <Sheet
-          label={`fold ${[...marked].filter((t) => t !== cursor).length} into T${cursor}?`}
+          label={`fold ${[...marked].filter((t) => t !== cursor).length} into ${taskRef(cursor!)}?`}
           submit="Fold"
           onCancel={shut}
           onSubmit={doMerge}
         >
-          <span className="muted">The folded tasks close; T{cursor} keeps going.</span>
+          <span className="muted">The folded tasks close; {taskRef(cursor!)} keeps going.</span>
         </Sheet>
       ) : null}
       {open === 'keys' ? <KeysSheet onClose={shut} /> : null}
@@ -291,9 +310,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
             ) : (
               <>
                 <p>No tasks in these states.</p>
-                {scope !== 'closed' ? (
-                  <Button variant="outline" size="sm" label="Show closed" onClick={() => setScope('closed')} />
-                ) : null}
+                {scope !== 'closed' ? <Button variant="outline" size="sm" label="Show closed" onClick={() => setScope('closed')} /> : null}
               </>
             )}
           </div>

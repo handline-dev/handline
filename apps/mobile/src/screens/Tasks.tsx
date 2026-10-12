@@ -3,7 +3,7 @@
 // chips narrow the list as on the web.
 import { useState } from 'react';
 import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
-import { ago, CLOSED, defaultFilter, idleText, shown, sortTasks, TASK_STATES, timeoutText } from '@handline/app-core';
+import { ago, CLOSED, defaultFilter, idleText, shown, sortTasks, TASK_STATES, timeoutText, taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
@@ -138,7 +138,7 @@ function Row(props: { t: Task; onPress: () => void }) {
         {t.title}
       </Text>
       <Text style={{ color: c.muted, fontSize: 12 }}>
-        {[`T${t.id}`, t.state, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, idleText(t, now) || ago(t.created)]
+        {[`${taskRef(t.id)}`, t.state, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, idleText(t, now) || ago(t.created)]
           .filter(Boolean)
           .join(' · ')}
       </Text>
@@ -159,7 +159,13 @@ function Detail(props: { id: number; onBack: () => void }) {
           This task no longer exists.
         </Text>
       ) : (
-        <Loadable query={query} served={served} skeleton="taskDetail" label={`task T${props.id}`} empty="This task no longer exists.">
+        <Loadable
+          query={query}
+          served={served}
+          skeleton="taskDetail"
+          label={`task ${taskRef(props.id)}`}
+          empty="This task no longer exists."
+        >
           {query.data ? <Body t={query.data} /> : null}
         </Loadable>
       )}
@@ -191,7 +197,9 @@ function Body({ t }: { t: TaskDetail }) {
     <ScrollView testID="task-detail" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
       <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>{t.title}</Text>
       <Text style={{ color: c.muted }}>
-        {[`T${t.id}`, t.state, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, timeoutText(t, now)].filter(Boolean).join(' · ')}
+        {[`${taskRef(t.id)}`, t.state, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, timeoutText(t, now)]
+          .filter(Boolean)
+          .join(' · ')}
       </Text>
       {sending && (
         <Text testID="task-sending" style={{ color: c.muted }}>
@@ -203,9 +211,9 @@ function Body({ t }: { t: TaskDetail }) {
       {t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
       {t.body ? <Section title="Brief">{line(t.body)}</Section> : null}
       {t.blockers.length ? (
-        <Section title="Waits on">{t.blockers.map((b) => line(`T${b.task} ${b.title} (${b.owner}): ${b.reason}`))}</Section>
+        <Section title="Waits on">{t.blockers.map((b) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`))}</Section>
       ) : null}
-      {t.children.length ? <Section title="Subtasks">{t.children.map((k) => line(`T${k}`))}</Section> : null}
+      {t.children.length ? <Section title="Subtasks">{t.children.map((k) => line(`${taskRef(k)}`))}</Section> : null}
       {t.evidence ? <Section title="Evidence">{line(t.evidence)}</Section> : null}
       {t.deliveries.length ? (
         <Section title="Delivery">{t.deliveries.map((d) => line(`${ago(d.at)} · ${d.how} · ${d.outcome}`))}</Section>

@@ -1,6 +1,6 @@
 // The Team page: two tabs, Team (who is who, and who may ask whom) and HR (the proposals that wait for the founder).
 import { useState } from 'react';
-import { waitingCount } from '@handline/app-core';
+import { waitingCount, taskRef } from '@handline/app-core';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useAgents, useHr, useServes, useTeam } from '@handline/app-data';
 import { HrTab } from './HrTab.tsx';
@@ -162,7 +162,7 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
       ) : null}
       {d?.task ? (
         <p className="team-task m-0 flex flex-wrap items-center gap-1 text-label text-ink-2" title="Doing">
-          <Icon name="tasks" label="Doing" size={14} aria-hidden="true" /> T{d.task.id} {d.task.title}
+          <Icon name="tasks" label="Doing" size={14} aria-hidden="true" /> {taskRef(d.task.id)} {d.task.title}
         </p>
       ) : null}
       {props.open ? (

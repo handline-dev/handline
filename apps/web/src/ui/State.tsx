@@ -75,11 +75,7 @@ export function State({ kind, label, word, size = 16 }: { kind: StateKind; label
   const text = label ?? g.label;
   const hue = HUE[kind];
   return (
-    <span
-      className={`ui-state inline-flex items-center gap-1.5 align-middle${hue ? ` ${hue}` : ''}`}
-      data-state={kind}
-      title={text}
-    >
+    <span className={`ui-state inline-flex items-center gap-1.5 align-middle${hue ? ` ${hue}` : ''}`} data-state={kind} title={text}>
       {kind === 'noTerminal' ? (
         <span className="ui-state-slash relative inline-flex">
           <Icon name={g.icon} size={size} label={text} />

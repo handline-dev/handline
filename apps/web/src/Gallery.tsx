@@ -1,6 +1,23 @@
 // Every primitive of ui/* and every token on one page (gallery.html in dev): what a screen builder looks at before drawing anything of their own.
 import { useState, type ReactNode } from 'react';
-import { Button, Card, CardWhat, CodeBlock, Dialog, Empty, Field, Icon, Page, Popup, PopupRow, Segmented, Select, State, Switch, type StateKind } from './ui/index.ts';
+import {
+  Button,
+  Card,
+  CardWhat,
+  CodeBlock,
+  Dialog,
+  Empty,
+  Field,
+  Icon,
+  Page,
+  Popup,
+  PopupRow,
+  Segmented,
+  Select,
+  State,
+  Switch,
+  type StateKind,
+} from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 
 const STATES: StateKind[] = ['working', 'booting', 'needs', 'blocked', 'idle', 'done', 'noTerminal'];
@@ -95,7 +112,8 @@ export function Tokens() {
 function Chat() {
   const meta = (
     <div className={MSG_META}>
-      <span className="mono">#3053</span>{/* local-ref-ok: a made-up number for the stamp example */}
+      <span className="mono">#3053</span>
+      {/* local-ref-ok: a made-up number for the stamp example */}
       <Icon name="delivered" size={13} label="Confirmed by the agent" />
     </div>
   );
@@ -115,9 +133,7 @@ function Chat() {
             {meta}
           </span>
           <span className={bubbleClass('other')}>
-            <div className={MSG_FROM}>
-              frontend → backend
-            </div>
+            <div className={MSG_FROM}>frontend → backend</div>
             <div className={MSG_BODY}>the login page is yours again, I moved my card over</div>
             {meta}
           </span>

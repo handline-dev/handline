@@ -25,11 +25,7 @@ export function OwnerSheet({ agents, onCancel, onPick }: { agents: string[]; onC
   const [owner, setOwner] = useState('');
   return (
     <Sheet label="new owner (agent name):" submit="Change owner" onCancel={onCancel} onSubmit={() => owner && onPick(owner)}>
-      <NativeSelect
-        value={owner}
-        aria-label="New owner"
-        onChange={(e) => setOwner(e.target.value)}
-      >
+      <NativeSelect value={owner} aria-label="New owner" onChange={(e) => setOwner(e.target.value)}>
         <option value="">pick an agent</option>
         {agents.map((a) => (
           <option key={a}>{a}</option>

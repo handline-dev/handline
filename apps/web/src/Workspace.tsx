@@ -116,7 +116,12 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   const active = groupsOf(ws.root).find((g) => g.id === ws.active) ?? groupsOf(ws.root)[0]!;
   return (
     <Ctx.Provider value={value}>
-      <div className="workspace relative flex min-h-0 min-w-0 flex-1" ref={root} data-panes={groupsOf(ws.root).length} data-merged={arr.merged}>
+      <div
+        className="workspace relative flex min-h-0 min-w-0 flex-1"
+        ref={root}
+        data-panes={groupsOf(ws.root).length}
+        data-merged={arr.merged}
+      >
         {arr.merged ? (
           <Pane group={{ type: 'group', id: active.id, tabs: arr.tabs, activeTab: arr.activeTab }} />
         ) : (

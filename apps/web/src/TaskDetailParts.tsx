@@ -1,6 +1,6 @@
 // The task detail's presentational parts: the meta grid, one verb button, the link and timeline sections, and the two small sheets.
 import { useState } from 'react';
-import { timeoutText } from '@handline/app-core';
+import { timeoutText, taskRef } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { useWrite } from '@handline/app-data';
 import { Icon, type IconName } from './ui/Icon.tsx';
@@ -29,7 +29,7 @@ export function TaskMeta({ t, now }: { t: Detail; now: number }) {
           label="Under"
           value={
             <a href={`#/tasks/${t.parent}`} className="mono">
-              T{t.parent}
+              {taskRef(t.parent)}
             </a>
           }
         />
@@ -38,7 +38,14 @@ export function TaskMeta({ t, now }: { t: Detail; now: number }) {
   );
 }
 
-export function Verb(props: { k: string; icon: IconName; label: string; can: { ok: boolean; why?: string }; onClick: () => void; busy?: boolean }) {
+export function Verb(props: {
+  k: string;
+  icon: IconName;
+  label: string;
+  can: { ok: boolean; why?: string };
+  onClick: () => void;
+  busy?: boolean;
+}) {
   return (
     <Button
       icon={props.busy ? undefined : props.icon}
@@ -66,7 +73,7 @@ export function TaskLinks({ icon, label, items }: { icon: IconName; label: strin
         {items.map((b) => (
           <li key={b.task} className={LI}>
             <a href={`#/tasks/${b.task}`} className="mono text-inherit no-underline hover:underline">
-              T{b.task}
+              {taskRef(b.task)}
             </a>{' '}
             {b.reason !== undefined ? <span className="muted">{b.reason}</span> : null}
           </li>
@@ -100,7 +107,7 @@ export function CancelSheet(props: { running: boolean; id: number; onCancel: () 
   const [reason, setReason] = useState('');
   return (
     <Sheet
-      label={props.running ? `stop T${props.id}? why (optional):` : `cancel T${props.id}? why (optional):`}
+      label={props.running ? `stop ${taskRef(props.id)}? why (optional):` : `cancel ${taskRef(props.id)}? why (optional):`}
       submit={props.running ? 'Stop it' : 'Cancel task'}
       onCancel={props.onCancel}
       onSubmit={() => props.onSubmit(reason.trim() || undefined)}
@@ -129,7 +136,7 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
     edit.mutate({ task: t.id, ...change }, { onSuccess: onClose });
   };
   return (
-    <Sheet label={`Edit T${t.id}`} submit="Save" onCancel={onClose} onSubmit={save} busy={edit.isPending}>
+    <Sheet label={`Edit ${taskRef(t.id)}`} submit="Save" onCancel={onClose} onSubmit={save} busy={edit.isPending}>
       <div className="tform grid gap-5">
         <label>
           Title
