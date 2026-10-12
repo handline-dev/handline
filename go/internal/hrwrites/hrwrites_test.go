@@ -308,3 +308,65 @@ func TestContextScheduleGlobalAndSettingsAreAppliedAsProposed(t *testing.T) {
 		t.Fatalf("%v\n%s", res, r.file("agents", "alice", "agent.yaml"))
 	}
 }
+
+func TestAgentSetTakesEveryFieldOfTheContractForTheFounder(t *testing.T) {
+	r := newRig(t)
+	for _, c := range []struct{ key, val, want string }{
+		{"model", "opus", "model: opus"},
+		{"effort", "high", "effort: high"},
+		{"weight", "heavy", "weight: heavy"},
+		{"skip_permissions", "on", "skip_permissions"},
+		{"browser", "chrome", "chrome: true"},
+		{"context_k", "120", "120"},
+		{"idle_close", "30", "park_timeout_s: 1800"},
+		{"handoff_note", "off", "handoff_note"},
+		{"sandbox", "on", "sandbox"},
+		{"mode", "plan", "plan"},
+	} {
+		res := r.call("agent.set", fmt.Sprintf(`{"agent":"alice","values":{%q:%q},"request_id":"as-%s"}`, c.key, c.val, c.key))
+		if got, _ := res["result"].(map[string]any); got["accepted"] != true {
+			t.Fatalf("%s=%s: %v", c.key, c.val, res)
+		}
+		if all := r.file("agents", "alice", "agent.yaml") + r.file("team.yaml"); !strings.Contains(all, c.want) {
+			t.Errorf("%s=%s not written (wanted %q):\n%s", c.key, c.val, c.want, all)
+		}
+	}
+	res := r.call("agent.set", `{"agent":"alice","values":{"browser":"playwright","browser_sites":"https://a.example https://b.example"},"request_id":"as-sites"}`)
+	if res["result"] == nil || !strings.Contains(r.file("agents", "alice", "agent.yaml")+r.file("agents", "alice", "mcp.json"), "b.example") {
+		t.Fatalf("sites: %v", res)
+	}
+	res = r.call("agent.set", `{"agent":"bob","values":{"effort":"low","context_k":"90"},"request_id":"as-two"}`)
+	if res["result"] == nil || !strings.Contains(r.file("agents", "bob", "agent.yaml"), "effort: low") {
+		t.Fatalf("%v\n%s", res, r.file("agents", "bob", "agent.yaml"))
+	}
+}
+
+func TestAgentSetRefusesWhatCannotBeSaved(t *testing.T) {
+	r := newRig(t)
+	for name, params := range map[string]string{
+		"a bad value":    `{"agent":"alice","values":{"effort":"extreme"},"request_id":"b1"}`,
+		"an unknown key": `{"agent":"alice","values":{"nope":"x"},"request_id":"b2"}`,
+		"no agent":       `{"agent":"ghost","values":{"effort":"high"},"request_id":"b3"}`,
+	} {
+		if res := r.call("agent.set", params); res["error"] == nil {
+			t.Errorf("%s was saved: %v", name, res)
+		}
+	}
+	for name, params := range map[string]string{
+		"no values":     `{"agent":"alice","values":{},"request_id":"b4"}`,
+		"a number":      `{"agent":"alice","values":{"context_k":150},"request_id":"b5"}`,
+		"a missing one": `{"values":{"effort":"high"},"request_id":"b6"}`,
+	} {
+		res := r.call("agent.set", params)
+		if e, _ := res["error"].(map[string]any); e == nil || e["code"] == nil {
+			t.Errorf("%s: %v", name, res)
+		}
+	}
+}
+
+func TestAgentSetLeavesTheCustomBrowserToATerminal(t *testing.T) {
+	r := newRig(t)
+	if res := r.call("agent.set", `{"agent":"alice","values":{"browser":"custom"},"request_id":"c1"}`); res["error"] == nil {
+		t.Fatalf("custom was saved: %v", res)
+	}
+}
