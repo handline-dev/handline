@@ -335,7 +335,7 @@ function TaskLine({ i, titles }: { i: TranscriptItem; titles?: Map<number, strin
   );
 }
 
-/** The task board's news of a task (`T12 done by x`) as the same card a task event has, not a bubble from someone. */
+/** The task board's news of a task (`T<N> done by x`) as the same card a task event has, not a bubble from someone. */
 export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; titles?: Map<number, string> }) {
   const { apply } = useWorkspace();
   const [, verb, rest] = /^T\d+\s+(\S+)\s*(.*)$/s.exec(m.body) ?? [];

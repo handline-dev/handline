@@ -517,7 +517,7 @@ describe('the detail', () => {
     await mount('#/tasks/1688', s);
     await until(() => button('Assign', $('.tverbs') ?? box), 'Assign');
     await click(button('Assign', $('.tverbs')!)!);
-    const ask = sheet('Assign T1688 to…')!;
+    const ask = sheet('Assign T1688 to…')!; // local-ref-ok
     expect($('section[aria-label="Worked on this task"]', ask)).not.toBeNull();
     await click(button('handline.architect', ask)!);
     await typeInto($('textarea', ask) as HTMLTextAreaElement, 'please take it');

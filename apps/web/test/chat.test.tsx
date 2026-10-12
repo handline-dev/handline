@@ -397,13 +397,13 @@ describe('the bridge items: send now, take back, message numbers, new, menus, se
 
   it("the task board's news is a task card, and its delivery notice is not in the agent's own chat; neither is a bubble", async () => {
     const s = setup();
-    s.daemon.chat.seed(ARCH, { from: 'task-board', to: ARCH, body: 'T3492 done by handline.pair: -' });
-    s.daemon.chat.seed(ARCH, { from: 'task-board', to: ARCH, body: '#28387 to handline.pair was written to its session' });
+    s.daemon.chat.seed(ARCH, { from: 'task-board', to: ARCH, body: 'T3492 done by handline.pair: -' }); // local-ref-ok
+    s.daemon.chat.seed(ARCH, { from: 'task-board', to: ARCH, body: '#28387 to handline.pair was written to its session' }); // local-ref-ok
     await mount(ARCH, s);
     await until(() => msg('Which gap list'), 'history');
-    expect($$('[data-kind="task_event"]').some((c) => text(c).includes('T3492') && text(c).includes('by handline.pair'))).toBe(true);
-    expect(msg('T3492 done by')).toBeUndefined();
-    expect(msg('#28387 to handline.pair')).toBeUndefined();
+    expect($$('[data-kind="task_event"]').some((c) => text(c).includes('T3492') && text(c).includes('by handline.pair'))).toBe(true); // local-ref-ok
+    expect(msg('T3492 done by')).toBeUndefined(); // local-ref-ok
+    expect(msg('#28387 to handline.pair')).toBeUndefined(); // local-ref-ok
   });
 
   it('Send now shows on a queued message only while the agent is working, and types it at once', async () => {

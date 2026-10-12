@@ -142,8 +142,8 @@ test('a message can be taken back until it is answered, and the agent is asked f
 });
 
 test("the task board's words are task cards or hidden notices, in the agent's own chat and in the All view", () => {
-  const news = pm({ id: 7, from: 'task-board', to: A, body: 'T3492 done by handline.pair: -' });
-  const delivery = pm({ id: 8, from: 'task-board', to: A, body: '#28387 to handline.pair was written to its session' });
+  const news = pm({ id: 7, from: 'task-board', to: A, body: 'T3492 done by handline.pair: -' }); // local-ref-ok
+  const delivery = pm({ id: 8, from: 'task-board', to: A, body: '#28387 to handline.pair was written to its session' }); // local-ref-ok
   assert.deepEqual(noticeOf(news), { kind: 'task', task: 3492 });
   assert.deepEqual(noticeOf(delivery), { kind: 'delivery' });
   assert.equal(noticeOf(pm({ from: 'human', body: 'T1 done by me' })), null);

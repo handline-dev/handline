@@ -4,13 +4,13 @@ import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
 
 export type TimelineEntry =
   | { kind: 'message'; at: string; id: number; message: ChatMessage }
-  /** The task board's word about a task (`T12 done by x: ...`), drawn as a task card, not a bubble. */
+  /** The task board's word about a task (`T<N> done by x: ...`), drawn as a task card, not a bubble. */
   | { kind: 'note'; at: string; id: number; message: ChatMessage; task: number }
   | { kind: 'item'; at: string; id: number; item: TranscriptItem };
 
 /** The sender of the daemon's own notices; its words are never the person's. */
 export const NOTICE_SENDER = 'task-board';
-/** What a task-board message is: a task's news (`T12 done by ...`), or a delivery notice (`#7 to x was written ...`) that only concerns the sender. */
+/** What a task-board message is: a task's news (`T<N> done by ...`), or a delivery notice (`#<N> to x was written ...`) that only concerns the sender. */
 export function noticeOf(m: ChatMessage): { kind: 'task'; task: number } | { kind: 'delivery' } | null {
   if (m.from !== NOTICE_SENDER) return null;
   const task = /^T(\d+)\s/.exec(m.body);
