@@ -1,4 +1,4 @@
-// The Tasks tab of an agent's workspace: the tasks this agent holds, newest first, open ones above the closed; a click opens the task in
+// The Tasks tab of an agent's workspace: the tasks this agent holds or opened, overdue first, then open ones, then the closed; a click opens the task in
 // the same pane (the task detail of the Tasks page) and Back returns to the list.
 import { useMemo } from 'react';
 import { agentTasks, dueOf, openTask, type RowVerb } from '@handline/app-core';
@@ -18,11 +18,18 @@ import { useWorkspace } from './Workspace.tsx';
 const CLOSED = ['done', 'discarded'];
 
 export function TasksTab({ agent, task = null }: { agent: string; task?: number | null }) {
-  // Two reads, not one filtered here: the daemon pages `tasks.list` (50 newest by default), so a client-side filter of the first page lost
-  // an agent's older tasks, and the tasks it opened for others were never asked for.
+  // Two reads (not a client filter of one page): the daemon pages tasks.list and filters by owner or by opener.
   const held = useTasks({ all: true, owner: agent, limit: 200 });
   const opened = useTasks({ all: true, from: agent, limit: 200 });
-  const q = held.data ? held : opened;
+  const q = {
+    isPending: held.isPending || opened.isPending,
+    isFetching: held.isFetching || opened.isFetching,
+    isError: held.isError || opened.isError,
+    data: held.data && opened.data ? [held.data, opened.data] : undefined,
+    error: held.error ?? opened.error,
+    refetch: () => Promise.all([held.refetch(), opened.refetch()]),
+  };
+  const capped = !!(held.data?.more || opened.data?.more);
   const now = useNow();
   const { served } = useServes('tasks.list');
   const { apply } = useWorkspace();
@@ -48,6 +55,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
   return (
     <section className="tasks-tab h-full overflow-auto p-2" aria-label={`Tasks of ${agent}`}>
       <View q={q} served={served} shape="tasks" what="the tasks" empty={!mine.length && `${agent} holds and has opened no tasks.`}>
+        {capped ? <p className="muted pad">Showing the newest 200 on each side; older tasks are not listed.</p> : null}
         <ul className="tasks-tab-list m-0 flex list-none flex-col gap-1 p-0">
           {rows.map(({ task: t, role }) => {
             const due = dueOf(t, now);
