@@ -58,7 +58,7 @@ test('settled turns an accepted approve whose apply failed into a failed row wit
 });
 
 test('raised keeps open proposals only, newest first, and counts those that did not fit', () => {
-  const at = (n: number) => `2026-01-0${n}T00:00:00Z`;
+  const at = (n: number) => new Date(Date.UTC(2026, 0, n)).toISOString();
   const l = [
     p(1, { created: at(1) }),
     p(2, { created: at(2) }),

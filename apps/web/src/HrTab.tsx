@@ -167,7 +167,7 @@ export function HrTab({ focus }: { focus: number | null }) {
               {results.rows.filter((r) => r.ok).length} of {results.rows.length} {results.verb}
             </strong>
             {results.rows.map((r) => (
-              <div key={r.id} className={r.ok ? 'text-bad' : ''}>
+              <div key={r.id} className={r.ok ? '' : 'text-bad'}>
                 {r.ok ? '✓' : '✗'} {textSafe(r.title)}
                 {r.error ? ` - ${r.error}` : ''}
               </div>
