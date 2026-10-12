@@ -2,7 +2,9 @@ package hrwrites
 
 import (
 	"database/sql"
+	"slices"
 
+	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -15,6 +17,11 @@ func (e *Env) agentSetMethod(c *rpc.Conn, params map[string]any) (any, error) {
 	agent, _ := params["agent"].(string)
 	if agent == "" {
 		return nil, bad("agent is an agent's name", "agent")
+	}
+	if !slices.Contains(paths.ListAgents(e.Home), agent) {
+		err := rpc.NotFoundError("no such agent: " + agent)
+		err.Data = map[string]any{"what": "agent", "name": agent}
+		return nil, err
 	}
 	raw, isMap := params["values"].(map[string]any)
 	if !isMap || len(raw) == 0 {

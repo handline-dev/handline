@@ -81,6 +81,10 @@ func newRig(t *testing.T) *rig {
 }
 
 func (r *rig) call(method, params string) map[string]any {
+	return r.callHello(`{"client":"t","protocol":1,"key":"founder"}`, method, params)
+}
+
+func (r *rig) callHello(hello, method, params string) map[string]any {
 	r.t.Helper()
 	cl, sv := net.Pipe()
 	done := make(chan struct{})
@@ -89,7 +93,7 @@ func (r *rig) call(method, params string) map[string]any {
 	rd := bufio.NewReader(cl)
 	cl.SetDeadline(time.Now().Add(20 * time.Second))
 	var m map[string]any
-	for _, line := range []string{`{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"t","protocol":1,"key":"founder"}}`,
+	for _, line := range []string{fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"hello","params":%s}`, hello),
 		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":%q,"params":%s}`, method, params)} {
 		cl.Write([]byte(line + "\n"))
 		b, err := rd.ReadBytes('\n')
@@ -383,5 +387,101 @@ func TestAgentSetIsRefusedToAPairedDevice(t *testing.T) {
 	}
 	if r.file("agents", "alice", "agent.yaml") != before {
 		t.Fatal("a refused device changed the agent")
+	}
+}
+
+type agentAuth struct{ name string }
+
+func (a agentAuth) AgentOf(int) string     { return a.name }
+func (agentAuth) FounderKeyOK(string) bool { return false }
+
+// callAs is call from the session of agent: its hello carries no key.
+func (r *rig) callAs(agent, method, params string) map[string]any {
+	r.t.Helper()
+	was := r.srv
+	defer func() { r.srv = was }()
+	s := rpc.NewServer(agentAuth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
+	s.DB = r.db
+	Register(s, r.e)
+	r.srv = s
+	return r.callHello(`{"client":"t","protocol":1}`, method, params)
+}
+
+func errOf(t *testing.T, res map[string]any) map[string]any {
+	t.Helper()
+	e, _ := res["error"].(map[string]any)
+	if e == nil {
+		t.Fatalf("not refused: %v", res)
+	}
+	d, _ := e["data"].(map[string]any)
+	return d
+}
+
+func TestAnAgentSetsTheOrdinaryKeysOfItselfAndNothingElse(t *testing.T) {
+	r := newRig(t)
+	set := func(agent string, values string, rid string) map[string]any {
+		return r.callAs("alice", "agent.set", fmt.Sprintf(`{"agent":%q,"values":%s,"request_id":%q}`, agent, values, rid))
+	}
+	if res := set("alice", `{"effort":"high","context_k":"120"}`, "ag1"); res["result"] == nil {
+		t.Fatalf("an agent's own ordinary keys: %v", res)
+	}
+	if !strings.Contains(r.file("agents", "alice", "agent.yaml"), "effort: high") {
+		t.Fatalf("not written:\n%s", r.file("agents", "alice", "agent.yaml"))
+	}
+	bob := r.file("agents", "bob", "agent.yaml")
+	if d := errOf(t, set("bob", `{"effort":"low"}`, "ag2")); d["code"] != "refused" || d["gate"] != "not_self" {
+		t.Fatalf("another agent's settings: %v", d)
+	}
+	if r.file("agents", "bob", "agent.yaml") != bob {
+		t.Fatal("a refused call changed another agent")
+	}
+	alice := r.file("agents", "alice", "agent.yaml")
+	for i, key := range []string{"skip_permissions", "sandbox", "mode"} { // the founder's alone
+		if d := errOf(t, set("alice", fmt.Sprintf(`{%q:"on"}`, key), fmt.Sprintf("ag-f%d", i))); d["code"] != "refused" {
+			t.Errorf("%s: an agent set a founder-only key: %v", key, d)
+		}
+	}
+	if r.file("agents", "alice", "agent.yaml") != alice {
+		t.Fatalf("a founder-only key was written:\n%s", r.file("agents", "alice", "agent.yaml"))
+	}
+}
+
+func TestAgentSetNamesWhatWentWrong(t *testing.T) {
+	r := newRig(t)
+	call := func(params string) map[string]any {
+		return errOf(t, r.call("agent.set", params))
+	}
+	if d := call(`{"agent":"ghost","values":{"effort":"high"},"request_id":"n1"}`); d["code"] != "not_found" {
+		t.Errorf("an agent that is not there: %v", d)
+	}
+	if d := call(`{"agent":"alice","values":{"effort":"extreme"},"request_id":"n2"}`); d["code"] != "refused" {
+		t.Errorf("a bad value: %v", d)
+	}
+	if d := call(`{"agent":"alice","values":{"nope":"x"},"request_id":"n3"}`); d["code"] != "refused" {
+		t.Errorf("an unknown key: %v", d)
+	}
+}
+
+func TestARetriedAgentSetIsAnsweredAndWritesNothing(t *testing.T) {
+	r := newRig(t)
+	call := `{"agent":"alice","values":{"effort":"high"},"request_id":"re1"}`
+	first, _ := r.call("agent.set", call)["result"].(map[string]any)
+	if first["accepted"] != true || first["replayed"] != nil {
+		t.Fatalf("first: %v", first)
+	}
+	path := filepath.Join(r.home, "agents", "alice", "agent.yaml")
+	before, _ := os.Stat(path)
+	// the file changes behind the retry: a rewrite would put "high" back
+	if err := os.WriteFile(path, []byte(strings.Replace(r.file("agents", "alice", "agent.yaml"), "effort: high", "effort: low", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	changed, _ := os.Stat(path)
+	again, _ := r.call("agent.set", call)["result"].(map[string]any)
+	if again["replayed"] != true || again["accepted"] != true {
+		t.Fatalf("retry: %v", again)
+	}
+	after, _ := os.Stat(path)
+	if !after.ModTime().Equal(changed.ModTime()) || strings.Contains(r.file("agents", "alice", "agent.yaml"), "effort: high") {
+		t.Fatalf("the retry rewrote the file (was %v)", before.ModTime())
 	}
 }
