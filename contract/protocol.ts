@@ -2323,7 +2323,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "memory.status": { role: "agent", callers: null, write: false, since: 1 },
   "team.get": { role: "agent", callers: null, write: false, since: 1 },
   "hr.list": { role: "agent", callers: null, write: false, since: 1 },
-  "hr.decide": { role: "founder", callers: null, write: true, since: 1 },
+  "hr.decide": { role: "member", callers: null, write: true, since: 1 },
   "accounts.list": { role: "agent", callers: null, write: false, since: 1 },
   "status.pick": { role: "agent", callers: null, write: false, since: 1 },
   "account.set": { role: "founder", callers: null, write: true, since: 1 },

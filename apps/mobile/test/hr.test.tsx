@@ -140,13 +140,12 @@ describe('the HR list', () => {
     m.store.stop();
   });
 
-  it('draws no verbs for a member and says to decide on a computer', async () => {
+  it('draws the verbs for a paired member too', async () => {
     const m = await mount((s) => raise(s, 1), 'member');
     await openHr();
     await until(() => $('hr-1'), 'the card');
-    expect(text()).toContain('Decide on a computer.');
-    expect($('hr-approve-1')).toBeNull();
-    expect($('hr-all')).toBeNull();
+    expect($('hr-approve-1')).not.toBeNull();
+    expect(text()).not.toContain('Decide on a computer.');
     m.store.stop();
   });
 

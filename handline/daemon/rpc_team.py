@@ -78,4 +78,4 @@ def _decide(ctx, params) -> dict:
     return _wrote(ctx, params, "hr.decide", said)
 
 
-rpc.METHODS["hr.decide"] = rpc.Method(_decide, "founder", write=True)
+rpc.METHODS["hr.decide"] = rpc.Method(_decide, "member", write=True)

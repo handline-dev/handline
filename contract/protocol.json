@@ -6401,7 +6401,7 @@
      "$ref": "#/components/schemas/Accepted"
     }
    },
-   "x-role": "founder",
+   "x-role": "member",
    "x-write": true,
    "x-since": 1,
    "errors": [
