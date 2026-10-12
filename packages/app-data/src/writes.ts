@@ -162,6 +162,7 @@ const settings: Record<string, WriteSpec> = {
   'inbox.mark_read': {
     kind: 'authored',
     label: 'mark read',
+    quiet: true,
     touches: inboxKeys,
     patch: (c, p) => markItems(c, as<{ ids: number[] }>(p).ids, { read: true }),
   },
@@ -302,7 +303,6 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'input.take': 'take control',
     'input.release': 'release',
     'hr.withdraw': 'withdraw',
-    'chat.seen': 'mark seen',
     'account.login': 'log in',
     'account.login_code': 'send code',
     'account.login_cancel': 'cancel login',
@@ -321,6 +321,7 @@ export const writes: Record<string, WriteSpec> = {
   ...settings,
   ...schedules,
   ...decidedWrites,
+  'chat.seen': { ...decided('mark seen'), quiet: true },
   // A prompt the person answers: a stale one is refused and the card shows the prompt that is open now.
   'prompt.answer': {
     kind: 'decided',

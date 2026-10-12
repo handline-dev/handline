@@ -11,6 +11,8 @@ export interface WriteSpec {
   kind: 'authored' | 'decided' | 'uncached';
   /** What the error line calls the action: "send", "answer". */
   label: string;
+  /** A mark the app makes on its own: its success leaves the error line alone, so it cannot wipe a refusal before it is read. */
+  quiet?: boolean;
   /** The entries `patch` edits: snapshotted first, and read again after if no topic keeps them current. */
   touches?: (d: string, p: never) => Key[];
   /** The cache as the write leaves it, assuming the daemon accepts. */
