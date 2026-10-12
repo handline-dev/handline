@@ -365,10 +365,12 @@ export class FakeDaemon {
     const actor = this.actor(c);
     const agent = () => this.session(p.agent);
     const ok = (said: string, extra = {}) => ({ ...this.script.accepted(said), ...extra });
-    if (method === 'attachment.put') return ok('Received.', this.attachments.put(p));
-    if (method === 'attachment.get') return this.attachments.get(p);
-    if (method.startsWith('chat.'))
-      return chatMethod(this.chat, method, p, c.caller.name, agent, ok, (id) => this.inbox.dismiss(id), (ids) => this.attachments.take(ids));
+    if (method === 'chat.send') {
+      // A message to an agent with no open session starts one: nobody wakes an agent by hand.
+      const s = agent();
+      if (!s.open) this.script.startSession(s, false, actor);
+    }
+    if (method.startsWith('chat.')) return chatMethod(this.chat, method, p, c.caller.name, agent, ok, (id) => this.inbox.dismiss(id), this.attachments.take);
     const owned = this.moduleCall(c, method, p, ok);
     if (owned) return owned.value;
     const handler = HANDLERS[method];
@@ -441,6 +443,7 @@ export class FakeDaemon {
     if (/^accounts?\./.test(method)) return { value: this.accounts.call(method, p, ok) };
     if (this.admin.owns(method)) return { value: this.admin.call(method, p, ok) };
     if (this.work.owns(method)) return { value: this.work.call(method, p, ok) };
+    if (method.startsWith('attachment.')) return { value: this.attachments.call(method, p, ok) };
     if (method.startsWith('inbox.')) return { value: this.inbox.call(method, p, c.caller.name, ok) };
     if (this.tasks.serves(method)) return { value: taskCall(this.tasks, method, p, c.caller.name, this.script) };
     return null;

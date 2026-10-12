@@ -358,6 +358,20 @@ export type TaskDetail = Task & {
     team: string[];
     others: string[];
   };
+  /** The task was opened as a ui task. Absent when it was not. */
+  ui?: boolean;
+  /** What the task's end kept beyond its evidence. Absent for a task without any. */
+  result?: {
+    /** The full sha it was done at. */
+    commit?: string;
+    /** Whether main reaches commit. */
+    on_main?: boolean;
+    /** Fetch each with task.shot. */
+    shots: {
+      n: number;
+      bytes: number;
+    }[];
+  };
 };
 
 export type DecisionOption = {
@@ -802,6 +816,8 @@ export type TranscriptItem = {
     task: number;
     request: number | null;
     evidence: string | null;
+    /** What a `changed` event changed, as chat.requests words it: `assigned to X, priority 2 -> 1`, `title changed`, `handed to X`. Absent when the event word says it all. An open set: a client draws a word it does not know as text. */
+    change?: string;
   };
   /** For kind session: a session of this agent began here. */
   session?: {
@@ -1536,7 +1552,7 @@ export interface Methods {
     title: string;
     time_box?: Duration;
   };
-  /** The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is then the message replied to, for an answer, or the new message. */
+  /** The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is the new message. */
   parent?: number;
   /** Images from attachment.put to send with this message, drawn in this order. Then body may be empty. An id that is unknown, expired or already sent is bad_request, field attachments. Not with task (bad_request). */
   attachments?: AttachmentId[];
@@ -1554,11 +1570,6 @@ export interface Methods {
 }; result: Accepted & {
     receipt?: Receipt;
   } };
-  "chat.answer": { params: {
-  request: number;
-  text: string;
-  request_id: RequestId;
-}; result: Accepted };
   "chat.dismiss": { params: {
   request: number;
   request_id: RequestId;
@@ -1718,6 +1729,20 @@ export interface Methods {
   "task.get": { params: {
   task: number;
 }; result: TaskDetail };
+  "task.shot": { params: {
+  task: number;
+  /** The screenshot's number in the task's result, from 1. */
+  n: number;
+  /** Where the chunk starts in the file; 0 when omitted. */
+  offset?: number;
+}; result: {
+    mime: "image/png";
+    bytes: number;
+    offset: number;
+    /** The chunk, in base64: at most 512 KiB of file. */
+    data: string;
+    done: boolean;
+  } };
   "task.new": { params: {
   owner: string;
   /** Who the task answers to: told when it ends, and may edit or reassign it. Default: the caller. */
@@ -1739,6 +1764,8 @@ export interface Methods {
     /** {task} is replaced by the new task's number. */
     text: string;
   };
+  /** The task shows something on a screen. A label only: task.done takes a screenshot (shots) but never requires one. */
+  ui?: boolean;
   request_id: RequestId;
 }; result: Accepted & {
     task: number;
@@ -1759,6 +1786,10 @@ export interface Methods {
   repo?: string;
   /** Record evidence as words even if it looks like hex. */
   reason?: boolean;
+  /** The sha the work was done at; it must be a commit in repo (it need not be on main). The result says whether main reaches it. A sha given as evidence is a commit on main already. */
+  commit?: string;
+  /** Absolute paths of PNG files, at most 10 MiB each. An agent names files under its worktree, its folder in the daemon's home or the scratch folder; the founder any file. The daemon copies them under its home (shots/T<n>/<k>.png, outside any repo) once the task's end has committed, and serves them with task.shot. */
+  shots?: string[];
   request_id: RequestId;
 }; result: Accepted };
   "task.reopen": { params: {
@@ -2230,7 +2261,6 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "chat.search": { role: "member", callers: null, write: false, since: 1 },
   "chat.send": { role: "member", callers: null, write: true, since: 1 },
   "chat.send_now": { role: "member", callers: null, write: true, since: 1 },
-  "chat.answer": { role: "member", callers: null, write: true, since: 1 },
   "chat.dismiss": { role: "member", callers: null, write: true, since: 1 },
   "chat.cancel": { role: "member", callers: null, write: true, since: 1 },
   "chat.seen": { role: "member", callers: null, write: true, since: 1 },
@@ -2250,6 +2280,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },
   "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.get": { role: "agent", callers: null, write: false, since: 1 },
+  "task.shot": { role: "member", callers: null, write: false, since: 1 },
   "task.new": { role: "agent", callers: null, write: true, since: 1 },
   "task.handoff": { role: "agent", callers: null, write: true, since: 1 },
   "task.done": { role: "agent", callers: null, write: true, since: 1 },

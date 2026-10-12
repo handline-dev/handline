@@ -10,7 +10,11 @@ import {
   loadLayout,
   needsConfirm,
   offered,
-  railGroups,
+  railRows,
+  visibleRows,
+  queueOf,
+  RAIL_FILTERS,
+  RAIL_STATE_WORD,
   stopModesOf,
   shortName,
   teamOf,
@@ -48,7 +52,7 @@ test('the dot follows the daemon state, with a dialog or block taking over', () 
   assert.equal(dotOf(agent('a', { state: 'something_new' })), 'idle');
 });
 
-test('the rail groups by team, sorts waiting up, nests children, and filters by dot', () => {
+test('the rail sorts waiting up, nests children, and filters by dot and search', () => {
   const list = [
     agent('t.b'),
     agent('t.a'),
@@ -58,28 +62,21 @@ test('the rail groups by team, sorts waiting up, nests children, and filters by 
     agent('u.q', { state: 'queued' }),
     agent('solo'),
   ];
-  const g = railGroups(list, 'team');
+  const names = (o?: Parameters<typeof railRows>[1]) => railRows(list, o).map((r) => [r.agent.name, r.depth]);
+  assert.deepEqual(names(), [
+    ['t.w', 0],
+    ['u.q', 0],
+    ['solo', 0],
+    ['t.a', 0],
+    ['t.b', 0],
+    ['t.kid', 1],
+    ['u.p', 0],
+  ]);
   assert.deepEqual(
-    g.map((x) => x.title),
-    ['t', 'u', 'agents'],
+    names({ hidden: new Set<Dot>(['parked', 'waking']) }).map((r) => r[0]),
+    ['t.w', 'solo', 't.a', 't.b', 't.kid'],
   );
-  assert.deepEqual(
-    g[0].rows.map((r) => [r.agent.name, r.depth]),
-    [
-      ['t.w', 0],
-      ['t.a', 0],
-      ['t.b', 0],
-      ['t.kid', 1],
-    ],
-  );
-  assert.deepEqual(
-    railGroups(list, 'team', { hidden: new Set<Dot>(['parked', 'waking']) }).map((x) => x.title),
-    ['t', 'agents'],
-  );
-  assert.deepEqual(
-    railGroups(list, 'team', { search: 'KID' }).flatMap((x) => x.rows.map((r) => r.agent.name)),
-    ['t.kid'],
-  );
+  assert.deepEqual(names({ search: 'KID' }), [['t.kid', 0]]);
   assert.equal(teamOf('t', ['t', 't.a']), 't');
   assert.equal(shortName('t.a', 't'), 'a');
   assert.equal(shortName('t', 't'), 't');
@@ -87,11 +84,44 @@ test('the rail groups by team, sorts waiting up, nests children, and filters by 
 });
 
 test('a child whose parent is filtered out still shows', () => {
-  const list = [agent('b'), agent('kid', { parent: 'b', role: 'x' })];
   assert.deepEqual(
-    railGroups(list, 'team', { search: 'kid' })[0].rows.map((r) => r.agent.name),
+    railRows([agent('b'), agent('kid', { parent: 'b', role: 'x' })], { search: 'kid' }).map((r) => r.agent.name),
     ['kid'],
   );
+});
+
+test('a collapsed parent hides its descendants', () => {
+  const list = [agent('a'), agent('a.k', { parent: 'a' }), agent('a.k.g', { parent: 'a.k' }), agent('b'), agent('b.k', { parent: 'b' })];
+  const rows = railRows(list);
+  assert.deepEqual(
+    rows.map((r) => [r.agent.name, r.depth, r.kids]),
+    [
+      ['a', 0, 1],
+      ['a.k', 1, 1],
+      ['a.k.g', 2, 0],
+      ['b', 0, 1],
+      ['b.k', 1, 0],
+    ],
+  );
+  const names = (c: string[]) => visibleRows(rows, new Set(c)).map((r) => r.agent.name);
+  assert.deepEqual(names([]), ['a', 'a.k', 'a.k.g', 'b', 'b.k']);
+  assert.deepEqual(names(['a']), ['a', 'b', 'b.k']);
+  assert.deepEqual(names(['a.k']), ['a', 'a.k', 'b', 'b.k']);
+  assert.deepEqual(names(['a', 'b']), ['a', 'b']);
+});
+
+test('every rail dot has a state word, and the filter choices cover each dot once', () => {
+  const dots = Object.keys(RAIL_STATE_WORD) as Dot[];
+  const covered = RAIL_FILTERS.flatMap((f) => f.dots).sort();
+  assert.deepEqual(covered, [...dots].sort());
+  assert.equal(RAIL_STATE_WORD[dotOf(agent('x', { state: 'queued' }))], 'waking');
+  assert.equal(RAIL_STATE_WORD[dotOf(agent('x', { state: 'no_terminal' }))], 'sleeping');
+});
+
+test('queue counts are null when the view does not carry them, never a made-up 0', () => {
+  assert.deepEqual(queueOf(agent('x')), { tasks: null, messages: null });
+  assert.deepEqual(queueOf(agent('x', { task_count: 0, unreached: 3 })), { tasks: 0, messages: 3 });
+  assert.deepEqual(queueOf(agent('x'), 2), { tasks: null, messages: 2 });
 });
 
 test('keydown maps to named keys only; printable text and IME composition are left to the textarea', () => {

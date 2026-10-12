@@ -147,7 +147,7 @@ func splitLines(s string) []string {
 
 // TellText is the message that tells an agent about head, as typed. aheadOf is the head a "send now" request is jumping, or with parked
 // the open head the task is queued behind. folded is FoldedNotices, carried on the same line.
-func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked bool, folded []*db.Request) string {
+func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked bool, folded []*db.Request, images string) string {
 	more := depth - 1
 	var shown string
 	tid, _, title, note, isHandoff := HandoffParts(head.Body)
@@ -163,7 +163,7 @@ func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 		shown = fmt.Sprintf("T%d handed to you. Note: %s Title: %s", tid, note, title)
 	} else {
 		body := strings.TrimSpace(textsafe.Oneline(head.Body))
-		if body == "" {
+		if body == "" && images == "" {
 			body = "(empty)"
 		}
 		// A reply to an earlier request is a verdict or an answer: cut, it hides the verdict.
@@ -171,6 +171,9 @@ func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 		shown = body
 		if !whole && utf8.RuneCountInString(body) > 400 {
 			shown = string([]rune(body)[:400]) + "…"
+		}
+		if images != "" { // after the cut: the paths are what the agent needs
+			shown = strings.TrimSpace(shown + "\n" + images)
 		}
 	}
 	if head.Kind.String == "task" {

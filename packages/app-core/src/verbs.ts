@@ -1,21 +1,13 @@
 // The agent verbs of the bridge's AGENT_KEYS (tui.py): which apply to a row, which ask first, and what each is called while it runs.
 import type { AgentDetail, AgentView } from '@handline/client';
 
-export type VerbId = 'wake' | 'interrupt' | 'close' | 'restart' | 'restart_fresh' | 'park' | 'fold' | 'move' | 'clear_stall';
+export type VerbId = 'interrupt' | 'close' | 'restart' | 'restart_fresh' | 'park' | 'fold' | 'move' | 'clear_stall';
 
 export interface Verb {
   id: VerbId;
   label: string;
   /** The daemon method behind it; a verb whose method the daemon does not list shows disabled. */
-  method:
-    | 'session.wake'
-    | 'session.interrupt'
-    | 'session.stop'
-    | 'session.restart'
-    | 'session.park'
-    | 'agent.fold'
-    | 'agent.move'
-    | 'agent.unstall';
+  method: 'session.interrupt' | 'session.stop' | 'session.restart' | 'session.park' | 'agent.fold' | 'agent.move' | 'agent.unstall';
   /** Shown while the write is in flight, in the state cell. */
   gerund: string;
   /** One sentence of consequence for the confirmation; absent when the verb asks nothing. */
@@ -28,7 +20,6 @@ const V = (id: VerbId, label: string, method: Verb['method'], gerund: string, as
 ];
 
 export const VERBS: Record<VerbId, Verb> = Object.fromEntries([
-  V('wake', 'Wake', 'session.wake', 'waking…'),
   V('interrupt', 'Interrupt', 'session.interrupt', 'interrupting…'),
   V('close', 'Close', 'session.stop', 'closing…', 'Its session ends; the terminal, worktree and account stay.'),
   V('restart', 'Restart', 'session.restart', 'restarting…', 'Its session ends and starts again, resuming the conversation.'),
@@ -45,7 +36,7 @@ export const VERBS: Record<VerbId, Verb> = Object.fromEntries([
   V('clear_stall', 'Clear stall', 'agent.unstall', 'waking…', 'The stall is cleared and the agent is woken.'),
 ] as [VerbId, Verb][]) as Record<VerbId, Verb>;
 
-/** The bridge's CONFIRM (close, restart, park, fold) with restart fresh as a restart, and wake only on a stalled row (clear stall). */
+/** The bridge's CONFIRM (close, restart, park, fold) with restart fresh as a restart (a person never wakes an agent by hand: a message does). */
 export const CONFIRM_VERBS: ReadonlySet<VerbId> = new Set(['close', 'restart', 'restart_fresh', 'park', 'fold', 'clear_stall']);
 export const needsAsk = (id: VerbId): boolean => CONFIRM_VERBS.has(id);
 
@@ -56,7 +47,6 @@ export function verbsOf(a: AgentView, d: Pick<AgentDetail, 'session_open' | 'ses
   if (d.structured && d.session_open && (a.state === 'running' || a.state === 'waiting')) ids.push('interrupt');
   const stalled = a.state === 'stalled';
   if (stalled) ids.push('clear_stall');
-  else if (!d.session_open && d.session_id) ids.push('wake');
   if (d.session_open) ids.push('restart', 'restart_fresh', 'close', 'park', 'fold');
   ids.push('move');
   return ids.map((id) => VERBS[id]);

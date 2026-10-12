@@ -69,7 +69,12 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "merge", "T1", "T2", "T3"}, []string{`task.merge {"into":1,"tasks":[2,3]}`}},
 		{"", []string{"task", "done", "T3", "abc", "--reason", "--repo", "./a//b/"},
 			[]string{`task.done {"evidence":"abc","reason":true,"repo":"a/b","task":3}`}},
+		{"merged as abc\nall green\n", []string{"task", "done", "T3", "-", "--repo", "/r"},
+			[]string{`task.done {"evidence":"merged as abc\nall green","repo":"/r","task":3}`}},
+		{"abc1234\n", []string{"task", "done", "T3", "-", "--repo", "/r"}, []string{`task.done {"evidence":"abc1234","repo":"/r","task":3}`}},
 		{"", []string{"task", "done", "T3", "--request", "9"}, []string{`task.done {"repo":"` + real + `","request":9,"task":3}`}},
+		{"", []string{"task", "done", "T3", "w", "--repo", "/r", "--commit", "abc1234", "--shot", "a/../b.png", "--shot=/s/c.png"},
+			[]string{`task.done {"commit":"abc1234","evidence":"w","repo":"/r","shots":["` + real + `/b.png","/s/c.png"],"task":3}`}},
 		{"", []string{"task", "reopen", "T3", "why"}, []string{`task.reopen {"note":"why","task":3}`}},
 		{"", []string{"task", "discard", "T3", "why"}, []string{`task.discard {"reason":"why","task":3}`}},
 		{"", []string{"task", "release", "T3"}, []string{`task.release {"task":3}`}},
@@ -115,6 +120,7 @@ func TestTaskRefusalsBeforeAnyCall(t *testing.T) {
 		{asAgent, []string{"task", "new", "--owner", "b.two", "-t", "90s", " ", "y"},
 			"a task needs a title. Try:\n  hl task new --owner b.two -t 90s '<title>' y\n"},
 		{asAgent, []string{"task", "handoff", "T3", "b.two"}, "note is required (inline, --file PATH, or on stdin)\n"},
+		{asAgent, []string{"task", "done", "T3", "-"}, "evidence is required, and stdin (-) was empty\n"},
 		{asAgent, []string{"task", "handoff", "T3", "b.two", "n", "--file", "f"}, "give note inline or with --file, not both\n"},
 		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new owner, a new reporter, a new title, --body, --priority, --blocked-by, --unblock, or --timeout\n"},
 		{asAgent, []string{"task", "memo", "T3", "add"}, "add takes the memo text\n"},
@@ -159,6 +165,7 @@ func TestTaskShowListAndBoardRead(t *testing.T) {
 		"task.get": `{"id":7,"title":"Fix it","state":"done","to":"b.two","from":"a.one","priority":1,"parent":3,
 			"created":"2026-10-01T10:00:00Z","time":{"length_s":3600,"default":false,"start":null,"end":null,"overdue_since":null,"told":0},
 			"evidence":"abc123","done":"2026-10-02T11:30:00Z","discarded":null,"body":"the brief",
+			"result":{"commit":"abc1234def","on_main":false,"shots":[{"n":1,"bytes":2048},{"n":2,"bytes":10}]},
 			"memos":[{"id":5,"author":"a.one","at":"2026-10-01T12:00:00Z","text":"a memo","edited_at":null}],
 			"blockers":[{"task":9,"owner":"c","title":"first"}],"subtasks":[{"id":8,"owner":"d","state":"doing","title":"child"}],
 			"handoffs":[{"at":"2026-10-01T13:00:00Z","from":"a.one","to":"b.two","note":"over to you"}]}`,
@@ -173,6 +180,9 @@ func TestTaskShowListAndBoardRead(t *testing.T) {
 state done   owner b.two   opened by a.one   P1   parent T3   created 2026-10-01 10:00
 timeout 1h00m - counts while the task is doing
 done 2026-10-02 11:30: abc123
+commit abc1234def (not on main)
+shot ` + r.home + `/shots/T7/1.png (2048 bytes)
+shot ` + r.home + `/shots/T7/2.png (10 bytes)
 
 brief
 the brief

@@ -10,7 +10,6 @@ export interface VerbDone {
 
 /** Starts a verb's write. */
 export function useVerbRun(agent: string) {
-  const wake = useWrite('session.wake', agent);
   const interrupt = useWrite('session.interrupt', agent);
   const stop = useWrite('session.stop', agent);
   const restart = useWrite('session.restart', agent);
@@ -20,8 +19,7 @@ export function useVerbRun(agent: string) {
   const unstall = useWrite('agent.unstall', agent);
   return (v: Verb, account?: string, on?: VerbDone) => {
     const p = callOf(v, agent, account).params as never;
-    if (v.method === 'session.wake') wake.mutate(p, on);
-    else if (v.method === 'session.interrupt') interrupt.mutate(p, on);
+    if (v.method === 'session.interrupt') interrupt.mutate(p, on);
     else if (v.method === 'session.stop') stop.mutate(p, on);
     else if (v.method === 'session.restart') restart.mutate(p, on);
     else if (v.method === 'session.park') park.mutate(p, on);
@@ -35,7 +33,6 @@ export function useVerbRun(agent: string) {
 export function useVerbMark(agent: string, skip: VerbId[] = []): string | null {
   const mine = <T extends { agent: string }>(l: T[]) => l.filter((v) => v.agent === agent);
   const hits: [boolean, VerbId][] = [
-    [mine(usePending('session.wake')).length > 0, 'wake'],
     [mine(usePending('session.interrupt')).length > 0, 'interrupt'],
     [mine(usePending('session.stop')).some((v) => v.mode === 'close'), 'close'],
     [mine(usePending('session.restart')).length > 0, 'restart'],

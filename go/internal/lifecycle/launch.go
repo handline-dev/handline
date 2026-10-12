@@ -100,6 +100,8 @@ type LaunchArgs struct {
 	SandboxOff                bool
 	MCPApproved               []string
 	ExtraDirs                 []string
+	// ReadAllow are folders the session may read with its file tools without asking (the attachments folder).
+	ReadAllow []string
 }
 
 // Hooks is a vendor's state hooks, which launch keeps current.

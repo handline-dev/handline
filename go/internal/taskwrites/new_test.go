@@ -2,7 +2,11 @@ package taskwrites
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/handline/handline/go/internal/taskresult"
 )
 
 func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
@@ -65,5 +69,53 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	r = call(t, mk("manager", f), line(2, base, "d1"))
 	if code(r[0]) != "refused" || count(t, db, "SELECT COUNT(*) FROM tasks") != 5 || count(t, db, "SELECT COUNT(*) FROM requests WHERE state = 'denied'") != 1 {
 		t.Fatalf("a refused owner leaves no task behind, only the denial: %v", r[0])
+	}
+}
+
+func TestNewReturnsBeforeTheOwnerIsTold(t *testing.T) {
+	db, mk := discardEnv(t)
+	release, told := make(chan struct{}), make(chan struct{})
+	f := &fakeTeller{after: func() string {
+		<-release // a closed owner's session starts here and the telling waits on it
+		close(told)
+		return "delivered"
+	}}
+	r := call(t, mk("manager", f), `{"jsonrpc":"2.0","id":1,"method":"task.new","params":{"owner":"worker","title":"t","body":"b","time_box":"1h","request_id":"a1"}}`)
+	if r[0]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM tasks WHERE title = 't' AND owner = 'worker'") != 1 {
+		t.Fatalf("the task is open when the call returns: %v", r[0])
+	}
+	if said := r[0]["result"].(map[string]any)["said"].(string); strings.Contains(said, "founder's screen") {
+		t.Fatalf("an agent's task does not say it is on the founder's screen: %q", said)
+	}
+	r = call(t, mk("manager", &fakeTeller{}), `{"jsonrpc":"2.0","id":2,"method":"task.new","params":{"owner":"human","title":"d","body":"b","time_box":"1h","request_id":"a2"}}`)
+	if said, _ := r[0]["result"].(map[string]any)["said"].(string); !strings.Contains(said, "it is on the founder's screen (`hl`)") {
+		t.Fatalf("a founder's task says where it is: %v", r[0])
+	}
+	select {
+	case <-told:
+		t.Fatal("the call returned only after the owner was told")
+	default:
+	}
+	close(release)
+	select {
+	case <-told:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the owner is told after the call has returned")
+	}
+}
+
+func TestNewMarksAUITaskAndRefusesAUIThatIsNotTrueOrFalse(t *testing.T) {
+	db, mk := discardEnv(t)
+	line := func(id int, params, rid string) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.new","params":{"owner":"worker","title":"t","body":"b","time_box":"1h",%s"request_id":%q}}`, id, params, rid)
+	}
+	r := call(t, mk("manager", &fakeTeller{}), line(2, `"ui":true,`, "ui1"), line(3, `"ui":"yes",`, "ui2"), line(4, ``, "ui3"))
+	if r[0]["error"] != nil || r[2]["error"] != nil || r[1]["error"].(map[string]any)["data"].(map[string]any)["field"] != "ui" {
+		t.Fatalf("%v", r)
+	}
+	for id, want := range map[int64]bool{int64(r[0]["result"].(map[string]any)["task"].(float64)): true, int64(r[2]["result"].(map[string]any)["task"].(float64)): false} {
+		if got, err := taskresult.IsUI(db, id); err != nil || got != want {
+			t.Errorf("T%d ui %v, want %v (%v)", id, got, want, err)
+		}
 	}
 }

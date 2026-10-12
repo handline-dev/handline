@@ -29,7 +29,8 @@ func TestEditChangesATaskInOneTransactionAndLeavesTheTellingToTheTeller(t *testi
 		line(7, `"blocked_by":2,`, "m5"),
 		line(8, `"blocked_by":2,"unblock":9,`, "m6"),
 		line(9, `"unblock":2,`, "m7"),
-		line(10, `"owner":"other",`, "m8"))
+		line(10, `"owner":"gp",`, "m9"),
+		line(11, `"owner":"other",`, "m8"))
 	if code(r[0]) != "bad_request" || code(r[3]) != "not_found" || code(r[4]) != "bad_request" || code(r[2]) != "refused" {
 		t.Fatalf("%v", r)
 	}
@@ -46,7 +47,14 @@ func TestEditChangesATaskInOneTransactionAndLeavesTheTellingToTheTeller(t *testi
 	if r[7]["result"] == nil || len(f.edited) < 3 || f.edited[len(f.edited)-2].Freed != "worker" {
 		t.Fatalf("clearing the last wait frees its owner: %v %+v", r[7], f.edited)
 	}
-	if r[8]["result"] == nil || f.edited[len(f.edited)-1].WasOwner != "worker" {
+	if why := r[8]["error"].(map[string]any)["message"]; code(r[8]) != "refused" || why != "T1 cannot go to gp: its brief is sent on manager's behalf, and denied: no edge declares manager -> gp (unlisted edges are denied by default)" {
+		t.Fatalf("a move its brief cannot be delivered to is refused: %v", r[8])
+	}
+	if count(t, db, "SELECT COUNT(*) FROM events WHERE kind = 'edit_task' AND json_extract(payload, '$.owner.new') = 'gp'") != 0 ||
+		count(t, db, "SELECT COUNT(*) FROM events WHERE kind = 'edit_task' AND json_extract(payload, '$.owner.new') = 'other'") != 1 {
+		t.Fatal("the refused move changed the owner")
+	}
+	if r[9]["result"] == nil || f.edited[len(f.edited)-1].WasOwner != "worker" {
 		t.Fatalf("a changed owner is handed to the Teller to be sent on: %v %+v", r[8], f.edited)
 	}
 	for q, wantN := range map[string]int{

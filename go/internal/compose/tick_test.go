@@ -454,10 +454,17 @@ func TestTheNoticeDigestIsSweptByTheGoTickOnlyFromTheCutover(t *testing.T) {
 	}
 }
 
-func TestTheStartupBringsUpWaitingWorkAndSettlesAnOldSayBeforeAnyTick(t *testing.T) {
+func TestTheStartupBringsUpWaitingWorkAndSettlesAnOldToldSayButNotAnOwedOneBeforeAnyTick(t *testing.T) {
 	p, _, _, _ := wired(t)
 	d := p.Sink.DB
 	say, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "old", Response: "none", Kind: "say"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpkg.MarkDelivered(d, say); err != nil { // told by the daemon before
+		t.Fatal(err)
+	}
+	owed, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "sent just before the restart", Response: "none", Kind: "say"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +474,10 @@ func TestTheStartupBringsUpWaitingWorkAndSettlesAnOldSayBeforeAnyTick(t *testing
 		t.Fatal("alice has work waiting and no session: startup wakes her without waiting for a tick")
 	}
 	if r, _ := dbpkg.GetRequest(d, say); r == nil || r.State == "queued" {
-		t.Fatalf("an old say is settled at start: %+v", r)
+		t.Fatalf("an old told say is settled at start: %+v", r)
+	}
+	if r, _ := dbpkg.GetRequest(d, owed); r == nil || r.State != "queued" {
+		t.Fatalf("a say not yet told is owed after a restart, not settled: %+v", r)
 	}
 	p.Run.WaitIdle("alice", 10*time.Second)
 }

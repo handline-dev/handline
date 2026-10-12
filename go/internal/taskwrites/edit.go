@@ -72,6 +72,30 @@ func ownerChangeGuard(t *task, by, home string) string {
 	return ""
 }
 
+// undeliverable is why task t cannot be moved to agent to, or "": the move asks to on behalf of whoever asked the old owner, or the
+// tick does as whoever queued it, and with no edge from them to to that ask is denied and the task sits unread (Supervisor.sendMovedTask).
+func undeliverable(tx *sql.Tx, t *task, to, home string) (string, error) {
+	asker := t.QueuedBy.String
+	live, err := db.LiveDelivery(tx, t.ID, t.Owner)
+	if err != nil {
+		return "", err
+	}
+	if live != nil {
+		asker = live.Requester
+	}
+	if asker == "" || asker == to {
+		return "", nil
+	}
+	tm, err := team.LoadTeam(home)
+	if err != nil {
+		return "", err
+	}
+	if d := tm.Route(asker, to, 0, false); !d.Allowed {
+		return fmt.Sprintf("T%d cannot go to %s: its brief is sent on %s's behalf, and %s", t.ID, to, asker, d.Reason), nil
+	}
+	return "", nil
+}
+
 // editTask is actions.edit_task: a task's owner, reporter, title, priority, timeout and/or body changed by whoever opened it, its reporter
 // or the founder, and the owner alone also by the owner's manager. It answers the refusal ("" when it edited), the message and the fields
 // that changed.
@@ -92,6 +116,11 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 	}
 	if g != "" {
 		return g, "", nil
+	}
+	if owner != nil && *owner != t.Owner && *owner != human {
+		if why, err := undeliverable(tx, t, *owner, home); err != nil || why != "" {
+			return why, "", err
+		}
 	}
 	if owner == nil && !reshape {
 		return "edit needs a new owner, a new reporter, a new title, a new priority, --timeout, a new body, or any of them", "", nil

@@ -1,5 +1,6 @@
 // The small sheets of the Tasks list: owner, priority, merge and the key sheet.
 import { useState } from 'react';
+import { taskRef } from '@handline/app-core';
 import { Sheet } from './taskui.tsx';
 import { Button, Kbd, NativeSelect } from './ui/index.ts';
 
@@ -18,7 +19,7 @@ export const LIST_KEYS: [string, string][] = [
   ['t', 'switch between the list and the tree'],
   ['f', "show the next agent's tasks"],
   ['n', 'new task'],
-  ['j k ↑ ↓', 'move the cursor'],
+  ['j k Up Down', 'move the cursor'],
 ];
 
 export function OwnerSheet({ agents, onCancel, onPick }: { agents: string[]; onCancel: () => void; onPick: (owner: string) => void }) {
@@ -71,8 +72,8 @@ export function KeysSheet({ onClose }: { onClose: () => void }) {
 
 export function MergeSheet(props: { count: number; into: number | null; onCancel: () => void; onSubmit: () => void }) {
   return (
-    <Sheet label={`fold ${props.count} into #${props.into}?`} submit="Fold" onCancel={props.onCancel} onSubmit={props.onSubmit}>
-      <span className="muted">The folded tasks close; #{props.into} keeps going.</span>
+    <Sheet label={`fold ${props.count} into ${taskRef(props.into!)}?`} submit="Fold" onCancel={props.onCancel} onSubmit={props.onSubmit}>
+      <span className="muted">The folded tasks close; {taskRef(props.into!)} keeps going.</span>
     </Sheet>
   );
 }

@@ -12,7 +12,7 @@ import (
 )
 
 // account.set: an account's cap, alias, usage recovery and month cycle, in config.yaml. It writes what a retry writes
-// again. account.remove and settings.trust touch the account's credentials and stay with the Python daemon.
+// again. settings.trust stays with the Python daemon; account.add and account.remove are in accountadmin.go.
 
 const labelMax = 40
 

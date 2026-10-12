@@ -93,7 +93,8 @@ describe('U9 prompt cards', () => {
         options: [...YES_NO.slice(0, 1), { key: '2', label: 'Yes, always', answer: 'yes' }, { key: '3', label: 'No', answer: 'no' }],
       }),
     );
-    expect($$('.card.prompt .card-actions button').map((b) => text(b))).toEqual(['Yes 1', '↻ Yes, always 2', 'No 3']);
+    expect($$('.card.prompt .card-actions button').map((b) => text(b))).toEqual(['Yes 1', 'Yes, always 2', 'No 3']);
+    expect($$('.card.prompt .card-actions button')[1]!.querySelector('svg[data-icon="retry"]')).not.toBeNull(); // the always one carries the mark as an icon
     expect(text($('.card .note'))).toContain('saves a rule for next time');
     await click(button('always')!);
     await until(() => received(s).length, 'the answer');

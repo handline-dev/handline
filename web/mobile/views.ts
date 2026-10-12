@@ -58,7 +58,7 @@ function terminalTab(s: State): string {
   const older = p.view.historyMore ? '<button class="btn link" data-act="older">Load older</button>' : '';
   const keys = KEY_STRIP.map((k) => `<button class="key" data-act="key" data-key="${esc(k.key)}">${esc(k.label)}</button>`).join('');
   const card = p.detail.prompt ? permissionCard(p.detail.prompt) : '';
-  const holder = p.detail.input_holders.map((h) => (h.kind === 'device' ? 'PHONE' : h.kind)).join(', ');
+  const holder = (p.detail.input_holders ?? []).map((h) => (h.kind === 'device' ? 'PHONE' : h.kind)).join(', ');
   // data-r regions are patched in place by app.ts; the composer and the key strip have none, so they live as long as the tab.
   return `<div data-r="card">${card}</div><div data-r="older">${older}</div>
     <pre class="grid" data-r="grid" aria-label="Terminal">${esc(lines.join('\n')) || '<span class="muted">No terminal output.</span>'}</pre>

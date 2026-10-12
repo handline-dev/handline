@@ -31,6 +31,7 @@ agent.get.view_fields_walled
 chat.cancel.a_written_operation_needs_confirm
 chat.cancel.withdraws_a_queued_operation_without_confirm
 chat.send.a_delivery_word_that_is_not_one_is_bad_request
+chat.send.a_parent_that_asked_the_person_is_only_a_say
 chat.send.a_repeat_returns_the_receipt_as_it_is_now
 chat.send.a_terminal_agent_accepts_delivery_and_has_no_receipt
 chat.send.a_working_agent_queues_by_default

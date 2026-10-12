@@ -1,7 +1,7 @@
 // The Tasks tab of an agent's workspace: the tasks this agent holds, newest first, open ones above the closed; a click opens the task in
 // the same pane (the task detail of the Tasks page) and Back returns to the list.
 import { useMemo } from 'react';
-import { openTask, type RowVerb } from '@handline/app-core';
+import { openTask, taskRef, type RowVerb } from '@handline/app-core';
 import { useServes, useTasks } from '@handline/app-data';
 import { Icon } from './Icon.tsx';
 import { StateChip } from './taskui.tsx';
@@ -50,7 +50,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
             <li key={t.id} className="flex items-center gap-1.5">
               <input
                 type="checkbox"
-                aria-label={`Mark #${t.id}`}
+                aria-label={`Mark ${taskRef(t.id)}`}
                 checked={marked.has(t.id)}
                 onChange={() => undefined}
                 onClick={(e) => toggle(t.id, e.shiftKey)}
@@ -61,7 +61,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
                 onClick={() => setOpen(t.id)}
               >
                 <Icon name="tasks" size={14} label="Task" />
-                <span className="mono">#{t.id}</span>
+                <span className="mono">{taskRef(t.id)}</span>
                 <span className="ttitle min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-body font-medium">
                   {t.title}
                 </span>

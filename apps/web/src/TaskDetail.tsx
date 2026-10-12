@@ -1,8 +1,8 @@
 // One task: its title, state, people and timing, the body, the delivery history, evidence, a reply box, what it waits on and what hangs under it,
 // and the verbs of the bridge's task detail. A verb that does not apply is hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { useStore } from '@handline/app-react';
 import { taskRef } from '@handline/app-core';
+import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useWrite } from '@handline/app-data';
 import { Button, Icon } from './ui/index.ts';

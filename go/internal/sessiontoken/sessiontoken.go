@@ -9,7 +9,9 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -36,8 +38,9 @@ type Tokens struct {
 // New is the tokens kept for home.
 func New(home string) *Tokens { return &Tokens{Store: protected.New(home), Lookup: peer.Lookup} }
 
-// Record remembers pid (this process when 0) as agent's session. False when the store cannot be written, which is what an
-// agent's session gets.
+// Record remembers pid (this process when 0) as one of agent's sessions, beside those recorded before that are still running: two
+// launches of one agent can race, and the one that dies must not take the proof from the one that lives. False when the store cannot be
+// written, which is what an agent's session gets.
 func (t *Tokens) Record(agent string, pid int) bool {
 	if pid == 0 {
 		pid = os.Getpid()
@@ -46,21 +49,45 @@ func (t *Tokens) Record(agent string, pid int) bool {
 	if !ok {
 		return false
 	}
-	return t.Store.Put(NS, agent, fmt.Sprintf("%d %s", pid, info.Start)) == nil
+	lines := []string{fmt.Sprintf("%d %s", pid, info.Start)}
+	for _, s := range t.sessions(agent) {
+		if s.pid != pid && t.running(s) {
+			lines = append(lines, fmt.Sprintf("%d %s", s.pid, s.start))
+		}
+	}
+	return t.Store.Put(NS, agent, strings.Join(lines, "\n")) == nil
 }
 
-// Verify is whether process pid is, or descends from, the session recorded for agent.
+type session struct {
+	pid   int
+	start string
+}
+
+// sessions is what is recorded for agent, a "pid start" line each.
+func (t *Tokens) sessions(agent string) []session {
+	kept, _ := t.Store.Get(NS, agent)
+	var out []session
+	for _, line := range strings.Split(kept, "\n") {
+		head, started, _ := strings.Cut(strings.TrimSpace(line), " ")
+		if pid, err := strconv.Atoi(head); err == nil && head == strconv.Itoa(pid) && pid > 0 {
+			out = append(out, session{pid, started})
+		}
+	}
+	return out
+}
+
+func (t *Tokens) running(s session) bool {
+	p, ok := t.Lookup(s.pid)
+	return ok && p.Start == s.start // a reused pid has another start time
+}
+
+// Verify is whether process pid is, or descends from, a session recorded for agent.
 func (t *Tokens) Verify(agent string, pid int) bool {
 	if agent == "" || pid <= 0 {
 		return false
 	}
-	kept, ok := t.Store.Get(NS, agent)
-	if !ok || strings.TrimSpace(kept) == "" {
-		return false
-	}
-	head, started, _ := strings.Cut(strings.TrimSpace(kept), " ")
-	want, err := strconv.Atoi(head)
-	if err != nil || head != strconv.Itoa(want) || want < 0 {
+	recorded := t.sessions(agent)
+	if len(recorded) == 0 {
 		return false
 	}
 	for i := 0; i < maxDepth; i++ {
@@ -68,8 +95,10 @@ func (t *Tokens) Verify(agent string, pid int) bool {
 		if !ok || pid <= 1 {
 			return false
 		}
-		if pid == want {
-			return p.Start == started // a reused pid has another start time
+		for _, s := range recorded {
+			if pid == s.pid && p.Start == s.start {
+				return true
+			}
 		}
 		pid = p.PPid
 	}
@@ -96,6 +125,16 @@ func (t *Tokens) AgentOf(pid int) string {
 		}
 	}
 	return ""
+}
+
+// SessionsReadable is nil when the recorded sessions can be told: the directory is read, or does not exist (no agent has
+// a session). Any other failure means AgentOf cannot say who a process is, and its "" is not an answer.
+func (t *Tokens) SessionsReadable() error {
+	_, err := os.ReadDir(filepath.Join(t.Store.Root, NS))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // IsClaude is whether a program path is Claude Code: the claude command, or its versioned binary in the folder the

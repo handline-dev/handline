@@ -2,7 +2,7 @@
 // the sheet that confirms with the count and asks for what the verb needs, and the sheet that says what happened to each task.
 import { useRef, useState } from 'react';
 import type { useBulk } from './taskActions.ts';
-import { plan, TASK_VERBS, type Outcome, type RowVerb } from '@handline/app-core';
+import { plan, taskRef, TASK_VERBS, type Outcome, type RowVerb } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { Button, Input, NativeSelect, Popup, PopupRow, PROW, PROW_NAME } from './ui/index.ts';
 import { Sheet, useCan } from './taskui.tsx';
@@ -137,7 +137,7 @@ export function VerbSheet(props: {
       <ul className="vlist m-0 basis-full list-none p-0">
         {shown.map((t) => (
           <li key={t.id}>
-            <span className="mono">#{t.id}</span> {t.title}
+            <span className="mono">{taskRef(t.id)}</span> {t.title}
           </li>
         ))}
         {run.length > shown.length ? <li className="muted">… and {run.length - shown.length} more</li> : null}

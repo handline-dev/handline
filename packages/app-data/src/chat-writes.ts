@@ -124,13 +124,4 @@ export const chatWrites: Record<string, WriteSpec> = {
       edit<{ items: { id: number }[] }>(c.qc, qk.inboxes(c.d), (l) => ({ ...l, items: l.items.filter((i) => i.id !== request) }));
     },
   },
-  'chat.answer': {
-    kind: 'authored',
-    label: 'answer',
-    touches: allChats,
-    patch: (c, p) => {
-      const { request, text } = p as { request: number; text: string };
-      setRow(c, request, { landing: 'answered', state: 'answered', answer: { id: 0, text, at: c.now } });
-    },
-  },
 };

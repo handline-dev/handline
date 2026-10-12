@@ -14,10 +14,9 @@ import (
 
 // SupervisorPorts are the supervisor's ports for a daemon that runs structured agents and terminal ones: the lifecycle, the transcript, the
 // handoff and the terminal (its launch, its screen reads) are real; typing at a terminal session and the dialogs are not served. The caller
-// sets them on the Env.
+// sets them on the Env, then calls SettlePeerSends.
 func (p *Parts) SupervisorPorts(lc *Lifecycle) supervisor.Ports {
 	set := lc.Manager.Settings
-	p.settlePeerSends()
 	return supervisor.Ports{
 		Agents:    p.agentsPort(),
 		Terminal:  termPort{lc.term},

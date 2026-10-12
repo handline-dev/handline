@@ -23,6 +23,7 @@ type fakeTeller struct {
 	done      []string
 	stopped   bool
 	deny      string
+	after     func() string // the telling that follows the commit of an ask, when set
 	handed    []Handover
 	opened    []string
 	edited    []Edited
@@ -151,7 +152,7 @@ func (f *fakeTeller) TaskAsk(tx *sql.Tx, in AskReq) (*Asked, error) {
 	if err := within(rid); err != nil {
 		return nil, err
 	}
-	return &Asked{OK: true, Msg: fmt.Sprintf("queued as #%d for %s", rid, to), RID: rid}, nil
+	return &Asked{OK: true, Msg: fmt.Sprintf("queued as #%d for %s", rid, to), RID: rid, After: f.after}, nil
 }
 func (f *fakeTeller) HandoffRetire(tx *sql.Tx, rid int64, verdict string) (func(), error) {
 	ok, err := db.CloseIfQueued(tx, rid, "done", verdict, db.CloseOpts{Announced: true, NoSettle: true})

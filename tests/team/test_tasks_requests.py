@@ -2580,8 +2580,22 @@ def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> No
         db.mark_task_done(con, kid, "part done")        # an open child holds its parent
     finally:
         con.close()
-    rc, out = _cli(["task", "done", f"T{t}", "why"], as_agent="worker")
+    real_in = sys.stdin
+    try:
+        sys.stdin = io.StringIO("")
+        rc, out = _cli(["task", "done", f"T{t}", "-"], as_agent="worker")
+        check("task done -: nothing on stdin is refused", rc == 1 and "stdin (-) was empty" in out, out)
+        sys.stdin = io.StringIO("merged as abc\nall green\n")        # what a quoted heredoc hands it
+        rc, out = _cli(["task", "done", f"T{t}", "-"], as_agent="worker")
+    finally:
+        sys.stdin = real_in
     check("T form: T<n> is accepted", rc == 0 and f"task T{t} done" in out, out)
+    con = db.connect()
+    try:
+        evidence = db.get_task(con, t)["done_evidence"]
+    finally:
+        con.close()
+    check("task done -: the heredoc's text is recorded, not a '-'", evidence == "merged as abc\nall green", repr(evidence))
     rc, out = _cli(["task", "reopen", f"t{t}", "again"], as_agent="manager")
     check("T form: a lower-case t is the same", rc == 0 and f"task T{t} reopened" in out, out)
     rc, out = refused(["task", "done", "task7", "why"], "worker")

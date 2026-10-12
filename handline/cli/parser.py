@@ -693,12 +693,16 @@ def build_parser() -> argparse.ArgumentParser:
     p = tk.add_parser("done", help="mark a task done (#71) - owner or a linked request's "
                                    "target only, exactly one of a sha, --request N, or a reason")
     p.add_argument("task", type=_task_arg, metavar="T")
-    p.add_argument("evidence", nargs="?", help="a merge sha on main, or a reason")
+    p.add_argument("evidence", nargs="?", help="a merge sha on main, or a reason; - reads it from stdin")
     p.add_argument("--request", type=int, default=None,
                    help="a request where the result was already reported")
     p.add_argument("--repo", default=None, help="the repo whose main a sha is checked against")
     p.add_argument("--reason", action="store_true",
                    help="record the evidence as words even if it looks like hex")
+    p.add_argument("--commit", default=None, metavar="SHA",
+                   help="the commit the work was done at; it must be in the repo, not necessarily on main")
+    p.add_argument("--shot", action="append", default=None, metavar="FILE.png",
+                   help="a screenshot of the result, kept with the task; repeat for more")
     p.set_defaults(fn=cmd_task_done)
     p = tk.add_parser("reopen", help="send a done task back to doing (#71) - the asker "
                                      "or the founder; needs a one-line reason")

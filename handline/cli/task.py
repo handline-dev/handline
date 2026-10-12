@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import os
 import shlex
 import sys
 import time
@@ -123,11 +124,19 @@ def cmd_task_done(args) -> int:
     # decides which; a sha is checked against the repo this is typed in unless --repo names another.
     params = {"task": args.task, "repo": str(Path(args.repo) if args.repo else Path.cwd())}
     if args.evidence is not None:
-        params["evidence"] = args.evidence
+        evidence, err = _text_arg(args.evidence, None, "evidence") if args.evidence == "-" else (args.evidence, None)
+        if err:
+            print(err)
+            return 1
+        params["evidence"] = evidence.strip()  # a heredoc's last newline would keep a sha from reading as one
         if args.reason:
             params["reason"] = True
     if args.request is not None:
         params["request"] = args.request
+    if args.commit is not None:
+        params["commit"] = args.commit
+    if args.shot:
+        params["shots"] = [os.path.abspath(s) for s in args.shot]     # the daemon reads them from its own cwd
     return client.said(*client.write("task.done", params))
 
 
@@ -436,6 +445,15 @@ def _clock(time_box: dict, now: float) -> dict:
     return t
 
 
+def _result_lines(r: dict, tid: int) -> list[str]:
+    """What the task's end kept: the commit and whether main reaches it, the screenshots where the daemon keeps them
+    (shots/T<n>/<k>.png under its home)."""
+    out = [f"commit {r['commit']} ({'on main' if r.get('on_main') else 'not on main'})"] if r.get("commit") else []
+    folder = paths.home() / "shots" / f"T{tid}"
+    out += [f"shot {folder / str(s['n'])}.png ({s['bytes']} bytes)" for s in r.get("shots") or []]
+    return out
+
+
 def _detail_lines(t: dict, now: float) -> list[str]:
     """One task (the wire's task.get) as lines to read: where it stands, its brief, memos, what it waits on, its
     children and its handoffs, each note whole. The Go daemon's task.get may leave out asker, discarded, blockers,
@@ -450,6 +468,8 @@ def _detail_lines(t: dict, now: float) -> list[str]:
         out += actions.timeout_lines(_clock(t["time"], now))
     if t["evidence"]:
         out.append(f"done {timefmt.stamp(client.epoch(t['done']))}: {t['evidence']}")
+    if t.get("result"):
+        out += _result_lines(t["result"], t["id"])
     if t.get("discarded"):
         out.append(f"discarded by {t['discarded']['by']}: {t['discarded']['reason'] or 'no reason given'}")
     out += ["", "brief", t["body"] or "(none)"]

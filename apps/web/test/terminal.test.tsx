@@ -8,7 +8,7 @@ import { DataProvider, useAgentDetail, type BoxComponent } from '@handline/app-d
 import { BytesChannel, fromBase64, toBase64, type ByteEvent } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
 import { BytesTab } from '../src/BytesTab.tsx';
-import { guard, paint, type CreateTerm } from '../src/terminal/core.ts';
+import { clampGrid, gridToSend, guard, isEscapeChord, keySender, paint, terminalOwnsKey, type CreateTerm } from '../src/terminal/core.ts';
 import { KEEP_MS, dropKept, keep } from '../src/terminal/keep.ts';
 import { linkHandler, openLink } from '../src/terminal/xterm.ts';
 import { wantsBytes } from '../src/terminal/choose.ts';
@@ -208,6 +208,8 @@ describe('which renderer', () => {
 });
 
 describe('the pane', () => {
+  let proposed: { cols: number; rows: number } | null = null;
+  afterEach(() => void (proposed = null));
   let root: Root | null = null;
   let box: HTMLElement;
   afterEach(async () => {
@@ -227,9 +229,10 @@ describe('the pane', () => {
     const create: CreateTerm = () => {
       term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
       made.push(term);
-      return { term, propose: () => null, setFontSize() {}, mark: (l) => marks.push(l), focus() {}, dispose: () => term.dispose() };
+      return { term, propose: () => proposed, setFontSize() {}, mark: (l) => marks.push(l), focus() {}, dispose: () => term.dispose() };
     };
     const store = new Store(s.client);
+    store.me = s.client.hello?.caller.name ?? ''; // the test store is never started, which is what sets it
     box = document.body.appendChild(document.createElement('div'));
     root = createRoot(box);
     await act(async () => {
@@ -312,6 +315,46 @@ describe('the pane', () => {
     await until(() => box.querySelector('.xterm-host > div'), 'the terminal again');
     expect(m.made).toHaveLength(1); // the kept instance was reused
   });
+
+  it('takes the keyboard on a click, sends keys to the host, sizes the grid once per burst, and lets go on Ctrl+Shift+E', async () => {
+    const watchers: (() => void)[] = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: () => void) {
+          watchers.push(cb);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const m = await mount();
+    await until(() => m.term() && rows(m.term()).some((l) => l.includes('Claude Code v2.1')), 'the screen');
+    const input = vi.spyOn(m.client.bytes, 'input');
+    const resize = vi.spyOn(m.client.bytes, 'resize');
+    m.term().input('ignored before the take', true); // not holding: nothing goes
+    expect(input).not.toHaveBeenCalled();
+    const stage = box.querySelector('.xterm-host div')!;
+    stage.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await until(() => box.textContent?.includes('You hold the input'), 'the hold');
+    resize.mockClear();
+    for (const w of [90, 95, 100]) {
+      // a drag: several sizes inside the debounce
+      proposed = { cols: w, rows: 30 };
+      watchers.forEach((w) => w());
+    }
+    await until(() => resize.mock.calls.length > 0, 'the resize');
+    await wait(300);
+    expect(resize).toHaveBeenCalledTimes(1);
+    expect(resize.mock.calls[0]!.slice(1)).toEqual([100, 30]);
+    await until(() => m.term().cols === 100 && m.term().rows === 30, 'the repaint at the new size');
+    m.term().input('hi\r', true); // what xterm's onData gives for typing
+    await until(() => input.mock.calls.length > 0, 'the input call');
+    expect(new TextDecoder().decode(input.mock.calls[0]![1])).toBe('hi\r');
+    stage.dispatchEvent(new KeyboardEvent('keydown', { key: 'E', ctrlKey: true, shiftKey: true, bubbles: true }));
+    await until(() => box.textContent?.includes('Click the terminal to type'), 'the release');
+    vi.unstubAllGlobals();
+  });
 });
 
 describe('the keep', () => {
@@ -326,5 +369,81 @@ describe('the keep', () => {
     vi.advanceTimersByTime(1);
     expect(gone).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
+  });
+});
+
+describe('grid and key routing', () => {
+  it('asks for a grid only when the pane has a size and it differs, clamped', () => {
+    expect(gridToSend(null, { cols: 80, rows: 24 })).toBeNull();
+    expect(gridToSend({ cols: 0, rows: 0 }, { cols: 80, rows: 24 })).toBeNull();
+    expect(gridToSend({ cols: 80, rows: 24 }, { cols: 80, rows: 24 })).toBeNull();
+    expect(gridToSend({ cols: 120, rows: 40 }, { cols: 80, rows: 24 })).toEqual({ cols: 120, rows: 40 });
+    expect(gridToSend({ cols: 5, rows: 900 }, { cols: 80, rows: 24 })).toEqual(clampGrid(5, 900));
+  });
+  it('leaves every key to a focused terminal except the one escape chord', () => {
+    const host = document.body.appendChild(document.createElement('div'));
+    host.innerHTML = '<div class="xterm"><textarea></textarea></div><button></button>';
+    const inTerm = host.querySelector('textarea')!,
+      outside = host.querySelector('button')!;
+    const key = (target: HTMLElement, k: string, mods: object = {}) => ({
+      target,
+      key: k,
+      ctrlKey: false,
+      shiftKey: false,
+      metaKey: false,
+      altKey: false,
+      ...mods,
+    });
+    expect(terminalOwnsKey(key(inTerm, 'k', { metaKey: true }))).toBe(true); // the palette key
+    expect(terminalOwnsKey(key(inTerm, '?'))).toBe(true);
+    expect(terminalOwnsKey(key(inTerm, '[', { ctrlKey: true }))).toBe(true);
+    expect(terminalOwnsKey(key(outside, 'k', { metaKey: true }))).toBe(false);
+    const chord = key(inTerm, 'E', { ctrlKey: true, shiftKey: true });
+    expect(isEscapeChord(chord)).toBe(true);
+    expect(terminalOwnsKey(chord)).toBe(false);
+    host.remove();
+  });
+});
+
+describe('keySender', () => {
+  const bytes = (...n: number[]) => new Uint8Array(n);
+  const lock = Object.assign(new Error('typing'), { gate: 'terminal_lock' });
+
+  it('sends one call at a time and joins the keys typed meanwhile', async () => {
+    const calls: number[][] = [];
+    let release = () => {};
+    const send = vi.fn((d: Uint8Array) => {
+      calls.push([...d]);
+      return new Promise<void>((r) => (release = r));
+    });
+    const key = keySender(send, () => {});
+    key(bytes(1));
+    key(bytes(2));
+    key(bytes(3));
+    expect(calls).toEqual([[1]]);
+    release();
+    await vi.waitFor(() => expect(calls).toEqual([[1], [2, 3]]));
+  });
+
+  it('tries a call the daemon refused for the terminal lock again, with the same keys', async () => {
+    const calls: number[][] = [];
+    const send = vi.fn(async (d: Uint8Array) => {
+      calls.push([...d]);
+      if (calls.length < 3) throw lock;
+    });
+    keySender(send, () => {})(bytes(7));
+    await vi.waitFor(() => expect(calls).toEqual([[7], [7], [7]]));
+  });
+
+  it('reports any other refusal and drops what was queued', async () => {
+    const refused = vi.fn();
+    const send = vi.fn(async () => {
+      throw new Error('held by someone');
+    });
+    const key = keySender(send, refused);
+    key(bytes(1));
+    key(bytes(2));
+    await vi.waitFor(() => expect(refused).toHaveBeenCalledTimes(1));
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });

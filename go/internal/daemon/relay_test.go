@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bufio"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -9,10 +10,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/handline/handline/go/internal/authority"
+	"github.com/handline/handline/go/internal/sessiontoken"
 )
 
 // startRelaying is a daemon serving a relay socket for a "gateway" that is this test process.
-func startRelaying(t *testing.T, a fakeAuth, gatewayPid int) *Daemon {
+func startRelaying(t *testing.T, a authority.Authority, gatewayPid int) *Daemon {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "hl")
 	if err != nil {
@@ -54,7 +58,7 @@ func TestARelayedCallFromAPairedDeviceIsAnsweredAtMemberWithOnlyThisDaemonRunnin
 		t.Fatalf("relay.open: %v", r)
 	}
 	// a hello changes nothing about who is calling
-	r := c.raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"gateway","protocol":1,"key":"x"}}`)
+	r := c.raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"gateway","protocol":1,"key":"x","token":"t"}}`)
 	res, _ := r["result"].(map[string]any)
 	if res == nil || res["role"] != "member" {
 		t.Fatalf("hello: %v", r)
@@ -80,6 +84,7 @@ func TestTheRelaySocketServesOnlyTheGateway(t *testing.T) {
 	}{
 		"another process than the gateway": {os.Getppid(), fakeAuth{}},
 		"a session of an agent":            {os.Getpid(), fakeAuth{agent: "worker"}},
+		"sessions that cannot be read":     {os.Getpid(), fakeAuth{sessions: errors.New("permission denied")}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := startRelaying(t, tc.auth, tc.gateway)
@@ -106,5 +111,42 @@ func TestARelayOpenThatIsNotAMemberDeviceIsClosedWithoutAByte(t *testing.T) {
 		if b, err := c.r.ReadBytes('\n'); err == nil {
 			t.Fatalf("%s: answered: %s", open, b)
 		}
+	}
+}
+
+// The recorded sessions are how an agent's own process is told from the gateway. A directory that exists and cannot be
+// read says nothing, and nothing is not "no agent".
+func TestTheRelayRefusesWhenTheRecordedSessionsCannotBeRead(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any directory")
+	}
+	home := t.TempDir()
+	store := authority.New(home)
+	sessions := filepath.Join(store.Root, sessiontoken.NS)
+	if err := os.MkdirAll(sessions, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	asked := func(d *Daemon) error {
+		c := dialRelay(t, d)
+		c.c.SetDeadline(time.Now().Add(5 * time.Second))
+		c.c.Write([]byte(relayOpen + "\n"))
+		_, err := c.r.ReadBytes('\n')
+		return err
+	}
+	if err := asked(startRelaying(t, store, os.Getpid())); err != nil {
+		t.Fatalf("readable sessions: %v", err)
+	}
+	if err := os.Chmod(sessions, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(sessions, 0o700) })
+	if err := asked(startRelaying(t, store, os.Getpid())); err == nil {
+		t.Fatal("answered with the recorded sessions unreadable")
+	}
+	if err := os.RemoveAll(sessions); err != nil {
+		t.Fatal(err)
+	}
+	if err := asked(startRelaying(t, store, os.Getpid())); err != nil {
+		t.Fatalf("no sessions directory: %v", err)
 	}
 }

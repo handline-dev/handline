@@ -2,6 +2,8 @@ package lifecycle
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -235,5 +237,74 @@ func TestAnOwedClearIsForcedThroughWhenItsTimeIsUpAndTheRecordSaysWhatWasCutOff(
 	}
 	if h, _ := db.GetHandoff(g.m.Q, "a"); !strings.Contains(h, "Cut off by the clear") || !strings.Contains(h, "npm test") {
 		t.Fatalf("record %q", h)
+	}
+}
+
+func (g *moveRig) account(t *testing.T, name string, loggedIn bool) {
+	t.Helper()
+	dir := filepath.Join(g.m.Home, "accounts", name, ".claude")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if loggedIn {
+		os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte("{}"), 0o600)
+	}
+}
+
+func TestAForcedMoveIsRefusedForAnAccountThatCannotTakeItAndNothingIsEnded(t *testing.T) {
+	g := newMoveRig(t)
+	g.account(t, "beta", true)
+	g.account(t, "out", false)
+	g.account(t, "acct", true)
+	for _, c := range []struct{ dest, want string }{
+		{"nowhere", "account 'nowhere' does not exist or is not logged in"},
+		{"out", "account 'out' does not exist or is not logged in"},
+		{"acct", "a is already on acct"},
+	} {
+		if ok, said, err := g.v.ForceMove("a", c.dest, "human"); ok || err != nil || said != c.want {
+			t.Errorf("%s: %v %q %v", c.dest, ok, said, err)
+		}
+	}
+	g.l.roomOn = "has no free slot"
+	if ok, said, _ := g.v.ForceMove("a", "beta", "human"); ok || said != "beta has no free slot - not moving a there" {
+		t.Fatalf("%v %q", ok, said)
+	}
+	db.SetAgentState(g.m.Q, "a", states.Stalled, 0, "x")
+	g.l.roomOn = ""
+	if ok, said, _ := g.v.ForceMove("a", "beta", "human"); ok || said != "a is STALLED" {
+		t.Fatalf("%v %q", ok, said)
+	}
+	if len(g.r.closed) != 0 || len(g.r.opened) != 0 {
+		t.Fatalf("a refusal ended or started a session: %v %v", g.r.closed, g.r.opened)
+	}
+}
+
+func TestAForcedMoveEndsTheSessionStartsItOnTheOtherAccountAndRecordsWhoDidIt(t *testing.T) {
+	g := newMoveRig(t)
+	g.account(t, "beta", true)
+	ok, said, err := g.v.ForceMove("a", "beta", "human (screen)")
+	if !ok || err != nil || said != "a moved acct -> beta (forced by human (screen))" {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if len(g.r.closed) != 1 || len(g.r.opened) != 1 || g.r.opened[0].Account != "beta" || g.row(t).Account.String != "beta" {
+		t.Fatalf("closed %v opened %+v %+v", g.r.closed, g.r.opened, g.row(t))
+	}
+	var payload string
+	if err := g.m.Q.QueryRow("SELECT payload FROM events WHERE agent = 'a' AND kind = 'forced_move'").Scan(&payload); err != nil || !strings.Contains(payload, `"by": "human (screen)"`) && !strings.Contains(payload, `"by":"human (screen)"`) {
+		t.Fatalf("%q %v", payload, err)
+	}
+}
+
+func TestAForcedMoveOfAClosedAgentIsOwedToItsNextWake(t *testing.T) {
+	g := newMoveRig(t)
+	g.account(t, "beta", true)
+	db.SetClosed(g.m.Q, "a", "sess-1")
+	g.r.alive["a"] = false
+	ok, said, err := g.v.ForceMove("a", "beta", "human")
+	if !ok || err != nil || said != "a is closed: its next wake starts it on beta (moved by human)" {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, found, _ := db.LastEventID(g.m.Q, "a", MoveOwedKind); !found || len(g.r.opened) != 0 {
+		t.Fatalf("owed %v opened %v", found, g.r.opened)
 	}
 }

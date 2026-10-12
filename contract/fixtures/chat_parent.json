@@ -1,0 +1,67 @@
+{
+ "fixtures": [
+  {
+   "name": "chat.send.a_parent_that_asked_the_person_is_only_a_say",
+   "spec": "chat.send",
+   "about": "NOT_YET_IN_PYTHON A parent that waits on the person is not answered by chat.send: the message is a new one under it (needs --var ask_agent: an agent with one open question to the person).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "to": "human",
+        "answer": null,
+        "id": {
+         "$type": "integer",
+         "$save": "ask"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "a reference, not an answer",
+       "parent": "{{ask}}",
+       "request_id": "conf-cp-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$above": "ask"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

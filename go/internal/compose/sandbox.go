@@ -15,6 +15,8 @@ import (
 // sandbox's hide lists, and the Read and Edit denies that bind the file tools, which the sandbox does not.
 type Confinement struct {
 	Hide, NoWrite, ExtraDirs []string
+	// ReadAllow are folders the file tools may read without asking (the attachments folder).
+	ReadAllow []string
 	// SandboxOff is the founder's choice for this agent: commands run unsandboxed. The Read and Edit denies stay.
 	SandboxOff bool
 }
@@ -58,7 +60,15 @@ func SandboxSettings(shared []byte, c Confinement) map[string]any {
 	for _, p := range c.NoWrite { // likewise denyWrite binds Bash only; an Edit rule covers Write too
 		deny = append(deny, "Edit(/"+p+")")
 	}
-	return map[string]any{"sandbox": sandbox, "permissions": map[string]any{"deny": deny}}
+	perms := map[string]any{"deny": deny}
+	if len(c.ReadAllow) > 0 {
+		var allow []string
+		for _, p := range c.ReadAllow {
+			allow = append(allow, "Read(/"+strings.TrimRight(p, "/")+"/**)")
+		}
+		perms["allow"] = allow
+	}
+	return map[string]any{"sandbox": sandbox, "permissions": perms}
 }
 
 // confinementOf is what agent's session in worktree is kept out of.
@@ -79,7 +89,7 @@ func (r *Runner) confinementOf(agent, worktree string) (Confinement, error) {
 	if err != nil {
 		return Confinement{}, err
 	}
-	return Confinement{Hide: hide, NoWrite: noWrite, ExtraDirs: extra, SandboxOff: !lc.roster.SandboxOn(agent, cfg)}, nil
+	return Confinement{Hide: hide, NoWrite: noWrite, ExtraDirs: extra, ReadAllow: []string{filepath.Join(lc.Launch.Home, "attachments")}, SandboxOff: !lc.roster.SandboxOn(agent, cfg)}, nil
 }
 
 // claudeTranscripts is where the Claude CLI records a session: claude names the folder under the config directory after the worktree, every

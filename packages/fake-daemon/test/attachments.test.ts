@@ -53,15 +53,12 @@ test('the type is checked by the first bytes; over 10 MiB is refused with the li
   client.close();
 });
 
-test('an answer to an open question takes no images', async () => {
+test('a reply to an open question takes its images like any message', async () => {
   const { client, daemon } = setup();
   await client.start();
   const ask = daemon.chat.ask(AUD, 'Which?', 'founder');
   const r = await put(client, PNG);
-  await assert.rejects(
-    client.call('chat.send', { agent: AUD, body: 'this one', parent: ask, attachments: [r.attachment!.id], request_id: 'op-a' }),
-    /takes no images/,
-  );
-  const ok = await client.call('chat.send', { agent: AUD, body: '', attachments: [r.attachment!.id], request_id: 'op-b' });
-  assert.ok(ok.request);
+  const sent = await client.call('chat.send', { agent: AUD, body: 'this one', parent: ask, attachments: [r.attachment!.id], request_id: 'op-a' });
+  assert.ok(sent.request);
+  client.close();
 });

@@ -69,6 +69,9 @@ export const NOT_QUERIES = [
   // Reads no screen draws yet: the terminal's address (member) and the next account pick (agent).
   'terminal.open',
   'status.pick',
+  // No screen draws an attachment or a task screenshot yet.
+  'attachment.get',
+  'task.shot',
 ] as const;
 
 export type ReadMethod = keyof typeof reads;

@@ -1,7 +1,7 @@
 // The message box: Enter sends, Shift+Enter breaks the line, the up arrow recalls what was sent, `/` and `#` open menus, Ctrl+R lists the history,
 // and an unsent draft is kept per agent. A message taken back (cancel) puts its text here again.
 import { useEffect, useRef, useState } from 'react';
-import { isOpenAsk, type KV, type Verb } from '@handline/app-core';
+import type { KV, Verb } from '@handline/app-core';
 import type { AgentDetail, ChatMessage } from '@handline/client';
 import { useAgents, useChatActions } from '@handline/app-data';
 import { setting } from './daemon.ts';
@@ -104,13 +104,9 @@ export function Compose(props: {
     }
     setRefused(null);
     const delivery = choosing && now ? ('now' as const) : undefined;
-    // Replying to a question that waits for you answers it; to anything else sends a linked message to whoever said it.
-    // An answer takes no images: under an open question the words answer it, and the images go after as a message of their own.
+    // A picked message is a reference: a linked message to whoever said it, whatever it asked.
     const attachments = att.ids;
-    if (target && isOpenAsk(target, agent)) {
-      if (text.trim()) act.answer(target.id, text);
-      if (attachments.length) act.send('', { attachments });
-    } else if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery, attachments });
+    if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery, attachments });
     else act.send(text, { delivery, attachments });
     att.clear();
     setNow(false);
@@ -167,7 +163,7 @@ export function Compose(props: {
             <Icon
               name="reference"
               size={14}
-              label={isOpenAsk(target, agent) ? `Answering #${target.id}` : `Replying to #${target.id}`}
+              label={`Replying to #${target.id}`}
             />
             <span className="mono">#{target.id}</span>
             <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>

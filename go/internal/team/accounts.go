@@ -18,7 +18,7 @@ import (
 // Accounts is handline/team/accounts.py: the account directories and what is known of their logins. Credentials are never
 // touched: a login is told by a credential's presence (and, for the keychain, its modification time), never by reading it.
 // Registering an account's shared links, the subscription and identity lookups through the vendor's own commands, and
-// adding or removing an account are not here.
+// adding or removing an account are in accountsadmin.go.
 type Accounts struct{ Home string }
 
 // ModifiedTTLS: the keychain read behind a credential's modification time is a subprocess, and every tick asks for each agent on

@@ -103,7 +103,6 @@ A method marked write takes a required `request_id`.
 | `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` | `bad_request`, `not_found` |  |
 | `chat.send` | member | yes | `agent`, `body`, `task?`, `parent?`, `attachments?`, `delivery?`, `request_id` | `Accepted & {request, receipt}` | `refused`, `not_found`, `bad_request` |  |
 | `chat.send_now` | member | yes | `request`, `request_id` | `Accepted & {receipt}` | `refused`, `not_found`, `bad_request` |  |
-| `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.cancel` | member | yes | `request`, `confirm?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.seen` | member | yes | `agent`, `up_to`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -123,9 +122,10 @@ A method marked write takes a required `request_id`.
 | `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `before?`, `limit?`, `all?`, `everyone?`, `reason_gaps?` | `{items, more, reason_gaps}` |  |  |
 | `task.get` | agent |  | `task` | `TaskDetail` | `not_found` |  |
-| `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `request_id` | `Accepted & {task}` | `refused` |  |
+| `task.shot` | member |  | `task`, `n`, `offset?` | `{mime, bytes, offset, data, done}` | `not_found`, `bad_request` |  |
+| `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.handoff` | agent | yes | `task`, `to`, `note`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `commit?`, `shots?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.progress` | agent (only agent) | yes | `task?`, `note`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
 | `progress.get` | agent (only agent) |  | none | `{note}` |  |  |
@@ -346,10 +346,6 @@ A message to an agent through the daemon's delivery (queued, typed, landed); nee
 
 Write a queued message now, ahead of the daemon's delivery order; the request keeps its id and goes on as sent. For a message to a structured agent whose receipt is queued: written to the CLI with priority now, receipt sent. Any other receipt is refused (gate state), including a message written meanwhile. The daemon makes the release atomic with its queue, so a write that has started is never promoted twice. A terminal agent's message is as before.
 
-### `chat.answer`
-
-Answer a message that asked something.
-
 ### `chat.dismiss`
 
 Dismiss a message.
@@ -426,6 +422,10 @@ Task rows. Newest id first. To read every task, call with `all: true` and `limit
 
 One task with body, delivery history and linked events.
 
+### `task.shot`
+
+A screenshot kept with a finished task. One screenshot of a task whose end recorded it, in chunks. A task or number the result does not hold is not_found.
+
 ### `task.new`
 
 Create a task. The founder or a member device opens one for an agent only, and it opens queued.
@@ -436,7 +436,7 @@ Hand a task to another agent.
 
 ### `task.done`
 
-Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request.
+Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result).
 
 ### `task.reopen`
 

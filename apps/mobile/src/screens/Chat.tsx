@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { isOpenAsk, landingLabel, sideOf, timeline } from '@handline/app-core';
 import { classify, sentence, useAgents, useChat, useChatActions, useInbox, useWrite, type ChatScope } from '@handline/app-data';
-import { useSelector } from '@handline/app-react';
+import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, Landing } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
@@ -99,9 +99,8 @@ export function Chat(props: { detail: AgentDetail }) {
 
   const send = (delivery?: 'now' | 'queue') => {
     if (!text.trim()) return;
-    // Replying to a question that waits answers it; to anything else sends a linked message to whoever said it.
-    if (picked && isOpenAsk(picked, agent)) act.answer(picked.id, text);
-    else if (picked) act.send(text, { parent: picked.id, to: names.has(picked.from) ? picked.from : picked.to, delivery });
+    // A picked message is a reference: a linked message to whoever said it, whatever it asked.
+    if (picked) act.send(text, { parent: picked.id, to: names.has(picked.from) ? picked.from : picked.to, delivery });
     else act.send(text, { delivery });
     setPicked(null);
     setText('');
@@ -165,12 +164,11 @@ export function Chat(props: { detail: AgentDetail }) {
           </Text>
         )}
         {entries.map((e) =>
-          e.kind === 'message' ? (
+          e.kind !== 'item' ? (
             <Bubble
               key={`m${e.id}`}
               m={e.message}
               agent={agent}
-              isAgent={(n) => names.has(n)}
               picked={picked?.id === e.id}
               working={working}
               onPick={(m) => setPicked((p) => (p?.id === m.id ? null : m))}
@@ -231,7 +229,6 @@ export function Chat(props: { detail: AgentDetail }) {
 function Bubble(props: {
   m: ChatMessage;
   agent: string;
-  isAgent: (n: string) => boolean;
   picked: boolean;
   working: boolean;
   onPick: (m: ChatMessage) => void;
@@ -240,12 +237,11 @@ function Bubble(props: {
   const c = usePalette();
   const { m, agent } = props;
   const act = useChatActions(agent);
-  const can = useSelector((s) => ({ answer: s.can('chat.answer'), dismiss: s.can('chat.dismiss') }));
-  const side = sideOf(m, agent, props.isAgent);
-  const [answer, setAnswer] = useState('');
+  const can = useSelector((s) => ({ dismiss: s.can('chat.dismiss') }));
+  const side = sideOf(m, agent, useStore().me);
   const unnumbered = m.id < 0; // shown before the daemon numbered it, or refused
   const failed = m.state === 'failed';
-  const open = isOpenAsk(m, agent) && can.answer;
+  const open = isOpenAsk(m, agent);
   const mine = side === 'person' && !unnumbered && !failed;
   const undoable = mine && ['queued', 'typed', 'delivered', 'delivered_unanswered'].includes(m.landing);
   // A sent, confirmed or unknown message is the agent's: taking it back asks first, as for a delivered one.
@@ -323,30 +319,7 @@ function Bubble(props: {
         </Row>
       )}
       {side === 'agent' && m.answer && <Text style={{ color: c.muted, fontSize: 12 }}>✓✓ You: {m.answer.text}</Text>}
-      {open && (
-        <View style={{ gap: space.xs }}>
-          <TextInput
-            testID={`answer-input-${m.id}`}
-            value={answer}
-            onChangeText={setAnswer}
-            placeholder="Answer"
-            placeholderTextColor={c.muted}
-            style={{ color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.md, padding: space.sm }}
-          />
-          <Row>
-            <Button
-              testID={`answer-send-${m.id}`}
-              label="Answer"
-              disabled={!answer.trim()}
-              onPress={() => {
-                act.answer(m.id, answer);
-                setAnswer('');
-              }}
-            />
-            {can.dismiss && <Button testID={`dismiss-${m.id}`} label="Dismiss" onPress={() => act.dismiss(m.id)} />}
-          </Row>
-        </View>
-      )}
+      {open && can.dismiss && <Button testID={`dismiss-${m.id}`} label="Dismiss" onPress={() => act.dismiss(m.id)} />}
     </Pressable>
   );
 }

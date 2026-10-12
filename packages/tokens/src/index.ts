@@ -1,4 +1,4 @@
-// Design tokens. The values are the PC web UI's (web/ui/style.css) so nothing changes on screen when apps take them from here.
+// Design tokens. The values are the old PC web UI's, so nothing changes on screen when apps take them from here.
 
 /** phone < `phone`, tablet `phone`..`pc`-1, PC >= `pc` (CSS px). */
 export const breakpoints = { phone: 640, pc: 1024 } as const;

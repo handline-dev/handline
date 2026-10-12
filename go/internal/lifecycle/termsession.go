@@ -20,6 +20,9 @@ type TermSessions interface {
 	// PidStart is when the process of pid started, in unix seconds; 0 when it cannot be read. A pid that runs with another start time is
 	// not the process that was meant: the number was reused.
 	PidStart(pid int) int64
+	// PaneHolds is whether pid runs inside the tmux pane handle (a descendant of the pane's process). known is false when either could not be
+	// read, which is no answer.
+	PaneHolds(handle string, pid int) (holds, known bool)
 	// Tell delivers text to the running session as a message; an error is not delivered.
 	Tell(agent, op, text string) error
 }
@@ -97,6 +100,12 @@ func (m *Manager) endTerminalByPane(agent, resume string, st SessionStatus) (boo
 	case handle == "" || !m.Term.Available():
 		return false, "no terminal to close"
 	}
+	// Read before the close: once the pane is gone nothing says where the pid ran. A session outside this pane is not the one the close
+	// ends; the pane's own session goes with it.
+	stray := false
+	if holds, known := m.TermRun.PaneHolds(handle, pid); known && !holds {
+		stray = true
+	}
 	if ok, why := m.Term.CloseTerminal(handle); !ok {
 		return fail("its terminal would not close: "+why, pid)
 	}
@@ -107,6 +116,13 @@ func (m *Manager) endTerminalByPane(agent, resume string, st SessionStatus) (boo
 	}
 	check(db.SetTerminal(m.Q, agent, "", wt))
 	must(db.AddEvent(m.Q, agent, "terminal_closed", db.KV{K: "handle", V: handle}))
+	if stray {
+		why := fmt.Sprintf("a second session of this agent (pid %d) runs outside its closed terminal %s; end it by hand, or it will be taken for this agent's own", pid, handle)
+		must(db.AddEvent(m.Q, agent, "needs_you", db.KV{K: "reason", V: why}, db.KV{K: "pid", V: pid}))
+		m.Log("  %s: %s", agent, why)
+		m.recordClosed(agent, resume, st)
+		return true, agent + ": terminal closed; a second session is still running"
+	}
 	gone := m.TermRun.PidGone(pid)
 	for waited := 0; !gone && waited < supervisor.EndWaitS; waited += supervisor.EndPollS {
 		m.sleep(supervisor.EndPollS * time.Second)

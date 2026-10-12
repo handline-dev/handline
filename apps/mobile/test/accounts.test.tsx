@@ -135,4 +135,26 @@ describe('the accounts tab', () => {
     expect($('account-remove')).toBeNull();
     m.store.stop();
   });
+
+  it('adds an account by name, and a used name is refused with the reason', async () => {
+    const m = await mount();
+    await press($('account-add-open'));
+    await press($('sheet-submit')); // no name yet: nothing is sent
+    expect(m.daemon.accounts.list().accounts.map((a) => a.name)).toEqual(['alpha', 'beta', 'gamma']);
+    await type('sheet-name', 'alpha');
+    await press($('sheet-submit'));
+    await until(() => $('sheet-error'), 'the refusal');
+    expect(text($('sheet-error'))).toContain('exists');
+    await type('sheet-name', 'delta');
+    await press($('sheet-submit'));
+    await until(() => $('account-delta'), 'the new row');
+    expect($('sheet')).toBeNull();
+    m.store.stop();
+  });
+
+  it('offers Add account to the founder only', async () => {
+    const m = await mount('agent');
+    expect($('account-add-open')).toBeNull();
+    m.store.stop();
+  });
 });

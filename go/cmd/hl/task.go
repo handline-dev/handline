@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -491,7 +492,7 @@ func taskMerge(c *hlclient.Client, args []string) (int, bool) {
 }
 
 func taskDone(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--request", "--repo"}, []string{"--reason"}, nil)
+	p, ok := parse(args, []string{"--request", "--repo", "--commit", "--shot"}, []string{"--reason"}, nil)
 	if !ok || len(p.pos) < 1 || len(p.pos) > 2 {
 		return 0, false
 	}
@@ -522,13 +523,39 @@ func taskDone(c *hlclient.Client, args []string) (int, bool) {
 	}
 	params := map[string]any{"task": tid, "repo": repo}
 	if len(p.pos) == 2 {
-		params["evidence"] = p.pos[1]
+		evidence := p.pos[1]
+		if evidence == "-" {
+			var why string
+			if evidence, why = textArg(&evidence, "", "evidence"); why != "" {
+				fmt.Println(why)
+				return 1, true
+			}
+		}
+		params["evidence"] = strings.TrimSpace(evidence) // a heredoc's last newline would keep a sha from reading as one
 		if p.flags["--reason"] {
 			params["reason"] = true
 		}
 	}
 	if hasReq {
 		params["request"] = request
+	}
+	if v, given := p.opt("--commit"); given {
+		params["commit"] = v
+	}
+	if shots := p.each["--shot"]; len(shots) > 0 {
+		wd, err := unix.Getwd()
+		if err != nil {
+			fmt.Printf("error: %v\n", err)
+			return 1, true
+		}
+		abs := make([]string, len(shots)) // the daemon reads them from its own cwd (os.path.abspath)
+		for i, s := range shots {
+			if !filepath.IsAbs(s) {
+				s = filepath.Join(wd, s)
+			}
+			abs[i] = filepath.Clean(s)
+		}
+		params["shots"] = abs
 	}
 	return said(c.Write("task.done", params)), true
 }

@@ -2824,7 +2824,7 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "description": "The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is then the message replied to, for an answer, or the new message."
+      "description": "The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is the new message."
      }
     },
     {
@@ -2954,54 +2954,6 @@
     }
    ],
    "description": "For a message to a structured agent whose receipt is queued: written to the CLI with priority now, receipt sent. Any other receipt is refused (gate state), including a message written meanwhile. The daemon makes the release atomic with its queue, so a write that has started is never promoted twice. A terminal agent's message is as before."
-  },
-  {
-   "name": "chat.answer",
-   "summary": "Answer a message that asked something.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "request",
-     "required": true,
-     "schema": {
-      "type": "integer"
-     }
-    },
-    {
-     "name": "text",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "member",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ]
   },
   {
    "name": "chat.dismiss",
@@ -4179,6 +4131,84 @@
    ]
   },
   {
+   "name": "task.shot",
+   "summary": "A screenshot kept with a finished task.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "n",
+     "required": true,
+     "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The screenshot's number in the task's result, from 1."
+     }
+    },
+    {
+     "name": "offset",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Where the chunk starts in the file; 0 when omitted."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "mime": {
+       "type": "string",
+       "enum": [
+        "image/png"
+       ]
+      },
+      "bytes": {
+       "type": "integer"
+      },
+      "offset": {
+       "type": "integer"
+      },
+      "data": {
+       "type": "string",
+       "description": "The chunk, in base64: at most 512 KiB of file."
+      },
+      "done": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "mime",
+      "bytes",
+      "offset",
+      "data",
+      "done"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "One screenshot of a task whose end recorded it, in chunks. A task or number the result does not hold is not_found."
+  },
+  {
    "name": "task.new",
    "summary": "Create a task. The founder or a member device opens one for an agent only, and it opens queued.",
    "paramStructure": "by-name",
@@ -4287,6 +4317,14 @@
        "text"
       ],
       "description": "Also answer the founder's message with text, where {task} is this task's real number."
+     }
+    },
+    {
+     "name": "ui",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "The task shows something on a screen. A label only: task.done takes a screenshot (shots) but never requires one."
      }
     },
     {
@@ -4424,6 +4462,27 @@
      }
     },
     {
+     "name": "commit",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The sha the work was done at; it must be a commit in repo (it need not be on main). The result says whether main reaches it. A sha given as evidence is a commit on main already."
+     }
+    },
+    {
+     "name": "shots",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "minItems": 1,
+      "maxItems": 6,
+      "description": "Absolute paths of PNG files, at most 10 MiB each. An agent names files under its worktree, its folder in the daemon's home or the scratch folder; the founder any file. The daemon copies them under its home (shots/T<n>/<k>.png, outside any repo) once the task's end has committed, and serves them with task.shot."
+     }
+    },
+    {
      "name": "request_id",
      "required": true,
      "schema": {
@@ -4451,7 +4510,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request."
+   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result)."
   },
   {
    "name": "task.reopen",
@@ -9299,6 +9358,46 @@
          "others"
         ],
         "description": "Whom the founder can ask about the task (task.ask), each agent once."
+       },
+       "ui": {
+        "type": "boolean",
+        "description": "The task was opened as a ui task. Absent when it was not."
+       },
+       "result": {
+        "type": "object",
+        "description": "What the task's end kept beyond its evidence. Absent for a task without any.",
+        "properties": {
+         "commit": {
+          "type": "string",
+          "description": "The full sha it was done at."
+         },
+         "on_main": {
+          "type": "boolean",
+          "description": "Whether main reaches commit."
+         },
+         "shots": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "properties": {
+            "n": {
+             "type": "integer"
+            },
+            "bytes": {
+             "type": "integer"
+            }
+           },
+           "required": [
+            "n",
+            "bytes"
+           ]
+          },
+          "description": "Fetch each with task.shot."
+         }
+        },
+        "required": [
+         "shots"
+        ]
        }
       },
       "required": [
@@ -11255,6 +11354,10 @@
           "type": "null"
          }
         ]
+       },
+       "change": {
+        "type": "string",
+        "description": "What a `changed` event changed, as chat.requests words it: `assigned to X, priority 2 -> 1`, `title changed`, `handed to X`. Absent when the event word says it all. An open set: a client draws a word it does not know as text."
        }
       },
       "required": [

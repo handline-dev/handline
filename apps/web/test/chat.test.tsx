@@ -165,8 +165,8 @@ describe('the Chat tab', () => {
     expect(storage.data.get(`handline.draft.${ARCH}`)).toBe('');
   });
 
-  it('recalls what was sent with the up arrow and answers a question', async () => {
-    await mount(ARCH);
+  it('recalls what was sent with the up arrow and sends a picked message as a reference', async () => {
+    const t = await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
     await press(compose(), 'ArrowUp');
     expect(compose().value).toBe('Also add the list of gaps.'); // the newest of mine
@@ -178,7 +178,8 @@ describe('the Chat tab', () => {
     await click(msg('Which gap list')!);
     await typeInto(compose(), 'chat first');
     await press(compose(), 'Enter');
-    await until(() => text(msg('Which gap list')).includes('Your answer'), 'the answer shows');
+    const refs = () => (t.daemon.chat as unknown as { messages: { body: string; parent: number | null }[] }).messages;
+    await until(() => refs().some((m) => m.body === 'chat first' && m.parent != null), 'the reference sent with its parent');
     expect($('.compose-ref')).toBeNull();
   });
 
@@ -239,14 +240,14 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(text(msg('and the transcripts')!.querySelector('.msg-ref'))).toContain('Use the contract fixtures.');
   });
 
-  it("a reply to the agent's open question answers it instead of sending a new message", async () => {
+  it("a reply to the agent's open question is a linked message, never an answer", async () => {
     const t = await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
     await click(msg('Which gap list')!.querySelector('.msg-body')!);
     await typeInto(compose(), 'chat first');
     await press(compose(), 'Enter');
-    await until(() => text(msg('Which gap list')).length > 0 && icon(msg('Which gap list'), 'Your answer'), 'the answer shows');
-    expect(sentMsgs(t).some((m) => m.body === 'chat first')).toBe(false);
+    await until(() => sentMsgs(t).some((m) => m.body === 'chat first' && m.parent === idOf('Which gap list')), 'sent under it');
+    expect(icon(msg('Which gap list'), 'Your answer')).toBeFalsy();
   });
 
   it("a reply to the agent's message that asked nothing is a say under it, not an answer", async () => {
@@ -317,7 +318,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await click($('button[aria-label="Add a tab"]')!);
     await click($$('.strip-end .ui-prow').find((b) => text(b).includes('Tasks'))!);
     await until(() => $('.tasks-tab-row'), 'the agent tasks');
-    await click($('input[aria-label="Mark #1684"]')!); // local-ref-ok
+    await click($('input[aria-label="Mark T1684"]')!); // local-ref-ok
     await click($$('button').find((b) => b.getAttribute('aria-label') === 'Actions on the marked tasks')!);
     await click($$('.ui-popup button').find((b) => text(b).startsWith('Discard'))!);
     const sh = $$('.tsheet').find((x) => x.getAttribute('aria-label') === 'Discard 1 task?')!;
@@ -593,20 +594,6 @@ describe('loading and writes with latency and refusals', () => {
     await click(link('Discard', $('.msg.failed')!));
     await until(() => !msg('drop me'), 'the row gone');
     expect(sent(s, 'drop me')).toBe(false);
-  });
-
-  it('puts a refused answer back as an open question, with the reason', async () => {
-    const s = setup();
-    await mount(ARCH, s);
-    await until(() => msg('Which gap list'), 'the open question');
-    s.daemon.knobs.latency(500);
-    s.daemon.knobs.refuse('chat.answer', 'state', REFUSAL);
-    await click(msg('Which gap list')!);
-    await typeInto(compose(), 'chat first');
-    await press(compose(), 'Enter');
-    await until(() => text(msg('Which gap list')).includes('Your answer'), 'answered at once');
-    await until(() => !text(msg('Which gap list')).includes('Your answer'), 'the question open again', 600);
-    expect(text($('.toast'))).toContain(REFUSAL);
   });
 });
 

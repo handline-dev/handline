@@ -95,7 +95,7 @@ describe('images in the send box', () => {
     expect(mine[0]!.attachments![0]!.name).toBe('shot.png');
   });
 
-  it('under an open question the words answer it and the images follow as a message of their own', async () => {
+  it('under a picked question the words and the images go as one message that replies to it', async () => {
     const s = setup();
     const id = s.daemon.chat.ask(AUD, 'Which of the two?', 'founder');
     await mount(s);
@@ -107,10 +107,10 @@ describe('images in the send box', () => {
     await click(sendBtn());
     await until(() => $$('.msg .attachment img').length, 'the picture');
     const all = (await s.client.call('chat.messages', { agent: AUD, scope: 'all' })).messages;
-    expect(all.find((m) => m.id === id)?.answer).toBeTruthy();
-    const pic = all.find((m) => m.attachments?.length)!;
-    expect(pic.parent ?? null).toBeNull();
-    expect(pic.state).not.toBe('failed');
+    const sent = all.find((m) => m.attachments?.length)!;
+    expect(sent.parent).toBe(id);
+    expect(sent.body).toBe('The second.');
+    expect(sent.state).not.toBe('failed');
   });
 
   it('a chip is removed before sending, and the message goes without it', async () => {

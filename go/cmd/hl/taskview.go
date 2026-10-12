@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/hlclient"
+	"github.com/handline/handline/go/internal/taskresult"
 	"github.com/handline/handline/go/internal/textsafe"
 	"github.com/handline/handline/go/internal/timefmt"
 )
@@ -98,12 +99,12 @@ func taskShow(c *hlclient.Client, args []string) (int, bool) {
 		return readFailed(err, fmt.Sprintf("T%d", tid)), true
 	}
 	// Titles, briefs and notes are other agents' text.
-	fmt.Println(textsafe.Text(strings.Join(detailLines(t, float64(time.Now().UnixNano())/1e9), "\n")))
+	fmt.Println(textsafe.Text(strings.Join(detailLines(t, float64(time.Now().UnixNano())/1e9, c.Home), "\n")))
 	return 0, true
 }
 
-// detailLines is one task as lines to read (cli/task._detail_lines).
-func detailLines(t obj, now float64) []string {
+// detailLines is one task as lines to read (cli/task._detail_lines); home is where the daemon keeps the screenshots.
+func detailLines(t obj, now float64, home string) []string {
 	reporter := ""
 	if a := str(t, "asker"); a != "" && a != str(t, "from") {
 		reporter = "   reporter " + a
@@ -118,6 +119,9 @@ func detailLines(t obj, now float64) []string {
 	}
 	if given(t, "evidence") {
 		out = append(out, fmt.Sprintf("done %s: %s", stamp(t["done"]), str(t, "evidence")))
+	}
+	if r, ok := t["result"].(obj); ok {
+		out = append(out, resultLines(r, num(t, "id"), home)...)
 	}
 	if d, ok := t["discarded"].(obj); ok {
 		reason := str(d, "reason")
@@ -154,6 +158,23 @@ func detailLines(t obj, now float64) []string {
 		for _, h := range hs {
 			out = append(out, fmt.Sprintf("  %s  %s -> %s\n    %s", stamp(h["at"]), str(h, "from"), str(h, "to"), str(h, "note")))
 		}
+	}
+	return out
+}
+
+// resultLines are what the task's end kept: the commit and whether main reaches it, and the screenshots where the daemon keeps
+// them (shots/T<n>/<k>.png under its home).
+func resultLines(r obj, tid int64, home string) []string {
+	var out []string
+	if given(r, "commit") {
+		where := "not on main"
+		if r["on_main"] == true {
+			where = "on main"
+		}
+		out = append(out, fmt.Sprintf("commit %s (%s)", str(r, "commit"), where))
+	}
+	for _, s := range list(r, "shots") {
+		out = append(out, fmt.Sprintf("shot %s (%d bytes)", taskresult.ShotFile(home, tid, int(num(s, "n"))), num(s, "bytes")))
 	}
 	return out
 }

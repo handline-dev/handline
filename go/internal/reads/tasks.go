@@ -2,6 +2,7 @@ package reads
 
 import (
 	"fmt"
+	"github.com/handline/handline/go/internal/taskresult"
 	"sort"
 	"strings"
 	"time"
@@ -464,6 +465,9 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, err
 	}
 	task["body"] = first.str("body")
+	if err := e.taskResultOf(*tid, task); err != nil {
+		return nil, err
+	}
 	reqs, err := query(e.DB, "SELECT r.* FROM requests r JOIN task_requests l ON l.request_id = r.id WHERE l.task_id = ? ORDER BY r.id", *tid)
 	if err != nil {
 		return nil, err
@@ -545,4 +549,32 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	task["handoffs"] = hs
 	return task, nil
+}
+
+// taskResultOf adds what the task's end kept (its commit and screenshots) and whether it was opened as a ui task.
+func (e *Env) taskResultOf(tid int64, task map[string]any) error {
+	res, err := taskresult.Get(e.DB, tid)
+	if err != nil {
+		return err
+	}
+	if !res.Empty() {
+		out := map[string]any{}
+		if res.Commit != "" {
+			out["commit"], out["on_main"] = res.Commit, res.OnMain
+		}
+		shots := make([]any, len(res.Shots))
+		for i, s := range res.Shots {
+			shots[i] = map[string]any{"n": s.N, "bytes": s.Bytes}
+		}
+		out["shots"] = shots
+		task["result"] = out
+	}
+	ui, err := taskresult.IsUI(e.DB, tid)
+	if err != nil {
+		return err
+	}
+	if ui {
+		task["ui"] = true
+	}
+	return nil
 }

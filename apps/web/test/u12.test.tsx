@@ -10,7 +10,6 @@ import { App } from '../src/App.tsx';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ARCH = 'handline.architect';
-const TB = 'handline.term-build';
 const wait = (ms = 10) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
 async function until(cond: () => unknown, what: string, tries = 300) {
   for (let i = 0; i < tries; i++) {
@@ -152,15 +151,6 @@ describe('U12 agent verbs', () => {
     await until(() => text($('.toast')).includes('mid-turn'), 'the reason');
     expect($(`[data-agent="${ARCH}"] .row-main`)?.getAttribute('title')).not.toContain('parking…');
     expect(session(s).open).toBe(true);
-  });
-
-  it('Wake on a parked agent asks nothing', async () => {
-    const s = setup();
-    session(s, TB).sessionId = 's-9';
-    await mount(TB, s);
-    await click(await item('Wake'));
-    expect($('.verb-sheet')).toBeNull();
-    await until(() => session(s, TB).open, 'woken');
   });
 
   it('a sheet whose row changed while it was open sends nothing and says so', async () => {

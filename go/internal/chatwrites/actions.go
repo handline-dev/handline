@@ -34,11 +34,6 @@ func said(msg string) *Result {
 // IsAnswerToHuman is a row the person asked that is no longer queued: what it holds now is the agent's verdict.
 func IsAnswerToHuman(r *db.Request) bool { return r.Requester == db.Human && r.State != "queued" }
 
-// WaitsOnPerson is a row the person is to answer: asked of them and still queued, or an answer to something they asked.
-func WaitsOnPerson(r *db.Request) bool {
-	return (r.Target == db.Human && r.State == "queued") || IsAnswerToHuman(r)
-}
-
 // guarded runs what follows a commit: a failure there is logged and the message left empty, since the write is done and the tick is the net.
 // With a port missing (the daemon serves the writes before every port has landed) nothing is told.
 func guarded(e *supervisor.Env, what string, fn func() (string, error)) (out string) {
@@ -224,8 +219,13 @@ func SayWrite(e *supervisor.Env, q db.Q, requester, target, body string, parent 
 
 // sayWrite is SayWrite with act, if set, doing what follows the commit in place of the usual push to the target.
 func sayWrite(e *supervisor.Env, q db.Q, requester, target, body string, parent int64, within func(q db.Q, note string, rid int64) error, act func(rid int64)) (*Result, error) {
+	return sayWriteLinked(e, q, requester, target, body, parent, false, within, act)
+}
+
+// sayWriteLinked is sayWrite where link makes parent only a link: the message it names is not closed by the reply.
+func sayWriteLinked(e *supervisor.Env, q db.Q, requester, target, body string, parent int64, link bool, within func(q db.Q, note string, rid int64) error, act func(rid int64)) (*Result, error) {
 	var note string
-	res, settled, err := e.Say(q, supervisor.SayIn{Target: target, Body: body, Requester: requester, ParentID: parent,
+	res, settled, err := e.Say(q, supervisor.SayIn{Target: target, Body: body, Requester: requester, ParentID: parent, Link: link,
 		Within: func(c db.Q, n string, rid int64) error {
 			note = n
 			if within == nil {

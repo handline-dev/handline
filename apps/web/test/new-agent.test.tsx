@@ -159,24 +159,18 @@ describe('X3 New agent', () => {
 
   it('shows the steps the daemon sent and no others, then offers Open agent when done', async () => {
     const s = setup();
-    s.daemon.work.stepMs = 120;
+    const next = s.daemon.work.stepByStep();
     await mount('#/new', s);
     await fill();
     await click(create());
-    const seen = new Set<string>();
-    const note = () => {
-      const t = text($('[role=dialog] [role=status]'));
-      for (const step of ['registering the agent', 'making its worktree', 'starting the agent']) if (t.includes(step)) seen.add(step);
-    };
-    const watch = new MutationObserver(note);
-    watch.observe(document.body, { subtree: true, childList: true, characterData: true });
-    note();
-    try {
-      await until(() => text(dialog()).includes('fresh is running'), 'done', 2000);
-    } finally {
-      watch.disconnect();
+    const shown: string[] = [];
+    for (const step of ['registering the agent', 'making its worktree', 'starting the agent']) {
+      await until(() => text($('[role=dialog] [role=status]')).includes(step), step);
+      shown.push(step);
+      next();
     }
-    expect([...seen]).toEqual(['registering the agent', 'making its worktree', 'starting the agent']);
+    await until(() => text(dialog()).includes('fresh is running'), 'done');
+    expect(shown).toHaveLength(3);
     await click(button('Open agent'));
     expect(location.hash).toBe('#/agents/fresh');
     expect($('[role=dialog]')).toBeNull();

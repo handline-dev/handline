@@ -11,8 +11,7 @@ import {
   type KV,
   type RowVerb,
   type TaskColumn,
-  type TaskFilter,
-} from '@handline/app-core';
+  type TaskFilter, taskRef } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useAgents, useServes, useTasks } from '@handline/app-data';
@@ -39,7 +38,7 @@ type Open = null | 'discard' | 'owner' | 'priority' | 'merge' | 'states' | 'keys
 const matches = (query: string) => {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   return (t: Task) => {
-    const hay = `#${t.id} ${t.title} ${t.to} ${t.from}`.toLowerCase();
+    const hay = `${taskRef(t.id)} ${t.title} ${t.to} ${t.from}`.toLowerCase();
     return words.every((w) => hay.includes(w));
   };
 };

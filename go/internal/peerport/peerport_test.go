@@ -16,12 +16,14 @@ type fakeInbox struct {
 	mu      sync.Mutex
 	texts   []string
 	outcome map[string]peerinbox.Result
+	modes   []string
 }
 
-func (f *fakeInbox) Deliver(_ context.Context, _ peerinbox.Session, text string) peerinbox.Result {
+func (f *fakeInbox) Deliver(_ context.Context, _ peerinbox.Session, text string, from peerinbox.From) peerinbox.Result {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.texts = append(f.texts, text)
+	f.modes = append(f.modes, from.Name+"/"+from.Mode)
 	if r, ok := f.outcome[text]; ok {
 		return r
 	}
@@ -103,5 +105,41 @@ func TestAMessageTheInboxTookCannotBeWithdrawn(t *testing.T) {
 	_, ok, err := rigOf(&fakeInbox{}, &events{}).Withdraw("bob", "op")
 	if ok || err != nil {
 		t.Fatal(ok, err)
+	}
+}
+
+func TestAMessageIsDeliveredWithTheModeThePortSaysForIt(t *testing.T) {
+	in, ev := &fakeInbox{}, &events{}
+	p := rigOf(in, ev)
+	p.From = func(agent, op string) peerinbox.From { return peerinbox.From{Name: agent, Mode: op} }
+	if _, err := p.Send("bob", "request:7", "hi", structured.Queue); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, ev, 1)
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	if len(in.modes) != 1 || in.modes[0] != "bob/request:7" {
+		t.Fatalf("%v", in.modes)
+	}
+}
+
+// A message the receiver queued is neither a failure nor told to the sender; it is confirmed when the transcript shows it.
+func TestAQueuedMessageIsConfirmedLaterAndNeverFailed(t *testing.T) {
+	ev := &events{}
+	in := &fakeInbox{outcome: map[string]peerinbox.Result{"one": {Kind: peerinbox.Queued, Await: func(context.Context) bool { return true }}}}
+	p := rigOf(in, ev)
+	if _, err := p.Send("bob", "op-one", "one", structured.Now); err != nil {
+		t.Fatal(err)
+	}
+	if got := waitFor(t, ev, 1); got[0] != "delivered bob op-one" {
+		t.Fatalf("%v", got)
+	}
+	in.outcome["two"] = peerinbox.Result{Kind: peerinbox.Queued, Await: func(context.Context) bool { return false }}
+	if _, err := p.Send("bob", "op-two", "two", structured.Now); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if got := ev.get(); len(got) != 1 {
+		t.Fatalf("an unconfirmed queued message raised %v", got)
 	}
 }

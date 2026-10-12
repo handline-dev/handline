@@ -1,5 +1,5 @@
 // One row of the Tasks table or tree: the cells, the cursor, the mark and what a write in flight does to the state cell.
-import { idleText, isOver, timeoutText } from '@handline/app-core';
+import { idleText, isOver, timeoutText, taskRef } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { goTasks } from './route.ts';
 import { AnimatedCell, AnimatedRow } from './AnimatedList.tsx';
@@ -63,7 +63,7 @@ export function Row(props: {
       <AnimatedCell className={`c-mark w-8 text-center ${TD} max-sm:[grid-area:mark]${props.markCell ? '' : ' hidden max-sm:hidden'}`}>
         <input
           type="checkbox"
-          aria-label={`Mark #${t.id}`}
+          aria-label={`Mark ${taskRef(t.id)}`}
           checked={props.marked}
           onChange={() => undefined}
           onClick={(e) => {
@@ -84,11 +84,11 @@ export function Row(props: {
               className="tnum mono text-inherit no-underline hover:underline"
               onClick={(e) => e.stopPropagation()}
             >
-              #{t.id < 0 ? 'new' : t.id}
+              {t.id < 0 ? 'new' : taskRef(t.id)}
             </a>{' '}
             <span className={`ttitle text-body font-medium${authored ? ' ghost italic text-ink-2' : ''}`}>{t.title}</span>
             <span className="tsub block overflow-hidden text-ellipsis text-hint muted">
-              {[t.to, t.parent ? `under #${t.parent}` : ''].filter(Boolean).join(' · ')}
+              {[t.to, t.parent ? `under ${taskRef(t.parent)}` : ''].filter(Boolean).join(' · ')}
             </span>
           </AnimatedCell>
           <AnimatedCell className={`c-state w-16 ${TD} max-sm:[grid-area:state]`}>
@@ -100,7 +100,7 @@ export function Row(props: {
         <>
           <AnimatedCell className={`c-num mono w-16 ${TD} max-sm:[grid-area:num]`}>
             <a href={`#/tasks/${t.id}`} className="tnum text-inherit no-underline hover:underline" onClick={(e) => e.stopPropagation()}>
-              #{t.id < 0 ? 'new' : t.id}
+              {t.id < 0 ? 'new' : `${taskRef(t.id)}`}
             </a>
           </AnimatedCell>
           <AnimatedCell className={`c-pri mono w-10 ${TD} max-sm:[grid-area:pri]`} title="priority, 1 high to 3 low">

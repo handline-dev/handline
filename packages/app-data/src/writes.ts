@@ -162,6 +162,7 @@ const settings: Record<string, WriteSpec> = {
   'inbox.mark_read': {
     kind: 'authored',
     label: 'mark read',
+    quiet: true,
     touches: inboxKeys,
     patch: (c, p) => markItems(c, as<{ ids: number[] }>(p).ids, { read: true }),
   },
@@ -290,7 +291,6 @@ const schedules: Record<string, WriteSpec> = {
 const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
   Object.entries({
     'session.start': 'start',
-    'session.wake': 'wake',
     'session.restart': 'restart',
     'session.park': 'park',
     'session.stop': 'stop',
@@ -303,7 +303,6 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'input.take': 'take control',
     'input.release': 'release',
     'hr.withdraw': 'withdraw',
-    'chat.seen': 'mark seen',
     'account.login': 'log in',
     'account.login_code': 'send code',
     'account.login_cancel': 'cancel login',
@@ -322,6 +321,7 @@ export const writes: Record<string, WriteSpec> = {
   ...settings,
   ...schedules,
   ...decidedWrites,
+  'chat.seen': { ...decided('mark seen'), quiet: true },
   // A prompt the person answers: a stale one is refused and the card shows the prompt that is open now.
   'prompt.answer': {
     kind: 'decided',
@@ -365,6 +365,7 @@ export const PAIRING = ['device.redeem'] as const;
 
 /** Agent commands: an agent sends these, the UI never does. Guard test 2 reads this list. */
 export const NOT_FROM_UI = [
+  'session.wake', // a message to a closed agent starts it; no screen wakes one by hand
   'say',
   'land',
   'land.authorize',

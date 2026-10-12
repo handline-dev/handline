@@ -144,11 +144,15 @@ func (e *Env) DeliverPending(q db.Q, agent string) (sent bool, err error) {
 	return ok, nil
 }
 
-// MigrateOldMessages runs once at daemon start: an old say was told, or never will be, and is settled. An old ask needs nothing. A request the
-// daemon before landing was tracked told has delivered_at and never a typed_at, so the landing sweep never saw it: told then is typed then.
+// MigrateOldMessages runs at daemon start: a say the Python daemon told with no ledger of its own is settled, and a request it told but never
+// marked typed is typed then. A say the daemon has yet to tell, or whose send the session ledger tracks, is not an old say: it is owed, and
+// the tick tells it (TellUndelivered) or the ledger settles it (confirmed, lost or unknown). Settling those at every start lost the
+// messages sent minutes before a restart.
 func (e *Env) MigrateOldMessages(q db.Q) (err error) {
 	defer Catch(&err)
-	ids := must(idsOf(q, "SELECT id FROM requests WHERE state = 'queued' AND kind = 'say' AND target != ?", db.Human))
+	ids := must(idsOf(q, "SELECT r.id FROM requests r WHERE r.state = 'queued' AND r.kind = 'say' AND r.target != ? AND r.delivered_at IS NOT NULL "+
+		"AND NOT EXISTS (SELECT 1 FROM operations o WHERE o.kind = 'send' AND o.agent = r.target AND o.id LIKE 'send:' || r.target || ':request:%' "+
+		"AND ',' || substr(o.id, length('send:' || r.target || ':request:') + 1) || ',' LIKE '%,' || r.id || ',%')", db.Human))
 	for _, id := range ids {
 		if _, _, err := e.Resolve(q, ResolveIn{RID: id}); err != nil {
 			return err

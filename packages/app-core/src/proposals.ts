@@ -47,3 +47,48 @@ export const diffLines = (p: Proposal): { text: string; mark: '-' | '+' | '' }[]
     .split('\n')
     .filter((l) => l.length)
     .map((text) => ({ text, mark: text.startsWith('-') ? '-' : text.startsWith('+') ? '+' : '' }));
+
+export interface DecideResult {
+  id: number;
+  title: string;
+  ok: boolean;
+  /** The refusal in words, when the daemon refused this one. */
+  error?: string;
+}
+type DecideCall = (arg: { proposal: number; decision: 'approve' | 'reject'; note?: string; subject: string }) => Promise<unknown>;
+
+/** Decide the given proposals one after another, each for the text it showed; a refusal is recorded and the rest go on. */
+export async function decideMany(
+  list: readonly Proposal[],
+  decision: 'approve' | 'reject',
+  note: string,
+  call: DecideCall,
+  say: (e: unknown) => string,
+): Promise<DecideResult[]> {
+  const out: DecideResult[] = [];
+  for (const p of list) {
+    try {
+      await call({ proposal: p.id, decision, ...(decision === 'reject' ? { note } : {}), subject: p.subject });
+      out.push({ id: p.id, title: p.title, ok: true });
+    } catch (e) {
+      out.push({ id: p.id, title: p.title, ok: false, error: say(e) });
+    }
+  }
+  return out;
+}
+
+/** An accepted decision whose proposal now reads apply_failed did not apply: that row fails with the daemon's error. */
+export function settled(rows: readonly DecideResult[], now: readonly Proposal[]): DecideResult[] {
+  return rows.map((r) => {
+    const p = now.find((x) => x.id === r.id);
+    return r.ok && p?.state === 'apply_failed'
+      ? { ...r, ok: false, error: p.error ? cutError(textSafe(p.error)) : 'the change was not applied' }
+      : r;
+  });
+}
+
+/** The proposals shown wherever the founder is: the `open` ones (a failed apply is not new), newest first, and how many did not fit. */
+export function raised(l: readonly Proposal[], max: number): { shown: Proposal[]; more: number } {
+  const open = l.filter((p) => p.state === 'open').sort((a, b) => Date.parse(b.created) - Date.parse(a.created));
+  return { shown: open.slice(0, max), more: Math.max(0, open.length - max) };
+}

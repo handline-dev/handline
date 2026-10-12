@@ -300,3 +300,29 @@ func TestAClosedAgentMovedByHandWakesFreshOnTheNewAccountOnce(t *testing.T) {
 		t.Fatal("a close after the move voids it")
 	}
 }
+
+// lateObserve lists the agent's session only once a launch has been typed, as a resume that is still booting when the wait ends.
+type lateObserve struct {
+	tm  *fakeTerm
+	pid int
+}
+
+func (l lateObserve) LiveSessions() (map[string]int, bool) {
+	if len(l.tm.relaunched) == 0 {
+		return map[string]int{}, true
+	}
+	return map[string]int{"a": l.pid}, true
+}
+
+func TestAResumeThatComesUpAfterTheWaitIsNotLaunchedOverFresh(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", false, false
+	m.Observe, m.TermRun = lateObserve{tm, 77}, &fakeTermRun{pid: 77, status: "idle"}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", "Stop")
+	ok, said, _ := m.WakeAgent("a", WakeOpts{Force: true})
+	if !ok || len(tm.relaunched) != 1 {
+		t.Fatalf("%v %q launches %v", ok, said, tm.relaunched)
+	}
+}

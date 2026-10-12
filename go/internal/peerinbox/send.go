@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,10 +24,11 @@ const (
 	Delivered    Kind = iota // the receiver's transcript shows the message as a peer's user record
 	NotDelivered             // sent, or not, but never seen there; Why says which
 	NoSocket                 // nothing listens: the session is gone or has no inbox
+	Queued                   // the receiver has it queued behind a turn or a prompt and shows it when that ends; Result.Await watches for it
 )
 
 func (k Kind) String() string {
-	return [...]string{"delivered", "not-delivered", "no-socket"}[k]
+	return [...]string{"delivered", "not-delivered", "no-socket", "queued"}[k]
 }
 
 // Result is the outcome of Deliver. ID is the request id the message carried; Attempts is how many times it was written.
@@ -35,6 +37,8 @@ type Result struct {
 	Why      string
 	ID       string
 	Attempts int
+	// Await, set on Queued, waits up to QueuedWait for the transcript to show the message and says whether it did.
+	Await func(ctx context.Context) bool
 }
 
 // Sender writes to peer inboxes. The zero value is not usable; use New. Its fields may be set before the first Deliver.
@@ -48,6 +52,8 @@ type Sender struct {
 	Poll        time.Duration
 	// Tries is the most writes of one message.
 	Tries int
+	// QueuedWait is how long a queued message is watched for.
+	QueuedWait time.Duration
 	// Refresh reads the session's record again; a message is not written again while the session waits on a person.
 	Refresh func(Session) (Session, error)
 
@@ -68,6 +74,7 @@ func New() *Sender {
 		ResendAfter: 5 * time.Second,
 		Poll:        500 * time.Millisecond,
 		Tries:       2,
+		QueuedWait:  30 * time.Minute,
 		Refresh:     func(s Session) (Session, error) { return ByPID(s.Config, s.PID) },
 		Now:         time.Now,
 		Sleep:       sleep,
@@ -99,6 +106,42 @@ func randomID() string {
 // Body is the text a session receives: the message, then the request id the transcript is searched for. The id also keeps two
 // equal messages from being dropped as a duplicate.
 func Body(text, id string) string { return text + "\n[ocp-msg " + id + "]" }
+
+// The receiver reads who a cross-session message is from, and the permission class its sender attests, from the tag the content is wrapped in;
+// content without it reads as the person's own typing in a terminal session. A session that bypasses permission prompts also holds a message
+// whose sender attested none, or another class than its own, until its person decides ("Held message from another session").
+const (
+	envelopeTag = "cross-session-message"
+	senderName  = "handline"
+)
+
+// Permission classes a sender attests.
+const (
+	Bypass    = "bypass"
+	Prompting = "prompting"
+)
+
+// From says who a message is from: Name is shown with it (the daemon, "handline", when empty) and Mode is the class attested, Bypass or
+// Prompting, or "" for none.
+type From struct{ Name, Mode string }
+
+var tagLookalike = regexp.MustCompile(`(?i)<([\p{Cf}\s]*/?[\p{Cf}\s]*` + envelopeTag + `)`)
+
+// Envelope wraps body as the receiver reads a peer message that names its sender and attests its class. The form is the receiver's canonical
+// one: attributes in its order, and a tag of the same name inside body defanged as it does, since a wrapper it cannot read back exactly is taken
+// as plain text.
+func Envelope(body string, from From) string {
+	name := senderName
+	if n := strings.Join(strings.Fields(strings.NewReplacer(`"`, "", "<", "", ">", "").Replace(from.Name)), " "); n != "" {
+		name = n
+	}
+	body = tagLookalike.ReplaceAllString(body, `<\$1`)
+	attrs := ` from-session="` + senderName + `" from-name="` + name + `"`
+	if from.Mode != "" {
+		attrs += ` from-mode="` + from.Mode + `"`
+	}
+	return "<" + envelopeTag + attrs + ">\n" + body + "\n</" + envelopeTag + ">"
+}
 
 // pace waits until target may be written to again, and claims the slot.
 func (s *Sender) pace(ctx context.Context, pid int) error {
@@ -174,12 +217,12 @@ func authLine(key []byte) ([]byte, error) {
 	return append(line, '}'), nil
 }
 
-// Deliver sends text to sess and waits until its transcript shows it. A write that does not show within ConfirmWait is written
+// Deliver sends text to sess as from (Envelope), and waits until its transcript shows it. A write that does not show within ConfirmWait is written
 // again with the same id after ResendAfter, up to Tries writes. Delivered needs the peer's user record; a message only queued
-// behind a running tool call comes back NotDelivered with that said.
-func (s *Sender) Deliver(ctx context.Context, sess Session, text string) Result {
+// behind a running turn or a prompt comes back Queued: it is not written again and not a failure.
+func (s *Sender) Deliver(ctx context.Context, sess Session, text string, from From) Result {
 	id := s.NewID()
-	body := Body(text, id)
+	body := Envelope(Body(text, id), from)
 	res := Result{ID: id}
 	tr := newTail(sess)
 	for res.Attempts < s.Tries {
@@ -188,9 +231,15 @@ func (s *Sender) Deliver(ctx context.Context, sess Session, text string) Result 
 				res.Kind, res.Why = NotDelivered, err.Error()
 				return res
 			}
-			// The receiver queued it behind a prompt: writing it again only adds a duplicate to the queue.
+			// The receiver queued it behind a prompt or a running turn: writing it again only adds a duplicate to the queue, which the person
+			// then reads twice.
 			if now, err := s.Refresh(sess); err == nil && now.Blocked() {
-				res.Kind, res.Why = NotDelivered, "the session waits on a person ("+blockedWord(now)+"); the message stays queued until it is answered"
+				res.Kind, res.Why = Queued, "the session waits on a person ("+blockedWord(now)+"); the message stays queued until it is answered"
+				res.Await = s.awaiter(tr, id)
+				return res
+			} else if err == nil && now.Busy() {
+				res.Kind, res.Why = Queued, "the session is mid-turn; the message waits in its queue and is not written again"
+				res.Await = s.awaiter(tr, id)
 				return res
 			}
 		}
@@ -221,14 +270,29 @@ func (s *Sender) Deliver(ctx context.Context, sess Session, text string) Result 
 			res.Kind, res.Why = Delivered, ""
 			return res
 		}
-		res.Kind = NotDelivered
 		if queued {
-			res.Why = "queued by the receiver, not yet shown as a message"
-		} else {
-			res.Why = "not in the receiver's transcript"
+			res.Kind, res.Why = Queued, "queued by the receiver, not yet shown as a message"
+			res.Await = s.awaiter(tr, id)
+			return res // it has the message: a second write is a second copy
 		}
+		res.Kind, res.Why = NotDelivered, "not in the receiver's transcript"
 	}
 	return res
+}
+
+// awaiter watches the transcript for id for QueuedWait.
+func (s *Sender) awaiter(tr *tail, id string) func(ctx context.Context) bool {
+	return func(ctx context.Context) bool {
+		deadline := s.Now().Add(s.QueuedWait)
+		for {
+			if sn, _ := tr.scan(id); sn {
+				return true
+			}
+			if !s.Now().Before(deadline) || s.Sleep(ctx, s.Poll) != nil {
+				return false
+			}
+		}
+	}
 }
 
 func blockedWord(s Session) string {

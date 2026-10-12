@@ -212,40 +212,23 @@ func TestSendWithATaskOpensItWithItsBriefOnceAndALostAnswerIsReplayed(t *testing
 	}
 }
 
-func TestSendUnderAQuestionAnswersItAndAnAnswerCanBeRepliedTo(t *testing.T) {
+func TestSendUnderAQuestionIsOnlyASayUnderIt(t *testing.T) {
 	r := newRig(t)
 	s := r.server("")
 	asked := r.request("alice", "human", "may I?")
-	res := r.result(r.one(s, "chat.send", fmt.Sprintf(`{"agent":"alice","body":"yes","parent":%d,"request_id":"u1"}`, asked)))
-	if res["request"] != float64(asked) {
-		t.Fatalf("it answers the message it replies to: %v", res)
+	res := r.result(r.one(s, "chat.send", fmt.Sprintf(`{"agent":"alice","body":"a reference","parent":%d,"request_id":"u1"}`, asked)))
+	if req, _ := res["request"].(float64); req <= float64(asked) {
+		t.Fatalf("it is a new message, not the one it replies to: %v", res)
 	}
-	var state, verdict string
-	r.db.QueryRow("SELECT state, COALESCE((SELECT body FROM requests a WHERE a.settles = requests.id), '') FROM requests WHERE id = ?", asked).Scan(&state, &verdict)
-	if state != "landed" || verdict != "yes" {
-		t.Fatalf("the question is answered: %s %q", state, verdict)
+	var state string
+	r.db.QueryRow("SELECT state FROM requests WHERE id = ?", asked).Scan(&state)
+	if state != "queued" || r.count("SELECT COUNT(*) FROM requests WHERE settles = ?", asked) != 0 {
+		t.Fatalf("the question is neither answered nor settled: %s", state)
+	}
+	if r.count("SELECT COUNT(*) FROM requests WHERE parent_id = ? AND body = 'a reference'", asked) != 1 {
+		t.Fatal("the say carries the parent link")
 	}
 	r.refusedWith(r.one(s, "chat.send", fmt.Sprintf(`{"agent":"bob","body":"yes","parent":%d,"request_id":"u2"}`, asked)), "state")
-}
-
-func TestAnswerClosesTheQuestionAndRefusesWhatAsksNothing(t *testing.T) {
-	r := newRig(t)
-	s := r.server("")
-	asked := r.request("alice", "human", "may I?")
-	ans := fmt.Sprintf(`{"request":%d,"text":"go ahead","request_id":"a1"}`, asked)
-	if res := r.result(r.one(s, "chat.answer", ans)); res["accepted"] != true {
-		t.Fatal(res)
-	}
-	if res := r.result(r.one(s, "chat.answer", ans)); res["replayed"] != true {
-		t.Fatalf("a retry repeats nothing: %v", res)
-	}
-	if r.count("SELECT COUNT(*) FROM requests WHERE settles = ? AND body = 'go ahead'", asked) != 1 {
-		t.Fatal("one answer")
-	}
-	r.refusedWith(r.one(s, "chat.answer", fmt.Sprintf(`{"request":%d,"text":"again","request_id":"a2"}`, r.request("human", "alice", "hi"))), "state")
-	if e := r.one(s, "chat.answer", `{"request":999999,"text":"x","request_id":"a3"}`)["error"].(map[string]any); e["data"].(map[string]any)["code"] != "not_found" {
-		t.Fatal(e)
-	}
 }
 
 func TestAnswerOnADecisionCardDecidesItsTask(t *testing.T) {
@@ -257,7 +240,7 @@ func TestAnswerOnADecisionCardDecidesItsTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	dbpkg.LinkRequest(r.db, tid, card)
-	res := r.result(r.one(s, "chat.answer", fmt.Sprintf(`{"request":%d,"text":"the first","request_id":"d1"}`, card)))
+	res := r.result(r.one(s, "inbox.answer", fmt.Sprintf(`{"id":%d,"text":"the first","request_id":"d1"}`, card)))
 	if res["said"] != fmt.Sprintf("T%d decided", tid) {
 		t.Fatal(res)
 	}
@@ -303,7 +286,7 @@ func TestAnswerOnADecisionCardRefusesWhileTheTaskHasAnOpenChild(t *testing.T) {
 	tid, _ := dbpkg.NewTask(r.db, "which one?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0, "")
 	dbpkg.LinkRequest(r.db, tid, card)
 	dbpkg.NewTask(r.db, "first this", "alice", "alice", tid, dbpkg.DefaultPriority, "report", 0, "")
-	r.refusedWith(r.one(s, "chat.answer", fmt.Sprintf(`{"request":%d,"text":"x","request_id":"d3"}`, card)), "")
+	r.refusedWith(r.one(s, "inbox.answer", fmt.Sprintf(`{"id":%d,"text":"x","request_id":"d3"}`, card)), "")
 	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence IS NOT NULL", tid) != 0 || r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND state = 'queued'", card) != 1 {
 		t.Fatal("a refused decision writes nothing")
 	}
@@ -412,3 +395,5 @@ limits: { max_chain_depth: 4, ask_rate_per_hour: 5 }
 		t.Fatal("the denied message stays as a row")
 	}
 }
+
+func (a auth) SessionsReadable() error { return nil }

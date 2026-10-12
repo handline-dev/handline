@@ -138,7 +138,7 @@ export function Message(props: {
     >
       {side === 'other' ? (
         <div className={`${MSG_FROM} muted`}>
-          {m.from} → {m.to}
+          {m.from} <Icon name="forward" size={11} aria-hidden className="inline-block align-[-1px]" /> {m.to}
         </div>
       ) : side === 'person' && m.to !== agent ? (
         <div className={`${MSG_FROM} muted`}>to {m.to}</div>

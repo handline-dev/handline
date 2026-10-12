@@ -120,17 +120,35 @@ def nested(pid: int | None = None) -> bool:
 
 
 def record(agent: str, pid: int | None = None) -> bool:
-    """Remember `pid` (default: this process) as `agent`'s session. False when the store cannot be
-    written, which is what an agent's session gets."""
+    """Remember `pid` (default: this process) as one of `agent`'s sessions, beside those recorded before
+    that are still running: two launches of one agent can race, and the one that dies must not take the
+    proof from the one that lives. False when the store cannot be written, which is what an agent's
+    session gets."""
     pid = os.getpid() if pid is None else pid
     info = _proc(pid)
     if info is None:
         return False
+    lines = [f"{pid} {info[1]}"] + [f"{p} {started}" for p, started in _sessions(agent)
+                                    if p != pid and (_proc(p) or (0, None))[1] == started]
     try:
-        protected.put(NS, agent, f"{pid} {info[1]}")
+        protected.put(NS, agent, "\n".join(lines))
     except (OSError, ValueError):       # PermissionError, NotTheFounder and a bad name all say no
         return False
     return True
+
+
+def _sessions(agent: str) -> list[tuple[int, str]]:
+    """What is recorded for `agent`, a "pid start" line each."""
+    try:
+        kept = protected.get(NS, agent) or ""
+    except ValueError:
+        return []
+    out = []
+    for line in kept.splitlines():
+        head, _, started = line.strip().partition(" ")
+        if head.isdigit() and int(head) > 0:
+            out.append((int(head), started))
+    return out
 
 
 def peer_pid(conn: socket.socket) -> int | None:
@@ -144,24 +162,18 @@ def peer_pid(conn: socket.socket) -> int | None:
 
 
 def verify(agent: str | None, pid: int | None) -> bool:
-    """Whether process `pid` is, or descends from, the session recorded for `agent`."""
+    """Whether process `pid` is, or descends from, a session recorded for `agent`."""
     if not agent or not pid:
         return False
-    try:
-        kept = protected.get(NS, agent)
-    except ValueError:
-        return False
-    if not kept:
-        return False
-    head, _, started = kept.strip().partition(" ")
-    if not head.isdigit():
+    recorded = set(_sessions(agent))
+    if not recorded:
         return False
     for _ in range(_MAX_DEPTH):
         info = _proc(pid)
         if info is None or pid <= 1:
             return False
-        if pid == int(head):
-            return info[1] == started       # a reused pid has another start time
+        if (pid, info[1]) in recorded:      # a reused pid has another start time
+            return True
         pid = info[0]
     return False
 

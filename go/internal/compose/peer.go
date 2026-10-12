@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
+	"strings"
 	"syscall"
 
 	"github.com/handline/handline/go/internal/db"
@@ -23,9 +25,9 @@ const PeerKey = "peer_inbox"
 // PeerFromYAML reads PeerKey from an agent's agent.yaml.
 func PeerFromYAML(home string) func(agent string) bool { return yamlFlag(home, PeerKey, true) }
 
-// settlePeerSends is the start of a daemon: the peer port's queue is in memory, so what it had taken for a terminal agent and not seen in the
+// SettlePeerSends is the start of a daemon, run once the Env has its ports (telling a sender can start an agent): the peer port's queue is in memory, so what it had taken for a terminal agent and not seen in the
 // transcript when the last daemon stopped is unknown now, as a message lost with its session is, and its sender is told.
-func (p *Parts) settlePeerSends() {
+func (p *Parts) SettlePeerSends() {
 	if p.Peer == nil || p.db == nil || p.tell == nil {
 		return
 	}
@@ -53,6 +55,7 @@ func NewPeerPort(home string, d *sql.DB, peer func(agent string) bool, tell peer
 		Peer:   peer,
 		Find:   func(agent string) (peerinbox.Session, error) { return findSession(home, d, agent) },
 		Sender: peerinbox.New(),
+		From:   peerFrom(home, d),
 		Ctx:    context.Background(),
 		OnDelivered: func(agent, op string) {
 			if err := inTx(d, func(q db.Q) error { return tell.SessionConfirmed(q, agent, op) }); err != nil && log != nil {
@@ -137,4 +140,58 @@ func (m mixedAgents) Withdraw(agent, op string) (structured.Receipt, bool, error
 }
 func (m mixedAgents) Promote(agent, op string) (structured.Receipt, error) {
 	return m.of(agent).Promote(agent, op)
+}
+
+// classOf is the permission class an agent's session runs in: bypass when its prompts are skipped, else prompting.
+func classOf(roster *team.Roster, agent string) string {
+	cfg, err := roster.Read(agent)
+	if err != nil {
+		return ""
+	}
+	if roster.ModeOf(agent, cfg) == "bypass" {
+		return peerinbox.Bypass
+	}
+	return peerinbox.Prompting
+}
+
+// peerFrom is who the message op to a session is from, and the class attested for it. The name is whoever wrote it (the agents named in
+// the operation, "founder" for the person), else the daemon: a message always says it is another's, never reads as the person's own typing.
+//
+// The class: the daemon is not a session with a mode of its own, it speaks for whoever wrote the message. The person, and the daemon's own
+// words, have the authority the agent was launched with, so they attest the agent's own class; an agent that wrote it attests its own, and
+// the weakest of several authors counts, so a prompting agent's words are held by a session that bypasses prompts and never pass as the
+// person's. Only a session that bypasses prompts is attested to; any other takes the message as it did without. An operation whose text is
+// not known to be the person's, the daemon's or an agent's attests nothing.
+func peerFrom(home string, d *sql.DB) func(agent, op string) peerinbox.From {
+	roster := team.NewRoster(home)
+	return func(agent, op string) peerinbox.From {
+		authors, known := supervisor.AuthorsOfOp(d, op)
+		var from peerinbox.From
+		if known {
+			var names []string
+			for _, a := range authors {
+				if a == db.Human {
+					a = "founder"
+				}
+				if a != agent && !slices.Contains(names, a) {
+					names = append(names, a)
+				}
+			}
+			from.Name = strings.Join(names, ", ")
+		}
+		if !known || classOf(roster, agent) != peerinbox.Bypass {
+			return from
+		}
+		from.Mode = peerinbox.Bypass
+		for _, author := range authors {
+			if !slices.Contains(paths.ListAgents(home), author) || author == agent {
+				continue
+			}
+			if c := classOf(roster, author); c != peerinbox.Bypass {
+				from.Mode = c
+				break
+			}
+		}
+		return from
+	}
 }

@@ -72,9 +72,6 @@
  "attachment.put": {
   "role": "member"
  },
- "chat.answer": {
-  "role": "member"
- },
  "chat.cancel": {
   "role": "member"
  },
@@ -329,6 +326,9 @@
  },
  "task.reopen": {
   "role": "agent"
+ },
+ "task.shot": {
+  "role": "member"
  },
  "task.start": {
   "role": "agent"

@@ -84,7 +84,7 @@ export class FakeAttachments {
   }
 
   /** The images chat.send names: each must be finished and not sent before. They are marked sent and given back as Attachments. */
-  take(ids: unknown): Attachment[] {
+  take = (ids: unknown): Attachment[] => {
     if (ids === undefined) return [];
     if (!Array.isArray(ids) || ids.length > MAX_PER_MESSAGE) throw badRequest('At most 6 images to a message.', 'attachments');
     const found = ids.map((id) => this.files.get(String(id)));
@@ -94,6 +94,11 @@ export class FakeAttachments {
       const { data: _d, sent: _s, ...a } = f!;
       return a;
     });
+  };
+
+  /** The attachment.* methods. */
+  call(method: string, p: Record<string, unknown>, ok: (said: string, extra?: object) => object) {
+    return method === 'attachment.put' ? ok('Received.', this.put(p)) : this.get(p);
   }
 
   private unsent() {

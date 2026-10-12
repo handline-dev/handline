@@ -110,6 +110,7 @@ func (r *rig) dial(agent bool) *conn {
 	srv := rpc.NewServer(auth{agent: map[bool]string{true: "ann"}[agent]}, "sha", 1, "local", func(string, ...any) {})
 	srv.DB = r.e.DB
 	Register(srv, r.e)
+	r.e.RegisterUnstall(srv) // only a test daemon serves agent.unstall
 	cl, sv := net.Pipe()
 	go func() { srv.Serve(rpc.NewLineTransport(sv), 0); sv.Close() }()
 	r.t.Cleanup(func() { cl.Close() })
@@ -432,5 +433,55 @@ print(control.unstall(con, "ann")); con.commit()
 	}
 	if a != b || cursorNames(t, r.e.DB) != cursorNames(t, py) {
 		t.Fatalf("Go %v %s, Python %v %s", a, cursorNames(t, r.e.DB), b, cursorNames(t, py))
+	}
+}
+
+func (a auth) SessionsReadable() error { return nil }
+
+func TestAgentUnstallClearsAStallForTheFounderAndRefusesAnAgentThatIsNotStalled(t *testing.T) {
+	r := newRig(t)
+	c := r.dial(false)
+	seedStall(t, r.e.DB, "RUNNING")
+	m := c.call("agent.unstall", map[string]any{"agent": "ann", "request_id": rid("u1")})
+	if refused(m) != "state" || m["error"].(map[string]any)["message"] != "ann: not STALLED (RUNNING)" {
+		t.Fatalf("%v", m)
+	}
+	r.e.DB.Exec("UPDATE agent_state SET state = 'STALLED' WHERE agent = 'ann'")
+	got := result(t, c.call("agent.unstall", map[string]any{"agent": "ann", "request_id": rid("u2")}))
+	row, _ := db.GetAgentState(r.e.DB, "ann")
+	if got["said"] != "ann: STALLED -> QUEUED" || row.State != "QUEUED" || row.FailedAttempts != 0 || cursorNames(t, r.e.DB) != "dialog_since:bob" {
+		t.Fatalf("%v %+v %s", got, row, cursorNames(t, r.e.DB))
+	}
+	if m := c.call("agent.unstall", map[string]any{"agent": "nobody", "request_id": rid("u3")}); m["error"].(map[string]any)["data"].(map[string]any)["code"] != "not_found" {
+		t.Fatalf("%v", m)
+	}
+	if m := r.dial(true).call("agent.unstall", map[string]any{"agent": "ann", "request_id": rid("u4")}); refused(m) != "role" {
+		t.Fatalf("an agent's session cleared a stall: %v", m)
+	}
+}
+
+func TestAgentMoveIsAPersonsCallAndPassesTheAccountAndWhoAsked(t *testing.T) {
+	r := newRig(t)
+	var got []string
+	r.e.Move = func(call Call, agent, account string) (bool, string, error) {
+		got = append(got, fmt.Sprint(agent, " ", account, " ", call.Person))
+		return account != "full", "ann moved a -> " + account, nil
+	}
+	c := r.dial(false)
+	res := result(t, c.call("agent.move", map[string]any{"agent": "ann", "account": "b", "request_id": rid("m1")}))
+	if res["said"] != "ann moved a -> b" || len(got) != 1 || got[0] != "ann b true" {
+		t.Fatalf("%v %v", res, got)
+	}
+	if m := c.call("agent.move", map[string]any{"agent": "ann", "account": "full", "request_id": rid("m2")}); refused(m) != "state" {
+		t.Fatalf("a refusal: %v", m)
+	}
+	if m := c.call("agent.move", map[string]any{"agent": "ann", "request_id": rid("m3")}); badField(m) != "account" {
+		t.Fatalf("%v", m)
+	}
+	if m := c.call("agent.move", map[string]any{"agent": "nobody", "account": "b", "request_id": rid("m4")}); m["error"].(map[string]any)["data"].(map[string]any)["code"] != "not_found" {
+		t.Fatalf("%v", m)
+	}
+	if m := r.dial(true).call("agent.move", map[string]any{"agent": "ann", "account": "b", "request_id": rid("m5")}); refused(m) != "role" || len(got) != 2 {
+		t.Fatalf("an agent's session moved an agent: %v %v", m, got)
 	}
 }

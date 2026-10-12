@@ -388,3 +388,5 @@ func TestNoTransactionIsOpenWhileAMessageIsCheckedOrGitIsAsked(t *testing.T) {
 		t.Fatalf("%v %s", ok, said)
 	}
 }
+
+func (agentAuth) SessionsReadable() error { return nil }
