@@ -7,11 +7,13 @@ import { classify, sentence, useHr, useWrite } from '@handline/app-data';
 import type { Proposal } from '@handline/client';
 import { Button, Icon } from './ui/index.ts';
 import { goTeam, useTeamRoute } from './route.ts';
+import { useNarrow } from './useNarrow.ts';
 
 const SHOWN = 3;
 
 export function HrBanner() {
   const can = useSelector((s) => s.can('hr.decide'));
+  const narrow = useNarrow();
   const onHr = useTeamRoute()?.tab === 'hr';
   const list = useHr().data?.proposals ?? [];
   if (!can || onHr) return null;
@@ -20,14 +22,14 @@ export function HrBanner() {
   return (
     <aside className="hr-banner fixed top-3 right-4 z-40 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2" aria-label="New HR proposals">
       {shown.map((p) => (
-        <Item key={p.id} p={p} />
+        <Item key={p.id} p={p} readOnly={narrow} />
       ))}
       {more ? <Button variant="outline" size="sm" label={`${more} more in HR`} onClick={() => goTeam('hr')} /> : null}
     </aside>
   );
 }
 
-function Item({ p }: { p: Proposal }) {
+function Item({ p, readOnly }: { p: Proposal; readOnly: boolean }) {
   const decide = useWrite('hr.decide', String(p.id));
   const [reason, setReason] = useState<string | null>(null);
   const [said, setSaid] = useState('');
@@ -35,6 +37,7 @@ function Item({ p }: { p: Proposal }) {
     setSaid('');
     call.catch((e) => setSaid(sentence(classify(e))));
   };
+  const busy = decide.isPending;
   const why = reason?.trim() ?? '';
   return (
     <section
@@ -51,15 +54,20 @@ function Item({ p }: { p: Proposal }) {
           {said}
         </span>
       ) : null}
-      {reason === null ? (
+      {readOnly ? (
+        <div className="card-actions flex gap-2">
+          <Button variant="ghost" icon="open" label="Review" onClick={() => goTeam('hr')} />
+        </div>
+      ) : reason === null ? (
         <div className="card-actions flex gap-2">
           <Button
             variant="solid"
             icon="markRead"
             label="Approve"
+            disabled={busy}
             onClick={() => send(decide.mutateAsync({ proposal: p.id, decision: 'approve', subject: p.subject }))}
           />
-          <Button variant="outline" icon="close" label="Reject" onClick={() => setReason('')} />
+          <Button variant="outline" icon="close" label="Reject" disabled={busy} onClick={() => setReason('')} />
           <Button variant="ghost" icon="open" label="Review" onClick={() => goTeam('hr')} />
         </div>
       ) : (
@@ -67,7 +75,7 @@ function Item({ p }: { p: Proposal }) {
           className="flex gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            if (!why) return;
+            if (!why || busy) return;
             setReason(null);
             send(decide.mutateAsync({ proposal: p.id, decision: 'reject', note: why, subject: p.subject }));
           }}
