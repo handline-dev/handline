@@ -492,3 +492,25 @@ func TestAHeldMessageThatIsWrittenIsToldAsWrittenOnceAndAnImmediateSendIsNot(t *
 		t.Fatalf("%v", tl.logs)
 	}
 }
+
+// A daemon that starts with a peer message to bob written and unconfirmed tells its sender, and telling a sender can start that agent, so the
+// settle runs once the Env has its ports: run before them it took the lifecycle port as nil and the daemon panicked on every start.
+func TestSettlingPeerSendsAtStartTellsTheSenderThroughTheWiredPorts(t *testing.T) {
+	p, _, env, _ := wired(t)
+	d := p.Sink.DB
+	rid, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "alice", Target: "bob", Body: "hello", Response: "async", Kind: "say"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := fmt.Sprintf("send:bob:request:%d", rid)
+	if err := dbpkg.SetCursor(d, key, 1); err != nil { // written to bob's session, not yet seen
+		t.Fatal(err)
+	}
+	if !env.Wired() {
+		t.Fatal("every supervisor port has its owner")
+	}
+	p.SettlePeerSends()
+	if v, _ := dbpkg.Cursor(d, key); v != 3 {
+		t.Fatalf("the unconfirmed send is unknown now, got %d", v)
+	}
+}

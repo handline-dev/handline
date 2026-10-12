@@ -25,9 +25,9 @@ const PeerKey = "peer_inbox"
 // PeerFromYAML reads PeerKey from an agent's agent.yaml.
 func PeerFromYAML(home string) func(agent string) bool { return yamlFlag(home, PeerKey, true) }
 
-// settlePeerSends is the start of a daemon: the peer port's queue is in memory, so what it had taken for a terminal agent and not seen in the
+// SettlePeerSends is the start of a daemon, run once the Env has its ports (telling a sender can start an agent): the peer port's queue is in memory, so what it had taken for a terminal agent and not seen in the
 // transcript when the last daemon stopped is unknown now, as a message lost with its session is, and its sender is told.
-func (p *Parts) settlePeerSends() {
+func (p *Parts) SettlePeerSends() {
 	if p.Peer == nil || p.db == nil || p.tell == nil {
 		return
 	}
