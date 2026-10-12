@@ -269,6 +269,43 @@ describe('U15 HR', () => {
     expect(btn(card(2), 'Edit settings')).toBeUndefined();
   });
 
+  it('a new proposal shows on another page with Approve; the HR tab and a member do not get the banner', async () => {
+    const s = setup();
+    const a = raise(s, 1);
+    await open(s, '#/stats');
+    await until(() => $('.hr-banner-item'), 'the banner');
+    expect(text($('.hr-banner-item'))).toContain('settings handline.x1');
+    await click(btn($('.hr-banner-item')!, 'Approve'));
+    await until(() => a.state === 'approved', 'approved from the banner');
+    await until(() => !$('.hr-banner-item'), 'the banner leaves');
+    raise(s, 2);
+    await until(() => $('.hr-banner-item'), 'the next banner');
+    location.hash = '#/team/hr';
+    await until(() => $('.hr-card') && !$('.hr-banner-item'), 'no banner on the HR tab');
+  });
+
+  it('Reject on the banner needs a reason', async () => {
+    const s = setup();
+    const a = raise(s, 1);
+    await open(s, '#/stats');
+    await until(() => $('.hr-banner-item'), 'the banner');
+    await click(btn($('.hr-banner-item')!, 'Reject'));
+    const form = $('.hr-banner-item form')!;
+    await act(async () => void form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    expect(a.state).toBe('open');
+    await typeInto($('.hr-banner-item input')!, 'not now');
+    await act(async () => void form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    await until(() => a.state === 'rejected', 'rejected');
+  });
+
+  it('a member gets no banner', async () => {
+    const s = setup({ role: 'member' });
+    raise(s, 1);
+    await open(s, '#/stats');
+    await wait(100);
+    expect($('.hr-banner')).toBeNull();
+  });
+
   it('a member reads the cards but has no decide control', async () => {
     const s = setup({ role: 'member' });
     raise(s, 1);

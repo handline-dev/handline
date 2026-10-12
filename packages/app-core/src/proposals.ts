@@ -86,3 +86,9 @@ export function settled(rows: readonly DecideResult[], now: readonly Proposal[])
       : r;
   });
 }
+
+/** The proposals shown wherever the founder is: the `open` ones (a failed apply is not new), newest first, and how many did not fit. */
+export function raised(l: readonly Proposal[], max: number): { shown: Proposal[]; more: number } {
+  const open = l.filter((p) => p.state === 'open').sort((a, b) => Date.parse(b.created) - Date.parse(a.created));
+  return { shown: open.slice(0, max), more: Math.max(0, open.length - max) };
+}
