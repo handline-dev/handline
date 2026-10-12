@@ -22,7 +22,7 @@ type fakeInbox struct {
 	entered int
 }
 
-func (f *fakeInbox) Deliver(_ context.Context, _ peerinbox.Session, text, _ string) peerinbox.Result {
+func (f *fakeInbox) Deliver(_ context.Context, _ peerinbox.Session, text string, _ peerinbox.From) peerinbox.Result {
 	f.mu.Lock()
 	f.entered++
 	f.mu.Unlock()

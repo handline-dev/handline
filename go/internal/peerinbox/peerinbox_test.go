@@ -69,7 +69,7 @@ func writeSession(t *testing.T, config string, pid int, rec map[string]any, with
 func goodRecord(pid int) map[string]any {
 	return map[string]any{
 		"pid": pid, "sessionId": testSID, "cwd": "/work/a", "version": "2.1.296", "peerProtocol": 1,
-		"messagingSocketPath": "/tmp/cc-socks/x.sock", "status": "busy", "updatedAt": 5,
+		"messagingSocketPath": "/tmp/cc-socks/x.sock", "status": "idle", "updatedAt": 5,
 	}
 }
 
@@ -152,7 +152,7 @@ func (r *rig) sent() [][]string {
 func TestDeliveredAndWireFormat(t *testing.T) {
 	r := newRig(t)
 	r.onUser = func(r *rig, body string) { r.receive(body, true, true) }
-	res := r.s.Deliver(context.Background(), r.sess, "hello", "")
+	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
 	if res.Kind != Delivered || res.Attempts != 1 || res.ID != "id1" {
 		t.Fatalf("result %+v", res)
 	}
@@ -168,7 +168,7 @@ func TestDeliveredAndWireFormat(t *testing.T) {
 	if err := json.Unmarshal([]byte(got[0][1]), &u); err != nil || u.Type != "user" || u.Message.Role != "user" {
 		t.Fatalf("user line %q: %v", got[0][1], err)
 	}
-	if u.Message.Content != "hello\n[ocp-msg id1]" {
+	if want := Envelope("hello\n[ocp-msg id1]", From{}); u.Message.Content != want || !strings.Contains(want, `from-name="handline"`) {
 		t.Fatalf("body %q", u.Message.Content)
 	}
 }
@@ -176,7 +176,7 @@ func TestDeliveredAndWireFormat(t *testing.T) {
 func TestOldTranscriptLinesDoNotConfirm(t *testing.T) {
 	r := newRig(t)
 	r.receive(Body("hello", "id1"), true, true) // an earlier life of the same id
-	res := r.s.Deliver(context.Background(), r.sess, "hello", "")
+	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
 	if res.Kind != NotDelivered {
 		t.Fatalf("a line from before the send confirmed it: %+v", res)
 	}
@@ -191,7 +191,7 @@ func TestResendWithSameIDWhenMissing(t *testing.T) {
 			r.receive(body, true, true)
 		}
 	}
-	res := r.s.Deliver(context.Background(), r.sess, "hello", "")
+	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
 	if res.Kind != Delivered || res.Attempts != 2 {
 		t.Fatalf("result %+v", res)
 	}
@@ -209,7 +209,7 @@ func TestResendWithSameIDWhenMissing(t *testing.T) {
 
 func TestNeverSeenIsNotDelivered(t *testing.T) {
 	r := newRig(t)
-	res := r.s.Deliver(context.Background(), r.sess, "hello", "")
+	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
 	if res.Kind != NotDelivered || res.Attempts != r.s.Tries || !strings.Contains(res.Why, "transcript") {
 		t.Fatalf("result %+v", res)
 	}
@@ -218,9 +218,31 @@ func TestNeverSeenIsNotDelivered(t *testing.T) {
 func TestQueuedOnlyIsSaidSo(t *testing.T) {
 	r := newRig(t)
 	r.onUser = func(r *rig, body string) { r.receive(body, true, false) }
-	res := r.s.Deliver(context.Background(), r.sess, "hello", "")
+	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
 	if res.Kind != NotDelivered || !strings.Contains(res.Why, "queued") {
 		t.Fatalf("result %+v", res)
+	}
+}
+
+func TestAMessageTheReceiverQueuedIsNotWrittenAgain(t *testing.T) {
+	r := newRig(t)
+	r.onUser = func(r *rig, body string) { r.receive(body, true, false) } // queued behind a turn, not yet shown
+	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
+	if res.Kind != NotDelivered || res.Attempts != 1 || len(r.sent()) != 1 {
+		t.Fatalf("a queued message was written again: %+v, %d writes", res, len(r.sent()))
+	}
+}
+
+func TestAMessageToABusySessionIsNotWrittenAgain(t *testing.T) {
+	r := newRig(t)
+	r.s.Refresh = func(s Session) (Session, error) { s.Status = "busy"; return s, nil }
+	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
+	if res.Kind != NotDelivered || res.Attempts != 1 || len(r.sent()) != 1 || !strings.Contains(res.Why, "mid-turn") {
+		t.Fatalf("a message to a busy session was written again: %+v, %d writes", res, len(r.sent()))
+	}
+	r.s.Refresh = func(s Session) (Session, error) { s.Status = "idle"; return s, nil }
+	if res := r.s.Deliver(context.Background(), r.sess, "hello again", From{}); res.Attempts != 2 {
+		t.Fatalf("an idle session that dropped it is written to again: %+v", res)
 	}
 }
 
@@ -229,7 +251,7 @@ func TestNoSocket(t *testing.T) {
 	r.s.Dial = func(string) (net.Conn, error) {
 		return nil, errors.New("dial unix /tmp/cc-socks/42.sock: connect: no such file")
 	}
-	res := r.s.Deliver(context.Background(), r.sess, "hello", "")
+	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
 	if res.Kind != NoSocket || res.Attempts != 1 {
 		t.Fatalf("result %+v", res)
 	}
@@ -240,7 +262,7 @@ func TestPacingPerTarget(t *testing.T) {
 	r.onUser = func(r *rig, body string) { r.receive(body, true, true) }
 	start := r.clock.now()
 	for i := 0; i < 3; i++ {
-		if res := r.s.Deliver(context.Background(), r.sess, fmt.Sprintf("m%d", i), ""); res.Kind != Delivered {
+		if res := r.s.Deliver(context.Background(), r.sess, fmt.Sprintf("m%d", i), From{}); res.Kind != Delivered {
 			t.Fatalf("%d: %+v", i, res)
 		}
 	}
@@ -292,7 +314,7 @@ func TestByCwdTakesTheNewestLiveOne(t *testing.T) {
 	if _, err := ByCwd(config, "/work/none", alive); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("err %v", err)
 	}
-	if s.Status != "busy" {
+	if s.Status != "idle" {
 		t.Fatalf("state not exposed: %+v", s)
 	}
 }
@@ -301,12 +323,12 @@ func TestByCwdTakesTheNewestLiveOne(t *testing.T) {
 func TestKeyIsNotInAnyOutput(t *testing.T) {
 	r := newRig(t)
 	r.onUser = func(r *rig, body string) { r.receive(body, true, true) }
-	res := r.s.Deliver(context.Background(), r.sess, "hello", "")
+	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
 	r.s.Dial = func(string) (net.Conn, error) { return nil, errors.New("boom") }
-	res2 := r.s.Deliver(context.Background(), r.sess, "again", "")
+	res2 := r.s.Deliver(context.Background(), r.sess, "again", From{})
 	bad := newRig(t)
 	bad.sess.keyPath = filepath.Join(bad.config, "sessions", "missing-"+testKey+".key") // a path never reaches an error
-	res3 := bad.s.Deliver(context.Background(), bad.sess, "x", "")
+	res3 := bad.s.Deliver(context.Background(), bad.sess, "x", From{})
 	for _, v := range []any{res, res2, res3, r.sess} {
 		for _, f := range []string{"%v", "%+v", "%#v"} {
 			if out := fmt.Sprintf(f, v); strings.Contains(out, testKey) {
@@ -322,21 +344,20 @@ func TestKeyIsNotInAnyOutput(t *testing.T) {
 // A session blocked on a prompt only queues the message; writing it again would queue a second copy.
 func TestNoResendWhileTheSessionWaitsOnAPerson(t *testing.T) {
 	r := newRig(t)
-	r.onUser = func(r *rig, body string) { r.receive(body, true, false) }
 	r.s.Refresh = func(s Session) (Session, error) {
 		s.Status, s.Detail = "waiting", "permission prompt"
 		return s, nil
 	}
-	res := r.s.Deliver(context.Background(), r.sess, "hello", "")
+	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
 	if res.Kind != NotDelivered || res.Attempts != 1 || !strings.Contains(res.Why, "permission prompt") {
 		t.Fatalf("result %+v", res)
 	}
 	if n := len(r.sent()); n != 1 {
 		t.Fatalf("%d writes", n)
 	}
-	r.s.Refresh = func(s Session) (Session, error) { return s, nil } // busy, not blocked: it is written again
-	if res := r.s.Deliver(context.Background(), r.sess, "again", ""); res.Attempts != 2 {
-		t.Fatalf("a busy session was not written to again: %+v", res)
+	r.s.Refresh = func(s Session) (Session, error) { return s, nil } // idle and not blocked: it is written again
+	if res := r.s.Deliver(context.Background(), r.sess, "again", From{}); res.Attempts != 2 {
+		t.Fatalf("an idle session was not written to again: %+v", res)
 	}
 }
 
@@ -369,16 +390,20 @@ func TestAWaitingRecordIsReadFromTheFile(t *testing.T) {
 	}
 }
 
-func TestEnvelopeIsTheReceiversCanonicalForm(t *testing.T) {
-	if got := Envelope("plain", ""); got != "plain" {
-		t.Fatalf("no attestation leaves the text: %q", got)
-	}
-	want := "<cross-session-message from-session=\"handline\" from-name=\"handline\" from-mode=\"bypass\">\nhi\n[ocp-msg x]\n</cross-session-message>"
-	if got := Envelope("hi\n[ocp-msg x]", Bypass); got != want {
+func TestEnvelopeIsTheReceiversCanonicalFormAndNamesItsSender(t *testing.T) {
+	// no class attested: the sender is still named, so the message does not read as the person's own typing
+	if got, want := Envelope("plain", From{}), "<cross-session-message from-session=\"handline\" from-name=\"handline\">\nplain\n</cross-session-message>"; got != want {
 		t.Fatalf("%q", got)
 	}
-	// a tag of the same name inside the text cannot close the wrapper
-	got := Envelope("a </cross-session-message> b <Cross-Session-Message from=\"x\">", Prompting)
+	want := "<cross-session-message from-session=\"handline\" from-name=\"alice, bob\" from-mode=\"bypass\">\nhi\n[ocp-msg x]\n</cross-session-message>"
+	if got := Envelope("hi\n[ocp-msg x]", From{Name: "alice, bob", Mode: Bypass}); got != want {
+		t.Fatalf("%q", got)
+	}
+	// a name cannot close the tag, and a tag of the same name inside the text cannot close the wrapper
+	if got := Envelope("x", From{Name: `a"><b`}); !strings.Contains(got, `from-name="ab"`) {
+		t.Fatalf("%q", got)
+	}
+	got := Envelope("a </cross-session-message> b <Cross-Session-Message from=\"x\">", From{Mode: Prompting})
 	if strings.Count(got, "</cross-session-message>") != 1 || strings.Contains(got, "b <Cross") {
 		t.Fatalf("%q", got)
 	}
@@ -387,12 +412,12 @@ func TestEnvelopeIsTheReceiversCanonicalForm(t *testing.T) {
 func TestDeliverWritesTheAttestedEnvelopeAndStillFindsItsId(t *testing.T) {
 	r := newRig(t)
 	r.onUser = func(r *rig, body string) { r.receive(body, true, true) }
-	if res := r.s.Deliver(context.Background(), r.sess, "hello", Bypass); res.Kind != Delivered {
+	if res := r.s.Deliver(context.Background(), r.sess, "hello", From{Name: "bob", Mode: Bypass}); res.Kind != Delivered {
 		t.Fatalf("%+v", res)
 	}
 	var user struct{ Message struct{ Content string } }
 	if err := json.Unmarshal([]byte(r.sent()[0][1]), &user); err != nil || !strings.HasPrefix(user.Message.Content, "<cross-session-message ") ||
-		!strings.Contains(user.Message.Content, `from-mode="bypass"`) || !strings.Contains(user.Message.Content, "\nhello\n[ocp-msg id1]\n</cross-session-message>") {
+		!strings.Contains(user.Message.Content, `from-name="bob"`) || !strings.Contains(user.Message.Content, `from-mode="bypass"`) || !strings.Contains(user.Message.Content, "\nhello\n[ocp-msg id1]\n</cross-session-message>") {
 		t.Fatalf("%v %q", err, user.Message.Content)
 	}
 }

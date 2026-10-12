@@ -128,6 +128,9 @@ func ByCwd(config, cwd string, alive func(pid int) bool) (Session, error) {
 // is only queued until the prompt is answered, and the answer is a keypress, not the inbox.
 func (s Session) Blocked() bool { return s.Status == "waiting" }
 
+// Busy says the session is in a turn: a message written now is queued behind it and shown when it ends.
+func (s Session) Busy() bool { return s.Status == "busy" }
+
 // NeedsKind is what the blocked session waits for, as the spec's needs_you kind: permission for the permission prompt, question for a
 // question put to the person, usage for the session limit's choice, and dialog for any other (and any it does not know: unknown is a person).
 func (s Session) NeedsKind() string {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
+	"strings"
 	"syscall"
 
 	"github.com/handline/handline/go/internal/db"
@@ -54,7 +55,7 @@ func NewPeerPort(home string, d *sql.DB, peer func(agent string) bool, tell peer
 		Peer:   peer,
 		Find:   func(agent string) (peerinbox.Session, error) { return findSession(home, d, agent) },
 		Sender: peerinbox.New(),
-		Mode:   peerMode(home, d),
+		From:   peerFrom(home, d),
 		Ctx:    context.Background(),
 		OnDelivered: func(agent, op string) {
 			if err := inTx(d, func(q db.Q) error { return tell.SessionConfirmed(q, agent, op) }); err != nil && log != nil {
@@ -153,32 +154,44 @@ func classOf(roster *team.Roster, agent string) string {
 	return peerinbox.Prompting
 }
 
-// peerMode is the class attested for the message op to a session, which a session that bypasses prompts compares with its own. The
-// daemon is not a session with a mode of its own: it speaks for whoever wrote the message. The person, and the daemon's notices, have the
-// authority the agent was launched with, so they attest the agent's own class; an agent that wrote it attests its own, and the weakest
-// of several authors counts, so a prompting agent's words are held by a session that bypasses prompts and never pass as the person's.
-// Only a session that bypasses prompts is attested to; any other takes the message as it did without. "" attests nothing.
-func peerMode(home string, d *sql.DB) func(agent, op string) string {
+// peerFrom is who the message op to a session is from, and the class attested for it. The name is whoever wrote it (the agents named in
+// the operation, "founder" for the person), else the daemon: a message always says it is another's, never reads as the person's own typing.
+//
+// The class: the daemon is not a session with a mode of its own, it speaks for whoever wrote the message. The person, and the daemon's own
+// words, have the authority the agent was launched with, so they attest the agent's own class; an agent that wrote it attests its own, and
+// the weakest of several authors counts, so a prompting agent's words are held by a session that bypasses prompts and never pass as the
+// person's. Only a session that bypasses prompts is attested to; any other takes the message as it did without. An operation whose text is
+// not known to be the person's, the daemon's or an agent's attests nothing.
+func peerFrom(home string, d *sql.DB) func(agent, op string) peerinbox.From {
 	roster := team.NewRoster(home)
-	return func(agent, op string) string {
-		own := classOf(roster, agent)
-		if own != peerinbox.Bypass { // a session that prompts takes a message with no attestation, as it always did
-			return ""
-		}
+	return func(agent, op string) peerinbox.From {
 		authors, known := supervisor.AuthorsOfOp(d, op)
-		if !known {
-			return ""
+		var from peerinbox.From
+		if known {
+			var names []string
+			for _, a := range authors {
+				if a == db.Human {
+					a = "founder"
+				}
+				if a != agent && !slices.Contains(names, a) {
+					names = append(names, a)
+				}
+			}
+			from.Name = strings.Join(names, ", ")
 		}
-		mode := own
+		if !known || classOf(roster, agent) != peerinbox.Bypass {
+			return from
+		}
+		from.Mode = peerinbox.Bypass
 		for _, author := range authors {
 			if !slices.Contains(paths.ListAgents(home), author) || author == agent {
 				continue
 			}
 			if c := classOf(roster, author); c != peerinbox.Bypass {
-				return c
+				from.Mode = c
+				break
 			}
-			mode = peerinbox.Bypass
 		}
-		return mode
+		return from
 	}
 }

@@ -19,11 +19,11 @@ type fakeInbox struct {
 	modes   []string
 }
 
-func (f *fakeInbox) Deliver(_ context.Context, _ peerinbox.Session, text, mode string) peerinbox.Result {
+func (f *fakeInbox) Deliver(_ context.Context, _ peerinbox.Session, text string, from peerinbox.From) peerinbox.Result {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.texts = append(f.texts, text)
-	f.modes = append(f.modes, mode)
+	f.modes = append(f.modes, from.Name+"/"+from.Mode)
 	if r, ok := f.outcome[text]; ok {
 		return r
 	}
@@ -111,7 +111,7 @@ func TestAMessageTheInboxTookCannotBeWithdrawn(t *testing.T) {
 func TestAMessageIsDeliveredWithTheModeThePortSaysForIt(t *testing.T) {
 	in, ev := &fakeInbox{}, &events{}
 	p := rigOf(in, ev)
-	p.Mode = func(agent, op string) string { return agent + "/" + op }
+	p.From = func(agent, op string) peerinbox.From { return peerinbox.From{Name: agent, Mode: op} }
 	if _, err := p.Send("bob", "request:7", "hi", structured.Queue); err != nil {
 		t.Fatal(err)
 	}
