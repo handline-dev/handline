@@ -80,12 +80,12 @@ export function VerbMenu(props: { tasks: Task[]; me: string; cans: Cans; onPick:
   );
 }
 
-const NEEDS: Record<RowVerb, 'text' | 'optional' | 'owner' | 'priority' | 'release' | 'time' | null> = {
+const NEEDS: Record<RowVerb, 'text' | 'optional' | 'owner' | 'priority' | 'time' | null> = {
   done: 'text',
   discard: 'text',
   reopen: 'optional',
   cancel: 'optional',
-  release: 'release',
+  release: null,
   owner: 'owner',
   priority: 'priority',
   timebox: 'time',
@@ -113,7 +113,7 @@ export function VerbSheet(props: {
   const { verb, tasks } = props;
   const { run, skip } = plan(verb, tasks, props.me);
   const need = NEEDS[verb];
-  const [arg, setArg] = useState(need === 'priority' ? '2' : need === 'release' ? 'queued' : '');
+  const [arg, setArg] = useState(need === 'priority' ? '2' : '');
   const [empty, setEmpty] = useState(false);
   const required = need === 'text' || need === 'owner' || need === 'time';
   const shown = run.slice(0, 8);
@@ -164,11 +164,6 @@ export function VerbSheet(props: {
           <option value="1">1 high</option>
           <option value="2">2</option>
           <option value="3">3 low</option>
-        </NativeSelect>
-      ) : need === 'release' ? (
-        <NativeSelect value={arg} aria-label="Release to" onChange={(e) => setArg(e.target.value)}>
-          <option value="queued">back to queued</option>
-          <option value="draft">back to draft</option>
         </NativeSelect>
       ) : need ? (
         <Input

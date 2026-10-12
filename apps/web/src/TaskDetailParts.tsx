@@ -5,8 +5,8 @@ import type { TaskDetail as Detail } from '@handline/client';
 import { useWrite } from '@handline/app-data';
 import { Icon, type IconName } from './ui/Icon.tsx';
 import { Sheet } from './taskui.tsx';
-import { Button, Input, MetaField, MetaGrid, NativeSelect, Textarea, VisuallyHidden } from './ui/index.ts';
-import { when } from './TaskMemos.tsx';
+import { Button, Input, MetaField, MetaGrid, NativeSelect, Textarea } from './ui/index.ts';
+import { when } from './TaskTime.tsx';
 
 export const TIMELINE = 'ttimeline m-0 list-none p-0 [&_svg]:shrink-0 [&_svg]:self-center [&_svg]:text-ink-3';
 
@@ -53,10 +53,10 @@ export function Verb(props: {
       aria-label={props.label}
       title={props.can.why ?? `${props.label} (${props.k})`}
       disabled={!props.can.ok || props.busy}
-      className={`max-sm:min-h-[44px]${props.busy ? ' w-7 justify-center p-0' : ''}`}
+      className="max-sm:min-h-[44px]"
       onClick={props.onClick}
     >
-      {props.busy ? '…' : undefined}
+      {props.busy ? '…' : props.label}
     </Button>
   );
 }
@@ -66,8 +66,7 @@ export function TaskLinks({ icon, label, items }: { icon: IconName; label: strin
   return (
     <>
       <h3 className={H3}>
-        <Icon name={icon} label={label} aria-hidden="true" />
-        <VisuallyHidden>{label}</VisuallyHidden>
+        <Icon name={icon} label={label} aria-hidden="true" /> <span className="ml-1">{label}</span>
       </h3>
       <ul className="tlinks m-0 list-none p-0">
         {items.map((b) => (
@@ -89,7 +88,7 @@ export function TaskTimeline({ deliveries, events }: { deliveries: Detail['deliv
       {deliveries.map((d) => (
         <li key={d.at} title={`delivered by ${d.how}`} className={LI}>
           <Icon name="delivered" label="Delivered" aria-hidden="true" size={14} />
-          <span className="mono">{when(d.at)}</span> {d.how}: {d.outcome}
+          <span className="mono">{when(d.at)}</span> Delivered ({d.how}): {d.outcome}
         </li>
       ))}
       {events.map((e, i) => (
@@ -163,37 +162,6 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
           </NativeSelect>
         </label>
       </div>
-    </Sheet>
-  );
-}
-
-/** Takes a doing task back to queued or draft (`task.release`), with an optional reason. */
-export function ReleaseSheet(props: {
-  id: number;
-  onCancel: () => void;
-  onSubmit: (to: 'queued' | 'draft', reason: string | undefined) => void;
-}) {
-  const [to, setTo] = useState<'queued' | 'draft'>('queued');
-  const [reason, setReason] = useState('');
-  return (
-    <Sheet
-      label={`release #${props.id}?`}
-      submit="Release"
-      onCancel={props.onCancel}
-      onSubmit={() => props.onSubmit(to, reason.trim() || undefined)}
-    >
-      <NativeSelect value={to} aria-label="Release to" onChange={(e) => setTo(e.target.value === 'draft' ? 'draft' : 'queued')}>
-        <option value="queued">back to queued</option>
-        <option value="draft">back to draft</option>
-      </NativeSelect>
-      <Input
-        grow
-        className="tinput"
-        value={reason}
-        aria-label="Reason"
-        placeholder="why? (optional)"
-        onChange={(e) => setReason(e.target.value)}
-      />
     </Sheet>
   );
 }

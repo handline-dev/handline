@@ -15,3 +15,4 @@ export * from './stats.ts';
 export * from './paths.ts';
 export * from './rows.ts';
 export * from './task-verbs.ts';
+export * from './task-people.ts';

@@ -1,17 +1,17 @@
-// One task: its title, state, people and timing, the body, the delivery history, evidence, memos, what it waits on and what hangs under it,
+// One task: its title, state, people and timing, the body, the delivery history, evidence, a reply box, what it waits on and what hangs under it,
 // and the verbs of the bridge's task detail. A verb that does not apply is hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useWrite } from '@handline/app-data';
-import { Button, Icon, VisuallyHidden } from './ui/index.ts';
+import { Button, Icon } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
-import { MemoBox, MemoRow } from './TaskMemos.tsx';
-import { CancelSheet, EditForm, ReleaseSheet, TaskLinks, TaskMeta, TaskTimeline, TIMELINE, Verb } from './TaskDetailParts.tsx';
+import { AssignSheet, ReplyBox } from './TaskPeople.tsx';
+import { CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
 import { View } from './View.tsx';
 
-type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'edit' | 'release';
+type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'edit' | 'release' | 'assign';
 
 const CLOSED = ['done', 'discarded'];
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
@@ -45,7 +45,9 @@ export function TaskDetail({
       }`}
       aria-label={`Task #${id}`}
     >
-      <Button icon="close" label="Back" title="Back (Esc)" className="back self-end mb-4" onClick={onBack} />
+      <Button icon="close" label="Back" title="Back (Esc)" className="back self-end mb-4" onClick={onBack}>
+        Back
+      </Button>
       {gone ? (
         <div className="empty">
           <p>This task no longer exists.</p>
@@ -64,7 +66,7 @@ function Body({ t }: { t: Detail }) {
   const now = useNow();
   const me = store.me;
   const [ask, setAsk] = useState<Ask>(null);
-  const memoBox = useRef<HTMLTextAreaElement>(null);
+  const replyBox = useRef<HTMLTextAreaElement>(null);
   const done = useWrite('task.done');
   const queue = useWrite('task.queue');
   const draft = useWrite('task.draft');
@@ -79,10 +81,8 @@ function Body({ t }: { t: Detail }) {
     draft: useCan('task.draft'),
     reopen: useCan('task.reopen'),
     discard: useCan('task.discard'),
-    memo: useCan('task.memo.add'),
-    memoEdit: useCan('task.memo.edit'),
-    memoDelete: useCan('task.memo.delete'),
     edit: useCan('task.edit'),
+    reply: useCan('chat.send'),
     withdraw: useCan('task.withdraw'),
     cancel: useCan('task.cancel'),
     release: useCan('task.release'),
@@ -111,7 +111,8 @@ function Body({ t }: { t: Detail }) {
           ? draft.mutate({ tasks: [t.id] })
           : say('only a draft or a queued task can move'),
     r: () => (t.state === 'done' && mine ? setAsk('reopen') : say(REOPEN_ONLY)),
-    a: () => memoBox.current?.focus(),
+    a: () => replyBox.current?.focus(),
+    o: () => open && setAsk('assign'),
     d: () => (open ? setAsk('discard') : say(`task #${t.id} is already closed`)),
     e: () => open && setAsk('edit'),
     w: () => startable && mine && setAsk('withdraw'),
@@ -138,7 +139,7 @@ function Body({ t }: { t: Detail }) {
         <h2 className="m-0 text-title font-semibold">
           <span className="mono">#{t.id}</span> {t.title}
         </h2>
-        <StateChip state={t.state} mark={mark} />
+        <StateChip state={t.state} mark={mark} word />
       </header>
       <TaskMeta t={t} now={now} />
       <div
@@ -154,7 +155,8 @@ function Body({ t }: { t: Detail }) {
         ) : null}
         {open ? <Verb k="x" icon="taskDone" label="Done" can={can.done} onClick={verbs.x} /> : null}
         {t.state === 'done' && mine ? <Verb k="r" icon="retry" label="Reopen" can={can.reopen} onClick={verbs.r} /> : null}
-        <Verb k="a" icon="say" label="Add a memo" can={can.memo} onClick={verbs.a} />
+        {open ? <Verb k="o" icon="agent" label="Assign" can={can.edit} onClick={verbs.o} /> : null}
+        <Verb k="a" icon="say" label="Reply" can={can.reply} onClick={verbs.a} />
         {open ? <Verb k="e" icon="answer" label="Edit" can={can.edit} onClick={verbs.e} /> : null}
         {startable && mine ? <Verb k="w" icon="withdrawn" label="Withdraw" can={can.withdraw} onClick={verbs.w} /> : null}
         {running ? <Verb k="l" icon="retry" label="Release" can={can.release} onClick={verbs.l} busy={release.isPending} /> : null}
@@ -204,12 +206,16 @@ function Body({ t }: { t: Detail }) {
         />
       ) : null}
       {ask === 'release' ? (
-        <ReleaseSheet
-          id={t.id}
+        <Sheet
+          label={`release #${t.id}?`}
+          submit="Release"
           onCancel={() => setAsk(null)}
-          onSubmit={(to, reason) => (setAsk(null), release.mutate({ task: t.id, to, ...(reason ? { reason } : {}) }))}
-        />
+          onSubmit={() => (setAsk(null), release.mutate({ task: t.id }))}
+        >
+          <span className="muted">Takes the task back to queued so another run can pick it up.</span>
+        </Sheet>
       ) : null}
+      {ask === 'assign' ? <AssignSheet t={t} me={me} onClose={() => setAsk(null)} /> : null}
       {ask === 'edit' ? <EditForm t={t} onClose={() => setAsk(null)} /> : null}
 
       {t.body ? <p className="tbody-text m-0 whitespace-pre-wrap">{t.body}</p> : null}
@@ -220,8 +226,7 @@ function Body({ t }: { t: Detail }) {
       {t.deliveries.length || t.events.length ? (
         <>
           <h3 className={H3}>
-            <Icon name="history" label="Delivery history" aria-hidden="true" />
-            <VisuallyHidden>Delivery history</VisuallyHidden>
+            <Icon name="history" label="History" aria-hidden="true" /> <span className="ml-1">History</span>
           </h3>
           <TaskTimeline deliveries={t.deliveries} events={t.events} />
         </>
@@ -235,14 +240,7 @@ function Body({ t }: { t: Detail }) {
       ) : null}
       {t.hold_reason || t.block_reason ? <p className="muted">{t.hold_reason ?? t.block_reason}</p> : null}
 
-      {t.memos.length ? (
-        <ol className={TIMELINE}>
-          {t.memos.map((m) => (
-            <MemoRow key={m.id} task={t.id} memo={m} canEdit={can.memoEdit} canDelete={can.memoDelete} />
-          ))}
-        </ol>
-      ) : null}
-      <MemoBox id={t.id} box={memoBox} can={can.memo} />
+      <ReplyBox t={t} me={me} box={replyBox} />
     </div>
   );
 }

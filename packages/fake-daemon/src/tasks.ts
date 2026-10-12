@@ -211,11 +211,12 @@ export class FakeTasks {
     if (t.state === 'done' || t.state === 'discarded') throw new TaskFailure('refused', `task ${t.id} is ${t.state}`);
     this.change(t, { state: 'discarded', done: this.now(), hold_reason: String(p.reason) });
   }
-  /** Take a doing task back to queued (or draft). */
+  /** Take a doing task back to queued; the daemon takes no target and no reason. */
   release(p: Record<string, unknown>): void {
+    for (const k of ['to', 'reason']) if (k in p) throw new TaskFailure('bad_request', `task.release takes no ${k}`);
     const t = this.find(p.task);
     if (t.state !== 'doing') throw new TaskFailure('refused', `task ${t.id} is ${t.state}, not doing`);
-    this.change(t, { state: p.to === 'draft' ? 'draft' : 'queued' });
+    this.change(t, { state: 'queued' });
   }
   merge(p: Record<string, unknown>): void {
     const into = this.find(p.into);

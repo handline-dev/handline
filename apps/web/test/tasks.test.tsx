@@ -405,7 +405,7 @@ describe('the detail', () => {
     expect(text(d)).toContain('Asked by');
     expect(text(d)).toContain('handline.architect');
     expect(text(d)).toContain('#1684'); // under, local-ref-ok
-    expect(text(d)).toContain('Delivery history');
+    expect(text(d)).toContain('History');
     await press('Escape', {}, $('.tbody')!);
     await until(() => location.hash === '#/tasks', 'the list again');
   });
@@ -434,7 +434,6 @@ describe('the detail', () => {
     const verbs = $('.tverbs')!;
     for (const [label, method] of [
       ['Done', 'task.done'],
-      ['Add a memo', 'task.memo.add'],
       ['Discard', 'task.discard'],
     ] as const) {
       expect((button(label, verbs) as HTMLButtonElement).disabled).toBe(true);
@@ -493,21 +492,45 @@ describe('the detail', () => {
     expect(button('Cancel', $('.tverbs')!)).toBeUndefined(); // closed: no verbs left that stop it
   });
 
-  it('a memo can be edited and deleted from the task page', async () => {
+  it('replies to someone the task names: pick the chip, type, send', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    await until(() => $('.tmemo'), 'the memo box');
-    await typeInto($('.tmemo textarea') as HTMLTextAreaElement, 'first note');
-    await click($('.tmemo button')!);
-    await until(() => $('[aria-label="Edit memo"]'), 'the memo');
-    await click($('[aria-label="Edit memo"]')!);
-    const row = () => $('[aria-label="Memo text"]')?.closest('li') ?? $('[aria-label="Edit memo"]')!.closest('li')!;
-    await typeInto($('[aria-label="Memo text"]') as HTMLTextAreaElement, 'second note');
-    await click(button('Save', row())!);
-    await until(() => text(row()).includes('second note'), 'the edited memo');
-    await click($('[aria-label="Delete memo"]')!);
-    await click(button('Delete', $('[role="alertdialog"][aria-label="Delete memo"]')!)!);
-    await until(() => !$('[aria-label="Edit memo"]'), 'no memos left');
+    const reply = () => $('section[aria-label="Reply to someone"]')!;
+    await until(() => $('section[aria-label="Reply to someone"]'), 'the reply box');
+    expect($('[aria-label="Add a memo"]')).toBeNull();
+    expect((button('Send', reply()) as HTMLButtonElement).disabled).toBe(true); // nobody picked yet
+    await click(button('handline.architect', reply())!);
+    await typeInto($('textarea', reply()) as HTMLTextAreaElement, 'is the pane done?');
+    await click(button('Send to handline.architect', reply())!);
+    await until(
+      () => (s.daemon.chat as unknown as { messages: { to: string; body: string }[] }).messages.some((m) => m.to === 'handline.architect' && m.body.includes('is the pane done?')),
+      'the message to the architect',
+    );
+  });
+
+  it('assigns the task: the picker groups who worked on it, then the note goes with it', async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks/1688', s);
+    await until(() => button('Assign', $('.tverbs') ?? box), 'Assign');
+    await click(button('Assign', $('.tverbs')!)!);
+    const ask = sheet('Assign #1688 to…')!;
+    expect($('section[aria-label="Worked on this task"]', ask)).not.toBeNull();
+    await click(button('handline.architect', ask)!);
+    await typeInto($('textarea', ask) as HTMLTextAreaElement, 'please take it');
+    await click(button('Assign to handline.architect', ask)!);
+    await until(() => s.daemon.tasks.get({ task: 1688 }).to === 'handline.architect', 'the new owner');
+    await until(
+      () => (s.daemon.chat as unknown as { messages: { to: string; body: string }[] }).messages.some((m) => m.to === 'handline.architect' && m.body.includes('please take it')),
+      'the note',
+    );
+  });
+
+  it('shows every action and state as a word', async () => {
+    await mount('#/tasks/1688');
+    await until(() => $('.tverbs'), 'the verbs');
+    for (const b of $$('button', $('.tverbs')!)) expect(text(b).trim()).not.toBe('');
+    expect(text($('.tdetail-head'))).toContain('doing');
+    expect(text($('.tmeta'))).toContain('Owner');
   });
 
   it('serves the verbs of the daemon plan once it lists them: done needs a result, reopen only for a done task I asked for', async () => {

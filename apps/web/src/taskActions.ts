@@ -52,7 +52,7 @@ export function useBulk(afterwards: () => void) {
     reopen: (task, note) => reopen.mutateAsync({ task, ...(note ? { note } : {}) }),
     queue: (task) => queue.mutateAsync({ tasks: [task] }),
     draft: (task) => draft.mutateAsync({ tasks: [task] }),
-    release: (task, to) => release.mutateAsync({ task, to: to === 'draft' ? 'draft' : 'queued' }),
+    release: (task) => release.mutateAsync({ task }),
     withdraw: (task) => withdraw.mutateAsync({ task }),
     cancel: (task, reason) => cancel.mutateAsync({ task, ...(reason ? { reason } : {}) }),
     discard: (task, reason) => discard.mutateAsync({ task, reason }),
