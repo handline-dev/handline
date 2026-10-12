@@ -192,6 +192,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
             tree={mode === 'tree'}
             sort={sort}
             allMarked={!!order.length && marked.size === order.length}
+            markCell={selecting || marked.size > 0}
             onToggleAll={toggleAll}
             onSort={(col) => setSort((s) => ({ by: col, reverse: s.by === col && !s.reverse }))}
           />
