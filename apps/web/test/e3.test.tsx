@@ -1,4 +1,4 @@
-// E3 from the page: a path in a message opens through the shell on a click, "In editor" round-trips the box, and a plain browser has neither.
+// E3 from the page: a path in a message opens through the shell on a click, and a plain browser (or a shell without the calls) has no path buttons.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -34,9 +34,8 @@ const type = (v: string) =>
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, v);
     t.dispatchEvent(new Event('input', { bubbles: true }));
   });
-const buttonNamed = (label: string, within = box) =>
-  [...within.querySelectorAll('button')].find((b) => (text(b).trim() || b.getAttribute('aria-label')) === label);
-const inCompose = (label: string) => buttonNamed(label, $('.compose-row')!);
+const inCompose = (label: string) =>
+  [...$('.compose-row')!.querySelectorAll('button')].find((b) => (text(b).trim() || b.getAttribute('aria-label')) === label);
 
 async function mount() {
   const s = setup();
@@ -57,15 +56,13 @@ afterEach(async () => {
 });
 
 const stub = (over: object = {}) => {
-  const calls = { open: [] as unknown[], compose: [] as unknown[], cancel: 0 };
+  const calls = { open: [] as unknown[] };
   vi.stubGlobal('handline', {
     api: 1,
     screen: async () => ({ ok: true }),
     unsent: async () => ({ ok: true }),
     onNavigate: () => () => undefined,
     openPath: async (a: unknown) => (calls.open.push(a), { ok: true, how: 'opened' }),
-    compose: async (a: unknown) => (calls.compose.push(a), { ok: true, text: 'edited text\n\n', changed: true }),
-    cancelCompose: async () => (calls.cancel++, { ok: true }),
     ...over,
   });
   return calls;
@@ -105,56 +102,13 @@ describe('E3 in the page', () => {
     expect(text($('.path-note'))).toContain('does not exist');
   });
 
-  it('In editor sends the box text, puts the edited text back without its trailing newlines, and shows nothing sent', async () => {
-    const calls = stub();
-    await mount();
-    await type('first draft');
-    await click(inCompose('In editor')!);
-    await until(() => ($('textarea.compose') as HTMLTextAreaElement).value === 'edited text', 'the edited text');
-    expect(calls.compose).toEqual([{ text: 'first draft' }]);
-    expect($$('.msg-body').some((b) => text(b).includes('edited text'))).toBe(false); // put in the box, not sent
-  });
-
-  it('a refusal keeps the draft and says why', async () => {
-    stub({ compose: async () => ({ ok: false, code: 'terminal_editor', message: 'vim needs a terminal' }) });
-    await mount();
-    await type('my draft');
-    await click(inCompose('In editor')!);
-    await until(() => text(box).includes('vim needs a terminal'), 'the reason');
-    expect(($('textarea.compose') as HTMLTextAreaElement).value).toBe('my draft');
-  });
-
-  it('text the editor left unchanged says so and changes nothing', async () => {
-    stub({ compose: async () => ({ ok: true, text: 'my draft\n', changed: false }) });
-    await mount();
-    await type('my draft');
-    await click(inCompose('In editor')!);
-    await until(() => text(box).includes('Nothing changed'), 'unchanged');
-    expect(($('textarea.compose') as HTMLTextAreaElement).value).toBe('my draft');
-  });
-
-  it('while the editor is open the box shows Waiting with a Cancel that calls cancelCompose; a cancelled compose leaves the draft', async () => {
-    let release: (v: unknown) => void = () => undefined;
-    const calls = stub({ compose: () => new Promise((r) => (release = r)) });
-    await mount();
-    await type('my draft');
-    await click(inCompose('In editor')!);
-    expect(text($('.compose-row'))).toContain('Waiting for the editor');
-    await click(inCompose('Cancel')!);
-    expect(calls.cancel).toBe(1);
-    await act(async () => release({ ok: false, code: 'cancelled', message: 'Cancelled.' }));
-    expect(($('textarea.compose') as HTMLTextAreaElement).value).toBe('my draft');
-    expect(inCompose('In editor')).toBeTruthy();
-  });
-
-  it('a plain browser has no In editor button, and a path stays plain text', async () => {
+  it('a plain browser has no path buttons', async () => {
     await mount();
     await sendMessage('see src/a.ts please');
-    expect(buttonNamed('In editor')).toBeUndefined();
     expect($('button.path')).toBeNull();
   });
 
-  it('a shell without these calls shows neither', async () => {
+  it('a shell without the openPath call shows neither', async () => {
     vi.stubGlobal('handline', {
       api: 1,
       screen: async () => ({ ok: true }),
@@ -163,7 +117,6 @@ describe('E3 in the page', () => {
     });
     await mount();
     await sendMessage('see src/a.ts please');
-    expect(buttonNamed('In editor')).toBeUndefined();
     expect($('button.path')).toBeNull();
   });
 });

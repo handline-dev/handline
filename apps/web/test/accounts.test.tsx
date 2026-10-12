@@ -4,7 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
-import { setup } from '@handline/fake-daemon/helpers';
+import { second, setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -210,13 +210,80 @@ describe('one account', () => {
     expect($$('.acct-settings [role="switch"]')[0]!.getAttribute('aria-checked')).toBe('false');
   });
 
-  it('login starts on the daemon and the page asks for no credential (the URL and code are not shown yet)', async () => {
-    const s = await mount('#/accounts/gamma');
-    await until(() => $('.acct-one'), 'the account');
-    expect($('input[type="password"], input[name*="token" i], input[name*="password" i]')).toBeNull();
-    await click(button('Log in'));
-    await until(() => s.daemon.accounts.list().accounts.find((a) => a.name === 'gamma')?.login?.state === 'waiting', 'the login to start');
-    expect(button('Log in')!.getAttribute('title')).toContain('hl login gamma');
+  describe('login by url and code', () => {
+    const codeBox = () => $('.acct-login input')! as HTMLInputElement;
+    const started = async (s = setup()) => {
+      await mount('#/accounts/gamma', s);
+      await until(() => $('.acct-one'), 'the account');
+      await click(button('Log in'));
+      await until(() => $('.acct-login-url'), 'the url');
+      return s;
+    };
+
+    it('Log in shows the URL to open and copy with a code box, Submit and Cancel, and asks for no credential', async () => {
+      await started();
+      expect($('.acct-login-url')!.getAttribute('href')).toMatch(/^https:/);
+      expect(button('Copy')).toBeTruthy();
+      expect(codeBox()).toBeTruthy();
+      expect((button('Submit') as HTMLButtonElement)!.disabled).toBe(true); // nothing typed yet
+      expect(button('Cancel')).toBeTruthy();
+      expect($('input[type="password"], input[name*="token" i], input[name*="password" i]')).toBeNull();
+      expect(text($('.acct-login'))).toContain('Log in from a computer.'); // the phone line stays
+    });
+
+    it('the code goes through account.login_code once, a right one ends the login, and the box is gone with it', async () => {
+      const s = setup();
+      const calls: string[] = [];
+      const real = s.client.call.bind(s.client);
+      // @ts-expect-error a test spy on the one client
+      s.client.call = (m: string, p: never) => (calls.push(m), real(m, p));
+      await started(s);
+      await setValue(codeBox(), 'good-code'); // the fake daemon's right code
+      await click(button('Submit'));
+      await until(() => s.daemon.accounts.list().accounts.find((a) => a.name === 'gamma')?.login_state === 'ok', 'the login to finish');
+      expect(calls.filter((m) => m === 'account.login_code')).toHaveLength(1);
+      expect(button('Log in again')).toBeTruthy();
+      expect($('.acct-login input')).toBeNull();
+    });
+
+    it('a wrong code ends the login failed and the page says why', async () => {
+      const s = await started();
+      await setValue(codeBox(), 'nope');
+      await click(button('Submit'));
+      await until(() => text($('.acct-login')).includes('the code was not accepted'), 'the reason');
+      expect(s.daemon.accounts.list().accounts.find((a) => a.name === 'gamma')?.login_state).toBe('needs_login');
+    });
+
+    it('a refusal with gate state keeps the box and says why', async () => {
+      const s = await started();
+      s.daemon.knobs.refuse('account.login_code', 'state', 'the login is not waiting for a code');
+      await setValue(codeBox(), 'good-code');
+      await click(button('Submit'));
+      await until(() => text($('.acct-login')).includes('not waiting'), 'the refusal');
+      expect(codeBox()).toBeTruthy();
+    });
+
+    it('Cancel sends account.login_cancel and the account can log in again', async () => {
+      const s = await started();
+      await click(button('Cancel'));
+      await until(() => s.daemon.accounts.list().accounts.find((a) => a.name === 'gamma')?.login?.state === 'cancelled', 'the cancel');
+      expect((button('Log in') as HTMLButtonElement)!.disabled).toBe(false);
+    });
+
+    it('a login another client started shows no URL, offers Cancel, and then Log in again', async () => {
+      const s = await mount('#/accounts/gamma');
+      await until(() => $('.acct-one'), 'the account');
+      // The host CLI starts the login from its own connection while the page watches: the topic tells it, without a URL of its own.
+      const host = second(s.daemon, s.net);
+      await host.start();
+      await host.call('account.login', { account: 'gamma', request_id: 'l0' });
+      await until(() => text($('.acct-login')).includes('Login in progress'), 'the running login');
+      expect($('.acct-login-url')).toBeNull();
+      expect(button('Log in')).toBeUndefined();
+      await click(button('Cancel'));
+      await until(() => (button('Log in') as HTMLButtonElement) && !(button('Log in') as HTMLButtonElement)!.disabled, 'the button back');
+      expect(s.daemon.accounts.list().accounts.find((a) => a.name === 'gamma')?.login?.state).toBe('cancelled');
+    });
   });
   describe('remove', () => {
     const open = async (name: string, s = setup()) => {

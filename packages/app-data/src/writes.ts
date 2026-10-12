@@ -305,6 +305,8 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'hr.withdraw': 'withdraw',
     'chat.seen': 'mark seen',
     'account.login': 'log in',
+    'account.login_code': 'send code',
+    'account.login_cancel': 'cancel login',
     'account.add': 'add account',
     'terminal.close': 'close terminal',
     'task.discard': 'discard',
@@ -376,6 +378,4 @@ export const NOT_FROM_UI = [
   'task.handoff',
   // A member command the app does not send yet.
   'task.ask',
-  'account.login_cancel',
-  'account.login_code',
 ] as const;

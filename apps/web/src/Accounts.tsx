@@ -4,6 +4,7 @@ import { STATE_WORD, outUntil, stateOf, span } from '@handline/app-core';
 import type { Account } from '@handline/client';
 import { useConnection } from '@handline/app-react';
 import { useAccountUsage, useAccounts, useAgents, useServes, useWrite } from '@handline/app-data';
+import { AccountLogin } from './AccountLogin.tsx';
 import { AccountSettings } from './AccountSettings.tsx';
 import { Gauge, useNow } from './Gauge.tsx';
 import { goAgent } from './route.ts';
@@ -29,9 +30,9 @@ const STATE_ICON: Record<ReturnType<typeof stateOf>, IconName> = {
 };
 
 /** The state as a glyph and a word: the colour of the chip is never the only sign. */
-export function StateChip({ a, now }: { a: Account; now: number }) {
-  const state = stateOf(a);
-  const until = state === 'out' ? outUntil(a) : null;
+export function StateChip({ account, now }: { account: Account; now: number }) {
+  const state = stateOf(account);
+  const until = state === 'out' ? outUntil(account) : null;
   return (
     <span className="acct-state-wrap inline-flex items-center gap-1.5">
       <Icon name={STATE_ICON[state]} size={14} label={STATE_WORD[state]} />
@@ -42,41 +43,41 @@ export function StateChip({ a, now }: { a: Account; now: number }) {
   );
 }
 
-export const agentsLine = (a: Account) => `${a.agents.length} / cap ${a.cap_effective}`;
+export const agentsLine = (account: Account) => `${account.agents.length} / cap ${account.cap_effective}`;
 
 const LOGIN_WORD: Record<Account['login_state'], string> = { ok: 'logged in', needs_login: 'needs login', unknown: 'login unknown' };
 const resetAt = (iso: string) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 /** What `hl account list` adds to the gauges: the login, the plan, when the week resets, and whether it can take another agent and why not. */
-export function UsageLine({ a }: { a: Account }) {
-  const week = a.weekly?.resets_at;
+export function UsageLine({ account }: { account: Account }) {
+  const week = account.weekly?.resets_at;
   return (
-    <span className="acct-usage col-span-full text-hint muted" data-usage={a.name}>
-      {[LOGIN_WORD[a.login_state], a.plan, week ? `week resets ${resetAt(week)}` : null].filter(Boolean).join(' · ')}
-      {a.assignable === undefined ? null : a.assignable ? (
+    <span className="acct-usage col-span-full text-hint muted" data-usage={account.name}>
+      {[LOGIN_WORD[account.login_state], account.plan, week ? `week resets ${resetAt(week)}` : null].filter(Boolean).join(' · ')}
+      {account.assignable === undefined ? null : account.assignable ? (
         <span className="acct-assign"> · can take another agent</span>
       ) : (
-        <span className="acct-assign no"> · cannot take another agent: {a.assign_reason}</span>
+        <span className="acct-assign no"> · cannot take another agent: {account.assign_reason}</span>
       )}
     </span>
   );
 }
 
-function Row({ a, now }: { a: Account; now: number }) {
+function Row({ account, now }: { account: Account; now: number }) {
   return (
-    <a className={ROW} href={`#/accounts/${encodeURIComponent(a.name)}`} data-account={a.name}>
+    <a className={ROW} href={`#/accounts/${encodeURIComponent(account.name)}`} data-account={account.name}>
       <span className="acct-name flex min-w-0 items-baseline gap-2">
-        <strong>{a.label}</strong>
-        {a.label !== a.name ? <span className="muted mono">{a.name}</span> : null}
+        <strong>{account.label}</strong>
+        {account.label !== account.name ? <span className="muted mono">{account.name}</span> : null}
       </span>
-      <StateChip a={a} now={now} />
-      <Gauge label="5 h" window={a.five_hour} now={now} />
-      <Gauge label="week" window={a.weekly} now={now} />
-      <span className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2" title={`Agents on it, and its cap: ${agentsLine(a)}`}>
+      <StateChip account={account} now={now} />
+      <Gauge label="5 h" window={account.five_hour} now={now} />
+      <Gauge label="week" window={account.weekly} now={now} />
+      <span className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2" title={`Agents on it, and its cap: ${agentsLine(account)}`}>
         <Icon name="agent" size={14} label="Agents" />
-        {a.agents.length}/{a.cap_effective}
+        {account.agents.length}/{account.cap_effective}
       </span>
-      <UsageLine a={a} />
+      <UsageLine account={account} />
     </a>
   );
 }
@@ -103,8 +104,8 @@ export function AccountsPage({ name }: { name: string | null }) {
   const { served } = useServes('accounts.list');
   const now = useNow();
   // The topic's rows are live; the usage read adds the fields only it carries.
-  const list = (q.data?.accounts ?? []).map((a) => ({ ...usage?.find((u) => u.name === a.name), ...a }));
-  const one = name === null ? null : list.find((a) => a.name === name);
+  const list = (q.data?.accounts ?? []).map((account) => ({ ...usage?.find((u) => u.name === account.name), ...account }));
+  const one = name === null ? null : list.find((account) => account.name === name);
   return (
     <ScrollPage className="accounts" aria-label="Accounts">
       <PageHead className="accounts-head">
@@ -129,12 +130,12 @@ export function AccountsPage({ name }: { name: string | null }) {
       >
         {name === null ? (
           <Card className="acct-list flex flex-col">
-            {list.map((a) => (
-              <Row key={a.name} a={a} now={now} />
+            {list.map((account) => (
+              <Row key={account.name} account={account} now={now} />
             ))}
           </Card>
         ) : one ? (
-          <AccountPageOne a={one} now={now} />
+          <AccountPageOne account={one} now={now} />
         ) : (
           <div className="empty">
             <strong>This account no longer exists</strong>
@@ -148,37 +149,37 @@ export function AccountsPage({ name }: { name: string | null }) {
   );
 }
 
-function AccountPageOne({ a, now }: { a: Account; now: number }) {
+function AccountPageOne({ account, now }: { account: Account; now: number }) {
   const [tab, setTab] = useState<Tab>('Overview');
   const agents = useAgents().data?.agents ?? [];
   return (
     <div className="acct-one mx-auto flex max-w-[var(--w-form)] flex-col gap-3">
       <p className="acct-head m-0 flex items-center gap-2">
-        <StateChip a={a} now={now} />
+        <StateChip account={account} now={now} />
       </p>
-      <UsageLine a={a} />
+      <UsageLine account={account} />
       <TabStrip label="Account" value={tab} onChange={setTab} tabs={TABS.map((t) => ({ value: t, label: t }))} />
       {tab === 'Overview' ? (
         <div className="acct-overview flex flex-col gap-3">
-          <Gauge label="5 h" window={a.five_hour} now={now} detail />
-          <Gauge label="week" window={a.weekly} now={now} detail />
+          <Gauge label="5 h" window={account.five_hour} now={now} detail />
+          <Gauge label="week" window={account.weekly} now={now} detail />
           <p className={FACT}>
             <Icon name="schedules" size={14} label="Month" />
-            {a.cycle.on
-              ? `ends ${a.cycle.end ?? 'at the next anniversary'}${a.cycle.end_is_default ? ' (the monthly anniversary)' : ''}`
+            {account.cycle.on
+              ? `ends ${account.cycle.end ?? 'at the next anniversary'}${account.cycle.end_is_default ? ' (the monthly anniversary)' : ''}`
               : 'renewing'}
           </p>
           <p className={FACT}>
             <Icon name="refresh" size={14} label="Usage recovery" />
-            {a.recover ? 'recovers a dead read' : 'no recovery'}
+            {account.recover ? 'recovers a dead read' : 'no recovery'}
           </p>
-          <Login a={a} />
+          <AccountLogin account={account} />
         </div>
       ) : null}
       {tab === 'Agents' ? (
-        a.agents.length ? (
+        account.agents.length ? (
           <ul className="acct-agents-list">
-            {a.agents.map((n) => {
+            {account.agents.map((n) => {
               const v = agents.find((x) => x.name === n);
               return (
                 <li key={n}>
@@ -194,37 +195,7 @@ function AccountPageOne({ a, now }: { a: Account; now: number }) {
           <p className="muted">No agents are on this account.</p>
         )
       ) : null}
-      {tab === 'Settings' ? <AccountSettings account={a} /> : null}
-    </div>
-  );
-}
-
-/**
- * Login: the daemon opens a terminal for the vendor's own flow, so the web never holds a credential. Embedding a terminal tab of an account is
- * not built (the terminal tab belongs to an agent's workspace), so the page names the terminal and the host command. Not offered on a phone.
- */
-function Login({ a }: { a: Account }) {
-  const login = useWrite('account.login', a.name);
-  const { served } = useServes('account.login');
-  const open = useConnection() === 'open';
-  const terminal = login.data?.terminal as string | undefined;
-  const inProgress = !!terminal && a.login_state !== 'ok';
-  const off = !open ? 'daemon not connected' : served ? undefined : 'this daemon does not serve account.login';
-  return (
-    <div className="acct-login flex items-center gap-3">
-      <Button
-        className="desktop-only max-sm:hidden"
-        label={login.isPending ? '…' : a.login_state === 'ok' ? 'Log in again' : 'Log in'}
-        disabled={!!off || login.isPending || inProgress}
-        title={off ?? `Or from the host: hl login ${a.name}`}
-        onClick={() => login.mutate({ account: a.name })}
-      />
-      <span className="muted phone-only hidden max-sm:inline">Log in from a computer.</span>
-      {inProgress ? (
-        <p className="muted" role="status">
-          Login in progress in terminal <span className="mono">{terminal}</span>.
-        </p>
-      ) : null}
+      {tab === 'Settings' ? <AccountSettings account={account} /> : null}
     </div>
   );
 }
