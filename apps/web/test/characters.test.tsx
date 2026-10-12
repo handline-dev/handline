@@ -17,7 +17,9 @@ const code = (s: string) =>
 describe('characters', () => {
   it('no screen file holds a character outside the allow list', () => {
     const bad = files.flatMap((f) =>
-      [...code(readFileSync(f, 'utf8')).matchAll(/[^\p{ASCII}\p{L}\p{N}\p{P}\p{Z}·…⌘↵]/gu)].map((m) => `${f.slice(src.length + 1)} ${m[0]}`),
+      [...code(readFileSync(f, 'utf8')).matchAll(/[^\p{ASCII}\p{L}\p{N}\p{P}\p{Z}·…⌘↵]/gu)].map(
+        (m) => `${f.slice(src.length + 1)} ${m[0]}`,
+      ),
     );
     expect([...new Set(bad)]).toEqual([]);
   });
