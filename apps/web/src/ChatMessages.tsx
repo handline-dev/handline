@@ -195,10 +195,8 @@ export function Message(props: {
         </div>
       ) : null}
       </div>
-      {/* The stamp sits outside the bubble, under its inner edge: an agent's to the right, the person's to the left. */}
-      <div
-        className={`${MSG_META} ${side === 'agent' ? 'justify-end' : 'justify-start'} hidden gap-1.5 text-ink-3 peer-hover:flex peer-aria-current:flex`}
-      >
+      {/* The stamp rides beside the bubble's inner edge: an agent's to its right, the person's to its left. */}
+      <div className={`${MSG_META} hidden shrink-0 items-center gap-1.5 text-ink-3 peer-hover:flex peer-aria-current:flex`}>
         {side === 'person' && !failed && m.receipt ? (
           <span className="landing receipt" data-receipt={m.receipt.state} title={receiptOf(m.receipt.state).label}>
             <Icon name={receiptOf(m.receipt.state).icon} size={13} label={receiptOf(m.receipt.state).label} />
