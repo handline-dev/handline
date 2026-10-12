@@ -156,7 +156,7 @@ func TestAMemoOnADoingTaskIsTypedAtItsHolderWhenThePortsAreWired(t *testing.T) {
 // doing opens T1 for the agent, queues it and makes it the one in hand.
 func doing(t *testing.T, d *Daemon, agent string) {
 	t.Helper()
-	tid, err := db.NewTask(d.db, "job", agent, "alice", 0, db.DefaultPriority, "", 0)
+	tid, err := db.NewTask(d.db, "job", agent, "alice", 0, db.DefaultPriority, "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func result(t *testing.T, r map[string]any) map[string]any {
 
 func TestAQueuedTaskGoesToAFreeOwnerAndTheReplySaysSo(t *testing.T) {
 	d, agents := tellDaemon(t, true)
-	tid, _ := db.NewTask(d.db, "job", "bob", "alice", 0, db.DefaultPriority, "", 0)
+	tid, _ := db.NewTask(d.db, "job", "bob", "alice", 0, db.DefaultPriority, "", 0, "")
 	f := pipeTo(t, d, "k")
 	said := result(t, f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.queue","params":{"tasks":[1],"request_id":"q1"}}`))["said"]
 	if said != "task T1 is queued (human) - bob was free, so it went out now" {
@@ -188,7 +188,7 @@ func TestAQueuedTaskGoesToAFreeOwnerAndTheReplySaysSo(t *testing.T) {
 	}
 	_ = tid
 	// the owner is busy now: the second is queued behind the first and the reply says only that
-	db.NewTask(d.db, "second", "bob", "alice", 0, db.DefaultPriority, "", 0)
+	db.NewTask(d.db, "second", "bob", "alice", 0, db.DefaultPriority, "", 0, "")
 	said = result(t, f.ask(`{"jsonrpc":"2.0","id":3,"method":"task.queue","params":{"tasks":[2],"request_id":"q2"}}`))["said"]
 	if !strings.HasPrefix(said.(string), "task T2 is queued (human)") || strings.Contains(said.(string), "went out") {
 		t.Fatalf("%v", said)
@@ -198,7 +198,7 @@ func TestAQueuedTaskGoesToAFreeOwnerAndTheReplySaysSo(t *testing.T) {
 func TestADiscardTypesItsSaysAndMovesTheOwnerOn(t *testing.T) {
 	d, agents := tellDaemon(t, true)
 	doing(t, d, "bob")
-	second, _ := db.NewTask(d.db, "the next one", "bob", "alice", 0, db.DefaultPriority, "", 0)
+	second, _ := db.NewTask(d.db, "the next one", "bob", "alice", 0, db.DefaultPriority, "", 0, "")
 	db.SetTaskQueued(d.db, second, "human")
 	reqs, _ := db.TaskRequests(d.db, 1)
 	for _, q := range reqs {

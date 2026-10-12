@@ -79,13 +79,15 @@ def _accepted(said: str, **more) -> dict:
 def _new(ctx, params) -> dict:
     _unserved(params)
     owner, title, body = _text(params, "owner"), _text(params, "title"), _text(params, "body", required=False)
+    reporter = _text(params, "reporter", required=False)
     if body is not None and not body.strip():
         raise rpc.bad_request("body is text and not empty", "body", rpc.INVALID_PARAMS)
     secs = _span(params)
     if secs is None:
         raise rpc.bad_request("time_box is required", "time_box", rpc.INVALID_PARAMS)
-    if owner != db.HUMAN and owner not in paths.list_agents():
-        raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no agent named {owner}", what="agent", name=owner)
+    for who in (owner, reporter):
+        if who is not None and who != db.HUMAN and who not in paths.list_agents():
+            raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no agent named {who}", what="agent", name=who)
     prio, expects, parent, blocker = params.get("priority"), params.get("expects"), params.get("parent"), params.get("blocked_by")
     try:
         prio = None if prio is None else actions.parse_priority(prio)
@@ -111,7 +113,7 @@ def _new(ctx, params) -> dict:
         db.record_effect(con, ctx.caller.writer, params["request_id"], "task.new", _accepted(f"task T{tid} opened for {owner}", task=tid))
 
     ok, msg, tid = actions.task_new(me, owner, textsafe.oneline(title).strip(), textsafe.text(body).strip() if body else None, parent=parent,
-                                    expects=expects, priority=prio, timeout_s=secs, effect=effect)
+                                    expects=expects, priority=prio, timeout_s=secs, effect=effect, reporter=reporter)
     if not ok:
         raise _fail(msg)
     return _accepted(msg, task=tid)
@@ -129,14 +131,15 @@ def _task_number(params, key: str) -> int | None:
 def _edit(ctx, params) -> dict:
     _unserved(params)
     tid = _task_id(params)
-    owner, title, body = (_text(params, k, required=False) for k in ("owner", "title", "body"))
+    owner, reporter, title, body = (_text(params, k, required=False) for k in ("owner", "reporter", "title", "body"))
     secs, prio = _span(params), _priority(params)
     blocker, unblock = _task_number(params, "blocked_by"), _task_number(params, "unblock")
-    fields = owner is not None or title is not None or body is not None or secs is not None or prio is not None
+    fields = any(v is not None for v in (owner, reporter, title, body, secs, prio))
     if not fields and blocker is None and unblock is None:
-        raise rpc.bad_request("edit needs an owner, a title, a priority, a body, a time_box, blocked_by or unblock", None, rpc.INVALID_PARAMS)
-    if owner is not None and owner != db.HUMAN and owner not in paths.list_agents():
-        raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no agent named {owner}", what="agent", name=owner)
+        raise rpc.bad_request("edit needs an owner, a reporter, a title, a priority, a body, a time_box, blocked_by or unblock", None, rpc.INVALID_PARAMS)
+    for who in (owner, reporter):
+        if who is not None and who != db.HUMAN and who not in paths.list_agents():
+            raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no agent named {who}", what="agent", name=who)
     me = ctx.caller.actor
     con = db.connect()
     try:
@@ -145,7 +148,8 @@ def _edit(ctx, params) -> dict:
         try:
             ok, msgs, freed = True, [], None        # every part in one transaction: a later refusal undoes the earlier parts
             if fields:
-                ok, msg = actions.edit_task(con, tid, me, owner=owner, title=title, priority=prio, timeout_s=secs, body=body)
+                ok, msg = actions.edit_task(con, tid, me, owner=owner, title=title, priority=prio, timeout_s=secs, body=body,
+                                            reporter=reporter)
                 msgs.append(msg)
             if ok and blocker is not None:
                 ok, msg = actions.add_block(con, tid, blocker, me)

@@ -274,7 +274,7 @@ export type Task = {
   last_activity?: Timestamp;
   /** Who last changed the task's owner, title, priority or brief; null when never. */
   edited_by?: string | null;
-  /** Who the task answers to when it closes: the founder (`human`) if any request linked to it came from the founder, else whoever opened it. */
+  /** Who the task answers to when it closes: its reporter when one was set; else the founder (`human`) if any request linked to it came from the founder, else whoever opened it. */
   asker?: string;
   /** Null when the task was not discarded. */
   discarded?: {
@@ -320,7 +320,7 @@ export type TaskDetail = Task & {
     to: string;
     note: string;
   }[];
-  /** Who the task answers to when it closes: the founder (`human`) if any request linked to it came from the founder, else whoever opened it. A client lets the founder reopen a done task only when this is the founder. */
+  /** Who the task answers to when it closes: its reporter when one was set; else the founder (`human`) if any request linked to it came from the founder, else whoever opened it. A client lets the founder reopen a done task only when this is the founder. */
   asker: string;
   discarded: {
     by: string;
@@ -1667,6 +1667,8 @@ export interface Methods {
 }; result: TaskDetail };
   "task.new": { params: {
   owner: string;
+  /** Who the task answers to: told when it ends, and may edit or reassign it. Default: the caller. */
+  reporter?: string;
   title: string;
   body?: string;
   time_box: Duration;
@@ -1803,6 +1805,8 @@ export interface Methods {
   "task.edit": { params: {
   task: number;
   owner?: string;
+  /** A new reporter (who the task answers to); by its opener, its reporter or the founder. */
+  reporter?: string;
   title?: string;
   body?: string;
   time_box?: Duration;

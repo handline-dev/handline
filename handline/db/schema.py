@@ -168,7 +168,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- owner": set the moment a delivery is out on it, so queued turns doing there (founder #8035) -
   -- never a screen state of its own. `delivered_at` is "the owner's session actually had it", the
   -- clock's start. A task can be sent and not yet delivered, never the reverse.
-  sent_at      INTEGER
+  sent_at      INTEGER,
+  -- who the task answers to - told when it ends, and may reassign it. NULL is its opener
+  -- (`task_reporter`): a process on older code opens tasks without it.
+  reporter     TEXT
 );
 CREATE TABLE IF NOT EXISTS task_requests (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
@@ -763,6 +766,13 @@ def _land_fixes(con) -> None:
     """)
 
 
+def _task_reporter(con) -> None:
+    """A task's reporter, apart from its opener. Step 1 adds it to a new database only. Additive: NULL reads
+    as the opener, so a process that does not know the column opens tasks that read as before."""
+    if "reporter" not in _cols(con, "tasks"):
+        con.execute("ALTER TABLE tasks ADD COLUMN reporter TEXT")
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
@@ -776,6 +786,7 @@ MIGRATIONS = [
     (10, "agent_extra_worktrees", _agent_extra_worktrees, True),
     (11, "transcript_events", _transcript_events, True),
     (12, "land_fixes", _land_fixes, True),
+    (13, "task_reporter", _task_reporter, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

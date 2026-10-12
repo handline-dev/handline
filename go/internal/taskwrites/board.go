@@ -15,7 +15,7 @@ type task struct {
 	ID                                  int64
 	Owner, OpenedBy, Title              string
 	DoneEvidence, DiscardedBy, QueuedBy sql.NullString
-	Expects                             sql.NullString
+	Expects, Reporter                   sql.NullString
 	SentAt                              sql.NullInt64
 	TimeoutS                            sql.NullInt64
 	Parent                              sql.NullInt64
@@ -23,8 +23,8 @@ type task struct {
 
 func getTask(tx *sql.Tx, tid int64) (*task, error) {
 	t := &task{ID: tid}
-	err := tx.QueryRow("SELECT owner, opened_by, title, done_evidence, discarded_by, queued_by, sent_at, timeout_s, parent_task, expects FROM tasks WHERE id = ?", tid).
-		Scan(&t.Owner, &t.OpenedBy, &t.Title, &t.DoneEvidence, &t.DiscardedBy, &t.QueuedBy, &t.SentAt, &t.TimeoutS, &t.Parent, &t.Expects)
+	err := tx.QueryRow("SELECT owner, opened_by, title, done_evidence, discarded_by, queued_by, sent_at, timeout_s, parent_task, expects, reporter FROM tasks WHERE id = ?", tid).
+		Scan(&t.Owner, &t.OpenedBy, &t.Title, &t.DoneEvidence, &t.DiscardedBy, &t.QueuedBy, &t.SentAt, &t.TimeoutS, &t.Parent, &t.Expects, &t.Reporter)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -33,9 +33,20 @@ func getTask(tx *sql.Tx, tid int64) (*task, error) {
 
 func (t *task) done() bool { return t.DoneEvidence.Valid && t.DoneEvidence.String != "" }
 
-// asker is who the task answers to when it closes: the founder if any request linked to it came from the founder,
-// else whoever opened it (task_asker).
+// reporter is db.task_reporter: who the task answers to, its opener when none was set.
+func (t *task) reporter() string {
+	if t.Reporter.String != "" {
+		return t.Reporter.String
+	}
+	return t.OpenedBy
+}
+
+// asker is who the task answers to when it closes: its reporter when one was set; else the founder if any request linked to
+// it came from the founder, else whoever opened it (task_asker).
 func asker(tx *sql.Tx, t *task) (string, error) {
+	if t.Reporter.String != "" {
+		return t.Reporter.String, nil
+	}
 	var n int
 	err := tx.QueryRow("SELECT COUNT(*) FROM requests r JOIN task_requests l ON l.request_id = r.id WHERE l.task_id = ? AND r.requester = ?", t.ID, human).Scan(&n)
 	if err != nil {

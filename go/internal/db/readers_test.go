@@ -6,7 +6,7 @@ import (
 
 func seedTask(t *testing.T, q Q, owner, opener string) int64 {
 	t.Helper()
-	tid, err := NewTask(q, "work", owner, opener, 0, DefaultPriority, "", 0)
+	tid, err := NewTask(q, "work", owner, opener, 0, DefaultPriority, "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestEveryRowReaderScansItsColumnsAgainstTheSchema(t *testing.T) {
 	if rows, _ := TaskBlockers(q, parent); len(rows) != 0 {
 		t.Fatal("removed block still blocks")
 	}
-	child, _ := NewTask(q, "child", "b", "a", parent, DefaultPriority, "", 0)
+	child, _ := NewTask(q, "child", "b", "a", parent, DefaultPriority, "", 0, "")
 	if rows, err := OpenChildTasks(q, parent); err != nil || len(rows) != 1 || rows[0].ID != child || rows[0].ParentTask.Int64 != parent {
 		t.Fatal(rows, err)
 	}

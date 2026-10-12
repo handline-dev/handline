@@ -44,7 +44,7 @@ func releaseMethod(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 			if t == nil {
 				return nil, refusal(fmt.Sprintf("no task T%d", tid))
 			}
-			if g := editGuard(&mergeRow{ID: tid, OpenedBy: t.OpenedBy}, by); g != "" {
+			if g := editGuard(guardRow(t), by); g != "" {
 				return nil, refusal(g)
 			}
 			st, err := state(tx, t)

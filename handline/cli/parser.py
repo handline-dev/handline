@@ -587,6 +587,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="read the body from this file, or from stdin with '-', instead of the "
                         "inline argument - safe against a shell expanding backticks or $()")
     p.add_argument("--owner", required=True, help="an agent, or 'human' for a decision task")
+    p.add_argument("--reporter", default=None,
+                   help="who the task answers to - told when it ends, may edit or reassign it (default: you)")
     p.add_argument("--parent", type=_task_arg, default=None, metavar="T",
                    help="the task this is a part of, written T<number>")
     p.add_argument("--blocked-by", type=_task_arg, default=None, metavar="T",
@@ -662,11 +664,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = tk.add_parser("draft", help="send queued tasks back to draft - the founder or the owner's manager")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")
     p.set_defaults(fn=cmd_task_draft)
-    p = tk.add_parser("edit", help="change a task's owner and/or title - opener or "
-                                   "founder only (its owner may also record what it waits on), "
-                                   "and never silent about it")
+    p = tk.add_parser("edit", help="change a task's owner, reporter and/or title - its opener, its reporter "
+                                   "or the founder (the owner also by the owner's manager; the owner itself "
+                                   "may record what it waits on), and never silent about it")
     p.add_argument("task", type=_task_arg, metavar="T")
-    p.add_argument("--owner", default=None, help="fixing who was named, not handing off work")
+    p.add_argument("--owner", default=None, help="give the task to another agent; it is delivered to them")
+    p.add_argument("--reporter", default=None, help="who the task answers to")
     p.add_argument("--title", default=None)
     p.add_argument("--body", default=None, help="the task's brief, replaced (the holder is told)")
     p.add_argument("--body-file", default=None, metavar="PATH",

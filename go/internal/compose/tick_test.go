@@ -170,7 +170,7 @@ func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
 	if tp.StopWaitReason(d, "alice") != "" {
 		t.Fatal("an agent with no current task has no reason to stay")
 	}
-	tid, err := dbpkg.NewTask(d, "the work", "alice", "boss", 0, dbpkg.DefaultPriority, "report", 0)
+	tid, err := dbpkg.NewTask(d, "the work", "alice", "boss", 0, dbpkg.DefaultPriority, "report", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 	// An open child task is a recorded wait.
-	child, _ := dbpkg.NewTask(d, "part", "alice", "alice", tid, dbpkg.DefaultPriority, "report", 0)
+	child, _ := dbpkg.NewTask(d, "part", "alice", "alice", tid, dbpkg.DefaultPriority, "report", 0, "")
 	if got := tp.StopWaitReason(d, "alice"); got != "" {
 		t.Fatalf("an open child is a wait: %q", got)
 	}
@@ -189,7 +189,7 @@ func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
 	}
 	// A decision the agent opened and the founder has not answered is one; so is a roster proposal waiting on the founder.
 	card, _ := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "alice", Target: "human", Body: "which?", Response: "async", Kind: "task"})
-	dec, _ := dbpkg.NewTask(d, "which?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0)
+	dec, _ := dbpkg.NewTask(d, "which?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0, "")
 	dbpkg.LinkRequest(d, dec, card)
 	if got := tp.StopWaitReason(d, "alice"); got != "" {
 		t.Fatalf("an unanswered decision is a wait: %q", got)

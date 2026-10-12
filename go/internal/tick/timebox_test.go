@@ -66,7 +66,7 @@ func timebox(t *testing.T) (*Tick, *world, *Timebox, *tbPorts) {
 
 func newTask(t *testing.T, tk *Tick, owner, opener string, timeoutS int64) int64 {
 	t.Helper()
-	tid, err := db.NewTask(tk.Q, "the work  on the thing", owner, opener, 0, db.DefaultPriority, "report", timeoutS)
+	tid, err := db.NewTask(tk.Q, "the work  on the thing", owner, opener, 0, db.DefaultPriority, "report", timeoutS, "")
 	if err != nil {
 		t.Fatal(err)
 	}

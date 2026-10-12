@@ -12,7 +12,7 @@ import (
 func TestTheFounderCloserMarksTheCardDoneAsTheFounder(t *testing.T) {
 	_, _, env, home := wired(t)
 	card, _ := dbpkg.AddRequest(env.DB, dbpkg.NewRequest{Requester: "alice", Target: "human", Body: "ends", Response: "async", Kind: "task"})
-	tid, _ := dbpkg.NewTask(env.DB, "ends", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0)
+	tid, _ := dbpkg.NewTask(env.DB, "ends", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0, "")
 	dbpkg.LinkRequest(env.DB, tid, card)
 	c := founderCloser{env: env, home: home}
 	ok, msg, err := c.MarkDoneByFounder(env.DB, tid, "closed by the daemon: ended")

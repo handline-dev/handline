@@ -63,7 +63,7 @@ func TestWaitsAndTheCurrentTask(t *testing.T) {
 	if w, _ := BlockWait(q, "b"); w != "blocked by T"+itoa(blocker)+" (c)" {
 		t.Fatal(w)
 	}
-	child, _ := NewTask(q, "child", "c", "b", cur, DefaultPriority, "", 0)
+	child, _ := NewTask(q, "child", "c", "b", cur, DefaultPriority, "", 0, "")
 	AddBlock(q, cur, child)
 	if w, _ := ChildWait(q, "b"); w != "waiting for T"+itoa(child)+" (c)" {
 		t.Fatal(w)

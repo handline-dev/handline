@@ -108,9 +108,9 @@ func TaskBlockers(q Q, tid int64) ([]*Task, error) {
 		"FROM tasks t JOIN task_blocks b ON b.blocks_on = t.id WHERE b.task_id = ? AND b.dormant = 0 AND t.discarded_by IS NULL AND t.done_evidence IS NULL ORDER BY t.id", tid)
 }
 
-// NewTask is db.new_task. The clock of timeoutS starts when the task is doing, so timeout_at stays NULL.
-func NewTask(q Q, title, owner, openedBy string, parent int64, priority int64, expects string, timeoutS int64) (int64, error) {
-	var p, e, ts any
+// NewTask is db.new_task. The clock of timeoutS starts when the task is doing, so timeout_at stays NULL. A reporter of "" is the opener.
+func NewTask(q Q, title, owner, openedBy string, parent int64, priority int64, expects string, timeoutS int64, reporter string) (int64, error) {
+	var p, e, ts, r any
 	if parent != 0 {
 		p = parent
 	}
@@ -120,8 +120,11 @@ func NewTask(q Q, title, owner, openedBy string, parent int64, priority int64, e
 	if timeoutS != 0 {
 		ts = timeoutS
 	}
-	res, err := q.Exec("INSERT INTO tasks(title, owner, parent_task, opened_by, created_at, priority, expects, timeout_s) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		title, owner, p, openedBy, Now(), priority, e, ts)
+	if reporter != "" {
+		r = reporter
+	}
+	res, err := q.Exec("INSERT INTO tasks(title, owner, parent_task, opened_by, created_at, priority, expects, timeout_s, reporter) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		title, owner, p, openedBy, Now(), priority, e, ts, r)
 	if err != nil {
 		return 0, err
 	}
@@ -327,11 +330,12 @@ func SettleDecisionTasks(q Q, rid int64, state, verdict, dismissedBy string) err
 // the task is doing (IsDoing, the caller's read of that at the time), else leaves it paused.
 type TaskEdit struct {
 	Owner, Title       *string
+	Reporter           *string
 	Priority, TimeoutS *int64
 	IsDoing            bool
 }
 
-// EditTask is db.edit_task: a changed owner, title, priority or timeout, stamped with who and when. The caller has checked permission and
+// EditTask is db.edit_task: a changed owner, reporter, title, priority or timeout, stamped with who and when. The caller has checked permission and
 // that something changed; this only writes. A new owner has not had the task yet, so delivered_at and sent_at clear.
 func EditTask(q Q, tid int64, by string, ed TaskEdit) error {
 	now := Now()
@@ -340,6 +344,10 @@ func EditTask(q Q, tid int64, by string, ed TaskEdit) error {
 	if ed.Owner != nil {
 		sets = append(sets, "owner = ?", "delivered_at = NULL", "sent_at = NULL")
 		args = append(args, *ed.Owner)
+	}
+	if ed.Reporter != nil {
+		sets = append(sets, "reporter = ?")
+		args = append(args, *ed.Reporter)
 	}
 	if ed.Title != nil {
 		sets = append(sets, "title = ?")

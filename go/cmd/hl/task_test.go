@@ -116,7 +116,7 @@ func TestTaskRefusalsBeforeAnyCall(t *testing.T) {
 			"a task needs a title. Try:\n  hl task new --owner b.two -t 90s '<title>' y\n"},
 		{asAgent, []string{"task", "handoff", "T3", "b.two"}, "note is required (inline, --file PATH, or on stdin)\n"},
 		{asAgent, []string{"task", "handoff", "T3", "b.two", "n", "--file", "f"}, "give note inline or with --file, not both\n"},
-		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new owner, a new title, --body, --priority, --blocked-by, --unblock, or --timeout\n"},
+		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new owner, a new reporter, a new title, --body, --priority, --blocked-by, --unblock, or --timeout\n"},
 		{asAgent, []string{"task", "memo", "T3", "add"}, "add takes the memo text\n"},
 		{asAgent, []string{"task", "memo", "T3", "edit", "4"}, "edit takes the memo id, then the new text\n"},
 		{nil, []string{"task", "start", "T3"}, "cannot tell who is start a tasking this: OCP_AGENT is unset and this is not an " +

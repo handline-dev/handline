@@ -261,7 +261,8 @@ func endTask(tx *sql.Tx, home string, tid int64, by string, t *task, text string
 	for _, a := range paths.ListAgents(home) {
 		known[a] = true
 	}
-	who := []string{t.OpenedBy}
+	reporter := t.reporter()
+	who := []string{reporter}
 	for _, r := range reqs {
 		if r.Kind == "task" {
 			who = append(who, r.Requester)
@@ -279,10 +280,10 @@ func endTask(tx *sql.Tx, home string, tid int64, by string, t *task, text string
 			continue
 		}
 		seen[to] = true
-		if skip[to] || !known[to] || (to != t.OpenedBy && !isAlso[to] && !urgentResult) {
+		if skip[to] || !known[to] || (to != reporter && !isAlso[to] && !urgentResult) {
 			continue
 		}
-		rid, err := addSay(tx, noticeFrom, to, text, to != t.OpenedBy && !urgentResult)
+		rid, err := addSay(tx, noticeFrom, to, text, to != reporter && !urgentResult)
 		if err != nil {
 			return nil, nil, err
 		}

@@ -102,7 +102,7 @@ func oneTask(args []string) (int, bool) {
 }
 
 func taskNew(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--file", "--owner", "--parent", "--blocked-by", "--priority", "--expects", "--timeout"},
+	p, ok := parse(args, []string{"--file", "--owner", "--reporter", "--parent", "--blocked-by", "--priority", "--expects", "--timeout"},
 		nil, map[string]string{"-t": "--timeout"})
 	if !ok || len(p.pos) < 1 || len(p.pos) > 2 {
 		return 0, false
@@ -200,6 +200,9 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if hasExp {
 		params["expects"] = exp
+	}
+	if v, given := p.opt("--reporter"); given {
+		params["reporter"] = v
 	}
 	done, msg, got := c.Written("task.new", params)
 	fmt.Println(msg)
@@ -411,7 +414,7 @@ func taskQueue(queued bool) taskCmd {
 }
 
 func taskEdit(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--owner", "--title", "--body", "--body-file", "--priority", "--blocked-by", "--unblock",
+	p, ok := parse(args, []string{"--owner", "--reporter", "--title", "--body", "--body-file", "--priority", "--blocked-by", "--unblock",
 		"--timeout"}, nil, nil)
 	if !ok || len(p.pos) != 1 {
 		return 0, false
@@ -446,6 +449,9 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	if v, given := p.opt("--owner"); given {
 		params["owner"] = v
 	}
+	if v, given := p.opt("--reporter"); given {
+		params["reporter"] = v
+	}
 	if v, given := p.opt("--title"); given {
 		params["title"] = v
 	}
@@ -462,7 +468,7 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 		params["unblock"] = unblock
 	}
 	if len(params) == 1 {
-		fmt.Println("edit needs a new owner, a new title, --body, --priority, --blocked-by, --unblock, or --timeout")
+		fmt.Println("edit needs a new owner, a new reporter, a new title, --body, --priority, --blocked-by, --unblock, or --timeout")
 		return 1, true
 	}
 	return said(c.Write("task.edit", params)), true

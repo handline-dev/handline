@@ -104,7 +104,11 @@ func taskShow(c *hlclient.Client, args []string) (int, bool) {
 
 // detailLines is one task as lines to read (cli/task._detail_lines).
 func detailLines(t obj, now float64) []string {
-	head := fmt.Sprintf("state %s   owner %s   opened by %s   P%d", str(t, "state"), str(t, "to"), str(t, "from"), num(t, "priority"))
+	reporter := ""
+	if a := str(t, "asker"); a != "" && a != str(t, "from") {
+		reporter = "   reporter " + a
+	}
+	head := fmt.Sprintf("state %s   owner %s   opened by %s%s   P%d", str(t, "state"), str(t, "to"), str(t, "from"), reporter, num(t, "priority"))
 	if given(t, "parent") {
 		head += fmt.Sprintf("   parent T%d", num(t, "parent"))
 	}

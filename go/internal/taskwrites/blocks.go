@@ -37,7 +37,7 @@ func blockerGuard(t *task, by string) string {
 	if by == t.Owner {
 		return ""
 	}
-	return editGuard(&mergeRow{ID: t.ID, OpenedBy: t.OpenedBy}, by)
+	return editGuard(guardRow(t), by)
 }
 
 // cyclePath is _cycle_path: the waits from blocksOn back to tid that tid waiting on blocksOn would close into a loop, nil when it would not.

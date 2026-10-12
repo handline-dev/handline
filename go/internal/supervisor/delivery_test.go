@@ -209,7 +209,7 @@ func TestWaitingPromptIsTheTellTheNextTickWouldType(t *testing.T) {
 // task opens a queued task for owner with the delivery request, as task new does.
 func (r *rig) task(owner, opener, title string) int64 {
 	r.t.Helper()
-	tid, err := db.NewTask(r.DB, title, owner, opener, 0, db.DefaultPriority, "", 0)
+	tid, err := db.NewTask(r.DB, title, owner, opener, 0, db.DefaultPriority, "", 0, "")
 	r.must(err)
 	db.SetTaskQueued(r.DB, tid, opener)
 	rid := r.ask(opener, owner, title, "task")
