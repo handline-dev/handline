@@ -3,7 +3,7 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent } from 'react';
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
-import { sideOf } from '@handline/app-core';
+import { landingLabel, sideOf } from '@handline/app-core';
 import { useAgents, useChatActions } from '@handline/app-data';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
@@ -204,6 +204,13 @@ export function Message(props: {
         {side === 'person' && !failed && m.receipt ? (
           <span className="landing receipt" data-receipt={m.receipt.state} title={receiptOf(m.receipt.state).label}>
             <Icon name={receiptOf(m.receipt.state).icon} size={13} label={receiptOf(m.receipt.state).label} />
+          </span>
+        ) : side === 'person' && !failed ? (
+          <span
+            className="landing"
+            title={m.sending_reason ? `${landingLabel(m.landing)}: ${m.sending_reason}` : landingLabel(m.landing)}
+          >
+            <Icon name={landingIcon(m.landing)} size={13} label={landingLabel(m.landing)} />
           </span>
         ) : null}
         {m.tasks.map((t) => (

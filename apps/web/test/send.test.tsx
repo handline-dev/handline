@@ -39,7 +39,7 @@ const press = (el: Element, key: string, init: KeyboardEventInit = {}) =>
 const compose = () => $('.compose') as HTMLTextAreaElement;
 const msg = (body: string) => $$('.msg').find((m) => text(m).includes(body));
 
-const receipt = (body: string) => msg(body)?.querySelector('.receipt')?.getAttribute('data-receipt');
+const receipt = (body: string) => msg(body)?.parentElement?.querySelector('.receipt')?.getAttribute('data-receipt');
 const button = (m: Element | undefined, label: string) => [...(m?.querySelectorAll('button') ?? [])].find((b) => text(b) === label);
 
 async function mount(s = setup()) {

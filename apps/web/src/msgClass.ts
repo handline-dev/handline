@@ -23,8 +23,8 @@ export const bubbleClass = (side: keyof typeof SIDE, s: BubbleState = {}): strin
     BUBBLE,
     SIDE[side],
     s.nested ? 'answer mt-2 max-w-full' : '',
-    // The person's bubble stays solid when failed — the failed line inside carries the state.
-    s.failed && side !== 'person' ? 'failed bg-[color-mix(in_srgb,var(--s-bad)_10%,transparent)]' : '',
+    // The person's bubble stays solid when failed — the failed line inside carries the state; the class stays a hook either way.
+    s.failed ? `failed${side !== 'person' ? ' bg-[color-mix(in_srgb,var(--s-bad)_10%,transparent)]' : ''}` : '',
     // The ring sits inside the bubble: the stream's animated wrapper clips overflow, and an outside ring loses its edges.
     s.picked ? 'picked outline-2 -outline-offset-2 outline-focus/60' : '',
     s.pickable ? 'pickable cursor-pointer' : '',

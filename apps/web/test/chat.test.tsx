@@ -40,6 +40,7 @@ const press = (el: Element, key: string, init: KeyboardEventInit = {}) =>
 const compose = () => $('.compose') as HTMLTextAreaElement;
 const msg = (body: string) => $$('.msg').find((m) => text(m).includes(body));
 const landing = (body: string) => msg(body)?.getAttribute('data-landing');
+const button = (m: Element | undefined, label: string) => [...(m?.querySelectorAll('button') ?? [])].find((b) => text(b) === label);
 const link = (label: string, within: Element) =>
   [...within.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label)!;
 const icon = (m: Element | undefined, label: string) => m?.querySelector(`[aria-label="${label}"]`) ?? null;
@@ -90,7 +91,7 @@ describe('the Chat tab', () => {
     await until(() => msg('Which gap list'), 'history');
     expect(landing('Draft the web chat tab plan.')).toBe('answered');
     expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
-    expect(icon(msg('Use the contract fixtures.'), 'Not answered')).not.toBeNull();
+    expect(icon(msg('Use the contract fixtures.')?.parentElement ?? undefined, 'Not answered')).not.toBeNull(); // the stamp hangs beside the bubble now, drawn as delivered
     expect(landing('Hold that, scope changed.')).toBe('withdrawn');
     expect(landing('Also add the list of gaps.')).toBe('typed');
     expect(link('Withdraw', msg('Also add the list of gaps.')!)).toBeUndefined(); // the chat has no Withdraw button
@@ -174,10 +175,11 @@ describe('the Chat tab', () => {
     await press(compose(), 'ArrowDown');
     await press(compose(), 'ArrowDown');
     expect(compose().value).toBe('');
-    await typeInto($('.ask input') as HTMLInputElement, 'chat first');
-    await click($('.ask button[aria-label="Answer"]')!);
+    await click(msg('Which gap list')!);
+    await typeInto(compose(), 'chat first');
+    await press(compose(), 'Enter');
     await until(() => text(msg('Which gap list')).includes('Your answer'), 'the answer shows');
-    expect($('.ask')).toBeNull();
+    expect($('.compose-ref')).toBeNull();
   });
 
   it('follows another screen through the chat topic', async () => {
@@ -249,8 +251,8 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
 
   it('a click on a control inside a message does not pick it', async () => {
     await mount(ARCH);
-    await until(() => $('.ask'), 'the open question');
-    await click($('.ask input')!);
+    await until(() => button(msg('Use the contract fixtures.'), 'Take back'), 'a control inside a message');
+    await click(button(msg('Use the contract fixtures.'), 'Take back')!);
     expect($('.compose-ref')).toBeNull();
   });
 
@@ -488,7 +490,7 @@ describe('loading and writes with latency and refusals', () => {
     expect(sent(s, 'right now')).toBe(false); // the daemon has not answered yet
     expect(landing('right now')).toBe('queued');
     expect(msg('right now')!.getAttribute('data-pending')).toBe('true');
-    expect(icon(msg('right now'), 'Sending')).not.toBeNull();
+    expect(icon(msg('right now')?.parentElement ?? undefined, 'Sending')).not.toBeNull();
     expect(compose().value).toBe('');
     await until(() => sent(s, 'right now'), 'the daemon got it', 600);
     await until(() => $$('.msg').filter((m) => text(m).includes('right now')).length === 1, 'the real message replaced the temporary one');
@@ -528,26 +530,14 @@ describe('loading and writes with latency and refusals', () => {
   it('puts a refused answer back as an open question, with the reason', async () => {
     const s = setup();
     await mount(ARCH, s);
-    await until(() => $('.ask input'), 'the open question');
+    await until(() => msg('Which gap list'), 'the open question');
     s.daemon.knobs.latency(500);
     s.daemon.knobs.refuse('chat.answer', 'state', REFUSAL);
-    await typeInto($('.ask input') as HTMLInputElement, 'chat first');
-    await click($('.ask button[aria-label="Answer"]')!);
-    await until(() => !$('.ask') && text(msg('Which gap list')).includes('Your answer'), 'answered at once');
-    await until(() => $('.ask'), 'the question open again', 600);
-    expect(text(msg('Which gap list'))).not.toContain('Your answer');
-    expect(text($('.toast'))).toContain(REFUSAL);
-  });
-
-  it('puts a refused dismiss back, with the reason', async () => {
-    const s = setup();
-    await mount(ARCH, s);
-    await until(() => $('.ask'), 'the open question');
-    s.daemon.knobs.latency(500);
-    s.daemon.knobs.refuse('chat.dismiss', 'state', REFUSAL);
-    await click(link('Dismiss', $('.ask')!));
-    await until(() => !$('.ask'), 'dismissed at once');
-    await until(() => $('.ask'), 'the question open again', 600);
+    await click(msg('Which gap list')!);
+    await typeInto(compose(), 'chat first');
+    await press(compose(), 'Enter');
+    await until(() => text(msg('Which gap list')).includes('Your answer'), 'answered at once');
+    await until(() => !text(msg('Which gap list')).includes('Your answer'), 'the question open again', 600);
     expect(text($('.toast'))).toContain(REFUSAL);
   });
 });
