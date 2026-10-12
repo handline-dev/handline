@@ -250,6 +250,19 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(icon(msg('Which gap list'), 'Your answer')).toBeFalsy();
   });
 
+  it("a reply to the agent's message that asked nothing is a say under it, not an answer", async () => {
+    const t = await mount(ARCH);
+    const chat = t.daemon.chat;
+    chat.change(chat.find(chat.seed(ARCH, { from: ARCH, to: 'human', body: 'Report: gaps listed.', landing: 'delivered' })), {});
+    await until(() => msg('Report: gaps listed.'), 'the report');
+    await click(msg('Report: gaps listed.')!.querySelector('.msg-body')!);
+    expect(text($('.compose-ref'))).toContain('Replying to');
+    await typeInto(compose(), 'thanks, go on');
+    await press(compose(), 'Enter');
+    await until(() => sentMsgs(t).some((m) => m.body === 'thanks, go on'), 'the say');
+    expect(sentMsgs(t).find((x) => x.body === 'thanks, go on')!.parent).toBe(idOf('Report: gaps listed.'));
+  });
+
   it('a click on a control inside a message does not pick it', async () => {
     await mount(ARCH);
     await until(() => button(msg('Use the contract fixtures.'), 'Take back'), 'a control inside a message');
