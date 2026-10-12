@@ -61,15 +61,32 @@ func TestTellUndeliveredTypesWhatReachedAnAgentWhileItHadNoSession(t *testing.T)
 
 func itoa(n int64) string { return string(rune('0' + n)) }
 
-func TestStartupSettlesOldSaysAndTypesPendingRows(t *testing.T) {
+func TestStartupSettlesOnlyTheSaysNothingTracksAndTypesPendingRows(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
-	say := r.ask("alice", "bob", "old say", "say")
+	owed := r.ask("alice", "bob", "sent minutes before the restart", "say") // never told
+	told := r.ask("alice", "bob", "told by the old daemon", "say")
+	db.MarkDelivered(r.DB, told)
+	tracked := r.ask("alice", "bob", "written to a session, the ledger holds it", "say")
+	batched := r.ask("alice", "bob", "written with another", "say")
+	db.MarkDelivered(r.DB, tracked)
+	db.MarkDelivered(r.DB, batched)
+	for id, op := range map[int64]string{tracked: "request:" + itoa(tracked), batched: "request:" + itoa(batched-1) + "," + itoa(batched) + ",9"} {
+		if _, err := r.DB.Exec("INSERT INTO operations(id, kind, state, agent, created_at, updated_at) VALUES(?, 'send', 'sent', 'bob', 1, 1)", "send:bob:"+op); err != nil {
+			t.Fatalf("%d: %v", id, err)
+		}
+	}
 	asked := r.ask("alice", "bob", "old ask", "ask")
 	db.MarkDelivered(r.DB, asked)
 	r.must(r.MigrateOldMessages(r.DB))
-	if row, _ := db.GetRequest(r.DB, say); row.State != "landed" {
-		t.Fatalf("%+v", row)
+	state := func(id int64) string { row, _ := db.GetRequest(r.DB, id); return row.State }
+	if state(told) != "landed" || state(owed) != "queued" || state(tracked) != "queued" || state(batched) != "queued" {
+		t.Fatalf("told %s owed %s tracked %s batched %s", state(told), state(owed), state(tracked), state(batched))
+	}
+	// what is owed is told by the tick
+	r.must(r.TellUndelivered(r.DB, "bob"))
+	if got := r.term.last(); !strings.Contains(got, "sent minutes before the restart") {
+		t.Fatalf("an undelivered say was not told after the restart: %q", got)
 	}
 	if row, _ := db.GetRequest(r.DB, asked); row.State != "queued" || !row.TypedAt.Valid {
 		t.Fatalf("an old told ask is treated as typed: %+v", row)
