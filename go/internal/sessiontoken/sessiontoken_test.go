@@ -38,6 +38,31 @@ func TestRecordThenVerifyByDescent(t *testing.T) {
 	}
 }
 
+// T3451: an agent started twice at once on a moved account. The second launch records after the first and dies; the first, still
+// running, keeps its proof. A dead or reused record is dropped at the next launch.
+func TestARacingLaunchThatDiesLeavesTheLiveOne(t *testing.T) {
+	procs := map[int]peer.Proc{300: P(2, "5.0"), 301: P(300, "6.0"), 310: P(2, "5.1")}
+	tk := tokens(t, procs)
+	if !tk.Record("a", 300) || !tk.Record("a", 310) {
+		t.Fatal("not recorded")
+	}
+	delete(procs, 310)
+	if !tk.Verify("a", 301) || tk.Verify("a", 310) {
+		t.Fatal("the live session lost its proof to the dead one")
+	}
+	procs[300] = P(2, "8.0")
+	procs[320] = P(2, "9.0")
+	if !tk.Record("a", 320) {
+		t.Fatal("not recorded")
+	}
+	if kept, _ := tk.Store.Get(NS, "a"); kept != "320 9.0" {
+		t.Fatalf("kept %q: a session no longer running stays recorded", kept)
+	}
+	if tk.Verify("a", 300) || tk.Verify("b", 320) {
+		t.Fatal("a reused pid, or another agent's session, passed")
+	}
+}
+
 func TestAnAgentSessionRecordsNothing(t *testing.T) {
 	tk := tokens(t, map[int]peer.Proc{300: P(2, "5.0")})
 	t.Setenv("OCP_AGENT", "worker")
