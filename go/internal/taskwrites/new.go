@@ -158,10 +158,16 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if secs != 0 {
 			limit = ", timeout " + timefmt.Span(secs, false)
 		}
-		if asked.After != nil {
-			go asked.After() // the inbox file and the telling can start a closed session and wait on it: the task is open, so the call returns
+		msg := asked.Msg
+		if owner == human { // the one line the telling gives a founder's task needs no session
+			msg += "\nit is on the founder's screen (`hl`)"
 		}
-		out["said"] = fmt.Sprintf("task T%d opened for %s (P%d, expects %s%s): %s", tid, owner, prio, expects, limit, asked.Msg)
+		if asked.After != nil {
+			// The inbox file and the telling can start a closed session and wait on it: the task is open, so the call returns. A withdraw right
+			// after may forget the inbox file before this writes it; an orphan file for a closed request is left, as it is low impact.
+			go asked.After()
+		}
+		out["said"] = fmt.Sprintf("task T%d opened for %s (P%d, expects %s%s): %s", tid, owner, prio, expects, limit, msg)
 		return out, nil
 	}
 }

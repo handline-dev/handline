@@ -2,6 +2,7 @@ package taskwrites
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -80,6 +81,13 @@ func TestNewReturnsBeforeTheOwnerIsTold(t *testing.T) {
 	r := call(t, mk("manager", f), `{"jsonrpc":"2.0","id":1,"method":"task.new","params":{"owner":"worker","title":"t","body":"b","time_box":"1h","request_id":"a1"}}`)
 	if r[0]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM tasks WHERE title = 't' AND owner = 'worker'") != 1 {
 		t.Fatalf("the task is open when the call returns: %v", r[0])
+	}
+	if said := r[0]["result"].(map[string]any)["said"].(string); strings.Contains(said, "founder's screen") {
+		t.Fatalf("an agent's task does not say it is on the founder's screen: %q", said)
+	}
+	r = call(t, mk("manager", &fakeTeller{}), `{"jsonrpc":"2.0","id":2,"method":"task.new","params":{"owner":"human","title":"d","body":"b","time_box":"1h","request_id":"a2"}}`)
+	if said, _ := r[0]["result"].(map[string]any)["said"].(string); !strings.Contains(said, "it is on the founder's screen (`hl`)") {
+		t.Fatalf("a founder's task says where it is: %v", r[0])
 	}
 	select {
 	case <-told:
