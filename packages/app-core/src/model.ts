@@ -5,7 +5,7 @@ import { DAEMON_KEYS, NAMED_KEYS } from './keys.ts';
 export type Dot = 'running' | 'waking' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'none';
 
 /** The rail dot: the daemon's state word plus its block kinds. Unknown words read as idle. */
-export function dotOf(a: AgentView): Dot {
+export function dotOf(a: Pick<AgentView, 'state' | 'has_dialog' | 'block'>): Dot {
   if (a.has_dialog || a.state === 'waiting') return 'waiting';
   if (a.block || a.state === 'stalled' || a.state === 'blocked') return 'blocked';
   if (a.state === 'no_terminal') return 'none';

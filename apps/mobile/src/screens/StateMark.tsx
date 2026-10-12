@@ -16,12 +16,12 @@ const MARKS: Record<Dot, { glyph: string; label: string }> = {
 
 export function StateMark({ agent }: { agent: Pick<AgentView, 'state' | 'has_dialog' | 'block'> }) {
   const c = usePalette();
-  const dot = dotOf(agent as AgentView);
+  const dot = dotOf(agent);
   return (
     <Text
       testID={`state-${dot}`}
       accessibilityLabel={MARKS[dot].label}
-      style={{ width: 16, textAlign: 'center', fontWeight: '700', color: dotColor(c, agent.state) }}
+      style={{ width: 16, textAlign: 'center', fontWeight: '700', color: dotColor(c, dot) }}
     >
       {MARKS[dot].glyph}
     </Text>
