@@ -42,6 +42,8 @@ function useSkeleton(loading: boolean): boolean {
   return shown;
 }
 
+const reasonOf = (e: unknown) => (e as { reason?: string }).reason ?? (e as Error).message;
+
 export function BytesTab({ agent, detail, create }: { agent: string; detail: AgentDetail; create?: CreateTerm }) {
   const store = useStore();
   const host = useRef<HTMLDivElement>(null);
@@ -56,6 +58,7 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
   const [everLive, setEverLive] = useState(false);
   const [holds, setHolds] = useState(false); // this device holds the input: keys go in and the pane sets the size
   const [refused, setRefused] = useState('');
+  const [heldBy, setHeldBy] = useState(''); // someone else holds the input: a click cannot take it
   const [attempt, setAttempt] = useState(0); // Retry runs the effect again
   const hasTerminal = !!detail.terminal;
 
@@ -121,6 +124,7 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
           setState(v.state);
           setFailure(v.failure);
           const now = v.state === 'live' && v.holders.some((h) => h.kind !== 'daemon' && h.name === store.me);
+          setHeldBy(v.holders.find((h) => h.kind !== 'daemon' && h.name !== store.me)?.name ?? '');
           if (now !== holding) {
             holding = now;
             setHolds(now);
@@ -204,9 +208,10 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
                 <Button variant="outline" size="sm" label="Release" className="text-term-ink" onClick={() => release({ agent })} />
               </>
             ) : (
-              'Click the terminal to type in it. '
+              !heldBy && !takeInput.error && 'Click the terminal to type in it. '
             ))}
-          {refused}
+          {heldBy && !holds && `The input is held by ${heldBy}. `}
+          {refused || (takeInput.error ? `Could not take the input: ${reasonOf(takeInput.error)}` : '')}
           {state === 'failed' && <Button variant="outline" size="sm" label="Retry" onClick={() => setAttempt((n) => n + 1)} />}
         </div>
       </div>
