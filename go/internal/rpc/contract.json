@@ -66,6 +66,12 @@
  "answers.list": {
   "role": "founder"
  },
+ "attachment.get": {
+  "role": "member"
+ },
+ "attachment.put": {
+  "role": "member"
+ },
  "chat.answer": {
   "role": "member"
  },

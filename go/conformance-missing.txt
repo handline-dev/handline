@@ -3,6 +3,8 @@
 account.add
 account.remove
 agent.unstall
+attachment.get
+attachment.put
 input.release
 input.take
 session.input
