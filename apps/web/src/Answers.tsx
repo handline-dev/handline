@@ -70,9 +70,7 @@ export function Answers() {
                 size={16}
                 label={a.kind === 'trust' ? 'Trusted folder' : 'Dialog'}
               />
-              <RowTitle plain className="answer-text [overflow-wrap:anywhere]">
-                {a.text}
-              </RowTitle>
+              <RowTitle plain className="answer-text [overflow-wrap:anywhere]">{a.text}</RowTitle>
               <Button
                 icon="dismiss"
                 label={`Remove ${a.text}`}

@@ -84,13 +84,7 @@ export function Pane({ group }: { group: Group }) {
       data-group={group.id}
       onPointerDownCapture={() => ws.active !== group.id && apply((w) => ({ ...w, active: group.id }))}
     >
-      <div
-        className="strip flex h-[var(--h-tabs)] items-stretch border-b border-line bg-surface px-2"
-        role="tablist"
-        ref={strip}
-        onDragOver={(e) => dragging && e.preventDefault()}
-        onDrop={dropOnStrip}
-      >
+      <div className="strip flex h-[var(--h-tabs)] items-stretch border-b border-line bg-surface px-2" role="tablist" ref={strip} onDragOver={(e) => dragging && e.preventDefault()} onDrop={dropOnStrip}>
         {group.tabs.map((id) => {
           const t = ws.tabs[id]!;
           return (
@@ -120,9 +114,7 @@ export function Pane({ group }: { group: Group }) {
               {t.kind === 'terminal' || t.kind === 'transcript' ? (
                 <>
                   <Badges badges={badges} onClick={{ dialog: () => apply((w) => activate(w, CHAT)) }} />
-                  {unread && id !== group.activeTab ? (
-                    <span className="unread-dot ml-1 inline-block h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" />
-                  ) : null}
+                  {unread && id !== group.activeTab ? <span className="unread-dot ml-1 inline-block h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" /> : null}
                 </>
               ) : null}
               {id === CHAT ? null : (
@@ -160,11 +152,7 @@ export function Pane({ group }: { group: Group }) {
           <Popup open={menu === 'tab'} onClose={() => setMenu(null)} title="Add a tab" align="right">
             <PopupRow icon="tasks" label="Tasks" onClick={() => (setMenu(null), apply((w) => openTab(w, 'tasks', {}, group.id)))} />
             {structured ? (
-              <PopupRow
-                icon="terminal"
-                label="Transcript"
-                onClick={() => (setMenu(null), apply((w) => openTab(w, 'transcript', {}, group.id)))}
-              />
+              <PopupRow icon="terminal" label="Transcript" onClick={() => (setMenu(null), apply((w) => openTab(w, 'transcript', {}, group.id)))} />
             ) : detail.terminal ? (
               <PopupRow
                 icon="terminal"

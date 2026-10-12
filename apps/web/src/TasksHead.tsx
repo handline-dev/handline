@@ -72,9 +72,7 @@ export function TasksHead(props: {
           aria-expanded={props.filtering}
           onClick={() => props.onAct('states')}
         >
-          {changed(filter) ? (
-            <span className="tdot absolute top-1 right-1 h-2 w-2 rounded-pill border border-canvas bg-ink" title="A filter is on" />
-          ) : null}
+          {changed(filter) ? <span className="tdot absolute top-1 right-1 h-2 w-2 rounded-pill border border-canvas bg-ink" title="A filter is on" /> : null}
         </Button>
         <Popup open={props.filtering} onClose={() => props.onAct('states')} title="Filters">
           <div className="tfilter-body grid gap-2 px-3 py-2">
@@ -100,12 +98,7 @@ export function TasksHead(props: {
                 <Icon name={STATE_GLYPH[s] ?? 'taskPending'} size={14} aria-hidden="true" /> {s}
               </label>
             ))}
-            <Button
-              variant="outline"
-              size="sm"
-              label="Reset"
-              onClick={() => props.onFilter({ ...filter, states: new Set(LISTED), agent: '' })}
-            />
+            <Button variant="outline" size="sm" label="Reset" onClick={() => props.onFilter({ ...filter, states: new Set(LISTED), agent: '' })} />
           </div>
         </Popup>
       </span>
@@ -128,14 +121,7 @@ export function TasksHead(props: {
         onClick={() => props.onSelecting()}
       />
       <Button icon="keys" label="Keys" title="Keys (?)" className="max-sm:min-h-[44px]" onClick={() => props.onAct('keys')} />
-      <Button
-        icon="plus"
-        label="New task"
-        title="New task (n)"
-        variant="solid"
-        className="max-sm:min-h-[44px]"
-        onClick={() => props.onAct('new')}
-      />
+      <Button icon="plus" label="New task" title="New task (n)" variant="solid" className="max-sm:min-h-[44px]" onClick={() => props.onAct('new')} />
     </header>
   );
 }
@@ -160,22 +146,8 @@ export function TasksBar(props: {
         className="max-sm:min-h-[44px]"
         onClick={() => props.onAct('discard')}
       />
-      <Button
-        icon="owner"
-        label="Owner"
-        title={can.edit.why ?? 'Owner (o)'}
-        disabled={!can.edit.ok}
-        className="max-sm:min-h-[44px]"
-        onClick={() => props.onAct('owner')}
-      />
-      <Button
-        icon="priority"
-        label="Priority"
-        title={can.edit.why ?? 'Priority (p)'}
-        disabled={!can.edit.ok}
-        className="max-sm:min-h-[44px]"
-        onClick={() => props.onAct('priority')}
-      />
+      <Button icon="owner" label="Owner" title={can.edit.why ?? 'Owner (o)'} disabled={!can.edit.ok} className="max-sm:min-h-[44px]" onClick={() => props.onAct('owner')} />
+      <Button icon="priority" label="Priority" title={can.edit.why ?? 'Priority (p)'} disabled={!can.edit.ok} className="max-sm:min-h-[44px]" onClick={() => props.onAct('priority')} />
       <Button
         icon="merge"
         label="Merge"

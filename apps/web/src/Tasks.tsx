@@ -10,9 +10,7 @@ import {
   taskTree,
   type KV,
   type TaskColumn,
-  type TaskFilter,
-  taskRef,
-} from '@handline/app-core';
+  type TaskFilter, taskRef } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useAgents, useServes, useTasks } from '@handline/app-data';
@@ -187,14 +185,8 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
 
   const listBody = (
     <>
-      <div
-        className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface max-sm:bg-transparent max-sm:border-0"
-        aria-busy={q.isFetching && !q.data}
-      >
-        <table
-          className={`ttable w-full table-fixed border-collapse max-sm:block${selecting || marked.size ? ' selecting' : ''}`}
-          aria-label="Tasks"
-        >
+      <div className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface max-sm:bg-transparent max-sm:border-0" aria-busy={q.isFetching && !q.data}>
+        <table className={`ttable w-full table-fixed border-collapse max-sm:block${selecting || marked.size ? ' selecting' : ''}`} aria-label="Tasks">
           <TableHead
             tree={mode === 'tree'}
             sort={sort}
@@ -207,21 +199,9 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
             <AnimatedList>
               {mode === 'tree'
                 ? tree.map(({ task: t, depth, dim }) => (
-                    <Row
-                      key={t.id}
-                      rows={tree.length}
-                      t={t}
-                      now={now}
-                      tree
-                      depth={depth}
-                      dim={dim}
-                      markCell={selecting || marked.size > 0}
-                      {...rowProps(t)}
-                    />
+                    <Row key={t.id} rows={tree.length} t={t} now={now} tree depth={depth} dim={dim} markCell={selecting || marked.size > 0} {...rowProps(t)} />
                   ))
-                : rows.map((t) => (
-                    <Row key={t.id} rows={rows.length} t={t} now={now} markCell={selecting || marked.size > 0} {...rowProps(t)} />
-                  ))}
+                : rows.map((t) => <Row key={t.id} rows={rows.length} t={t} now={now} markCell={selecting || marked.size > 0} {...rowProps(t)} />)}
             </AnimatedList>
           </tbody>
         </table>
@@ -310,7 +290,9 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
             ) : (
               <>
                 <p>No tasks in these states.</p>
-                {scope !== 'closed' ? <Button variant="outline" size="sm" label="Show closed" onClick={() => setScope('closed')} /> : null}
+                {scope !== 'closed' ? (
+                  <Button variant="outline" size="sm" label="Show closed" onClick={() => setScope('closed')} />
+                ) : null}
               </>
             )}
           </div>

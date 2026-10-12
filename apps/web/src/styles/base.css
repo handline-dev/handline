@@ -41,10 +41,7 @@ textarea {
 }
 button {
   cursor: pointer;
-  transition:
-    background-color 80ms ease,
-    border-color 80ms ease,
-    color 80ms ease;
+  transition: background-color 80ms ease, border-color 80ms ease, color 80ms ease;
 }
 /* The browser's defaults are not the app's: a thin scroll bar, a toned selection and an accent caret are the small tells of a native pane. */
 ::selection {

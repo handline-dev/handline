@@ -179,13 +179,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
         </div>
         <div className={FIELD}>
           <label htmlFor="na-task">First task (optional)</label>
-          <Textarea
-            id="na-task"
-            className="bg-panel border-line-strong px-3 py-2 resize-y"
-            rows={3}
-            value={f.task}
-            onChange={(e) => set('task', e.target.value)}
-          />
+          <Textarea id="na-task" className="bg-panel border-line-strong px-3 py-2 resize-y" rows={3} value={f.task} onChange={(e) => set('task', e.target.value)} />
         </div>
         {f.task.trim() ? <Field label="Time box" value={f.box} onChange={(e) => set('box', e.target.value)} /> : null}
         <Button label="Cancel" onClick={onClose} />

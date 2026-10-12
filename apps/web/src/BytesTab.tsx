@@ -109,29 +109,20 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
 
   return (
     <div className="terminal-tab flex min-h-0 flex-col">
-      <div
-        className={`terminal xterm-pane relative flex min-h-0 flex-1 flex-col bg-term-bg${state === 'stale' || !hasTerminal ? ' dim [&_.xterm-host]:opacity-55' : ''}`}
-        title={title}
-      >
-        <div
-          className="xterm-host min-h-0 flex-1 overflow-hidden px-2.5 py-2 [&>div]:h-full"
-          ref={host}
-          aria-label={`Terminal of ${agent}`}
-        />
+      <div className={`terminal xterm-pane relative flex min-h-0 flex-1 flex-col bg-term-bg${state === 'stale' || !hasTerminal ? ' dim [&_.xterm-host]:opacity-55' : ''}`} title={title}>
+        <div className="xterm-host min-h-0 flex-1 overflow-hidden px-2.5 py-2 [&>div]:h-full" ref={host} aria-label={`Terminal of ${agent}`} />
         {skeleton && (
           <div className="term-skeleton absolute inset-0 flex flex-col gap-2 bg-term-bg px-2.5 py-3" aria-hidden="true">
             {SKELETON_ROWS.map((w, i) => (
-              <div
-                key={i}
-                className="term-skeleton-row h-[13px] animate-[term-pulse_1.2s_ease-in-out_infinite] rounded-[3px] bg-line opacity-60 motion-reduce:animate-none"
-                style={{ width: `${w}%` }}
-              />
+              <div key={i} className="term-skeleton-row h-[13px] animate-[term-pulse_1.2s_ease-in-out_infinite] rounded-[3px] bg-line opacity-60 motion-reduce:animate-none" style={{ width: `${w}%` }} />
             ))}
           </div>
         )}
         <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">
           {note}
-          {state === 'failed' && <Button variant="outline" size="sm" label="Retry" onClick={() => setAttempt((n) => n + 1)} />}
+          {state === 'failed' && (
+            <Button variant="outline" size="sm" label="Retry" onClick={() => setAttempt((n) => n + 1)} />
+          )}
         </div>
       </div>
     </div>

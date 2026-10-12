@@ -23,7 +23,8 @@ const TILES: [string, keyof Pick<Stats, 'tasks_done' | 'moves' | 'handoffs' | 'b
   ['blocks', 'blocks', 'blocked'],
 ];
 
-const TILE = 'stat-tile flex flex-col gap-1 rounded-card bg-surface px-4 py-3 [&_svg]:text-ink-3 data-[warn]:[&_svg]:text-bad';
+const TILE =
+  'stat-tile flex flex-col gap-1 rounded-card bg-surface px-4 py-3 [&_svg]:text-ink-3 data-[warn]:[&_svg]:text-bad';
 
 /** Icon, count, name: the icon says what is counted, so the name can stay small. */
 function Tiles({ s }: { s: Stats }) {
@@ -71,11 +72,7 @@ function AgentTime({ s }: { s: Stats }) {
 /** Account use lives on the Accounts page, one line per account; this is the way there. */
 function AccountsLink() {
   return (
-    <a
-      className="stat-link flex h-11 items-center gap-2 rounded-card border border-line bg-surface px-4 text-ink no-underline hover:bg-raised"
-      href="#/accounts"
-      title="Account use: one line per account"
-    >
+    <a className="stat-link flex h-11 items-center gap-2 rounded-card border border-line bg-surface px-4 text-ink no-underline hover:bg-raised" href="#/accounts" title="Account use: one line per account">
       <Icon name="accounts" size={16} />
       <span className="flex-1">Account use</span>
       <Icon name="chevronRight" size={14} label="Open" />

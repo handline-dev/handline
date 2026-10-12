@@ -10,7 +10,13 @@ export function ActionBar(props: {
 }) {
   const { discard, edit, merge } = props.can;
   const one = (what: 'discard' | 'owner' | 'priority' | 'merge', word: string, glyph: string, key: string, can: Can, tip = word) => (
-    <Button label={word} className="max-sm:min-h-[44px]" onClick={() => props.onAct(what)} disabled={!can.ok} title={can.why ?? tip}>
+    <Button
+      label={word}
+      className="max-sm:min-h-[44px]"
+      onClick={() => props.onAct(what)}
+      disabled={!can.ok}
+      title={can.why ?? tip}
+    >
       <VisuallyHidden>{word}</VisuallyHidden>
       <span aria-hidden>{glyph}</span> <Kbd className="max-sm:hidden">{key}</Kbd>
     </Button>

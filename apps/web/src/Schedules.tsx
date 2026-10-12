@@ -56,18 +56,10 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
           <span className="smsg min-w-[12ch] flex-1">{cut(s.message)}</span>
           {write ? (
             <span className="sact">
-              <Button
-                size="sm"
-                variant="outline"
-                label="Edit schedule"
-                aria-label="Edit schedule"
-                onClick={() => setForm({ id: s.id, cron: s.cron, message: s.message })}
-              >
+              <Button size="sm" variant="outline" label="Edit schedule" aria-label="Edit schedule" onClick={() => setForm({ id: s.id, cron: s.cron, message: s.message })}>
                 ✎
               </Button>
-              <Button size="sm" variant="outline" label="Remove schedule" aria-label="Remove schedule" onClick={() => drop(s)}>
-                ✕
-              </Button>
+              <Button size="sm" variant="outline" label="Remove schedule" aria-label="Remove schedule" onClick={() => drop(s)}>✕</Button>
             </span>
           ) : null}
         </div>
@@ -77,7 +69,9 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
           {note}
         </FNote>
       ) : null}
-      {write && !form ? <Button label="Add schedule" onClick={() => setForm({ cron: '', message: '' })} /> : null}
+      {write && !form ? (
+        <Button label="Add schedule" onClick={() => setForm({ cron: '', message: '' })} />
+      ) : null}
       {form ? (
         <Sheet role="dialog" aria-label="Schedule">
           <input

@@ -74,11 +74,7 @@ function PairScreen(p: { url: string; storage: KV | null; open: Open; lost: bool
       }}
     >
       <h1 className="m-0 text-page">Pair this computer</h1>
-      {lost && (
-        <p className="m-0" role="status">
-          This computer is no longer paired.
-        </p>
-      )}
+      {lost && <p className="m-0" role="status">This computer is no longer paired.</p>}
       <p className="m-0">
         In a terminal run <code>hl device pair</code> and paste the code, or the <code>handline://</code> line, here.
       </p>
@@ -86,11 +82,7 @@ function PairScreen(p: { url: string; storage: KV | null; open: Open; lost: bool
       <button type="submit" disabled={busy || !text.trim()}>
         {busy ? 'Pairing…' : 'Pair'}
       </button>
-      {error && (
-        <p className="m-0" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <p className="m-0" role="alert">{error}</p>}
       <Connection />
     </form>
   );
@@ -148,11 +140,7 @@ function Connection() {
           </button>
         </>
       )}
-      {error && (
-        <p className="m-0" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <p className="m-0" role="alert">{error}</p>}
     </fieldset>
   );
 }

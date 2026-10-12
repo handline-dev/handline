@@ -38,14 +38,7 @@ export function TaskMeta({ t, now }: { t: Detail; now: number }) {
   );
 }
 
-export function Verb(props: {
-  k: string;
-  icon: IconName;
-  label: string;
-  can: { ok: boolean; why?: string };
-  onClick: () => void;
-  busy?: boolean;
-}) {
+export function Verb(props: { k: string; icon: IconName; label: string; can: { ok: boolean; why?: string }; onClick: () => void; busy?: boolean }) {
   return (
     <Button
       icon={props.busy ? undefined : props.icon}

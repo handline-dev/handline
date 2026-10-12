@@ -43,13 +43,7 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
           <label htmlFor="newtask-body" className={FIELD_LABEL}>
             Body
           </label>
-          <Textarea
-            id="newtask-body"
-            className="bg-panel border-line-strong px-3 py-2 resize-y"
-            rows={4}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-          />
+          <Textarea id="newtask-body" className="bg-panel border-line-strong px-3 py-2 resize-y" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
         </div>
         <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
           <Field label="Time box" value={box} onChange={(e) => setBox(e.target.value)} />

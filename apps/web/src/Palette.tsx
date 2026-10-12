@@ -34,13 +34,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
     const all: Hit[] = [
       ...PAGES.map(([label, icon, run]): Hit => ({ key: `p:${label}`, icon, label, hint: 'page', run })),
       ...agents.map((a): Hit => ({ key: `a:${a.name}`, icon: 'agent', label: a.name, hint: a.state, run: () => goAgent(a.name) })),
-      ...tasks.map((t): Hit => ({
-        key: `t:${t.id}`,
-        icon: 'tasks',
-        label: `${taskRef(t.id)} ${t.title}`,
-        hint: t.to,
-        run: () => goTasks(t.id),
-      })),
+      ...tasks.map((t): Hit => ({ key: `t:${t.id}`, icon: 'tasks', label: `${taskRef(t.id)} ${t.title}`, hint: t.to, run: () => goTasks(t.id) })),
     ];
     return (needle ? all.filter((h) => h.label.toLowerCase().includes(needle)) : all.filter((h) => h.key.startsWith('p:'))).slice(0, 12);
   }, [q, agentData, taskData]);

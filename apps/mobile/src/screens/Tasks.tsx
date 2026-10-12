@@ -159,13 +159,7 @@ function Detail(props: { id: number; onBack: () => void }) {
           This task no longer exists.
         </Text>
       ) : (
-        <Loadable
-          query={query}
-          served={served}
-          skeleton="taskDetail"
-          label={`task ${taskRef(props.id)}`}
-          empty="This task no longer exists."
-        >
+        <Loadable query={query} served={served} skeleton="taskDetail" label={`task ${taskRef(props.id)}`} empty="This task no longer exists.">
           {query.data ? <Body t={query.data} /> : null}
         </Loadable>
       )}
@@ -197,9 +191,7 @@ function Body({ t }: { t: TaskDetail }) {
     <ScrollView testID="task-detail" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
       <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>{t.title}</Text>
       <Text style={{ color: c.muted }}>
-        {[`${taskRef(t.id)}`, t.state, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, timeoutText(t, now)]
-          .filter(Boolean)
-          .join(' · ')}
+        {[`${taskRef(t.id)}`, t.state, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, timeoutText(t, now)].filter(Boolean).join(' · ')}
       </Text>
       {sending && (
         <Text testID="task-sending" style={{ color: c.muted }}>

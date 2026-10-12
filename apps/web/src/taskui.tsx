@@ -100,11 +100,7 @@ export function Sheet(props: {
       as="form"
       kind="form"
       ref={ref}
-      className={
-        props.full
-          ? 'full max-sm:fixed max-sm:inset-0 max-sm:z-20 max-sm:m-0 max-sm:p-4 max-sm:rounded-none max-sm:overflow-auto max-sm:content-start'
-          : undefined
-      }
+      className={props.full ? 'full max-sm:fixed max-sm:inset-0 max-sm:z-20 max-sm:m-0 max-sm:p-4 max-sm:rounded-none max-sm:overflow-auto max-sm:content-start' : undefined}
       role="group"
       aria-label={props.label}
       onSubmit={(e) => {

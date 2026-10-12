@@ -130,13 +130,7 @@ export function NewAgentProgress({
             <Icon name="failed" size={14} label="Error" />
             {sentence(classify(ask.error))}
           </p>
-          <Textarea
-            className="bg-panel border-line-strong px-3 py-2 resize-y"
-            aria-label="First task"
-            rows={3}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
+          <Textarea className="bg-panel border-line-strong px-3 py-2 resize-y" aria-label="First task" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
           <Button variant="outline" label="Retry" disabled={ask.isPending} onClick={send} />
         </>
       ) : null}
