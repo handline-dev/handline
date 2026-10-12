@@ -33,3 +33,6 @@ export function taskAfter(verb: TaskVerb, task: Task, now: string, edit: TaskEdi
       return undefined; // reopen, release, withdraw and cancel: where the daemon puts the task depends on more than this knows
   }
 }
+
+/** How a task is named wherever it is shown: T<id>. A message is #<id>; a task is never written with #. */
+export const taskRef = (id: number): string => `T${id}`;

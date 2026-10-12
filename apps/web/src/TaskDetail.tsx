@@ -2,6 +2,7 @@
 // and the verbs of the bridge's task detail. A verb that does not apply is hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from '@handline/app-react';
+import { taskRef } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useWrite } from '@handline/app-data';
 import { Button, Icon } from './ui/index.ts';
@@ -43,7 +44,7 @@ export function TaskDetail({
           ? ' absolute top-[calc(var(--sp-5)+var(--h-btn)+var(--sp-4))] right-0 bottom-0 left-auto z-[5] w-[min(480px,100%)] border-l border-line bg-surface shadow-[var(--shadow-pop)]'
           : ''
       }`}
-      aria-label={`Task #${id}`}
+      aria-label={`Task ${taskRef(id)}`}
     >
       <Button icon="close" label="Back" title="Back (Esc)" className="back self-end mb-4" onClick={onBack}>
         Back
@@ -53,7 +54,7 @@ export function TaskDetail({
           <p>This task no longer exists.</p>
         </div>
       ) : (
-        <View q={q} served shape="taskDetail" what={`task #${id}`}>
+        <View q={q} served shape="taskDetail" what={`task ${taskRef(id)}`}>
           {q.data ? <Body t={q.data} /> : null}
         </View>
       )}
@@ -103,7 +104,7 @@ function Body({ t }: { t: Detail }) {
 
   const say = (sentence: string) => store.reportError('task', new Error(sentence));
   const verbs = {
-    x: () => (open ? setAsk('done') : say(`task #${t.id} is already closed`)),
+    x: () => (open ? setAsk('done') : say(`task ${taskRef(t.id)} is already closed`)),
     u: () =>
       t.state === 'draft'
         ? queue.mutate({ tasks: [t.id] })
@@ -113,11 +114,11 @@ function Body({ t }: { t: Detail }) {
     r: () => (t.state === 'done' && mine ? setAsk('reopen') : say(REOPEN_ONLY)),
     a: () => replyBox.current?.focus(),
     o: () => open && setAsk('assign'),
-    d: () => (open ? setAsk('discard') : say(`task #${t.id} is already closed`)),
+    d: () => (open ? setAsk('discard') : say(`task ${taskRef(t.id)} is already closed`)),
     e: () => open && setAsk('edit'),
     w: () => startable && mine && setAsk('withdraw'),
     c: () => open && setAsk('cancel'),
-    l: () => (running ? setAsk('release') : say(`task #${t.id} is not running`)),
+    l: () => (running ? setAsk('release') : say(`task ${taskRef(t.id)} is not running`)),
   } as const;
   const key = (e: KeyboardEvent) => {
     if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -137,7 +138,7 @@ function Body({ t }: { t: Detail }) {
     <div className="tbody" ref={root} tabIndex={-1} onKeyDown={key}>
       <header className="tdetail-head flex flex-wrap items-baseline gap-2">
         <h2 className="m-0 text-title font-semibold">
-          <span className="mono">#{t.id}</span> {t.title}
+          <span className="mono">{taskRef(t.id)}</span> {t.title}
         </h2>
         <StateChip state={t.state} mark={mark} word />
       </header>
@@ -189,7 +190,7 @@ function Body({ t }: { t: Detail }) {
       ) : null}
       {ask === 'withdraw' ? (
         <Sheet
-          label={`withdraw #${t.id}?`}
+          label={`withdraw ${taskRef(t.id)}?`}
           submit="Withdraw"
           onCancel={() => setAsk(null)}
           onSubmit={() => (setAsk(null), withdraw.mutate({ task: t.id }))}
@@ -207,7 +208,7 @@ function Body({ t }: { t: Detail }) {
       ) : null}
       {ask === 'release' ? (
         <Sheet
-          label={`release #${t.id}?`}
+          label={`release ${taskRef(t.id)}?`}
           submit="Release"
           onCancel={() => setAsk(null)}
           onSubmit={() => (setAsk(null), release.mutate({ task: t.id }))}

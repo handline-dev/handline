@@ -404,7 +404,7 @@ describe('the detail', () => {
     expect(text(d)).toContain('Terminal pane on the bytes channel');
     expect(text(d)).toContain('Asked by');
     expect(text(d)).toContain('handline.architect');
-    expect(text(d)).toContain('#1684'); // under, local-ref-ok
+    expect(text(d)).toContain('T1684'); // under
     expect(text(d)).toContain('History');
     await press('Escape', {}, $('.tbody')!);
     await until(() => location.hash === '#/tasks', 'the list again');
@@ -451,7 +451,7 @@ describe('the detail', () => {
     await mount('#/tasks/1700', s);
     await until(() => $('.tverbs'), 'the verbs');
     await click(button('Edit')!);
-    const form = sheet('Edit #1700')!; // local-ref-ok
+    const form = sheet('Edit T1700')!; // local-ref-ok
     const [title] = $$('input.tinput', form);
     await typeInto(title as HTMLInputElement, 'Pair the web UI');
     await choose($('select', form) as HTMLSelectElement, '1');
@@ -464,8 +464,8 @@ describe('the detail', () => {
     s.daemon.knobs.latency(0);
     s.daemon.knobs.refuse('task.edit', 'state', 'locked');
     await click(button('Edit')!);
-    await typeInto($$('input.tinput', sheet('Edit #1700')!)[0] as HTMLInputElement, 'Nope'); // local-ref-ok
-    await click(button('Save', sheet('Edit #1700')!)!); // local-ref-ok
+    await typeInto($$('input.tinput', sheet('Edit T1700')!)[0] as HTMLInputElement, 'Nope'); // local-ref-ok
+    await click(button('Save', sheet('Edit T1700')!)!); // local-ref-ok
     await until(() => text($('.toast')).includes('locked'), 'the refusal');
     await until(() => text($('.tdetail-head')).includes('Pair the web UI'), 'the title back');
     expect($('.tsheet')).not.toBeNull(); // the form stays with the person's text
@@ -484,7 +484,7 @@ describe('the detail', () => {
     await act(async () => void (location.hash = '#/tasks/2000'));
     await until(() => button('Withdraw', $('.tverbs') ?? box), 'Withdraw');
     await click(button('Withdraw', $('.tverbs')!)!);
-    const ask = sheet('withdraw #2000?')!; // local-ref-ok
+    const ask = sheet('withdraw T2000?')!; // local-ref-ok
     s.daemon.knobs.latency(300);
     await click(button('Withdraw', ask)!);
     await until(() => text($('.tdetail-head')).includes('…'), 'the decided mark');
@@ -513,7 +513,7 @@ describe('the detail', () => {
     await mount('#/tasks/1688', s);
     await until(() => button('Assign', $('.tverbs') ?? box), 'Assign');
     await click(button('Assign', $('.tverbs')!)!);
-    const ask = sheet('Assign #1688 to…')!;
+    const ask = sheet('Assign T1688 to…')!;
     expect($('section[aria-label="Worked on this task"]', ask)).not.toBeNull();
     await click(button('handline.architect', ask)!);
     await typeInto($('textarea', ask) as HTMLTextAreaElement, 'please take it');
@@ -547,7 +547,7 @@ describe('the detail', () => {
     expect(s.daemon.tasks.get({ task: 1688 }).evidence).toBe('landed as abc123');
     // the founder's own done task: the key says why it cannot be reopened
     await act(async () => void (location.hash = '#/tasks/1650'));
-    await until(() => text($('.tdetail-head')).includes('#1650'), 'task 1650'); // local-ref-ok
+    await until(() => text($('.tdetail-head')).includes('T1650'), 'task 1650');
     expect(button('Reopen', $('.tverbs')!)).toBeUndefined(); // asked by 'founder', not by me
     await press('r', {}, $('.tbody')!);
     await until(() => text($('.toast')).includes('only a done task that you asked for can be reopened'), 'the bridge sentence');

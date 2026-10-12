@@ -1,6 +1,6 @@
 // The two things a task's detail does with people: hand the task to someone (with what to tell them), and answer someone it names.
 import { useState } from 'react';
-import { assignGroups, replyTargets } from '@handline/app-core';
+import { assignGroups, replyTargets, taskRef } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { useAgents, useChatActions, useTeam, useWrite } from '@handline/app-data';
 import { Button, Textarea } from './ui/index.ts';
@@ -25,14 +25,14 @@ export function AssignSheet({ t, me, onClose }: { t: Detail; me: string; onClose
       { task: t.id, owner: to },
       {
         onSuccess: () => {
-          if (text) chat.send(`Task #${t.id} (${t.title}) is yours now. ${text}`, { to });
+          if (text) chat.send(`Task ${taskRef(t.id)} (${t.title}) is yours now. ${text}`, { to });
           onClose();
         },
       },
     );
   };
   return (
-    <Sheet label={`Assign #${t.id} to…`} submit={to ? `Assign to ${to}` : 'Pick someone'} onCancel={onClose} onSubmit={submit} busy={edit.isPending}>
+    <Sheet label={`Assign ${taskRef(t.id)} to…`} submit={to ? `Assign to ${to}` : 'Pick someone'} onCancel={onClose} onSubmit={submit} busy={edit.isPending}>
       <div className="grid gap-2">
         {groups.length ? (
           groups.map((g) => (
@@ -74,7 +74,7 @@ export function ReplyBox({ t, me, box }: { t: Detail; me: string; box: React.Ref
   const body = text.trim();
   const send = () => {
     if (!to || !body) return;
-    chat.send(`Re task #${t.id} (${t.title}): ${body}`, { to });
+    chat.send(`Re task ${taskRef(t.id)} (${t.title}): ${body}`, { to });
     setText('');
   };
   return (
