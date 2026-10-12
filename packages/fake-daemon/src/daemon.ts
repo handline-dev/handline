@@ -23,6 +23,7 @@ import { FakePairing } from './pairing.ts';
 import { FakeInbox } from './inbox.ts';
 import { FakeWork } from './workroom.ts';
 import { FakeTasks, taskCall } from './tasks.ts';
+import { FakeAttachments } from './attachments.ts';
 import { chatMethod, FakeChat } from './chat.ts';
 import { HANDLERS } from './handlers.ts';
 import { Script } from './script.ts';
@@ -90,6 +91,7 @@ export class FakeDaemon {
   private floor = 0; // cursor of the newest event dropped by retention
   private conns = new Set<Conn>();
   private replies = new Replies();
+  readonly attachments = new FakeAttachments();
   private timer: ReturnType<typeof setInterval> | null = null;
   private retention: number;
   private now: () => Date;
@@ -363,7 +365,10 @@ export class FakeDaemon {
     const actor = this.actor(c);
     const agent = () => this.session(p.agent);
     const ok = (said: string, extra = {}) => ({ ...this.script.accepted(said), ...extra });
-    if (method.startsWith('chat.')) return chatMethod(this.chat, method, p, c.caller.name, agent, ok, (id) => this.inbox.dismiss(id));
+    if (method === 'attachment.put') return ok('Received.', this.attachments.put(p));
+    if (method === 'attachment.get') return this.attachments.get(p);
+    if (method.startsWith('chat.'))
+      return chatMethod(this.chat, method, p, c.caller.name, agent, ok, (id) => this.inbox.dismiss(id), (ids) => this.attachments.take(ids));
     const owned = this.moduleCall(c, method, p, ok);
     if (owned) return owned.value;
     const handler = HANDLERS[method];

@@ -8,6 +8,7 @@ import { setting } from './daemon.ts';
 import { replyTo } from './ChatMessages.tsx';
 import { menuOf, useEntries, useOpenTerminal, type Entry, type MenuKind } from './ChatMenus.tsx';
 import { VerbSheet } from './AgentVerbs.tsx';
+import { AttachChips, attachHandlers, PickButton, useAttachDraft } from './ChatAttach.tsx';
 import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow } from './ui/index.ts';
 
 export function Compose(props: {
@@ -28,6 +29,7 @@ export function Compose(props: {
 }) {
   const { agent, detail, storage, canSend, history, messages, target, onClear, restore, running } = props;
   const act = useChatActions(agent);
+  const att = useAttachDraft();
   const agents = useAgents().data?.agents ?? [];
   const names = new Set(agents.map((a) => a.name));
   const view = agents.find((a) => a.name === agent);
@@ -83,9 +85,9 @@ export function Compose(props: {
   // The message shows at once and the box clears; a refused one stays in the list as a failed row with Retry, so its words are not lost.
   const choosing = !!running && !!view?.structured;
   const send = () => {
-    if (!text.trim() || ctrlR) return;
+    if ((!text.trim() && !att.ids.length) || att.busy || ctrlR) return;
     // A / line is a command, never words to the agent: run it or refuse it here.
-    if (typed) {
+    if (typed && !att.ids.length) {
       const id = typed[2] === 'fresh' ? `${typed[1]}_fresh` : typed[1]!;
       const hit = slashEntries.find((e) => e.key === id);
       if (hit?.verb || hit?.terminal) {
@@ -101,9 +103,11 @@ export function Compose(props: {
     setRefused(null);
     const delivery = choosing && now ? ('now' as const) : undefined;
     // Replying to a question that waits for you answers it; to anything else sends a linked message to whoever said it.
-    if (target && isOpenAsk(target, agent)) act.answer(target.id, text);
-    else if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery });
-    else act.send(text, { delivery });
+    const attachments = att.ids;
+    if (target && isOpenAsk(target, agent) && !attachments.length) act.answer(target.id, text);
+    else if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery, attachments });
+    else act.send(text, { delivery, attachments });
+    att.clear();
     setNow(false);
     onClear?.();
     set('');
@@ -150,7 +154,7 @@ export function Compose(props: {
     }
   };
   return (
-    <div className="compose-wrap flex flex-col">
+    <div className="compose-wrap flex flex-col" {...attachHandlers(att.add)}>
       {/* The reply bar's row is always this tall, so picking a message never shifts the stream to make room. */}
       <div className="mx-3 mb-1 flex h-[26px] items-center">
         {target ? (
@@ -174,6 +178,7 @@ export function Compose(props: {
           <Icon name="warn" size={14} aria-hidden /> {refused}
         </p>
       ) : null}
+      <AttachChips drafts={att.drafts} problem={att.problem} onRemove={att.remove} />
       <ComposeRow>
         {menu ? (
           <ul
@@ -214,6 +219,7 @@ export function Compose(props: {
           }}
           onKeyDown={onKey}
         />
+        <PickButton onPick={att.add} disabled={!canSend} />
         {clearing ? (
           <span className="compose-clear self-center text-wait" role="status" title="Esc again clears the draft">
             <Icon name="warn" size={14} label="Esc again clears the draft" />
@@ -230,7 +236,7 @@ export function Compose(props: {
           icon="send"
           label="Send"
           title="Send (Enter)"
-          disabled={!canSend || !text.trim()}
+          disabled={!canSend || (!text.trim() && !att.ids.length) || att.busy}
           onClick={send}
         />
       </ComposeRow>

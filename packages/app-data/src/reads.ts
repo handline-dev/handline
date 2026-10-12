@@ -61,6 +61,8 @@ export const NOT_QUERIES = [
   'unsubscribe',
   'events.feed',
   'progress.get',
+  // An image's bytes are read once per image into an object URL (attachments.ts), not kept as a cache entry.
+  'attachment.get',
   'terminal.attach',
   'terminal.history',
   'terminal.detach',

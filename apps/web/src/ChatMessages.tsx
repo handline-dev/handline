@@ -8,6 +8,7 @@ import { useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
+import { Pictures } from './ChatAttach.tsx';
 import { PathText } from './PathText.tsx';
 import { useWorkspace } from './Workspace.tsx';
 
@@ -145,9 +146,12 @@ export function Message(props: {
           {parent ? <span className="muted"> {snippet(parent.body)}</span> : null}
         </button>
       ) : null}
-      <div className={MSG_BODY}>
-        <RefText text={m.body} agent={agent} onRef={props.onRef} />
-      </div>
+      {m.body ? (
+        <div className={MSG_BODY}>
+          <RefText text={m.body} agent={agent} onRef={props.onRef} />
+        </div>
+      ) : null}
+      {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
       {undoable ? (
         <div className="msg-acts mt-1 flex gap-1">
           {m.landing === 'queued' && (m.receipt || props.working) ? (

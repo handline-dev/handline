@@ -1,6 +1,7 @@
 // The three chat writes as cache edits. A send shows its row at once and, if refused, keeps it as `failed` with its text, so nothing typed is lost;
 // dismiss and answer change the message and are put back if refused.
 import type { ChatMessage, Receipt } from '@handline/client';
+import { knownAttachments } from './attachments.ts';
 import { classify, sentence } from './errors.ts';
 import { edit, mapPages, provisionalId, type Ctx, type Pages } from './cache.ts';
 import { qk } from './reads.ts';
@@ -10,7 +11,7 @@ import type { WriteSpec } from './write-spec.ts';
 
 const allChats = (d: string) => [['d', d, 'chat-messages'] as const];
 
-export function waitingMessage(me: string, agent: string, body: string, now: string, parent: number | null = null): ChatMessage {
+export function waitingMessage(me: string, agent: string, body: string, now: string, parent: number | null = null, attachments: string[] = []): ChatMessage {
   return {
     id: provisionalId(),
     at: now,
@@ -27,6 +28,7 @@ export function waitingMessage(me: string, agent: string, body: string, now: str
     typed_at: null,
     landed_at: null,
     parent,
+    ...(attachments.length ? { attachments: knownAttachments(attachments) } : {}),
     kind: 'message',
     tasks: [],
     is_task_question: false,
@@ -37,7 +39,7 @@ const editAll = (c: Ctx, f: (d: Pages<MsgPage>) => Pages<MsgPage>) => edit<Pages
 const setRow = (c: Ctx, id: number, patch: Partial<ChatMessage>) => editAll(c, (d) => patchMessage(d, id, patch));
 
 /** The row a send shows is told apart from the daemon's by its negative id; keyed by the send's own text and agent. */
-const sendParams = (p: never) => p as { agent: string; body: string; parent?: number; delivery?: 'now' | 'queue'; request_id?: string };
+const sendParams = (p: never) => p as { agent: string; body: string; parent?: number; attachments?: string[]; delivery?: 'now' | 'queue'; request_id?: string };
 
 const findRow = (d: Pages<MsgPage>, id: number) => d.pages.flatMap((page) => page.messages).find((m) => m.id === id);
 const setReceipt = (c: Ctx, id: number, receipt: Receipt | undefined) =>
@@ -48,13 +50,15 @@ const setReceipt = (c: Ctx, id: number, receipt: Receipt | undefined) =>
   });
 
 export const chatWrites: Record<string, WriteSpec> = {
+  // One chunk of an image; the chunks are the caller's loop (attachments.ts), and nothing in the cache changes until chat.send names the image.
+  'attachment.put': { kind: 'decided', label: 'attach image' },
   'chat.send': {
     kind: 'authored',
     label: 'send',
     touches: allChats,
     patch: (c, p) => {
-      const { agent, body, parent, delivery, request_id } = sendParams(p);
-      const row = waitingMessage(c.me, agent, body, c.now, parent ?? null);
+      const { agent, body, parent, attachments, delivery, request_id } = sendParams(p);
+      const row = waitingMessage(c.me, agent, body, c.now, parent ?? null, attachments);
       if (request_id) rememberOperation(row.id, request_id, delivery);
       editAll(c, (d) => mapPages(d, (page, i) => (i === 0 ? { ...page, messages: [row, ...page.messages] } : page)));
     },
