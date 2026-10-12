@@ -1,5 +1,6 @@
 // A sheet: the bordered strip that asks something under the thing it is about (`verb` for an inline confirm, `form` for a task form).
 import type { ComponentProps, ComponentType } from 'react';
+import { Icon } from './Icon.tsx';
 
 type Kind = 'verb' | 'form';
 const SIZE: Record<Kind, string> = {
@@ -31,8 +32,13 @@ export function SheetActions({ kind = 'verb', className, ...rest }: ComponentPro
   return <span {...rest} className={`${hook} ml-auto flex gap-1.5 max-sm:w-full max-sm:[&>*]:flex-1${className ? ` ${className}` : ''}`} />;
 }
 
-/** A line of feedback under a control, indented past the label column. */
-export function FNote({ tone, className, ...rest }: ComponentProps<'p'> & { tone: 'bad' | 'warn' }) {
+/** A line of feedback under a control, indented past the label column. The tone is a glyph first, colour second. */
+export function FNote({ tone, className, children, ...rest }: ComponentProps<'p'> & { tone: 'bad' | 'warn' }) {
   const look = tone === 'bad' ? 'bad text-bad' : 'warn text-wait';
-  return <p {...rest} className={`fnote ${look} ml-[170px] basis-full text-[12px] max-sm:ml-0${className ? ` ${className}` : ''}`} />;
+  return (
+    <p {...rest} className={`fnote ${look} ml-[170px] basis-full text-[12px] max-sm:ml-0${className ? ` ${className}` : ''}`}>
+      <Icon name={tone === 'bad' ? 'failed' : 'warn'} size={13} aria-hidden className="mr-1 inline-block align-[-2px]" />
+      {children}
+    </p>
+  );
 }

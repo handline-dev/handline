@@ -154,15 +154,6 @@ describe('U12 agent verbs', () => {
     expect(session(s).open).toBe(true);
   });
 
-  it('Wake on a parked agent asks nothing', async () => {
-    const s = setup();
-    session(s, TB).sessionId = 's-9';
-    await mount(TB, s);
-    await click(await item('Wake'));
-    expect($('.verb-sheet')).toBeNull();
-    await until(() => session(s, TB).open, 'woken');
-  });
-
   it('a sheet whose row changed while it was open sends nothing and says so', async () => {
     const s = setup();
     open(s);

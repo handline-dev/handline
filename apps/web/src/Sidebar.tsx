@@ -1,36 +1,34 @@
-// The agent list. A row is an agent's only control surface: Start or Resume on the selected row, a ⋯ menu for stopping,
-// and under the selected row the facts the old agent header showed.
+// The agent list. A row shows an agent's state, its queue and a fold button when it has children; its actions (Start, the ⋯ menu)
+// show while the pointer is on it or it is selected. One filter button opens the menu of what to show.
 import { useState } from 'react';
 import {
   ago,
-  controlsOf,
   dotOf,
-  railGroups,
+  railRows,
   shortName,
+  teamOf,
+  visibleRows,
+  queueOf,
+  RAIL_FILTERS,
+  RAIL_STATE_WORD,
   type Dot,
-  stopModesOf,
-  asks,
-  verbsOf,
   type Verb,
   badgesOf,
-  type GroupBy,
   type KV,
-  type StopMode,
 } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
-import { useAgentDetail, useAgents, useServes, useUnread, useVerbMark, useVerbRun, useWrite } from '@handline/app-data';
-import { unserved, useServed, VerbSheet } from './AgentVerbs.tsx';
+import { useAgents, useUnreached, useServes, useUnread, useVerbMark } from '@handline/app-data';
+import { VerbSheet } from './AgentVerbs.tsx';
 import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
-import { DOT_ORDER, Mark, MARKS, Meter } from './RailIcons.tsx';
+import { Mark, MARKS, Meter } from './RailIcons.tsx';
 import { useNow } from './Gauge.tsx';
 import { Button, Icon, Popup, PROW } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import {
   goAgent,
   goInbox,
-  goSettings,
   goTasks,
   goTeam,
   goWorktrees,
@@ -40,6 +38,7 @@ import {
   useTeamRoute,
   useWorktreesRoute,
 } from './route.ts';
+import { RowControls } from './RowControls.tsx';
 import { NewAgentButton } from './NewAgent.tsx';
 import { View } from './View.tsx';
 import { navOf, PairPhone } from './NavRows.tsx';
@@ -60,21 +59,22 @@ export function Sidebar({
   const agents = list.data?.agents ?? [];
   const conn = useConnection();
   const [search, setSearch] = useState('');
-  const [by, setBy] = useState<GroupBy>(() => {
-    const v = setting(storage, 'group', 'team').value;
-    return v === 'state' || v === 'account' ? v : 'team';
-  });
   const [hidden, setHidden] = useState<Set<Dot>>(
     () => new Set(setting(storage, 'hiddenDots', '').value.split(',').filter(Boolean) as Dot[]),
   );
-  const [folded, setFolded] = useState<Set<string>>(() => new Set(setting(storage, 'folded', '').value.split('|').filter(Boolean)));
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => new Set(setting(storage, 'collapsed', '').value.split('|').filter(Boolean)),
+  );
+  const [menu, setMenu] = useState(false);
   const flip = <T extends string>(set: Set<T>, k: T, key: string, sep: string): Set<T> => {
     const next = new Set(set);
     if (!next.delete(k)) next.add(k);
     setting(storage, key, '').save([...next].join(sep));
     return next;
   };
-  const groups = railGroups(agents, by, { hidden, search });
+  const unreached = useUnreached();
+  const rows = visibleRows(railRows(agents, { hidden, search }), collapsed);
+  const names = agents.map((x) => x.name);
   const counts = new Map<Dot, number>();
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const unread = useUnread().length;
@@ -115,7 +115,13 @@ export function Sidebar({
           <Icon name="tasks" size={14} aria-hidden /> Tasks
         </button>
         <button className={navOf(onTeam)} onClick={() => goTeam(hr ? 'hr' : 'team')}>
-          <Icon name="team" size={14} aria-hidden /> Team{hr ? <span className="hr-dot text-bad"> ● HR {hr}</span> : null}
+          <Icon name="team" size={14} aria-hidden /> Team
+          {hr ? (
+            <span className="hr-dot text-bad">
+              {' '}
+              <Icon name="decision" size={12} aria-hidden /> HR {hr}
+            </span>
+          ) : null}
         </button>
         {worktreesServed ? (
           <button className={navOf(onWorktrees)} aria-current={onWorktrees ? 'page' : undefined} onClick={() => goWorktrees()}>
@@ -130,73 +136,65 @@ export function Sidebar({
           <Icon name="stats" size={14} aria-hidden /> Stats
         </button>
       </div>
-      <div className="rail-opts flex flex-wrap items-center gap-2 border-b border-line px-2.5 py-2">
+      <div className="rail-opts relative flex items-center gap-1.5 border-b border-line px-2.5 py-2">
         <input
-          className="search w-full max-w-none flex-[1_1_100%] rounded-ctl border border-line bg-canvas px-2 py-[5px]"
+          className="search min-w-0 flex-1 rounded-ctl border border-line bg-canvas px-2 py-[5px]"
           type="search"
           placeholder="Search agents"
           aria-label="Search agents"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <select
-          className="rounded-ctl border border-line bg-canvas px-1 py-0.5"
-          aria-label="Group by"
-          value={by}
-          onChange={(e) => {
-            setBy(e.target.value as GroupBy);
-            setting(storage, 'group', '').save(e.target.value);
-          }}
-        >
-          {['team', 'state', 'account'].map((o) => (
-            <option key={o} value={o}>
-              by {o}
-            </option>
-          ))}
-        </select>
-        <div className="filters flex flex-wrap gap-0.5" role="group" aria-label="Show agents that are">
-          {DOT_ORDER.map((d) => (
-            <button
-              key={d}
-              className={`filter${hidden.has(d) ? '' : ' on'} inline-flex items-center gap-0.5 rounded-ctl border px-1 py-px text-hint text-ink-2 ${hidden.has(d) ? 'border-line bg-transparent opacity-45' : 'border-ink-2 bg-transparent'}`}
-              aria-pressed={!hidden.has(d)}
-              aria-label={`${MARKS[d].label}: ${counts.get(d) ?? 0}`}
-              title={`${MARKS[d].label}: ${counts.get(d) ?? 0}. Click to ${hidden.has(d) ? 'show' : 'hide'}`}
-              onClick={() => setHidden(flip(hidden, d, 'hiddenDots', ','))}
-            >
-              <Mark dot={d} title={MARKS[d].label} />
-              <span className="count">{counts.get(d) ?? 0}</span>
-            </button>
-          ))}
-        </div>
+        <Button
+          icon="filter"
+          label={hidden.size ? `Filter: ${hidden.size} hidden` : 'Filter'}
+          aria-haspopup="menu"
+          aria-expanded={menu}
+          className={hidden.size ? 'text-primary' : ''}
+          onClick={() => setMenu(!menu)}
+        />
+        <Popup open={menu} onClose={() => setMenu(false)} title="Show agents that are" align="right">
+          {RAIL_FILTERS.map((f) => {
+            const on = f.dots.some((d) => !hidden.has(d));
+            const n = f.dots.reduce((t, d) => t + (counts.get(d) ?? 0), 0);
+            return (
+              <button
+                key={f.id}
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={on}
+                className={`${PROW} filter`}
+                onClick={() => {
+                  const next = new Set(hidden);
+                  for (const d of f.dots) on ? next.add(d) : next.delete(d);
+                  setting(storage, 'hiddenDots', '').save([...next].join(','));
+                  setHidden(next);
+                }}
+              >
+                <span className="w-3.5 flex-none">{on ? <Icon name="markRead" size={12} aria-hidden /> : null}</span>
+                <Mark dot={f.dots[0]!} title={MARKS[f.dots[0]!].label} />
+                <span className="flex-1">{f.label}</span>
+                <span className="muted count">{n}</span>
+              </button>
+            );
+          })}
+        </Popup>
       </div>
       <div className="rail-list min-h-0 flex-1 overflow-auto">
         {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
         <View q={list} served={served} shape="agents" what="the agent list" empty={conn === 'open' && !agents.length && 'No agents.'}>
-          {groups.map((g) => (
-            <section className="group" key={g.title}>
-              <h3 className="flex items-center justify-between gap-1.5">
-                <button
-                  className="fold border-0 bg-transparent p-0 text-inherit [font:inherit] [letter-spacing:inherit] [text-transform:inherit]"
-                  aria-expanded={!folded.has(g.title)}
-                  onClick={() => setFolded(flip(folded, g.title, 'folded', '|'))}
-                >
-                  <span aria-hidden>{folded.has(g.title) ? '▸' : '▾'}</span> {g.title}
-                </button>
-                <GroupMarks rows={g.rows.map((r) => r.agent)} />
-              </h3>
-              {folded.has(g.title)
-                ? null
-                : g.rows.map(({ agent, depth }) => (
-                    <Row
-                      key={agent.name}
-                      agent={agent}
-                      depth={depth}
-                      team={by === 'team' ? g.title : ''}
-                      selected={agent.name === selected}
-                    />
-                  ))}
-            </section>
+          {rows.map(({ agent, depth, kids }) => (
+            <Row
+              key={agent.name}
+              agent={agent}
+              depth={depth}
+              kids={kids}
+              team={teamOf(agent.name, names)}
+              folded={collapsed.has(agent.name)}
+              onFold={() => setCollapsed(flip(collapsed, agent.name, 'collapsed', '|'))}
+              unreached={unreached.get(agent.name) ?? null}
+              selected={agent.name === selected}
+            />
           ))}
         </View>
       </div>
@@ -206,22 +204,6 @@ export function Sidebar({
         <Button icon="help" label="Keys (?)" onClick={() => dispatchEvent(new KeyboardEvent('keydown', { key: '?' }))} />
       </footer>
     </nav>
-  );
-}
-
-/** What a collapsed or open team says at a glance: one mark and count per state present. */
-function GroupMarks({ rows }: { rows: AgentView[] }) {
-  const n = new Map<Dot, number>();
-  for (const a of rows) n.set(dotOf(a), (n.get(dotOf(a)) ?? 0) + 1);
-  return (
-    <span className="group-marks inline-flex gap-1.5 font-normal tracking-normal text-hint">
-      {DOT_ORDER.filter((d) => n.get(d)).map((d) => (
-        <span key={d} title={`${n.get(d)} ${MARKS[d].label}`}>
-          <Mark dot={d} />
-          {n.get(d)}
-        </span>
-      ))}
-    </span>
   );
 }
 
@@ -238,25 +220,68 @@ const ctxOf = (a: AgentView): number | null => {
   return typeof v === 'number' ? Math.round(v) : null;
 };
 
-function Row({ agent: a, depth, team, selected }: { agent: AgentView; depth: number; team: string; selected: boolean }) {
+function Row({
+  agent: a,
+  depth,
+  kids,
+  team,
+  folded,
+  onFold,
+  unreached,
+  selected,
+}: {
+  agent: AgentView;
+  depth: number;
+  kids: number;
+  team: string;
+  folded: boolean;
+  onFold: () => void;
+  unreached: number | null;
+  selected: boolean;
+}) {
   const store = useStore();
   const dot = dotOf(a);
   const [account, setAccount] = useState(''); // for the next start only
   const [ask, setAsk] = useState<Verb | null>(null);
+  const [hot, setHot] = useState(false); // the pointer or focus is on the row: its actions show, and only then do they cost a detail read
+  const [menuOpen, setMenuOpen] = useState(false);
   const mark = useVerbMark(a.name);
   const now = useNow();
   const cache = cacheLeft(a.cache_until, now);
   const ctx = ctxOf(a);
-  const badges = badgesOf(a, store.me).filter((b) => b.kind !== 'no_terminal'); // the mark already says it
+  const queue = queueOf(a, unreached);
+  const badges = badgesOf(a, store.me).filter((b) => b.kind !== 'no_terminal'); // the word already says it
+  const word = RAIL_STATE_WORD[dot];
   const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `#${a.task.id} ${a.task.title}` : ''].filter(Boolean).join(' · ');
   // The left edge: the waiting hue outranks the selection.
   const edge = dot === 'waiting' ? 'border-l-wait' : selected ? 'border-l-primary' : 'border-l-transparent';
+  const showControls = selected || hot || menuOpen;
   return (
-    <div className={`row-wrap${selected ? ' on bg-canvas' : ''}`} data-agent={a.name}>
+    <div
+      className={`row-wrap relative${selected ? ' on bg-canvas' : ''}`}
+      data-agent={a.name}
+      onPointerEnter={() => setHot(true)}
+      onPointerLeave={() => setHot(false)}
+      onFocus={() => setHot(true)}
+      onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setHot(false)}
+    >
       <div
         className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 py-[7px] border-l-[3px] hover:bg-canvas ${edge}`}
         style={{ paddingLeft: 10 + depth * 14 }}
       >
+        {kids ? (
+          <button
+            className="fold flex-none border-0 bg-transparent p-0 text-ink-2"
+            aria-expanded={!folded}
+            aria-label={`${folded ? 'Show' : 'Hide'} the ${kids} under ${a.name}`}
+            title={`${folded ? 'Show' : 'Hide'} the ${kids} under ${a.name}`}
+            onClick={onFold}
+          >
+            <Icon name={folded ? 'chevronRight' : 'more'} size={12} aria-hidden />
+          </button>
+        ) : (
+          <span className="w-3 flex-none" aria-hidden />
+        )}
         <button
           className="row-main flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left"
           onClick={() => goAgent(a.name)}
@@ -266,9 +291,23 @@ function Row({ agent: a, depth, team, selected }: { agent: AgentView; depth: num
           <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
           <span className="name min-w-0 flex-1 whitespace-nowrap">{shortName(a.name, team)}</span>
           <Badges badges={badges} />
-          {a.task ? (
-            <span className="task-ref flex-none text-hint text-ink-2" title={a.task.title}>
-              #{a.task.id}
+          <span className="state-word flex-none text-hint text-ink-2">{word}</span>
+          {queue.messages ? (
+            <span
+              className="q-msgs inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
+              title={`${queue.messages} messages not yet delivered`}
+            >
+              <Icon name="inbox" size={12} aria-hidden />
+              {queue.messages}
+            </span>
+          ) : null}
+          {queue.tasks ? (
+            <span
+              className="q-tasks inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
+              title={`${queue.tasks} tasks waiting or in progress`}
+            >
+              <Icon name="tasks" size={12} aria-hidden />
+              {queue.tasks}
             </span>
           ) : null}
           {ctx !== null ? <Meter pct={ctx} label="context used" /> : null}
@@ -281,133 +320,9 @@ function Row({ agent: a, depth, team, selected }: { agent: AgentView; depth: num
             </span>
           ) : null}
         </button>
-        {selected ? <RowControls agent={a} account={account} setAccount={setAccount} onAsk={setAsk} /> : null}
+        {showControls ? <RowControls agent={a} account={account} setAccount={setAccount} onAsk={setAsk} onMenu={setMenuOpen} /> : null}
       </div>
-      {selected && ask ? <VerbSheet a={a} verb={ask} onClose={() => setAsk(null)} /> : null}
+      {ask ? <VerbSheet a={a} verb={ask} onClose={() => setAsk(null)} /> : null}
     </div>
-  );
-}
-
-/** Start or Resume, and the ⋯ menu: the agent verbs the row's state allows, then the ways to stop. Which apply comes from the agent's detail. */
-function RowControls({
-  agent: a,
-  account,
-  setAccount,
-  onAsk,
-}: {
-  agent: AgentView;
-  account: string;
-  setAccount: (a: string) => void;
-  onAsk: (v: Verb) => void;
-}) {
-  const accounts = [...new Set((useAgents().data?.agents ?? []).map((x) => x.account).filter((x): x is string => !!x))];
-  const agent = a.name;
-  const store = useStore();
-  const d = useAgentDetail(agent).data;
-  const [open, setOpen] = useState(false);
-  const start = useWrite('session.start', agent);
-  const resume = useWrite('session.wake', agent);
-  const stopWrite = useWrite('session.stop', agent);
-  const interrupt = useWrite('session.interrupt', agent);
-  const run = useVerbRun(agent);
-  const served = useServed();
-  const mark = useVerbMark(agent);
-  const busy = start.isPending || resume.isPending || stopWrite.isPending || interrupt.isPending || !!mark;
-  if (!d) return null;
-  const c = controlsOf(d, store.me);
-  const verb = (v: Verb) => {
-    setOpen(false);
-    if (asks(v) || v.id === 'move') onAsk(v);
-    else run(v);
-  };
-  const stop = (mode: StopMode) => {
-    setOpen(false);
-    if (
-      mode === 'kill' &&
-      !confirm(
-        `${d.structured ? `End the session of ${agent}` : `Kill the terminal of ${agent}`}?${a.task ? ` It has work in flight: ${a.task.title}.` : ''}`,
-      )
-    )
-      return;
-    if (mode === 'interrupt') interrupt.mutate({ agent });
-    else stopWrite.mutate({ agent, mode });
-  };
-  const verbs = verbsOf(a, d);
-  return (
-    <span className="row-actions relative flex flex-none items-center gap-1">
-      {c.start ? (
-        <Button
-          variant="solid"
-          label="Start"
-          disabled={busy}
-          onClick={() => start.mutate(d.structured ? { agent } : { agent, account: account || undefined })}
-        >
-          {start.isPending ? 'starting…' : '▶ Start'}
-        </Button>
-      ) : null}
-      {c.resume ? (
-        <Button variant="outline" label="Resume" disabled={busy} onClick={() => resume.mutate({ agent })}>
-          {resume.isPending ? 'resuming…' : '⟳ Resume'}
-        </Button>
-      ) : null}
-      <Button
-        label={`More actions for ${agent}`}
-        aria-label={`More actions for ${agent}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        {mark ?? (stopWrite.isPending || interrupt.isPending ? 'stopping…' : '⋯')}
-      </Button>
-      <Popup open={open} onClose={() => setOpen(false)} title={`More actions for ${agent}`} align="right">
-        {c.start && !d.structured ? (
-          <select
-            aria-label="Account for this start"
-            title={`The daemon would pick: ${d.account_pick.account ?? 'none'} (${d.account_pick.reason})`}
-            value={account}
-            onChange={(e) => setAccount(e.target.value)}
-          >
-            <option value="">{`start on auto: ${d.account_pick.account ?? 'none'}`}</option>
-            {accounts.map((x) => (
-              <option key={x} value={x}>
-                {x}
-              </option>
-            ))}
-          </select>
-        ) : null}
-        {verbs.map((v) => (
-          <button
-            key={v.id}
-            type="button"
-            className={`${PROW} max-sm:min-h-12 disabled:cursor-not-allowed disabled:opacity-55`}
-            disabled={busy || !served(v)}
-            title={served(v) ? undefined : unserved(v)}
-            onClick={() => verb(v)}
-          >
-            <strong>{v.label}</strong>
-            {served(v) ? null : <span className="muted"> not served</span>}
-          </button>
-        ))}
-        <button className={`${PROW} max-sm:min-h-12`} onClick={() => goSettings(agent)}>
-          <strong>Settings</strong>
-        </button>
-        {c.stop
-          ? stopModesOf(d)
-              .filter((m) => m.mode !== 'close' && !(d.structured && m.mode === 'interrupt'))
-              .map((m) => (
-                <button
-                  key={m.mode}
-                  type="button"
-                  className={`${PROW} max-sm:min-h-12 disabled:cursor-not-allowed disabled:opacity-55${m.mode === 'kill' ? ' [&>strong]:text-bad' : ''}`}
-                  disabled={busy}
-                  onClick={() => stop(m.mode)}
-                >
-                  <strong>{m.label}</strong>
-                  <span className="muted"> {m.hint}</span>
-                </button>
-              ))
-          : null}
-      </Popup>
-    </span>
   );
 }

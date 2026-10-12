@@ -1,4 +1,5 @@
 import type { TaskColumn } from '@handline/app-core';
+import { Icon } from './ui/Icon.tsx';
 import { HEADS } from './TasksHead.tsx';
 
 /** Every head cell: sticky over the scroll, the label type on the surface. */
@@ -34,7 +35,9 @@ export function TableHead(props: {
             >
               <button className="head border-0 bg-transparent p-2" onClick={() => props.onSort(h.col)}>
                 {h.label}
-                {sort.by === h.col ? (sort.reverse ? ' ▾' : ' ▴') : ''}
+                {sort.by === h.col ? (
+                  <Icon name={sort.reverse ? 'sortDesc' : 'sortAsc'} size={11} aria-hidden className="ml-0.5 inline-block align-[-1px]" />
+                ) : null}
               </button>
             </th>
           ))

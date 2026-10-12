@@ -50,6 +50,17 @@ export function viewState(
 }
 
 export const useAgents = () => useRead('agents.list', {});
+/**
+ * Messages owed to each agent that have not reached it. The daemon sends `unreached` only for agents.list `status: true`, which is another
+ * key from the event-fed list `useAgents` reads, so the bridge does not keep it current: it is read on its own, again every 20 s.
+ */
+export function useUnreached(): Map<string, number> {
+  const q = useRead('agents.list', { status: true }, { refetchMs: 20_000 });
+  return useMemo(
+    () => new Map((q.data?.agents ?? []).flatMap((a) => (typeof a.unreached === 'number' ? [[a.name, a.unreached] as const] : []))),
+    [q.data],
+  );
+}
 export const useAgentDetail = (agent: string) => useRead('agent.get', { agent });
 export const useAgentTimeline = (agent: string) => useRead('agent.timeline', { agent });
 export const useAgentOptions = () => useRead('agent.options', {});

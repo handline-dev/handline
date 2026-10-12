@@ -18,7 +18,7 @@ export const LIST_KEYS: [string, string][] = [
   ['t', 'switch between the list and the tree'],
   ['f', "show the next agent's tasks"],
   ['n', 'new task'],
-  ['j k ↑ ↓', 'move the cursor'],
+  ['j k Up Down', 'move the cursor'],
 ];
 
 export function OwnerSheet({ agents, onCancel, onPick }: { agents: string[]; onCancel: () => void; onPick: (owner: string) => void }) {
