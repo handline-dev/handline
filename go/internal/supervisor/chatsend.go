@@ -1,6 +1,9 @@
 package supervisor
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/structured"
@@ -147,3 +150,49 @@ func (e *Env) ReopenConfirmed(q db.Q, row *db.Request) (reopened bool, err error
 
 // imageLines is the path lines of the images message rid carries, which follow its body when an agent is told of it.
 func (e *Env) imageLines(q db.Q, rid int64) string { return attachments.New(e.Home).Lines(q, rid) }
+
+// DaemonOp is the operation of a message the daemon wrote in its own words, with no one quoted.
+const DaemonOp = "daemon:"
+
+// AuthorsOfOp are the names that wrote the text a send operation carries, and whether the operation is one whose text is known: the
+// requesters of request:<ids>, the agents that answered for answers:<ids>, the requester whose request cancelled:<id> closed, and none for
+// nothing for DaemonOp. Any other operation is not known, a notice:<n> (a digest of results, which quote agents) among them, and so is a
+// request from the task board, whose notices carry an agent's words under its own name, or one that cannot be read.
+func AuthorsOfOp(q db.Q, op string) (authors []string, known bool) {
+	kind, _, _ := strings.Cut(op, ":")
+	var rids []int64
+	switch kind {
+	case "daemon":
+		return nil, true
+	case "request":
+		rids = ridsOfOp(op)
+	case "answers":
+		rids, _ = answerIDs(op)
+	case "cancelled":
+		n, err := strconv.ParseInt(strings.TrimPrefix(op, "cancelled:"), 10, 64)
+		if err != nil {
+			return nil, false
+		}
+		rids = []int64{n}
+	default:
+		return nil, false
+	}
+	if len(rids) == 0 {
+		return nil, false
+	}
+	for _, rid := range rids {
+		row, err := db.GetRequest(q, rid)
+		if err != nil || row == nil {
+			return nil, false
+		}
+		if row.Requester == db.NoticeRequester {
+			return nil, false
+		}
+		if kind == "answers" {
+			authors = append(authors, row.Target)
+		} else {
+			authors = append(authors, row.Requester)
+		}
+	}
+	return authors, true
+}
