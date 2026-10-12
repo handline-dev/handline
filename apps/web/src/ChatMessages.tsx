@@ -3,7 +3,7 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent } from 'react';
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
-import { landingLabel, sideOf } from '@handline/app-core';
+import { sideOf } from '@handline/app-core';
 import { useAgents, useChatActions } from '@handline/app-data';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
@@ -114,6 +114,7 @@ export function Message(props: {
     props.onPick(m);
   };
   return (
+    <>
     <div
       className={bubbleClass(side, { failed, picked: props.picked, pickable: !unnumbered && !failed })}
       data-landing={m.landing}
@@ -140,35 +141,7 @@ export function Message(props: {
         </button>
       ) : null}
       <div className={MSG_BODY}>
-        {/* Hover or pick, and the number hangs left of the first line, the clock right of the last. */}
-        {!unnumbered ? (
-          <span className="mr-1.5 float-left hidden text-[11px] leading-[18px] opacity-60 group-hover:inline group-aria-current:inline">
-            #{m.id}
-          </span>
-        ) : null}
         <RefText text={m.body} agent={agent} onRef={props.onRef} />
-        <span className="ml-1.5 float-right hidden text-[11px] leading-[18px] opacity-60 group-hover:inline group-aria-current:inline">
-          {clock(m.at)}
-        </span>
-      </div>
-      <div className={`${MSG_META} muted`}>
-        {side === 'person' && !failed && m.receipt ? (
-          <span className="landing receipt" data-receipt={m.receipt.state} title={receiptOf(m.receipt.state).label}>
-            {' '}
-            <Icon name={receiptOf(m.receipt.state).icon} size={13} label={receiptOf(m.receipt.state).label} />
-          </span>
-        ) : side === 'person' && !failed ? (
-          <span className="landing" title={m.sending_reason ? `${landingLabel(m.landing)}: ${m.sending_reason}` : landingLabel(m.landing)}>
-            {' '}
-            <Icon name={landingIcon(m.landing)} size={13} label={landingLabel(m.landing)} />
-          </span>
-        ) : null}
-        {m.tasks.map((t) => (
-          <a key={t.id} className="msg-task mono text-inherit" href={`#/tasks/${t.id}`} title={t.title}>
-            {' '}
-            <Icon name="tasks" size={12} label={`Task ${t.id}: ${t.title}`} />T{t.id}
-          </a>
-        ))}
       </div>
       {undoable ? (
         <div className="msg-acts mt-1 flex gap-1">
@@ -221,7 +194,25 @@ export function Message(props: {
           <Icon name="dismissed" size={13} />
         </div>
       ) : null}
-    </div>
+      </div>
+      {/* The stamp sits outside the bubble, under its inner edge: an agent's to the right, the person's to the left. */}
+      <div
+        className={`${MSG_META} ${side === 'agent' ? 'justify-end' : 'justify-start'} hidden gap-1.5 text-ink-3 group-hover:flex group-aria-current:flex`}
+      >
+        {side === 'person' && !failed && m.receipt ? (
+          <span className="landing receipt" data-receipt={m.receipt.state} title={receiptOf(m.receipt.state).label}>
+            <Icon name={receiptOf(m.receipt.state).icon} size={13} label={receiptOf(m.receipt.state).label} />
+          </span>
+        ) : null}
+        {m.tasks.map((t) => (
+          <a key={t.id} className="msg-task mono text-inherit" href={`#/tasks/${t.id}`} title={t.title}>
+            <Icon name="tasks" size={12} label={`Task ${t.id}: ${t.title}`} />T{t.id}
+          </a>
+        ))}
+        {!unnumbered ? <span className="mono">#{m.id}</span> : null}
+        <span>{clock(m.at)}</span>
+      </div>
+    </>
   );
 }
 
