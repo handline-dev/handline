@@ -162,6 +162,7 @@ func main() {
 			parts.Bind(db, env)
 			ccfg.DB = db
 			env.Ports = parts.SupervisorPorts(parts.Lifecycle(ccfg, compose.LifecycleConfig{Env: env}))
+			parts.SettlePeerSends()
 			if *structuredTick || *terminalTick {
 				startTick = func(stop <-chan struct{}) <-chan struct{} {
 					tk = parts.Tick(ccfg, compose.TickConfig{Stop: stop, Cutover: *cutover, Terminals: *terminalTick, ScratchRoot: housekeeping.ScratchRoot()})
