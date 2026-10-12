@@ -7,7 +7,7 @@ The client and the fake daemon now live in `packages/` (see `docs/turborepo-layo
 - `packages/client-node` (`@handline/client-node`): the daemon's Unix socket as a Transport.
 - `packages/fake-daemon` (`@handline/fake-daemon`): serves `contract/protocol.json` from fixtures; `pnpm --filter @handline/fake-daemon serve`
   runs a socket and a WebSocket with a scripted session per agent. Its tests run the client against it.
-- The browser has no build step, so `ui/index.html` and `mobile/index.html` carry an import map for `@handline/client` and `@handline/contract`.
+- The browser has no build step, so `mobile/index.html` carries an import map for `@handline/client` and `@handline/contract`.
 
 The fake also plays the paired-device listener (`acceptNetwork`, wss on `/rpc`): unpaired connections get the one `unpaired` refusal, `device.pair` and `device.redeem` work, and a token's hello makes a member. Not modelled: attempt limits, code expiry, `devices.list`, `device.revoke`, so fixtures that need them are not run against it (`serve.ts --network-socket PATH` serves the unpaired socket for `contract/conformance.py --as unpaired=PATH`).
 
@@ -41,19 +41,4 @@ for the phone (design 7.4, 4.2); pair device; a real icon (the manifest's are pl
 
 ## PC web UI
 
-`ui/` is the PC app: frame (top bar, agent rail, tabs, context panel, status bar) and the agent page (header controls,
-permission card, empty chat, a dockable live text-grid terminal pane with key chips). It uses `src/` as is and the types of
-`contract/protocol.ts`; no framework and no build step.
-
-- Run: `cd web && npm run ui`, then open http://127.0.0.1:8080/ (starts the fake daemon on ws 7777). TLS is the rule: add
-  `--cert FILE --key FILE` for https (and wss for the fake daemon); without a cert only loopback is served, plain, for development.
-  The page connects to its own host on 7777, `wss` on an https page; another daemon: `/ui/?daemon=wss://host:port`
-  (plain `ws://` is refused unless the daemon is on this machine).
-- `serve-ui.ts` type-strips `.ts` per request, so the browser loads the same files the tests run; Electron can load the same URL.
-- `packages/app-core` (what the screens decide, the store, key tables, the pane workspace) has no DOM and is tested in Node; `web/mobile/store.ts` only shapes that store for the phone views.
-- Type check: `tsc -p ui`.
-- Typing goes through a focused hidden textarea (input and composition events), so IME text and paste work; Backspace, Delete,
-  Left, Right, Home and End are mapped but say "the daemon cannot take it yet" until `session.keys` names them (`DAEMON_KEYS` in `packages/app-core/src/keys.ts`).
-- To type in the terminal, press Take control first (the daemon stops typing there until Release); key chips take it for you.
-- Not built yet: Inbox, Tasks, Team, Accounts and the other screens (their top-bar buttons are disabled); chat (needs `chat.*`
-  from the daemon); a shell pane (needs shell terminals).
+Gone: `apps/web` replaced the no-build `ui/` page and its server (T3583).
