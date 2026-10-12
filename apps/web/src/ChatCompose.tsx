@@ -5,7 +5,6 @@ import { isOpenAsk, type KV, type Verb } from '@handline/app-core';
 import type { AgentDetail, ChatMessage } from '@handline/client';
 import { useAgents, useChatActions } from '@handline/app-data';
 import { setting } from './daemon.ts';
-import { EditorButton } from './EditorButton.tsx';
 import { replyTo } from './ChatMessages.tsx';
 import { menuOf, useEntries, useOpenTerminal, type Entry, type MenuKind } from './ChatMenus.tsx';
 import { VerbSheet } from './AgentVerbs.tsx';
@@ -225,7 +224,6 @@ export function Compose(props: {
             <input type="checkbox" checked={now} onChange={(e) => setNow(e.target.checked)} /> Now
           </label>
         ) : null}
-        {canSend ? <EditorButton text={text} onText={set} /> : null}
         <Button
           className="compose-send rounded-pill"
           variant="solid"
