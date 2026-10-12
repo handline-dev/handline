@@ -32,7 +32,7 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
     so the views go in once it has made the database. Returns the --var for each."""
     names = {w: f"s.{w}" for w in STATES}
     output_agent = "s.output"
-    ask_agent = "s.ask"
+    ask_agent = ASK_AGENT
     for n in [*names.values(), output_agent, ask_agent]:
         (home / "agents" / n).mkdir(parents=True)
         (home / "agents" / n / "agent.yaml").write_text("role: seeded by conformance_fds\n")
@@ -48,6 +48,7 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
             seed_tool_items(con, output_agent)
             seed_workroom(home, con)
             seed_open_question(con, ask_agent)
+            write_team(home, [*names.values(), output_agent, ask_agent])
             con.commit()
             con.close()
             return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, "ask_agent": ask_agent, **WORKROOM}
@@ -81,6 +82,17 @@ def seed_open_question(con: sqlite3.Connection, agent: str) -> None:
     """One open question from the agent to the person, for chat_parent.json."""
     con.execute("INSERT INTO requests(ts, requester, target, body, response, kind, state) VALUES(?, ?, 'human', 'which one?', 'async', 'ask', 'delivered')",
                 (int(time.time()), agent))
+
+
+ASK_AGENT = "s.ask"
+
+
+def write_team(home: Path, agents: list[str]) -> None:
+    """A team where the person may say to any agent, which chat.send needs."""
+    (home / "team.yaml").write_text("agents:\n" + "".join(f"  {n}: {{}}\n" for n in agents) + """edges:
+  - { from: "*", to: "*", relation: peer, response: async }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+""")
 
 
 def seed_tool_items(con: sqlite3.Connection, agent: str) -> None:
@@ -150,10 +162,7 @@ def seed_structured(home: Path, daemon: subprocess.Popen, connect, key: str) -> 
             time.sleep(0.05)
     else:
         raise RuntimeError("the daemon's database did not come up to seed")
-    (home / "team.yaml").write_text("agents:\n" + "".join(f"  {n}: {{}}\n" for n in names.values()) + """edges:
-  - { from: "*", to: "*", relation: peer, response: async }
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
-""")
+    write_team(home, [*names.values(), ASK_AGENT])
     conn = connect()
     call(conn, 1, "hello", {"client": "conformance-seed/1", "protocol": 1, "key": key})
     for i, (var, text) in enumerate(STRUCTURED.items()):
