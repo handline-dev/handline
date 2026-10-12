@@ -21,6 +21,12 @@ const METHODS = /^(worktree\.set_status|agent\.create|operation\.get)$/;
 export class FakeWork {
   /** How long each step of agent.create takes; a test that wants to see a step sets it. */
   stepMs = 0;
+  /** Makes each step of agent.create wait until the test calls the returned function: one call lets one step finish. */
+  stepByStep(): () => void {
+    this.gates = [];
+    return () => this.gates?.shift()?.();
+  }
+  private gates: (() => void)[] | null = null;
   private ops = new Map<string, Operation>();
   private count = 0;
 
@@ -148,7 +154,8 @@ export class FakeWork {
     });
   }
 
-  private wait = (): Promise<void> => new Promise((done) => setTimeout(done, this.stepMs));
+  private wait = (): Promise<void> =>
+    new Promise((done) => (this.gates ? this.gates.push(done) : setTimeout(done, this.stepMs)));
 }
 
 const notFound = (message: string, what: string) => new Failure('not_found', message, { what });

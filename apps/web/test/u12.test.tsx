@@ -10,7 +10,6 @@ import { App } from '../src/App.tsx';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ARCH = 'handline.architect';
-const TB = 'handline.term-build';
 const wait = (ms = 10) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
 async function until(cond: () => unknown, what: string, tries = 300) {
   for (let i = 0; i < tries; i++) {

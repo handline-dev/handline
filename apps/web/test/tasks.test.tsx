@@ -253,17 +253,17 @@ describe('writes', () => {
     await mount('#/tasks', s);
     await loaded();
     await cursorTo(1700);
-    s.daemon.knobs.latency(400);
+    const release = s.daemon.knobs.hold('task.edit');
     await press('p');
     await click(button('1 high', sheet('priority (1 high, 2, 3 low):')!)!);
     await until(() => text(row(1700)).includes('P1'), 'P1 shown at once');
     expect(row(1700)!.classList.contains('pending')).toBe(true);
     expect($('.c-state svg[data-icon="unsaved"]', row(1700)!)).not.toBeNull(); // hollow dot, a shape
     expect(s.daemon.tasks.get({ task: 1700 }).priority).toBeUndefined(); // the daemon has not answered yet
-    await until(() => s.daemon.tasks.get({ task: 1700 }).priority === 1, 'the daemon changed it', 600);
+    release();
+    await until(() => s.daemon.tasks.get({ task: 1700 }).priority === 1, 'the daemon changed it');
     await until(() => !row(1700)!.classList.contains('pending'), 'settled');
     // now a refusal
-    s.daemon.knobs.latency(0);
     s.daemon.knobs.refuse('task.edit', 'state', 'task 1700 is locked', undefined, 1);
     await press('p');
     await click(button('3 low', sheet('priority (1 high, 2, 3 low):')!)!);
@@ -365,12 +365,13 @@ describe('writes', () => {
     await click(button('Discard', ask)!);
     expect(text($('.tsheet-err'))).toContain('A reason is required.'); // an empty reason keeps the sheet open
     await typeInto($('input', ask) as HTMLInputElement, 'not needed');
-    s.daemon.knobs.latency(300);
+    const release = s.daemon.knobs.hold('task.discard');
     await click(button('Discard', ask)!);
     await until(() => text($('.c-state', row(1688)!)).includes('…'), 'the decided mark');
     expect(row(1688)!.classList.contains('pending')).toBe(false); // the row itself is not changed
     expect(text($('.c-state', row(1688)!))).not.toContain('doing');
-    await until(() => !row(1688), 'the row gone', 600);
+    release();
+    await until(() => !row(1688), 'the row gone');
   });
 
   it('folds the marked tasks into the row under the cursor, naming both ends', async () => {
@@ -456,13 +457,13 @@ describe('the detail', () => {
     const [title] = $$('input.tinput', form);
     await typeInto(title as HTMLInputElement, 'Pair the web UI');
     await choose($('select', form) as HTMLSelectElement, '1');
-    s.daemon.knobs.latency(300);
+    const release = s.daemon.knobs.hold('task.edit');
     await click(button('Save', form)!);
     await until(() => text($('.tdetail-head')).includes('Pair the web UI'), 'the new title at once');
     expect(s.daemon.tasks.get({ task: 1700 }).title).toContain('Draft'); // not yet at the daemon
-    await until(() => s.daemon.tasks.get({ task: 1700 }).title === 'Pair the web UI', 'saved', 600);
+    release();
+    await until(() => s.daemon.tasks.get({ task: 1700 }).title === 'Pair the web UI', 'saved');
     expect(s.daemon.tasks.get({ task: 1700 }).priority).toBe(1);
-    s.daemon.knobs.latency(0);
     s.daemon.knobs.refuse('task.edit', 'state', 'locked');
     await click(button('Edit')!);
     await typeInto($$('input.tinput', sheet('Edit #1700')!)[0] as HTMLInputElement, 'Nope'); // local-ref-ok
