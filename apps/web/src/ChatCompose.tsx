@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { isOpenAsk, type KV, type Verb } from '@handline/app-core';
 import type { AgentDetail, ChatMessage } from '@handline/client';
-import { useSelector } from '@handline/app-react';
 import { useAgents, useChatActions } from '@handline/app-data';
 import { setting } from './daemon.ts';
 import { EditorButton } from './EditorButton.tsx';
@@ -30,7 +29,6 @@ export function Compose(props: {
 }) {
   const { agent, detail, storage, canSend, history, messages, target, onClear, restore, running } = props;
   const act = useChatActions(agent);
-  const dismissable = useSelector((s) => s.can('chat.dismiss'));
   const agents = useAgents().data?.agents ?? [];
   const names = new Set(agents.map((a) => a.name));
   const view = agents.find((a) => a.name === agent);
@@ -163,18 +161,6 @@ export function Compose(props: {
           />
           <span className="mono">#{target.id}</span>
           <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>
-          {isOpenAsk(target, agent) && dismissable ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              label="Dismiss"
-              title="Close the question without answering"
-              onClick={() => {
-                act.dismiss(target.id);
-                onClear?.();
-              }}
-            />
-          ) : null}
           <button className="icon" aria-label="Drop the reply" title="Drop the reply (Esc)" onClick={onClear}>
             <Icon name="close" size={14} label="Drop the reply" />
           </button>

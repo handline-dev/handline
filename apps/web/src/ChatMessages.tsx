@@ -140,11 +140,18 @@ export function Message(props: {
         </button>
       ) : null}
       <div className={MSG_BODY}>
+        {/* Hover or pick, and the number hangs left of the first line, the clock right of the last. */}
+        {!unnumbered ? (
+          <span className="mr-1.5 float-left hidden text-[11px] leading-[18px] opacity-60 group-hover:inline group-aria-current:inline">
+            #{m.id}
+          </span>
+        ) : null}
         <RefText text={m.body} agent={agent} onRef={props.onRef} />
+        <span className="ml-1.5 float-right hidden text-[11px] leading-[18px] opacity-60 group-hover:inline group-aria-current:inline">
+          {clock(m.at)}
+        </span>
       </div>
       <div className={`${MSG_META} muted`}>
-        <span className="hidden group-hover:inline group-aria-current:inline">{clock(m.at)}</span>
-        {!unnumbered ? <span className="mono hidden group-hover:inline group-aria-current:inline">#{m.id}</span> : null}
         {side === 'person' && !failed && m.receipt ? (
           <span className="landing receipt" data-receipt={m.receipt.state} title={receiptOf(m.receipt.state).label}>
             {' '}
