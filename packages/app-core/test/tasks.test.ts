@@ -74,7 +74,7 @@ test('dueOf says the time left, then how long overdue, and nothing for a task wi
   assert.deepEqual(dueOf(row(1, { time: clock('2026-10-12T12:00:30Z') }), NOW), { text: '<1m left', over: false });
   assert.deepEqual(dueOf(row(1, { time: clock('2026-10-09T12:00:00Z') }), NOW), { text: '3d overdue', over: true });
   assert.deepEqual(dueOf(row(1, { time: { ...clock('2026-10-12T14:00:00Z'), overdue_since: '2026-10-12T11:00:00Z' } }), NOW), {
-    text: '2h overdue',
+    text: '1h overdue',
     over: true,
   }); // the daemon's word wins
   assert.equal(dueOf(row(1), NOW), null);
