@@ -308,22 +308,22 @@ def test_task_done_sends_the_commit_and_shots_and_task_show_prints_them(home: Pa
     support._board_world(home)
     sent, got = [], {"id": 7, "title": "Fix it", "state": "done", "to": "worker", "from": "manager", "priority": 2, "parent": None,
                      "created": "2026-10-01T10:00:00Z", "time": None, "evidence": "abc123", "done": "2026-10-02T11:30:00Z",
-                     "body": "b", "memos": [], "result": {"commit": "abc1234def", "on_main": True, "no_shot": "a cli change",
+                     "body": "b", "memos": [], "result": {"commit": "abc1234def", "on_main": True,
                                                           "shots": [{"n": 1, "bytes": 2048}]}}
     real = cli_client.write, cli_client.call
     cli_client.write = lambda method, params: (sent.append((method, params)), (True, "done"))[1]
     cli_client.call = lambda method, params: got
     try:
         rc, out = support._cli(["task", "done", "T7", "w", "--repo", "/r", "--commit", "abc1234", "--shot", "a/../b.png",
-                                "--shot", "/s/c.png", "--no-commit", "ops", "--no-shot", "n"], as_agent="worker")
+                                "--shot", "/s/c.png"], as_agent="worker")
         rc2, shown = support._cli(["task", "show", "T7"])
     finally:
         cli_client.write, cli_client.call = real
     check("task done --commit/--shot: sent as given, shots made absolute",
-          rc == 0 and sent == [("task.done", {"task": 7, "repo": "/r", "evidence": "w", "commit": "abc1234", "no_commit": "ops",
-                                              "no_shot": "n", "shots": [os.path.abspath("b.png"), "/s/c.png"]})], str(sent))
-    check("task show: the commit, where main stands, each shot's file and the reason for none",
-          rc2 == 0 and "commit abc1234def (on main)\n" in shown and "no shot: a cli change\n" in shown
+          rc == 0 and sent == [("task.done", {"task": 7, "repo": "/r", "evidence": "w", "commit": "abc1234",
+                                              "shots": [os.path.abspath("b.png"), "/s/c.png"]})], str(sent))
+    check("task show: the commit, where main stands and each shot's file",
+          rc2 == 0 and "commit abc1234def (on main)\n" in shown
           and f"shot {paths.home() / 'shots' / 'T7' / '1.png'} (2048 bytes)\n" in shown, shown)
 
 

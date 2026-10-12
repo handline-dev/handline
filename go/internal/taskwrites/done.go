@@ -52,7 +52,7 @@ func doneMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			forceWords = b
 		}
 		in := DoneIn{Task: tid}
-		if in.Commit, in.NoCommit, in.NoShot, in.Shots, err = resultParams(p); err != nil {
+		if in.Commit, in.Shots, err = resultParams(p); err != nil {
 			return nil, err
 		}
 		by := c.Caller.Actor()
@@ -106,10 +106,9 @@ type DoneIn struct {
 	Sha, Words string
 	Request    *int64
 	Repo       string
-	// Commit is the sha the work was done at (it need not be on main), NoCommit why there is none; Shots are absolute paths of PNG files,
-	// NoShot why a task that shows something on a screen has none.
-	Commit, NoCommit, NoShot string
-	Shots                    []string
+	// Commit is the sha the work was done at (it need not be on main); Shots are absolute paths of PNG files. Both are optional.
+	Commit string
+	Shots  []string
 }
 
 // DoneResult is what a MarkDone leaves for the telling that follows the commit. Finished is false when only a leftover request of an

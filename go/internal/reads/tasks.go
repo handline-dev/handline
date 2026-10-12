@@ -562,12 +562,6 @@ func (e *Env) taskResultOf(tid int64, task map[string]any) error {
 		if res.Commit != "" {
 			out["commit"], out["on_main"] = res.Commit, res.OnMain
 		}
-		if res.NoCommit != "" {
-			out["no_commit"] = res.NoCommit
-		}
-		if res.NoShot != "" {
-			out["no_shot"] = res.NoShot
-		}
 		shots := make([]any, len(res.Shots))
 		for i, s := range res.Shots {
 			shots[i] = map[string]any{"n": s.N, "bytes": s.Bytes}

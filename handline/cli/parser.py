@@ -701,10 +701,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="record the evidence as words even if it looks like hex")
     p.add_argument("--commit", default=None, metavar="SHA",
                    help="the commit the work was done at; it must be in the repo, not necessarily on main")
-    p.add_argument("--no-commit", default=None, metavar="WHY", help="why there is no commit (research, ops)")
     p.add_argument("--shot", action="append", default=None, metavar="FILE.png",
                    help="a screenshot of the result, kept with the task; repeat for more")
-    p.add_argument("--no-shot", default=None, metavar="WHY", help="why there is no screenshot of a ui task")
     p.set_defaults(fn=cmd_task_done)
     p = tk.add_parser("reopen", help="send a done task back to doing (#71) - the asker "
                                      "or the founder; needs a one-line reason")

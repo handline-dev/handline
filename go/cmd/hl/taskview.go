@@ -162,8 +162,8 @@ func detailLines(t obj, now float64, home string) []string {
 	return out
 }
 
-// resultLines are what the task's end kept: the commit and whether main reaches it, the screenshots where the daemon keeps
-// them (shots/T<n>/<k>.png under its home), and the reason given for either one missing.
+// resultLines are what the task's end kept: the commit and whether main reaches it, and the screenshots where the daemon keeps
+// them (shots/T<n>/<k>.png under its home).
 func resultLines(r obj, tid int64, home string) []string {
 	var out []string
 	if given(r, "commit") {
@@ -173,14 +173,8 @@ func resultLines(r obj, tid int64, home string) []string {
 		}
 		out = append(out, fmt.Sprintf("commit %s (%s)", str(r, "commit"), where))
 	}
-	if given(r, "no_commit") {
-		out = append(out, "no commit: "+str(r, "no_commit"))
-	}
 	for _, s := range list(r, "shots") {
 		out = append(out, fmt.Sprintf("shot %s (%d bytes)", taskresult.ShotFile(home, tid, int(num(s, "n"))), num(s, "bytes")))
-	}
-	if given(r, "no_shot") {
-		out = append(out, "no shot: "+str(r, "no_shot"))
 	}
 	return out
 }

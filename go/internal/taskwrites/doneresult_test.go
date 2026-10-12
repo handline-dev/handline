@@ -121,9 +121,6 @@ func TestDoneRefusesACommitThatIsNotOneAndAShaThatNeverLanded(t *testing.T) {
 	if got := errText(done("w", "c2", 1, `,"evidence":"x","commit":"deadbeef"`)); got != "a sha is checked against a repo: name one" {
 		t.Fatalf("%q", got)
 	}
-	if got := errText(done("w", "c3", 1, `,"evidence":"x","commit":"abcd1234","no_commit":"research"`)); !strings.Contains(got, "give one") {
-		t.Fatalf("%q", got)
-	}
 	// evidence that is a sha must be on main
 	if got := errText(done("w", "c4", 5, fmt.Sprintf(`,"evidence":%q,"repo":%q`, offMain, repo))); got != offMain+" is not an ancestor of main" {
 		t.Fatalf("%q", got)
@@ -137,15 +134,15 @@ func TestDoneRefusesACommitThatIsNotOneAndAShaThatNeverLanded(t *testing.T) {
 	}
 }
 
-func TestAUITaskIsDoneWithAScreenshotOrTheReasonForNone(t *testing.T) {
+func TestAUITaskIsDoneWithOrWithoutAScreenshot(t *testing.T) {
 	home, _, _, _, done, ui := newResultRig(t)
 	ui(2)
 	ui(3)
 	ui(4)
 	ui(6)
 	ui(1)
-	if got := errText(done("w", "u1", 2, `,"evidence":"built"`)); !strings.Contains(got, "shows something on a screen") {
-		t.Fatalf("a ui task was done without a shot: %q", got)
+	if r := done("w", "u1", 3, `,"evidence":"built"`); r["result"] == nil || !resultOf(3).Empty() {
+		t.Fatalf("a ui task was refused without a shot: %v", r)
 	}
 	shot := pngFile(t, filepath.Join(home, "agents", "w"), "s.png", 1000)
 	if r := done("w", "u2", 2, fmt.Sprintf(`,"evidence":"built","shots":[%q]`, shot)); r["result"] == nil {
@@ -158,10 +155,6 @@ func TestAUITaskIsDoneWithAScreenshotOrTheReasonForNone(t *testing.T) {
 	st, err := os.Stat(kept)
 	if err != nil || st.Mode().Perm() != 0o600 || st.Size() != 1008 {
 		t.Fatalf("%v %v", st, err)
-	}
-	// the reason for none is kept with the task
-	if r := done("w", "u3", 3, `,"evidence":"built","no_shot":"the daemon has no screen"`); r["result"] == nil || resultOf(3).NoShot != "the daemon has no screen" {
-		t.Fatalf("%v %+v", r, resultOf(3))
 	}
 	// what is not a screenshot is refused, and the task stays open
 	txt := filepath.Join(t.TempDir(), "x.png")

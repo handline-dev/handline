@@ -366,8 +366,6 @@ export type TaskDetail = Task & {
     commit?: string;
     /** Whether main reaches commit. */
     on_main?: boolean;
-    no_commit?: string;
-    no_shot?: string;
     /** Fetch each with task.shot. */
     shots: {
       n: number;
@@ -1766,7 +1764,7 @@ export interface Methods {
     /** {task} is replaced by the new task's number. */
     text: string;
   };
-  /** The task shows something on a screen: it cannot be done without a screenshot (task.done shots), or the reason for none (no_shot). The founder is exempt. */
+  /** The task shows something on a screen. A label only: task.done takes a screenshot (shots) but never requires one. */
   ui?: boolean;
   request_id: RequestId;
 }; result: Accepted & {
@@ -1790,12 +1788,8 @@ export interface Methods {
   reason?: boolean;
   /** The sha the work was done at; it must be a commit in repo (it need not be on main). The result says whether main reaches it. A sha given as evidence is a commit on main already. */
   commit?: string;
-  /** Why there is no commit (research, ops). Not with commit. */
-  no_commit?: string;
   /** Absolute paths of PNG files, at most 10 MiB each. An agent names files under its worktree, its folder in the daemon's home or the scratch folder; the founder any file. The daemon copies them under its home (shots/T<n>/<k>.png, outside any repo) once the task's end has committed, and serves them with task.shot. */
   shots?: string[];
-  /** Why a ui task has no screenshot. Not with shots. */
-  no_shot?: string;
   request_id: RequestId;
 }; result: Accepted };
   "task.reopen": { params: {
