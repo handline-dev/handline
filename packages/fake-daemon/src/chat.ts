@@ -184,6 +184,9 @@ export class FakeChat {
   send(p: Record<string, unknown>, person: string, takeAttachments: (ids: unknown) => Attachment[] = () => []) {
     const agent = String(p.agent),
       body = p.body;
+    const asked = typeof p.parent === 'number' ? this.messages.find((m) => m.id === p.parent) : undefined;
+    if (Array.isArray(p.attachments) && p.attachments.length && asked?.kind === 'question' && !asked.answer)
+      throw new ChatFailure('bad_request', 'an answer takes no images');
     const attachments = takeAttachments(p.attachments);
     if (typeof body !== 'string' || (!body.trim() && !attachments.length)) throw new ChatFailure('bad_request', 'a message needs a body');
     const open = this.sessions.get(agent)?.state !== 'parked';

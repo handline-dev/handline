@@ -8,6 +8,7 @@ import { setting } from './daemon.ts';
 import { replyTo } from './ChatMessages.tsx';
 import { menuOf, useEntries, useOpenTerminal, type Entry, type MenuKind } from './ChatMenus.tsx';
 import { VerbSheet } from './AgentVerbs.tsx';
+import { useCan } from './taskui.tsx';
 import { AttachChips, attachHandlers, PickButton, useAttachDraft } from './ChatAttach.tsx';
 import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow } from './ui/index.ts';
 
@@ -30,6 +31,7 @@ export function Compose(props: {
   const { agent, detail, storage, canSend, history, messages, target, onClear, restore, running } = props;
   const act = useChatActions(agent);
   const att = useAttachDraft();
+  const canAttach = useCan('attachment.put');
   const agents = useAgents().data?.agents ?? [];
   const names = new Set(agents.map((a) => a.name));
   const view = agents.find((a) => a.name === agent);
@@ -103,10 +105,12 @@ export function Compose(props: {
     setRefused(null);
     const delivery = choosing && now ? ('now' as const) : undefined;
     // Replying to a question that waits for you answers it; to anything else sends a linked message to whoever said it.
-    // With images the message is words to the agent, never a command or an answer: a / line goes as text and an open question gets a linked reply.
+    // An answer takes no images: under an open question the words answer it, and the images go after as a message of their own.
     const attachments = att.ids;
-    if (target && isOpenAsk(target, agent) && !attachments.length) act.answer(target.id, text);
-    else if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery, attachments });
+    if (target && isOpenAsk(target, agent)) {
+      if (text.trim()) act.answer(target.id, text);
+      if (attachments.length) act.send('', { attachments });
+    } else if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery, attachments });
     else act.send(text, { delivery, attachments });
     att.clear();
     setNow(false);
@@ -155,7 +159,7 @@ export function Compose(props: {
     }
   };
   return (
-    <div className="compose-wrap flex flex-col" {...attachHandlers(att.add)}>
+    <div className="compose-wrap flex flex-col" {...attachHandlers(canAttach.ok ? att.add : () => undefined)}>
       {/* The reply bar's row is always this tall, so picking a message never shifts the stream to make room. */}
       <div className="mx-3 mb-1 flex h-[26px] items-center">
         {target ? (
@@ -220,7 +224,7 @@ export function Compose(props: {
           }}
           onKeyDown={onKey}
         />
-        <PickButton onPick={att.add} disabled={!canSend} />
+        <PickButton onPick={att.add} disabled={!canSend || !canAttach.ok} />
         {clearing ? (
           <span className="compose-clear self-center text-wait" role="status" title="Esc again clears the draft">
             <Icon name="warn" size={14} label="Esc again clears the draft" />
