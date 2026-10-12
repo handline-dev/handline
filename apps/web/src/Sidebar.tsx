@@ -251,9 +251,7 @@ function Row({
   const ctx = ctxOf(a);
   const queue = queueOf(a, unreached);
   const badges = badgesOf(a, store.me).filter((b) => b.kind !== 'no_terminal'); // the word already says it
-  const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
-    .filter(Boolean)
-    .join(' · ');
+  const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : ''].filter(Boolean).join(' · ');
   // The left edge: the waiting hue outranks the selection.
   const edge = dot === 'waiting' ? 'border-l-wait' : selected ? 'border-l-primary' : 'border-l-transparent';
   const showControls = selected || hot || menuOpen;

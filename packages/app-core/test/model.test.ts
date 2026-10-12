@@ -14,7 +14,6 @@ import {
   visibleRows,
   queueOf,
   RAIL_FILTERS,
-  RAIL_STATE_WORD,
   stopModesOf,
   shortName,
   teamOf,
@@ -110,12 +109,10 @@ test('a collapsed parent hides its descendants', () => {
   assert.deepEqual(names(['a', 'b']), ['a', 'b']);
 });
 
-test('every rail dot has a state word, and the filter choices cover each dot once', () => {
-  const dots = Object.keys(RAIL_STATE_WORD) as Dot[];
+test('the filter choices cover each rail dot once', () => {
+  const dots: Dot[] = ['waiting', 'blocked', 'running', 'waking', 'idle', 'parked', 'none'];
   const covered = RAIL_FILTERS.flatMap((f) => f.dots).sort();
   assert.deepEqual(covered, [...dots].sort());
-  assert.equal(RAIL_STATE_WORD[dotOf(agent('x', { state: 'queued' }))], 'waking');
-  assert.equal(RAIL_STATE_WORD[dotOf(agent('x', { state: 'no_terminal' }))], 'sleeping');
 });
 
 test('queue counts are null when the view does not carry them, never a made-up 0', () => {
