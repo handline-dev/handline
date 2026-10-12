@@ -162,6 +162,8 @@ if (!app.requestSingleInstanceLock()) {
       trustFingerprint(remote);
     }
     // The device token, the layouts and the settings are kept per page origin, so the page keeps one port from launch to launch.
+    if (gateway && !env('GATEWAY') && !onTailnet(gateway))
+      console.warn(`Tailscale is down: the gateway listens on ${gateway} only, so a phone cannot pair`);
     const web = await pageServer();
     const origin = new URL(web.url).origin;
     const page = new Page(origin);
