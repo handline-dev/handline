@@ -1,7 +1,20 @@
 // The HR tab: the proposals agents raised. Approve, reject and withdraw are decided writes (the card changes when the hr topic or a refetch
 // says so); only the founder sees them, and a phone shows the cards read-only.
 import { useEffect, useRef, useState } from 'react';
-import { askedLines, cutError, diffLines, kindOf, isWaiting, ordered, stateWord, textSafe, waitingCount } from '@handline/app-core';
+import {
+  askedLines,
+  cutError,
+  decideMany,
+  type DecideResult,
+  diffLines,
+  kindOf,
+  isWaiting,
+  ordered,
+  settled,
+  stateWord,
+  textSafe,
+  waitingCount,
+} from '@handline/app-core';
 import type { Proposal } from '@handline/client';
 import { useOnce, useStore } from '@handline/app-react';
 import { classify, sentence, useAgents, useHr, usePending, useWrite } from '@handline/app-data';
@@ -53,88 +66,127 @@ export function HrTab({ focus }: { focus: number | null }) {
   const founder = store.client.hello?.role === 'founder';
   const narrow = useNarrow();
   const decide = useWrite('hr.decide');
-  const [all, setAll] = useState<'ask' | 'reject' | string | null>(null);
+  const [all, setAll] = useState<'ask' | 'reject' | null>(null);
+  const [picked, setPicked] = useState<ReadonlySet<number>>(new Set());
+  const [results, setResults] = useState<{ verb: string; rows: DecideResult[] } | null>(null);
   const [why, setWhy] = useState('');
   const [going, once] = useOnce();
   const list = q.data?.proposals ?? [];
   const { waiting, recent } = ordered(list);
   const decider = founder && !narrow;
-  const approveAll = () =>
-    once(async () => {
-      const todo = waiting;
-      let ok = 0;
-      for (const p of todo) {
-        try {
-          await decide.mutateAsync({ proposal: p.id, decision: 'approve', subject: p.subject });
-          ok++;
-        } catch {
-          // the card shows its own refusal; the others go on
-        }
-      }
-      setAll(ok === todo.length ? null : `${ok} of ${todo.length} approved`);
-      void q.refetch();
+  // The ones the bulk verbs act on: those ticked (and still waiting), else every waiting one.
+  const chosen = waiting.filter((p) => picked.has(p.id));
+  const targets = chosen.length ? chosen : waiting;
+  const scope = chosen.length ? `${chosen.length} selected` : `all ${waiting.length}`;
+  const toggle = (id: number) =>
+    setPicked((s) => {
+      const n = new Set(s);
+      if (!n.delete(id)) n.add(id);
+      return n;
     });
-  const rejectAll = () =>
+  const run = (decision: 'approve' | 'reject') =>
     once(async () => {
-      const todo = waiting;
-      const note = why.trim();
-      let ok = 0;
-      for (const p of todo) {
-        try {
-          await decide.mutateAsync({ proposal: p.id, decision: 'reject', note, subject: p.subject });
-          ok++;
-        } catch {
-          // the card shows its own refusal; the others go on
-        }
-      }
+      const sent = await decideMany(targets, decision, why.trim(), decide.mutateAsync, (e) => sentence(classify(e)));
+      // an accepted approve whose apply then failed is not an approval: the outcome is what the list says now
+      const rows = settled(sent, (await q.refetch()).data?.proposals ?? []);
       setWhy('');
-      setAll(ok === todo.length ? null : `${ok} of ${todo.length} rejected`);
-      void q.refetch();
+      setAll(null);
+      setPicked(new Set());
+      setResults({ verb: decision === 'approve' ? 'approved' : 'rejected', rows });
     });
   return (
     <View q={q} served shape="inbox" what="HR proposals" empty={false}>
       <div className="hr mx-auto w-full max-w-[760px]">
         <div className="hr-head flex items-center justify-between py-2">
           <strong>HR{waitingCount(list) ? ` · ${waitingCount(list)} waiting` : ''}</strong>
-          {decider && waiting.length > 1 && all !== 'ask' && all !== 'reject' ? (
+          {decider && waiting.length > 1 && !all ? (
             <SheetActions>
-              <Button variant="outline" label="Approve all" onClick={() => setAll('ask')} />
-              <Button variant="outline" label="Reject all" onClick={() => setAll('reject')} />
+              <Button
+                variant="outline"
+                label={chosen.length === waiting.length ? 'Clear' : 'Select all'}
+                onClick={() => setPicked(chosen.length === waiting.length ? new Set() : new Set(waiting.map((p) => p.id)))}
+              />
+              <Button
+                variant="outline"
+                label={chosen.length ? `Approve ${chosen.length} selected` : 'Approve all'}
+                onClick={() => setAll('ask')}
+              />
+              <Button
+                variant="outline"
+                label={chosen.length ? `Reject ${chosen.length} selected` : 'Reject all'}
+                onClick={() => setAll('reject')}
+              />
             </SheetActions>
           ) : null}
         </div>
         {all === 'ask' ? (
           <Sheet role="alertdialog" aria-label="Approve all">
-            <strong>Approve all {waiting.length}?</strong>
+            <strong>{chosen.length ? `Approve ${scope}?` : `Approve all ${waiting.length}?`}</strong>
             <span className="muted">Each is applied as the card shows it; one that fails stays waiting.</span>
             <SheetActions>
-              <Button variant="solid" label="Approve all" className="max-sm:min-h-12 max-sm:flex-1" disabled={going} onClick={() => void approveAll()} />
-              <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" disabled={going} onClick={() => setAll(null)} />
+              <Button
+                variant="solid"
+                label={chosen.length ? `Approve ${chosen.length}` : 'Approve all'}
+                className="max-sm:min-h-12 max-sm:flex-1"
+                disabled={going}
+                onClick={() => void run('approve')}
+              />
+              <Button
+                variant="outline"
+                label="Cancel"
+                className="max-sm:min-h-12 max-sm:flex-1"
+                disabled={going}
+                onClick={() => setAll(null)}
+              />
             </SheetActions>
           </Sheet>
         ) : all === 'reject' ? (
           <Sheet role="alertdialog" aria-label="Reject all">
-            <strong>Reject all {waiting.length}?</strong>
+            <strong>{chosen.length ? `Reject ${scope}?` : `Reject all ${waiting.length}?`}</strong>
             <input aria-label="Reason" placeholder="Reason" value={why} onChange={(e) => setWhy(e.target.value)} />
             <SheetActions>
               <Button
                 variant="solid"
-                label="Reject all"
+                label={chosen.length ? `Reject ${chosen.length}` : 'Reject all'}
                 className="max-sm:min-h-12 max-sm:flex-1"
                 disabled={going || !why.trim()}
-                onClick={() => void rejectAll()}
+                onClick={() => void run('reject')}
               />
-              <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" disabled={going} onClick={() => setAll(null)} />
+              <Button
+                variant="outline"
+                label="Cancel"
+                className="max-sm:min-h-12 max-sm:flex-1"
+                disabled={going}
+                onClick={() => setAll(null)}
+              />
             </SheetActions>
           </Sheet>
-        ) : all ? (
-          <FNote tone="warn" role="status">
-            {all}
-          </FNote>
+        ) : results ? (
+          <div className="flex flex-col gap-1 py-2 text-label" role="status" aria-label="Result">
+            <strong>
+              {results.rows.filter((r) => r.ok).length} of {results.rows.length} {results.verb}
+            </strong>
+            {results.rows.map((r) => (
+              <div key={r.id} className={r.ok ? '' : 'text-bad'}>
+                {r.ok ? '✓' : '✗'} {textSafe(r.title)}
+                {r.error ? ` - ${r.error}` : ''}
+              </div>
+            ))}
+            <Button variant="outline" label="Dismiss" onClick={() => setResults(null)} />
+          </div>
         ) : null}
         {list.length ? null : <Empty icon="inbox" name="Nothing to decide" hint="Roster and role changes agents propose land here." />}
         {waiting.map((p) => (
-          <Card key={p.id} p={p} decider={decider} narrow={narrow} focus={focus === p.id} refresh={() => void q.refetch()} />
+          <Card
+            key={p.id}
+            p={p}
+            decider={decider}
+            narrow={narrow}
+            focus={focus === p.id}
+            on={picked.has(p.id)}
+            pick={() => toggle(p.id)}
+            refresh={() => void q.refetch()}
+          />
         ))}
         {recent.length ? <SectionHead variant="small">Recent</SectionHead> : null}
         {recent.map((p) => (
@@ -150,12 +202,16 @@ function Card({
   decider,
   narrow,
   focus,
+  on,
+  pick,
   refresh,
 }: {
   p: Proposal;
   decider: boolean;
   narrow: boolean;
   focus: boolean;
+  on?: boolean;
+  pick?: () => void;
   refresh: () => void;
 }) {
   const decide = useWrite('hr.decide', String(p.id));
@@ -209,6 +265,9 @@ function Card({
     >
       <header className="hr-top flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
         <span className="hr-title inline-flex min-w-0 items-center gap-1.5 text-title font-semibold [overflow-wrap:anywhere]">
+          {decider && waiting && pick ? (
+            <input type="checkbox" aria-label={`Select ${textSafe(p.title)}`} checked={!!on} onChange={pick} />
+          ) : null}
           <Icon name="team" size={16} aria-hidden="true" /> {textSafe(p.title)}
         </span>
         <span className={`hr-state ${state.tone} inline-flex items-center gap-1.5 text-label text-ink-2`}>
@@ -253,9 +312,7 @@ function Card({
           ))}
         </CodeBlock>
       ) : null}
-      {p.state === 'apply_failed' ? (
-        <FNote tone="bad">{p.error ? cutError(textSafe(p.error)) : 'the change was not applied'}</FNote>
-      ) : null}
+      {p.state === 'apply_failed' ? <FNote tone="bad">{p.error ? cutError(textSafe(p.error)) : 'the change was not applied'}</FNote> : null}
       {note === 'settled' ? (
         <p className="muted">already {p.state}</p>
       ) : note ? (

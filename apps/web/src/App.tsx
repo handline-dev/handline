@@ -29,6 +29,7 @@ import { KeysSheet } from './KeysSheet.tsx';
 import { Palette } from './Palette.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { DaemonDown } from './DaemonDown.tsx';
+import { HrBanner } from './HrBanner.tsx';
 import { StatusBar } from './StatusBar.tsx';
 import { TasksPage } from './Tasks.tsx';
 import { AgentWorkspace } from './Workspace.tsx';
@@ -154,9 +155,15 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             </div>
           )}
         </main>
+        <HrBanner />
         {newAgent.open ? <NewAgent onClose={() => void (location.hash = '')} /> : null}
         {error ? (
-          <div className="toast fixed right-4 bottom-10 max-w-[420px] rounded-[8px] bg-ink px-3.5 py-2.5 text-canvas shadow-[var(--shadow-pop)]" role="status" onClick={() => store.dismissError()} title="Click to dismiss">
+          <div
+            className="toast fixed right-4 bottom-10 max-w-[420px] rounded-[8px] bg-ink px-3.5 py-2.5 text-canvas shadow-[var(--shadow-pop)]"
+            role="status"
+            onClick={() => store.dismissError()}
+            title="Click to dismiss"
+          >
             {error}
           </div>
         ) : null}

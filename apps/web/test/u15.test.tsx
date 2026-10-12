@@ -121,7 +121,7 @@ describe('U15 HR', () => {
     await open(s);
     await until(() => $('.hr-card'), 'the card');
     await click(btn(card(1), 'Reject'));
-    const input = card(1).querySelector<HTMLElement>('input')!;
+    const input = card(1).querySelector<HTMLElement>('input[type=text]')!;
     await act(async () => void input.closest('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
     expect(p.state).toBe('open');
     await typeInto(input, 'not now');
@@ -201,6 +201,42 @@ describe('U15 HR', () => {
     await until(() => a.state === 'rejected' && b.state === 'rejected', 'both rejected');
   });
 
+  it('ticked proposals alone are approved, the confirm counts them and the result lists each one', async () => {
+    const s = setup();
+    const a = raise(s, 1);
+    const b = raise(s, 2);
+    const c = raise(s, 3);
+    hrOf(s).failApply.set(3, 'could not write the file');
+    await open(s);
+    await until(() => $$('.hr-card').length === 3, 'three cards');
+    await click(card(1).querySelector('input[type=checkbox]')!);
+    await click(card(3).querySelector('input[type=checkbox]')!);
+    await click($$('button').find((x) => text(x) === 'Approve 2 selected')!);
+    expect(text($('.verb-sheet'))).toContain('Approve 2 selected?');
+    await click($$('.verb-sheet button').find((x) => text(x) === 'Approve 2')!);
+    await until(() => $('[aria-label="Result"]'), 'the result');
+    expect(a.state).toBe('approved');
+    expect(b.state).toBe('open');
+    expect(c.state).toBe('apply_failed');
+    await until(() => text($('[aria-label="Result"]')).includes('could not write the file'), 'the failure in the result');
+    expect(text($('[aria-label="Result"]'))).toContain('1 of 2 approved');
+  });
+
+  it('Reject selected needs a reason and leaves the unticked ones waiting', async () => {
+    const s = setup();
+    const a = raise(s, 1);
+    const b = raise(s, 2);
+    await open(s);
+    await until(() => $$('.hr-card').length === 2, 'two cards');
+    await click(card(2).querySelector('input[type=checkbox]')!);
+    await click($$('button').find((x) => text(x) === 'Reject 1 selected')!);
+    expect(text($('.verb-sheet'))).toContain('Reject 1 selected?');
+    await typeInto($('.verb-sheet input')!, 'no');
+    await click($$('.verb-sheet button').find((x) => text(x) === 'Reject 1')!);
+    await until(() => b.state === 'rejected', 'rejected');
+    expect(a.state).toBe('open');
+  });
+
   it('Withdraw asks first, then takes the proposal back', async () => {
     const s = setup();
     const p = raise(s, 1);
@@ -231,6 +267,43 @@ describe('U15 HR', () => {
     await until(() => btn(card(1), 'Approve'), 'the buttons');
     expect(btn(card(1), 'Edit settings')).toBeUndefined();
     expect(btn(card(2), 'Edit settings')).toBeUndefined();
+  });
+
+  it('a new proposal shows on another page with Approve; the HR tab and a member do not get the banner', async () => {
+    const s = setup();
+    const a = raise(s, 1);
+    await open(s, '#/stats');
+    await until(() => $('.hr-banner-item'), 'the banner');
+    expect(text($('.hr-banner-item'))).toContain('settings handline.x1');
+    await click(btn($('.hr-banner-item')!, 'Approve'));
+    await until(() => a.state === 'approved', 'approved from the banner');
+    await until(() => !$('.hr-banner-item'), 'the banner leaves');
+    raise(s, 2);
+    await until(() => $('.hr-banner-item'), 'the next banner');
+    location.hash = '#/team/hr';
+    await until(() => $('.hr-card') && !$('.hr-banner-item'), 'no banner on the HR tab');
+  });
+
+  it('Reject on the banner needs a reason', async () => {
+    const s = setup();
+    const a = raise(s, 1);
+    await open(s, '#/stats');
+    await until(() => $('.hr-banner-item'), 'the banner');
+    await click(btn($('.hr-banner-item')!, 'Reject'));
+    const form = $('.hr-banner-item form')!;
+    await act(async () => void form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    expect(a.state).toBe('open');
+    await typeInto($('.hr-banner-item input')!, 'not now');
+    await act(async () => void form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    await until(() => a.state === 'rejected', 'rejected');
+  });
+
+  it('a member gets no banner', async () => {
+    const s = setup({ role: 'member' });
+    raise(s, 1);
+    await open(s, '#/stats');
+    await wait(100);
+    expect($('.hr-banner')).toBeNull();
   });
 
   it('a member reads the cards but has no decide control', async () => {
