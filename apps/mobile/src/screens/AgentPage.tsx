@@ -16,14 +16,13 @@ import { PromptSlot } from './PromptCard.tsx';
 import { Transcript } from './Transcript.tsx';
 import { AboveKeyboard, Button, Row } from './parts.tsx';
 
-/** What a start, resume, stop or interrupt in flight on this agent says while the daemon decides. */
+/** What a start, stop or interrupt in flight on this agent says while the daemon decides. */
 function useAgentMark(agent: string): string | null {
   const mine = (xs: { agent: string }[]) => xs.some((p) => p.agent === agent);
   const start = usePending('session.start');
-  const resume = usePending('session.wake');
   const stop = usePending('session.stop');
   const interrupt = usePending('session.interrupt');
-  return mine(start) ? 'Starting…' : mine(resume) ? 'Resuming…' : mine(stop) ? 'Stopping…' : mine(interrupt) ? 'Interrupting…' : null;
+  return mine(start) ? 'Starting…' : mine(stop) ? 'Stopping…' : mine(interrupt) ? 'Interrupting…' : null;
 }
 
 export function AgentPage() {

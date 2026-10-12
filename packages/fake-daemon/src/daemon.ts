@@ -363,6 +363,11 @@ export class FakeDaemon {
     const actor = this.actor(c);
     const agent = () => this.session(p.agent);
     const ok = (said: string, extra = {}) => ({ ...this.script.accepted(said), ...extra });
+    if (method === 'chat.send') {
+      // A message to an agent with no open session starts one: nobody wakes an agent by hand.
+      const s = agent();
+      if (!s.open) this.script.startSession(s, false, actor);
+    }
     if (method.startsWith('chat.')) return chatMethod(this.chat, method, p, c.caller.name, agent, ok, (id) => this.inbox.dismiss(id));
     const owned = this.moduleCall(c, method, p, ok);
     if (owned) return owned.value;
