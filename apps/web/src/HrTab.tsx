@@ -37,19 +37,7 @@ import {
 } from './ui/index.ts';
 import { goSettings } from './route.ts';
 import { View } from './View.tsx';
-
-const useNarrow = (): boolean => {
-  const query = '(max-width: 640px)';
-  const [on, setOn] = useState(() => (typeof matchMedia === 'function' ? matchMedia(query).matches : false));
-  useEffect(() => {
-    if (typeof matchMedia !== 'function') return;
-    const m = matchMedia(query);
-    const f = () => setOn(m.matches);
-    m.addEventListener('change', f);
-    return () => m.removeEventListener('change', f);
-  }, []);
-  return on;
-};
+import { useNarrow } from './useNarrow.ts';
 
 /** A proposal's state as the shared state glyph: a shape per state, so the word's colour is never the only sign. */
 const STATE_KIND: Record<string, StateKind> = {

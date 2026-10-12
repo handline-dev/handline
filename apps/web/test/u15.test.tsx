@@ -298,6 +298,47 @@ describe('U15 HR', () => {
     await until(() => a.state === 'rejected', 'rejected');
   });
 
+  it('the banner disables Approve and Reject while a decision is in flight', async () => {
+    const s = setup();
+    const a = raise(s, 1);
+    await open(s, '#/stats');
+    await until(() => $('.hr-banner-item'), 'the banner');
+    const item = $('.hr-banner-item')!;
+    const approve = btn(item, 'Approve') as HTMLButtonElement;
+    const release = s.daemon.knobs.hold('hr.decide');
+    const decide = vi.spyOn(s.client, 'call');
+    await click(approve);
+    await until(() => approve.disabled, 'Approve off while the call waits');
+    expect((btn(item, 'Reject') as HTMLButtonElement).disabled).toBe(true);
+    await click(approve);
+    expect(decide.mock.calls.filter(([m]) => m === 'hr.decide')).toHaveLength(1);
+    release();
+    await until(() => a.state === 'approved', 'approved once');
+    expect(text($('.hr-banner-item'))).not.toContain('already');
+  });
+
+  it('on a phone the banner is read-only: Review only, like the HR tab', async () => {
+    const real = window.matchMedia;
+    window.matchMedia = ((q: string) => ({
+      matches: q.includes('max-width'),
+      media: q,
+      addEventListener() {},
+      removeEventListener() {},
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const s = setup();
+      raise(s, 1);
+      await open(s, '#/stats');
+      await until(() => $('.hr-banner-item'), 'the banner');
+      const item = $('.hr-banner-item')!;
+      expect(btn(item, 'Approve')).toBeUndefined();
+      expect(btn(item, 'Reject')).toBeUndefined();
+      expect(btn(item, 'Review')).toBeDefined();
+    } finally {
+      window.matchMedia = real;
+    }
+  });
+
   it('a member gets no banner', async () => {
     const s = setup({ role: 'member' });
     raise(s, 1);
