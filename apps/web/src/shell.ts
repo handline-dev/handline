@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { routeOfTarget, type ShellApi } from '@handline/app-core';
 import { useBusy, useUnread } from '@handline/app-data';
 
-type Call = 'screen' | 'unsent' | 'onNavigate' | 'openPath' | 'compose' | 'cancelCompose' | 'mode' | 'setMode' | 'pairRemote';
+type Call = 'screen' | 'unsent' | 'onNavigate' | 'openPath' | 'compose' | 'cancelCompose' | 'mode' | 'setMode' | 'pairRemote' | 'phone';
 
 /** True in the desktop shell; main.tsx marks <html data-shell=desktop> from it. */
 export const inShell = (): boolean => typeof window !== 'undefined' && 'handline' in window;

@@ -85,9 +85,11 @@ function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote |
     mode: () => ({ mode, remote: remote?.host ?? null }),
     setMode: (m) => own.switchMode(m),
     pair: (i) => own.pair(i),
+    phone: () => own.phone(),
   });
   ipcMain.handle(CHANNELS.mode, (e) => c.mode(e));
   ipcMain.handle(CHANNELS.setMode, (e, arg) => c.setMode(e, arg));
+  ipcMain.handle(CHANNELS.phone, (e) => c.phone(e));
   ipcMain.handle(CHANNELS.pairRemote, (e, arg) => c.pairRemote(e, arg));
 }
 
@@ -110,9 +112,7 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
     title: 'Handline',
     show: false,
     // No OS title bar; the traffic lights sit over the sidebar (styles/base.css makes room).
-    ...(os.platform() === 'darwin'
-      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 13 } }
-      : {}),
+    ...(os.platform() === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 13 } } : {}),
     // The page gets window.handline from the preload and nothing else (docs/electron-bridge.md §2).
     webPreferences: {
       contextIsolation: true,
