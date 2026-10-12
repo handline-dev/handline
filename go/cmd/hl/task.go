@@ -448,6 +448,14 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	if !asking(c, "edit a task") {
 		return 1, true
 	}
+	// --owner moved the work until owner and assignee were split; alone it would now quietly leave the work where it is.
+	if owner, given := p.opt("--owner"); given {
+		if _, assigned := p.opt("--assign"); !assigned {
+			fmt.Printf("--owner is who answers for a task, not who works it, so it needs --assign too. To move the work:\n  hl task edit T%d --assign %s\n"+
+				"To change only who answers for it, name the assignee it keeps:\n  hl task edit T%d --owner %s --assign <its assignee>\n", tid, owner, tid, owner)
+			return 1, true
+		}
+	}
 	params := map[string]any{"task": tid}
 	body, hasBody := p.opt("--body")
 	bodyFile, _ := p.opt("--body-file")
