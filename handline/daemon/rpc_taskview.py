@@ -163,6 +163,22 @@ def _detail(con, row, state: str) -> dict:
             "timeline": _timeline(con, row["id"]), "people": {"recent": recent, "team": team, "others": others}}
 
 
+def _assignments(events) -> list[dict]:
+    """Each change of who works the task (the owner column) or who answers for it (the reporter) an edit made, oldest first."""
+    out = []
+    for e in events:
+        if e["kind"] != "edit_task":
+            continue
+        try:
+            p = json.loads(e["payload"] or "{}")
+        except ValueError:
+            continue
+        for key, what in (("owner", "assignee"), ("reporter", "owner")):
+            if isinstance(p.get(key), dict):
+                out.append({"at": agentview._ts(e["ts"]), "by": e["agent"], "what": what, "from": p[key].get("old"), "to": p[key].get("new")})
+    return out
+
+
 def _task_get(ctx, params) -> dict:
     tid = _int(params, "task")
     if tid is None:
@@ -183,7 +199,8 @@ def _task_get(ctx, params) -> dict:
                              for b in db.task_blockers(con, tid)],
                 "children": [r["id"] for r in con.execute("SELECT id FROM tasks WHERE parent_task = ? ORDER BY id", (tid,))],
                 "handoffs": [{"at": agentview._ts(h["ts"]), "from": h["from"], "to": h["to"], "note": h["note"]}
-                             for h in db.task_handoffs(con, tid)]}
+                             for h in db.task_handoffs(con, tid)],
+                "assignments": _assignments(events)}
     finally:
         con.close()
 
