@@ -98,7 +98,7 @@ export function seedChat(chat: FakeChat, at: string): void {
   chat.seedItem(A, { at: ago(48), kind: 'tool', tool: 'Read', text: 'docs/pc-app-gaps.md' });
   chat.seedItem(A, { at: ago(47), kind: 'task_event', task_event: { event: 'opened', task: 1684, request: null, evidence: null } });
   chat.seedItem(A, { at: ago(25), kind: 'task_event', task_event: { event: 'done', task: 1684, request: null, evidence: 'auditor PASS' } });
-  chat.seedItem(A, { at: ago(20), kind: 'task_event', task_event: { event: 'changed', task: 1684, request: null, evidence: null } });
+  chat.seedItem(A, { at: ago(20), kind: 'task_event', task_event: { event: 'changed', task: 1684, request: null, evidence: null, change: 'assigned to alice, priority 2 -> 1' } });
   chat.seedItem(A, {
     at: ago(10),
     kind: 'task_event',

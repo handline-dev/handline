@@ -207,3 +207,27 @@ func TestAMessageCarriesItsImages(t *testing.T) {
 		}
 	}
 }
+
+func TestATaskEventSaysWhatAnEditAndAHandoffChanged(t *testing.T) {
+	ev := func(kind, payload string) map[string]any {
+		item, _, ok := taskItemOf(row{"id": int64(1), "ts": int64(5), "kind": kind, "payload": payload})
+		if !ok {
+			t.Fatalf("%s is not shown", kind)
+		}
+		return item["task_event"].(map[string]any)
+	}
+	if got := ev("edit_task", `{"task_id": 7, "owner": {"old": "a", "new": "b"}, "priority": {"old": 2, "new": 1}}`); got["change"] != "assigned to b, priority 2 -> 1" || got["event"] != "changed" {
+		t.Fatalf("%v", got)
+	}
+	if got := ev("edit_task", `{"task_id": 7, "title": {"old": "x", "new": "y"}}`); got["change"] != "title changed" {
+		t.Fatalf("%v", got)
+	}
+	if got := ev("task_handoff", `{"task_id": 7, "to": "bob", "note": "n"}`); got["change"] != "handed to bob" {
+		t.Fatalf("%v", got)
+	}
+	for _, kind := range []string{"task_new", "mark_task_done", "queue_task"} {
+		if _, has := ev(kind, `{"task_id": 7, "done": "ok"}`)["change"]; has {
+			t.Errorf("%s names a change it has not got", kind)
+		}
+	}
+}
