@@ -16,11 +16,11 @@ export function dotOf(a: AgentView): Dot {
 }
 
 const URGENCY: Record<Dot, number> = { waiting: 0, blocked: 1, running: 2, waking: 3, idle: 4, parked: 5, none: 6 };
-export type GroupBy = 'team' | 'state' | 'account';
+export type GroupBy = 'team' | 'state' | 'account' | 'none';
 
 export interface RailGroup {
   title: string;
-  rows: { agent: AgentView; depth: number }[];
+  rows: { agent: AgentView; depth: number; kids: number }[];
 }
 
 /** The team an agent belongs to: the part of its name before the first dot. A bare name is its own team when others carry it as a prefix, else it stands in "agents". */
@@ -41,7 +41,8 @@ export function railGroups(agents: AgentView[], by: GroupBy, opts: { hidden?: Re
     (a) => !opts.hidden?.has(dotOf(a)) && (!q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q)),
   );
   const names = new Set(shown.map((a) => a.name));
-  const key = (a: AgentView) => (by === 'team' ? teamOf(a.name, all) : by === 'account' ? (a.account ?? 'no account') : dotOf(a));
+  const key = (a: AgentView) =>
+    by === 'none' ? '' : by === 'team' ? teamOf(a.name, all) : by === 'account' ? (a.account ?? 'no account') : dotOf(a);
   const order = (a: AgentView, b: AgentView) => URGENCY[dotOf(a)] - URGENCY[dotOf(b)] || a.name.localeCompare(b.name);
   const groups = new Map<string, AgentView[]>();
   for (const a of shown) if (!a.parent || !names.has(a.parent)) (groups.get(key(a)) ?? groups.set(key(a), []).get(key(a))!).push(a);
@@ -49,14 +50,52 @@ export function railGroups(agents: AgentView[], by: GroupBy, opts: { hidden?: Re
   for (const [title, members] of groups) {
     const rows: RailGroup['rows'] = [];
     const walk = (a: AgentView, depth: number) => {
-      rows.push({ agent: a, depth });
-      for (const c of shown.filter((x) => x.parent === a.name).sort(order)) walk(c, depth + 1);
+      const kids = shown.filter((x) => x.parent === a.name).sort(order);
+      rows.push({ agent: a, depth, kids: kids.length });
+      for (const c of kids) walk(c, depth + 1);
     };
     for (const a of members.sort(order)) walk(a, 0);
     out.push({ title, rows });
   }
   const rank = (g: RailGroup) => Math.min(...g.rows.map((r) => URGENCY[dotOf(r.agent)]));
   return out.sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title));
+}
+
+/** The rows left once the collapsed agents hide their descendants: a row is dropped while it sits deeper than the nearest collapsed row above it. */
+export function visibleRows<R extends { agent: AgentView; depth: number }>(rows: R[], collapsed: ReadonlySet<string>): R[] {
+  const out: R[] = [];
+  let hideBelow: number | null = null;
+  for (const r of rows) {
+    if (hideBelow !== null && r.depth > hideBelow) continue;
+    hideBelow = collapsed.has(r.agent.name) ? r.depth : null;
+    out.push(r);
+  }
+  return out;
+}
+
+/** The filter menu's choices: what a person asks of the list, each over the rail dots it covers. A dot no choice names is always shown. */
+export const RAIL_FILTERS: { id: string; label: string; dots: Dot[] }[] = [
+  { id: 'needs', label: 'Needs me', dots: ['waiting', 'blocked'] },
+  { id: 'working', label: 'Working', dots: ['running'] },
+  { id: 'waking', label: 'Waking', dots: ['waking'] },
+  { id: 'idle', label: 'Idle', dots: ['idle'] },
+  { id: 'sleeping', label: 'Sleeping', dots: ['parked', 'none'] },
+];
+
+/** The word a row says for its state; a person's wait and a block outrank the plain states. */
+export const RAIL_STATE_WORD: Record<Dot, string> = {
+  waiting: 'needs you',
+  blocked: 'blocked',
+  running: 'working',
+  waking: 'waking',
+  idle: 'idle',
+  parked: 'sleeping',
+  none: 'sleeping',
+};
+
+/** What is piled up for an agent: tasks it owns that are not done (`task_count`) and messages owed to it that have not reached it (`unreached`, which the daemon sends only for agents.list `status: true`). A count the view does not carry is null, never 0. */
+export function queueOf(a: AgentView): { tasks: number | null; messages: number | null } {
+  return { tasks: a.task_count ?? null, messages: a.unreached ?? null };
 }
 
 export function ago(iso: string | null | undefined, now = Date.now()): string {

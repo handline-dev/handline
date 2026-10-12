@@ -11,6 +11,10 @@ import {
   needsConfirm,
   offered,
   railGroups,
+  visibleRows,
+  queueOf,
+  RAIL_FILTERS,
+  RAIL_STATE_WORD,
   stopModesOf,
   shortName,
   teamOf,
@@ -92,6 +96,40 @@ test('a child whose parent is filtered out still shows', () => {
     railGroups(list, 'team', { search: 'kid' })[0].rows.map((r) => r.agent.name),
     ['kid'],
   );
+});
+
+test('the rail without groups is one list that nests by parent, and a collapsed parent hides its descendants', () => {
+  const list = [agent('a'), agent('a.k', { parent: 'a' }), agent('a.k.g', { parent: 'a.k' }), agent('b'), agent('b.k', { parent: 'b' })];
+  const [g] = railGroups(list, 'none');
+  assert.equal(g.title, '');
+  assert.deepEqual(
+    g.rows.map((r) => [r.agent.name, r.depth, r.kids]),
+    [
+      ['a', 0, 1],
+      ['a.k', 1, 1],
+      ['a.k.g', 2, 0],
+      ['b', 0, 1],
+      ['b.k', 1, 0],
+    ],
+  );
+  const names = (c: string[]) => visibleRows(g.rows, new Set(c)).map((r) => r.agent.name);
+  assert.deepEqual(names([]), ['a', 'a.k', 'a.k.g', 'b', 'b.k']);
+  assert.deepEqual(names(['a']), ['a', 'b', 'b.k']);
+  assert.deepEqual(names(['a.k']), ['a', 'a.k', 'b', 'b.k']);
+  assert.deepEqual(names(['a', 'b']), ['a', 'b']);
+});
+
+test('every rail dot has a state word, and the filter choices cover each dot once', () => {
+  const dots = Object.keys(RAIL_STATE_WORD) as Dot[];
+  const covered = RAIL_FILTERS.flatMap((f) => f.dots).sort();
+  assert.deepEqual(covered, [...dots].sort());
+  assert.equal(RAIL_STATE_WORD[dotOf(agent('x', { state: 'queued' }))], 'waking');
+  assert.equal(RAIL_STATE_WORD[dotOf(agent('x', { state: 'no_terminal' }))], 'sleeping');
+});
+
+test('queue counts are null when the view does not carry them, never a made-up 0', () => {
+  assert.deepEqual(queueOf(agent('x')), { tasks: null, messages: null });
+  assert.deepEqual(queueOf(agent('x', { task_count: 0, unreached: 3 })), { tasks: 0, messages: 3 });
 });
 
 test('keydown maps to named keys only; printable text and IME composition are left to the textarea', () => {

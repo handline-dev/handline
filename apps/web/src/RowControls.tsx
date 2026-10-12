@@ -14,17 +14,21 @@ export function RowControls({
   account,
   setAccount,
   onAsk,
+  onMenu,
 }: {
   agent: AgentView;
   account: string;
   setAccount: (a: string) => void;
   onAsk: (v: Verb) => void;
+  /** The ⋯ menu opened or closed, so the row keeps these controls up while it is open. */
+  onMenu?: (open: boolean) => void;
 }) {
   const accounts = [...new Set((useAgents().data?.agents ?? []).map((x) => x.account).filter((x): x is string => !!x))];
   const agent = a.name;
   const store = useStore();
   const d = useAgentDetail(agent).data;
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  const setOpen = (v: boolean) => (setOpenState(v), onMenu?.(v));
   const start = useWrite('session.start', agent);
   const resume = useWrite('session.wake', agent);
   const stopWrite = useWrite('session.stop', agent);
