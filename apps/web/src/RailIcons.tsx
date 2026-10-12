@@ -36,16 +36,13 @@ const TONE: Record<Dot, string> = {
 /** An agent's state as the shared glyph (ui/State): its own shape per state, the hue only repeats it. */
 export function Mark({ dot, title }: { dot: Dot; title?: string }) {
   return (
-    <span
-      className={`mark ${dot} inline-flex w-3.5 flex-none items-center justify-center text-center text-hint leading-[1.4] ${TONE[dot]}`}
-    >
+    <span className={`mark ${dot} inline-flex w-3.5 flex-none items-center justify-center text-center text-hint leading-[1.4] ${TONE[dot]}`}>
       <State kind={KIND[dot]} label={title ?? MARKS[dot].label} size={14} />
     </span>
   );
 }
 
-/** A small meter: a bar with its value as the tooltip and the aria value, never colour alone (the fill is also a length). */
-/** `title` replaces the default tooltip; `fill` is the bar's colour; `hot` (from 80% by default) adds the hatch and the amber, so a warning is also a pattern. */
+/** A small meter: a bar with its value as the tooltip (or `title`) and the aria value, never colour alone (the fill is also a length). `fill` is its colour; `hot` (from 80% by default) adds the amber and a hatch. */
 export function Meter({
   pct,
   label,
