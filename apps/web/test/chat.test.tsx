@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Store, type KV } from '@handline/app-core';
+import { Store, defaultWorkspace, groupsOf, openTab, saveWorkspace, splitTab, storageKey, type KV } from '@handline/app-core';
 import { RpcError } from '@handline/client';
 import { second, setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
@@ -97,7 +97,7 @@ describe('the Chat tab', () => {
     expect(link('Withdraw', msg('Also add the list of gaps.')!)).toBeUndefined(); // the chat has no Withdraw button
     expect($$('[data-kind="reply"]')).toHaveLength(1); // the agent's message is not drawn a second time as a reply
     expect($$('[data-kind="tool"]')).toHaveLength(1);
-    expect(icon($$('[data-kind="task_event"]')[1], 'Task 7 done')).not.toBeNull();
+    expect(icon($$('[data-kind="task_event"]')[1], 'Task done')).not.toBeNull();
     expect(msg('Review is done')).toBeUndefined(); // agent to agent: the All tab
     await click($$('.chat-head [role="radio"]')[1]!);
     await until(() => msg('Review is done'), 'the all tab');
@@ -265,8 +265,33 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(icon(prompt, 'Answered')).not.toBeNull();
     expect(icon($('[data-kind="session"]')!, 'New session')).not.toBeNull();
     const events = $$('[data-kind="task_event"]');
-    expect(icon(events[0], 'Task 7 opened')).not.toBeNull();
-    expect(events[0]!.querySelector('a')!.getAttribute('href')).toBe('#/tasks/7');
+    expect(icon(events[0], 'Task added')).not.toBeNull();
+    expect(text(events[0])).toContain('1684');
+    expect(events[0]!.tagName).toBe('BUTTON');
+  });
+
+  it('a click on a task line opens that task in the Tasks tab', async () => {
+    await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    await click($$('[data-kind="task_event"]')[0]!);
+    await until(() => $('.tdetail'), 'the task detail');
+    await until(() => text($('.tdetail-head')).includes('1684'), 'task 1684 in the detail');
+  });
+
+  it('with Chat and Tasks in split panes, the same task line opens the task again after Back', async () => {
+    const storage = memory();
+    const split = splitTab(defaultWorkspace({ terminal: `term:${ARCH}` }), `terminal:term:${ARCH}`, 'g1', 'right')!;
+    const g2 = groupsOf(split.root).find((g) => g.id !== 'g1')!.id;
+    saveWorkspace(storage, storageKey('test', ARCH), openTab(split, 'tasks', {}, g2));
+    await mount(ARCH, setup(), storage);
+    await until(() => msg('Which gap list'), 'history');
+    await until(() => $('.tasks-tab-row'), 'the agent tasks');
+    await click($$('[data-kind="task_event"]')[0]!);
+    await until(() => $('.tdetail'), 'the task detail');
+    await click($('.tdetail .back')!);
+    await until(() => $('.tasks-tab-row'), 'back to the list');
+    await click($$('[data-kind="task_event"]')[0]!);
+    await until(() => $('.tdetail'), 'the task detail again');
   });
 
   it("the Add a tab menu opens the agent's Tasks, a click opens a task in the pane and Back returns to the list", async () => {

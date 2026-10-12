@@ -3,11 +3,12 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent } from 'react';
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
-import { landingLabel, sideOf } from '@handline/app-core';
+import { landingLabel, openTask, sideOf, taskRow } from '@handline/app-core';
 import { useAgents, useChatActions } from '@handline/app-data';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { PathText } from './PathText.tsx';
+import { useWorkspace } from './Workspace.tsx';
 
 const clock = (at: string) => {
   const d = new Date(at);
@@ -269,9 +270,33 @@ function SessionCard({ i }: { i: TranscriptItem }) {
 }
 
 const TASK_EVENT: Record<string, IconName> = { opened: 'opened', changed: 'changed', done: 'done', withdrawn: 'withdrawn' };
-const TASK_EVENT_WORD: Record<string, string> = { opened: 'opened', changed: 'changed', done: 'done', withdrawn: 'withdrawn' };
+const TASK_ACCENT: Record<string, string> = { opened: 'border-l-ok', changed: 'border-l-wait', done: 'border-l-ok', withdrawn: 'border-l-bad' };
 
-/** A transcript line that is not a message. A task line names what happened — opened, changed, done, withdrawn — with title and evidence. */
+/** A task added, edited, done or deleted: a compact bar unlike a message, with the change in brief; a click opens the task in the Tasks tab. */
+function TaskLine({ i, titles }: { i: TranscriptItem; titles?: Map<number, string> }) {
+  const { apply } = useWorkspace();
+  const ev = i.task_event?.event ?? 'changed';
+  const row = taskRow(i, titles);
+  return (
+    <button
+      type="button"
+      className={`card-task flex w-full cursor-pointer items-baseline gap-2 rounded-card border border-l-4 border-line bg-panel px-2.5 py-1 text-left text-body ${TASK_ACCENT[ev] ?? 'border-l-wait'}`}
+      data-kind="task_event"
+      data-event={ev}
+      title={`Open T${row.task} in the Tasks tab`}
+      onClick={() => apply((w) => openTask(w, row.task))}
+    >
+      <Icon name={TASK_EVENT[ev] ?? 'changed'} size={14} label={row.label} />
+      <span className="card-event text-meta font-semibold uppercase tracking-wide">{row.label}</span>
+      <span className="mono">T{row.task}</span>
+      <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-medium">{row.title}</span>
+      {row.detail ? <span className="muted max-w-[45%] overflow-hidden text-ellipsis whitespace-nowrap">{row.detail}</span> : null}
+      <span className="muted card-time">{clock(i.at)}</span>
+    </button>
+  );
+}
+
+/** A transcript line that is not a message: a reply, tool, prompt, session or task line. */
 export function Item({ i, titles }: { i: TranscriptItem; titles?: Map<number, string> }) {
   if (i.kind === 'reply')
     return (
@@ -301,27 +326,5 @@ export function Item({ i, titles }: { i: TranscriptItem; titles?: Map<number, st
     );
   }
   if (i.kind === 'session') return <SessionCard i={i} />;
-  const e = i.task_event;
-  const ev = e?.event ?? 'changed';
-  const word = TASK_EVENT_WORD[ev] ?? ev;
-  const title = titles?.get(e?.task ?? NaN);
-  return (
-    <Card variant="chat" className="card-task" data-kind="task_event" data-event={ev}>
-      <Icon name={TASK_EVENT[ev] ?? 'changed'} label={`Task ${e?.task} ${word}`} />
-      <span className="card-event">{word}</span>
-      <a className="mono" href={`#/tasks/${e?.task}`} title={title ?? `Task ${e?.task} ${word}`}>
-        T{e?.task}
-      </a>
-      {title || e?.evidence ? (
-        <CardWhat className="muted">
-          {title}
-          {title && e?.evidence ? ' — ' : ''}
-          {e?.evidence}
-        </CardWhat>
-      ) : (
-        <CardWhat />
-      )}
-      <span className="muted card-time">{clock(i.at)}</span>
-    </Card>
-  );
+  return <TaskLine i={i} titles={titles} />;
 }
