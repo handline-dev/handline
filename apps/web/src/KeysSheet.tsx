@@ -11,6 +11,8 @@ const KEYS: [string, string][] = [
 ];
 
 export function KeysSheet({ onClose }: { onClose: () => void }) {
+  const registered = useRegisteredKeys();
+  const groups = [...new Map(registered.map((g) => [g.rows, g])).values()]; // one per table, since each pane registers the same rows
   return (
     <Dialog title="Keys" onClose={onClose}>
       <dl className="keys-list m-0 grid gap-1.5">
@@ -23,7 +25,7 @@ export function KeysSheet({ onClose }: { onClose: () => void }) {
           </div>
         ))}
       </dl>
-      {[...new Map(useRegisteredKeys().map((g) => [g.rows, g])).values()].map((g) => (
+      {groups.map((g) => (
         <section key={g.title}>
           <h3 className="mt-2 text-label text-ink-3">{g.title}</h3>
           <dl className="keys-list m-0 grid gap-1.5">
