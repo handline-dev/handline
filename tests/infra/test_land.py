@@ -647,6 +647,29 @@ def test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(h
         dmn_client.send = real
 
 
+def test_a_land_with_more_around_it_is_stopped_before_it_runs_with_how_to_retype_it(home: Path) -> None:
+    """Without this, a land typed with a 2>&1 or a cd in front ran, and the daemon refused it as coming from other code; the same
+    table runs against session.Misses in go/internal/session/landgate_test.go."""
+    from handline.session import landgate
+    from handline.infra import sessiontoken
+    use_home(home)
+    cases = (("hl land --pass abc", False), ("hl land abc 'm' --tree def", False), ("hl land --pass abc 2>&1", True),
+             ("cd /r && hl land abc 'm' --tree def", True), ("hl land abc 'costs $5' --tree def", True),
+             ("hl land --pass abc | tail -3", True), ("hl land --check abc 2>&1", False), ("hl land --list | head", False),
+             ("git log | grep land", False), ("echo hl landed --pass", False),
+             ('hl task handoff T1 worker "PASS recorded; land it: hl land --pass abc1234"', False),
+             ("hl say manager 'please run hl land --pass abc1234'", False),
+             ("hl say b - <<'EOF'\nhl land --pass abc\nEOF", False), ("echo x; hl land --pass abc", True))
+    bash = {"command": "hl land --pass abc 2>&1"}
+    check("misses: a session with no key is not told to retype, as retyping would not help it", landgate.misses("backend", "Bash", bash) is None)
+    sessiontoken.mint_key("backend")
+    for cmd, misses in cases:
+        got = landgate.misses("backend", "Bash", {"command": cmd})
+        check(f"misses: {cmd!r} {'is stopped with how to retype it' if misses else 'goes on'}",
+              (got == landgate.MISSES) if misses else got is None, str(got))
+    check("misses: only a Bash call is read", landgate.misses("backend", "Write", bash) is None)
+
+
 def test_ocp_land_checks_and_sends_in_two_steps(home: Path) -> None:
     import argparse
     import contextlib
@@ -904,6 +927,7 @@ def main() -> int:
         run(lambda: test_the_merger_fixes_housekeeping_at_land_time_and_nothing_else(Path(td) / "l4b"))
         run(lambda: test_a_housekeeping_fix_never_reaches_agent_instructions(Path(td) / "l4c"))
         run(lambda: test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(Path(td) / "l4"))
+        run(lambda: test_a_land_with_more_around_it_is_stopped_before_it_runs_with_how_to_retype_it(Path(td) / "l4b"))
         run(lambda: test_ocp_land_checks_and_sends_in_two_steps(Path(td) / "l5"))
         run(lambda: test_a_pass_is_not_recorded_for_a_sha_the_merger_s_check_would_refuse(Path(td) / "l5b"))
         run(lambda: test_a_documentation_only_merge_runs_no_suite(Path(td) / "l7"))
