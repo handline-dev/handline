@@ -204,6 +204,7 @@ func Start(cfg Config) (*Daemon, error) {
 			return (&lifecycle.Settings{Home: cfg.Home}).ConfigSeconds("input_hold_idle_s", inputhold.DefaultIdleS)
 		}}
 		d.tchan.Holds = d.holds
+		d.prompts.Holds = d.holds
 		d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
 		d.lands = &lands.Service{DB: db, Repo: cfg.LandRepo, Tokens: sessiontoken.New(cfg.Home), Log: cfg.Log,
 			Tell: func(to, body string) {

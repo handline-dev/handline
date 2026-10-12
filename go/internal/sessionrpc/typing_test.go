@@ -106,7 +106,7 @@ func TestSessionInputTypesAtAComposerAndIsRefusedAtAShellADialogTheWallAndByAnot
 	call := func(n string) map[string]any {
 		return c.call("session.input", map[string]any{"agent": "ann", "text": "hello", "request_id": rid(n)})
 	}
-	h.rows = []string{"ron@mac ~ $"} // no composer box: not a session screen, so a line would answer nothing it can see
+	h.rows = []string{"user@host ~ $"} // no composer box: not a session screen, so a line would answer nothing it can see
 	if g := refused(call("i1")); g != "screen_blocker" {
 		t.Fatalf("a shell: gate %q", g)
 	}

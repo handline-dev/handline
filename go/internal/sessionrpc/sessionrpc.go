@@ -73,7 +73,7 @@ type Env struct {
 	// Marker tells whoever watches the agent's terminal that a control call happened (termchan.Env.Marker); nil tells no one.
 	Marker func(agent, kind string, actor map[string]any, text string)
 	Now    func() time.Time
-	// Typing at a terminal (frozen): who holds each terminal's input, the host to type at, and why the usage wall stands in the way ("" for none).
+	// Typing at a terminal: who holds each terminal's input, the host to type at, and why the usage wall stands in the way ("" for none).
 	// Without Holds none of input.take, release, session.input, keys and type is served; without Term the three session ones are not.
 	Holds *inputhold.Store
 	Term  *term.Term
