@@ -559,7 +559,9 @@ def test_a_land_verb_is_judged_by_the_process_on_the_other_end_of_the_socket(hom
           reply is not None and "not this request's session" not in reply["said"], str(reply))
     other = subprocess.Popen(["sleep", "300"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        sessiontoken.record(AUDITOR, other.pid)
+        # Only the other process is recorded; record() itself would keep this one too while it runs.
+        from handline.infra import protected
+        protected.put(sessiontoken.NS, AUDITOR, f"{other.pid} {sessiontoken._proc(other.pid)[1]}")
         reply = _serve_one_roundtrip(ask)
         check("socket: land_pass is refused when another process is the recorded auditor session",
               reply is not None and reply["ok"] is False and "not this request's session" in reply["said"], str(reply))
