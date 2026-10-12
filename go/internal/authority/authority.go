@@ -40,3 +40,6 @@ func (s *Store) tokens() *sessiontoken.Tokens {
 func (s *Store) FounderKeyOK(key string) bool { return s.tokens().FounderKeyOK(key) }
 
 func (s *Store) AgentOf(pid int) string { return s.tokens().AgentOf(pid) }
+
+// SessionsReadable is nil when AgentOf can tell: the recorded sessions are read, or there are none.
+func (s *Store) SessionsReadable() error { return s.tokens().SessionsReadable() }
