@@ -108,7 +108,7 @@ describe('E3 in the page', () => {
     expect($('button.path')).toBeNull();
   });
 
-  it('a shell without the openPath call shows neither', async () => {
+  it('a shell without the openPath call shows no path buttons', async () => {
     vi.stubGlobal('handline', {
       api: 1,
       screen: async () => ({ ok: true }),

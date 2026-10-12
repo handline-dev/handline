@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import type { Account } from '@handline/client';
 import { useConnection } from '@handline/app-react';
-import { useServes, useWrite } from '@handline/app-data';
+import { classify, sentence, useServes, useWrite } from '@handline/app-data';
 import { Button, Field } from './ui/index.ts';
 
 /** A login the daemon has not ended: the URL (when this app started it) and the code box belong to it. */
@@ -27,7 +27,7 @@ export function AccountLogin({ account }: { account: Account }) {
     sendCode.mutate({ login_id: loginId, code: code.trim() });
     setCode('');
   };
-  const why = sendCode.error as Error | null;
+  const why = sendCode.error ? sentence(classify(sendCode.error)) : '';
   return (
     <div className="acct-login flex flex-col gap-2">
       <span className="muted phone-only hidden max-sm:inline">Log in from a computer.</span>
@@ -55,7 +55,7 @@ export function AccountLogin({ account }: { account: Account }) {
             </div>
             {why ? (
               <p className="muted m-0" role="alert">
-                {why.message}
+                {why}
               </p>
             ) : null}
           </>

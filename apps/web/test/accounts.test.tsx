@@ -2,7 +2,7 @@
 // tabs, settings that save and revert, login that opens no credential field, and a daemon that does not serve accounts.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { second, setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
@@ -233,15 +233,12 @@ describe('one account', () => {
 
     it('the code goes through account.login_code once, a right one ends the login, and the box is gone with it', async () => {
       const s = setup();
-      const calls: string[] = [];
-      const real = s.client.call.bind(s.client);
-      // @ts-expect-error a test spy on the one client
-      s.client.call = (m: string, p: never) => (calls.push(m), real(m, p));
+      const spy = vi.spyOn(s.client, 'call');
       await started(s);
       await setValue(codeBox(), 'good-code'); // the fake daemon's right code
       await click(button('Submit'));
       await until(() => s.daemon.accounts.list().accounts.find((a) => a.name === 'gamma')?.login_state === 'ok', 'the login to finish');
-      expect(calls.filter((m) => m === 'account.login_code')).toHaveLength(1);
+      expect(spy.mock.calls.filter(([m]) => m === 'account.login_code')).toHaveLength(1);
       expect(button('Log in again')).toBeTruthy();
       expect($('.acct-login input')).toBeNull();
     });
