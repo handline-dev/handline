@@ -105,11 +105,16 @@ func taskShow(c *hlclient.Client, args []string) (int, bool) {
 
 // detailLines is one task as lines to read (cli/task._detail_lines); home is where the daemon keeps the screenshots.
 func detailLines(t obj, now float64, home string) []string {
-	reporter := ""
-	if a := str(t, "asker"); a != "" && a != str(t, "from") {
-		reporter = "   reporter " + a
+	// the assignee works the task; its owner is who it answers to (the wire's asker), named apart from the opener only when they differ
+	owner := str(t, "asker")
+	if owner == "" {
+		owner = str(t, "from")
 	}
-	head := fmt.Sprintf("state %s   owner %s   opened by %s%s   P%d", str(t, "state"), str(t, "to"), str(t, "from"), reporter, num(t, "priority"))
+	opened := ""
+	if owner != str(t, "from") {
+		opened = "   opened by " + str(t, "from")
+	}
+	head := fmt.Sprintf("state %s   assignee %s   owner %s%s   P%d", str(t, "state"), str(t, "to"), owner, opened, num(t, "priority"))
 	if given(t, "parent") {
 		head += fmt.Sprintf("   parent T%d", num(t, "parent"))
 	}
@@ -157,6 +162,12 @@ func detailLines(t obj, now float64, home string) []string {
 		out = append(out, "", "handoffs")
 		for _, h := range hs {
 			out = append(out, fmt.Sprintf("  %s  %s -> %s\n    %s", stamp(h["at"]), str(h, "from"), str(h, "to"), str(h, "note")))
+		}
+	}
+	if as := list(t, "assignments"); len(as) > 0 {
+		out = append(out, "", "assignee and owner changes")
+		for _, a := range as {
+			out = append(out, fmt.Sprintf("  %s  %s %s -> %s, by %s", stamp(a["at"]), str(a, "what"), str(a, "from"), str(a, "to"), str(a, "by")))
 		}
 	}
 	return out

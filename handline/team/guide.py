@@ -52,12 +52,13 @@ and its account resets too late to wait for, once, and a resume always goes
 back to the account its session lives on.""",
     "work": """giving an agent work, and talking to one
   hl team                        who you may reach, and what they are doing
-  hl task new --owner <agent> -t <time> "<title>" "<body>"
+  hl task new --assign <agent> -t <time> "<title>" "<body>"
                                   work, or a question that needs an answer or a result: the
                                   body is the brief (what to do, what done looks like) and
                                   is required; -t is how long before you are told it is
                                   still open. A decision only the founder can make is the
-                                  same with --owner human
+                                  same with --assign human. --owner names who answers
+                                  for it (you when not given)
   hl task show T<n>              one task whole: brief, memos, blockers, children, handoffs
   hl task memo T<n> add "..."    a correction to a task you gave, not a message behind it
   hl task discard T<n> "<why>"   throw away a task that is not done

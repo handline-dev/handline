@@ -59,19 +59,6 @@ type change struct {
 	body     bool
 }
 
-// ownerChangeGuard is _owner_change_guard: whoever may edit the task, or its owner's manager, may give it to someone else.
-func ownerChangeGuard(t *task, by, home string) string {
-	if t.Owner != human {
-		if tm, err := team.LoadTeam(home); err == nil && by == tm.SupervisorOf(t.Owner) {
-			return ""
-		}
-	}
-	if g := editGuard(guardRow(t), by); g != "" {
-		return g + ", or " + t.Owner + "'s manager"
-	}
-	return ""
-}
-
 // undeliverable is why task t cannot be moved to agent to, or "": the move asks to on behalf of whoever asked the old owner, or the
 // tick does as whoever queued it, and with no edge from them to to that ask is denied and the task sits unread (Supervisor.sendMovedTask).
 func undeliverable(tx *sql.Tx, t *task, to, home string) (string, error) {
@@ -107,23 +94,20 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 	if t == nil {
 		return fmt.Sprintf("no task T%d", tid), "", nil
 	}
-	reshape := title != nil || priority != nil || timeoutS != nil || body != nil || reporter != nil
-	g := ""
-	if reshape || owner == nil {
-		g = editGuard(guardRow(t), by)
-	} else {
-		g = ownerChangeGuard(t, by, home)
-	}
-	if g != "" {
-		return g, "", nil
+	// Anyone may change who works a task (owner) and who answers for it (reporter); every change is kept as an edit_task event.
+	reshape := title != nil || priority != nil || timeoutS != nil || body != nil
+	if reshape {
+		if g := editGuard(guardRow(t), by); g != "" {
+			return g, "", nil
+		}
 	}
 	if owner != nil && *owner != t.Owner && *owner != human {
 		if why, err := undeliverable(tx, t, *owner, home); err != nil || why != "" {
 			return why, "", err
 		}
 	}
-	if owner == nil && !reshape {
-		return "edit needs a new owner, a new reporter, a new title, a new priority, --timeout, a new body, or any of them", "", nil
+	if owner == nil && reporter == nil && !reshape {
+		return "edit needs a new assignee, a new owner, a new title, a new priority, --timeout, a new body, or any of them", "", nil
 	}
 	var changes []change
 	var newBody *string
@@ -239,13 +223,25 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 		if c.body {
 			said = append(said, "body changed")
 		} else {
-			said = append(said, fmt.Sprintf("%s %s -> %s", c.key, pyRepr(c.old), pyRepr(c.new)))
+			said = append(said, fmt.Sprintf("%s %s -> %s", saidAs(c.key), pyRepr(c.old), pyRepr(c.new)))
 		}
 	}
 	if err := addEvent(tx, by, "edit_task", payload...); err != nil {
 		return "", "", err
 	}
 	return "", fmt.Sprintf("task T%d edited by %s: %s", tid, by, strings.Join(said, ", ")), nil
+}
+
+// saidAs is how an edit's reply names a field: the owner column holds who works the task (its assignee), the reporter who answers for it
+// (its owner). The event keeps the column names.
+func saidAs(key string) string {
+	switch key {
+	case "owner":
+		return "assignee"
+	case "reporter":
+		return "owner"
+	}
+	return key
 }
 
 // editMethod is task.edit (rpc_tasks._edit): every part in one transaction, so a later refusal undoes the earlier parts.

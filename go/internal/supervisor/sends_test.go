@@ -39,7 +39,7 @@ func TestSayToAReportWithoutATaskIsRefusedWithTheTaskThatWouldReachIt(t *testing
 	// bob reports to alice by a supervisor edge; written before the table is first read and sealed
 	os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "edges:\n", "edges:\n  - { from: alice, to: bob, relation: supervisor, response: async }\n", 1)), 0o644)
 	out := r.say(SayVerbIn{Requester: "alice", Target: "bob", Body: "fix the bug"})
-	want := "work cannot reach a report by message: make it a task (`hl task new`), or say --task T<n> to memo one. Try:\n  hl task new --owner bob -t 2h '<title>' 'fix the bug'"
+	want := "work cannot reach a report by message: make it a task (`hl task new`), or say --task T<n> to memo one. Try:\n  hl task new --assign bob -t 2h '<title>' 'fix the bug'"
 	if out.OK || out.Msg != want {
 		t.Fatalf("%q", out.Msg)
 	}

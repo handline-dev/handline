@@ -69,7 +69,7 @@ orca terminal create --worktree path:/Users/you/code/myproject --command "hl lau
 Give it work, from your own shell:
 
 ```bash
-hl task new --owner backend -t 2h "fix the flaky test" "tests/test_sync.py fails about one run in ten. Find the cause and fix it. Done means ten green runs in a row."
+hl task new --assign backend -t 2h "fix the flaky test" "tests/test_sync.py fails about one run in ten. Find the cause and fix it. Done means ten green runs in a row."
 hl inbox        # what is waiting on you
 hl       # the screen: agents, accounts, inbox
 ```
