@@ -8,6 +8,8 @@ export function TableHead(props: {
   tree: boolean;
   sort: { by: TaskColumn; reverse: boolean };
   allMarked: boolean;
+  /** The mark column shows only while the table selects (or rows are marked); hidden otherwise so the columns line up. */
+  markCell: boolean;
   onToggleAll: () => void;
   onSort: (col: TaskColumn) => void;
 }) {
@@ -15,7 +17,7 @@ export function TableHead(props: {
   return (
     <thead className="max-sm:hidden">
       <tr>
-        <th className={`${TH} c-mark w-8 text-center`}>
+        <th className={`${TH} c-mark w-8 text-center${props.markCell ? '' : ' hidden'}`}>
           <input type="checkbox" aria-label="Mark every row shown" checked={props.allMarked} onChange={props.onToggleAll} />
         </th>
         {props.tree ? (

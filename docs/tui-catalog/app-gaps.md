@@ -62,7 +62,7 @@ Everything else in the catalog. Table below.
 | modal-answer-add | yes | `Answers.tsx` |
 | home-daemon-down | partly | gap 6 |
 | empty-home, empty-tasks, empty-stats, empty-hr | yes | `Empty.tsx` in each page (`Accounts.tsx:100` for accounts) |
-| t (terminal), e (editor) | yes | `TerminalTab.tsx`, `EditorButton.tsx`; Electron `editor.ts` |
+| t (terminal), e (editor) | yes | `TerminalTab.tsx`; Electron `editor.ts` |
 
 ## Not checked
 

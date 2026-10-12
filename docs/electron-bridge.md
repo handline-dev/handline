@@ -138,7 +138,7 @@ cancelCompose(): Promise<{ ok: true } | Fail<'bad_request'>>
 6. **Lifetime.** The directory is removed (recursively, `finally`) when the compose settles by any path, by cancel and on `quit` (the child's whole process group is killed first, `kill(-pid)`, so a wrapper script's own child does not stay running; then the directory is removed). At launch the shell removes any `handline-*` directory in the temp directory older than a day that it owns (a crash). One compose at a time per shell: a second is `busy`; a second window is not a thing here.
 7. **Only from the page that asked.** The sender check of §2 applies; the editor runs as the shell's own user with the shell's environment, nothing more.
 
-**Plain browser:** there is no editor to run; the page offers its own multi-line box in the same place (a larger textarea in a dialog, the compose box's own keys). "In editor" appears only when `typeof handline.compose === 'function'`, and a `terminal_editor`, `no_editor` or `not_waiting` result turns the same dialog on with the text kept.
+**Plain browser:** there is no editor to run; the page offers its own multi-line box in the same place (a larger textarea in a dialog, the compose box's own keys). The page no longer offers the "In editor" round-trip — the box itself is the editor — but the shell keeps the `compose` API for anything that asks for it.
 
 ### 4.3 `mode`, `setMode`, `pairRemote`
 
@@ -152,7 +152,7 @@ The shell tests run under node with the Electron side injected, as `Desk` and `U
 2. `compose`: a fake editor script that appends a line (ok, `changed`), one that exits at once (`not_waiting`), one that exits 1, `vim` (`terminal_editor`), an editor string with `;` and one with a quoted space in the path; `cancelCompose` kills the child; the directory is gone after each; a second call is `busy`; the `Updater` does not ask while one runs; a `compose.md` replaced by a symlink is refused; `code` is found on the login shell's `PATH` and not on the Dock's. The temp file's mode is 0600 and its directory 0700.
 3. `screen` suppression and `unsent` gating at the `Desk` and `Updater` ports; the probe is used only before the first `unsent`.
 4. `onNavigate`: a click before registration is delivered once to the first listener; no `target`, no call.
-5. Web (happy-dom, no `window.handline`): no "In editor" button, a path is plain text, `shell.ts` returns `null`; with a stub `window.handline`, the same views call it as above.
+5. Web (happy-dom, no `window.handline`): a path is plain text, `shell.ts` returns `null`; with a stub `window.handline`, the same views call it as above.
 
 ## 6. Open points
 
