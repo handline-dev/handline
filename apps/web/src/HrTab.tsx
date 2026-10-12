@@ -168,7 +168,7 @@ export function HrTab({ focus }: { focus: number | null }) {
             </strong>
             {results.rows.map((r) => (
               <div key={r.id} className={r.ok ? '' : 'text-bad'}>
-                {r.ok ? '✓' : '✗'} {textSafe(r.title)}
+                <Icon name={r.ok ? 'done' : 'failed'} size={14} aria-hidden /> {textSafe(r.title)}
                 {r.error ? ` - ${r.error}` : ''}
               </div>
             ))}
