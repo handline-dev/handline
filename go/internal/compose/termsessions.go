@@ -193,6 +193,47 @@ func (termRun) PidStart(pid int) int64 {
 	return t.Unix()
 }
 
+// PaneHolds walks the parents of pid up to the pane's process (tmux's pane_pid).
+func (termRun) PaneHolds(handle string, pid int) (bool, bool) {
+	out, err := exec.Command("tmux", "-L", paneSocket(), "display-message", "-p", "-t", handle, "#{pane_pid}").Output()
+	panePid, perr := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil || perr != nil || panePid <= 0 {
+		return false, false
+	}
+	table, err := exec.Command("ps", "-axo", "pid=,ppid=").Output()
+	if err != nil {
+		return false, false
+	}
+	parent := map[int]int{}
+	for _, line := range strings.Split(string(table), "\n") {
+		f := strings.Fields(line)
+		if len(f) != 2 {
+			continue
+		}
+		a, e1 := strconv.Atoi(f[0])
+		b, e2 := strconv.Atoi(f[1])
+		if e1 == nil && e2 == nil {
+			parent[a] = b
+		}
+	}
+	if _, running := parent[pid]; !running {
+		return false, false
+	}
+	for p, n := pid, 0; p > 1 && n < 64; p, n = parent[p], n+1 {
+		if p == panePid {
+			return true, true
+		}
+	}
+	return false, true
+}
+
+func paneSocket() string {
+	if s := os.Getenv("TMUX_SOCKET"); s != "" {
+		return s
+	}
+	return "ocp"
+}
+
 func (t termRun) Tell(agent, _, text string) error {
 	sess, err := findSession(t.p.home, t.p.db, agent)
 	if err != nil {
