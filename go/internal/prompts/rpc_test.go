@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/handline/handline/go/internal/inputhold"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
@@ -343,5 +344,22 @@ func TestAStructuredAgentIsAnsweredByCallbackAndNeverByKeys(t *testing.T) {
 	f.err = structured.ErrStale
 	if _, err := answers(e, "fp1", "allow"); err == nil || strings.Contains(err.Error(), "backend: answered") {
 		t.Fatalf("a stale answer must be refused: %v", err)
+	}
+}
+
+func TestAHeldTerminalRefusesAnotherCallersAnswer(t *testing.T) {
+	e, h := testEnv(t)
+	noteWait(t, e, "backend", "rm -rf build", 7)
+	id := shown(t, e, h, boxless(t).Screen)
+	e.Holds = &inputhold.Store{DB: e.DB}
+	if _, err := e.Holds.Take("backend", "person", "robin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := answers(e, id, "yes"); err == nil {
+		t.Fatal("another member's answer went through a held terminal")
+	}
+	re := refusal(t, func() error { _, err := answers(e, id, "yes"); return err }(), "refused")
+	if !strings.Contains(fmt.Sprint(re.Data), "input_holder") || len(h.sent) != 0 {
+		t.Fatalf("%v %v", re.Data, h.sent)
 	}
 }

@@ -8,12 +8,11 @@ import { useSelector } from '@handline/app-react';
 import { useAccounts, useAgentDetail, useAgents, classify, sentence, useVerbRun } from '@handline/app-data';
 import { Button, Sheet, SheetActions } from './ui/index.ts';
 
-/** Whether the daemon lists the verb's method; one it does not list shows disabled with the reason. */
+/** Whether the daemon lists the verb's method; a verb it does not list is left out of the menu. */
 export function useServed(): (v: Verb) => boolean {
   const served = useSelector((s) => s.served);
   return (v) => served.has(v.method);
 }
-export const unserved = (v: Verb) => `This daemon does not serve ${v.method}.`;
 
 /** The inline sheet under a row: the verb and agent, one sentence, Confirm and Cancel; Move account asks for the account instead. */
 export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onClose: () => void }) {

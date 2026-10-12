@@ -22,6 +22,7 @@ import {
 } from '../src/ui/index.ts';
 import { Gallery } from '../src/Gallery.tsx';
 import { DOT_ORDER, Mark } from '../src/RailIcons.tsx';
+import { AgentGauges } from '../src/AgentGauges.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -92,6 +93,23 @@ describe('the sidebar marks', () => {
     const shapes = [...box.querySelectorAll('.mark svg[data-icon]')].map((s) => s.getAttribute('data-icon'));
     expect(shapes).toHaveLength(DOT_ORDER.length);
     expect(new Set(shapes).size).toBe(DOT_ORDER.length);
+  });
+});
+
+describe('the agent gauges', () => {
+  it('context fills with use and the cache drains with its minutes, each behind its own icon', async () => {
+    await show(<AgentGauges ctx={34} cacheMin={15} />);
+    const meters = [...box.querySelectorAll('[role=meter]')];
+    expect(meters.map((m) => m.getAttribute('aria-valuenow'))).toEqual(['34', '25']);
+    expect([...box.querySelectorAll('svg[data-icon]')].map((i) => i.getAttribute('data-icon'))).toEqual(['context', 'cache']);
+  });
+
+  it('shows a lapsed cache as an empty bar and nothing for a reading it does not have', async () => {
+    await show(<AgentGauges ctx={null} cacheMin={0} />);
+    expect(box.querySelectorAll('[role=meter]')).toHaveLength(1);
+    expect($('[role=meter]')!.getAttribute('aria-valuenow')).toBe('0');
+    await show(<AgentGauges ctx={null} cacheMin={null} />);
+    expect(box.querySelectorAll('[role=meter]')).toHaveLength(0);
   });
 });
 

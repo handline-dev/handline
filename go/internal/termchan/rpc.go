@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/handline/handline/go/internal/inputhold"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/term"
@@ -37,16 +38,20 @@ type Env struct {
 
 	Hub   *Hub
 	Bytes *BytesHub
+	// Holds is who holds each terminal's input; nil serves no input, no resize and no holder but the daemon.
+	Holds *inputhold.Store
 
 	mu    sync.Mutex
 	link  *ControlLink
 	login map[string]bool // handles of the terminals account.login opened
-	conns map[*rpc.Conn]*attaches
+	// restore is the size a terminal had before a holder resized it, given back when the holder leaves.
+	restore map[string][2]int
+	conns   map[*rpc.Conn]*attaches
 }
 
 // New is the terminal channel over db, reading the terminals of backend().
 func New(db *sql.DB, home string, backend func() term.Backend) *Env {
-	e := &Env{DB: db, Home: home, Backend: backend, login: map[string]bool{}, conns: map[*rpc.Conn]*attaches{}, Bytes: NewBytesHub()}
+	e := &Env{DB: db, Home: home, Backend: backend, login: map[string]bool{}, restore: map[string][2]int{}, conns: map[*rpc.Conn]*attaches{}, Bytes: NewBytesHub()}
 	e.Hub = NewHub(e.host)
 	return e
 }
@@ -94,6 +99,10 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("terminal.detach", rpc.Method{Role: "member", Handler: e.detach})
 	s.Register("terminal.history", rpc.Method{Role: "member", Handler: e.history})
 	s.Register("terminal.open", rpc.Method{Role: "member", Handler: e.open})
+	if e.Holds != nil {
+		s.Register("terminal.input", rpc.Method{Role: "member", Write: true, Handler: e.input})
+		s.Register("terminal.resize", rpc.Method{Role: "member", Write: true, Handler: e.resize})
+	}
 }
 
 // capabilities is the formats the terminal channel serves, in all and by host (x-terminal-bytes): tmux has text, bytes and styled,
@@ -260,7 +269,10 @@ func (e *Env) holders(agent string) ([]map[string]any, error) {
 	if agent == "" {
 		return []map[string]any{}, nil
 	}
-	return []map[string]any{daemonHolder()}, nil // nobody else takes a terminal's input any more: the daemon is its only holder
+	if e.Holds == nil {
+		return []map[string]any{daemonHolder()}, nil
+	}
+	return e.Holds.View(agent)
 }
 
 func daemonHolder() map[string]any {

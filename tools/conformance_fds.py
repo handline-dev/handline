@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "contract"))
 import conformance  # noqa: E402
 
-PAIRS = 256
+PAIRS = 512
 # The words a view stores (the spec's x-state-words that fixtures pin): one agent each, as the Python daemon's tick would have left it.
 STATES = ["running", "idle", "queued", "parked", "waiting", "stalled", "no_terminal"]
 
