@@ -1,11 +1,13 @@
 // What sits around the transcript of an agent's chat: the one-line strip of its state, the banner when it is stuck, and the HR proposals
 // that concern it, decided where they were discussed.
-import { useState } from 'react';
+import { useState, type MouseEvent } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail } from '@handline/client';
 import { useHr, useWrite } from '@handline/app-data';
 import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOf } from './ui/index.ts';
+import { openTask } from '@handline/app-core';
 import { goTeam } from './route.ts';
+import { useWorkspace } from './Workspace.tsx';
 
 const until = (iso: string | null): number | null => {
   const t = iso ? Date.parse(iso) : NaN;
@@ -15,6 +17,7 @@ const until = (iso: string | null): number | null => {
 /** One line of icons: the state, the model and effort, the account, the task, and the prompt cache's clock. The words are tooltips. */
 export function ChatStrip({ detail }: { detail: AgentDetail }) {
   const cache = until(detail.cache_until);
+  const { apply } = useWorkspace();
   return (
     <div className="chat-strip flex min-w-0 items-center gap-2 overflow-hidden text-hint text-ink-2">
       <State kind={stateOf(detail.state)} label={detail.state_detail ? `${detail.state}: ${detail.state_detail}` : detail.state} />
@@ -32,7 +35,12 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
         </Chip>
       ) : null}
       {detail.task ? (
-        <Chip as="a" href={`#/tasks/${detail.task.id}`} title={detail.task.title}>
+        <Chip
+          as="a"
+          href={`#/tasks/${detail.task.id}`}
+          title={detail.task.title}
+          onClick={(e: MouseEvent) => (e.preventDefault(), apply((w) => openTask(w, detail.task!.id)))}
+        >
           <Icon name="tasks" size={13} aria-hidden />T{detail.task.id}
         </Chip>
       ) : null}
