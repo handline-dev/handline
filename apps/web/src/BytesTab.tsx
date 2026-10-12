@@ -96,7 +96,7 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
       };
       const watch = new ResizeObserver(layout);
       const sendKeys = keySender(
-        (data) => store.client.bytes.input(live.current!.view, data),
+        (data) => (live.current ? store.client.bytes.input(live.current.view, data) : Promise.resolve()), // keys queued past a detach are dropped
         (e) => setRefused(e.message),
       );
       const typing = pane.term.onData((d) => {
