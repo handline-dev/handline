@@ -32,7 +32,8 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
     so the views go in once it has made the database. Returns the --var for each."""
     names = {w: f"s.{w}" for w in STATES}
     output_agent = "s.output"
-    for n in [*names.values(), output_agent]:
+    ask_agent = "s.ask"
+    for n in [*names.values(), output_agent, ask_agent]:
         (home / "agents" / n).mkdir(parents=True)
         (home / "agents" / n / "agent.yaml").write_text("role: seeded by conformance_fds\n")
     for _ in range(200):
@@ -46,9 +47,10 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
                 con.execute("INSERT OR REPLACE INTO agent_view(agent, view, updated) VALUES(?, ?, 0)", (n, json.dumps(view)))
             seed_tool_items(con, output_agent)
             seed_workroom(home, con)
+            seed_open_question(con, ask_agent)
             con.commit()
             con.close()
-            return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, **WORKROOM}
+            return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, "ask_agent": ask_agent, **WORKROOM}
         except sqlite3.Error:
             if daemon.poll() is not None:
                 break
@@ -73,6 +75,12 @@ def seed_workroom(home: Path, con: sqlite3.Connection) -> None:
     (agent / "agent.yaml").write_text(f"role: seeded by conformance_fds\nrepo: {repo}\n")
     con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'idle', 0, ?)", (WORKROOM["create_parent"], str(repo)))
     WORKROOM["create_repo"] = WORKROOM["status_worktree"] = str(repo.resolve())
+
+
+def seed_open_question(con: sqlite3.Connection, agent: str) -> None:
+    """One open question from the agent to the person, for chat_parent.json."""
+    con.execute("INSERT INTO requests(ts, requester, target, body, response, kind, state) VALUES(?, ?, 'human', 'which one?', 'async', 'ask', 'delivered')",
+                (int(time.time()), agent))
 
 
 def seed_tool_items(con: sqlite3.Connection, agent: str) -> None:
