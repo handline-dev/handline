@@ -16,11 +16,11 @@ export function dotOf(a: AgentView): Dot {
 }
 
 const URGENCY: Record<Dot, number> = { waiting: 0, blocked: 1, running: 2, waking: 3, idle: 4, parked: 5, none: 6 };
-export type GroupBy = 'team' | 'state' | 'account' | 'none';
-
-export interface RailGroup {
-  title: string;
-  rows: { agent: AgentView; depth: number; kids: number }[];
+export interface RailRow {
+  agent: AgentView;
+  depth: number;
+  /** How many shown agents are its children: a row with some has a fold button. */
+  kids: number;
 }
 
 /** The team an agent belongs to: the part of its name before the first dot. A bare name is its own team when others carry it as a prefix, else it stands in "agents". */
@@ -33,32 +33,22 @@ export function teamOf(name: string, names: readonly string[]): string {
 /** What a row shows of the name: inside its team, the part after the team's prefix. */
 export const shortName = (name: string, team: string): string => (name.startsWith(`${team}.`) ? name.slice(team.length + 1) : name);
 
-/** Groups agents; waiting ones sort up, and a child nests under the parent that spawned it. `hidden` lists the dots the filter row has switched off. */
-export function railGroups(agents: AgentView[], by: GroupBy, opts: { hidden?: ReadonlySet<Dot>; search?: string } = {}): RailGroup[] {
+/** The agent list as one list: waiting ones sort up, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off. */
+export function railRows(agents: AgentView[], opts: { hidden?: ReadonlySet<Dot>; search?: string } = {}): RailRow[] {
   const q = (opts.search ?? '').trim().toLowerCase();
-  const all = agents.map((a) => a.name);
   const shown = agents.filter(
     (a) => !opts.hidden?.has(dotOf(a)) && (!q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q)),
   );
   const names = new Set(shown.map((a) => a.name));
-  const key = (a: AgentView) =>
-    by === 'none' ? '' : by === 'team' ? teamOf(a.name, all) : by === 'account' ? (a.account ?? 'no account') : dotOf(a);
   const order = (a: AgentView, b: AgentView) => URGENCY[dotOf(a)] - URGENCY[dotOf(b)] || a.name.localeCompare(b.name);
-  const groups = new Map<string, AgentView[]>();
-  for (const a of shown) if (!a.parent || !names.has(a.parent)) (groups.get(key(a)) ?? groups.set(key(a), []).get(key(a))!).push(a);
-  const out: RailGroup[] = [];
-  for (const [title, members] of groups) {
-    const rows: RailGroup['rows'] = [];
-    const walk = (a: AgentView, depth: number) => {
-      const kids = shown.filter((x) => x.parent === a.name).sort(order);
-      rows.push({ agent: a, depth, kids: kids.length });
-      for (const c of kids) walk(c, depth + 1);
-    };
-    for (const a of members.sort(order)) walk(a, 0);
-    out.push({ title, rows });
-  }
-  const rank = (g: RailGroup) => Math.min(...g.rows.map((r) => URGENCY[dotOf(r.agent)]));
-  return out.sort((a, b) => rank(a) - rank(b) || a.title.localeCompare(b.title));
+  const rows: RailRow[] = [];
+  const walk = (a: AgentView, depth: number) => {
+    const kids = shown.filter((x) => x.parent === a.name).sort(order);
+    rows.push({ agent: a, depth, kids: kids.length });
+    for (const c of kids) walk(c, depth + 1);
+  };
+  for (const a of shown.filter((x) => !x.parent || !names.has(x.parent)).sort(order)) walk(a, 0);
+  return rows;
 }
 
 /** The rows left once the collapsed agents hide their descendants: a row is dropped while it sits deeper than the nearest collapsed row above it. */
@@ -94,8 +84,8 @@ export const RAIL_STATE_WORD: Record<Dot, string> = {
 };
 
 /** What is piled up for an agent: tasks it owns that are not done (`task_count`) and messages owed to it that have not reached it (`unreached`, which the daemon sends only for agents.list `status: true`). A count the view does not carry is null, never 0. */
-export function queueOf(a: AgentView): { tasks: number | null; messages: number | null } {
-  return { tasks: a.task_count ?? null, messages: a.unreached ?? null };
+export function queueOf(a: AgentView, unreached: number | null = null): { tasks: number | null; messages: number | null } {
+  return { tasks: a.task_count ?? null, messages: a.unreached ?? unreached };
 }
 
 export function ago(iso: string | null | undefined, now = Date.now()): string {

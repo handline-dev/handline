@@ -4,7 +4,7 @@ import { useState } from 'react';
 import {
   ago,
   dotOf,
-  railGroups,
+  railRows,
   shortName,
   teamOf,
   visibleRows,
@@ -18,7 +18,7 @@ import {
 } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
-import { useAgents, useAgentQueues, useServes, useUnread, useVerbMark } from '@handline/app-data';
+import { useAgents, useUnreached, useServes, useUnread, useVerbMark } from '@handline/app-data';
 import { VerbSheet } from './AgentVerbs.tsx';
 import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
@@ -72,8 +72,9 @@ export function Sidebar({
     setting(storage, key, '').save([...next].join(sep));
     return next;
   };
-  const queues = useAgentQueues();
-  const groups = railGroups(agents, 'none', { hidden, search });
+  const unreached = useUnreached();
+  const rows = visibleRows(railRows(agents, { hidden, search }), collapsed);
+  const names = agents.map((x) => x.name);
   const counts = new Map<Dot, number>();
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const unread = useUnread().length;
@@ -182,25 +183,18 @@ export function Sidebar({
       <div className="rail-list min-h-0 flex-1 overflow-auto">
         {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
         <View q={list} served={served} shape="agents" what="the agent list" empty={conn === 'open' && !agents.length && 'No agents.'}>
-          {groups.map((g) => (
-            <section className="group" key={g.title}>
-              {visibleRows(g.rows, collapsed).map(({ agent, depth, kids }) => (
-                <Row
-                  key={agent.name}
-                  agent={agent}
-                  depth={depth}
-                  kids={kids}
-                  team={teamOf(
-                    agent.name,
-                    agents.map((x) => x.name),
-                  )}
-                  folded={collapsed.has(agent.name)}
-                  onFold={() => setCollapsed(flip(collapsed, agent.name, 'collapsed', '|'))}
-                  unreached={queues.get(agent.name) ?? null}
-                  selected={agent.name === selected}
-                />
-              ))}
-            </section>
+          {rows.map(({ agent, depth, kids }) => (
+            <Row
+              key={agent.name}
+              agent={agent}
+              depth={depth}
+              kids={kids}
+              team={teamOf(agent.name, names)}
+              folded={collapsed.has(agent.name)}
+              onFold={() => setCollapsed(flip(collapsed, agent.name, 'collapsed', '|'))}
+              unreached={unreached.get(agent.name) ?? null}
+              selected={agent.name === selected}
+            />
           ))}
         </View>
       </div>
@@ -255,7 +249,7 @@ function Row({
   const now = useNow();
   const cache = cacheLeft(a.cache_until, now);
   const ctx = ctxOf(a);
-  const queue = queueOf({ ...a, unreached: a.unreached ?? unreached ?? undefined });
+  const queue = queueOf(a, unreached);
   const badges = badgesOf(a, store.me).filter((b) => b.kind !== 'no_terminal'); // the word already says it
   const word = RAIL_STATE_WORD[dot];
   const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `#${a.task.id} ${a.task.title}` : ''].filter(Boolean).join(' · ');
@@ -296,39 +290,35 @@ function Row({
         >
           <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
           <span className="name min-w-0 flex-1 whitespace-nowrap">{shortName(a.name, team)}</span>
-          {
-            <>
-              <Badges badges={badges} />
-              <span className="state-word flex-none text-hint text-ink-2">{word}</span>
-              {queue.messages ? (
-                <span
-                  className="q-msgs inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
-                  title={`${queue.messages} messages not yet delivered`}
-                >
-                  <Icon name="inbox" size={12} aria-hidden />
-                  {queue.messages}
-                </span>
-              ) : null}
-              {queue.tasks ? (
-                <span
-                  className="q-tasks inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
-                  title={`${queue.tasks} tasks waiting or in progress`}
-                >
-                  <Icon name="tasks" size={12} aria-hidden />
-                  {queue.tasks}
-                </span>
-              ) : null}
-              {ctx !== null ? <Meter pct={ctx} label="context used" /> : null}
-              {cache ? (
-                <span
-                  className={`cache flex-none text-hint text-ink-2${cache === 'out' ? ' out line-through' : ''}`}
-                  title={cache === 'out' ? 'The prompt cache has lapsed' : `${cache} until the prompt cache lapses`}
-                >
-                  {cache}
-                </span>
-              ) : null}
-            </>
-          }
+          <Badges badges={badges} />
+          <span className="state-word flex-none text-hint text-ink-2">{word}</span>
+          {queue.messages ? (
+            <span
+              className="q-msgs inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
+              title={`${queue.messages} messages not yet delivered`}
+            >
+              <Icon name="inbox" size={12} aria-hidden />
+              {queue.messages}
+            </span>
+          ) : null}
+          {queue.tasks ? (
+            <span
+              className="q-tasks inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
+              title={`${queue.tasks} tasks waiting or in progress`}
+            >
+              <Icon name="tasks" size={12} aria-hidden />
+              {queue.tasks}
+            </span>
+          ) : null}
+          {ctx !== null ? <Meter pct={ctx} label="context used" /> : null}
+          {cache ? (
+            <span
+              className={`cache flex-none text-hint text-ink-2${cache === 'out' ? ' out line-through' : ''}`}
+              title={cache === 'out' ? 'The prompt cache has lapsed' : `${cache} until the prompt cache lapses`}
+            >
+              {cache}
+            </span>
+          ) : null}
         </button>
         {showControls ? <RowControls agent={a} account={account} setAccount={setAccount} onAsk={setAsk} onMenu={setMenuOpen} /> : null}
       </div>

@@ -28,7 +28,10 @@ export function RowControls({
   const store = useStore();
   const d = useAgentDetail(agent).data;
   const [open, setOpenState] = useState(false);
-  const setOpen = (v: boolean) => (setOpenState(v), onMenu?.(v));
+  const setOpen = (v: boolean) => {
+    setOpenState(v);
+    onMenu?.(v);
+  };
   const start = useWrite('session.start', agent);
   const resume = useWrite('session.wake', agent);
   const stopWrite = useWrite('session.stop', agent);
