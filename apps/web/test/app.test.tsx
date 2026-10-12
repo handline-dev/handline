@@ -167,6 +167,9 @@ describe('the workspace', () => {
     await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: '?' })));
     expect($('[role="dialog"][aria-label="Keys"]')).not.toBeNull();
     expect(text($('.keys-list'))).toContain('⌘K');
+    expect(text($('[role="dialog"][aria-label="Keys"]'))).toContain('In the message box'); // the open chat registered its keys
+    expect(text($('[role="dialog"][aria-label="Keys"]'))).toContain('send the message');
+    expect(($('[role="dialog"][aria-label="Keys"]')!.textContent ?? '').split('On the tabs')).toHaveLength(2); // once, not once per pane
     await act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))); // Base UI listens on the document
     expect($('[role="dialog"][aria-label="Keys"]')).toBeNull();
     await click($('.rail-foot [aria-label="Keys (?)"]')!);
