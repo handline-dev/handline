@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import shlex
 import sys
 import time
@@ -396,27 +397,29 @@ def cmd_task_merge(args) -> int:
 
 def _print_board(tasks: list[dict]) -> None:
     """Each task (the wire's `Task`), then the requests linked to it as they stand now: state and date are
-    the request's, never held on the task. `state` (#71) is one of draft, queued, doing, done, discarded."""
+    the request's, never held on the task. `state` (#71) is one of draft, queued, doing, done, discarded.
+    The Go daemon's Task may leave out edited_by, discarded, mismatch, requests, last_activity and asker, so
+    each is optional, as in the Go hl's printBoard."""
     if not tasks:
         print("no open tasks.")
         return
     for t in tasks:
         parent = f" (under T{t['parent']})" if t["parent"] else ""
-        edited = f"  edited by {textsafe.oneline(t['edited_by'])}" if t["edited_by"] else ""
+        edited = f"  edited by {textsafe.oneline(t['edited_by'])}" if t.get("edited_by") else ""
         done = f"  DONE: {textsafe.oneline(t['evidence'])}" if t["evidence"] else ""
-        gone = t["discarded"]
+        gone = t.get("discarded")
         closed = f"  DISCARDED by {textsafe.oneline(gone['by'])}: {textsafe.oneline(gone['reason'])}" if gone else ""
         waits = f"  {t['block_reason']}" if t["block_reason"] else ""
         active = timefmt.stamp(client.epoch(t.get("last_activity")), timefmt.DATE_TIME)
         print(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}  [{t['to']}] {t['state']}"
               f"{parent}{edited}{done}{closed}  "
-              f"{actions.priority_ref(t['priority'])}  may reopen: {t['asker']}"
+              f"{actions.priority_ref(t['priority'])}  may reopen: {t.get('asker', '')}"
               f"{waits}  active {active}")
-        if t["mismatch"]:
+        if t.get("mismatch"):
             print(f"        ! {t['mismatch']}")
         if t["hold_reason"]:
             print(f"        {t['hold_reason']}")
-        for r in t["requests"]:
+        for r in t.get("requests", []):
             print(f"        request #{r['id']} {r['from']} → {r['to']} "
                   f"{r['state']} {timefmt.stamp(client.epoch(r['at']), timefmt.DATE_TIME)}")
 
@@ -435,7 +438,8 @@ def _clock(time_box: dict, now: float) -> dict:
 
 def _detail_lines(t: dict, now: float) -> list[str]:
     """One task (the wire's task.get) as lines to read: where it stands, its brief, memos, what it waits on, its
-    children and its handoffs, each note whole."""
+    children and its handoffs, each note whole. The Go daemon's task.get may leave out asker, discarded, blockers,
+    subtasks and handoffs."""
     out = [f"T{t['id']}  {t['title']}",
            f"state {t['state']}   owner {t['to']}   opened by {t['from']}"
            + (f"   reporter {t['asker']}" if t.get("asker") not in (None, t["from"]) else "")
@@ -446,17 +450,17 @@ def _detail_lines(t: dict, now: float) -> list[str]:
         out += actions.timeout_lines(_clock(t["time"], now))
     if t["evidence"]:
         out.append(f"done {timefmt.stamp(client.epoch(t['done']))}: {t['evidence']}")
-    if t["discarded"]:
+    if t.get("discarded"):
         out.append(f"discarded by {t['discarded']['by']}: {t['discarded']['reason'] or 'no reason given'}")
     out += ["", "brief", t["body"] or "(none)"]
     if t["memos"]:
         out += ["", "memos"]
         out += [f"  memo {m['id']}  {m['author']}  {timefmt.stamp(client.epoch(m['at']))}\n    {m['text']}" for m in t["memos"]]
-    if t["blockers"]:
+    if t.get("blockers"):
         out += ["", "waiting on"] + [f"  T{b['task']} ({b['owner']})  {b['title']}" for b in t["blockers"]]
-    if t["subtasks"]:
+    if t.get("subtasks"):
         out += ["", "child tasks"] + [f"  T{k['id']} ({k['owner']}, {k['state']})  {k['title']}" for k in t["subtasks"]]
-    if t["handoffs"]:
+    if t.get("handoffs"):
         out += ["", "handoffs"]
         out += [f"  {timefmt.stamp(client.epoch(h['at']))}  {h['from']} -> {h['to']}\n    {h['note']}" for h in t["handoffs"]]
     return out
@@ -497,6 +501,7 @@ def cmd_task_list(args) -> int:
         print(f"could not read the tasks: {e}")
         return 1
     _print_board(sorted(rows, key=lambda t: (t["priority"], t["id"])))
+    gaps = collections.defaultdict(int, gaps or {})      # the Go daemon sends none: zeros, as the Go hl prints
     print(f"reason (last 30d): {gaps['retirements_blank']}/{gaps['retirements']} "
           f"retirements carry no reason, {gaps['closures_sha']} closures by sha, "
           f"{gaps['closures_request']} by request, {gaps['closures_reason']} by reason")

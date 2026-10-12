@@ -4002,6 +4002,35 @@ def test_a_task_row_holds_its_fields_and_nothing_else(home: Path) -> None:
         con.close()
 
 
+def test_task_list_and_show_read_the_go_daemons_task(home: Path) -> None:
+    """The Go daemon's tasks.list and task.get leave out fields Python's carry; hl task list and show print without them."""
+    from handline.daemon import rpc_taskview
+    _board_world(home)
+    con = db.connect()
+    try:
+        tid = db.new_task(con, "build it", "worker", "manager")
+        db.link_request(con, tid, _human_request())
+        task = rpc_taskview.task_of(con, db.get_task(con, tid), "queued")
+    finally:
+        con.close()
+    for k in ("edited_by", "discarded", "mismatch", "requests", "last_activity", "asker"):
+        task.pop(k)
+    replies = {"tasks.list": {"items": [task], "more": False},
+               "task.get": {**task, "body": "the brief", "deliveries": [], "events": [], "memos": []}}
+    real = clitask.client.call
+    clitask.client.call = lambda method, params=None: replies[method]
+    try:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            listed = clitask.cmd_task_list(argparse.Namespace(owner=None, state=None, all=False, everyone=False))
+            shown = clitask.cmd_task_show(argparse.Namespace(task=tid))
+    finally:
+        clitask.client.call = real
+    out = buf.getvalue()
+    check("go task: list prints the task and zero reason gaps", listed == 0 and "build it" in out and "0/0 retirements" in out, out)
+    check("go task: show prints its brief", shown == 0 and "the brief" in out, out)
+
+
 def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> None:
     """Auditor's #2187 SHOULD-FIX 2: nothing built the pre-#71 schema and ran
     the migration against it. Without the backfill this drives (`closed_by =
@@ -9496,6 +9525,7 @@ def main() -> int:
         run(lambda: test_a_refusal_is_not_read_back_as_an_answer(Path(td) / 'readref'))
         run(lambda: test_a_withdrawn_or_replaced_request_is_not_read_back_as_an_answer(Path(td) / 'readwdrn'))
         run(lambda: test_a_task_row_holds_its_fields_and_nothing_else(Path(td) / 'taskinv'))
+        run(lambda: test_task_list_and_show_read_the_go_daemons_task(Path(td) / 'taskgo'))
         run(lambda: test_the_done_close_migration_upgrades_an_old_tasks_table(Path(td) / 'taskmigrate'))
         run(lambda: test_task_new_list_and_link(Path(td) / 'tasknew'))
         run(lambda: test_task_new_parent_auto_blocks(Path(td) / 'tasknewparentblock'))
