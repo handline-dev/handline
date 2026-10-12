@@ -3,7 +3,9 @@
 const BUBBLE =
   'msg group px-3 py-2 break-keep wrap-break-word rounded-dialog data-[landing=dismissed]:opacity-55 data-[landing=withdrawn]:opacity-55 data-[pending=true]:opacity-70 data-[flash]:outline-2 data-[flash]:outline-offset-2 data-[flash]:outline-dashed data-[flash]:outline-ink';
 const SIDE = {
-  person: 'person self-end bg-[color-mix(in_srgb,var(--primary)_12%,var(--panel))]',
+  // The person's message is the primary itself — ink in this design — so it flips black/white with the theme and everything inside reads on-primary.
+  person:
+    'person self-end bg-primary text-on-primary [&_a]:text-inherit [&_.msg-meta]:text-on-primary/60 [&_.msg-ref]:border-l-on-primary/30 [&_.msg-ref]:text-on-primary/60 [&_.ui-btn]:border-on-primary/30 [&_.ui-btn]:text-on-primary [&_.ui-btn:hover:enabled]:bg-on-primary/10',
   agent: 'agent self-start bg-surface',
   other: 'other self-start bg-surface opacity-80',
 } as const;
@@ -21,7 +23,8 @@ export const bubbleClass = (side: keyof typeof SIDE, s: BubbleState = {}): strin
     BUBBLE,
     SIDE[side],
     s.nested ? 'answer mt-2 max-w-full' : '',
-    s.failed ? 'failed bg-[color-mix(in_srgb,var(--s-bad)_10%,transparent)]' : '',
+    // The person's bubble stays solid when failed — the failed line inside carries the state.
+    s.failed && side !== 'person' ? 'failed bg-[color-mix(in_srgb,var(--s-bad)_10%,transparent)]' : '',
     s.picked ? 'picked outline-2 outline-offset-2 outline-primary' : '',
     s.pickable ? 'pickable cursor-pointer' : '',
   ]
