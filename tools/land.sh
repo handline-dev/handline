@@ -16,7 +16,7 @@
 # merge (tools/localrefs.py), or red tests. The daemon lands only a merge with that tree, and checks
 # the message it was given itself. A merge's tree does not depend on its message, so the daemon landing
 # the shas in this order reaches the same trees. Which tests is the merged tree's tools/check.sh, from
-# what the merges change: none for documentation, the Go suite for Go and the apps, else the whole suite.
+# what the merges change: none for documentation, the Go suite (with -race) for Go and the apps, else the whole suite.
 # --passed says the auditor recorded a PASS for a single <sha>: when the merge's tree is then <sha>'s own
 # tree (main has not moved past it), the suite the auditor ran is the suite of this merge and is not
 # rerun. A train's last merge is never one sha's tree, so --passed changes nothing there.
@@ -26,7 +26,7 @@
 # main's tools/housekeeping.paths allows) is written over the merge and made part of it, and a conflict
 # stops the check only where <dir> has no file for it. `hl land --fix <dir>` sends the daemon the same files.
 #
-# --test runs tools/check.sh on the merge result first; red lands nothing.
+# --test runs tools/check.sh on the merge result first, Go with -race; red lands nothing.
 # The merge result is also read by tools/localrefs.py: a diff or a message (this one
 # included) with personal data or a local task/chat id lands nothing. The ids a merger
 # wants to keep go in --note, which is appended to $OCP_HOME/landings.log, never to git.
@@ -100,7 +100,7 @@ if [ "${1:-}" = "--check" ]; then
     if [ "$passed" = 1 ] && [ ${#shas[@]} -eq 1 ] && [ "${trees[0]}" = "$(git -C "$work" rev-parse "${shas[0]}^{tree}")" ]; then
         echo "land.sh: the merge is the tree the auditor passed; the suite is not rerun" >&2
     else
-        "$work/tools/check.sh" "$base" >&2 || { echo "the tests are red on the merge result" >&2; exit 1; }
+        HANDLINE_GO_RACE=1 "$work/tools/check.sh" "$base" >&2 || { echo "the tests are red on the merge result" >&2; exit 1; }
     fi
     printf '%s\n' "${trees[@]}"
     exit 0
@@ -139,7 +139,7 @@ if [ -f "$work/tools/localrefs.py" ]; then
         exit 1
     fi
 fi
-if [ "$run_tests" = 1 ] && ! "$work/tools/check.sh" main >&2; then
+if [ "$run_tests" = 1 ] && ! HANDLINE_GO_RACE=1 "$work/tools/check.sh" main >&2; then
     echo "the tests are red on the merge result; nothing landed" >&2
     exit 1
 fi

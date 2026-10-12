@@ -41,12 +41,12 @@ def _repo(td: Path) -> Path:
     (main / "tools").mkdir()
     shutil.copy(ROOT / "tools" / "check.sh", main / "tools" / "check.sh")
     # Each run adds a line to $SUITE_RUNS ($GO_RUNS for the Go suite and test.sh) when it is set, so a test can
-    # count the runs of each.
+    # count the runs of each. The Go suite's line says whether it was asked for -race.
     # test.sh is red on its mark for the first Go-only file alone, so a run that went on past a red file to a green
     # last one would read green.
     for name, mark, runs, green in (
             ("suite.sh", "run", "SUITE_RUNS", '[ ! -e "$top/RED" ]'),
-            ("test-go.sh", "go", "GO_RUNS", '[ ! -e "$top/go/RED" ]'),
+            ("test-go.sh", 'go${HANDLINE_GO_RACE:+ -race}', "GO_RUNS", '[ ! -e "$top/go/RED" ]'),
             ("test.sh", 'test.sh "$*"', "GO_RUNS", '[ ! -e "$top/go/PARITY_RED" ] || [ "$1" != tests/daemon/test_go_reads.py ]')):
         stub = main / "tools" / name
         stub.write_text(f'#!/usr/bin/env bash\ntop="$(dirname "$0")/.."\n'
@@ -190,7 +190,7 @@ def test_a_check_runs_the_python_suite_only_when_the_merge_changes_more_than_go_
         out = path.read_text().splitlines() if path.exists() else []
         path.unlink(missing_ok=True)
         return out
-    gos = ["go", "test.sh tests/daemon/test_go_reads.py", "test.sh tests/daemon/test_go_hooks.py",
+    gos = ["go -race", "test.sh tests/daemon/test_go_reads.py", "test.sh tests/daemon/test_go_hooks.py",
            "test.sh tests/infra/test_go_schema.py", "test.sh tests/infra/test_go_tidy.py"]
     for name, files, python, go in (
             ("apps/mobile", [("apps/mobile/app.tsx", "x\n")], [], gos),
