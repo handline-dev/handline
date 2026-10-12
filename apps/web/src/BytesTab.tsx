@@ -12,6 +12,7 @@ import {
   gridToSend,
   guard,
   isEscapeChord,
+  keySender,
   markerLabel,
   paint,
   type CreateTerm,
@@ -91,9 +92,12 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
         timer = setTimeout(sendSize, RESIZE_MS);
       };
       const watch = new ResizeObserver(layout);
+      const sendKeys = keySender(
+        (data) => store.client.bytes.input(live.current!.view, data),
+        (e) => setRefused(e.message),
+      );
       const typing = pane.term.onData((d) => {
-        const v = live.current?.view;
-        if (holding && v) void store.client.bytes.input(v, utf8.encode(d)).catch((e) => setRefused((e as Error).message));
+        if (holding && live.current) sendKeys(utf8.encode(d));
       });
       const grab = () => {
         const v = live.current?.view;

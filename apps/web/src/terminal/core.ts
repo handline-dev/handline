@@ -108,7 +108,8 @@ export const clampGrid = (cols: number, rows: number) => ({
 
 /** The grid to ask the host for, or null while the pane has no size or already shows this one. */
 export function gridToSend(proposed: { cols: number; rows: number } | null, now: { cols: number; rows: number }) {
-  if (!proposed || !Number.isFinite(proposed.cols) || !Number.isFinite(proposed.rows) || proposed.cols < 1 || proposed.rows < 1) return null;
+  if (!proposed || !Number.isFinite(proposed.cols) || !Number.isFinite(proposed.rows) || proposed.cols < 1 || proposed.rows < 1)
+    return null;
   const g = clampGrid(proposed.cols, proposed.rows);
   return g.cols === now.cols && g.rows === now.rows ? null : g;
 }
@@ -138,4 +139,40 @@ export const KEY_BYTES: Record<string, string> = {
 export function markerLabel(m: Notifications['marker']): string {
   const who = m.actor?.name ?? 'someone';
   return m.kind === 'daemon_typed' ? `daemon typed: ${m.text ?? ''}` : `${who}: ${m.text ?? 'took a control action'}`;
+}
+
+const LOCK_RETRIES = 8;
+const LOCK_RETRY_MS = 40;
+
+/** Keys go one call at a time, in order: the daemon refuses a call that arrives while another types (gate terminal_lock), so keys typed
+ *  meanwhile are joined into the next call and a refused call is tried again a few times. Any other refusal drops what was queued. */
+export function keySender(send: (data: Uint8Array) => Promise<unknown>, refused: (e: Error) => void) {
+  let queue: Uint8Array[] = [],
+    busy = false;
+  const pump = async () => {
+    busy = true;
+    while (queue.length) {
+      const data = new Uint8Array(queue.reduce((n, q) => n + q.length, 0));
+      queue.reduce((at, q) => (data.set(q, at), at + q.length), 0);
+      queue = [];
+      for (let i = 0; ; i++) {
+        try {
+          await send(data);
+          break;
+        } catch (e) {
+          if ((e as { gate?: string }).gate === 'terminal_lock' && i < LOCK_RETRIES) await new Promise((r) => setTimeout(r, LOCK_RETRY_MS));
+          else {
+            refused(e as Error);
+            queue = [];
+            break;
+          }
+        }
+      }
+    }
+    busy = false;
+  };
+  return (data: Uint8Array) => {
+    queue.push(data);
+    if (!busy) void pump();
+  };
 }

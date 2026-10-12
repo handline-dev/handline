@@ -8,7 +8,7 @@ import { DataProvider, useAgentDetail, type BoxComponent } from '@handline/app-d
 import { BytesChannel, fromBase64, toBase64, type ByteEvent } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
 import { BytesTab } from '../src/BytesTab.tsx';
-import { clampGrid, gridToSend, guard, isEscapeChord, paint, terminalOwnsKey, type CreateTerm } from '../src/terminal/core.ts';
+import { clampGrid, gridToSend, guard, isEscapeChord, keySender, paint, terminalOwnsKey, type CreateTerm } from '../src/terminal/core.ts';
 import { KEEP_MS, dropKept, keep } from '../src/terminal/keep.ts';
 import { linkHandler, openLink } from '../src/terminal/xterm.ts';
 import { wantsBytes } from '../src/terminal/choose.ts';
@@ -402,5 +402,48 @@ describe('grid and key routing', () => {
     expect(isEscapeChord(chord)).toBe(true);
     expect(terminalOwnsKey(chord)).toBe(false);
     host.remove();
+  });
+});
+
+describe('keySender', () => {
+  const bytes = (...n: number[]) => new Uint8Array(n);
+  const lock = Object.assign(new Error('typing'), { gate: 'terminal_lock' });
+
+  it('sends one call at a time and joins the keys typed meanwhile', async () => {
+    const calls: number[][] = [];
+    let release = () => {};
+    const send = vi.fn((d: Uint8Array) => {
+      calls.push([...d]);
+      return new Promise<void>((r) => (release = r));
+    });
+    const key = keySender(send, () => {});
+    key(bytes(1));
+    key(bytes(2));
+    key(bytes(3));
+    expect(calls).toEqual([[1]]);
+    release();
+    await vi.waitFor(() => expect(calls).toEqual([[1], [2, 3]]));
+  });
+
+  it('tries a call the daemon refused for the terminal lock again, with the same keys', async () => {
+    const calls: number[][] = [];
+    const send = vi.fn(async (d: Uint8Array) => {
+      calls.push([...d]);
+      if (calls.length < 3) throw lock;
+    });
+    keySender(send, () => {})(bytes(7));
+    await vi.waitFor(() => expect(calls).toEqual([[7], [7], [7]]));
+  });
+
+  it('reports any other refusal and drops what was queued', async () => {
+    const refused = vi.fn();
+    const send = vi.fn(async () => {
+      throw new Error('held by someone');
+    });
+    const key = keySender(send, refused);
+    key(bytes(1));
+    key(bytes(2));
+    await vi.waitFor(() => expect(refused).toHaveBeenCalledTimes(1));
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });
