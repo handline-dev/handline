@@ -30,9 +30,9 @@ const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null) => el?.textContent ?? '';
 const item = async (label: string) => {
-  if (!$('.row-actions .ui-popup')) await click($('.row-actions [aria-haspopup="menu"]')!);
-  await until(() => $('.row-actions .ui-popup'), 'the ⋯ menu');
-  return $$('.row-actions .ui-popup button').find((b) => text(b.querySelector('strong')) === label)!;
+  if (!document.querySelector('[role=menu]')) await click($('.row-actions [aria-haspopup="menu"]')!);
+  await until(() => document.querySelector('[role=menu]'), 'the ⋯ menu');
+  return [...document.querySelectorAll('[role=menuitem]')].find((b) => text(b) === label)!;
 };
 const sheetBtn = (label: string) => $$('.verb-sheet .ui-btn').find((b) => text(b) === label)!;
 
@@ -64,12 +64,12 @@ describe('U12 agent verbs', () => {
     const s = setup();
     open(s);
     await mount(ARCH, s);
-    await click(await item('Park'));
+    await click(await item('Sleep'));
     expect(text($('.verb-sheet'))).toContain('Park handline.architect?');
     await click(sheetBtn('Cancel'));
     expect($('.verb-sheet')).toBeNull();
     expect(session(s).open).toBe(true);
-    await click(await item('Park'));
+    await click(await item('Sleep'));
     const park = s.daemon.knobs.hold('session.park'); // held open: the pending mark does not depend on timing
     await click(sheetBtn('Confirm'));
     await until(() => ($(`[data-agent="${ARCH}"] .row-main`)?.getAttribute('title') ?? '').includes('parking…'), 'the gerund in the row');
@@ -89,9 +89,7 @@ describe('U12 agent verbs', () => {
     await click(sheetBtn('Confirm'));
     await until(() => session(s).sessionId !== 's-1', 'a fresh session');
     const fresh = session(s).sessionId;
-    await click($('.row-actions [aria-haspopup="menu"]')!); // reopen the ⋯ menu
-    await until(() => $$('.row-actions .ui-popup button').some((b) => text(b.querySelector('strong')) === 'Restart'), 'the menu back');
-    await click($$('.row-actions .ui-popup button').find((b) => text(b.querySelector('strong')) === 'Restart')!);
+    await click(await item('Restart'));
     await click(sheetBtn('Confirm'));
     await until(() => session(s).open && session(s).sessionId === fresh, 'resumed');
   });
@@ -146,7 +144,7 @@ describe('U12 agent verbs', () => {
     open(s);
     s.daemon.knobs.refuse('session.park', 'state', 'The agent is mid-turn; park it when it is idle.');
     await mount(ARCH, s);
-    await click(await item('Park'));
+    await click(await item('Sleep'));
     await click(sheetBtn('Confirm'));
     await until(() => text($('.toast')).includes('mid-turn'), 'the reason');
     expect($(`[data-agent="${ARCH}"] .row-main`)?.getAttribute('title')).not.toContain('parking…');
@@ -158,7 +156,7 @@ describe('U12 agent verbs', () => {
     open(s);
     const net = { down: false };
     await mount(ARCH, s);
-    await click(await item('Park'));
+    await click(await item('Sleep'));
     const other = second(s.daemon, net);
     await other.start();
     await other.call('session.stop', { agent: ARCH, mode: 'close', request_id: 'x1' }); // another client closes it
@@ -187,14 +185,13 @@ describe('U12 agent verbs', () => {
     await until(() => !text($(`[data-agent="${ARCH}"] .row-actions [aria-haspopup="menu"]`)).includes('waking…'), 'the mark gone');
   });
 
-  it('Clear stall is disabled, with the reason, on a daemon that does not serve agent.unstall', async () => {
+  it('leaves Clear stall out of the menu on a daemon that does not serve agent.unstall', async () => {
     const s = setup();
     open(s);
     session(s).state = 'stalled';
     s.daemon.knobs.unserve('agent.unstall');
     await mount(ARCH, s);
-    const clear = await item('Clear stall');
-    expect(clear.hasAttribute('disabled')).toBe(true);
-    expect(clear.getAttribute('title')).toBe('This daemon does not serve agent.unstall.');
+    await item('Copy path'); // opens the menu
+    expect([...document.querySelectorAll('[role=menuitem]')].map((b) => text(b))).not.toContain('Clear stall');
   });
 });

@@ -38,6 +38,11 @@ const click = (el: Element) =>
     (el as HTMLElement).click();
   });
 const text = (el: Element | null) => el?.textContent ?? '';
+// The row's context menu is Radix's, in a portal: it opens on the row's contextmenu event.
+const menuItems = () => [...document.querySelectorAll('[role=menuitem]')].map((b) => text(b));
+const menuItem = (label: string) => [...document.querySelectorAll('[role=menuitem]')].find((b) => text(b) === label)!;
+const openMenu = (agent: string) =>
+  act(async () => void $(`[data-agent="${agent}"]`)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
 const termTab = `[data-tab="terminal:term:${ARCH}"]`;
 
 // The text grid is what these tests drive; the xterm pane has its own file.
@@ -290,37 +295,19 @@ describe('the workspace', () => {
 });
 
 describe('the sidebar', () => {
-  it('starts an agent from its row, then the ⋯ menu stops it, and a closed agent shows no Resume', async () => {
+  it('starts an agent from its row, then the row menu sleeps it, and a closed agent shows no Resume', async () => {
     const { daemon } = await mount(TB);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     await until(() => $('.row-actions .ui-btn.solid'), 'Start on the selected row');
     await click($('.row-actions [aria-haspopup="menu"]')!);
-    await until(() => $('.row-actions .ui-popup'), 'the ⋯ menu');
-    expect($$('.row-actions .ui-popup button').map((b) => text(b.querySelector('strong')))).toEqual(['Move account', 'Settings']); // nothing to stop yet
-    await click($('.row-actions [aria-haspopup="menu"]')!); // shut it
+    await until(() => menuItems().length, 'the row menu');
+    expect(menuItems()).toEqual(['Copy path', 'Copy worktree name', 'Move account']); // nothing to stop yet
+    await act(async () => void document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     await click($('.row-actions .ui-btn.solid')!);
     await until(() => daemon.sessions.get(TB)!.state !== 'parked', 'session started');
-    await click($('.row-actions [aria-haspopup="menu"]')!);
-    await until(() => $('.row-actions .ui-popup'), 'the ⋯ menu');
-    expect($$('.row-actions .ui-popup button').map((b) => text(b.querySelector('strong')))).toEqual([
-      'Restart',
-      'Restart fresh',
-      'Close',
-      'Park',
-      'Fold into handoff',
-      'Move account',
-      'Settings',
-      'Interrupt',
-      'Exit',
-      'Kill',
-    ]);
-    vi.stubGlobal('confirm', () => false);
-    await click($$('.row-actions .ui-popup button').find((b) => text(b).startsWith('Kill'))!);
-    expect($('.row-actions [aria-haspopup="menu"]')).not.toBeNull(); // refused at the confirm
-    vi.stubGlobal('confirm', () => true);
-    await click($('.row-actions [aria-haspopup="menu"]')!); // the refusal shut the menu: open it again
-    await until(() => $('.row-actions .ui-popup'), 'the ⋯ menu again');
-    await click($$('.row-actions .ui-popup button').find((b) => text(b).startsWith('Close'))!);
+    await openMenu(TB);
+    expect(menuItems()).toEqual(['Copy path', 'Copy worktree name', 'Restart', 'Restart fresh', 'Close', 'Sleep', 'Fold into handoff', 'Move account']);
+    await click(menuItem('Close'));
     await click($$('.verb-sheet .ui-btn').find((b) => text(b) === 'Confirm')!); // Close always asks first
     await until(() => daemon.sessions.get(TB)!.open === false, 'the session closed');
     expect($$('.row-actions .ui-btn').some((b) => /Resume|Start/.test(text(b)))).toBe(false);
