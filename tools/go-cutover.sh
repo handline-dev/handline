@@ -30,7 +30,7 @@ command -v claude >/dev/null 2>&1 || fail "claude is not on PATH: the Go job tak
 
 steps="  2. record the current daemon (hl service status)
   3. hl service use go; hl service install --allow-live-home
-  4. verify: daemon: go, loaded, a pid, no crash-loop warning, hl ps answers; again after 10 s
+  4. verify: daemon: go, loaded, a pid, hl ps shows that pid running with a code sha; again after 10 s
   5. on a failure after 3: hl service use python; hl service install; verify daemon: python and hl ps"
 if [ "$dry" = 1 ]; then
     echo "go-cutover --dry-run: preconditions hold (OCP_LAND_REPO=$OCP_LAND_REPO, python3=$(command -v python3), claude=$(command -v claude), $top/go/handlined built)."
@@ -46,16 +46,20 @@ was="$(printf '%s\n' "$before" | sed -n 's/^daemon: *//p')"
 [ -n "$was" ] || fail "hl service status shows no daemon line"
 echo "go-cutover: coming from daemon: $was"
 
-# verify_daemon <python|go>: the service is chosen, loaded, has a pid, is not crash-looping, and hl ps answers.
+# verify_daemon <python|go>: the service is chosen, loaded, has a pid, and that pid is the daemon `hl ps` finds running and answering hello
+# (hl ps exits 0 even with no daemon, so its text is what is read). Prints only the reason on failure. A crash-looping warning cannot show in
+# our 15 s window (it needs 4 starts in 300 s at a 30 s throttle); a dying job shows as a missing or changed pid instead.
 verify_daemon() {
     want="$1"
     st="$(hl service status 2>&1)" || { echo "hl service status failed: $st"; return 1; }
-    printf '%s\n' "$st"
     printf '%s\n' "$st" | grep -q "^daemon: *$want\$" || { echo "daemon is not $want"; return 1; }
     printf '%s\n' "$st" | grep -q "^loaded: *True\$" || { echo "the job is not loaded"; return 1; }
-    printf '%s\n' "$st" | grep -q "^pid: *[0-9][0-9]*\$" || { echo "the job has no pid"; return 1; }
-    ! printf '%s\n' "$st" | grep -q "crash-looping" || { echo "the job is crash-looping"; return 1; }
-    hl ps >/dev/null 2>&1 || { echo "hl ps does not answer"; return 1; }
+    pid="$(printf '%s\n' "$st" | sed -n 's/^pid: *\([0-9][0-9]*\)$/\1/p')"
+    [ -n "$pid" ] || { echo "the job has no pid"; return 1; }
+    ps_out="$(hl ps 2>&1)" || { echo "hl ps failed: $ps_out"; return 1; }
+    printf '%s\n' "$ps_out" | grep -q "^daemon: running, pid $pid " || { echo "hl ps does not show the daemon running with the job's pid $pid: $(printf '%s\n' "$ps_out" | grep '^daemon:' || echo 'no daemon line')"; return 1; }
+    code="$(printf '%s\n' "$ps_out" | sed -n 's/^  code: *\([^ ]*\).*/\1/p')"
+    { [ -n "$code" ] && [ "$code" != unknown ]; } || { echo "the daemon at pid $pid did not answer hello (hl ps: code unknown)"; return 1; }
 }
 
 rollback() {
@@ -63,10 +67,10 @@ rollback() {
     echo "go-cutover: rolling back to python" >&2
     hl service use python && hl service install || echo "go-cutover: the rollback install itself failed" >&2
     sleep 5
-    if verify_daemon python; then
+    if why="$(verify_daemon python)"; then
         echo "go-cutover: rolled back; the service runs the Python daemon again." >&2
     else
-        echo "go-cutover: ROLLBACK DID NOT VERIFY. Look at: hl service status; hl service logs --err" >&2
+        echo "go-cutover: ROLLBACK DID NOT VERIFY ($why). Look at: hl service status; hl service logs --err" >&2
     fi
     exit 1
 }
