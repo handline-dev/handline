@@ -41,4 +41,4 @@ for the phone (design 7.4, 4.2); pair device; a real icon (the manifest's are pl
 
 ## PC web UI
 
-Gone: `apps/web` replaced the no-build `ui/` page and its server (T3583).
+Gone: `apps/web` replaced the no-build `ui/` page and its server.
