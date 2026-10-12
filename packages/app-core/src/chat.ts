@@ -20,8 +20,9 @@ export function sideOf(m: ChatMessage, agent: string, isAgent: (name: string) =>
   if (m.to === agent && !isAgent(m.from)) return 'person';
   return 'other';
 }
-/** An agent's question that still waits for the person. */
-export const isOpenAsk = (m: ChatMessage, agent: string) => m.from === agent && !m.answer && !m.dismissed && m.landing !== 'withdrawn';
+/** An agent's question that still waits for the person: the daemon keeps it queued until answered, so a report or reply that asked nothing is not one. */
+export const isOpenAsk = (m: ChatMessage, agent: string) =>
+  m.from === agent && m.state === 'queued' && !m.answer && !m.dismissed && m.landing !== 'withdrawn';
 /** Not yet in the agent's terminal, so it can still be taken back. */
 export const canWithdraw = (m: ChatMessage, agent: string) =>
   m.to === agent && m.from !== agent && (m.landing === 'queued' || m.landing === 'typed');

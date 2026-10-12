@@ -50,7 +50,7 @@ test("a reply with the same words as a message is still shown: the agent answeri
 
 test('who a message is from, whether an ask is open and whether a message can still be taken back', () => {
   const mine = msg({ landing: 'typed' });
-  const ask = msg({ from: A, to: 'founder', landing: 'delivered_unanswered' });
+  const ask = msg({ from: A, to: 'founder', state: 'queued', landing: 'delivered_unanswered' });
   assert.equal(sideOf(mine, A, isAgent), 'person');
   assert.equal(sideOf(ask, A, isAgent), 'agent');
   assert.equal(sideOf(msg({ from: 'handline.auditor' }), A, isAgent), 'other');
@@ -60,6 +60,7 @@ test('who a message is from, whether an ask is open and whether a message can st
   assert.equal(isOpenAsk(ask, A), true);
   assert.equal(isOpenAsk({ ...ask, answer: { id: 9, text: 'x', at: '' } }, A), false);
   assert.equal(isOpenAsk({ ...ask, dismissed: true }, A), false);
+  assert.equal(isOpenAsk({ ...ask, state: 'delivered' }, A), false); // a report that asked nothing: a reply is a say under it
   assert.equal(landingLabel('delivered_unanswered'), 'Not answered');
   assert.equal(landingLabel('something_new' as never), 'something_new'); // an open set: unknown states show as sent
 });

@@ -130,7 +130,8 @@ export class FakeChat {
       ...m,
       agent,
     } as ChatMessage & { agent: string };
-    msg.state = msg.landing;
+    // Like the daemon: an agent's question to the person stays queued until it is answered.
+    msg.state = msg.from === agent && msg.landing === 'delivered_unanswered' ? 'queued' : msg.landing;
     this.messages.push(msg);
     return msg.id;
   }
