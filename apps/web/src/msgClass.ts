@@ -1,7 +1,7 @@
 // The classes of a chat message bubble and its parts. `msg`, `person`, `agent`, `other`, `failed`, `picked` and `pickable` stay as
 // hooks: the page and the tests query them. Sides split by surface, not border: the person's is tinted, the agent's is bare.
 const BUBBLE =
-  'msg group px-3 py-2 break-keep wrap-break-word rounded-dialog data-[landing=dismissed]:opacity-55 data-[landing=withdrawn]:opacity-55 data-[pending=true]:opacity-70 data-[flash]:outline-2 data-[flash]:outline-offset-2 data-[flash]:outline-dashed data-[flash]:outline-ink';
+  'msg group px-3 py-2 break-keep wrap-break-word rounded-dialog data-[landing=dismissed]:opacity-55 data-[landing=withdrawn]:opacity-55 data-[pending=true]:opacity-70 data-[flash]:outline-2 data-[flash]:-outline-offset-2 data-[flash]:outline-dashed data-[flash]:outline-focus';
 const SIDE = {
   // The person's message is the primary itself — ink in this design — so it flips black/white with the theme and everything inside reads on-primary.
   person:
@@ -25,7 +25,8 @@ export const bubbleClass = (side: keyof typeof SIDE, s: BubbleState = {}): strin
     s.nested ? 'answer mt-2 max-w-full' : '',
     // The person's bubble stays solid when failed — the failed line inside carries the state.
     s.failed && side !== 'person' ? 'failed bg-[color-mix(in_srgb,var(--s-bad)_10%,transparent)]' : '',
-    s.picked ? 'picked outline-2 outline-offset-2 outline-primary' : '',
+    // The ring sits inside the bubble: the stream's animated wrapper clips overflow, and an outside ring loses its edges.
+    s.picked ? 'picked outline-2 -outline-offset-2 outline-focus' : '',
     s.pickable ? 'pickable cursor-pointer' : '',
   ]
     .filter(Boolean)
