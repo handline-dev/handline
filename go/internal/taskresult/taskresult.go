@@ -31,19 +31,16 @@ type Shot struct {
 	Bytes int64 `json:"bytes"`
 }
 
-// Result is what a finished task carries. Commit is the full sha it was done at, OnMain whether main reaches it; NoCommit and NoShot are the
-// reasons given when there is none.
+// Result is what a finished task carries. Commit is the full sha it was done at, OnMain whether main reaches it.
 type Result struct {
-	Commit   string `json:"commit,omitempty"`
-	OnMain   bool   `json:"on_main,omitempty"`
-	NoCommit string `json:"no_commit,omitempty"`
-	Shots    []Shot `json:"shots,omitempty"`
-	NoShot   string `json:"no_shot,omitempty"`
+	Commit string `json:"commit,omitempty"`
+	OnMain bool   `json:"on_main,omitempty"`
+	Shots  []Shot `json:"shots,omitempty"`
 }
 
 // Empty is whether there is nothing to show.
 func (r Result) Empty() bool {
-	return r.Commit == "" && r.NoCommit == "" && len(r.Shots) == 0 && r.NoShot == ""
+	return r.Commit == "" && len(r.Shots) == 0
 }
 
 func resultKey(tid int64) string { return fmt.Sprintf("task-result:%d", tid) }
@@ -71,7 +68,7 @@ func Get(q db.Q, tid int64) (Result, error) {
 	return r, nil
 }
 
-// MarkUI records that task tid shows something on a screen, so it cannot be done without a screenshot.
+// MarkUI records that task tid shows something on a screen.
 func MarkUI(q db.Q, tid int64) error { return db.SetMeta(q, uiKey(tid), "1") }
 
 // IsUI is whether task tid was opened as a ui task.

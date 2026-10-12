@@ -133,7 +133,8 @@ def cmd_task_done(args) -> int:
             params["reason"] = True
     if args.request is not None:
         params["request"] = args.request
-    params.update({k: v for k, v in (("commit", args.commit), ("no_commit", args.no_commit), ("no_shot", args.no_shot)) if v is not None})
+    if args.commit is not None:
+        params["commit"] = args.commit
     if args.shot:
         params["shots"] = [os.path.abspath(s) for s in args.shot]     # the daemon reads them from its own cwd
     return client.said(*client.write("task.done", params))
@@ -446,12 +447,10 @@ def _clock(time_box: dict, now: float) -> dict:
 
 def _result_lines(r: dict, tid: int) -> list[str]:
     """What the task's end kept: the commit and whether main reaches it, the screenshots where the daemon keeps them
-    (shots/T<n>/<k>.png under its home), and the reason given for either one missing."""
+    (shots/T<n>/<k>.png under its home)."""
     out = [f"commit {r['commit']} ({'on main' if r.get('on_main') else 'not on main'})"] if r.get("commit") else []
-    out += [f"no commit: {r['no_commit']}"] if r.get("no_commit") else []
     folder = paths.home() / "shots" / f"T{tid}"
     out += [f"shot {folder / str(s['n'])}.png ({s['bytes']} bytes)" for s in r.get("shots") or []]
-    out += [f"no shot: {r['no_shot']}"] if r.get("no_shot") else []
     return out
 
 

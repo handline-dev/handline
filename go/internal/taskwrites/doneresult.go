@@ -11,8 +11,8 @@ import (
 	"github.com/handline/handline/go/internal/taskresult"
 )
 
-// resultParams are task.done's commit, no_commit, no_shot and shots.
-func resultParams(p map[string]any) (commit, noCommit, noShot string, shots []string, err error) {
+// resultParams are task.done's commit and shots.
+func resultParams(p map[string]any) (commit string, shots []string, err error) {
 	str := func(key string) (string, error) {
 		if p[key] == nil {
 			return "", nil
@@ -27,41 +27,28 @@ func resultParams(p map[string]any) (commit, noCommit, noShot string, shots []st
 		return
 	}
 	if commit != "" && !shaLike.MatchString(commit) {
-		return "", "", "", nil, badParam("commit is a sha", "commit")
-	}
-	if noCommit, err = str("no_commit"); err != nil {
-		return
-	}
-	if commit != "" && noCommit != "" {
-		return "", "", "", nil, badParam("commit and no_commit are each other's opposite: give one", "no_commit")
-	}
-	if noShot, err = str("no_shot"); err != nil {
-		return
+		return "", nil, badParam("commit is a sha", "commit")
 	}
 	if v := p["shots"]; v != nil {
 		list, ok := v.([]any)
 		if !ok || len(list) == 0 {
-			return "", "", "", nil, badParam("shots is a list of PNG file paths", "shots")
+			return "", nil, badParam("shots is a list of PNG file paths", "shots")
 		}
 		for _, x := range list {
 			s, ok := x.(string)
 			if !ok || s == "" {
-				return "", "", "", nil, badParam("shots is a list of PNG file paths", "shots")
+				return "", nil, badParam("shots is a list of PNG file paths", "shots")
 			}
 			shots = append(shots, s)
-		}
-		if noShot != "" {
-			return "", "", "", nil, badParam("shots and no_shot are each other's opposite: give one", "no_shot")
 		}
 	}
 	return
 }
 
 // doneResult is what the end of task t keeps beyond its evidence: the commit (checked to exist in the repo, and whether main reaches it),
-// the reasons given for having none, and the screenshots, copied into the daemon's folder. A task opened as a ui task needs a screenshot,
-// or the reason for none, from anyone but the founder. Nothing is written but the screenshots' copies; the caller records the result.
+// and the screenshots, copied into the daemon's folder. Neither is required. Nothing is written but the screenshots' copies; the caller
+// records the result.
 func doneResult(tx db.Q, home, by string, t *task, in DoneIn, via, mark string) (res taskresult.Result, finalize func() error, err error) {
-	res = taskresult.Result{NoCommit: in.NoCommit, NoShot: in.NoShot}
 	switch {
 	case in.Commit != "":
 		full, onMain, why := commitIn(in.Repo, in.Commit)
@@ -71,13 +58,6 @@ func doneResult(tx db.Q, home, by string, t *task, in DoneIn, via, mark string) 
 		res.Commit, res.OnMain = full, onMain
 	case via == "sha":
 		res.Commit, res.OnMain = mark, true
-	}
-	ui, err := taskresult.IsUI(tx, t.ID)
-	if err != nil {
-		return res, nil, err
-	}
-	if ui && by != human && len(in.Shots) == 0 && in.NoShot == "" {
-		return res, nil, refusal(fmt.Sprintf("task T%d shows something on a screen: give a screenshot (`--shot FILE.png`), or `--no-shot \"why\"`", t.ID))
 	}
 	if len(in.Shots) > 0 {
 		var roots []string // the founder may name any file; an agent only its own places, since the daemon reads it outside the agent's sandbox

@@ -190,7 +190,7 @@ type NewIn struct {
 	Parent, Blocker    int64
 	HasParent          bool
 	HasBlocker         bool
-	UI                 bool // the task shows something on a screen: it is done with a screenshot
+	UI                 bool // the task shows something on a screen (a label; done never requires a screenshot)
 }
 
 // OpenTask is actions.task_new in the caller's transaction: the owner is asked through the routing table and the task row, its link and

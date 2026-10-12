@@ -492,7 +492,7 @@ func taskMerge(c *hlclient.Client, args []string) (int, bool) {
 }
 
 func taskDone(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--request", "--repo", "--commit", "--no-commit", "--shot", "--no-shot"}, []string{"--reason"}, nil)
+	p, ok := parse(args, []string{"--request", "--repo", "--commit", "--shot"}, []string{"--reason"}, nil)
 	if !ok || len(p.pos) < 1 || len(p.pos) > 2 {
 		return 0, false
 	}
@@ -539,10 +539,8 @@ func taskDone(c *hlclient.Client, args []string) (int, bool) {
 	if hasReq {
 		params["request"] = request
 	}
-	for opt, key := range map[string]string{"--commit": "commit", "--no-commit": "no_commit", "--no-shot": "no_shot"} {
-		if v, given := p.opt(opt); given {
-			params[key] = v
-		}
+	if v, given := p.opt("--commit"); given {
+		params["commit"] = v
 	}
 	if shots := p.each["--shot"]; len(shots) > 0 {
 		wd, err := unix.Getwd()
