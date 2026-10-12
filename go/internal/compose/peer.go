@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"syscall"
 
 	"github.com/handline/handline/go/internal/db"
@@ -53,6 +54,7 @@ func NewPeerPort(home string, d *sql.DB, peer func(agent string) bool, tell peer
 		Peer:   peer,
 		Find:   func(agent string) (peerinbox.Session, error) { return findSession(home, d, agent) },
 		Sender: peerinbox.New(),
+		Mode:   peerMode(home, d),
 		Ctx:    context.Background(),
 		OnDelivered: func(agent, op string) {
 			if err := inTx(d, func(q db.Q) error { return tell.SessionConfirmed(q, agent, op) }); err != nil && log != nil {
@@ -137,4 +139,46 @@ func (m mixedAgents) Withdraw(agent, op string) (structured.Receipt, bool, error
 }
 func (m mixedAgents) Promote(agent, op string) (structured.Receipt, error) {
 	return m.of(agent).Promote(agent, op)
+}
+
+// classOf is the permission class an agent's session runs in: bypass when its prompts are skipped, else prompting.
+func classOf(roster *team.Roster, agent string) string {
+	cfg, err := roster.Read(agent)
+	if err != nil {
+		return ""
+	}
+	if roster.ModeOf(agent, cfg) == "bypass" {
+		return peerinbox.Bypass
+	}
+	return peerinbox.Prompting
+}
+
+// peerMode is the class attested for the message op to a session, which a session that bypasses prompts compares with its own. The
+// daemon is not a session with a mode of its own: it speaks for whoever wrote the message. The person, and the daemon's notices, have the
+// authority the agent was launched with, so they attest the agent's own class; an agent that wrote it attests its own, and the weakest
+// of several authors counts, so a prompting agent's words are held by a session that bypasses prompts and never pass as the person's.
+// Only a session that bypasses prompts is attested to; any other takes the message as it did without. "" attests nothing.
+func peerMode(home string, d *sql.DB) func(agent, op string) string {
+	roster := team.NewRoster(home)
+	return func(agent, op string) string {
+		own := classOf(roster, agent)
+		if own != peerinbox.Bypass { // a session that prompts takes a message with no attestation, as it always did
+			return ""
+		}
+		authors, known := supervisor.AuthorsOfOp(d, op)
+		if !known {
+			return ""
+		}
+		mode := own
+		for _, author := range authors {
+			if !slices.Contains(paths.ListAgents(home), author) || author == agent {
+				continue
+			}
+			if c := classOf(roster, author); c != peerinbox.Bypass {
+				return c
+			}
+			mode = peerinbox.Bypass
+		}
+		return mode
+	}
 }
