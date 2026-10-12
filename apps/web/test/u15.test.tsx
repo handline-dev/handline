@@ -305,13 +305,10 @@ describe('U15 HR', () => {
     await until(() => $('.hr-banner-item'), 'the banner');
     const item = $('.hr-banner-item')!;
     const approve = btn(item, 'Approve') as HTMLButtonElement;
-    const call = s.client.call.bind(s.client) as (m: string, p: unknown) => Promise<unknown>;
-    let release!: () => void;
-    const gate = new Promise<void>((r) => (release = r));
-    const decide = vi.spyOn(s.client, 'call').mockImplementation(((m: string, p: unknown) =>
-      m === 'hr.decide' ? gate.then(() => call(m, p)) : call(m, p)) as never);
+    const release = s.daemon.knobs.hold('hr.decide');
+    const decide = vi.spyOn(s.client, 'call');
     await click(approve);
-    expect(approve.disabled).toBe(true);
+    await until(() => approve.disabled, 'Approve off while the call waits');
     expect((btn(item, 'Reject') as HTMLButtonElement).disabled).toBe(true);
     await click(approve);
     expect(decide.mock.calls.filter(([m]) => m === 'hr.decide')).toHaveLength(1);
@@ -322,7 +319,12 @@ describe('U15 HR', () => {
 
   it('on a phone the banner is read-only: Review only, like the HR tab', async () => {
     const real = window.matchMedia;
-    window.matchMedia = ((q: string) => ({ matches: q.includes('max-width'), media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    window.matchMedia = ((q: string) => ({
+      matches: q.includes('max-width'),
+      media: q,
+      addEventListener() {},
+      removeEventListener() {},
+    })) as unknown as typeof window.matchMedia;
     try {
       const s = setup();
       raise(s, 1);
