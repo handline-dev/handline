@@ -1,5 +1,5 @@
 // The HR list: the proposals agents raised, as on the web's HrTab. Approve, reject and withdraw are decided writes: the card changes when the
-// hr topic or the refetch says so. Only the founder decides; anyone else reads the cards. "Edit settings" opens the proposal's agent's settings
+// hr topic or the refetch says so. A paired person decides; an agent cannot. "Edit settings" opens the proposal's agent's settings
 // before approving, as agent.set writes.
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -35,7 +35,7 @@ export function Hr() {
   const c = usePalette();
   const query = useHr();
   const { served } = useServes('hr.list');
-  const founder = useStore().client.hello?.role === 'founder';
+  const { served: canDecide } = useServes('hr.decide');
   const decide = useWrite('hr.decide');
   const [all, setAll] = useState<'ask' | 'reject' | string | null>(null);
   const [why, setWhy] = useState('');
@@ -63,7 +63,7 @@ export function Hr() {
       <ScrollView testID="hr-list" contentContainerStyle={{ padding: space.lg, gap: space.md }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
           <Text style={{ color: c.ink, fontWeight: '700', flex: 1 }}>HR{waitingCount(list) ? ` · ${waitingCount(list)} waiting` : ''}</Text>
-          {founder && waiting.length > 1 && all !== 'ask' && all !== 'reject' && (
+          {canDecide && waiting.length > 1 && all !== 'ask' && all !== 'reject' && (
             <>
               <Button testID="hr-all" label="Approve all" onPress={() => setAll('ask')} />
               <Button testID="hr-reject-all" label="Reject all" onPress={() => setAll('reject')} />
@@ -122,7 +122,7 @@ export function Hr() {
           </Text>
         ) : null}
         {waiting.map((p) => (
-          <Card key={p.id} p={p} decider={founder} refresh={() => void query.refetch()} />
+          <Card key={p.id} p={p} decider={canDecide} refresh={() => void query.refetch()} />
         ))}
         {recent.length > 0 && <Text style={{ color: c.muted, fontWeight: '600' }}>Recent</Text>}
         {recent.map((p) => (

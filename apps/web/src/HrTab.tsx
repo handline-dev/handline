@@ -1,5 +1,5 @@
 // The HR tab: the proposals agents raised. Approve, reject and withdraw are decided writes (the card changes when the hr topic or a refetch
-// says so); only the founder sees them, and a phone shows the cards read-only.
+// says so); only a paired person decides them, and a phone shows the cards read-only.
 import { useEffect, useRef, useState } from 'react';
 import {
   askedLines,
@@ -16,7 +16,7 @@ import {
   waitingCount,
 } from '@handline/app-core';
 import type { Proposal } from '@handline/client';
-import { useOnce, useStore } from '@handline/app-react';
+import { useOnce, useSelector } from '@handline/app-react';
 import { classify, sentence, useAgents, useHr, usePending, useWrite } from '@handline/app-data';
 import {
   Button,
@@ -50,8 +50,7 @@ const STATE_KIND: Record<string, StateKind> = {
 
 export function HrTab({ focus }: { focus: number | null }) {
   const q = useHr();
-  const store = useStore();
-  const founder = store.client.hello?.role === 'founder';
+  const can = useSelector((s) => s.can('hr.decide'));
   const narrow = useNarrow();
   const decide = useWrite('hr.decide');
   const [all, setAll] = useState<'ask' | 'reject' | null>(null);
@@ -61,7 +60,7 @@ export function HrTab({ focus }: { focus: number | null }) {
   const [going, once] = useOnce();
   const list = q.data?.proposals ?? [];
   const { waiting, recent } = ordered(list);
-  const decider = founder && !narrow;
+  const decider = can && !narrow;
   // The ones the bulk verbs act on: those ticked (and still waiting), else every waiting one.
   const chosen = waiting.filter((p) => picked.has(p.id));
   const targets = chosen.length ? chosen : waiting;

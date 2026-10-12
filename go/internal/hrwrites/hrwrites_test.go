@@ -40,12 +40,13 @@ func (auth) AgentOf(int) string         { return "" }
 func (auth) FounderKeyOK(k string) bool { return k == "founder" }
 
 type rig struct {
-	t    *testing.T
-	home string
-	db   *sql.DB
-	e    *Env
-	srv  *rpc.Server
-	live map[string]bool
+	t      *testing.T
+	home   string
+	db     *sql.DB
+	e      *Env
+	device string // when set, calls arrive as this paired device
+	srv    *rpc.Server
+	live   map[string]bool
 }
 
 func newRig(t *testing.T) *rig {
@@ -106,7 +107,15 @@ func (r *rig) callHello(hello, method, params string) map[string]any {
 	r.t.Helper()
 	cl, sv := net.Pipe()
 	done := make(chan struct{})
-	go func() { r.srv.Serve(rpc.NewLineTransport(sv), 0); sv.Close(); close(done) }()
+	go func() {
+		if r.device != "" {
+			r.srv.ServeRelayed(rpc.NewLineTransport(sv), r.device, "phone")
+		} else {
+			r.srv.Serve(rpc.NewLineTransport(sv), 0)
+		}
+		sv.Close()
+		close(done)
+	}()
 	defer func() { cl.Close(); <-done }()
 	rd := bufio.NewReader(cl)
 	cl.SetDeadline(time.Now().Add(20 * time.Second))
@@ -541,5 +550,19 @@ func TestWithdrawOfASettledOrUnknownProposalIsRefusedWithTheProposalAsItIs(t *te
 	}
 	if m := r.callAs("alice", "hr.withdraw", `{"proposal":"x","request_id":"w3"}`); m["error"].(map[string]any)["data"].(map[string]any)["code"] != "bad_request" {
 		t.Fatalf("%v", m)
+	}
+}
+
+func TestAPairedDeviceDecidesAndAnAgentSessionIsRefused(t *testing.T) {
+	r := newRig(t)
+	_, id := r.propose("aaaa0003", "kind", "link", "agent", "alice", "to", "bob")
+	refused := r.callAs("alice", "hr.decide", fmt.Sprintf(`{"proposal":%d,"decision":"reject","request_id":"g1"}`, id))
+	if gate(refused) != "role" || r.state("aaaa0003") != "proposed" {
+		t.Fatalf("an agent does not decide: %v %s", refused, r.state("aaaa0003"))
+	}
+	r.device = "dev-1"
+	res := r.decide(id, "reject", "", "g2")["result"].(map[string]any)
+	if res["said"] != "proposal aaaa0003 rejected" || r.state("aaaa0003") != "rejected" {
+		t.Fatalf("a paired device decides: %v %s", res, r.state("aaaa0003"))
 	}
 }

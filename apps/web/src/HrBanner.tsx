@@ -1,5 +1,5 @@
 // A proposal an agent just raised, shown on whatever page the founder is on with Approve and Reject (a reason is needed), as the bridge's
-// HR dot and request put it in front of them. Not drawn on the HR tab, which already lists every card, nor for anyone but the founder.
+// HR dot and request put it in front of them. Not drawn on the HR tab, which already lists every card, nor for a caller who cannot decide.
 import { useState } from 'react';
 import { raised, textSafe } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
