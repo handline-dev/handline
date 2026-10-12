@@ -164,17 +164,16 @@ export function Compose(props: {
           <span className="mono">#{target.id}</span>
           <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>
           {isOpenAsk(target, agent) && dismissable ? (
-            <button
-              className="icon"
-              aria-label="Dismiss the question"
-              title="Dismiss the question"
+            <Button
+              variant="ghost"
+              size="sm"
+              label="Dismiss"
+              title="Close the question without answering"
               onClick={() => {
                 act.dismiss(target.id);
                 onClear?.();
               }}
-            >
-              <Icon name="dismiss" size={14} label="Dismiss the question" />
-            </button>
+            />
           ) : null}
           <button className="icon" aria-label="Drop the reply" title="Drop the reply (Esc)" onClick={onClear}>
             <Icon name="close" size={14} label="Drop the reply" />
