@@ -25,7 +25,6 @@ func Register(s *rpc.Server, e *supervisor.Env, tell taskwrites.Teller) {
 	w := &writes{e, tell, attachments.New(e.Home)}
 	s.Register("chat.send", rpc.Method{Role: "member", Write: true, Handler: w.send, Refresh: w.refreshSend})
 	s.Register("chat.send_now", rpc.Method{Role: "member", Write: true, Handler: w.sendNow})
-	s.Register("chat.answer", rpc.Method{Role: "member", Write: true, Handler: w.answer})
 	s.Register("chat.dismiss", rpc.Method{Role: "member", Write: true, Handler: w.dismiss})
 	s.Register("chat.cancel", rpc.Method{Role: "member", Write: true, Handler: w.cancel})
 	s.Register("chat.seen", rpc.Method{Role: "member", Write: true, Handler: w.seen})
@@ -216,7 +215,7 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 		var res *Result
 		var err error
 		if parent != 0 {
-			res, err = w.sendUnder(tx, agent, parent, body, len(images) > 0, act)
+			res, err = w.sendUnder(tx, agent, parent, body, act)
 		} else {
 			res, err = sayWrite(w.e, tx, db.Human, agent, body, 0, nil, act)
 		}
@@ -260,8 +259,8 @@ func checkTask(task any) error {
 	return nil
 }
 
-// sendUnder is a message that replies to parent: its answer when it waits on the person, else a say to the agent under it.
-func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, pictures bool, act func(rid int64)) (*Result, error) {
+// sendUnder is a message that replies to parent: a say to the agent with the parent link, whatever the parent asked. It answers and settles nothing.
+func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, act func(rid int64)) (*Result, error) {
 	row, err := message(tx, parent)
 	if err != nil {
 		return nil, err
@@ -269,43 +268,7 @@ func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, 
 	if agent != row.Target && agent != row.Requester {
 		return nil, rpc.Refused(fmt.Sprintf("%s is not on #%d", agent, parent), "state", "")
 	}
-	if !WaitsOnPerson(row) {
-		return sayWrite(w.e, tx, db.Human, agent, body, parent, nil, act)
-	}
-	if pictures {
-		return nil, rpc.Refused(fmt.Sprintf("#%d waits for an answer, and an answer carries no images", parent), "state", "")
-	}
-	res, err := AnswerWrite(w.e, w.tell, tx, parent, body, nil)
-	if err != nil {
-		return nil, err
-	}
-	if !res.OK {
-		return nil, stateRefusal(res)
-	}
-	res.Request = parent
-	return res, nil
-}
-
-func (w *writes) answer(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := requestParam(p, "request")
-	if err != nil {
-		return nil, err
-	}
-	body, err := text(p, "text")
-	if err != nil {
-		return nil, err
-	}
-	return w.writeResult(c, refuse, func(tx *sql.Tx) (*Result, map[string]any, error) {
-		row, err := message(tx, rid)
-		if err != nil {
-			return nil, nil, err
-		}
-		if !WaitsOnPerson(row) {
-			return nil, nil, rpc.Refused(fmt.Sprintf("#%d asked nothing of the person: there is nothing to answer", rid), "state", "")
-		}
-		res, err := AnswerWrite(w.e, w.tell, tx, rid, body, nil)
-		return res, nil, err
-	})
+	return sayWriteLinked(w.e, tx, db.Human, agent, body, parent, true, nil, act)
 }
 
 func (w *writes) dismiss(c *rpc.Conn, p map[string]any) (any, error) {

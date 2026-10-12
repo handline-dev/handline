@@ -102,7 +102,6 @@ const answersSeed: [Key, unknown][] = [[['d', D, 'answers'], { answers: [{ kind:
 const AUTHORED: [string, object, [Key, unknown][], boolean][] = [
   ['chat.send', { agent: 'a', body: 'hello' }, chatSeed, true],
   ['chat.dismiss', { request: 5 }, chatSeed, true],
-  ['chat.answer', { request: 5, text: 'yes' }, chatSeed, true],
   ['task.new', { owner: 'a', title: 'new', body: '', time_box: '1h' }, taskSeed, true],
   ['task.done', { task: 7, evidence: 'ok' }, taskSeed, true],
   ['task.queue', { tasks: [8] }, taskSeed, true],

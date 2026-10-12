@@ -23,7 +23,7 @@ terminal.resize session.start session.wake session.stop session.restart session.
 prompt.answer input.take input.release inbox.list inbox.mark_read inbox.answer inbox.reply tasks.list task.get task.new task.withdraw
 task.cancel task.edit team.get hr.list hr.decide account.login repos.list worktrees.list worktree.diff
 agent.options schedules.list schedule.add schedule.edit schedule.remove stats.get settings.get
-settings.set devices.list chat.messages chat.transcript chat.locate chat.send chat.answer chat.dismiss chat.search terminal.close terminal.detach device.pair device.redeem device.revoke events.feed whoami hello subscribe""".split()
+settings.set devices.list chat.messages chat.transcript chat.locate chat.send chat.dismiss chat.search terminal.close terminal.detach device.pair device.redeem device.revoke events.feed whoami hello subscribe""".split()
 AGENT_COMMANDS = "task.new task.handoff task.done task.reopen task.progress inbox.list inbox.get say land hook.record agent.set " \
                  "session.wake session.stop session.restart session.park".split()
 BARRED_FROM_AGENTS = "session.input session.keys session.interrupt prompt.answer input.take input.release terminal.attach " \

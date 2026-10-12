@@ -1,0 +1,33 @@
+# Removal candidates
+
+Survey of main `321bfb5a`, by `git grep`. Nothing is removed. Status: **asked** (the founder named it), **proposed** (evidence is enough to remove), **decide** (it removes a feature or a Python path; the founder or the Go team says first).
+
+"Answer-needed" means a message asking the person something, with an open/answered/dismissed state. A reference (pick a message, then type) is a plain `chat.send` with `parent`.
+
+## 1. The answer-needed path
+
+| # | Item | Status | Lives in | Who still calls it | Why it goes | Replaced by |
+|---|---|---|---|---|---|---|
+| 1 | `chat.answer` | asked | `contract/protocol.json` (a summary and no description), `go/internal/chatwrites/chatwrites.go:27,252`, `handline/daemon/rpc_chatwrites.py:208`, `packages/app-data/src/chat.ts:85`, `chat-writes.ts:123`, `packages/fake-daemon/src/chat.ts:42`, `tests/infra/fake_methods/chat_writes.py`, fixtures `contract/fixtures/chat_writes.json` (6), `tools/gateway_smoke.py:451` | web `ChatCompose.tsx:104` and mobile `Chat.tsx:103,342` (through `isOpenAsk`) | It refuses a reference to any message that asked nothing ("#N asked nothing of the person", `chatwrites.go:267`), which is the failure the founder hit. Two verbs for one act. | `chat.send` with `parent` |
+| 2 | The answer branch of `chat.send` | asked, with 1 | `chatwrites.go:229-250` `sendUnder`: a parent that `WaitsOnPerson` (`actions.go:38`) is written by `AnswerWrite`, not as a say. The contract says so in `chat.send`'s `parent` text | every `chat.send` with `parent` | Same refusal and state change hide behind `parent`: the web fix for 1 still reaches it for a message to the person. A reference must never settle or answer anything. | `sendUnder` always a say with the parent link; `AnswerWrite` stays for `inbox.answer` / `inbox.reply` only |
+| 3 | `chat.dismiss`, `ChatMessage.answer`, `ChatMessage.dismissed`, `ChatRequestItem.dismissal`, `ChatMessage.is_task_question`, `isOpenAsk` | decide | contract; `chatwrites.go:28,274`; `rpc_chatwrites.py:209`; `packages/app-core/src/chat.ts:24`; fake daemon | web `Inbox.tsx:31` and `InboxCardParts.tsx:95` (dismiss on a card), mobile `Chat.tsx:243,346`, `isOpenAsk` in web `ChatCompose.tsx`, mobile `Chat.tsx` | They exist only to draw an ask as open, answered or dismissed. If asks are deprecated the state has no reader. Open question: does the inbox keep decisions and prompts (it should: `prompt.answer`, HR) while ask cards go? | Nothing; a message is read or not (`chat.seen`) |
+| 4 | `inbox.answer` `option`, `DecisionOption`, `InboxItem.options` | proposed | `contract/protocol.json:9101,9173`; web `InboxCardParts.tsx:153`, `inboxKinds.ts:25`; mobile `Inbox.tsx:102`; fake `inbox.ts:100` | nobody: both daemons send `"options": []` (`go/internal/reads/inbox.go:142`, `rpc_inbox.py:26`) and Go refuses `option` ("no item offers options yet", `chatwrites/inbox.go:254`) | A parameter and a button for something no item has ever carried | `text` answers; `prompt.answer` has its own options |
+| 5 | `response` kinds `async` / `fire_and_forget`, `relation`, `reply`, `waits_on` | decide | team.yaml edges: `go/internal/team/team.go:55`, `hrwrites/doers.go:303`, `handline/team/team.py:45`, `hl hr link --response` (`handline/cli/parser.py:205`); Go `task.new` / `task.edit` refuse all four (`taskwrites/new.go:66`, `edit.go:225`), so only Python serves them | `hl say` already "needs no answer" (`parser.py:322`); 96 `fire_and_forget` hits in `tests/team/test_tasks_requests.py` | "async waits for a reply" is the answer-needed model. A reply-wait is a task and a `hl task done`. | Tasks (`task.new`, `task.done`); an edge is only "may ask" |
+
+## 2. Dead or stale elsewhere
+
+| # | Item | Status | Evidence | Why it goes |
+|---|---|---|---|---|
+| 6 | `web/` (the old PC UI `web/ui`, the phone PWA `web/mobile`, `web/serve-ui.ts`, `web/legacy`; 24 tracked files) | proposed | `docs/turborepo-layout.md:4,81` plans to delete it once `apps/web` shows everything (the PWA is already "dropped"); nothing outside `web/` and docs imports it; `contract/README.md:52` still tells people to run its tests | A second UI of the same protocol that nobody ships. Check the hardening cases of `serve-ui.ts` (`turborepo-layout.md:82`) are covered in `apps/web` first. |
+| 7 | `chat.withdraw` in docs and test docstrings | proposed | not in the spec (`chat.cancel` is); still named in `docs/contract-requests.md:80,85`, `docs/design/structured-sessions.md:91`, `tests/infra/fake_methods/chat_writes.py:1` | The method was replaced; the prose misleads |
+| 8 | Snapshot docs that name removed surface | proposed | `docs/structured-controls-gaps.md` ("read against main 45d76bb6", lists `chat.answer`), `docs/pc-app-gaps.md:25,165`, `docs/daemon-plan.md:224`, `docs/turborepo-layout.md:195` | Gap lists whose gaps are closed or whose methods go with 1 and 3 |
+| 9 | Python RPC layer for methods Go serves | decide, later | `handline/daemon/rpc_*.py` (33 modules, 4,277 lines); of 96 Python-registered methods 84 are also Go-registered. 12 are Python only (Go lacks 14 in all): `account.remove`, `input.take`, `input.release`, `session.input`, `session.keys`, `session.type`, `task.board`, `terminal.input`, `terminal.resize`, `trust.list`, `trust.propose`, `trust.remove` | Two implementations of one contract. Not before the Go daemon serves the 14 in `go/conformance-missing.txt` and the Electron owner stops starting `bin/ocp daemon` (`apps/electron/src/owner.ts:141`). |
+| 10 | The Python fake of the daemon | decide, with 9 | `tests/infra/fake_methods/*.py` (1,191 lines) beside `packages/fake-daemon/src` (3,701 lines); both play the same fixtures | Two fakes to keep in step, as `chat.send attachments` and `parent_item` just showed |
+
+## 3. Checked and kept
+
+The typing methods `session.input|keys|type`, `input.take|release`, `terminal.input|resize|close` and `trust.*`, `agent.unstall`: Go does not serve them, but the apps call them for terminal agents (`packages/app-data/src/writes.ts`, `packages/client/src/bytes-channel.ts`), so they are not dead. `x-legacy` verbs with no method (`push`, `push_answer`, `notify_cancelled`): daemon-internal delivery, still used by `go/internal/legacyverbs`. The `ocp` package shim and `bin/ocp`: the Electron owner starts it.
+
+## 4. Order
+
+1 and 2 together (one Go change and the contract; web and mobile stop calling `answer` first, T3516 does the web); 4 and 7 and 8 at any time; 3 and 5 after the founder says what happens to ask cards and `async` edges; 6 after a check of the hardening tests; 9 and 10 when the Go daemon serves its 14 missing methods.

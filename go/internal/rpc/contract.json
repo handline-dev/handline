@@ -72,9 +72,6 @@
  "attachment.put": {
   "role": "member"
  },
- "chat.answer": {
-  "role": "member"
- },
  "chat.cancel": {
   "role": "member"
  },

@@ -82,7 +82,6 @@ export function useChatActions(agent: string) {
   const { daemon } = useData();
   const send = useWrite('chat.send', agent);
   const dismiss = useWrite('chat.dismiss', agent);
-  const answer = useWrite('chat.answer', agent);
   const sendNow = useWrite('chat.send_now', agent);
   const cancel = useWrite('chat.cancel', agent);
   const seen = useWrite('chat.seen', agent);
@@ -127,7 +126,6 @@ export function useChatActions(agent: string) {
     /** The agent's messages up to this number are in front of the person: they leave the FOR YOU list. */
     seen: (up_to: number) => seen.mutate({ agent, up_to }),
     dismiss: (request: number) => dismiss.mutate({ request }),
-    answer: (request: number, text: string) => answer.mutate({ request, text }),
     sending: send.isPending,
   };
 }

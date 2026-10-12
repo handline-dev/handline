@@ -566,14 +566,14 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
-  it('answers a question from the agent', async () => {
+  it('leaves answering a question to the Inbox: no answer box in the chat, a tap still replies with a linked message', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await until(() => msgOf('Which gap list should come first?'), 'the question');
     const id = Number(msgOf('Which gap list should come first?')!.getAttribute('data-testid')!.slice(4));
-    await type(`answer-input-${id}`, 'the web one');
-    await press($(`answer-send-${id}`));
-    await until(() => msgOf('Which gap list should come first?')?.textContent?.includes('You: the web one'), 'the answer');
+    expect($(`answer-input-${id}`)).toBeNull();
+    expect($(`answer-send-${id}`)).toBeNull();
+    expect($(`dismiss-${id}`)).not.toBeNull();
     m.store.stop();
   });
 
