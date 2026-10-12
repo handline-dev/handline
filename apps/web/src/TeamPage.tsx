@@ -31,7 +31,7 @@ export function TeamPage() {
                     <>
                       {count ? (
                         <span className="hr-dot text-bad" aria-hidden="true">
-                          ●{' '}
+                          <Icon name="decision" size={12} className="mr-0.5 inline-block align-[-2px]" />{' '}
                         </span>
                       ) : null}
                       HR{count ? ` ${count}` : ''}

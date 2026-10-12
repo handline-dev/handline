@@ -248,6 +248,7 @@ function Card({
         <CodeBlock scroll className="hr-diff" aria-label="What approving does">
           {diff.map((l, i) => (
             <div key={i} className={l.mark === '-' ? 'del text-bad' : l.mark === '+' ? 'add text-ok' : ''}>
+              {l.mark ? `${l.mark} ` : ''}
               {l.text}
             </div>
           ))}

@@ -36,7 +36,7 @@ export function StateChip({ state, mark }: { state: string; mark?: 'authored' | 
     );
   return (
     <span className={`tchip ${TONE[state] ?? 'idle'} data-[state=done]:text-ok ${CHIP}`} data-state={state} title={state}>
-      {mark === 'authored' ? <span aria-hidden="true">○</span> : null}
+      {mark === 'authored' ? <Icon name="unsaved" size={12} aria-hidden /> : null}
       <Icon
         name={STATE_GLYPH[state] ?? 'taskPending'}
         label={state}

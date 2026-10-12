@@ -115,7 +115,7 @@ export function Sidebar({
           <Icon name="tasks" size={14} aria-hidden /> Tasks
         </button>
         <button className={navOf(onTeam)} onClick={() => goTeam(hr ? 'hr' : 'team')}>
-          <Icon name="team" size={14} aria-hidden /> Team{hr ? <span className="hr-dot text-bad"> ● HR {hr}</span> : null}
+          <Icon name="team" size={14} aria-hidden /> Team{hr ? <span className="hr-dot text-bad"> <Icon name="decision" size={12} aria-hidden /> HR {hr}</span> : null}
         </button>
         {worktreesServed ? (
           <button className={navOf(onWorktrees)} aria-current={onWorktrees ? 'page' : undefined} onClick={() => goWorktrees()}>
@@ -181,7 +181,10 @@ export function Sidebar({
                   aria-expanded={!folded.has(g.title)}
                   onClick={() => setFolded(flip(folded, g.title, 'folded', '|'))}
                 >
-                  <span aria-hidden>{folded.has(g.title) ? '▸' : '▾'}</span> {g.title}
+                  <span aria-hidden>
+                    <Icon name={folded.has(g.title) ? 'chevronRight' : 'more'} size={12} />
+                  </span>{' '}
+                  {g.title}
                 </button>
                 <GroupMarks rows={g.rows.map((r) => r.agent)} />
               </h3>
@@ -342,12 +345,20 @@ function RowControls({
           disabled={busy}
           onClick={() => start.mutate(d.structured ? { agent } : { agent, account: account || undefined })}
         >
-          {start.isPending ? 'starting…' : '▶ Start'}
+          {start.isPending ? 'starting…' : (
+            <>
+              <Icon name="play" size={12} aria-hidden className="mr-1 inline-block align-[-2px]" /> Start
+            </>
+          )}
         </Button>
       ) : null}
       {c.resume ? (
         <Button variant="outline" label="Resume" disabled={busy} onClick={() => resume.mutate({ agent })}>
-          {resume.isPending ? 'resuming…' : '⟳ Resume'}
+          {resume.isPending ? 'resuming…' : (
+            <>
+              <Icon name="retry" size={12} aria-hidden className="mr-1 inline-block align-[-2px]" /> Resume
+            </>
+          )}
         </Button>
       ) : null}
       <Button
@@ -357,7 +368,7 @@ function RowControls({
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        {mark ?? (stopWrite.isPending || interrupt.isPending ? 'stopping…' : '⋯')}
+        {mark ?? (stopWrite.isPending || interrupt.isPending ? 'stopping…' : <Icon name="menu" size={14} aria-hidden />)}
       </Button>
       <Popup open={open} onClose={() => setOpen(false)} title={`More actions for ${agent}`} align="right">
         {c.start && !d.structured ? (

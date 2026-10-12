@@ -4,7 +4,7 @@ import { cronWords } from '@handline/app-core';
 import { classify, sentence, useSchedules, useServes, useWrite } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
 import type { Schedule } from '@handline/client';
-import { Button, FNote, SectionHead, Sheet, SheetActions } from './ui/index.ts';
+import { Button, FNote, Icon, SectionHead, Sheet, SheetActions } from './ui/index.ts';
 
 const cut = (s: string, n = 60) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
@@ -48,7 +48,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
       {mine.map((s) => (
         <div key={s.id} className="schedule flex flex-wrap items-center gap-x-3 gap-y-1 py-1">
           <span>
-            {s.id < 0 ? '○ ' : ''}
+            {s.id < 0 ? <Icon name="unsaved" size={12} aria-hidden title="Not yet on the daemon" /> : null}{' '}
             {cronWords(s.cron) ?? s.cron}
             {cronWords(s.cron) ? <code className="muted"> {s.cron}</code> : null}
           </span>
@@ -56,10 +56,8 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
           <span className="smsg min-w-[12ch] flex-1">{cut(s.message)}</span>
           {write ? (
             <span className="sact">
-              <Button size="sm" variant="outline" label="Edit schedule" aria-label="Edit schedule" onClick={() => setForm({ id: s.id, cron: s.cron, message: s.message })}>
-                ✎
-              </Button>
-              <Button size="sm" variant="outline" label="Remove schedule" aria-label="Remove schedule" onClick={() => drop(s)}>✕</Button>
+              <Button size="sm" variant="outline" label="Edit schedule" aria-label="Edit schedule" icon="edit" onClick={() => setForm({ id: s.id, cron: s.cron, message: s.message })} />
+              <Button size="sm" variant="outline" label="Remove schedule" aria-label="Remove schedule" icon="close" onClick={() => drop(s)} />
             </span>
           ) : null}
         </div>
