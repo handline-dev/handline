@@ -434,3 +434,5 @@ print(control.unstall(con, "ann")); con.commit()
 		t.Fatalf("Go %v %s, Python %v %s", a, cursorNames(t, r.e.DB), b, cursorNames(t, py))
 	}
 }
+
+func (a auth) SessionsReadable() error { return nil }

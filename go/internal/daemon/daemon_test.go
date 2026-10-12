@@ -13,9 +13,13 @@ import (
 	"time"
 )
 
-type fakeAuth struct{ agent, key string }
+type fakeAuth struct {
+	agent, key string
+	sessions   error // what SessionsReadable says
+}
 
 func (f fakeAuth) AgentOf(pid int) string       { return f.agent }
+func (f fakeAuth) SessionsReadable() error      { return f.sessions }
 func (f fakeAuth) FounderKeyOK(key string) bool { return f.key != "" && key == f.key }
 
 func start(t *testing.T, a fakeAuth, listen string) *Daemon {
