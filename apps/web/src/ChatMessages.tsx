@@ -3,12 +3,21 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent } from 'react';
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
-import { landingLabel, openTask, sideOf, taskRow } from '@handline/app-core';
-import { useAgents, useChatActions } from '@handline/app-data';
-import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
+import { landingLabel, openTask, sendNote, sideOf, taskRow } from '@handline/app-core';
+import { useChatActions } from '@handline/app-data';
+import { useStore } from '@handline/app-react';
+import { Button, Card, CardCode, CardWhat, CodeBlock, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
+import { Pictures } from './ChatAttach.tsx';
 import { PathText } from './PathText.tsx';
 import { useWorkspace } from './Workspace.tsx';
+
+/** A plain click on a task link opens the task in the workspace; a modified or middle click keeps the browser's own. */
+export const openTaskOnClick = (apply: ReturnType<typeof useWorkspace>['apply'], task: number) => (e: MouseEvent) => {
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  apply((w) => openTask(w, task));
+};
 
 const clock = (at: string) => {
   const d = new Date(at);
@@ -52,7 +61,13 @@ export function RefText({ text, agent, onRef }: { text: string; agent?: string; 
     <>
       {text.split(/(?<![\w&])(#\d{1,9})\b/).map((part, i) =>
         /^#\d+$/.test(part) ? (
-          <button key={i} type="button" className="ref border-0 bg-transparent p-0 font-mono text-[12px] leading-4 text-link underline" title={`Go to ${part}`} onClick={() => onRef(Number(part.slice(1)))}>
+          <button
+            key={i}
+            type="button"
+            className="ref border-0 bg-transparent p-0 font-mono text-[12px] leading-4 text-link underline"
+            title={`Go to ${part}`}
+            onClick={() => onRef(Number(part.slice(1)))}
+          >
             {part}
           </button>
         ) : (
@@ -82,33 +97,19 @@ export function Message(props: {
   onPick?: (m: ChatMessage) => void;
   /** The messages the page holds, to say what a reply refers to. */
   byId?: Map<number, ChatMessage>;
-  /** The agent is mid-turn: a queued message can be typed at it now. */
-  working?: boolean;
-  /** Puts a taken-back message's words in the box again. */
-  onRestore?: (text: string) => void;
+  /** How many of the person's messages to this agent are queued ahead of this one. */
+  behind?: number;
   /** A message number in the text was clicked. */
   onRef?: (id: number) => void;
 }) {
   const { m, agent } = props;
   const act = useChatActions(agent);
-  const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
-  const side = sideOf(m, agent, (n) => names.has(n));
-  const [ask, setAsk] = useState(false);
+  const { apply } = useWorkspace();
+  const side = sideOf(m, agent, useStore().me);
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
-  const mine = side === 'person' && !unnumbered && !failed;
-  // Not answered yet and not already taken back: the person's own undo. A message the agent has not got just goes; one it has asks first.
-  const undoable = mine && ['queued', 'typed', 'delivered', 'delivered_unanswered'].includes(m.landing);
-  const got = m.receipt ? m.receipt.state !== 'queued' : m.landing === 'delivered' || m.landing === 'delivered_unanswered';
-  // The words come back to the box only once the daemon has taken the message back; a refusal leaves everything as it was.
-  const takeBack = (confirm = false) => {
-    setAsk(false);
-    act
-      .cancel(m.id, confirm)
-      .then(() => props.onRestore?.(m.body))
-      .catch(() => undefined);
-  };
+  const note = side === 'person' ? sendNote(m, props.behind ?? 0) : null;
   // A click on the message, not on a control in it, picks it to reply to.
   const pick = (e: MouseEvent) => {
     if (unnumbered || failed || !props.onPick || (e.target as HTMLElement).closest('button, a, input, textarea, form')) return;
@@ -116,85 +117,76 @@ export function Message(props: {
   };
   return (
     <>
-    <div
-      className={bubbleClass(side, { failed, picked: props.picked, pickable: !unnumbered && !failed })}
-      data-landing={m.landing}
-      data-id={m.id}
-      title={full(m.at)}
-      data-pending={unnumbered && !failed ? 'true' : undefined}
-      aria-current={props.picked ? 'true' : undefined}
-      onClick={pick}
-    >
-      {side === 'other' ? (
-        <div className={`${MSG_FROM} muted`}>
-          {m.from} <Icon name="forward" size={11} aria-hidden className="inline-block align-[-1px]" /> {m.to}
-        </div>
-      ) : null}
-      {m.parent != null ? (
-        <button
-          className="msg-ref mb-1 flex max-w-full cursor-pointer items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap border-0 bg-transparent px-1.5 py-0 text-left text-[12px] text-ink-2 [&_svg]:align-middle"
-          title={parent ? snippet(parent.body) : `#${m.parent}`}
-          onClick={() => jumpTo(m.parent!)}
-        >
-          <Icon name="reference" size={12} label={`Reply to #${m.parent}`} />
-          <span className="mono">#{m.parent}</span>
-          {parent ? <span className="muted"> {snippet(parent.body)}</span> : null}
-        </button>
-      ) : null}
-      <div className={MSG_BODY}>
-        <RefText text={m.body} agent={agent} onRef={props.onRef} />
-      </div>
-      {undoable ? (
-        <div className="msg-acts mt-1 flex gap-1">
-          {m.landing === 'queued' && (m.receipt || props.working) ? (
-            <Button size="sm" icon="sendNow" label="Send now" onClick={() => act.sendNow(m.id)} />
-          ) : null}
-          <Button size="sm" icon="discard" label="Take back" onClick={() => (got ? setAsk(true) : takeBack())} />
-        </div>
-      ) : null}
-      {ask ? (
-        <Dialog
-          title="Take it back?"
-          onClose={() => setAsk(false)}
-          action={{ label: 'Take back', keys: '⌘↵', onClick: () => takeBack(true) }}
-        >
-          <p className="muted">
-            {agent} already has this message. It is told to stop, and what waits behind it moves up. The words come back to the box.
-          </p>
-        </Dialog>
-      ) : null}
-      {m.receipt?.state === 'unknown' ? (
-        <div className={MSG_FAILED} role="note">
-          <Icon name="maybeRan" size={13} /> This message may or may not have run. It is not sent again; send it again yourself if it
-          matters.
-        </div>
-      ) : null}
-      {failed ? (
-        <div className={MSG_FAILED} role="alert">
-          <Icon name="failed" size={13} /> {m.sending_reason}{' '}
-          <button className="icon" aria-label="Retry" title="Retry" onClick={() => act.retry(m.id)}>
-            <Icon name="retry" size={14} />
+      <div
+        className={bubbleClass(side, { failed, picked: props.picked, pickable: !unnumbered && !failed })}
+        data-landing={m.landing}
+        data-id={m.id}
+        title={full(m.at)}
+        data-pending={unnumbered && !failed ? 'true' : undefined}
+        aria-current={props.picked ? 'true' : undefined}
+        onClick={pick}
+      >
+        {side === 'other' ? (
+          <div className={`${MSG_FROM} muted`}>
+            {m.from} <Icon name="forward" size={11} aria-hidden className="inline-block align-[-1px]" /> {m.to}
+          </div>
+        ) : side === 'person' && m.to !== agent ? (
+          <div className={`${MSG_FROM} muted`}>to {m.to}</div>
+        ) : null}
+        {m.parent != null ? (
+          <button
+            className="msg-ref mb-1 flex w-fit max-w-[16rem] min-w-0 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-left text-[12px] text-ink-2"
+            title={parent ? snippet(parent.body) : `#${m.parent}`}
+            onClick={() => jumpTo(m.parent!)}
+          >
+            <Icon name="reference" size={12} label={`Reply to #${m.parent}`} className="shrink-0" />
+            <span className="mono shrink-0">#{m.parent}</span>
+            {parent ? <span className="min-w-0 truncate">{parent.body.replace(/\s+/g, ' ')}</span> : null}
           </button>
-          <button className="icon" aria-label="Discard" title="Discard" onClick={() => act.discard(m.id)}>
-            <Icon name="discard" size={14} />
-          </button>
-        </div>
-      ) : null}
-      {side === 'agent' && m.answer ? (
-        <div className={bubbleClass('person', { nested: true })}>
+        ) : null}
+        {m.body ? (
           <div className={MSG_BODY}>
-            <PathText text={m.answer.text} agent={agent} />
+            <RefText text={m.body} agent={agent} onRef={props.onRef} />
           </div>
+        ) : null}
+        {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
+        {note ? (
+          <div className={`${MSG_META} state-note`} role="status">
+            {note}
+          </div>
+        ) : null}
+        {m.receipt?.state === 'unknown' ? (
+          <div className={MSG_FAILED} role="note">
+            <Icon name="maybeRan" size={13} /> This message may or may not have run. It is not sent again; send it again yourself if it
+            matters.
+          </div>
+        ) : null}
+        {failed ? (
+          <div className={MSG_FAILED} role="alert">
+            <Icon name="failed" size={13} /> {m.sending_reason}{' '}
+            <button className="icon" aria-label="Retry" title="Retry" onClick={() => act.retry(m.id)}>
+              <Icon name="retry" size={14} />
+            </button>
+            <button className="icon" aria-label="Discard" title="Discard" onClick={() => act.discard(m.id)}>
+              <Icon name="discard" size={14} />
+            </button>
+          </div>
+        ) : null}
+        {side === 'agent' && m.answer ? (
+          <div className={bubbleClass('person', { nested: true })}>
+            <div className={MSG_BODY}>
+              <PathText text={m.answer.text} agent={agent} />
+            </div>
+            <div className={`${MSG_META} muted`}>
+              {clock(m.answer.at)} <Icon name="answered" size={13} label="Your answer" />
+            </div>
+          </div>
+        ) : null}
+        {side === 'agent' && m.dismissed ? (
           <div className={`${MSG_META} muted`}>
-            {clock(m.answer.at)} <Icon name="answered" size={13} label="Your answer" />
+            <Icon name="dismissed" size={13} />
           </div>
-        </div>
-      ) : null}
-      {side === 'agent' && m.dismissed ? (
-        <div className={`${MSG_META} muted`}>
-          <Icon name="dismissed" size={13} />
-        </div>
-      ) : null}
+        ) : null}
       </div>
       {/* The stamp hangs in the gutter beside the bubble, out of the flow: an agent's to its right, the person's to its left — the bubble never resizes for it. */}
       <div
@@ -207,15 +199,18 @@ export function Message(props: {
             <Icon name={receiptOf(m.receipt.state).icon} size={13} label={receiptOf(m.receipt.state).label} />
           </span>
         ) : side === 'person' && !failed ? (
-          <span
-            className="landing"
-            title={m.sending_reason ? `${landingLabel(m.landing)}: ${m.sending_reason}` : landingLabel(m.landing)}
-          >
+          <span className="landing" title={m.sending_reason ? `${landingLabel(m.landing)}: ${m.sending_reason}` : landingLabel(m.landing)}>
             <Icon name={landingIcon(m.landing)} size={13} label={landingLabel(m.landing)} />
           </span>
         ) : null}
         {m.tasks.map((t) => (
-          <a key={t.id} className="msg-task mono text-inherit" href={`#/tasks/${t.id}`} title={t.title}>
+          <a
+            key={t.id}
+            className="msg-task mono text-inherit"
+            href={`#/tasks/${t.id}`}
+            title={t.title}
+            onClick={openTaskOnClick(apply, t.id)}
+          >
             <Icon name="tasks" size={12} label={`Task ${t.id}: ${t.title}`} />T{t.id}
           </a>
         ))}
@@ -240,7 +235,9 @@ function ToolLine({ i }: { i: TranscriptItem }) {
           {open ? 'Hide output' : 'Show all'}
         </Button>
       ) : null}
-      {open ? <CodeBlock className="tool-output basis-full max-h-[20lh] overflow-auto max-sm:whitespace-pre-wrap">{i.output}</CodeBlock> : null}
+      {open ? (
+        <CodeBlock className="tool-output basis-full max-h-[20lh] overflow-auto max-sm:whitespace-pre-wrap">{i.output}</CodeBlock>
+      ) : null}
       {cut && (open || !i.output) ? (
         <span className="muted">
           {cut} more line{cut === 1 ? '' : 's'} let go
@@ -264,13 +261,20 @@ function SessionCard({ i }: { i: TranscriptItem }) {
         </Button>
       ) : null}
       <span className="muted card-time">{clock(i.at)}</span>
-      {open ? <CodeBlock className="handoff-full basis-full max-h-[20lh] overflow-auto max-sm:whitespace-pre-wrap">{handoff}</CodeBlock> : null}
+      {open ? (
+        <CodeBlock className="handoff-full basis-full max-h-[20lh] overflow-auto max-sm:whitespace-pre-wrap">{handoff}</CodeBlock>
+      ) : null}
     </Card>
   );
 }
 
 const TASK_EVENT: Record<string, IconName> = { opened: 'opened', changed: 'changed', done: 'done', withdrawn: 'withdrawn' };
-const TASK_ACCENT: Record<string, string> = { opened: 'border-l-ok', changed: 'border-l-wait', done: 'border-l-ok', withdrawn: 'border-l-bad' };
+const TASK_ACCENT: Record<string, string> = {
+  opened: 'border-l-ok',
+  changed: 'border-l-wait',
+  done: 'border-l-ok',
+  withdrawn: 'border-l-bad',
+};
 
 /** A task added, edited, done or deleted: a compact bar unlike a message, with the change in brief; a click opens the task in the Tasks tab. */
 function TaskLine({ i, titles }: { i: TranscriptItem; titles?: Map<number, string> }) {
@@ -292,6 +296,30 @@ function TaskLine({ i, titles }: { i: TranscriptItem; titles?: Map<number, strin
       <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-medium">{row.title}</span>
       {row.detail ? <span className="muted max-w-[45%] overflow-hidden text-ellipsis whitespace-nowrap">{row.detail}</span> : null}
       <span className="muted card-time">{clock(i.at)}</span>
+    </button>
+  );
+}
+
+/** The task board's news of a task (`T<N> done by x`) as the same card a task event has, not a bubble from someone. */
+export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; titles?: Map<number, string> }) {
+  const { apply } = useWorkspace();
+  const [, verb, rest] = /^T\d+\s+(\S+)\s*(.*)$/s.exec(m.body) ?? [];
+  const ev = verb === 'done' ? 'done' : verb === 'opened' ? 'opened' : 'changed';
+  return (
+    <button
+      type="button"
+      className={`card-task flex w-full cursor-pointer items-baseline gap-2 rounded-card border border-l-4 border-line bg-panel px-2.5 py-1 text-left text-body ${TASK_ACCENT[ev]}`}
+      data-kind="task_event"
+      data-event={ev}
+      title={`Open T${task} in the Tasks tab`}
+      onClick={() => apply((w) => openTask(w, task))}
+    >
+      <Icon name={TASK_EVENT[ev]!} size={14} label={`Task ${verb ?? 'changed'}`} />
+      <span className="card-event text-meta font-semibold uppercase tracking-wide">{verb ? `Task ${verb}` : 'Task'}</span>
+      <span className="mono">T{task}</span>
+      <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-medium">{titles?.get(task)}</span>
+      {rest ? <span className="muted max-w-[45%] overflow-hidden text-ellipsis whitespace-nowrap">{rest}</span> : null}
+      <span className="muted card-time">{clock(m.at)}</span>
     </button>
   );
 }
