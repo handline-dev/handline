@@ -219,7 +219,7 @@ func TestQueuedOnlyIsSaidSo(t *testing.T) {
 	r := newRig(t)
 	r.onUser = func(r *rig, body string) { r.receive(body, true, false) }
 	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
-	if res.Kind != NotDelivered || !strings.Contains(res.Why, "queued") {
+	if res.Kind != Queued || !strings.Contains(res.Why, "queued") {
 		t.Fatalf("result %+v", res)
 	}
 }
@@ -228,7 +228,7 @@ func TestAMessageTheReceiverQueuedIsNotWrittenAgain(t *testing.T) {
 	r := newRig(t)
 	r.onUser = func(r *rig, body string) { r.receive(body, true, false) } // queued behind a turn, not yet shown
 	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
-	if res.Kind != NotDelivered || res.Attempts != 1 || len(r.sent()) != 1 {
+	if res.Kind != Queued || res.Attempts != 1 || len(r.sent()) != 1 {
 		t.Fatalf("a queued message was written again: %+v, %d writes", res, len(r.sent()))
 	}
 }
@@ -237,7 +237,7 @@ func TestAMessageToABusySessionIsNotWrittenAgain(t *testing.T) {
 	r := newRig(t)
 	r.s.Refresh = func(s Session) (Session, error) { s.Status = "busy"; return s, nil }
 	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
-	if res.Kind != NotDelivered || res.Attempts != 1 || len(r.sent()) != 1 || !strings.Contains(res.Why, "mid-turn") {
+	if res.Kind != Queued || res.Attempts != 1 || len(r.sent()) != 1 || !strings.Contains(res.Why, "mid-turn") {
 		t.Fatalf("a message to a busy session was written again: %+v, %d writes", res, len(r.sent()))
 	}
 	r.s.Refresh = func(s Session) (Session, error) { s.Status = "idle"; return s, nil }
@@ -349,7 +349,7 @@ func TestNoResendWhileTheSessionWaitsOnAPerson(t *testing.T) {
 		return s, nil
 	}
 	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
-	if res.Kind != NotDelivered || res.Attempts != 1 || !strings.Contains(res.Why, "permission prompt") {
+	if res.Kind != Queued || res.Attempts != 1 || !strings.Contains(res.Why, "permission prompt") {
 		t.Fatalf("result %+v", res)
 	}
 	if n := len(r.sent()); n != 1 {
@@ -419,5 +419,24 @@ func TestDeliverWritesTheAttestedEnvelopeAndStillFindsItsId(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.sent()[0][1]), &user); err != nil || !strings.HasPrefix(user.Message.Content, "<cross-session-message ") ||
 		!strings.Contains(user.Message.Content, `from-name="bob"`) || !strings.Contains(user.Message.Content, `from-mode="bypass"`) || !strings.Contains(user.Message.Content, "\nhello\n[ocp-msg id1]\n</cross-session-message>") {
 		t.Fatalf("%v %q", err, user.Message.Content)
+	}
+}
+
+// A queued message is watched for: Await says true once the receiver shows it, false when QueuedWait passes first.
+func TestAwaitConfirmsAQueuedMessageWhenItShows(t *testing.T) {
+	r := newRig(t)
+	r.s.QueuedWait = time.Minute
+	var body string
+	r.onUser = func(r *rig, b string) { body = b; r.receive(b, true, false) }
+	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
+	if res.Kind != Queued || res.Await == nil {
+		t.Fatalf("result %+v", res)
+	}
+	if res.Await(context.Background()) {
+		t.Fatal("confirmed a message that never showed")
+	}
+	r.receive(body, false, true)
+	if !res.Await(context.Background()) {
+		t.Fatal("the shown message was not confirmed")
 	}
 }
