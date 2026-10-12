@@ -188,6 +188,14 @@ func main() {
 			cfg.SocketFile = filepath.Join(homeDir, "gateway.sock")
 		}
 	}
+	if !*gateway && *serveFDs == "" && *serveNetFDs == "" {
+		if cfg.RelaySocket == "" {
+			cfg.RelaySocket = paths.RelaySocket(homeDir)
+		}
+		if cfg.PidFile == "" {
+			cfg.PidFile = filepath.Join(authority.Root(homeDir), "gateway", "pid")
+		}
+	}
 	if cfg.DBFile == "" {
 		cfg.DBFile = paths.DBFile(homeDir)
 	}
