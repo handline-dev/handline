@@ -200,7 +200,7 @@ func (t termRun) Tell(agent, _, text string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute) // the agent's lock is held
 	defer cancel()
-	if res := peerinbox.New().Deliver(ctx, sess, text, peerMode(t.p.home, t.p.db)(agent, supervisor.DaemonOp)); res.Kind != peerinbox.Delivered {
+	if res := peerinbox.New().Deliver(ctx, sess, text, peerFrom(t.p.home, t.p.db)(agent, supervisor.DaemonOp)); res.Kind != peerinbox.Delivered {
 		return errors.New(res.Why)
 	}
 	return nil
