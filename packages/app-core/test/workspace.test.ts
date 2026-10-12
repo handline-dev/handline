@@ -16,6 +16,7 @@ import {
   moveTab,
   moveTabBy,
   openTab,
+  openTask,
   parseWorkspace,
   saveWorkspace,
   serialize,
@@ -304,4 +305,14 @@ test('a structured agent opens with Chat and Transcript, and the transcript tab 
   assert.deepEqual(openTab(ws, 'transcript'), activate(ws, TRANSCRIPT));
   assert.deepEqual(parseWorkspace(JSON.parse(serialize(ws))), ws);
   invariants(ws);
+});
+
+test('openTask opens the Tasks tab on that task, and moves an open one to another task', () => {
+  const ws = defaultWorkspace();
+  const a = openTask(ws, 3);
+  assert.equal(a.tabs.tasks!.params.task, 3);
+  assert.equal(a.active, ws.active);
+  const b = openTask(a, 9);
+  assert.equal(b.tabs.tasks!.params.task, 9);
+  assert.equal(Object.keys(b.tabs).filter((k) => k === 'tasks').length, 1);
 });

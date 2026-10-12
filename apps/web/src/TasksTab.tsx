@@ -1,6 +1,6 @@
 // The Tasks tab of an agent's workspace: the tasks this agent holds, newest first, open ones above the closed; a click opens the task in
 // the same pane (the task detail of the Tasks page) and Back returns to the list.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useServes, useTasks } from '@handline/app-data';
 import { Icon } from './Icon.tsx';
 import { StateChip } from './taskui.tsx';
@@ -9,10 +9,11 @@ import { View } from './View.tsx';
 
 const CLOSED = ['done', 'discarded'];
 
-export function TasksTab({ agent }: { agent: string }) {
+export function TasksTab({ agent, task = null }: { agent: string; task?: number | null }) {
   const q = useTasks({ all: true });
   const { served } = useServes('tasks.list');
-  const [open, setOpen] = useState<number | null>(null);
+  const [open, setOpen] = useState<number | null>(task);
+  useEffect(() => setOpen(task), [task]); // a chat line opened a task on a tab already there
   const mine = useMemo(
     () =>
       (q.data?.items ?? [])

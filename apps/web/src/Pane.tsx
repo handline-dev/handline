@@ -184,7 +184,7 @@ export function Pane({ group }: { group: Group }) {
         {!tab ? null : tab.kind === 'chat' ? (
           <ChatTab agent={agent} detail={detail} />
         ) : tab.kind === 'tasks' ? (
-          <TasksTab agent={agent} />
+          <TasksTab agent={agent} task={typeof tab.params.task === 'number' ? tab.params.task : null} />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (
           <Watch
             agent={agent}

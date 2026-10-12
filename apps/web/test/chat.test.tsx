@@ -97,7 +97,7 @@ describe('the Chat tab', () => {
     expect(link('Withdraw', msg('Also add the list of gaps.')!)).toBeUndefined(); // the chat has no Withdraw button
     expect($$('[data-kind="reply"]')).toHaveLength(1); // the agent's message is not drawn a second time as a reply
     expect($$('[data-kind="tool"]')).toHaveLength(1);
-    expect(icon($$('[data-kind="task_event"]')[1], 'Task 7 done')).not.toBeNull();
+    expect(icon($$('[data-kind="task_event"]')[1], 'Task done')).not.toBeNull();
     expect(msg('Review is done')).toBeUndefined(); // agent to agent: the All tab
     await click($$('.chat-head [role="radio"]')[1]!);
     await until(() => msg('Review is done'), 'the all tab');
@@ -265,8 +265,16 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(icon(prompt, 'Answered')).not.toBeNull();
     expect(icon($('[data-kind="session"]')!, 'New session')).not.toBeNull();
     const events = $$('[data-kind="task_event"]');
-    expect(icon(events[0], 'Task 7 opened')).not.toBeNull();
-    expect(events[0]!.querySelector('a')!.getAttribute('href')).toBe('#/tasks/7');
+    expect(icon(events[0], 'Task added')).not.toBeNull();
+    expect(text(events[0])).toContain('T7');
+    expect(events[0]!.tagName).toBe('BUTTON');
+  });
+
+  it('a click on a task line opens that task in the Tasks tab', async () => {
+    await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    await click($$('[data-kind="task_event"]')[0]!);
+    await until(() => $('.tdetail'), 'the task detail');
   });
 
   it("the Add a tab menu opens the agent's Tasks, a click opens a task in the pane and Back returns to the list", async () => {

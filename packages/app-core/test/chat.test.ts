@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { Store, canWithdraw, isOpenAsk, landingLabel, sideOf, timeline } from '../src/index.ts';
+import { Store, canWithdraw, isOpenAsk, landingLabel, sideOf, taskRow, timeline } from '../src/index.ts';
 
 const A = 'handline.architect';
 const isAgent = (n: string) => n.startsWith('handline.');
@@ -73,4 +73,27 @@ test('the store knows which chat methods the daemon serves, and subscribes to th
     assert.equal(store.can('agents.list'), true);
     store.stop();
   }
+});
+
+const taskItem = (event: string, extra: object = {}): TranscriptItem =>
+  ({ id: 1, at: '2026-10-12T10:00:00Z', kind: 'task_event', task_event: { event, task: 7, request: null, evidence: null, ...extra } }) as TranscriptItem;
+const titles = new Map([[7, 'Fix the tray']]);
+
+test('a task line says added, edited, done or deleted', () => {
+  assert.equal(taskRow(taskItem('opened'), titles).label, 'Task added');
+  assert.equal(taskRow(taskItem('changed'), titles).label, 'Task edited');
+  assert.equal(taskRow(taskItem('done'), titles).label, 'Task done');
+  assert.equal(taskRow(taskItem('withdrawn'), titles).label, 'Task deleted');
+});
+
+test('a task line carries the task, its title and only the change or evidence', () => {
+  assert.deepEqual(taskRow(taskItem('changed', { change: 'priority 2 -> 1' }), titles), {
+    label: 'Task edited',
+    task: 7,
+    title: 'Fix the tray',
+    detail: 'priority 2 -> 1',
+  });
+  assert.equal(taskRow(taskItem('withdrawn', { evidence: 'duplicate' })).detail, 'duplicate');
+  assert.equal(taskRow(taskItem('opened'), titles).detail, null);
+  assert.equal(taskRow(taskItem('opened')).title, null);
 });
