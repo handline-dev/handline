@@ -75,7 +75,6 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const [scope, setScope] = useState<ChatScope>(keptScope.value === 'all' ? 'all' : 'mine');
   const chat = useChat(agent, scope);
   const [picked, setPicked] = useState<number | null>(null);
-  const [restore, setRestore] = useState<{ text: string; n: number } | null>(null);
   const [newer, setNewer] = useState(0); // entries that arrived while the person was reading further up
   const [going, setGoing] = useState<number | null>(null); // a message number being found
   const act = useChatActions(agent);
@@ -230,8 +229,6 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                     onPick={pick}
                     byId={byId}
                     behind={behindCount(chat.messages, e.message)}
-                    working={chat.working.turn_running}
-                    onRestore={(text) => setRestore({ text, n: (restore?.n ?? 0) + 1 })}
                     onRef={jump}
                   />
                 ) : e.kind === 'note' ? (
@@ -291,7 +288,6 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         messages={chat.messages}
         target={target}
         onClear={() => setPicked(null)}
-        restore={restore}
         running={chat.working.turn_running}
       />
     </section>

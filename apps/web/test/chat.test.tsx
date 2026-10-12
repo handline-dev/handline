@@ -40,7 +40,6 @@ const press = (el: Element, key: string, init: KeyboardEventInit = {}) =>
 const compose = () => $('.compose') as HTMLTextAreaElement;
 const msg = (body: string) => $$('.msg').find((m) => text(m).includes(body));
 const landing = (body: string) => msg(body)?.getAttribute('data-landing');
-const button = (m: Element | undefined, label: string) => [...(m?.querySelectorAll('button') ?? [])].find((b) => text(b) === label);
 const link = (label: string, within: Element) =>
   [...within.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label)!;
 const icon = (m: Element | undefined, label: string) => m?.querySelector(`[aria-label="${label}"]`) ?? null;
@@ -264,11 +263,11 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
   });
 
   it('a click on a control inside a message does not pick it', async () => {
-    await mount(ARCH);
-    await typeInto(compose(), 'a control test');
-    await press(compose(), 'Enter');
-    await until(() => button(msg('a control test'), 'Take back'), 'a control inside a message');
-    await click(button(msg('a control test'), 'Take back')!);
+    const s = setup();
+    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'a control test, see #5' }); // local-ref-ok
+    await mount(ARCH, s);
+    await until(() => msg('a control test')?.querySelector('.ref'), 'a control inside a message');
+    await click(msg('a control test')!.querySelector('.ref')!);
     expect($('.compose-ref')).toBeNull();
   });
 
@@ -342,58 +341,12 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
   });
 });
 
-describe('the bridge items: send now, take back, message numbers, new, menus, seen, strip, HR', () => {
+describe('the bridge items: message numbers, new, menus, seen, strip, HR', () => {
   const chatOf = (t: { daemon: unknown }) =>
     (t.daemon as { chat: { messages: { id: number; body: string; landing: string }[]; seenUpTo: Map<string, number> } }).chat;
   const hrOf = (t: { daemon: unknown }) => (t.daemon as { script: { hr: { raise: (p: object) => unknown } } }).script.hr;
   const labelled = (within: Element | null | undefined, label: string) =>
     [...(within ?? box).querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label);
-
-  it('Take back on a message the agent has not got removes it and puts its words back in the box', async () => {
-    const t = await mount(ARCH);
-    await until(() => msg('Which gap list'), 'history');
-    await typeInto(compose(), 'oops, wrong thing');
-    await press(compose(), 'Enter');
-    await until(() => $$('.msg').some((m) => text(m).includes('oops') && m.getAttribute('data-pending') === null), 'numbered');
-    expect(compose().value).toBe('');
-    await click(labelled(msg('oops, wrong thing'), 'Take back')!);
-    await until(() => landing('oops, wrong thing') === 'withdrawn', 'withdrawn');
-    expect(compose().value).toBe('oops, wrong thing');
-    await until(() => chatOf(t).messages.some((m) => m.body === 'oops, wrong thing' && m.landing === 'withdrawn'), 'the daemon');
-  });
-
-  it('Take back on a message the agent already has asks first, and does nothing until it is accepted', async () => {
-    const t = await mount(ARCH);
-    await until(() => msg('Use the contract fixtures.'), 'history');
-    await click(labelled(msg('Use the contract fixtures.'), 'Take back')!);
-    expect($('[role="dialog"][aria-modal="true"]')).not.toBeNull();
-    expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
-    await press(compose(), 'Escape'); // the dialog's own key closes it
-    await act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))); // Base UI listens on the document
-    expect($('[role="dialog"][aria-modal="true"]')).toBeNull();
-    expect(chatOf(t).messages.find((m) => m.body === 'Use the contract fixtures.')!.landing).toBe('delivered_unanswered');
-    await click(labelled(msg('Use the contract fixtures.'), 'Take back')!);
-    await click($$('.ui-dialog .ui-btn.solid')[0]!);
-    await until(() => landing('Use the contract fixtures.') === 'withdrawn', 'withdrawn');
-    expect(compose().value).toContain('Use the contract fixtures.');
-  });
-
-  it('a refused take back leaves the message and the box as they were, and the daemon wants confirm for a delivered one', async () => {
-    const s = setup();
-    const t = await mount(ARCH, s);
-    await until(() => msg('Use the contract fixtures.'), 'history');
-    const id = idOfBody(t, 'Use the contract fixtures.');
-    const c = second(t.daemon, t.net, { client: 'web-other' });
-    await c.start();
-    await expect(c.call('chat.cancel', { request: id })).rejects.toMatchObject({ data: { gate: 'confirm' } });
-    c.close();
-    s.daemon.knobs.refuse('chat.cancel', 'state', REFUSAL);
-    await click(labelled(msg('Use the contract fixtures.'), 'Take back')!);
-    await click($$('.ui-dialog .ui-btn.solid')[0]!);
-    await until(() => $('.toast'), 'the refusal');
-    expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
-    expect(compose().value).toBe('');
-  });
 
   it("the task board's news is a task card, and its delivery notice is not in the agent's own chat; neither is a bubble", async () => {
     const s = setup();
@@ -404,23 +357,6 @@ describe('the bridge items: send now, take back, message numbers, new, menus, se
     expect($$('[data-kind="task_event"]').some((c) => text(c).includes('T3492') && text(c).includes('by handline.pair'))).toBe(true); // local-ref-ok
     expect(msg('T3492 done by')).toBeUndefined(); // local-ref-ok
     expect(msg('#28387 to handline.pair')).toBeUndefined(); // local-ref-ok
-  });
-
-  it('Send now shows on a queued message only while the agent is working, and types it at once', async () => {
-    const t = await mount(ARCH);
-    await until(() => msg('Which gap list'), 'history');
-    await typeInto(compose(), 'first');
-    await press(compose(), 'Enter');
-    await until(() => sent(t, 'first'), 'sent');
-    for (let i = 0; i < 3; i++) t.daemon.chat.tick(); // typed, delivered, working
-    await until(() => $('.working'), 'the working line');
-    await typeInto(compose(), 'second');
-    await press(compose(), 'Enter');
-    await until(() => $$('.msg').some((m) => text(m).includes('second') && m.getAttribute('data-pending') === null), 'numbered');
-    expect(landing('second')).toBe('queued');
-    expect(labelled(msg('first'), 'Send now')).toBeUndefined();
-    await click(labelled(msg('second'), 'Send now')!);
-    await until(() => landing('second') === 'typed', 'typed now');
   });
 
   it('a message number in a message is a link that scrolls to that message, also one on an older page', async () => {

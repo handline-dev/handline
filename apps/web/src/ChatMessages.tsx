@@ -3,10 +3,10 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent } from 'react';
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
-import { landingLabel, openTask, sendNote, sideOf, takeBack as canTakeBack, taskRow } from '@handline/app-core';
+import { landingLabel, openTask, sendNote, sideOf, taskRow } from '@handline/app-core';
 import { useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
+import { Button, Card, CardCode, CardWhat, CodeBlock, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { Pictures } from './ChatAttach.tsx';
 import { PathText } from './PathText.tsx';
@@ -97,35 +97,19 @@ export function Message(props: {
   onPick?: (m: ChatMessage) => void;
   /** The messages the page holds, to say what a reply refers to. */
   byId?: Map<number, ChatMessage>;
-  /** The agent is mid-turn: a queued message can be typed at it now. */
-  working?: boolean;
   /** How many of the person's messages to this agent are queued ahead of this one. */
   behind?: number;
-  /** Puts a taken-back message's words in the box again. */
-  onRestore?: (text: string) => void;
   /** A message number in the text was clicked. */
   onRef?: (id: number) => void;
 }) {
   const { m, agent } = props;
   const act = useChatActions(agent);
-  const [ask, setAsk] = useState(false);
   const { apply } = useWorkspace();
   const side = sideOf(m, agent, useStore().me);
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
-  const mine = side === 'person' && !unnumbered && !failed;
-  // The person's own undo: a message the agent has not got just goes; one it has asks first.
-  const undo = mine ? canTakeBack(m) : null;
   const note = side === 'person' ? sendNote(m, props.behind ?? 0) : null;
-  // The words come back to the box only once the daemon has taken the message back; a refusal leaves everything as it was.
-  const takeBack = (confirm = false) => {
-    setAsk(false);
-    act
-      .cancel(m.id, confirm)
-      .then(() => props.onRestore?.(m.body))
-      .catch(() => undefined);
-  };
   // A click on the message, not on a control in it, picks it to reply to.
   const pick = (e: MouseEvent) => {
     if (unnumbered || failed || !props.onPick || (e.target as HTMLElement).closest('button, a, input, textarea, form')) return;
@@ -151,13 +135,13 @@ export function Message(props: {
         ) : null}
         {m.parent != null ? (
           <button
-            className="msg-ref mb-1 flex max-w-full cursor-pointer items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap border-0 bg-transparent px-1.5 py-0 text-left text-[12px] text-ink-2 [&_svg]:align-middle"
+            className="msg-ref mb-1 flex w-fit max-w-[16rem] min-w-0 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-left text-[12px] text-ink-2"
             title={parent ? snippet(parent.body) : `#${m.parent}`}
             onClick={() => jumpTo(m.parent!)}
           >
-            <Icon name="reference" size={12} label={`Reply to #${m.parent}`} />
-            <span className="mono">#{m.parent}</span>
-            {parent ? <span className="muted"> {snippet(parent.body)}</span> : null}
+            <Icon name="reference" size={12} label={`Reply to #${m.parent}`} className="shrink-0" />
+            <span className="mono shrink-0">#{m.parent}</span>
+            {parent ? <span className="min-w-0 truncate">{parent.body.replace(/\s+/g, ' ')}</span> : null}
           </button>
         ) : null}
         {m.body ? (
@@ -166,25 +150,6 @@ export function Message(props: {
           </div>
         ) : null}
         {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
-        {undo ? (
-          <div className="msg-acts mt-1 flex gap-1">
-            {m.landing === 'queued' && (m.receipt || props.working) ? (
-              <Button size="sm" icon="sendNow" label="Send now" onClick={() => act.sendNow(m.id)} />
-            ) : null}
-            <Button size="sm" icon="discard" label="Take back" onClick={() => (undo.confirm ? setAsk(true) : takeBack())} />
-          </div>
-        ) : null}
-        {ask ? (
-          <Dialog
-            title="Take it back?"
-            onClose={() => setAsk(false)}
-            action={{ label: 'Take back', keys: '⌘↵', onClick: () => takeBack(true) }}
-          >
-            <p className="muted">
-              {agent} already has this message. It is told to stop, and what waits behind it moves up. The words come back to the box.
-            </p>
-          </Dialog>
-        ) : null}
         {note ? (
           <div className={`${MSG_META} state-note`} role="status">
             {note}

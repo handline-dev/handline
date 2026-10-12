@@ -1,6 +1,6 @@
 // The message box: Enter sends, Shift+Enter breaks the line, the up arrow recalls what was sent, `/` and `#` open menus, Ctrl+R lists the history,
-// and an unsent draft is kept per agent. A message taken back (cancel) puts its text here again.
-import { useEffect, useRef, useState } from 'react';
+// and an unsent draft is kept per agent.
+import { useRef, useState } from 'react';
 import type { KV, Verb } from '@handline/app-core';
 import type { AgentDetail, ChatMessage } from '@handline/client';
 import { useAgents, useChatActions } from '@handline/app-data';
@@ -23,12 +23,10 @@ export function Compose(props: {
   /** The message this one answers or replies to; Escape or the close mark drops it. */
   target?: ChatMessage | null;
   onClear?: () => void;
-  /** Text to put back in the box (a message that was taken back); `n` tells one from the next. */
-  restore?: { text: string; n: number } | null;
   /** The agent is mid-turn: a message to a structured agent is then queued behind it or joins the turn. */
   running?: boolean;
 }) {
-  const { agent, detail, storage, canSend, history, messages, target, onClear, restore, running } = props;
+  const { agent, detail, storage, canSend, history, messages, target, onClear, running } = props;
   const act = useChatActions(agent);
   const att = useAttachDraft();
   const canAttach = useCan('attachment.put');
@@ -52,15 +50,6 @@ export function Compose(props: {
     draft.save(v);
     setClearing(false);
   };
-
-  const seen = useRef(0);
-  useEffect(() => {
-    if (!restore || restore.n === seen.current) return;
-    seen.current = restore.n;
-    set(text.trim() ? `${restore.text}\n${text}` : restore.text);
-    box.current?.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restore]);
 
   const asked = ctrlR ? { kind: 'history' as MenuKind, query: text } : menuOf(text);
   const open = asked && shut !== text ? asked : null;
