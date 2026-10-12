@@ -108,6 +108,9 @@ func (e *Env) release(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := e.terminalOnly(agent); err != nil {
+		return nil, err
+	}
 	row, err := e.Holds.Holder(agent)
 	if err != nil {
 		return nil, err
