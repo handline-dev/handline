@@ -77,7 +77,7 @@ describe('X4 worktree board', () => {
     expect(inColumn('in review')).toEqual(['/work/handline.architect']);
     expect(inColumn('done')).toEqual(['/work/spare']);
     expect(inColumn('other')).toEqual(['/work/docs-site.writer']);
-    expect(text(card('/work/handline.term-build'))).toContain('3 files +126 −31');
+    expect(text(card('/work/handline.term-build'))).toContain('3 files +126 -31');
   });
 
   it('calls once per drop, keeps the card where it was until the refetch shows the new status, then moves it', async () => {

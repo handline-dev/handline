@@ -187,7 +187,7 @@ export function Worktrees({ path, storage }: { path: string | null; storage: KV 
                         {w.changed.length ? (
                           <span className="muted">
                             {' '}
-                            +{added} −{deleted}
+                            +{added} -{deleted}
                           </span>
                         ) : null}
                       </td>

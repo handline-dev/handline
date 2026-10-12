@@ -41,7 +41,7 @@ const PRESETS: [Preset, string][] = [
   ['single', 'One pane'],
   ['cols', 'Two columns'],
   ['rows', 'Two rows'],
-  ['grid', '2 × 2'],
+  ['grid', '2 x 2'],
 ];
 
 export function Pane({ group }: { group: Group }) {

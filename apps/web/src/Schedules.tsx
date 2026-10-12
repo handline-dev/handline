@@ -48,7 +48,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
       {mine.map((s) => (
         <div key={s.id} className="schedule flex flex-wrap items-center gap-x-3 gap-y-1 py-1">
           <span>
-            {s.id < 0 ? <Icon name="unsaved" size={12} aria-hidden title="Not yet on the daemon" /> : null}{' '}
+            {s.id < 0 ? <Icon name="unsaved" size={12} /> : null}{' '}
             {cronWords(s.cron) ?? s.cron}
             {cronWords(s.cron) ? <code className="muted"> {s.cron}</code> : null}
           </span>

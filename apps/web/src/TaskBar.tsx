@@ -1,5 +1,5 @@
 // The bar under the Tasks list: what acts on the marked tasks, as icons with the key beside them; the words are for the tooltip and a screen reader.
-import { Button, Kbd, Toolbar, VisuallyHidden, type IconName } from './ui/index.ts';
+import { Button, Icon, Kbd, Toolbar, VisuallyHidden, type IconName } from './ui/index.ts';
 
 type Can = { ok: boolean; why: string | undefined };
 
