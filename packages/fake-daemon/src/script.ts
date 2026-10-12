@@ -61,7 +61,7 @@ export class Script {
       return { terminal, reason, cols, rows, data, alt_screen, cursor, cursor_visible };
     });
   }
-  pushTerminal(s: Session, method: 'frame' | 'resize' | 'marker', build: (seq: number) => object): void {
+  pushTerminal(s: Session, method: 'frame' | 'resize' | 'marker' | 'holder', build: (seq: number) => object): void {
     const params = build(++s.seq);
     this.host.broadcast(s, method, params);
   }
@@ -72,6 +72,10 @@ export class Script {
     s.since = this.host.iso();
     if (from !== state) this.host.moved(s, from);
     this.host.emit('agents', 'agent.changed', { agent: s.fx.name, actor, data: view(s) as unknown as Record<string, unknown> });
+  }
+  /** Tells the terminal's watchers who holds the input now; the holder notice is the truth a pane follows. */
+  holderChanged(s: Session): void {
+    this.pushTerminal(s, 'holder', (seq) => ({ terminal: tid(s), seq, holders: [s.holder] }));
   }
   control(s: Session, actor: Actor, kind: string, text: string) {
     this.host.emit('agents', 'agent.control', {

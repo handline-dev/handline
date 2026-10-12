@@ -26,6 +26,7 @@ export interface PaneTerm {
   /** A gutter tick on the cursor row with a tooltip: where the daemon typed. Never part of the stream. */
   mark(label: string): void;
   focus(): void;
+  blur?(): void;
   dispose(): void;
 }
 export type CreateTerm = (host: HTMLElement) => PaneTerm;
@@ -104,6 +105,23 @@ export const clampGrid = (cols: number, rows: number) => ({
   cols: Math.min(400, Math.max(20, cols)),
   rows: Math.min(200, Math.max(5, rows)),
 });
+
+/** The grid to ask the host for, or null while the pane has no size or already shows this one. */
+export function gridToSend(proposed: { cols: number; rows: number } | null, now: { cols: number; rows: number }) {
+  if (!proposed || !Number.isFinite(proposed.cols) || !Number.isFinite(proposed.rows) || proposed.cols < 1 || proposed.rows < 1) return null;
+  const g = clampGrid(proposed.cols, proposed.rows);
+  return g.cols === now.cols && g.rows === now.rows ? null : g;
+}
+
+/** The one key the app keeps while a terminal has focus: it hands the keyboard back to the app (Ctrl+Shift+E). */
+export const isEscapeChord = (e: Pick<KeyboardEvent, 'ctrlKey' | 'shiftKey' | 'metaKey' | 'altKey' | 'key'>): boolean =>
+  e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'e';
+
+/** True when a key belongs to the terminal under focus, so the app's own shortcuts (palette, history, ?) must not act on it. */
+export function terminalOwnsKey(e: Pick<KeyboardEvent, 'target' | 'ctrlKey' | 'shiftKey' | 'metaKey' | 'altKey' | 'key'>): boolean {
+  const t = e.target;
+  return t instanceof HTMLElement && !!t.closest('.xterm') && !isEscapeChord(e);
+}
 
 /** The bytes xterm sends for a named key, so a key chip takes the path typing takes. */
 export const KEY_BYTES: Record<string, string> = {

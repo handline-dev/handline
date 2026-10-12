@@ -132,6 +132,7 @@ const BASE: Record<string, (h: Call) => unknown> = {
     if (s.holder.kind === 'daemon')
       s.holder = { kind: c.caller.kind === 'device' ? 'device' : 'person', name: c.caller.name, since: iso() };
     script.control(s, actor, 'input.take', `${actor.name} took the input`);
+    script.holderChanged(s);
     return script.accepted('You hold the input.', { holder: s.holder });
   },
   'input.release': (h) => {
@@ -140,6 +141,7 @@ const BASE: Record<string, (h: Call) => unknown> = {
     if (s.holder.name !== c.caller.name || s.holder.kind === 'daemon') throw refused('input_holder', 'you do not hold the input');
     s.holder = DAEMON_HOLDER;
     script.control(s, actor, 'input.release', `${actor.name} released the input`);
+    script.holderChanged(s);
     return script.accepted('The daemon holds the input again.');
   },
   'terminal.attach': (h) => {

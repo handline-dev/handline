@@ -3,13 +3,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { type AgentDetail, type ByteListener, type ByteTerminalView, type ByteViewState } from '@handline/client';
 import { useStore } from '@handline/app-react';
+import { useWrite } from '@handline/app-data';
 import { keep, reclaim } from './terminal/keep.ts';
-import { MAX_UNWRITTEN, fontFor, guard, markerLabel, paint, type CreateTerm, type PaneTerm } from './terminal/core.ts';
+import { DEFAULT_FONT, MAX_UNWRITTEN, fontFor, gridToSend, guard, markerLabel, paint, type CreateTerm, type PaneTerm } from './terminal/core.ts';
 import { Button } from './ui/index.ts';
 
 const SKELETON_DELAY_MS = 150;
 const SKELETON_MIN_MS = 300;
 const SKELETON_ROWS = [64, 82, 48, 90, 36, 72, 56, 28]; // percent of the width, in the shape of a screen of text
+const RESIZE_MS = 150;
+const utf8 = new TextEncoder();
 const NOTE: Record<ByteViewState, string> = { attaching: '', live: '', stale: 'Reconnecting…', failed: '' };
 
 /** The skeleton of the first load: shown after a short delay, then kept for a minimum so it does not flash. */
@@ -30,11 +33,17 @@ function useSkeleton(loading: boolean): boolean {
 export function BytesTab({ agent, detail, create }: { agent: string; detail: AgentDetail; create?: CreateTerm }) {
   const store = useStore();
   const host = useRef<HTMLDivElement>(null);
+  const takeInput = useWrite('input.take', agent);
+  const releaseInput = useWrite('input.release', agent);
+  const act = useRef({ take: () => {}, release: () => {} });
+  act.current = { take: () => takeInput.mutate({ agent }), release: () => releaseInput.mutate({ agent }) };
   const live = useRef<{ view: ByteTerminalView; pane: PaneTerm } | null>(null);
   const [state, setState] = useState<ByteViewState>('attaching');
   const [failure, setFailure] = useState('');
   const [title, setTitle] = useState('');
   const [everLive, setEverLive] = useState(false);
+  const [holds, setHolds] = useState(false); // this device holds the input: keys go in and the pane sets the size
+  const [refused, setRefused] = useState('');
   const [attempt, setAttempt] = useState(0); // Retry runs the effect again
   const hasTerminal = !!detail.terminal;
 
@@ -54,11 +63,34 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
       const pane = back?.pane ?? make(stage);
       const quiet = back?.quiet ?? guard(pane.term, (t) => title.to(t));
       let unwritten = 0;
+      let holding = false,
+        timer: ReturnType<typeof setTimeout> | undefined;
+      /** Holding: the pane asks the host for the grid that fits it. Not holding: the font is scaled to the host's grid. */
+      const sendSize = () => {
+        const v = live.current?.view;
+        const g = v && gridToSend(pane.propose(), v);
+        if (v && g) void store.client.bytes.resize(v, g.cols, g.rows).catch(() => {}); // a refused size leaves the grid as it is
+      };
       const layout = () => {
         const v = live.current?.view;
-        if (v) pane.setFontSize(fontFor(el.clientWidth, v.cols));
+        if (!v) return;
+        if (!holding) return pane.setFontSize(fontFor(el.clientWidth, v.cols));
+        pane.setFontSize(DEFAULT_FONT);
+        clearTimeout(timer);
+        timer = setTimeout(sendSize, RESIZE_MS);
       };
       const watch = new ResizeObserver(layout);
+      const typing = pane.term.onData((d) => {
+        const v = live.current?.view;
+        if (holding && v) void store.client.bytes.input(v, utf8.encode(d)).catch((e) => setRefused((e as Error).message));
+      });
+      const take = () => {
+        const v = live.current?.view;
+        if (!v || holding || v.state !== 'live' || v.holders.some((h) => h.kind !== 'daemon')) return;
+        act.current.take(); // a refusal is reported by the write
+      };
+      stage.addEventListener('mousedown', take);
+      stage.addEventListener('focusin', take);
       watch.observe(el);
       let off = () => {};
       const onEvent: ByteListener = (e, v) => {
@@ -66,6 +98,13 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
         if (e.type === 'state') {
           setState(v.state);
           setFailure(v.failure);
+          const now = v.state === 'live' && v.holders.some((h) => h.kind !== 'daemon' && h.name === store.me);
+          if (now !== holding) {
+            holding = now;
+            setHolds(now);
+            setRefused('');
+            layout();
+          }
           if (v.state === 'live') setEverLive(true);
           return;
         }
@@ -89,6 +128,10 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
       }
       cleanup = () => {
         watch.disconnect();
+        clearTimeout(timer);
+        typing.dispose();
+        stage.removeEventListener('mousedown', take);
+        stage.removeEventListener('focusin', take);
         off();
         if (live.current) {
           void store.client.bytes.close(agent).catch(() => {});
@@ -120,6 +163,15 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
         )}
         <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">
           {note}
+          {state === 'live' && (holds ? (
+            <>
+              {'You hold the input. Ctrl+Shift+E hands the keys back to the app. '}
+              <Button variant="outline" size="sm" label="Release" className="text-term-ink" onClick={() => act.current.release()} />
+            </>
+          ) : (
+            'Click the terminal to type in it. '
+          ))}
+          {refused}
           {state === 'failed' && (
             <Button variant="outline" size="sm" label="Retry" onClick={() => setAttempt((n) => n + 1)} />
           )}
