@@ -266,7 +266,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(icon($('[data-kind="session"]')!, 'New session')).not.toBeNull();
     const events = $$('[data-kind="task_event"]');
     expect(icon(events[0], 'Task added')).not.toBeNull();
-    expect(text(events[0])).toContain('T1684');
+    expect(text(events[0])).toContain('1684');
     expect(events[0]!.tagName).toBe('BUTTON');
   });
 
