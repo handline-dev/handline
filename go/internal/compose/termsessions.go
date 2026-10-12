@@ -193,11 +193,10 @@ func (termRun) PidStart(pid int) int64 {
 	return t.Unix()
 }
 
-// PaneHolds walks the parents of pid up to the pane's process (tmux's pane_pid).
-func (termRun) PaneHolds(handle string, pid int) (bool, bool) {
-	out, err := exec.Command("tmux", "-L", paneSocket(), "display-message", "-p", "-t", handle, "#{pane_pid}").Output()
-	panePid, perr := strconv.Atoi(strings.TrimSpace(string(out)))
-	if err != nil || perr != nil || panePid <= 0 {
+// PaneHolds walks the parents of pid up to the pane's process.
+func (t termRun) PaneHolds(handle string, pid int) (bool, bool) {
+	panePid := t.p.LC.term.PanePid(handle)
+	if panePid <= 0 {
 		return false, false
 	}
 	table, err := exec.Command("ps", "-axo", "pid=,ppid=").Output()
@@ -225,13 +224,6 @@ func (termRun) PaneHolds(handle string, pid int) (bool, bool) {
 		}
 	}
 	return false, true
-}
-
-func paneSocket() string {
-	if s := os.Getenv("TMUX_SOCKET"); s != "" {
-		return s
-	}
-	return "ocp"
 }
 
 func (t termRun) Tell(agent, _, text string) error {
