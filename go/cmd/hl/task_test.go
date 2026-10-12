@@ -183,7 +183,7 @@ func TestTaskShowListAndBoardRead(t *testing.T) {
 			"discarded":null,"block_reason":"waiting: x","last_activity":"2026-10-01T10:00:00Z","priority":2,"asker":"a.one",
 			"mismatch":"","hold_reason":"","requests":[{"id":11,"from":"a.one","to":"b.two","state":"queued","at":"2026-10-01T10:00:00Z"}]}],
 			"more":false,"reason_gaps":{"retirements_blank":1,"retirements":4,"closures_sha":2,"closures_request":0,"closures_reason":3}}`,
-		"task.board": `{"mine":[{"task":{"id":7,"title":"Fix it","priority":2,"parent":3,"hold_reason":"","mismatch":""},
+		"task.board": `{"mine":[{"task":{"id":7,"title":"Fix it","to":"b.two","asker":"a.one","priority":2,"parent":3,"hold_reason":"","mismatch":""},
 			"now":{"kind":"held_as_sub_task","tasks":[8],"agents":["d"]}}],"reports":[]}`,
 	})
 	show := `T7  Fix it
@@ -217,18 +217,18 @@ assignee and owner changes
 	if out, _, code := r.run(asAgent, "task", "show", "t7"); code != 0 || out != show {
 		t.Errorf("show: %d\n%s", code, out)
 	}
-	list := "T7    Fix it  [b.two] doing  P2  may reopen: a.one  waiting: x  active 2026-10-01 10:00\n" +
+	list := "T7    Fix it  [b.two] doing  P2  owner a.one  waiting: x  active 2026-10-01 10:00\n" +
 		"        request #11 a.one → b.two queued 2026-10-01 10:00\n" +
 		"reason (last 30d): 1/4 retirements carry no reason, 2 closures by sha, 0 by request, 3 by reason\n"
-	if out, _, code := r.run(asAgent, "task", "list", "--owner", "b.two", "--all"); code != 0 || out != list {
+	if out, _, code := r.run(asAgent, "task", "list", "--assign", "b.two", "--owner", "a.one", "--all"); code != 0 || out != list {
 		t.Errorf("list: %d\n%s", code, out)
 	}
-	board := "T7    Fix it (under T3)\n      now: held as sub-task T8 (d)\n"
+	board := "T7    Fix it (under T3)\n      assignee b.two  owner a.one  now: held as sub-task T8 (d)\n"
 	if out, _, code := r.run(asAgent, "task", "board"); code != 0 || out != board {
 		t.Errorf("board: %d\n%q", code, out)
 	}
 	got := sent(calls())
-	want := []string{`task.get {"task":7}`, `tasks.list {"all":true,"everyone":false,"limit":200,"owner":"b.two","reason_gaps":true}`,
+	want := []string{`task.get {"task":7}`, `tasks.list {"all":true,"everyone":false,"limit":200,"owner":"b.two","reason_gaps":true,"reporter":"a.one"}`,
 		`task.board {"everyone":false}`}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("calls\n got  %v\n want %v", got, want)

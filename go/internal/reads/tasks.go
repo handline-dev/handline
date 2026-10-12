@@ -175,6 +175,10 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	closer, err := optStr(params, "reporter") // who the task answers to: its reporter, else as askerOf
+	if err != nil {
+		return nil, err
+	}
 	opener, err := optStr(params, "from")
 	if err != nil {
 		return nil, err
@@ -209,8 +213,10 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 			return nil, err
 		}
 	}
-	if owner != nil && owners != nil && !owners[*owner] {
-		return nil, rpc.Refused(fmt.Sprintf("%s is not you or one of your reports: everyone shows every team's tasks", *owner), "", "")
+	for _, name := range []*string{owner, closer} {
+		if name != nil && owners != nil && !owners[*name] {
+			return nil, rpc.Refused(fmt.Sprintf("%s is not you or one of your reports: everyone shows every team's tasks", *name), "", "")
+		}
 	}
 	showEnded := withEnded || (state != nil && (*state == "done" || *state == "discarded"))
 	shown, open, err := e.boardRows(showEnded)
@@ -227,8 +233,17 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	var rows []item
 	for _, t := range shown {
+		if closer != nil || (owners != nil && !owners[t.str("owner")]) { // a task is in scope by its assignee or its owner
+			asker, err := e.askerOf(t)
+			if err != nil {
+				return nil, err
+			}
+			if (closer != nil && asker != *closer) || (owners != nil && !owners[t.str("owner")] && !owners[asker]) {
+				continue
+			}
+		}
 		st := b.state(t)
-		if (owner != nil && t.str("owner") != *owner) || (owners != nil && !owners[t.str("owner")]) ||
+		if (owner != nil && t.str("owner") != *owner) ||
 			(state != nil && st != *state) || (opener != nil && t.str("opened_by") != *opener) ||
 			(parent != nil && (!t.set("parent_task") || t.i("parent_task") != *parent)) ||
 			(before != nil && t.i("id") >= *before) {

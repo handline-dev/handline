@@ -1154,7 +1154,7 @@ edges:
         agents.register(name)
     mgr, dev, scout = launch.context_for("manager"), launch.context_for("marina"), launch.context_for("scout")
     check("team: a supervisor is told who its reports are, and that it hands them work",
-          "`marina`" in mgr and "`keeper`" in mgr and "hl task new --owner <name>" in mgr, mgr)
+          "`marina`" in mgr and "`keeper`" in mgr and "hl task new --assign <name>" in mgr, mgr)
     check("team: a supervisor is given the manager rules, a report is not",
           all(w in mgr for w in ("--blocked-by T<n>", "Check main", "founder's own words"))
           and "--blocked-by" not in dev, mgr)
@@ -1175,8 +1175,8 @@ edges:
               "and the founder is not asked to clear a status report",
               "when you finish" not in ctx
               and ("no progress or FYI messages" in line) != boss_is_human
-              and (not boss_is_human or "hl task new --owner human" not in line)
-              and "a task of theirs: `hl task new --owner human" in ctx, line)
+              and (not boss_is_human or "hl task new --assign human" not in line)
+              and "a task of theirs: `hl task new --assign human" in ctx, line)
         check(f"team: and task done is said once, in that line, not again after it",
               ctx.count("hl task done T<n>") == 1, ctx)
     # The texts an agent reads name the message model - a task for what needs an answer or a

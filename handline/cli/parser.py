@@ -586,7 +586,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--file", default=None, metavar="PATH",
                    help="read the body from this file, or from stdin with '-', instead of the "
                         "inline argument - safe against a shell expanding backticks or $()")
-    p.add_argument("--owner", required=True, help="an agent, or 'human' for a decision task")
+    p.add_argument("--assign", "--owner", dest="owner", required=True,
+                   help="who works it: an agent, or 'human' for a decision task (--owner is the old name)")
     p.add_argument("--reporter", default=None,
                    help="who the task answers to - told when it ends, may edit or reassign it (default: you)")
     p.add_argument("--parent", type=_task_arg, default=None, metavar="T",
@@ -668,7 +669,8 @@ def build_parser() -> argparse.ArgumentParser:
                                    "or the founder (the owner also by the owner's manager; the owner itself "
                                    "may record what it waits on), and never silent about it")
     p.add_argument("task", type=_task_arg, metavar="T")
-    p.add_argument("--owner", default=None, help="give the task to another agent; it is delivered to them")
+    p.add_argument("--assign", "--owner", dest="owner", default=None,
+                   help="give the task to another agent; it is delivered to them (--owner is the old name)")
     p.add_argument("--reporter", default=None, help="who the task answers to")
     p.add_argument("--title", default=None)
     p.add_argument("--body", default=None, help="the task's brief, replaced (the holder is told)")
