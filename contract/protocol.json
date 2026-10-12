@@ -4179,6 +4179,84 @@
    ]
   },
   {
+   "name": "task.shot",
+   "summary": "A screenshot kept with a finished task.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "n",
+     "required": true,
+     "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The screenshot's number in the task's result, from 1."
+     }
+    },
+    {
+     "name": "offset",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Where the chunk starts in the file; 0 when omitted."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "mime": {
+       "type": "string",
+       "enum": [
+        "image/png"
+       ]
+      },
+      "bytes": {
+       "type": "integer"
+      },
+      "offset": {
+       "type": "integer"
+      },
+      "data": {
+       "type": "string",
+       "description": "The chunk, in base64: at most 512 KiB of file."
+      },
+      "done": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "mime",
+      "bytes",
+      "offset",
+      "data",
+      "done"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "One screenshot of a task whose end recorded it, in chunks. A task or number the result does not hold is not_found."
+  },
+  {
    "name": "task.new",
    "summary": "Create a task. The founder or a member device opens one for an agent only, and it opens queued.",
    "paramStructure": "by-name",
@@ -4287,6 +4365,14 @@
        "text"
       ],
       "description": "Also answer the founder's message with text, where {task} is this task's real number."
+     }
+    },
+    {
+     "name": "ui",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "The task shows something on a screen: it cannot be done without a screenshot (task.done shots), or the reason for none (no_shot). The founder is exempt."
      }
     },
     {
@@ -4424,6 +4510,43 @@
      }
     },
     {
+     "name": "commit",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The sha the work was done at; it must be a commit in repo (it need not be on main). The result says whether main reaches it. A sha given as evidence is a commit on main already."
+     }
+    },
+    {
+     "name": "no_commit",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Why there is no commit (research, ops). Not with commit."
+     }
+    },
+    {
+     "name": "shots",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "minItems": 1,
+      "maxItems": 6,
+      "description": "Absolute paths of PNG files, at most 10 MiB each. An agent names files under its worktree, its folder in the daemon's home or the scratch folder; the founder any file. The daemon copies them under its home (shots/T<n>/<k>.png, outside any repo) once the task's end has committed, and serves them with task.shot."
+     }
+    },
+    {
+     "name": "no_shot",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Why a ui task has no screenshot. Not with shots."
+     }
+    },
+    {
      "name": "request_id",
      "required": true,
      "schema": {
@@ -4451,7 +4574,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request."
+   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A task opened with ui needs shots or no_shot from anyone but the founder (refused otherwise). The commit and the shots are kept with the task (task.get result)."
   },
   {
    "name": "task.reopen",
@@ -9299,6 +9422,52 @@
          "others"
         ],
         "description": "Whom the founder can ask about the task (task.ask), each agent once."
+       },
+       "ui": {
+        "type": "boolean",
+        "description": "The task was opened as a ui task. Absent when it was not."
+       },
+       "result": {
+        "type": "object",
+        "description": "What the task's end kept beyond its evidence. Absent for a task without any.",
+        "properties": {
+         "commit": {
+          "type": "string",
+          "description": "The full sha it was done at."
+         },
+         "on_main": {
+          "type": "boolean",
+          "description": "Whether main reaches commit."
+         },
+         "no_commit": {
+          "type": "string"
+         },
+         "no_shot": {
+          "type": "string"
+         },
+         "shots": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "properties": {
+            "n": {
+             "type": "integer"
+            },
+            "bytes": {
+             "type": "integer"
+            }
+           },
+           "required": [
+            "n",
+            "bytes"
+           ]
+          },
+          "description": "Fetch each with task.shot."
+         }
+        },
+        "required": [
+         "shots"
+        ]
        }
       },
       "required": [
