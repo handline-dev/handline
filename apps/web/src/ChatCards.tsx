@@ -1,12 +1,12 @@
 // What sits around the transcript of an agent's chat: the one-line strip of its state, the banner when it is stuck, and the HR proposals
 // that concern it, decided where they were discussed.
-import { useState, type MouseEvent } from 'react';
+import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail } from '@handline/client';
 import { useHr, useWrite } from '@handline/app-data';
 import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOf } from './ui/index.ts';
-import { openTask } from '@handline/app-core';
 import { goTeam } from './route.ts';
+import { openTaskOnClick } from './ChatMessages.tsx';
 import { useWorkspace } from './Workspace.tsx';
 
 const until = (iso: string | null): number | null => {
@@ -39,7 +39,7 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
           as="a"
           href={`#/tasks/${detail.task.id}`}
           title={detail.task.title}
-          onClick={(e: MouseEvent) => (e.preventDefault(), apply((w) => openTask(w, detail.task!.id)))}
+          onClick={openTaskOnClick(apply, detail.task.id)}
         >
           <Icon name="tasks" size={13} aria-hidden />T{detail.task.id}
         </Chip>

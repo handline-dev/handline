@@ -78,7 +78,7 @@ describe('a message to a structured agent', () => {
     await send('hello');
     await until(() => receipt('hello') === 'sent', 'sent');
     expect($('.compose-now')).toBeNull(); // no turn runs: nothing to choose
-    expect(button(msg('hello'), 'Take back')).toBeUndefined(); // written: the agent has it, nothing to take back
+    expect(button(msg('hello'), 'Take back')).toBeDefined(); // written: it can still be taken back, after a confirm
     expect(text(msg('hello'))).toContain('Sent, not confirmed yet');
     act(() => void s.daemon.chat.tick());
     await until(() => receipt('hello') === 'confirmed', 'confirmed');
@@ -134,6 +134,8 @@ describe('a message to a structured agent', () => {
     expect(text(msg('lost'))).toContain('may or may not have run');
     expect(button(msg('lost'), 'Retry')).toBeUndefined();
     expect(msg('lost')!.querySelector('[aria-label="Retry"]')).toBeNull();
-    expect(button(msg('lost'), 'Take back')).toBeUndefined(); // the daemon has it written
+    await click(button(msg('lost'), 'Take back')!); // the daemon has it written: taking it back asks first
+    expect(text(document.body)).toContain('Take it back?');
+    expect(msg('lost')).toBeDefined();
   });
 });

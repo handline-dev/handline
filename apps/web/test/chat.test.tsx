@@ -361,22 +361,48 @@ describe('the bridge items: send now, take back, message numbers, new, menus, se
     await until(() => chatOf(t).messages.some((m) => m.body === 'oops, wrong thing' && m.landing === 'withdrawn'), 'the daemon');
   });
 
-  it('a message the agent already has shows no Take back', async () => {
-    await mount(ARCH);
+  it('Take back on a message the agent already has asks first, and does nothing until it is accepted', async () => {
+    const t = await mount(ARCH);
     await until(() => msg('Use the contract fixtures.'), 'history');
+    await click(labelled(msg('Use the contract fixtures.'), 'Take back')!);
+    expect($('[role="dialog"][aria-modal="true"]')).not.toBeNull();
     expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
-    expect(labelled(msg('Use the contract fixtures.'), 'Take back')).toBeUndefined();
+    await press(compose(), 'Escape'); // the dialog's own key closes it
+    await act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))); // Base UI listens on the document
+    expect($('[role="dialog"][aria-modal="true"]')).toBeNull();
+    expect(chatOf(t).messages.find((m) => m.body === 'Use the contract fixtures.')!.landing).toBe('delivered_unanswered');
+    await click(labelled(msg('Use the contract fixtures.'), 'Take back')!);
+    await click($$('.ui-dialog .ui-btn.solid')[0]!);
+    await until(() => landing('Use the contract fixtures.') === 'withdrawn', 'withdrawn');
+    expect(compose().value).toContain('Use the contract fixtures.');
   });
 
-  it('the daemon wants confirm to take back a delivered message, so the page offers no button for it', async () => {
-    const t = await mount(ARCH);
+  it('a refused take back leaves the message and the box as they were, and the daemon wants confirm for a delivered one', async () => {
+    const s = setup();
+    const t = await mount(ARCH, s);
     await until(() => msg('Use the contract fixtures.'), 'history');
     const id = idOfBody(t, 'Use the contract fixtures.');
     const c = second(t.daemon, t.net, { client: 'web-other' });
     await c.start();
     await expect(c.call('chat.cancel', { request: id })).rejects.toMatchObject({ data: { gate: 'confirm' } });
     c.close();
-    expect(labelled(msg('Use the contract fixtures.'), 'Take back')).toBeUndefined();
+    s.daemon.knobs.refuse('chat.cancel', 'state', REFUSAL);
+    await click(labelled(msg('Use the contract fixtures.'), 'Take back')!);
+    await click($$('.ui-dialog .ui-btn.solid')[0]!);
+    await until(() => $('.toast'), 'the refusal');
+    expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
+    expect(compose().value).toBe('');
+  });
+
+  it('the task board\'s news is a task card, and its delivery notice is not in the agent\'s own chat; neither is a bubble', async () => {
+    const s = setup();
+    s.daemon.chat.seed(ARCH, { from: 'task-board', to: ARCH, body: 'T3492 done by handline.pair: -' });
+    s.daemon.chat.seed(ARCH, { from: 'task-board', to: ARCH, body: '#28387 to handline.pair was written to its session' });
+    await mount(ARCH, s);
+    await until(() => msg('Which gap list'), 'history');
+    expect($$('[data-kind="task_event"]').some((c) => text(c).includes('T3492') && text(c).includes('by handline.pair'))).toBe(true);
+    expect(msg('T3492 done by')).toBeUndefined();
+    expect(msg('#28387 to handline.pair')).toBeUndefined();
   });
 
   it('Send now shows on a queued message only while the agent is working, and types it at once', async () => {

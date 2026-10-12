@@ -2,10 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { Store, behindCount, canWithdraw, isOpenAsk, landingLabel, sendNote, sideOf, taskRow, timeline } from '../src/index.ts';
+import { Store, behindCount, noticeOf, takeBack, isOpenAsk, landingLabel, sendNote, sideOf, taskRow, timeline } from '../src/index.ts';
 
 const A = 'handline.architect';
-const isAgent = (n: string) => n.startsWith('handline.');
 const msg = (over: Partial<ChatMessage>): ChatMessage => ({
   id: 1,
   at: '2026-01-01T00:00:00Z',
@@ -48,15 +47,12 @@ test("a reply with the same words as a message is still shown: the agent answeri
   );
 });
 
-test('who a message is from, whether an ask is open and whether a message can still be taken back', () => {
-  const mine = msg({ landing: 'typed' });
+test('who a message is from, whether an ask is open', () => {
+  const mine = msg({ landing: 'typed', from: 'Handline desktop' });
   const ask = msg({ from: A, to: 'founder', state: 'queued', landing: 'delivered_unanswered' });
-  assert.equal(sideOf(mine, A, mine.from), 'person');
-  assert.equal(sideOf(ask, A, mine.from), 'agent');
-  assert.equal(sideOf(msg({ from: 'handline.auditor' }), A, mine.from), 'other');
-  assert.equal(canWithdraw(mine, A), true);
-  assert.equal(canWithdraw(msg({ landing: 'delivered' }), A), false);
-  assert.equal(canWithdraw(ask, A), false);
+  assert.equal(sideOf(mine, A, 'Handline desktop'), 'person');
+  assert.equal(sideOf(ask, A, 'Handline desktop'), 'agent');
+  assert.equal(sideOf(msg({ from: 'handline.auditor' }), A, 'Handline desktop'), 'other');
   assert.equal(isOpenAsk(ask, A), true);
   assert.equal(isOpenAsk({ ...ask, answer: { id: 9, text: 'x', at: '' } }, A), false);
   assert.equal(isOpenAsk({ ...ask, dismissed: true }, A), false);
@@ -131,4 +127,28 @@ test('behindCount counts the earlier messages still queued to the same agent', (
   const c = pm({ id: 3 });
   assert.equal(behindCount([a, b, c], c), 1);
   assert.equal(behindCount([a, b, c], a), 0);
+});
+
+test('a message can be taken back until it is answered, and the agent is asked first once it has it', () => {
+  assert.deepEqual(takeBack(pm({ landing: 'queued' })), { confirm: false });
+  assert.deepEqual(takeBack(pm({ landing: 'typed' })), { confirm: false });
+  assert.deepEqual(takeBack(pm({ landing: 'delivered' })), { confirm: true });
+  assert.deepEqual(takeBack(pm({ landing: 'delivered_unanswered' })), { confirm: true });
+  assert.equal(takeBack(pm({ landing: 'answered' })), null);
+  assert.equal(takeBack(pm({ landing: 'withdrawn' })), null);
+  const r = (state: 'queued' | 'sent' | 'confirmed') => pm({ landing: 'typed', receipt: { state, uuid: 'u' } as never });
+  assert.deepEqual(takeBack(r('queued')), { confirm: false });
+  assert.deepEqual(takeBack(r('sent')), { confirm: true });
+});
+
+test('the task board\'s words are task cards or hidden notices, in the agent\'s own chat and in the All view', () => {
+  const news = pm({ id: 7, from: 'task-board', to: A, body: 'T3492 done by handline.pair: -' });
+  const delivery = pm({ id: 8, from: 'task-board', to: A, body: '#28387 to handline.pair was written to its session' });
+  assert.deepEqual(noticeOf(news), { kind: 'task', task: 3492 });
+  assert.deepEqual(noticeOf(delivery), { kind: 'delivery' });
+  assert.equal(noticeOf(pm({ from: 'human', body: 'T1 done by me' })), null);
+  const kinds = (scope: 'mine' | 'all') => timeline([news, delivery], [], scope).map((e) => `${e.kind}${e.id}`);
+  assert.deepEqual(kinds('mine'), ['note7']);
+  assert.deepEqual(kinds('all'), ['note7', 'message8']);
+  assert.equal(sideOf(delivery, A, 'Handline desktop'), 'other');
 });

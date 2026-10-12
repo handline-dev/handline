@@ -22,7 +22,7 @@ import {
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { PromptSlot } from './PromptCard.tsx';
 import { Compose } from './ChatCompose.tsx';
-import { Item, Message, jumpTo } from './ChatMessages.tsx';
+import { Item, Message, TaskNote, jumpTo } from './ChatMessages.tsx';
 import { ChatBanner, ChatStrip, HrCards } from './ChatCards.tsx';
 import { Button, Empty, Icon, Segmented, State, Textarea, ComposeRow } from './ui/index.ts';
 import { setting } from './daemon.ts';
@@ -82,7 +82,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const locate = useChatLocate({ request: going ?? 0 }, going !== null);
   const stream = useRef<HTMLDivElement>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
-  const entries = timeline(chat.messages, chat.items);
+  const entries = timeline(chat.messages, chat.items, scope);
   // Task titles for the transcript's task lines, so a card can say what it is about without opening the task.
   const { served } = useServes('tasks.list');
   const tasks = useTasks({});
@@ -95,7 +95,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const byId = new Map(chat.messages.map((m) => [m.id, m]));
   const target = picked != null ? (byId.get(picked) ?? null) : null;
   const pick = (m: ChatMessage) => setPicked((p) => (p === m.id ? null : m.id));
-  const keyOf = (e: (typeof entries)[number]) => (e.kind === 'message' ? `m${e.id}` : `i${e.id}`);
+  const keyOf = (e: (typeof entries)[number]) => (e.kind === 'item' ? `i${e.id}` : `m${e.id}`);
   // Only an entry that arrives after the one that was last grows; older pages and a switch of scope appear at once.
   const seen = useRef<{ scope: ChatScope; last: string | null }>({ scope, last: null });
   const tail = seen.current.scope === scope && seen.current.last !== null ? entries.findIndex((e) => keyOf(e) === seen.current.last) : -1;
@@ -234,6 +234,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                     onRestore={(text) => setRestore({ text, n: (restore?.n ?? 0) + 1 })}
                     onRef={jump}
                   />
+                ) : e.kind === 'note' ? (
+                  <TaskNote m={e.message} task={e.task} titles={titles} />
                 ) : (
                   <Item i={e.item} titles={titles} />
                 )}

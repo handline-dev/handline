@@ -3,14 +3,21 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent } from 'react';
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
-import { landingLabel, openTask, sendNote, sideOf, taskRow } from '@handline/app-core';
+import { landingLabel, openTask, sendNote, sideOf, takeBack as canTakeBack, taskRow } from '@handline/app-core';
 import { useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { Button, Card, CardCode, CardWhat, CodeBlock, Icon, type IconName } from './ui/index.ts';
+import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { Pictures } from './ChatAttach.tsx';
 import { PathText } from './PathText.tsx';
 import { useWorkspace } from './Workspace.tsx';
+
+/** A plain click on a task link opens the task in the workspace; a modified or middle click keeps the browser's own. */
+export const openTaskOnClick = (apply: ReturnType<typeof useWorkspace>['apply'], task: number) => (e: MouseEvent) => {
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  apply((w) => openTask(w, task));
+};
 
 const clock = (at: string) => {
   const d = new Date(at);
@@ -95,20 +102,21 @@ export function Message(props: {
 }) {
   const { m, agent } = props;
   const act = useChatActions(agent);
+  const [ask, setAsk] = useState(false);
   const { apply } = useWorkspace();
   const side = sideOf(m, agent, useStore().me);
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
   const mine = side === 'person' && !unnumbered && !failed;
-  // The person's own undo, only while the daemon can still withdraw it: once the agent has the message there is no button.
-  const got = m.receipt ? m.receipt.state !== 'queued' : m.landing !== 'queued' && m.landing !== 'typed';
-  const undoable = mine && !got && ['queued', 'typed'].includes(m.landing);
+  // The person's own undo: a message the agent has not got just goes; one it has asks first.
+  const undo = mine ? canTakeBack(m) : null;
   const note = side === 'person' ? sendNote(m, props.behind ?? 0) : null;
   // The words come back to the box only once the daemon has taken the message back; a refusal leaves everything as it was.
-  const takeBack = () => {
+  const takeBack = (confirm = false) => {
+    setAsk(false);
     act
-      .cancel(m.id)
+      .cancel(m.id, confirm)
       .then(() => props.onRestore?.(m.body))
       .catch(() => undefined);
   };
@@ -152,13 +160,20 @@ export function Message(props: {
         </div>
       ) : null}
       {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
-      {undoable ? (
+      {undo ? (
         <div className="msg-acts mt-1 flex gap-1">
           {m.landing === 'queued' && (m.receipt || props.working) ? (
             <Button size="sm" icon="sendNow" label="Send now" onClick={() => act.sendNow(m.id)} />
           ) : null}
-          <Button size="sm" icon="discard" label="Take back" onClick={takeBack} />
+          <Button size="sm" icon="discard" label="Take back" onClick={() => (undo.confirm ? setAsk(true) : takeBack())} />
         </div>
+      ) : null}
+      {ask ? (
+        <Dialog title="Take it back?" onClose={() => setAsk(false)} action={{ label: 'Take back', keys: '⌘↵', onClick: () => takeBack(true) }}>
+          <p className="muted">
+            {agent} already has this message. It is told to stop, and what waits behind it moves up. The words come back to the box.
+          </p>
+        </Dialog>
       ) : null}
       {note ? (
         <div className={`${MSG_META} state-note`} role="status">
@@ -222,7 +237,7 @@ export function Message(props: {
             className="msg-task mono text-inherit"
             href={`#/tasks/${t.id}`}
             title={t.title}
-            onClick={(e) => (e.preventDefault(), apply((w) => openTask(w, t.id)))}
+            onClick={openTaskOnClick(apply, t.id)}
           >
             <Icon name="tasks" size={12} label={`Task ${t.id}: ${t.title}`} />T{t.id}
           </a>
@@ -300,6 +315,30 @@ function TaskLine({ i, titles }: { i: TranscriptItem; titles?: Map<number, strin
       <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-medium">{row.title}</span>
       {row.detail ? <span className="muted max-w-[45%] overflow-hidden text-ellipsis whitespace-nowrap">{row.detail}</span> : null}
       <span className="muted card-time">{clock(i.at)}</span>
+    </button>
+  );
+}
+
+/** The task board's news of a task (`T12 done by x`) as the same card a task event has, not a bubble from someone. */
+export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; titles?: Map<number, string> }) {
+  const { apply } = useWorkspace();
+  const [, verb, rest] = /^T\d+\s+(\S+)\s*(.*)$/s.exec(m.body) ?? [];
+  const ev = verb === 'done' ? 'done' : verb === 'opened' ? 'opened' : 'changed';
+  return (
+    <button
+      type="button"
+      className={`card-task flex w-full cursor-pointer items-baseline gap-2 rounded-card border border-l-4 border-line bg-panel px-2.5 py-1 text-left text-body ${TASK_ACCENT[ev]}`}
+      data-kind="task_event"
+      data-event={ev}
+      title={`Open T${task} in the Tasks tab`}
+      onClick={() => apply((w) => openTask(w, task))}
+    >
+      <Icon name={TASK_EVENT[ev]!} size={14} label={`Task ${verb ?? 'changed'}`} />
+      <span className="card-event text-meta font-semibold uppercase tracking-wide">{verb ? `Task ${verb}` : 'Task'}</span>
+      <span className="mono">T{task}</span>
+      <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-medium">{titles?.get(task)}</span>
+      {rest ? <span className="muted max-w-[45%] overflow-hidden text-ellipsis whitespace-nowrap">{rest}</span> : null}
+      <span className="muted card-time">{clock(m.at)}</span>
     </button>
   );
 }
