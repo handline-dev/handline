@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/handline/handline/go/internal/attachments"
 	"sort"
 	"strconv"
 	"strings"
@@ -272,6 +273,13 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 		"parent": r.intOrNil("parent_id"), "kind": orEmpty(r["kind"]), "tasks": tasks, "is_task_question": r.i("task_question") != 0}
 	if receipt != nil {
 		m["receipt"] = receipt
+	}
+	pictures, err := attachments.Maps(c.e.DB, r.i("id"))
+	if err != nil {
+		return nil, err
+	}
+	if pictures != nil {
+		m["attachments"] = pictures
 	}
 	return m, nil
 }

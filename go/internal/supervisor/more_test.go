@@ -100,15 +100,15 @@ func TestTheTextsOfAReplyAndADismissal(t *testing.T) {
 	if got := inReplyTo(r.DB, head); got != "in reply to #"+itoa(q)+": first line of the question" {
 		t.Fatalf("%q", got)
 	}
-	if got := tellText(r.DB, head, 1, nil, false, nil); !strings.HasPrefix(got, "#2 from bob (in reply to #1: first line of the question), waiting for you:\nthe answer\n") {
+	if got := tellText(r.DB, head, 1, nil, false, nil, ""); !strings.HasPrefix(got, "#2 from bob (in reply to #1: first line of the question), waiting for you:\nthe answer\n") {
 		t.Fatalf("%q", got)
 	}
 	// parked and send-now tails
 	other := mustReq(r, r.ask("alice", "bob", "x", "ask"))
-	if got := tellText(r.DB, other, 2, head, true, nil); !strings.Contains(got, "[Queued behind #2, which is still open: the next task comes when you hand it on or finish it.]") {
+	if got := tellText(r.DB, other, 2, head, true, nil, ""); !strings.Contains(got, "[Queued behind #2, which is still open: the next task comes when you hand it on or finish it.]") {
 		t.Fatalf("%q", got)
 	}
-	if got := tellText(r.DB, other, 1, head, false, nil); !strings.Contains(got, "[Sent now, ahead of #2, which is still open.]") {
+	if got := tellText(r.DB, other, 1, head, false, nil, ""); !strings.Contains(got, "[Sent now, ahead of #2, which is still open.]") {
 		t.Fatalf("%q", got)
 	}
 	if MoreWaiting("ask", 2) != "2 more waiting - the next comes when you answer this one." || MoreWaiting("say", 3) != "" || MoreWaiting("task", 0) != "" {
@@ -146,5 +146,23 @@ func TestWriteAtomicLeavesNoTempFileAndReplaces(t *testing.T) {
 	}
 	if err := writeAtomic(filepath.Join(dir, "nowhere", "x"), "t"); err == nil {
 		t.Fatal("wrote into a missing directory")
+	}
+}
+
+func TestTheImagesFollowTheBodyAfterTheCut(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	head := mustReq(r, r.ask("alice", "bob", strings.Repeat("w", 500), "say"))
+	lines := "[image 1: /h/attachments/a.png (image/png, 3 KB)]\n[image 2: /h/attachments/b.jpg (image/jpeg, 9 KB)]"
+	got := tellText(r.DB, head, 1, nil, false, nil, lines)
+	if !strings.Contains(got, strings.Repeat("w", 400)+"…\n"+lines+"\n") {
+		t.Fatalf("%q", got)
+	}
+	if got := tellText(r.DB, head, 1, nil, false, nil, ""); strings.Contains(got, "[image") {
+		t.Fatalf("%q", got)
+	}
+	empty := mustReq(r, r.ask("alice", "bob", "", "say"))
+	if got := tellText(r.DB, empty, 1, nil, false, nil, lines); strings.Contains(got, "(empty)") || !strings.Contains(got, "waiting for you:\n"+lines) {
+		t.Fatalf("%q", got)
 	}
 }

@@ -4,11 +4,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/structured"
 )
@@ -134,7 +136,11 @@ func (s *Sink) convert(agent, session string, ev structured.Event) []Event {
 		uuid, _ := d["uuid"].(string)
 		text, _ := d["text"].(string)
 		s.setTurn(agent, runningTurn{uuid, session})
-		return []Event{{Turn: uuid, Kind: "turn_start", Body: map[string]any{"turn_start": map[string]any{"message": uuid, "from": s.sender(agent, uuid), "text": text}}}}
+		start := map[string]any{"message": uuid, "from": s.sender(agent, uuid), "text": text}
+		if pictures := s.pictures(agent, uuid); pictures != nil {
+			start["attachments"] = pictures
+		}
+		return []Event{{Turn: uuid, Kind: "turn_start", Body: map[string]any{"turn_start": start}}}
 	case "assistant_text":
 		text, _ := d["text"].(string)
 		return []Event{{Turn: turn, Kind: "text", Body: map[string]any{"text": text}}}
@@ -253,6 +259,27 @@ func (s *Sink) write(e *Event) (err error) {
 		}
 	}
 	return tx.Commit()
+}
+
+// pictures are the images of the requests the message with this uuid told, in order; nil when it carried none.
+func (s *Sink) pictures(agent, uuid string) []any {
+	var id string
+	err := s.DB.QueryRow("SELECT id FROM operations WHERE kind = 'send' AND agent = ? AND result_json LIKE ?", agent, `%"uuid":"`+uuid+`"%`).Scan(&id)
+	op, ok := strings.CutPrefix(strings.TrimPrefix(id, "send:"+agent+":"), "request:")
+	if err != nil || !ok {
+		return nil
+	}
+	var out []any
+	for _, rid := range strings.Split(op, ",") {
+		n, err := strconv.ParseInt(rid, 10, 64)
+		if err != nil {
+			continue
+		}
+		if maps, _ := attachments.Maps(s.DB, n); maps != nil {
+			out = append(out, maps...)
+		}
+	}
+	return out
 }
 
 // sender is who sent the message with this uuid: the requester of the request it told, "daemon" for a notice, nil when unknown.

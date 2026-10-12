@@ -250,9 +250,9 @@ func InReplyTo(q db.Q, r *db.Request) (r0 string, err error) {
 }
 
 // TellText is tellText with a failed statement returned as the error.
-func TellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked bool, folded []*db.Request) (r0 string, err error) {
+func TellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked bool, folded []*db.Request, images string) (r0 string, err error) {
 	defer Catch(&err)
-	r0 = tellText(q, head, depth, aheadOf, parked, folded)
+	r0 = tellText(q, head, depth, aheadOf, parked, folded, images)
 	return r0, nil
 }
 

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/handline/handline/go/internal/attachments"
 )
 
 func TestAMessageToAStructuredAgentCarriesItsReceiptAndLandsAsItSays(t *testing.T) {
@@ -166,5 +168,42 @@ func TestSinceServesEveryToolCallFromItsSecondUpToWhatAPageKeeps(t *testing.T) {
 	}
 	if n := len(got.(map[string]any)["items"].([]any)); n != 60 {
 		t.Fatalf("%d of 60 calls", n)
+	}
+}
+
+func TestAMessageCarriesItsImages(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for _, q := range []string{
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(1, 1, 'human', 'bob', 'look', 'queued', 'say')",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(2, 2, 'human', 'bob', 'plain', 'queued', 'say')",
+	} {
+		if _, err := e.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	img := attachments.Info{ID: "00000000000000aa", Name: "a.png", Mime: "image/png", Bytes: 70}
+	if err := attachments.Record(e.DB, 1, []attachments.Info{img}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.chatMessages(nil, map[string]any{"agent": "bob", "scope": "mine"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	var out struct {
+		Messages []struct {
+			ID          int64
+			Attachments []attachments.Info
+		}
+	}
+	json.Unmarshal(b, &out)
+	if len(out.Messages) != 2 || len(out.Messages[0].Attachments)+len(out.Messages[1].Attachments) != 1 {
+		t.Fatalf("%s", b)
+	}
+	for _, m := range out.Messages {
+		if (m.ID == 1) != (len(m.Attachments) == 1) || strings.Contains(string(b), `"attachments":null`) {
+			t.Fatalf("%s", b)
+		}
 	}
 }

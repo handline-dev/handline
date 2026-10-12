@@ -110,9 +110,18 @@ func (Driver) LaunchArgv(exe string, o lifecycle.LaunchArgs) []string {
 	for _, p := range o.NoWrite {
 		deny = append(deny, "Edit(/"+p+")") // Claude Code matches only Edit rules for the file tools, and they cover Write
 	}
-	if len(deny) > 0 {
+	var allow []string
+	for _, p := range o.ReadAllow {
+		allow = append(allow, "Read(/"+strings.TrimRight(p, "/")+"/**)") // a file outside the worktree asks, unless a rule allows it
+	}
+	if len(deny) > 0 || len(allow) > 0 {
 		perms := NewObject()
-		perms.Set("deny", deny)
+		if len(allow) > 0 {
+			perms.Set("allow", allow)
+		}
+		if len(deny) > 0 {
+			perms.Set("deny", deny)
+		}
 		settings.Set("permissions", perms)
 	}
 	if len(o.Trusted) > 0 {

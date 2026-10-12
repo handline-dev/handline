@@ -150,7 +150,7 @@ func (l *Launcher) Build(agent string, extra []string, force bool, account strin
 		NoWrite:   noWrite,
 		MemoryDir: memoryDir, Trusted: trusted, Chrome: team.Chrome(cfg),
 		SandboxOff:  !l.Roster.SandboxOn(agent, cfg),
-		MCPApproved: approved, ExtraDirs: extraDirs,
+		MCPApproved: approved, ExtraDirs: extraDirs, ReadAllow: []string{filepath.Join(l.Home, "attachments")},
 	})
 	// The pair goes whole or not at all: a caller's own mode wins, and a lone value left behind would be read as the opening prompt.
 	if len(mode) > 0 {

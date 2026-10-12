@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
@@ -21,7 +22,7 @@ import (
 // Register adds the chat writes to the server's table.
 // tell is what follows a task the writes open or settle once it has committed.
 func Register(s *rpc.Server, e *supervisor.Env, tell taskwrites.Teller) {
-	w := &writes{e, tell}
+	w := &writes{e, tell, attachments.New(e.Home)}
 	s.Register("chat.send", rpc.Method{Role: "member", Write: true, Handler: w.send, Refresh: w.refreshSend})
 	s.Register("chat.send_now", rpc.Method{Role: "member", Write: true, Handler: w.sendNow})
 	s.Register("chat.answer", rpc.Method{Role: "member", Write: true, Handler: w.answer})
@@ -36,8 +37,9 @@ func Register(s *rpc.Server, e *supervisor.Env, tell taskwrites.Teller) {
 }
 
 type writes struct {
-	e    *supervisor.Env
-	tell taskwrites.Teller
+	e      *supervisor.Env
+	tell   taskwrites.Teller
+	images *attachments.Store
 }
 
 func badParam(message, field string) *rpc.Error {
@@ -141,9 +143,34 @@ func (w *writes) writeResult(c *rpc.Conn, refusal func(*Result) error, fn func(t
 	return out, nil
 }
 
+// imageIDs is send's attachments: up to attachments.MaxPerMessage ids, and none with a task.
+func imageIDs(p map[string]any) ([]string, error) {
+	v := p["attachments"]
+	if v == nil {
+		return nil, nil
+	}
+	list, ok := v.([]any)
+	if !ok || len(list) == 0 || len(list) > attachments.MaxPerMessage || p["task"] != nil {
+		return nil, badParam(fmt.Sprintf("attachments is 1 to %d attachment ids, and not with a task", attachments.MaxPerMessage), "attachments")
+	}
+	ids := make([]string, len(list))
+	for i, x := range list {
+		if ids[i], ok = x.(string); !ok || !attachments.ValidID(ids[i]) {
+			return nil, badParam("attachments holds attachment ids", "attachments")
+		}
+	}
+	return ids, nil
+}
+
 func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
-	body, err := text(p, "body")
+	ids, err := imageIDs(p)
 	if err != nil {
+		return nil, err
+	}
+	var body string
+	if len(ids) > 0 { // the pictures may be the whole message
+		body, _ = p["body"].(string)
+	} else if body, err = text(p, "body"); err != nil {
 		return nil, err
 	}
 	agent, _ := p["agent"].(string)
@@ -175,6 +202,10 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 	if task != nil {
 		return w.sendTask(c, agent, body, task)
 	}
+	images, err := w.images.Claim(ids)
+	if err != nil {
+		return nil, err
+	}
 	body = strings.TrimSpace(textsafe.Text(body))
 	var act func(rid int64)
 	var receipt map[string]any
@@ -185,11 +216,14 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 		var res *Result
 		var err error
 		if parent != 0 {
-			res, err = w.sendUnder(tx, agent, parent, body, act)
+			res, err = w.sendUnder(tx, agent, parent, body, len(images) > 0, act)
 		} else {
 			res, err = sayWrite(w.e, tx, db.Human, agent, body, 0, nil, act)
 		}
 		if res != nil {
+			if err == nil && res.OK && len(images) > 0 {
+				err = attachments.Record(tx, res.Request, images)
+			}
 			return res, map[string]any{"request": res.Request}, err
 		}
 		return nil, nil, err
@@ -227,7 +261,7 @@ func checkTask(task any) error {
 }
 
 // sendUnder is a message that replies to parent: its answer when it waits on the person, else a say to the agent under it.
-func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, act func(rid int64)) (*Result, error) {
+func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, pictures bool, act func(rid int64)) (*Result, error) {
 	row, err := message(tx, parent)
 	if err != nil {
 		return nil, err
@@ -237,6 +271,9 @@ func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, 
 	}
 	if !WaitsOnPerson(row) {
 		return sayWrite(w.e, tx, db.Human, agent, body, parent, nil, act)
+	}
+	if pictures {
+		return nil, rpc.Refused(fmt.Sprintf("#%d waits for an answer, and an answer carries no images", parent), "state", "")
 	}
 	res, err := AnswerWrite(w.e, w.tell, tx, parent, body, nil)
 	if err != nil {
