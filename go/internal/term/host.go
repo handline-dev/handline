@@ -2,6 +2,7 @@ package term
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -81,6 +82,36 @@ func (t Tmux) RespawnTerminal(handle string) (bool, string) {
 	}
 	code, _, err := t.tmux(tmuxTimeout, "", "respawn-pane", "-k", "-t", handle)
 	return code == 0, err
+}
+
+// PanePid is the pid of the process the pane runs (its shell); 0 when tmux cannot say.
+func (t Tmux) PanePid(handle string) int {
+	if !paneRE.MatchString(handle) {
+		return 0
+	}
+	code, out, _ := t.tmux(tmuxTimeout, "", "display-message", "-p", "-t", handle, "#{pane_pid}")
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	if code != 0 || err != nil {
+		return 0
+	}
+	return pid
+}
+
+type panePidder interface{ PanePid(handle string) int }
+
+func (d dynamic) PanePid(handle string) int {
+	if h, ok := d.cur().(panePidder); ok {
+		return h.PanePid(handle)
+	}
+	return 0
+}
+
+// PanePid is the pid of the process the terminal runs; 0 when the host cannot say.
+func (t *Term) PanePid(handle string) int {
+	if h, ok := t.Backend.(panePidder); ok {
+		return h.PanePid(handle)
+	}
+	return 0
 }
 
 func (d dynamic) host() Host {
