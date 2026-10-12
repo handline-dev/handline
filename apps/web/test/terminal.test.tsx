@@ -208,6 +208,7 @@ describe('which renderer', () => {
 });
 
 describe('the pane', () => {
+  let proposed: { cols: number; rows: number } | null = null;
   afterEach(() => void (proposed = null));
   let root: Root | null = null;
   let box: HTMLElement;
@@ -221,7 +222,6 @@ describe('the pane', () => {
     const d = useAgentDetail(ARCH).data;
     return d ? <BytesTab agent={ARCH} detail={d} create={create} /> : null;
   }
-  let proposed: { cols: number; rows: number } | null = null;
   async function mount(s = setup()) {
     let term!: Terminal;
     const marks: string[] = [];
@@ -232,6 +232,7 @@ describe('the pane', () => {
       return { term, propose: () => proposed, setFontSize() {}, mark: (l) => marks.push(l), focus() {}, dispose: () => term.dispose() };
     };
     const store = new Store(s.client);
+    store.me = s.client.hello?.caller.name ?? ''; // the test store is never started, which is what sets it
     box = document.body.appendChild(document.createElement('div'));
     root = createRoot(box);
     await act(async () => {
@@ -315,16 +316,44 @@ describe('the pane', () => {
     expect(m.made).toHaveLength(1); // the kept instance was reused
   });
 
-  it('takes the keyboard on a click, sends every key to the host, and sizes the host grid to the pane', async () => {
+  it('takes the keyboard on a click, sends keys to the host, sizes the grid once per burst, and lets go on Ctrl+Shift+E', async () => {
+    const watchers: (() => void)[] = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: () => void) {
+          watchers.push(cb);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
     const m = await mount();
     await until(() => m.term() && rows(m.term()).some((l) => l.includes('Claude Code v2.1')), 'the screen');
-    m.store.me = m.client.hello!.caller.name; // the test store is never started, which is what sets it
-    proposed = { cols: 100, rows: 30 };
+    const input = vi.spyOn(m.client.bytes, 'input');
+    const resize = vi.spyOn(m.client.bytes, 'resize');
     m.term().input('ignored before the take', true); // not holding: nothing goes
-    box.querySelector('.xterm-host div')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    expect(input).not.toHaveBeenCalled();
+    const stage = box.querySelector('.xterm-host div')!;
+    stage.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     await until(() => box.textContent?.includes('You hold the input'), 'the hold');
-    await until(() => rows(m.term()).length > 0 && m.term().cols === 100 && m.term().rows === 30, 'the resize to the pane');
-    expect(box.textContent).not.toContain('ignored before the take');
+    resize.mockClear();
+    for (const w of [90, 95, 100]) {
+      // a drag: several sizes inside the debounce
+      proposed = { cols: w, rows: 30 };
+      watchers.forEach((w) => w());
+    }
+    await until(() => resize.mock.calls.length > 0, 'the resize');
+    await wait(300);
+    expect(resize).toHaveBeenCalledTimes(1);
+    expect(resize.mock.calls[0]!.slice(1)).toEqual([100, 30]);
+    await until(() => m.term().cols === 100 && m.term().rows === 30, 'the repaint at the new size');
+    m.term().input('hi\r', true); // what xterm's onData gives for typing
+    await until(() => input.mock.calls.length > 0, 'the input call');
+    expect(new TextDecoder().decode(input.mock.calls[0]![1])).toBe('hi\r');
+    stage.dispatchEvent(new KeyboardEvent('keydown', { key: 'E', ctrlKey: true, shiftKey: true, bubbles: true }));
+    await until(() => box.textContent?.includes('Click the terminal to type'), 'the release');
+    vi.unstubAllGlobals();
   });
 });
 
@@ -356,7 +385,15 @@ describe('grid and key routing', () => {
     host.innerHTML = '<div class="xterm"><textarea></textarea></div><button></button>';
     const inTerm = host.querySelector('textarea')!,
       outside = host.querySelector('button')!;
-    const key = (target: HTMLElement, k: string, mods: object = {}) => ({ target, key: k, ctrlKey: false, shiftKey: false, metaKey: false, altKey: false, ...mods });
+    const key = (target: HTMLElement, k: string, mods: object = {}) => ({
+      target,
+      key: k,
+      ctrlKey: false,
+      shiftKey: false,
+      metaKey: false,
+      altKey: false,
+      ...mods,
+    });
     expect(terminalOwnsKey(key(inTerm, 'k', { metaKey: true }))).toBe(true); // the palette key
     expect(terminalOwnsKey(key(inTerm, '?'))).toBe(true);
     expect(terminalOwnsKey(key(inTerm, '[', { ctrlKey: true }))).toBe(true);

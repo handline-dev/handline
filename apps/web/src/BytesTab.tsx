@@ -5,7 +5,18 @@ import { type AgentDetail, type ByteListener, type ByteTerminalView, type ByteVi
 import { useStore } from '@handline/app-react';
 import { useWrite } from '@handline/app-data';
 import { keep, reclaim } from './terminal/keep.ts';
-import { DEFAULT_FONT, MAX_UNWRITTEN, fontFor, gridToSend, guard, markerLabel, paint, type CreateTerm, type PaneTerm } from './terminal/core.ts';
+import {
+  DEFAULT_FONT,
+  MAX_UNWRITTEN,
+  fontFor,
+  gridToSend,
+  guard,
+  isEscapeChord,
+  markerLabel,
+  paint,
+  type CreateTerm,
+  type PaneTerm,
+} from './terminal/core.ts';
 import { Button } from './ui/index.ts';
 
 const SKELETON_DELAY_MS = 150;
@@ -35,8 +46,8 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
   const host = useRef<HTMLDivElement>(null);
   const takeInput = useWrite('input.take', agent);
   const releaseInput = useWrite('input.release', agent);
-  const act = useRef({ take: () => {}, release: () => {} });
-  act.current = { take: () => takeInput.mutate({ agent }), release: () => releaseInput.mutate({ agent }) };
+  const { mutate: take } = takeInput;
+  const { mutate: release } = releaseInput;
   const live = useRef<{ view: ByteTerminalView; pane: PaneTerm } | null>(null);
   const [state, setState] = useState<ByteViewState>('attaching');
   const [failure, setFailure] = useState('');
@@ -84,13 +95,20 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
         const v = live.current?.view;
         if (holding && v) void store.client.bytes.input(v, utf8.encode(d)).catch((e) => setRefused((e as Error).message));
       });
-      const take = () => {
+      const grab = () => {
         const v = live.current?.view;
         if (!v || holding || v.state !== 'live' || v.holders.some((h) => h.kind !== 'daemon')) return;
-        act.current.take(); // a refusal is reported by the write
+        take({ agent }); // a refusal is reported by the write
       };
-      stage.addEventListener('mousedown', take);
-      stage.addEventListener('focusin', take);
+      /** The one key the app keeps: the terminal lets go of the keyboard and the hold is released. */
+      const leave = (e: KeyboardEvent) => {
+        if (!isEscapeChord(e)) return;
+        pane.blur?.();
+        if (holding) release({ agent });
+      };
+      stage.addEventListener('mousedown', grab);
+      stage.addEventListener('focusin', grab);
+      stage.addEventListener('keydown', leave);
       watch.observe(el);
       let off = () => {};
       const onEvent: ByteListener = (e, v) => {
@@ -130,8 +148,9 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
         watch.disconnect();
         clearTimeout(timer);
         typing.dispose();
-        stage.removeEventListener('mousedown', take);
-        stage.removeEventListener('focusin', take);
+        stage.removeEventListener('mousedown', grab);
+        stage.removeEventListener('focusin', grab);
+        stage.removeEventListener('keydown', leave);
         off();
         if (live.current) {
           void store.client.bytes.close(agent).catch(() => {});
@@ -145,36 +164,46 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
       cancelled = true;
       cleanup();
     };
-  }, [store, agent, hasTerminal, create, attempt]);
+  }, [store, agent, hasTerminal, create, attempt, take, release]);
 
   const skeleton = useSkeleton(hasTerminal && state === 'attaching' && !everLive);
   const note = !hasTerminal ? 'No terminal. Start the agent to open one.' : state === 'failed' ? failure : NOTE[state];
 
   return (
     <div className="terminal-tab flex min-h-0 flex-col">
-      <div className={`terminal xterm-pane relative flex min-h-0 flex-1 flex-col bg-term-bg${state === 'stale' || !hasTerminal ? ' dim [&_.xterm-host]:opacity-55' : ''}`} title={title}>
-        <div className="xterm-host min-h-0 flex-1 overflow-hidden px-2.5 py-2 [&>div]:h-full" ref={host} aria-label={`Terminal of ${agent}`} />
+      <div
+        className={`terminal xterm-pane relative flex min-h-0 flex-1 flex-col bg-term-bg${state === 'stale' || !hasTerminal ? ' dim [&_.xterm-host]:opacity-55' : ''}`}
+        title={title}
+      >
+        <div
+          className="xterm-host min-h-0 flex-1 overflow-hidden px-2.5 py-2 [&>div]:h-full"
+          ref={host}
+          aria-label={`Terminal of ${agent}`}
+        />
         {skeleton && (
           <div className="term-skeleton absolute inset-0 flex flex-col gap-2 bg-term-bg px-2.5 py-3" aria-hidden="true">
             {SKELETON_ROWS.map((w, i) => (
-              <div key={i} className="term-skeleton-row h-[13px] animate-[term-pulse_1.2s_ease-in-out_infinite] rounded-[3px] bg-line opacity-60 motion-reduce:animate-none" style={{ width: `${w}%` }} />
+              <div
+                key={i}
+                className="term-skeleton-row h-[13px] animate-[term-pulse_1.2s_ease-in-out_infinite] rounded-[3px] bg-line opacity-60 motion-reduce:animate-none"
+                style={{ width: `${w}%` }}
+              />
             ))}
           </div>
         )}
         <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">
           {note}
-          {state === 'live' && (holds ? (
-            <>
-              {'You hold the input. Ctrl+Shift+E hands the keys back to the app. '}
-              <Button variant="outline" size="sm" label="Release" className="text-term-ink" onClick={() => act.current.release()} />
-            </>
-          ) : (
-            'Click the terminal to type in it. '
-          ))}
+          {state === 'live' &&
+            (holds ? (
+              <>
+                {'You hold the input. Ctrl+Shift+E hands the keys back to the app. '}
+                <Button variant="outline" size="sm" label="Release" className="text-term-ink" onClick={() => release({ agent })} />
+              </>
+            ) : (
+              'Click the terminal to type in it. '
+            ))}
           {refused}
-          {state === 'failed' && (
-            <Button variant="outline" size="sm" label="Retry" onClick={() => setAttempt((n) => n + 1)} />
-          )}
+          {state === 'failed' && <Button variant="outline" size="sm" label="Retry" onClick={() => setAttempt((n) => n + 1)} />}
         </div>
       </div>
     </div>
