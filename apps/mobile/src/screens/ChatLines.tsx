@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { TranscriptItem } from '@handline/client';
+import { sessionLine } from '@handline/app-core';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Sheet } from './TaskActions.tsx';
@@ -86,11 +87,11 @@ function ToolLine({ i }: { i: TranscriptItem }) {
 function SessionMark({ i }: { i: TranscriptItem }) {
   const c = usePalette();
   const [open, setOpen] = useState(false);
-  const handoff = i.session?.handoff;
+  const { reason, handoff } = sessionLine(i);
   const mark = (
-    <Text testID={`session-${i.id}`} style={{ color: c.muted, fontSize: 12 }}>
-      ↻ Session started · {clock(i.at)}
-      {handoff ? ' · Handoff' : ''}
+    <Text testID={`session-${i.id}`} style={{ color: c.muted, fontSize: 12, textAlign: 'center' }}>
+      ── {reason} · {clock(i.at)}
+      {handoff ? ' · Handoff' : ''} ──
     </Text>
   );
   if (!handoff) return mark;

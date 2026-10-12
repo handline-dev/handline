@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { Store, behindCount, noticeOf, takeBack, isOpenAsk, landingLabel, sendNote, sideOf, taskRow, timeline } from '../src/index.ts';
+import { Store, behindCount, noticeOf, takeBack, isOpenAsk, landingLabel, sendNote, sessionLine, sideOf, taskRow, timeline } from '../src/index.ts';
 
 const A = 'handline.architect';
 const msg = (over: Partial<ChatMessage>): ChatMessage => ({
@@ -151,4 +151,17 @@ test("the task board's words are task cards or hidden notices, in the agent's ow
   assert.deepEqual(kinds('mine'), ['note7']);
   assert.deepEqual(kinds('all'), ['note7', 'message8']);
   assert.equal(sideOf(delivery, A, 'Handline desktop'), 'other');
+});
+
+test('a session line says why in plain words, and keeps an unknown cause as it came', () => {
+  const at = '2026-01-01T00:00:00Z';
+  const line = (cause?: string, handoff: string | null = null) =>
+    sessionLine({ id: 1, at, kind: 'session', session: { id: 's', started: at, handoff, ...(cause ? { cause } : {}) } });
+  assert.deepEqual(line('handoff', 'x'), { reason: 'Context full, started again from a handoff', handoff: 'x' });
+  assert.equal(line('restart').reason, 'Restarted');
+  assert.equal(line('fresh close').reason, 'Restarted with a fresh conversation');
+  assert.equal(line('wake').reason, 'Woke from a close');
+  assert.equal(line('move').reason, 'Moved to another account');
+  assert.equal(line('crash').reason, 'New session (crash)');
+  assert.deepEqual(line(), { reason: 'New session', handoff: null });
 });

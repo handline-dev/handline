@@ -122,18 +122,20 @@ describe('the Chat tab', () => {
     expect(text(row)).toContain('3 more lines let go');
   });
 
-  it('a session marker shows the whole handoff on request', async () => {
+  it('a session boundary says why it began, and its handoff opens in a dialog', async () => {
     const t = setup();
     t.daemon.chat.seedItem(ARCH, {
       kind: 'session',
-      session: { id: 's2', started: new Date().toISOString(), handoff: 'line one\nline two' },
+      session: { id: 's2', started: new Date().toISOString(), handoff: 'line one\nline two', cause: 'handoff' },
     });
     await mount(ARCH, t);
-    await until(() => $$('[data-kind="session"]').some((c) => /Whole handoff/.test(text(c))), 'the marker');
-    const card = $$('[data-kind="session"]').find((c) => /Whole handoff/.test(text(c)))!;
-    expect(card.querySelector('.handoff-full')).toBeNull();
-    await click([...card.querySelectorAll('button')].find((b) => /Whole handoff/.test(text(b)))!);
-    expect(card.querySelector('.handoff-full')?.textContent).toBe('line one\nline two');
+    await until(() => $$('[data-kind="session"]').some((c) => /Handoff/.test(text(c))), 'the boundary');
+    const line = $$('[data-kind="session"]').find((c) => /Handoff/.test(text(c)))!;
+    expect(text(line)).toContain('Context full, started again from a handoff');
+    expect($('.handoff-full')).toBeNull();
+    await click([...line.querySelectorAll('button')].find((b) => /Handoff/.test(text(b)))!);
+    await until(() => $('.handoff-full'), 'the dialog');
+    expect($('.handoff-full')?.textContent).toBe('line one\nline two');
   });
 
   it('sends with Enter, shows the message landing, and keeps an unsent draft across a reload', async () => {
@@ -278,7 +280,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(icon(prompt, 'Asked permission: Bash')).not.toBeNull();
     expect(text(prompt)).toContain('git status');
     expect(icon(prompt, 'Answered')).not.toBeNull();
-    expect(icon($('[data-kind="session"]')!, 'New session')).not.toBeNull();
+    expect(text($('[data-kind="session"]')!)).toContain('New session');
     const events = $$('[data-kind="task_event"]');
     expect(icon(events[0], 'Task added')).not.toBeNull();
     expect(text(events[0])).toContain('1684');

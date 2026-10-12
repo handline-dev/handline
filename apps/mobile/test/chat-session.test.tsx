@@ -22,7 +22,7 @@ describe('the session mark in the chat', () => {
   it('shows where a session started, and a session with a handoff opens it in a sheet', async () => {
     const m = await open(HANDOFF);
     await until(mark, 'the mark');
-    expect(mark()!.textContent).toContain('Session started');
+    expect(mark()!.textContent).toContain('New session');
     expect(mark()!.textContent).toContain('Handoff');
     expect($('handoff-text')).toBeNull();
     await press(box_().querySelector<HTMLElement>('[data-testid^="session-open-"]'));
@@ -36,7 +36,7 @@ describe('the session mark in the chat', () => {
 
   it('shows the mark of a session without a handoff and offers nothing to open', async () => {
     const m = await open(null);
-    await until(() => mark()?.textContent?.includes('Session started'), 'the mark');
+    await until(() => mark()?.textContent?.includes('New session'), 'the mark');
     expect(mark()!.textContent).not.toContain('Handoff');
     expect(box_().querySelector('[data-testid^="session-open-"]')).toBeNull();
     m.store.stop();
