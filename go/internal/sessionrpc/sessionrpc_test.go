@@ -111,7 +111,6 @@ func (r *rig) dial(agent bool) *conn {
 	srv.DB = r.e.DB
 	Register(srv, r.e)
 	RegisterTyping(srv, r.e)
-	r.e.RegisterUnstall(srv) // only a test daemon serves agent.unstall
 	cl, sv := net.Pipe()
 	go func() { srv.Serve(rpc.NewLineTransport(sv), 0); sv.Close() }()
 	r.t.Cleanup(func() { cl.Close() })
@@ -377,9 +376,9 @@ func TestWakeOfAStalledAgentDropsItsDialogMarkAndNobodyElses(t *testing.T) {
 func TestUnstallOfAnAgentThatIsNotStalledLeavesItsDialogMark(t *testing.T) {
 	r := newRig(t)
 	seedStall(t, r.e.DB, "RUNNING")
-	said, err := r.e.Unstall("ann")
-	if err != nil || said != "ann: not STALLED (RUNNING)" {
-		t.Fatalf("%q %v", said, err)
+	cleared, said, err := r.e.Unstall("ann")
+	if err != nil || cleared || said != "ann: not STALLED (RUNNING)" {
+		t.Fatalf("%v %q %v", cleared, said, err)
 	}
 	if got := cursorNames(t, r.e.DB); got != "dialog_since:ann,dialog_since:bob,dialog_title:ann" {
 		t.Fatalf("cursors: %s", got)
@@ -412,7 +411,7 @@ print(control.unstall(con, "ann")); con.commit()
 	if err != nil {
 		t.Fatalf("the Python unstall did not run: %v: %s", err, out)
 	}
-	said, err := r.e.Unstall("ann")
+	_, said, err := r.e.Unstall("ann")
 	if err != nil || strings.TrimSpace(string(out)) != said {
 		t.Fatalf("said %q (%v), Python %q", said, err, out)
 	}
