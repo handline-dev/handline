@@ -35,9 +35,10 @@ func (e *Env) logf(format string, args ...any) {
 	}
 }
 
-// Register adds hr.decide to the server's table.
+// Register adds hr.decide and hr.withdraw to the server's table.
 func Register(s *rpc.Server, e *Env) {
 	s.Register("hr.decide", rpc.Method{Role: "founder", Write: true, Handler: e.decideMethod})
+	s.Register("hr.withdraw", rpc.Method{Role: "agent", Write: true, Handler: e.withdrawMethod})
 }
 
 const decisionsNS = "hr-decisions"
@@ -99,6 +100,64 @@ func (e *Env) tell(p *Prop, text string) {
 	if res.Tell != nil {
 		res.Tell()
 	}
+}
+
+// proposalNamed is the proposal a call's `proposal` number names: bad_request for a number that is none, not_found for one no proposal has.
+func (e *Env) proposalNamed(params map[string]any) (*Prop, error) {
+	pid, ok := rpc.AsInt(params["proposal"])
+	if !ok || pid < 0 {
+		return nil, rpc.BadRequestError("proposal is a proposal id", "proposal", rpc.InvalidParams)
+	}
+	for _, p := range e.listing() {
+		if n, ok := hexNum(p.id()); ok && isAlnum(p.id()) && n == pid {
+			return p, nil
+		}
+	}
+	err := rpc.NotFoundError(fmt.Sprintf("no proposal %d", pid))
+	err.Data = map[string]any{"what": "proposal", "name": strconv.FormatInt(pid, 10)}
+	return nil, err
+}
+
+// withdrawMethod is hr.withdraw (hr.withdraw): the proposal's own author, or the founder, takes it back before it is applied. The state is read
+// and set under one write lock, so a decision landing at the same moment wins or loses cleanly.
+func (e *Env) withdrawMethod(c *rpc.Conn, params map[string]any) (any, error) {
+	prop, err := e.proposalNamed(params)
+	if err != nil {
+		return nil, err
+	}
+	if me := c.Caller.Actor(); me != db.Human && me != prop.str("requested_by") {
+		return nil, rpc.Refused(fmt.Sprintf("proposal %s is %s's to withdraw, not yours", prop.id(), prop.str("requested_by")), "role", "")
+	}
+	ctx := context.Background()
+	conn, err := e.DB.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	finish := func(stmt string) { conn.ExecContext(ctx, stmt); conn.Close() }
+	if again, err := e.load(prop.id()); err != nil {
+		finish("ROLLBACK")
+		return nil, err
+	} else if again != nil {
+		prop = again
+	}
+	if st := prop.str("state"); st != "proposed" && st != "approved" {
+		finish("ROLLBACK")
+		return nil, e.refusal("proposal_settled", fmt.Sprintf("proposal %s is already %s - nothing to withdraw", prop.id(), st), prop)
+	}
+	prop.set("state", "withdrawn")
+	prop.set("decided", time.Now().Unix())
+	if err := e.save(prop); err != nil {
+		finish("ROLLBACK")
+		return nil, err
+	}
+	finish("COMMIT")
+	return c.Effect(func(*sql.Tx) (map[string]any, error) {
+		return map[string]any{"accepted": true, "said": fmt.Sprintf("proposal %s withdrawn", prop.id())}, nil
+	})
 }
 
 // decide is the founder's decision on a proposal: call is "approved" or "rejected". An approve is applied now and the proposer told the outcome; a
@@ -277,20 +336,8 @@ func (e *Env) decideMethod(c *rpc.Conn, params map[string]any) (any, error) {
 	if params["subject"] != nil && !hasSubject {
 		return nil, bad("subject is the digest hr.list showed", "subject")
 	}
-	pid, ok := rpc.AsInt(params["proposal"])
-	if !ok || pid < 0 {
-		return nil, bad("proposal is a proposal id", "proposal")
-	}
-	var prop *Prop
-	for _, p := range e.listing() {
-		if n, ok := hexNum(p.id()); ok && isAlnum(p.id()) && n == pid {
-			prop = p
-			break
-		}
-	}
-	if prop == nil {
-		err := rpc.NotFoundError(fmt.Sprintf("no proposal %d", pid))
-		err.Data = map[string]any{"what": "proposal", "name": strconv.FormatInt(pid, 10)}
+	prop, err := e.proposalNamed(params)
+	if err != nil {
 		return nil, err
 	}
 	if decision == "approve" && subject == "" {
