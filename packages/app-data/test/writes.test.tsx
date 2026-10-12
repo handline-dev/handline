@@ -174,14 +174,24 @@ describe('every authored write: the change is on screen before the daemon answer
 });
 
 describe('writes', () => {
+  it('an automatic mark that is accepted leaves the error line alone', async () => {
+    const store = openStore(stubClient(() => ({ accepted: true })));
+    store.error = 'old';
+    const w = probe(() => useWrite('chat.seen', 'a'));
+    await mount(store, w.node);
+    act(() => w.get().mutate({ agent: 'a', through: 1 } as never));
+    await until(() => w.get().isSuccess, 'success');
+    expect(store.error).toBe('old');
+  });
+
   it('a write that is accepted keeps its edit and clears the error line', async () => {
     const stub = stubClient(() => ({ accepted: true }));
     const store = openStore(stub);
     store.error = 'old';
-    const w = probe(() => useWrite('inbox.mark_read'));
+    const w = probe(() => useWrite('inbox.reply'));
     const { qc } = await mount(store, w.node);
     qc.setQueryData(qk.inbox(D), { items: [inboxItem(1)], more: false });
-    act(() => w.get().mutate({ ids: [1] }));
+    act(() => w.get().mutate({ id: 1 } as never));
     await until(() => w.get().isSuccess, 'success');
     expect(qc.getQueryData<{ items: { read: boolean }[] }>(qk.inbox(D))!.items[0]!.read).toBe(true);
     expect(store.error).toBeNull();

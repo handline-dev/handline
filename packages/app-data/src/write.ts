@@ -52,7 +52,7 @@ export function useWrite<M extends WriteMethod>(method: M, target?: string) {
     },
     onSuccess: (r, p) => {
       spec.reconcile?.(ctx(), p as never, r as never);
-      store.dismissError();
+      if (!spec.quiet) store.dismissError();
     },
     onSettled: (_r, _e, p) => settle(qc, daemon, spec, p as never),
   });
