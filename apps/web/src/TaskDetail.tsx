@@ -43,7 +43,7 @@ export function TaskDetail({
           ? ' absolute top-[calc(var(--sp-5)+var(--h-btn)+var(--sp-4))] right-0 bottom-0 left-auto z-[5] w-[min(480px,100%)] border-l border-line bg-surface shadow-[var(--shadow-pop)]'
           : ''
       }`}
-      aria-label={`Task #${id}`}
+      aria-label={`Task T${id}`}
     >
       <Button icon="close" label="Back" title="Back (Esc)" className="back self-end mb-4" onClick={onBack} />
       {gone ? (
@@ -51,7 +51,7 @@ export function TaskDetail({
           <p>This task no longer exists.</p>
         </div>
       ) : (
-        <View q={q} served shape="taskDetail" what={`task #${id}`}>
+        <View q={q} served shape="taskDetail" what={`task T${id}`}>
           {q.data ? <Body t={q.data} /> : null}
         </View>
       )}
@@ -101,7 +101,7 @@ function Body({ t }: { t: Detail }) {
 
   const say = (sentence: string) => store.reportError('task', new Error(sentence));
   const verbs = {
-    x: () => (open ? setAsk('done') : say(`task #${t.id} is already closed`)),
+    x: () => (open ? setAsk('done') : say(`task T${t.id} is already closed`)),
     u: () =>
       t.state === 'draft'
         ? queue.mutate({ tasks: [t.id] })
@@ -110,7 +110,7 @@ function Body({ t }: { t: Detail }) {
           : say('only a draft or a queued task can move'),
     r: () => (t.state === 'done' && mine ? setAsk('reopen') : say(REOPEN_ONLY)),
     a: () => memoBox.current?.focus(),
-    d: () => (open ? setAsk('discard') : say(`task #${t.id} is already closed`)),
+    d: () => (open ? setAsk('discard') : say(`task T${t.id} is already closed`)),
     e: () => open && setAsk('edit'),
     w: () => startable && mine && setAsk('withdraw'),
     c: () => open && setAsk('cancel'),
@@ -133,7 +133,7 @@ function Body({ t }: { t: Detail }) {
     <div className="tbody" ref={root} tabIndex={-1} onKeyDown={key}>
       <header className="tdetail-head flex flex-wrap items-baseline gap-2">
         <h2 className="m-0 text-title font-semibold">
-          <span className="mono">#{t.id}</span> {t.title}
+          <span className="mono">T{t.id}</span> {t.title}
         </h2>
         <StateChip state={t.state} mark={mark} />
       </header>
@@ -183,7 +183,7 @@ function Body({ t }: { t: Detail }) {
       ) : null}
       {ask === 'withdraw' ? (
         <Sheet
-          label={`withdraw #${t.id}?`}
+          label={`withdraw T${t.id}?`}
           submit="Withdraw"
           onCancel={() => setAsk(null)}
           onSubmit={() => (setAsk(null), withdraw.mutate({ task: t.id }))}

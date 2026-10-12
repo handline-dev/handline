@@ -37,7 +37,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
                 onClick={() => setOpen(t.id)}
               >
                 <Icon name="tasks" size={14} label="Task" />
-                <span className="mono">#{t.id}</span>
+                <span className="mono">T{t.id}</span>
                 <span className="ttitle min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-body font-medium">
                   {t.title}
                 </span>

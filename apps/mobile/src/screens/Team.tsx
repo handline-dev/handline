@@ -88,7 +88,7 @@ function Card(props: {
       <Text style={{ color: c.ink }}>{a.role}</Text>
       {d?.task && (
         <Text style={{ color: c.muted, fontSize: 12 }}>
-          doing #{d.task.id} {d.task.title}
+          doing T{d.task.id} {d.task.title}
         </Text>
       )}
       {props.open && (

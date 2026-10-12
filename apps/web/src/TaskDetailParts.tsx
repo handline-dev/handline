@@ -29,7 +29,7 @@ export function TaskMeta({ t, now }: { t: Detail; now: number }) {
           label="Under"
           value={
             <a href={`#/tasks/${t.parent}`} className="mono">
-              #{t.parent}
+              T{t.parent}
             </a>
           }
         />
@@ -66,7 +66,7 @@ export function TaskLinks({ icon, label, items }: { icon: IconName; label: strin
         {items.map((b) => (
           <li key={b.task} className={LI}>
             <a href={`#/tasks/${b.task}`} className="mono text-inherit no-underline hover:underline">
-              #{b.task}
+              T{b.task}
             </a>{' '}
             {b.reason !== undefined ? <span className="muted">{b.reason}</span> : null}
           </li>
@@ -100,7 +100,7 @@ export function CancelSheet(props: { running: boolean; id: number; onCancel: () 
   const [reason, setReason] = useState('');
   return (
     <Sheet
-      label={props.running ? `stop #${props.id}? why (optional):` : `cancel #${props.id}? why (optional):`}
+      label={props.running ? `stop T${props.id}? why (optional):` : `cancel T${props.id}? why (optional):`}
       submit={props.running ? 'Stop it' : 'Cancel task'}
       onCancel={props.onCancel}
       onSubmit={() => props.onSubmit(reason.trim() || undefined)}
@@ -129,7 +129,7 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
     edit.mutate({ task: t.id, ...change }, { onSuccess: onClose });
   };
   return (
-    <Sheet label={`Edit #${t.id}`} submit="Save" onCancel={onClose} onSubmit={save} busy={edit.isPending}>
+    <Sheet label={`Edit T${t.id}`} submit="Save" onCancel={onClose} onSubmit={save} busy={edit.isPending}>
       <div className="tform grid gap-5">
         <label>
           Title

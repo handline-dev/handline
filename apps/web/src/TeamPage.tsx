@@ -162,7 +162,7 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
       ) : null}
       {d?.task ? (
         <p className="team-task m-0 flex flex-wrap items-center gap-1 text-label text-ink-2" title="Doing">
-          <Icon name="tasks" label="Doing" size={14} aria-hidden="true" /> #{d.task.id} {d.task.title}
+          <Icon name="tasks" label="Doing" size={14} aria-hidden="true" /> T{d.task.id} {d.task.title}
         </p>
       ) : null}
       {props.open ? (

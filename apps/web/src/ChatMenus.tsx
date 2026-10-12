@@ -73,7 +73,7 @@ export function useEntries(
     if (kind === 'hash') {
       const mine = (served ? (tasks.data?.items ?? []) : [])
         .filter((t) => t.to === agent)
-        .map((t): Entry => ({ key: `t${t.id}`, icon: 'tasks', label: `#${t.id}`, hint: t.title, insert: `#${t.id} ` }));
+        .map((t): Entry => ({ key: `t${t.id}`, icon: 'tasks', label: `T${t.id}`, hint: t.title, insert: `T${t.id} ` }));
       const said = [...messages]
         .reverse()
         .slice(0, 8)
