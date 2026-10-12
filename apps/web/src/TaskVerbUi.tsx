@@ -1,6 +1,6 @@
 // The actions on one task or on many from the Tasks views: the menu of verbs (each gated by what the daemon serves and by what applies),
 // the sheet that confirms with the count and asks for what the verb needs, and the sheet that says what happened to each task.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { useBulk } from './taskActions.ts';
 import { plan, TASK_VERBS, type Outcome, type RowVerb } from '@handline/app-core';
 import type { Task } from '@handline/client';
@@ -37,9 +37,12 @@ export function verbChoices(tasks: Task[], me: string, cans: Cans) {
 /** A button that opens the verbs for `tasks` (one row's, or the marked rows'). */
 export function VerbMenu(props: { tasks: Task[]; me: string; cans: Cans; onPick: (verb: RowVerb) => void; title?: string; up?: boolean }) {
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLSpanElement>(null);
   const many = props.tasks.length > 1;
+  // The list scrolls and clips, so the popup is fixed at the trigger's edge, not inside the row.
+  const at = open ? trigger.current?.getBoundingClientRect() : undefined;
   return (
-    <span className="relative inline-block" onClick={(e) => e.stopPropagation()}>
+    <span className="relative inline-block" ref={trigger} onClick={(e) => e.stopPropagation()}>
       <Button
         icon="more"
         label={props.title ?? 'Actions'}
@@ -47,29 +50,32 @@ export function VerbMenu(props: { tasks: Task[]; me: string; cans: Cans; onPick:
         onClick={() => setOpen(!open)}
         aria-haspopup="dialog"
         aria-expanded={open}
+        onPointerDown={(e) => e.stopPropagation()} // so the popup's click-away does not close it just before this click toggles it
       />
-      <Popup
-        open={open}
-        onClose={() => setOpen(false)}
-        title={many ? `${props.tasks.length} tasks` : `#${props.tasks[0]?.id}`}
-        align="right"
-        up={props.up}
-      >
-        {verbChoices(props.tasks, props.me, props.cans).map((c) =>
-          c.why ? (
-            <div key={c.verb} className={`${PROW} cursor-not-allowed opacity-50`} title={c.why} aria-disabled="true">
-              <span className={PROW_NAME}>{c.label}</span>
-            </div>
-          ) : (
-            <PopupRow
-              key={c.verb}
-              label={c.label}
-              hint={many ? `${c.count} of ${props.tasks.length}` : undefined}
-              onClick={() => (setOpen(false), props.onPick(c.verb))}
-            />
-          ),
-        )}
-      </Popup>
+      <span className="fixed z-30" style={at ? { left: at.right, top: props.up ? at.top : at.bottom } : undefined}>
+        <Popup
+          open={open}
+          onClose={() => setOpen(false)}
+          title={many ? `${props.tasks.length} tasks` : `#${props.tasks[0]?.id}`}
+          align="right"
+          up={props.up}
+        >
+          {verbChoices(props.tasks, props.me, props.cans).map((c) =>
+            c.why ? (
+              <div key={c.verb} className={`${PROW} cursor-not-allowed opacity-50`} title={c.why} aria-disabled="true">
+                <span className={PROW_NAME}>{c.label}</span>
+              </div>
+            ) : (
+              <PopupRow
+                key={c.verb}
+                label={c.label}
+                hint={many ? `${c.count} of ${props.tasks.length}` : undefined}
+                onClick={() => (setOpen(false), props.onPick(c.verb))}
+              />
+            ),
+          )}
+        </Popup>
+      </span>
     </span>
   );
 }
