@@ -566,7 +566,7 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
-  it('leaves answering a question to the Inbox: no answer box in the chat, a tap still replies with a linked message', async () => {
+  it('leaves answering a question to the Inbox: no answer box in the chat, Dismiss stays', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await until(() => msgOf('Which gap list should come first?'), 'the question');

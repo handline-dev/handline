@@ -30,4 +30,4 @@ The typing methods `session.input|keys|type`, `input.take|release`, `terminal.in
 
 ## 4. Order
 
-1 and 2 together (one Go change and the contract; web and mobile stop calling `answer` first, T3516 does the web); 4 and 7 and 8 at any time; 3 and 5 after the founder says what happens to ask cards and `async` edges; 6 after a check of the hardening tests; 9 and 10 when the Go daemon serves its 14 missing methods.
+1 and 2 together (one Go change and the contract; web and mobile stop calling `answer` first, the web build does the web); 4 and 7 and 8 at any time; 3 and 5 after the founder says what happens to ask cards and `async` edges; 6 after a check of the hardening tests; 9 and 10 when the Go daemon serves its 14 missing methods.
