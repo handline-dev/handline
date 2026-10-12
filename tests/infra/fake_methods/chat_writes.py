@@ -19,7 +19,11 @@ def chat_writes(role, method, params):
     if not isinstance(params.get("request_id"), str) or not params["request_id"]:
         return "fail", err(-32600, "bad_request", field="request_id")
     if method == "chat.send":
-        if not _text(params.get("body")):
+        att = params.get("attachments")
+        if att is not None and (not isinstance(att, list) or not att or len(att) > 6 or params.get("task") is not None
+                                or not all(isinstance(a, str) for a in att)):
+            return "fail", err(-32602, "bad_request", field="attachments")
+        if not _text(params.get("body")) and not att:
             return "fail", err(-32602, "bad_request", field="body")
         if not isinstance(params.get("agent"), str) or not params["agent"]:
             return "fail", err(-32602, "bad_request", field="agent")
