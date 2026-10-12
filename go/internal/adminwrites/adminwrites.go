@@ -20,6 +20,10 @@ type Env struct {
 	Home string
 	// Logins runs the web logins; nil serves neither account.login nor account.login_cancel.
 	Logins *weblogin.Manager
+	// Run runs the vendor's logout for account.remove and answers its exit code (-1 when it could not run); nil runs the command.
+	Run func(argv []string, env map[string]string) int
+	// Changed tells the accounts topic that an account was added; nil tells no one.
+	Changed func(account string)
 }
 
 // Register adds the writes to the server's table.
@@ -30,6 +34,9 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("worktree.set_status", rpc.Method{Role: "member", Write: true, Handler: e.worktreeSetStatus})
 	s.Register("settings.set", rpc.Method{Role: "founder", Write: true, Handler: e.settingsSet})
 	s.Register("account.set", rpc.Method{Role: "founder", Write: true, Handler: e.accountSet})
+	s.Register("account.add", rpc.Method{Role: "founder", Write: true, Handler: e.accountAdd})
+	// Unkept and OwnEvent: a dry run writes and records nothing, and a removal that happened is judged again by a retry (no such account).
+	s.Register("account.remove", rpc.Method{Role: "founder", Write: true, Unkept: true, OwnEvent: true, Handler: e.accountRemove})
 	if e.Logins != nil {
 		s.Register("account.login", rpc.Method{Role: "founder", Write: true, Handler: e.accountLogin, Refresh: e.refreshLogin})
 		s.Register("account.login_cancel", rpc.Method{Role: "founder", Write: true, Handler: e.accountLoginCancel})

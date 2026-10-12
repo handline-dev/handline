@@ -171,3 +171,11 @@ func writeEvent(db *sql.DB, actor string, caller Caller, name, rid string, now i
 	_, err := db.Exec("INSERT INTO events(ts, agent, kind, payload) VALUES(?, ?, 'rpc_write', ?)", now, actor, payload)
 	return err
 }
+
+// RecordWrite leaves the generic event of a write for a method that took OwnEvent so that some of its calls leave none (a dry run).
+func (c *Conn) RecordWrite(name, rid string) error {
+	if c.srv.NoEvents {
+		return nil
+	}
+	return writeEvent(c.srv.DB, c.Caller.Actor(), c.Caller, name, rid, time.Now().Unix())
+}
