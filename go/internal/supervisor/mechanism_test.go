@@ -206,7 +206,7 @@ func TestTheExportedReadersAnswerTheirValueWhenNothingFails(t *testing.T) {
 	if v, err := AnswerVerb(r.DB, head); err != nil || v != "answer with `hl say alice --parent 1 \"<answer>\"`" {
 		t.Fatalf("%q %v", v, err)
 	}
-	if v, err := TellText(r.DB, head, 1, nil, false, nil); err != nil || !strings.HasPrefix(v, "#1 from alice, waiting for you:\nq\n") {
+	if v, err := TellText(r.DB, head, 1, nil, false, nil, ""); err != nil || !strings.HasPrefix(v, "#1 from alice, waiting for you:\nq\n") {
 		t.Fatalf("%q %v", v, err)
 	}
 	if v, err := r.EffectiveHead(r.DB, "bob"); err != nil || v == nil || v.ID != rid {

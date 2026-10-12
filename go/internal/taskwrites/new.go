@@ -8,6 +8,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/taskresult"
 	"github.com/handline/handline/go/internal/textsafe"
 	"github.com/handline/handline/go/internal/timefmt"
 )
@@ -116,6 +117,14 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 				return nil, err
 			}
 		}
+		ui := false
+		if v := p["ui"]; v != nil {
+			b, isBool := v.(bool)
+			if !isBool {
+				return nil, badParam("ui is true or false", "ui")
+			}
+			ui = b
+		}
 		parent, hasParent, err := optionalTask(p, "parent")
 		if err != nil {
 			return nil, err
@@ -139,7 +148,7 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 			var err error
 			tid, asked, err = OpenTask(tx, tell, me, NewIn{Owner: owner, Title: clean, Body: body, Secs: secs, Prio: prio, Expects: expects,
-				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter})
+				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter, UI: ui})
 			if err != nil {
 				return nil, err
 			}
@@ -159,10 +168,13 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			limit = ", timeout " + timefmt.Span(secs, false)
 		}
 		msg := asked.Msg
+		if owner == human { // the one line the telling gives a founder's task needs no session
+			msg += "\nit is on the founder's screen (`hl`)"
+		}
 		if asked.After != nil {
-			if extra := asked.After(); extra != "" {
-				msg += "\n" + extra
-			}
+			// The inbox file and the telling can start a closed session and wait on it: the task is open, so the call returns. A withdraw right
+			// after may forget the inbox file before this writes it; an orphan file for a closed request is left, as it is low impact.
+			go asked.After()
 		}
 		out["said"] = fmt.Sprintf("task T%d opened for %s (P%d, expects %s%s): %s", tid, owner, prio, expects, limit, msg)
 		return out, nil
@@ -178,6 +190,7 @@ type NewIn struct {
 	Parent, Blocker    int64
 	HasParent          bool
 	HasBlocker         bool
+	UI                 bool // the task shows something on a screen: it is done with a screenshot
 }
 
 // OpenTask is actions.task_new in the caller's transaction: the owner is asked through the routing table and the task row, its link and
@@ -222,6 +235,11 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 		}
 		if tid, err = db.NewTask(tx, clean, owner, me, parent, prio, expects, secs, reporter); err != nil {
 			return err
+		}
+		if in.UI {
+			if err := taskresult.MarkUI(tx, tid); err != nil {
+				return err
+			}
 		}
 		if me == human { // the founder's own task needs no one's approval
 			if _, err := db.SetTaskQueued(tx, tid, human); err != nil {

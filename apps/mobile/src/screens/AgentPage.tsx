@@ -16,14 +16,13 @@ import { PromptSlot } from './PromptCard.tsx';
 import { Transcript } from './Transcript.tsx';
 import { AboveKeyboard, Button, Row } from './parts.tsx';
 
-/** What a start, resume, stop or interrupt in flight on this agent says while the daemon decides. */
+/** What a start, stop or interrupt in flight on this agent says while the daemon decides. */
 function useAgentMark(agent: string): string | null {
   const mine = (xs: { agent: string }[]) => xs.some((p) => p.agent === agent);
   const start = usePending('session.start');
-  const resume = usePending('session.wake');
   const stop = usePending('session.stop');
   const interrupt = usePending('session.interrupt');
-  return mine(start) ? 'Starting…' : mine(resume) ? 'Resuming…' : mine(stop) ? 'Stopping…' : mine(interrupt) ? 'Interrupting…' : null;
+  return mine(start) ? 'Starting…' : mine(stop) ? 'Stopping…' : mine(interrupt) ? 'Interrupting…' : null;
 }
 
 export function AgentPage() {
@@ -86,7 +85,6 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const verbMark = useVerbMark(name, ['close']);
   const mark = useAgentMark(name) ?? verbMark;
   const start = useWrite('session.start', name);
-  const resume = useWrite('session.wake', name);
   const stopMode = useWrite('session.stop', name);
   const interrupt = useWrite('session.interrupt', name);
   const stop = (mode: StopMode) => {
@@ -129,7 +127,6 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
     <View style={{ flex: 1 }}>
       <Row style={{ paddingHorizontal: space.md, flexWrap: 'wrap' }}>
         {ctl.start && <Button label="Start" disabled={busy} onPress={() => start.mutate({ agent: name })} />}
-        {ctl.resume && <Button label="Resume" disabled={busy} onPress={() => resume.mutate({ agent: name })} />}
         {ctl.resume && <Button label="Start new" disabled={busy} onPress={startNew} />}
         {(structured ? ctl.interrupt : ctl.stop) && <Button label="Interrupt" disabled={busy} onPress={() => stop('interrupt')} />}
         {ctl.stop && !structured && <Button label="Exit" disabled={busy} onPress={() => stop('exit')} />}

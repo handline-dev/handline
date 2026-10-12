@@ -102,3 +102,5 @@ func TestTheSessionMethodsWakeInterruptAndStopAStructuredAgentThroughTheRealWiri
 		t.Fatalf("a terminal agent is not started here: %v", r)
 	}
 }
+
+func (founder) SessionsReadable() error { return nil }

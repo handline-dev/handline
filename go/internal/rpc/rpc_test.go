@@ -291,3 +291,5 @@ func TestALegacyVerbIsAnsweredByTheHookWithThePeerPid(t *testing.T) {
 		cl2.Close()
 	}
 }
+
+func (f fakeAuth) SessionsReadable() error { return nil }

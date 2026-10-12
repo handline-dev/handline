@@ -17,6 +17,9 @@ const (
 type Authority interface {
 	// AgentOf is the agent whose recorded session process pid is, or descends from; "" for any other process.
 	AgentOf(pid int) string
+	// SessionsReadable is nil when AgentOf can tell: the recorded sessions are read, or there are none. An error means its "" is
+	// not an answer, and a caller that trusts on "no agent" must refuse.
+	SessionsReadable() error
 	// FounderKeyOK says whether key is the founder's.
 	FounderKeyOK(key string) bool
 }
@@ -40,3 +43,6 @@ func (s *Store) tokens() *sessiontoken.Tokens {
 func (s *Store) FounderKeyOK(key string) bool { return s.tokens().FounderKeyOK(key) }
 
 func (s *Store) AgentOf(pid int) string { return s.tokens().AgentOf(pid) }
+
+// SessionsReadable is nil when AgentOf can tell: the recorded sessions are read, or there are none.
+func (s *Store) SessionsReadable() error { return s.tokens().SessionsReadable() }

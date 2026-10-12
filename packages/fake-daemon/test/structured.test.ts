@@ -28,3 +28,14 @@ test('interrupt needs a turn that runs, and close is refused mid-turn; a restart
   assert.deepEqual([d.session_open, d.terminal], [true, null]);
   client.close();
 });
+
+test('a chat to a closed agent starts its session and the message is delivered, with no Resume', async () => {
+  const { client } = setup();
+  await client.start();
+  await client.call('session.stop', { agent: AUD, mode: 'close', request_id: 'sc-7' });
+  assert.equal((await client.call('agent.get', { agent: AUD })).session_open, false);
+  const sent = await client.call('chat.send', { agent: AUD, body: 'hello', request_id: 'sc-8' });
+  assert.equal((await client.call('agent.get', { agent: AUD })).session_open, true);
+  assert.equal(sent.receipt?.state, 'sent');
+  client.close();
+});

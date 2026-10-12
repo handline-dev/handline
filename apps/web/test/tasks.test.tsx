@@ -258,7 +258,7 @@ describe('writes', () => {
     await click(button('1 high', sheet('priority (1 high, 2, 3 low):')!)!);
     await until(() => text(row(1700)).includes('P1'), 'P1 shown at once');
     expect(row(1700)!.classList.contains('pending')).toBe(true);
-    expect(text($('.c-state', row(1700)!))).toContain('○');
+    expect($('.c-state svg[data-icon="unsaved"]', row(1700)!)).not.toBeNull(); // hollow dot, a shape
     expect(s.daemon.tasks.get({ task: 1700 }).priority).toBeUndefined(); // the daemon has not answered yet
     await until(() => s.daemon.tasks.get({ task: 1700 }).priority === 1, 'the daemon changed it', 600);
     await until(() => !row(1700)!.classList.contains('pending'), 'settled');

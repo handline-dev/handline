@@ -16,12 +16,14 @@ type fakeInbox struct {
 	mu      sync.Mutex
 	texts   []string
 	outcome map[string]peerinbox.Result
+	modes   []string
 }
 
-func (f *fakeInbox) Deliver(_ context.Context, _ peerinbox.Session, text string) peerinbox.Result {
+func (f *fakeInbox) Deliver(_ context.Context, _ peerinbox.Session, text, mode string) peerinbox.Result {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.texts = append(f.texts, text)
+	f.modes = append(f.modes, mode)
 	if r, ok := f.outcome[text]; ok {
 		return r
 	}
@@ -103,5 +105,20 @@ func TestAMessageTheInboxTookCannotBeWithdrawn(t *testing.T) {
 	_, ok, err := rigOf(&fakeInbox{}, &events{}).Withdraw("bob", "op")
 	if ok || err != nil {
 		t.Fatal(ok, err)
+	}
+}
+
+func TestAMessageIsDeliveredWithTheModeThePortSaysForIt(t *testing.T) {
+	in, ev := &fakeInbox{}, &events{}
+	p := rigOf(in, ev)
+	p.Mode = func(agent, op string) string { return agent + "/" + op }
+	if _, err := p.Send("bob", "request:7", "hi", structured.Queue); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, ev, 1)
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	if len(in.modes) != 1 || in.modes[0] != "bob/request:7" {
+		t.Fatalf("%v", in.modes)
 	}
 }

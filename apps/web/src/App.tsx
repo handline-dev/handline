@@ -30,6 +30,7 @@ import { Palette } from './Palette.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { DaemonDown } from './DaemonDown.tsx';
 import { HrBanner } from './HrBanner.tsx';
+import { terminalOwnsKey } from './terminal/core.ts';
 import { StatusBar } from './StatusBar.tsx';
 import { TasksPage } from './Tasks.tsx';
 import { AgentWorkspace } from './Workspace.tsx';
@@ -77,6 +78,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   useEffect(() => {
     const typing = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable]');
     const onKey = (e: KeyboardEvent) => {
+      if (terminalOwnsKey(e)) return; // a focused terminal gets every key
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === 'k') {
         e.preventDefault();

@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -100,6 +101,33 @@ func randomID() string {
 // equal messages from being dropped as a duplicate.
 func Body(text, id string) string { return text + "\n[ocp-msg " + id + "]" }
 
+// The receiver reads who a cross-session message is from, and the permission class its sender attests, from the tag the content is
+// wrapped in; content without it has no attestation. A session that bypasses permission prompts holds a message whose sender attested
+// none, or another class than its own, until its person decides ("Held message from another session").
+const (
+	envelopeTag = "cross-session-message"
+	senderName  = "handline"
+)
+
+// Permission classes a sender attests.
+const (
+	Bypass    = "bypass"
+	Prompting = "prompting"
+)
+
+var tagLookalike = regexp.MustCompile(`(?i)<([\p{Cf}\s]*/?[\p{Cf}\s]*` + envelopeTag + `)`)
+
+// Envelope wraps body as the receiver reads a peer message that names its sender (handline) and attests fromMode, Bypass or Prompting.
+// The form is the receiver's canonical one: attributes in its order, and a tag of the same name inside body defanged as it does, since a
+// wrapper it cannot read back exactly is taken as plain text. fromMode "" leaves body as it is.
+func Envelope(body, fromMode string) string {
+	if fromMode == "" {
+		return body
+	}
+	body = tagLookalike.ReplaceAllString(body, `<\$1`)
+	return "<" + envelopeTag + ` from-session="` + senderName + `" from-name="` + senderName + `" from-mode="` + fromMode + `">` + "\n" + body + "\n</" + envelopeTag + ">"
+}
+
 // pace waits until target may be written to again, and claims the slot.
 func (s *Sender) pace(ctx context.Context, pid int) error {
 	for {
@@ -174,12 +202,12 @@ func authLine(key []byte) ([]byte, error) {
 	return append(line, '}'), nil
 }
 
-// Deliver sends text to sess and waits until its transcript shows it. A write that does not show within ConfirmWait is written
+// Deliver sends text to sess, attesting fromMode (Envelope), and waits until its transcript shows it. A write that does not show within ConfirmWait is written
 // again with the same id after ResendAfter, up to Tries writes. Delivered needs the peer's user record; a message only queued
 // behind a running tool call comes back NotDelivered with that said.
-func (s *Sender) Deliver(ctx context.Context, sess Session, text string) Result {
+func (s *Sender) Deliver(ctx context.Context, sess Session, text, fromMode string) Result {
 	id := s.NewID()
-	body := Body(text, id)
+	body := Envelope(Body(text, id), fromMode)
 	res := Result{ID: id}
 	tr := newTail(sess)
 	for res.Attempts < s.Tries {

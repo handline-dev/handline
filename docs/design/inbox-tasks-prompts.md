@@ -134,7 +134,7 @@ Route `/tasks`, `/tasks/:id` for the detail. Data: `tasks.list`, `task.get` and 
 | `d` | discard, with a reason | required reason; "stop it and discard" wording when the task is running |
 | `o` | change owner | pick an agent |
 | `p` | priority 1 high to 3 low | needs N2 |
-| `m` | fold the marked tasks into the row under the cursor | names both ends: "fold 3 into T14?" |
+| `m` | fold the marked tasks into the row under the cursor | names both ends: "fold 3 into T<N>?" |
 | `s`, `S` | sort by next column, reverse | |
 | `a` | show or hide done and discarded | |
 | `v` | states checkboxes | |

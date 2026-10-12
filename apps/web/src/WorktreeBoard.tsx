@@ -64,7 +64,7 @@ export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: s
                     {w.repo} · <Owner w={w} />
                   </span>
                   <span className="muted">
-                    {w.changed.length} files{w.changed.length ? ` +${added} −${deleted}` : ''}
+                    {w.changed.length} files{w.changed.length ? ` +${added} -${deleted}` : ''}
                   </span>
                   {moves.moving[w.path] ? (
                     <span className="wt-moving text-wait" role="status">

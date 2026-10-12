@@ -174,3 +174,5 @@ func TestAccountSetWritesConfigAndRefusesWhatNeedsTheProfile(t *testing.T) {
 		t.Fatal("the cycle on with no end needs the profile: refused, nothing written")
 	}
 }
+
+func (auth) SessionsReadable() error { return nil }

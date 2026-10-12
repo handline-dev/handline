@@ -1,0 +1,605 @@
+{
+ "fixtures": [
+  {
+   "name": "attachment.put.an_agent_session_is_refused",
+   "spec": "attachment.put",
+   "about": "NOT_YET_IN_PYTHON A call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.put.a_caller_that_is_nobody_is_refused",
+   "spec": "attachment.put",
+   "about": "NOT_YET_IN_PYTHON A caller that is nobody is refused, gate role.",
+   "as": "anonymous",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-2"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.put.needs_a_request_id",
+   "spec": "attachment.put",
+   "about": "NOT_YET_IN_PYTHON A write without a request_id is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+      }
+     },
+     "error": {
+      "code": -32600,
+      "data": {
+       "code": "bad_request",
+       "field": "request_id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.put.svg_is_bad_request",
+   "spec": "attachment.put",
+   "about": "NOT_YET_IN_PYTHON Only PNG, JPEG, GIF and WebP: another mime is bad_request naming mime; nothing is stored.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/svg+xml",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "mime"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.put.the_first_bytes_must_match_the_mime",
+   "spec": "attachment.put",
+   "about": "NOT_YET_IN_PYTHON A whole file whose first bytes are not the mime it names is bad_request naming data; nothing is stored.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 5,
+       "data": "aGVsbG8=",
+       "request_id": "conf-at-4"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "data"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.put.over_10_mib_is_refused",
+   "spec": "attachment.put",
+   "about": "NOT_YET_IN_PYTHON A file larger than 10 MiB is refused, gate limit, on its first chunk.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 10485761,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-5"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "limit"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.put.a_wrong_offset_is_bad_request",
+   "spec": "attachment.put",
+   "about": "NOT_YET_IN_PYTHON A chunk that does not start where the daemon holds is bad_request naming offset; the upload goes on from where it was.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgo=",
+       "request_id": "conf-at-6",
+       "offset": 0
+      }
+     },
+     "result": {
+      "upload": {
+       "$type": "string",
+       "$save": "up"
+      },
+      "received": 8
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "Rw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-7",
+       "offset": 3,
+       "upload": "{{up}}"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "offset"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "AAAADUlIRFIAAAABAAAAAQgGAAAAHxXEiQAAAA1JREFUeNpj/M/AUA8ABIUBgISpjCEAAAAASUVORK5CYII=",
+       "request_id": "conf-at-8",
+       "offset": 8,
+       "upload": "{{up}}"
+      }
+     },
+     "result": {
+      "received": 70,
+      "attachment": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.put.a_png_in_one_chunk_is_read_back",
+   "spec": "attachment.put",
+   "about": "NOT_YET_IN_PYTHON A whole PNG in one chunk answers with its Attachment, and attachment.get returns the same bytes and, with thumb, a small copy.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-9"
+      }
+     },
+     "result": {
+      "received": 70,
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "aid"
+       },
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "attachment.get",
+      "params": {
+       "id": "{{aid}}"
+      }
+     },
+     "result": {
+      "mime": "image/png",
+      "bytes": 70,
+      "offset": 0,
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "done": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "attachment.get",
+      "params": {
+       "id": "{{aid}}",
+       "thumb": true
+      }
+     },
+     "result": {
+      "mime": {
+       "$regex": "^image/(png|jpeg)$"
+      },
+      "offset": 0,
+      "done": true,
+      "data": {
+       "$type": "string"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.get.unknown_id_is_not_found",
+   "spec": "attachment.get",
+   "about": "NOT_YET_IN_PYTHON An id that was never put is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.get",
+      "params": {
+       "id": "0000000000000000"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "attachment.get.a_malformed_id_is_bad_request",
+   "spec": "attachment.get",
+   "about": "NOT_YET_IN_PYTHON An id that is not 16 hex digits is bad_request naming id.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.get",
+      "params": {
+       "id": "../etc/passwd"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.more_than_six_attachments_is_bad_request",
+   "spec": "chat.send",
+   "about": "NOT_YET_IN_PYTHON Seven attachments are bad_request naming attachments.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "x",
+       "body": "look",
+       "attachments": [
+        "0000000000000000",
+        "0000000000000001",
+        "0000000000000002",
+        "0000000000000003",
+        "0000000000000004",
+        "0000000000000005",
+        "0000000000000006"
+       ],
+       "request_id": "conf-at-10"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "attachments"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.attachments_with_a_task_is_bad_request",
+   "spec": "chat.send",
+   "about": "NOT_YET_IN_PYTHON Attachments do not go with a task: bad_request naming attachments.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "x",
+       "body": "look",
+       "task": {
+        "title": "t"
+       },
+       "attachments": [
+        "0000000000000000"
+       ],
+       "request_id": "conf-at-11"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "attachments"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

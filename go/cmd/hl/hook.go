@@ -88,6 +88,9 @@ func hook(c *hlclient.Client, args []string) (int, bool) {
 	}
 	why := session.PreToolUse(d, c.Home, agent, tool, input)
 	if why == "" {
+		why = session.Misses(sessiontoken.New(c.Home).KeyHeld, agent, tool, input)
+	}
+	if why == "" {
 		session.LandVoucher{KeyHeld: sessiontoken.New(c.Home).KeyHeld, Send: c.Legacy}.Authorize(agent, tool, input)
 		fmt.Println("{}")
 		return 0, true

@@ -198,6 +198,7 @@ def main(argv: list[str]) -> int:
         rc = 1
         try:
             seeded = seed_states(home, daemon)
+            seeded |= {"add_account": "conf-added", "add_used_account": "conf-used", "add_retry_account": "conf-retried"}  # names no account has
             if structured_cli:
                 seeded |= seed_structured(home, daemon, local, key)
             rc = conformance.main(["--allow-skip", "--var", f"founder_key={key}", "--var", "dialogs_retired=1",

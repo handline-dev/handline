@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/structured"
 )
@@ -349,5 +350,21 @@ func TestToolsReadOnlyTheCallsTheWindowNeedsAndFitOutputSaysWhatItCut(t *testing
 	}
 	if kept, dropped := FitOutput("whole", 10); kept != "whole" || dropped != 0 {
 		t.Errorf("%q %d", kept, dropped)
+	}
+}
+
+func TestTurnStartCarriesTheImagesOfTheMessage(t *testing.T) {
+	s, got := newSink(t)
+	s.DB.Exec("INSERT INTO requests(id, ts, requester, target, state, body) VALUES(5, 1, 'human', 'bob', 'queued', 'hi')")
+	s.DB.Exec("INSERT INTO operations(id, kind, state, step, message, result_json, agent, created_at, updated_at) VALUES('send:bob:request:5', 'send', 'sent', 'now', 'hi', '{\"uuid\":\"u5\"}', 'bob', 1, 1)")
+	img := attachments.Info{ID: "00000000000000aa", Name: "a.png", Mime: "image/png", Bytes: 70}
+	if err := attachments.Record(s.DB, 5, []attachments.Info{img}); err != nil {
+		t.Fatal(err)
+	}
+	emit(s, "bob", "message", map[string]any{"uuid": "u5", "text": "hi\n[image 1: /x/a.png (image/png, 70 B)]"})
+	start := (*got)[0].Body["turn_start"].(map[string]any)
+	list, _ := start["attachments"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["id"] != img.ID {
+		t.Fatalf("%v", start)
 	}
 }

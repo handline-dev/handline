@@ -10,14 +10,14 @@ const ids = (state: string, session_open: boolean, session_id: string | null) =>
 test('an open session offers restart, restart fresh, close, park, fold and move', () => {
   assert.deepEqual(ids('running', true, 's1'), ['restart', 'restart_fresh', 'close', 'park', 'fold', 'move']);
 });
-test('a parked agent with a session to resume offers wake and move; one never started only move', () => {
-  assert.deepEqual(ids('parked', false, 's1'), ['wake', 'move']);
+test('a closed agent offers only move, with or without a stored session: waking is a message, not a verb', () => {
+  assert.deepEqual(ids('parked', false, 's1'), ['move']);
   assert.deepEqual(ids('parked', false, null), ['move']);
 });
-test('a stalled row offers clear stall in place of wake', () => {
+test('a stalled row offers clear stall', () => {
   assert.deepEqual(ids('stalled', false, 's1'), ['clear_stall', 'move']);
 });
-test("the confirm set is the bridge's CONFIRM (close, restart, park, fold) plus clear stall; wake and move ask nothing", () => {
+test("the confirm set is the bridge's CONFIRM (close, restart, park, fold) plus clear stall; move asks nothing", () => {
   assert.deepEqual([...CONFIRM_VERBS].sort(), ['clear_stall', 'close', 'fold', 'park', 'restart', 'restart_fresh']);
 });
 test('builds each call from the verb', () => {
@@ -32,7 +32,7 @@ test('a structured agent lists interrupt only while a turn runs or waits', () =>
   assert.deepEqual(of('running', true), ['interrupt', 'restart', 'restart_fresh', 'close', 'park', 'fold', 'move']);
   assert.deepEqual(of('waiting', true), ['interrupt', 'restart', 'restart_fresh', 'close', 'park', 'fold', 'move']);
   assert.deepEqual(of('idle', true), ['restart', 'restart_fresh', 'close', 'park', 'fold', 'move']);
-  assert.deepEqual(of('parked', false), ['wake', 'move']);
+  assert.deepEqual(of('parked', false), ['move']);
   assert.deepEqual(of('stalled', false), ['clear_stall', 'move']);
   assert.deepEqual(ids('running', true, 's1'), ['restart', 'restart_fresh', 'close', 'park', 'fold', 'move']); // a terminal agent has it in the stop menu
   assert.deepEqual(callOf(VERBS.interrupt, 'a.b'), { method: 'session.interrupt', params: { agent: 'a.b' } });

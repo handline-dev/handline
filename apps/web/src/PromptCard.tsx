@@ -7,6 +7,7 @@ import { isAlways, promptChoices, promptTitle } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { usePending, useWrite } from '@handline/app-data';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
+import { Icon } from './ui/Icon.tsx';
 import { Button, Card, CardActions, CodeBlock, Input, Kbd } from './ui/index.ts';
 
 const code = (e: unknown) => (e as { code?: string } | null)?.code;
@@ -78,7 +79,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
   return (
     <Card variant="chat" className="prompt bg-surface" role="alert" ref={card} tabIndex={-1} onKeyDown={onKey} aria-busy={answering}>
       <div className="card-title mb-1.5 font-semibold">
-        ⚠ {promptTitle(p)}
+        <Icon name="warn" size={13} aria-hidden className="mr-1 inline-block align-[-2px]" /> {promptTitle(p)}
         <span className="muted font-normal">
           {p.since ? ` · waiting since ${new Date(p.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
         </span>
@@ -117,14 +118,16 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
               disabled={answering}
               onClick={() => send(o.key, o.key)}
             >
-              {isAlways(o) ? '↻ ' : ''}
+              {isAlways(o) ? <Icon name="retry" size={11} aria-hidden className="mr-0.5 inline-block align-[-1px]" /> : null}
               {mark(o.key, o.label)} <Kbd>{o.key}</Kbd>
             </Button>
           ))}
         </CardActions>
       )}
       {opts.some(isAlways) && p.kind === 'dialog' ? (
-        <p className="muted note mt-1.5 mb-0 border-b border-line px-3 py-1.5 text-label">↻ saves a rule for next time</p>
+        <p className="muted note mt-1.5 mb-0 border-b border-line px-3 py-1.5 text-label">
+          <Icon name="retry" size={11} aria-hidden className="mr-1 inline-block align-[-1px]" /> saves a rule for next time
+        </p>
       ) : null}
       {multi ? (
         <CardActions>

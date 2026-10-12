@@ -13,7 +13,7 @@ const files = (dir: string): string[] =>
 const BAD = /#\$?\{(?:t|b|task|d\.task|a\.task|props)\.(?:id|parent|task)\b|#\$?\{(?:cursor|props\.id)\}|[Tt]asks? #|#\$?\{t\.id < 0/;
 
 describe('task numbers', () => {
-  it('are T<N>', () => expect(taskRef(3515)).toBe('T3515'));
+  it('are T<N>', () => expect(taskRef(3515)).toBe('T3515')); // local-ref-ok: the format under test
   it('are never drawn with # in the web or phone screens', () => {
     const roots = [join(__dirname, '../src'), join(__dirname, '../../mobile/src')];
     const hits = roots.flatMap(files).flatMap((f) =>

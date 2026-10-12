@@ -74,7 +74,7 @@ describe('X1 Worktrees', () => {
     expect($('.worktrees .skeleton')).toBeNull();
     expect(text(row('/work/handline.term-build'))).toContain('buddyron/handline.term-build');
     expect(text(row('/work/handline.term-build'))).toContain('in progress');
-    expect(text(row('/work/handline.term-build'))).toContain('3 +126 −31');
+    expect(text(row('/work/handline.term-build'))).toContain('3 +126 -31');
     expect(text(row('/work/handline.term-build'))).toContain('handline.term-build');
   });
 
@@ -111,7 +111,7 @@ describe('X1 Worktrees', () => {
     expect(location.hash).toBe(`#/worktrees/${encodeURIComponent('/work/handline.term-build')}`);
     await until(() => $('.wt-panel'), 'the panel');
     const files = $$('.wt-files tbody tr').map((r) => text(r));
-    expect(files).toEqual(['Aapps/web/src/Worktrees.tsx+120−0', 'Mapps/web/src/route.ts+6−1', 'Ddocs/old.md+0−30']);
+    expect(files).toEqual(['Aapps/web/src/Worktrees.tsx+120-0', 'Mapps/web/src/route.ts+6-1', 'Ddocs/old.md+0-30']);
     expect(text($('.wt-panel'))).toContain('handline.architect');
     expect($$('.wt-panel [role=tab]')).toHaveLength(0); // no Changes tab while capabilities.review is false
     await click($$('.wt-panel button').find((b) => text(b) === 'Open agent'));

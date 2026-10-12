@@ -290,7 +290,7 @@ describe('the workspace', () => {
 });
 
 describe('the sidebar', () => {
-  it('starts an agent from its row, then the ⋯ menu stops it and Resume brings it back', async () => {
+  it('starts an agent from its row, then the ⋯ menu stops it, and a closed agent shows no Resume', async () => {
     const { daemon } = await mount(TB);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     await until(() => $('.row-actions .ui-btn.solid'), 'Start on the selected row');
@@ -322,7 +322,8 @@ describe('the sidebar', () => {
     await until(() => $('.row-actions .ui-popup'), 'the ⋯ menu again');
     await click($$('.row-actions .ui-popup button').find((b) => text(b).startsWith('Close'))!);
     await click($$('.verb-sheet .ui-btn').find((b) => text(b) === 'Confirm')!); // Close always asks first
-    await until(() => $$('.row-actions .ui-btn').some((b) => text(b).includes('Resume')), 'Resume after close');
+    await until(() => daemon.sessions.get(TB)!.open === false, 'the session closed');
+    expect($$('.row-actions .ui-btn').some((b) => /Resume|Start/.test(text(b)))).toBe(false);
   });
 
   it('keeps the selected row short (no model, account or detail block there)', async () => {

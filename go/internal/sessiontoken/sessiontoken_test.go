@@ -1,6 +1,7 @@
 package sessiontoken
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -111,5 +112,29 @@ func TestChainAndNesting(t *testing.T) {
 	}
 	if tk.Nested(10) {
 		t.Fatal("nothing is claude here")
+	}
+}
+
+func TestSessionsReadableIsAnErrorOnlyWhenTheDirectoryExistsAndCannotBeRead(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any directory")
+	}
+	tk := tokens(t, nil)
+	if err := tk.SessionsReadable(); err != nil {
+		t.Fatalf("no directory: %v", err)
+	}
+	dir := filepath.Join(tk.Store.Root, NS)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := tk.SessionsReadable(); err != nil {
+		t.Fatalf("readable: %v", err)
+	}
+	if err := os.Chmod(dir, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	if tk.SessionsReadable() == nil {
+		t.Fatal("an unreadable directory was read as fine")
 	}
 }

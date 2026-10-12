@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { colors, font } from '@handline/tokens';
-import { DEFAULT_FONT, type CreateTerm } from './core.ts';
+import { DEFAULT_FONT, isEscapeChord, type CreateTerm } from './core.ts';
 import '@xterm/xterm/css/xterm.css';
 
 /** Opens a link only after the person has seen where it really goes. Only http(s) is ever offered. */
@@ -39,6 +39,7 @@ export const createXterm: CreateTerm = (host) => {
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon(openLink));
   term.open(host);
+  term.attachCustomKeyEventHandler((e) => !isEscapeChord(e)); // everything else goes to the program; the escape chord is the app's
   return {
     term,
     propose: () => fit.proposeDimensions() ?? null,
@@ -54,6 +55,7 @@ export const createXterm: CreateTerm = (host) => {
       });
     },
     focus: () => term.focus(),
+    blur: () => term.blur(),
     dispose: () => term.dispose(),
   };
 };

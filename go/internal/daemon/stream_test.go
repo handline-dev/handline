@@ -261,3 +261,5 @@ func TestAnAgentIsRefusedTheTopicsWhoseReadsAreAMembers(t *testing.T) {
 		t.Fatal("an agent still follows the topics it may read")
 	}
 }
+
+func (pidAuth) SessionsReadable() error { return nil }

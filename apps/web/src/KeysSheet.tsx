@@ -12,7 +12,7 @@ const KEYS: [string, string][] = [
 const COMPOSE: [string, string][] = [
   ['Enter', 'send the message'],
   ['Shift+Enter', 'a new line in the message'],
-  ['↑ ↓', 'walk through what you sent before'],
+  ['Up Down', 'walk through what you sent before'],
   ['Ctrl+R', 'search what you sent'],
   ['/ Tab', 'the verbs of this agent'],
   ['#', 'refer to a task or a message'],

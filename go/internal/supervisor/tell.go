@@ -64,7 +64,7 @@ func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, ah
 	folded := foldedNotices(q, agent)
 	var text string
 	if len(live) == 1 {
-		text = tellText(q, live[0], depth, aheadOf, parked, folded)
+		text = tellText(q, live[0], depth, aheadOf, parked, folded, e.imageLines(q, live[0].ID))
 	} else {
 		text = batchText(q, live, folded, aheadOf)
 	}
@@ -119,7 +119,7 @@ func (e *Env) WaitingPrompt(q db.Q, agent string) (text string, told func(sessio
 		}
 		depth := must(db.QueueDepth(q, agent))
 		folded := foldedNotices(q, agent)
-		return tellText(q, head, depth, nil, false, folded), func(session string) (err error) {
+		return tellText(q, head, depth, nil, false, folded, e.imageLines(q, head.ID)), func(session string) (err error) {
 			defer Catch(&err)
 			e.recordTold(q, agent, head, depth, session, nil, false)
 			if head.Kind.String == "say" {

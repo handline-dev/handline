@@ -290,7 +290,6 @@ const schedules: Record<string, WriteSpec> = {
 const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
   Object.entries({
     'session.start': 'start',
-    'session.wake': 'wake',
     'session.restart': 'restart',
     'session.park': 'park',
     'session.stop': 'stop',
@@ -365,6 +364,7 @@ export const PAIRING = ['device.redeem'] as const;
 
 /** Agent commands: an agent sends these, the UI never does. Guard test 2 reads this list. */
 export const NOT_FROM_UI = [
+  'session.wake', // a message to a closed agent starts it; no screen wakes one by hand
   'say',
   'land',
   'land.authorize',

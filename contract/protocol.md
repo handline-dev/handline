@@ -56,6 +56,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `proposal_changed` | hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again. |
 | `proposal_settled` | hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now. |
 | `confirm` | chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do. |
+| `limit` | attachment.put: the file or the unsent total is over its limit, or too many uploads are open (x-attachments). |
 
 ## Methods
 
@@ -100,12 +101,14 @@ A method marked write takes a required `request_id`.
 | `agent.strip` | member |  | `agent` | `{agent, model, account, ctx_pct, ctx_used, ctx_limit, cache_left_s, screen_word, screen_detail}` | `not_found`, `bad_request` |  |
 | `chat.refs` | member |  | `agent` | `{requests}` | `not_found`, `bad_request` |  |
 | `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` | `bad_request`, `not_found` |  |
-| `chat.send` | member | yes | `agent`, `body`, `task?`, `parent?`, `delivery?`, `request_id` | `Accepted & {request, receipt}` | `refused`, `not_found`, `bad_request` |  |
+| `chat.send` | member | yes | `agent`, `body`, `task?`, `parent?`, `attachments?`, `delivery?`, `request_id` | `Accepted & {request, receipt}` | `refused`, `not_found`, `bad_request` |  |
 | `chat.send_now` | member | yes | `request`, `request_id` | `Accepted & {receipt}` | `refused`, `not_found`, `bad_request` |  |
 | `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.cancel` | member | yes | `request`, `confirm?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.seen` | member | yes | `agent`, `up_to`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `attachment.put` | member | yes | `name`, `mime`, `bytes`, `offset?`, `upload?`, `data`, `request_id` | `Accepted & {upload, received, attachment}` | `refused`, `not_found`, `bad_request` | role, limit |
+| `attachment.get` | member |  | `id`, `thumb?`, `offset?` | `{mime, bytes, offset, data, done}` | `refused`, `not_found`, `bad_request` | role |
 | `terminal.attach` | member |  | `agent?`, `terminal?`, `history?`, `format?` | `TerminalSnapshot \| TerminalBytesSnapshot` | `not_found`, `bad_request`, `refused` | unsupported |
 | `terminal.history` | member |  | `terminal`, `before`, `limit`, `format?` | `HistoryPage \| HistoryBytesPage` | `not_found`, `refused`, `bad_request` | unsupported |
 | `terminal.resize` | member | yes | `terminal`, `cols`, `rows`, `request_id` | `Accepted` | `refused`, `not_found` | role, input_holder |
@@ -120,9 +123,10 @@ A method marked write takes a required `request_id`.
 | `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `before?`, `limit?`, `all?`, `everyone?`, `reason_gaps?` | `{items, more, reason_gaps}` |  |  |
 | `task.get` | agent |  | `task` | `TaskDetail` | `not_found` |  |
-| `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `request_id` | `Accepted & {task}` | `refused` |  |
+| `task.shot` | member |  | `task`, `n`, `offset?` | `{mime, bytes, offset, data, done}` | `not_found`, `bad_request` |  |
+| `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.handoff` | agent | yes | `task`, `to`, `note`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `commit?`, `no_commit?`, `shots?`, `no_shot?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.progress` | agent (only agent) | yes | `task?`, `note`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
 | `progress.get` | agent (only agent) |  | none | `{note}` |  |  |
@@ -337,7 +341,7 @@ Find messages by text; each hit carries the scope that shows it (the jump is cha
 
 ### `chat.send`
 
-A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold. With parent, a reply to a message. To a structured agent the request_id is the operation id and the result carries a receipt. To a structured agent the result holds `receipt`; to a terminal agent it does not. A repeat (the same request_id and params) returns replayed true and the receipt as it is now, not the first reply, and writes nothing; see x-delivery. A repeat of an operation that was withdrawn is refused (gate state): a retry does not bring back what the person took back.
+A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold. With parent, a reply to a message. To a structured agent the request_id is the operation id and the result carries a receipt. To a structured agent the result holds `receipt`; to a terminal agent it does not. A repeat (the same request_id and params) returns replayed true and the receipt as it is now, not the first reply, and writes nothing; see x-delivery. A repeat of an operation that was withdrawn is refused (gate state): a retry does not bring back what the person took back. With attachments, the delivered text ends with one path line per image (x-attachments).
 
 ### `chat.send_now`
 
@@ -358,6 +362,14 @@ Take back a message the person sent, delivered or not. The person's own undo. A 
 ### `chat.seen`
 
 Record that the person has an agent's messages in front of them, up to a message number. What it moves: the agent's messages to the person up to up_to leave the FOR YOU list as new (the mailbox's unseen count). Only that list forgets; decisions still count in the summary.
+
+### `attachment.put`
+
+Upload an image for a message, in chunks; the last chunk returns the Attachment to name in chat.send. See x-attachments. A chunk whose offset is not `received` is bad_request, field offset, and the reply's data says what the daemon holds, so a client that lost a reply resumes from there; the same request_id and params replays as for every write and writes nothing. When received reaches bytes the daemon checks the type by the first bytes and answers with `attachment`; a size over 10 MiB, an unsent total over its limit or too many open uploads is refused, gate limit, and the partial upload is dropped. An upload id that is unknown or expired is not_found.
+
+### `attachment.get`
+
+Read an attached image, or a small copy of it, for drawing. See x-attachments. An id that no longer exists (never put, or kept past its time) is not_found.
 
 ### `terminal.attach`
 
@@ -415,6 +427,10 @@ Task rows. Newest id first. To read every task, call with `all: true` and `limit
 
 One task with body, delivery history and linked events.
 
+### `task.shot`
+
+A screenshot kept with a finished task. One screenshot of a task whose end recorded it, in chunks. A task or number the result does not hold is not_found.
+
 ### `task.new`
 
 Create a task. The founder or a member device opens one for an agent only, and it opens queued.
@@ -425,7 +441,7 @@ Hand a task to another agent.
 
 ### `task.done`
 
-Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request.
+Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A task opened with ui needs shots or no_shot from anyone but the founder (refused otherwise). The commit and the shots are kept with the task (task.get result).
 
 ### `task.reopen`
 

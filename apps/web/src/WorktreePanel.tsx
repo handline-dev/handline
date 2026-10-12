@@ -92,7 +92,7 @@ export function WorktreePanel({
       {w.changed.length ? (
         <table className="wt-files w-full border-collapse text-body" aria-label="Changed files">
           <caption className="muted pb-1.5 text-left">
-            {w.changed.length} changed +{added} −{deleted}
+            {w.changed.length} changed +{added} -{deleted}
           </caption>
           <tbody>
             {w.changed.map((f) => (
@@ -100,7 +100,7 @@ export function WorktreePanel({
                 <td className="wt-letter w-[1.5em] border-t border-line px-1.5 py-1 font-semibold [overflow-wrap:anywhere]">{f.status}</td>
                 <td className="mono border-t border-line px-1.5 py-1 [overflow-wrap:anywhere]">{f.path}</td>
                 <td className="num border-t border-line px-1.5 py-1 text-right whitespace-nowrap [overflow-wrap:anywhere]">+{f.added}</td>
-                <td className="num border-t border-line px-1.5 py-1 text-right whitespace-nowrap [overflow-wrap:anywhere]">−{f.deleted}</td>
+                <td className="num border-t border-line px-1.5 py-1 text-right whitespace-nowrap [overflow-wrap:anywhere]">-{f.deleted}</td>
               </tr>
             ))}
           </tbody>

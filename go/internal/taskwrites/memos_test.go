@@ -195,3 +195,5 @@ func TestStartMakesATaskTheOwnersCurrentOneAndPutsItsRequestFirst(t *testing.T) 
 		t.Fatalf("%d %d %q", cur, order, ev)
 	}
 }
+
+func (a auth) SessionsReadable() error { return nil }

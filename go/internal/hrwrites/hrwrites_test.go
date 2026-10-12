@@ -308,3 +308,5 @@ func TestContextScheduleGlobalAndSettingsAreAppliedAsProposed(t *testing.T) {
 		t.Fatalf("%v\n%s", res, r.file("agents", "alice", "agent.yaml"))
 	}
 }
+
+func (auth) SessionsReadable() error { return nil }

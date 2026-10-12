@@ -522,7 +522,15 @@ func taskDone(c *hlclient.Client, args []string) (int, bool) {
 	}
 	params := map[string]any{"task": tid, "repo": repo}
 	if len(p.pos) == 2 {
-		params["evidence"] = p.pos[1]
+		evidence := p.pos[1]
+		if evidence == "-" {
+			var why string
+			if evidence, why = textArg(&evidence, "", "evidence"); why != "" {
+				fmt.Println(why)
+				return 1, true
+			}
+		}
+		params["evidence"] = strings.TrimSpace(evidence) // a heredoc's last newline would keep a sha from reading as one
 		if p.flags["--reason"] {
 			params["reason"] = true
 		}

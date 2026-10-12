@@ -358,6 +358,22 @@ export type TaskDetail = Task & {
     team: string[];
     others: string[];
   };
+  /** The task was opened as a ui task. Absent when it was not. */
+  ui?: boolean;
+  /** What the task's end kept beyond its evidence. Absent for a task without any. */
+  result?: {
+    /** The full sha it was done at. */
+    commit?: string;
+    /** Whether main reaches commit. */
+    on_main?: boolean;
+    no_commit?: string;
+    no_shot?: string;
+    /** Fetch each with task.shot. */
+    shots: {
+      n: number;
+      bytes: number;
+    }[];
+  };
 };
 
 export type DecisionOption = {
@@ -779,6 +795,8 @@ export type ChatMessage = {
   scope?: "mine" | "all";
   /** Only for a message to a structured agent, while it is drawn (a withdrawn one is not). Changes ride the chat event. See x-delivery. */
   receipt?: Receipt;
+  /** The images sent with the message, in order. Absent when it has none. */
+  attachments?: Attachment[];
 };
 
 export type TranscriptItem = {
@@ -800,6 +818,8 @@ export type TranscriptItem = {
     task: number;
     request: number | null;
     evidence: string | null;
+    /** What a `changed` event changed, as chat.requests words it: `assigned to X, priority 2 -> 1`, `title changed`, `handed to X`. Absent when the event word says it all. An open set: a client draws a word it does not know as text. */
+    change?: string;
   };
   /** For kind session: a session of this agent began here. */
   session?: {
@@ -1171,6 +1191,8 @@ export type TranscriptEvent = {
     code: string;
     text: string;
   };
+  /** kind turn_start: the images the message that began the turn carried. Absent when none. */
+  attachments?: Attachment[];
 };
 
 export type TranscriptEvents = {
@@ -1217,6 +1239,18 @@ export type NeedsYou = {
   text: string | null;
   /** hook: PermissionRequest or Notification. session: the session's own file (sessions/<pid>.json status waiting and waitingFor). */
   source: "hook" | "session";
+};
+
+/** Chosen by the daemon when an upload completes. */
+export type AttachmentId = string;
+
+/** An image the person attached to a message. The file lives on the daemon's machine; a client draws it with attachment.get. */
+export type Attachment = {
+  id: AttachmentId;
+  /** The file name the client gave, with no folder in it (the daemon cuts one off). Shown to the person; never used as a path. */
+  name: string;
+  mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  bytes: number;
 };
 
 export interface Methods {
@@ -1522,6 +1556,8 @@ export interface Methods {
   };
   /** The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is then the message replied to, for an answer, or the new message. */
   parent?: number;
+  /** Images from attachment.put to send with this message, drawn in this order. Then body may be empty. An id that is unknown, expired or already sent is bad_request, field attachments. Not with task (bad_request). */
+  attachments?: AttachmentId[];
   /** For a structured agent whose turn is running: now joins the running turn, queue (the default) is held by the daemon and written when the turn ends, one message per turn. With no turn running they are the same. A terminal agent accepts the field and ignores it. Another word is bad_request. */
   delivery?: "now" | "queue";
   request_id: RequestId;
@@ -1557,6 +1593,41 @@ export interface Methods {
   up_to: number;
   request_id: RequestId;
 }; result: Accepted };
+  "attachment.put": { params: {
+  name: string;
+  mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  /** The whole file's size, the same in every chunk of one upload. */
+  bytes: number;
+  /** Where this chunk starts. Default 0. */
+  offset?: number;
+  /** From the first reply. Absent on the chunk at offset 0 that opens the upload. */
+  upload?: string;
+  /** The chunk, at most 512 KiB of file. */
+  data: string;
+  request_id: RequestId;
+}; result: Accepted & {
+    upload: string;
+    /** Bytes held so far. */
+    received: number;
+    /** Only on the chunk that completes the file. */
+    attachment?: Attachment;
+  } };
+  "attachment.get": { params: {
+  id: AttachmentId;
+  /** A copy with its longest side at most 320 px, as PNG or JPEG, in one reply (at most 256 KiB). Default false. */
+  thumb?: boolean;
+  /** Where to read the original from. Default 0. Not with thumb. */
+  offset?: number;
+}; result: {
+    mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+    /** The size of the whole original, or of the thumbnail when thumb. */
+    bytes: number;
+    offset: number;
+    /** At most 512 KiB of file; the rest is another call at offset + the length read. */
+    data: string;
+    /** True when this reply reaches the end. */
+    done: boolean;
+  } };
   "terminal.attach": { params: {
   agent?: AgentName;
   /** Handle; give agent or terminal, not both. */
@@ -1665,6 +1736,20 @@ export interface Methods {
   "task.get": { params: {
   task: number;
 }; result: TaskDetail };
+  "task.shot": { params: {
+  task: number;
+  /** The screenshot's number in the task's result, from 1. */
+  n: number;
+  /** Where the chunk starts in the file; 0 when omitted. */
+  offset?: number;
+}; result: {
+    mime: "image/png";
+    bytes: number;
+    offset: number;
+    /** The chunk, in base64: at most 512 KiB of file. */
+    data: string;
+    done: boolean;
+  } };
   "task.new": { params: {
   owner: string;
   /** Who the task answers to: told when it ends, and may edit or reassign it. Default: the caller. */
@@ -1686,6 +1771,8 @@ export interface Methods {
     /** {task} is replaced by the new task's number. */
     text: string;
   };
+  /** The task shows something on a screen: it cannot be done without a screenshot (task.done shots), or the reason for none (no_shot). The founder is exempt. */
+  ui?: boolean;
   request_id: RequestId;
 }; result: Accepted & {
     task: number;
@@ -1706,6 +1793,14 @@ export interface Methods {
   repo?: string;
   /** Record evidence as words even if it looks like hex. */
   reason?: boolean;
+  /** The sha the work was done at; it must be a commit in repo (it need not be on main). The result says whether main reaches it. A sha given as evidence is a commit on main already. */
+  commit?: string;
+  /** Why there is no commit (research, ops). Not with commit. */
+  no_commit?: string;
+  /** Absolute paths of PNG files, at most 10 MiB each. An agent names files under its worktree, its folder in the daemon's home or the scratch folder; the founder any file. The daemon copies them under its home (shots/T<n>/<k>.png, outside any repo) once the task's end has committed, and serves them with task.shot. */
+  shots?: string[];
+  /** Why a ui task has no screenshot. Not with shots. */
+  no_shot?: string;
   request_id: RequestId;
 }; result: Accepted };
   "task.reopen": { params: {
@@ -2181,6 +2276,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "chat.dismiss": { role: "member", callers: null, write: true, since: 1 },
   "chat.cancel": { role: "member", callers: null, write: true, since: 1 },
   "chat.seen": { role: "member", callers: null, write: true, since: 1 },
+  "attachment.put": { role: "member", callers: null, write: true, since: 1 },
+  "attachment.get": { role: "member", callers: null, write: false, since: 1 },
   "terminal.attach": { role: "member", callers: null, write: false, since: 1 },
   "terminal.history": { role: "member", callers: null, write: false, since: 1 },
   "terminal.resize": { role: "member", callers: null, write: true, since: 1 },
@@ -2195,6 +2292,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },
   "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.get": { role: "agent", callers: null, write: false, since: 1 },
+  "task.shot": { role: "member", callers: null, write: false, since: 1 },
   "task.new": { role: "agent", callers: null, write: true, since: 1 },
   "task.handoff": { role: "agent", callers: null, write: true, since: 1 },
   "task.done": { role: "agent", callers: null, write: true, since: 1 },
