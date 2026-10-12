@@ -162,6 +162,10 @@ test('a session line says why in plain words, and keeps an unknown cause as it c
   assert.equal(line('fresh close').reason, 'Restarted with a fresh conversation');
   assert.equal(line('wake').reason, 'Woke from a close');
   assert.equal(line('move').reason, 'Moved to another account');
+  assert.equal(line('settings_applied').reason, 'Restarted to apply settings');
+  assert.equal(line('crash_recovery').reason, 'Resumed after a crash');
+  assert.equal(line('context_full').reason, line('handoff').reason);
+  assert.equal(line('idle_close').reason, 'Woke after closing when idle');
   assert.equal(line('crash').reason, 'New session (crash)');
   assert.deepEqual(line(), { reason: 'New session', handoff: null });
 });

@@ -81,6 +81,10 @@ const SESSION_WHY: Record<string, string> = {
   'fresh close': 'Restarted with a fresh conversation',
   wake: 'Woke from a close',
   move: 'Moved to another account',
+  context_full: 'Context full, started again from a handoff',
+  settings_applied: 'Restarted to apply settings',
+  crash_recovery: 'Resumed after a crash',
+  idle_close: 'Woke after closing when idle',
   launch: 'Launched',
   start: 'Started',
 };
