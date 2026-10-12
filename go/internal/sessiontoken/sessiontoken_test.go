@@ -38,7 +38,7 @@ func TestRecordThenVerifyByDescent(t *testing.T) {
 	}
 }
 
-// T3451: an agent started twice at once on a moved account. The second launch records after the first and dies; the first, still
+// An agent started twice at once on a moved account. The second launch records after the first and dies; the first, still
 // running, keeps its proof. A dead or reused record is dropped at the next launch.
 func TestARacingLaunchThatDiesLeavesTheLiveOne(t *testing.T) {
 	procs := map[int]peer.Proc{300: P(2, "5.0"), 301: P(300, "6.0"), 310: P(2, "5.1")}

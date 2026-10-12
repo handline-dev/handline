@@ -324,7 +324,7 @@ def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(h
         racer.wait()
         landauth.grant(AUDITOR, "land_pass", feat)
         said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
-        check("session: a second launch of the auditor that records after it and dies leaves it its PASS (T3451)",
+        check("session: a second launch of the auditor that records after it and dies leaves it its PASS",
               said["ok"] and not sessiontoken.verify(AUDITOR, racer.pid), str(said))
         landauth.grant(AUDITOR, "land_pass", "0" * 40)
         said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
