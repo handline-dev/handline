@@ -264,8 +264,10 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
 
   it('a click on a control inside a message does not pick it', async () => {
     await mount(ARCH);
-    await until(() => button(msg('Use the contract fixtures.'), 'Take back'), 'a control inside a message');
-    await click(button(msg('Use the contract fixtures.'), 'Take back')!);
+    await typeInto(compose(), 'a control test');
+    await press(compose(), 'Enter');
+    await until(() => button(msg('a control test'), 'Take back'), 'a control inside a message');
+    await click(button(msg('a control test'), 'Take back')!);
     expect($('.compose-ref')).toBeNull();
   });
 
@@ -359,37 +361,22 @@ describe('the bridge items: send now, take back, message numbers, new, menus, se
     await until(() => chatOf(t).messages.some((m) => m.body === 'oops, wrong thing' && m.landing === 'withdrawn'), 'the daemon');
   });
 
-  it('Take back on a message the agent already has asks first, and does nothing until it is accepted', async () => {
-    const t = await mount(ARCH);
+  it('a message the agent already has shows no Take back', async () => {
+    await mount(ARCH);
     await until(() => msg('Use the contract fixtures.'), 'history');
-    await click(labelled(msg('Use the contract fixtures.'), 'Take back')!);
-    expect($('[role="dialog"][aria-modal="true"]')).not.toBeNull();
     expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
-    await press(compose(), 'Escape'); // the dialog's own key closes it
-    await act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))); // Base UI listens on the document
-    expect($('[role="dialog"][aria-modal="true"]')).toBeNull();
-    expect(chatOf(t).messages.find((m) => m.body === 'Use the contract fixtures.')!.landing).toBe('delivered_unanswered');
-    await click(labelled(msg('Use the contract fixtures.'), 'Take back')!);
-    await click($$('.ui-dialog .ui-btn.solid')[0]!);
-    await until(() => landing('Use the contract fixtures.') === 'withdrawn', 'withdrawn');
-    expect(compose().value).toContain('Use the contract fixtures.');
+    expect(labelled(msg('Use the contract fixtures.'), 'Take back')).toBeUndefined();
   });
 
-  it('a refused take back leaves the message and the box as they were, and the daemon wants confirm for a delivered one', async () => {
-    const s = setup();
-    const t = await mount(ARCH, s);
+  it('the daemon wants confirm to take back a delivered message, so the page offers no button for it', async () => {
+    const t = await mount(ARCH);
     await until(() => msg('Use the contract fixtures.'), 'history');
     const id = idOfBody(t, 'Use the contract fixtures.');
     const c = second(t.daemon, t.net, { client: 'web-other' });
     await c.start();
     await expect(c.call('chat.cancel', { request: id })).rejects.toMatchObject({ data: { gate: 'confirm' } });
     c.close();
-    s.daemon.knobs.refuse('chat.cancel', 'state', REFUSAL);
-    await click(labelled(msg('Use the contract fixtures.'), 'Take back')!);
-    await click($$('.ui-dialog .ui-btn.solid')[0]!);
-    await until(() => $('.toast'), 'the refusal');
-    expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
-    expect(compose().value).toBe('');
+    expect(labelled(msg('Use the contract fixtures.'), 'Take back')).toBeUndefined();
   });
 
   it('Send now shows on a queued message only while the agent is working, and types it at once', async () => {

@@ -3,9 +3,9 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent } from 'react';
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
-import { landingLabel, openTask, sideOf, taskRow } from '@handline/app-core';
+import { landingLabel, openTask, sendNote, sideOf, taskRow } from '@handline/app-core';
 import { useAgents, useChatActions } from '@handline/app-data';
-import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
+import { Button, Card, CardCode, CardWhat, CodeBlock, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { PathText } from './PathText.tsx';
 import { useWorkspace } from './Workspace.tsx';
@@ -84,6 +84,8 @@ export function Message(props: {
   byId?: Map<number, ChatMessage>;
   /** The agent is mid-turn: a queued message can be typed at it now. */
   working?: boolean;
+  /** How many of the person's messages to this agent are queued ahead of this one. */
+  behind?: number;
   /** Puts a taken-back message's words in the box again. */
   onRestore?: (text: string) => void;
   /** A message number in the text was clicked. */
@@ -93,19 +95,18 @@ export function Message(props: {
   const act = useChatActions(agent);
   const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
   const side = sideOf(m, agent, (n) => names.has(n));
-  const [ask, setAsk] = useState(false);
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
   const mine = side === 'person' && !unnumbered && !failed;
-  // Not answered yet and not already taken back: the person's own undo. A message the agent has not got just goes; one it has asks first.
-  const undoable = mine && ['queued', 'typed', 'delivered', 'delivered_unanswered'].includes(m.landing);
-  const got = m.receipt ? m.receipt.state !== 'queued' : m.landing === 'delivered' || m.landing === 'delivered_unanswered';
+  // The person's own undo, only while the daemon can still withdraw it: once the agent has the message there is no button.
+  const got = m.receipt ? m.receipt.state !== 'queued' : m.landing !== 'queued' && m.landing !== 'typed';
+  const undoable = mine && !got && ['queued', 'typed'].includes(m.landing);
+  const note = side === 'person' ? sendNote(m, props.behind ?? 0) : null;
   // The words come back to the box only once the daemon has taken the message back; a refusal leaves everything as it was.
-  const takeBack = (confirm = false) => {
-    setAsk(false);
+  const takeBack = () => {
     act
-      .cancel(m.id, confirm)
+      .cancel(m.id)
       .then(() => props.onRestore?.(m.body))
       .catch(() => undefined);
   };
@@ -129,6 +130,8 @@ export function Message(props: {
         <div className={`${MSG_FROM} muted`}>
           {m.from} → {m.to}
         </div>
+      ) : side === 'person' && m.to !== agent ? (
+        <div className={`${MSG_FROM} muted`}>to {m.to}</div>
       ) : null}
       {m.parent != null ? (
         <button
@@ -149,19 +152,13 @@ export function Message(props: {
           {m.landing === 'queued' && (m.receipt || props.working) ? (
             <Button size="sm" icon="sendNow" label="Send now" onClick={() => act.sendNow(m.id)} />
           ) : null}
-          <Button size="sm" icon="discard" label="Take back" onClick={() => (got ? setAsk(true) : takeBack())} />
+          <Button size="sm" icon="discard" label="Take back" onClick={takeBack} />
         </div>
       ) : null}
-      {ask ? (
-        <Dialog
-          title="Take it back?"
-          onClose={() => setAsk(false)}
-          action={{ label: 'Take back', keys: '⌘↵', onClick: () => takeBack(true) }}
-        >
-          <p className="muted">
-            {agent} already has this message. It is told to stop, and what waits behind it moves up. The words come back to the box.
-          </p>
-        </Dialog>
+      {note ? (
+        <div className={`${MSG_META} state-note`} role="status">
+          {note}
+        </div>
       ) : null}
       {m.receipt?.state === 'unknown' ? (
         <div className={MSG_FAILED} role="note">

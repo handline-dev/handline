@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { Store, canWithdraw, isOpenAsk, landingLabel, sideOf, taskRow, timeline } from '../src/index.ts';
+import { Store, behindCount, canWithdraw, isOpenAsk, landingLabel, sendNote, sideOf, taskRow, timeline } from '../src/index.ts';
 
 const A = 'handline.architect';
 const isAgent = (n: string) => n.startsWith('handline.');
@@ -102,4 +102,30 @@ test('a task line carries the task, its title and only the change or evidence', 
   assert.equal(taskRow(taskItem('withdrawn', { evidence: 'duplicate' })).detail, 'duplicate');
   assert.equal(taskRow(taskItem('opened'), titles).detail, null);
   assert.equal(taskRow(taskItem('opened')).title, null);
+});
+
+const pm = (o: Partial<ChatMessage>) =>
+  ({ id: 5, from: 'Handline desktop', to: 'handline.x', landing: 'queued', state: 'queued', ...o }) as ChatMessage;
+
+test('a message from the device to another agent is still the person\'s', () => {
+  assert.equal(sideOf(pm({}), A, isAgent), 'person');
+  assert.equal(sideOf(pm({ from: 'handline.y' }), A, isAgent), 'other');
+});
+
+test('the person\'s message says sending, waiting behind N, queued or typed, and nothing once delivered or failed', () => {
+  assert.equal(sendNote(pm({ id: -1 }), 0), 'Sending…');
+  assert.equal(sendNote(pm({}), 2), 'Waiting behind 2');
+  assert.equal(sendNote(pm({}), 0), 'Queued');
+  assert.equal(sendNote(pm({ landing: 'typed' }), 0), 'Typed, not read yet');
+  assert.equal(sendNote(pm({ landing: 'delivered' }), 0), null);
+  assert.equal(sendNote(pm({ landing: 'answered' }), 0), null);
+  assert.equal(sendNote(pm({ state: 'failed', id: -1 }), 0), null);
+});
+
+test('behindCount counts the earlier messages still queued to the same agent', () => {
+  const a = pm({ id: 1 });
+  const b = pm({ id: 2, landing: 'delivered' });
+  const c = pm({ id: 3 });
+  assert.equal(behindCount([a, b, c], c), 1);
+  assert.equal(behindCount([a, b, c], a), 0);
 });

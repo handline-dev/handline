@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage } from '@handline/client';
-import { timeline } from '@handline/app-core';
+import { behindCount, timeline } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import {
   Skeleton,
@@ -229,6 +229,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                     picked={e.id === picked}
                     onPick={pick}
                     byId={byId}
+                    behind={behindCount(chat.messages, e.message)}
                     working={chat.working.turn_running}
                     onRestore={(text) => setRestore({ text, n: (restore?.n ?? 0) + 1 })}
                     onRef={jump}

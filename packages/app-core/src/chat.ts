@@ -17,7 +17,7 @@ export function timeline(messages: ChatMessage[], items: TranscriptItem[]): Time
 /** Who a message is from, for the agent whose chat this is: the person, the agent, or another agent (the *all* tab). */
 export function sideOf(m: ChatMessage, agent: string, isAgent: (name: string) => boolean): 'person' | 'agent' | 'other' {
   if (m.from === agent) return 'agent';
-  if (m.to === agent && !isAgent(m.from)) return 'person';
+  if (!isAgent(m.from)) return 'person'; // the person's, whoever it was said to: the daemon names the sender by its device ("Handline desktop")
   return 'other';
 }
 /** An agent's question that still waits for the person: the daemon keeps it queued until answered, so a report or reply that asked nothing is not one. */
@@ -26,6 +26,19 @@ export const isOpenAsk = (m: ChatMessage, agent: string) =>
 /** Not yet in the agent's terminal, so it can still be taken back. */
 export const canWithdraw = (m: ChatMessage, agent: string) =>
   m.to === agent && m.from !== agent && (m.landing === 'queued' || m.landing === 'typed');
+
+const waiting = (m: ChatMessage) => (m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued');
+/** How many of the person's earlier messages to this agent are still queued ahead of this one. */
+export const behindCount = (messages: ChatMessage[], m: ChatMessage): number =>
+  messages.filter((o) => o.id > 0 && o.id < m.id && o.to === m.to && o.from === m.from && waiting(o)).length;
+/** The short line under the person's own message while it has not reached the agent; null once it has (and for a failed one, which says so itself). */
+export function sendNote(m: ChatMessage, behind: number): string | null {
+  if (m.state === 'failed') return null;
+  if (m.id < 0) return 'Sending…';
+  if (waiting(m)) return behind ? `Waiting behind ${behind}` : 'Queued';
+  if (m.receipt) return m.receipt.state === 'sent' ? 'Sent, not confirmed yet' : null;
+  return m.landing === 'typed' ? 'Typed, not read yet' : null;
+}
 
 const LABELS: Record<string, string> = {
   queued: 'Sending',
