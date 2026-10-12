@@ -1,4 +1,4 @@
-// The agent list. A row shows an agent's state, its queue and a fold button when it has children; its actions (Start or Resume, the ⋯ menu)
+// The agent list. A row shows an agent's state, its queue and a fold button when it has children; its actions (Start, the ⋯ menu)
 // show while the pointer is on it or it is selected. One filter button opens the menu of what to show.
 import { useState } from 'react';
 import {

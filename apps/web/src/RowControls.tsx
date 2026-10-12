@@ -1,4 +1,4 @@
-// Start or Resume and the ⋯ menu of the selected agent row.
+// Start and the ⋯ menu of an agent row. There is no Resume: a message to an agent with no session wakes it.
 import { useState } from 'react';
 import { controlsOf, stopModesOf, asks, verbsOf, type Verb, type StopMode } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
@@ -8,7 +8,7 @@ import { unserved, useServed } from './AgentVerbs.tsx';
 import { Button, Icon, Popup, PROW } from './ui/index.ts';
 import { goSettings } from './route.ts';
 
-/** Start or Resume, and the ⋯ menu: the agent verbs the row's state allows, then the ways to stop. Which apply comes from the agent's detail. */
+/** Start, and the ⋯ menu: the agent verbs the row's state allows, then the ways to stop. Which apply comes from the agent's detail. */
 export function RowControls({
   agent: a,
   account,
@@ -33,13 +33,12 @@ export function RowControls({
     onMenu?.(v);
   };
   const start = useWrite('session.start', agent);
-  const resume = useWrite('session.wake', agent);
   const stopWrite = useWrite('session.stop', agent);
   const interrupt = useWrite('session.interrupt', agent);
   const run = useVerbRun(agent);
   const served = useServed();
   const mark = useVerbMark(agent);
-  const busy = start.isPending || resume.isPending || stopWrite.isPending || interrupt.isPending || !!mark;
+  const busy = start.isPending || stopWrite.isPending || interrupt.isPending || !!mark;
   if (!d) return null;
   const c = controlsOf(d, store.me);
   const verb = (v: Verb) => {
@@ -74,17 +73,6 @@ export function RowControls({
           ) : (
             <>
               <Icon name="play" size={12} aria-hidden className="mr-1 inline-block align-[-2px]" /> Start
-            </>
-          )}
-        </Button>
-      ) : null}
-      {c.resume ? (
-        <Button variant="outline" label="Resume" disabled={busy} onClick={() => resume.mutate({ agent })}>
-          {resume.isPending ? (
-            'resuming…'
-          ) : (
-            <>
-              <Icon name="retry" size={12} aria-hidden className="mr-1 inline-block align-[-2px]" /> Resume
             </>
           )}
         </Button>

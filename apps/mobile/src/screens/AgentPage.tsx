@@ -86,7 +86,6 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const verbMark = useVerbMark(name, ['close']);
   const mark = useAgentMark(name) ?? verbMark;
   const start = useWrite('session.start', name);
-  const resume = useWrite('session.wake', name);
   const stopMode = useWrite('session.stop', name);
   const interrupt = useWrite('session.interrupt', name);
   const stop = (mode: StopMode) => {
@@ -129,7 +128,6 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
     <View style={{ flex: 1 }}>
       <Row style={{ paddingHorizontal: space.md, flexWrap: 'wrap' }}>
         {ctl.start && <Button label="Start" disabled={busy} onPress={() => start.mutate({ agent: name })} />}
-        {ctl.resume && <Button label="Resume" disabled={busy} onPress={() => resume.mutate({ agent: name })} />}
         {ctl.resume && <Button label="Start new" disabled={busy} onPress={startNew} />}
         {(structured ? ctl.interrupt : ctl.stop) && <Button label="Interrupt" disabled={busy} onPress={() => stop('interrupt')} />}
         {ctl.stop && !structured && <Button label="Exit" disabled={busy} onPress={() => stop('exit')} />}
