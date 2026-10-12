@@ -266,80 +266,82 @@ function Row({
   const openMenu = (at: { x: number; y: number }) =>
     wrap.current?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y }));
   return (
-    <Menu onOpenChange={setMenuOpen}>
-      <MenuTrigger asChild>
-        <div
-          ref={wrap}
-          className={`row-wrap relative${selected ? ' on bg-canvas' : ''}`}
-          data-agent={a.name}
-          onPointerEnter={() => setHot(true)}
-          onPointerLeave={() => setHot(false)}
-          onFocus={() => setHot(true)}
-          onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setHot(false)}
-        >
+    <>
+      <Menu onOpenChange={setMenuOpen}>
+        <MenuTrigger asChild>
           <div
-            className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 py-[7px] border-l-[3px] hover:bg-canvas ${edge}`}
-            style={{ paddingLeft: 10 + depth * 14 }}
+            ref={wrap}
+            className={`row-wrap relative${selected ? ' on bg-canvas' : ''}`}
+            data-agent={a.name}
+            onPointerEnter={() => setHot(true)}
+            onPointerLeave={() => setHot(false)}
+            onFocus={() => setHot(true)}
+            onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setHot(false)}
           >
-            {kids ? (
-              <button
-                className="fold flex-none border-0 bg-transparent p-0 text-ink-2"
-                aria-expanded={!folded}
-                aria-label={`${folded ? 'Show' : 'Hide'} the ${kids} under ${a.name}`}
-                title={`${folded ? 'Show' : 'Hide'} the ${kids} under ${a.name}`}
-                onClick={onFold}
-              >
-                <Icon name={folded ? 'chevronRight' : 'more'} size={12} aria-hidden />
-              </button>
-            ) : (
-              <span className="w-3 flex-none" aria-hidden />
-            )}
-            <button
-              className="row-main flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left"
-              onClick={() => goAgent(a.name)}
-              aria-current={selected ? 'true' : undefined}
-              title={tip}
+            <div
+              className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 py-[7px] border-l-[3px] hover:bg-canvas ${edge}`}
+              style={{ paddingLeft: 10 + depth * 14 }}
             >
-              <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
-              <span className="name min-w-0 flex-1 whitespace-nowrap">{shortName(a.name, team)}</span>
-              <Badges badges={badges} />
-              <span className="state-word flex-none text-hint text-ink-2">{word}</span>
-              {queue.messages ? (
-                <span
-                  className="q-msgs inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
-                  title={`${queue.messages} messages not yet delivered`}
+              {kids ? (
+                <button
+                  className="fold flex-none border-0 bg-transparent p-0 text-ink-2"
+                  aria-expanded={!folded}
+                  aria-label={`${folded ? 'Show' : 'Hide'} the ${kids} under ${a.name}`}
+                  title={`${folded ? 'Show' : 'Hide'} the ${kids} under ${a.name}`}
+                  onClick={onFold}
                 >
-                  <Icon name="inbox" size={12} aria-hidden />
-                  {queue.messages}
-                </span>
-              ) : null}
-              {queue.tasks ? (
-                <span
-                  className="q-tasks inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
-                  title={`${queue.tasks} tasks waiting or in progress`}
-                >
-                  <Icon name="tasks" size={12} aria-hidden />
-                  {queue.tasks}
-                </span>
-              ) : null}
-              {ctx !== null ? <Meter pct={ctx} label="context used" /> : null}
-              {cache ? (
-                <span
-                  className={`cache flex-none text-hint text-ink-2${cache === 'out' ? ' out line-through' : ''}`}
-                  title={cache === 'out' ? 'The prompt cache has lapsed' : `${cache} until the prompt cache lapses`}
-                >
-                  {cache}
-                </span>
-              ) : null}
-            </button>
-            {showControls ? <RowControls agent={a} onMenu={openMenu} /> : null}
+                  <Icon name={folded ? 'chevronRight' : 'more'} size={12} aria-hidden />
+                </button>
+              ) : (
+                <span className="w-3 flex-none" aria-hidden />
+              )}
+              <button
+                className="row-main flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left"
+                onClick={() => goAgent(a.name)}
+                aria-current={selected ? 'true' : undefined}
+                title={tip}
+              >
+                <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
+                <span className="name min-w-0 flex-1 whitespace-nowrap">{shortName(a.name, team)}</span>
+                <Badges badges={badges} />
+                <span className="state-word flex-none text-hint text-ink-2">{word}</span>
+                {queue.messages ? (
+                  <span
+                    className="q-msgs inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
+                    title={`${queue.messages} messages not yet delivered`}
+                  >
+                    <Icon name="inbox" size={12} aria-hidden />
+                    {queue.messages}
+                  </span>
+                ) : null}
+                {queue.tasks ? (
+                  <span
+                    className="q-tasks inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
+                    title={`${queue.tasks} tasks waiting or in progress`}
+                  >
+                    <Icon name="tasks" size={12} aria-hidden />
+                    {queue.tasks}
+                  </span>
+                ) : null}
+                {ctx !== null ? <Meter pct={ctx} label="context used" /> : null}
+                {cache ? (
+                  <span
+                    className={`cache flex-none text-hint text-ink-2${cache === 'out' ? ' out line-through' : ''}`}
+                    title={cache === 'out' ? 'The prompt cache has lapsed' : `${cache} until the prompt cache lapses`}
+                  >
+                    {cache}
+                  </span>
+                ) : null}
+              </button>
+              {showControls ? <RowControls agent={a} onMenu={openMenu} /> : null}
+            </div>
           </div>
-          {ask ? <VerbSheet a={a} verb={ask} onClose={() => setAsk(null)} /> : null}
-        </div>
-      </MenuTrigger>
-      <MenuContent>
-        <AgentMenu agent={a} onAsk={setAsk} />
-      </MenuContent>
-    </Menu>
+        </MenuTrigger>
+        <MenuContent>
+          <AgentMenu agent={a} onAsk={setAsk} />
+        </MenuContent>
+      </Menu>
+      {ask ? <VerbSheet a={a} verb={ask} onClose={() => setAsk(null)} /> : null}
+    </>
   );
 }

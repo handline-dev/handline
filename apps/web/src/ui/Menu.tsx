@@ -20,14 +20,9 @@ export function MenuContent({ children, ...rest }: ComponentProps<typeof R.Conte
   );
 }
 
-export function MenuItem({
-  icon,
-  danger,
-  children,
-  ...rest
-}: { icon?: IconName; danger?: boolean; children: ReactNode } & ComponentProps<typeof R.Item>) {
+export function MenuItem({ icon, children, ...rest }: { icon?: IconName; children: ReactNode } & ComponentProps<typeof R.Item>) {
   return (
-    <R.Item className={`${ITEM}${danger ? ' text-bad' : ''}`} {...rest}>
+    <R.Item className={ITEM} {...rest}>
       <span className="flex w-4 flex-none justify-center">{icon ? <Icon name={icon} size={14} aria-hidden /> : null}</span>
       <span className="flex-1">{children}</span>
     </R.Item>

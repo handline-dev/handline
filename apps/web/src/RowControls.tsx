@@ -23,11 +23,9 @@ export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (a
   const agent = a.name;
   const d = useAgentDetail(agent).data;
   const start = useWrite('session.start', agent);
-  const stopWrite = useWrite('session.stop', agent);
-  const interrupt = useWrite('session.interrupt', agent);
   const store = useStore();
   const mark = useVerbMark(agent);
-  const busy = start.isPending || stopWrite.isPending || interrupt.isPending || !!mark;
+  const busy = start.isPending || !!mark;
   if (!d) return null;
   const c = controlsOf(d, store.me);
   return (
@@ -52,7 +50,7 @@ export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (a
           onMenu({ x: r.right, y: r.bottom });
         }}
       >
-        {mark ?? (stopWrite.isPending || interrupt.isPending ? 'stopping…' : <Icon name="menu" size={14} aria-hidden />)}
+        {mark ?? <Icon name="menu" size={14} aria-hidden />}
       </Button>
     </span>
   );
