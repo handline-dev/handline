@@ -63,8 +63,8 @@ type Config struct {
 	// local socket is never the Python daemon's. With no CertFile and KeyFile it is in Tailscale mode: Listen is
 	// ":PORT" (the Tailscale address is found) or a Tailscale or loopback address, and it serves plain HTTP/ws.
 	Gateway     bool
-	RelaySocket string   // the Python daemon's relay socket
-	PidFile     string   // where the gateway records its pid, for the relay's trust check
+	RelaySocket string   // a gateway: the daemon's relay socket it calls. A daemon: where it serves one, for the gateway; empty serves none
+	PidFile     string   // where the gateway records its pid, for the relay's trust check; a daemon with a RelaySocket reads it
 	Native      []string // methods served here rather than relayed, besides hello, whoami and the device methods
 	WebDir      string   // the built web UI the listener serves on its own origin; empty serves none
 	Advertise   string   // the host:port a pairing code names, when it differs from where the listener binds
@@ -135,6 +135,7 @@ type Daemon struct {
 	stop    chan struct{}     // closed by Close: the spool loop ends
 	started time.Time
 	ln      net.Listener
+	relayLn net.Listener // the relay socket a gateway calls this daemon on; nil on a gateway or with no RelaySocket
 	local   *rpc.Server
 	net     *networkListener
 	dev     *devices.Manager // nil unless the network listener is on
@@ -259,6 +260,16 @@ func Start(cfg Config) (*Daemon, error) {
 		d.ln = ln
 		d.wg.Add(1)
 		go d.acceptLocal(d.local)
+	}
+	if !cfg.Gateway && cfg.RelaySocket != "" {
+		ln, err := listenUnix(cfg.RelaySocket)
+		if err != nil {
+			d.Close()
+			return nil, err
+		}
+		d.relayLn = ln
+		d.wg.Add(1)
+		go d.serveRelay(d.newServer("relay"), ln)
 	}
 	if cfg.Listen != "" {
 		nl, err := listenNetwork(cfg, d)
@@ -601,6 +612,10 @@ func (d *Daemon) Close() {
 	if d.ln != nil {
 		d.ln.Close()
 		os.Remove(d.cfg.SocketFile)
+	}
+	if d.relayLn != nil {
+		d.relayLn.Close()
+		os.Remove(d.cfg.RelaySocket)
 	}
 	if d.net != nil {
 		d.net.close()

@@ -132,6 +132,7 @@ type Conn struct {
 	Pid       int
 	Caller    Caller
 	saidHello bool
+	fixed     *Caller // a relayed device's caller, which hello does not replace
 	// Remote is the peer's host on the network listener, "" elsewhere.
 	Remote     string
 	closeFn    func()
@@ -197,8 +198,18 @@ func (s *Server) ServeNet(tr Transport, remote string, closeConn func()) {
 	s.serve(tr, 0, remote, closeConn)
 }
 
+// ServeRelayed serves a paired device's calls that a gateway relays: the device is already authenticated, so the caller is
+// that device at member, whatever hello says, and the connection has no idle limit (it ends when the gateway closes it).
+func (s *Server) ServeRelayed(tr Transport, device, name string) {
+	s.serveAs(tr, 0, "", nil, &Caller{"member", map[string]any{"kind": "device", "device": device, "name": name}})
+}
+
 func (s *Server) serve(tr Transport, pid int, remote string, closeConn func()) {
-	c := &Conn{srv: s, tr: tr, Pid: pid, Remote: remote, closeFn: closeConn, done: make(chan struct{})}
+	s.serveAs(tr, pid, remote, closeConn, nil)
+}
+
+func (s *Server) serveAs(tr Transport, pid int, remote string, closeConn func(), fixed *Caller) {
+	c := &Conn{srv: s, tr: tr, Pid: pid, Remote: remote, closeFn: closeConn, done: make(chan struct{}), fixed: fixed}
 	defer func() {
 		close(c.done)
 		c.waiting.Wait()
@@ -211,10 +222,16 @@ func (s *Server) serve(tr Transport, pid int, remote string, closeConn func()) {
 		}
 	}()
 	c.Caller = identify(s.Auth, s.Transport == "local", pid, "", s.founder)
+	if fixed != nil {
+		c.Caller, c.saidHello = *fixed, true
+	}
 	for {
 		timeout := RecvTimeout
 		if c.saidHello && !tr.Pending() {
 			timeout = IdleTimeout
+			if fixed != nil {
+				timeout = relayedIdle
+			}
 		}
 		raw, err := tr.ReadMessage(timeout)
 		if err != nil {
@@ -450,7 +467,7 @@ func (c *Conn) route(msg any, raw []byte) (routed, error) {
 	// it was when routed, on a Conn of its own that shares only what stays fixed.
 	at := c
 	if m.Waits {
-		at = &Conn{srv: c.srv, tr: c.tr, Pid: c.Pid, Remote: c.Remote, Caller: c.Caller, saidHello: c.saidHello, done: c.done}
+		at = &Conn{srv: c.srv, tr: c.tr, Pid: c.Pid, Remote: c.Remote, Caller: c.Caller, fixed: c.fixed, saidHello: c.saidHello, done: c.done}
 	}
 	return routed{waits: m.Waits, run: func() (any, error) {
 		var result any
@@ -577,7 +594,7 @@ func hello(c *Conn, params map[string]any) (any, error) {
 		}
 		c.device, c.deviceName, c.release = id, name, release
 		c.Caller = Caller{"member", map[string]any{"kind": "device", "device": id, "name": name}}
-	} else {
+	} else if c.fixed == nil {
 		c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
 	}
 	caps, methods := baseCapabilities(), c.methodList()

@@ -66,7 +66,8 @@ const (
 	relayOpenWait  = 5 * time.Second
 	relayWriteWait = 5 * time.Second
 	relayRetryMS   = 2000
-	helloWait      = time.Second // a hello does not wait longer than this for the daemon's own
+	relayedIdle    = 10 * 365 * 24 * time.Hour // a relayed connection has no idle limit: the gateway ends it
+	helloWait      = time.Second               // a hello does not wait longer than this for the daemon's own
 )
 
 // forget ends the wait for a reply of the gateway's own; one that comes later is dropped, not forwarded.
