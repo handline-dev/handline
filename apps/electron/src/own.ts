@@ -37,13 +37,13 @@ function trayIcon(): Electron.NativeImage {
 }
 
 /** A window with the QR of a fresh one-time link; rejects with the gateway's reason when it cannot make one (no network listener, no key). */
-const makePhone = async (pairing: PairDeps): Promise<BrowserWindow> => {
+const makePhone = async (pairing: PairDeps): Promise<{ win: BrowserWindow; expiresAt: number }> => {
   const l = await phoneLink(pairing);
   const minutes = Math.max(1, Math.round((Date.parse(l.expiresAt) - Date.now()) / 60_000));
   const w = new BrowserWindow({ width: 340, height: 440, resizable: false, title: 'Pair a phone', webPreferences: { sandbox: true } });
   w.setMenuBarVisibility(false);
   await w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(phoneHtml(l.uri, minutes))}`);
-  return w;
+  return { win: w, expiresAt: Date.parse(l.expiresAt) };
 };
 
 /** The tray's way: the same window, the reason in a dialog. */
