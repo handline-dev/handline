@@ -47,6 +47,7 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	roster := team.NewRoster(home)
 	uenv := &usage.Env{Home: home}
 	accounts := team.Accounts{Home: home}
+	routing := func() *team.Team { t, _ := team.LoadTeam(home); return t }
 	launcher := &lifecycle.Launcher{Q: q, Home: home, Roster: roster, Tokens: sessiontoken.New(home), Now: cfg.Now, Ports: lifecycle.LaunchPorts{
 		Usage:          &lifecycle.UsageAdapter{Env: uenv, Q: q},
 		Accounts:       accounts,
@@ -60,6 +61,14 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 			}
 			return r.Account, r.Source, true
 		},
+		// The ports a terminal's own `hl launch` has too (cmd/hl/launch.go): a nil one panics in Build and in FingerprintParts.
+		WaitingFor: func(q db.Q, agent string) bool {
+			head, err := db.EffectiveHead(q, agent)
+			return err != nil || head != nil // a read that fails says something may be waiting
+		},
+		TeamRules:   func(agent string) []string { return team.Rules(home, agent, routing()) },
+		Routing:     routing,
+		McpApproved: team.NewTrust(home).MCPApproved,
 	}}
 	launchPort := lifecycle.LaunchPort{L: launcher}
 	var ho *handoff.Env

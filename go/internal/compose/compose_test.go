@@ -134,6 +134,16 @@ func TestTheKindOfAnAgentIsItsModeInAgentYAML(t *testing.T) {
 	}
 }
 
+func TestTheDaemonsLauncherNamesTheSettingsALaunchReads(t *testing.T) {
+	p, home := rig(t)
+	env := &supervisor.Env{DB: p.Sink.DB, Home: home, Log: func(string, ...any) {}}
+	lc := p.Lifecycle(p.Run.cfg, LifecycleConfig{Env: env})
+	parts, err := lc.Launch.FingerprintParts("bob") // panicked while the daemon's launcher had no team rules
+	if err != nil || parts["team"] == "" {
+		t.Fatalf("parts %v, err %v", parts, err)
+	}
+}
+
 // withLifecycle builds the lifecycle over a bound rig: a session is not opened without it, since it says what the session is kept out of.
 func withLifecycle(p *Parts, home string) {
 	env := &supervisor.Env{DB: p.Sink.DB, Home: home, Log: func(string, ...any) {}}
