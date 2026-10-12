@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isOpenAsk, type KV, type Verb } from '@handline/app-core';
 import type { AgentDetail, ChatMessage } from '@handline/client';
+import { useSelector } from '@handline/app-react';
 import { useAgents, useChatActions } from '@handline/app-data';
 import { setting } from './daemon.ts';
 import { EditorButton } from './EditorButton.tsx';
@@ -29,6 +30,7 @@ export function Compose(props: {
 }) {
   const { agent, detail, storage, canSend, history, messages, target, onClear, restore, running } = props;
   const act = useChatActions(agent);
+  const dismissable = useSelector((s) => s.can('chat.dismiss'));
   const agents = useAgents().data?.agents ?? [];
   const names = new Set(agents.map((a) => a.name));
   const view = agents.find((a) => a.name === agent);
@@ -154,9 +156,26 @@ export function Compose(props: {
     <div className="compose-wrap flex flex-col">
       {target ? (
         <div className="compose-ref mx-3 mb-1 flex items-center gap-1.5 rounded-chip bg-panel px-2 py-1 text-[12px]" role="status">
-          <Icon name="reference" size={14} label={`Replying to #${target.id}`} />
+          <Icon
+            name="reference"
+            size={14}
+            label={isOpenAsk(target, agent) ? `Answering #${target.id}` : `Replying to #${target.id}`}
+          />
           <span className="mono">#{target.id}</span>
           <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>
+          {isOpenAsk(target, agent) && dismissable ? (
+            <button
+              className="icon"
+              aria-label="Dismiss the question"
+              title="Dismiss the question"
+              onClick={() => {
+                act.dismiss(target.id);
+                onClear?.();
+              }}
+            >
+              <Icon name="dismiss" size={14} label="Dismiss the question" />
+            </button>
+          ) : null}
           <button className="icon" aria-label="Drop the reply" title="Drop the reply (Esc)" onClick={onClear}>
             <Icon name="close" size={14} label="Drop the reply" />
           </button>

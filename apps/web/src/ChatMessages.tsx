@@ -3,11 +3,9 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent } from 'react';
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
-import { isOpenAsk, landingLabel, sideOf } from '@handline/app-core';
-import { useSelector } from '@handline/app-react';
+import { landingLabel, sideOf } from '@handline/app-core';
 import { useAgents, useChatActions } from '@handline/app-data';
-import { EditorButton } from './EditorButton.tsx';
-import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, Input, type IconName } from './ui/index.ts';
+import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { PathText } from './PathText.tsx';
 
@@ -92,15 +90,12 @@ export function Message(props: {
 }) {
   const { m, agent } = props;
   const act = useChatActions(agent);
-  const can = useSelector((s) => ({ answer: s.can('chat.answer'), dismiss: s.can('chat.dismiss') }));
   const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
   const side = sideOf(m, agent, (n) => names.has(n));
-  const [answer, setAnswer] = useState('');
   const [ask, setAsk] = useState(false);
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
-  const open = isOpenAsk(m, agent) && can.answer;
   const mine = side === 'person' && !unnumbered && !failed;
   // Not answered yet and not already taken back: the person's own undo. A message the agent has not got just goes; one it has asks first.
   const undoable = mine && ['queued', 'typed', 'delivered', 'delivered_unanswered'].includes(m.landing);
@@ -218,28 +213,6 @@ export function Message(props: {
         <div className={`${MSG_META} muted`}>
           <Icon name="dismissed" size={13} />
         </div>
-      ) : null}
-      {open ? (
-        <form
-          className="ask mt-2 flex gap-1.5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!answer.trim()) return;
-            act.answer(m.id, answer);
-            setAnswer('');
-          }}
-        >
-          <Input dense className="min-w-0 flex-1" value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Answer" aria-label={`Answer to message ${m.id}`} />
-          <EditorButton text={answer} onText={setAnswer} />
-          <button className="icon" aria-label="Answer" title="Answer" disabled={!answer.trim()}>
-            <Icon name="send" />
-          </button>
-          {can.dismiss ? (
-            <button type="button" className="icon" aria-label="Dismiss" title="Dismiss" onClick={() => act.dismiss(m.id)}>
-              <Icon name="dismiss" />
-            </button>
-          ) : null}
-        </form>
       ) : null}
     </div>
   );
