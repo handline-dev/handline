@@ -2,12 +2,13 @@
 import { useState } from 'react';
 import { STATE_WORD, outUntil, stateOf, span } from '@handline/app-core';
 import type { Account } from '@handline/client';
-import { useAccountUsage, useAccounts, useAgents, useServes } from '@handline/app-data';
+import { useConnection, useStore } from '@handline/app-react';
+import { classify, sentence, useAccountUsage, useAccounts, useAgents, useServes, useWrite } from '@handline/app-data';
 import { AccountLogin } from './AccountLogin.tsx';
 import { AccountSettings } from './AccountSettings.tsx';
 import { Gauge, useNow } from './Gauge.tsx';
 import { goAgent } from './route.ts';
-import { Button, Card, Dialog, Icon, ScrollPage, PageHead, PageTitle, TabStrip, type IconName } from './ui/index.ts';
+import { Button, Card, Dialog, Field, Icon, NOTE, ScrollPage, PageHead, PageTitle, TabStrip, type IconName } from './ui/index.ts';
 import { View } from './View.tsx';
 
 const TABS = ['Overview', 'Agents', 'Settings'] as const;
@@ -35,7 +36,10 @@ export function StateChip({ account, now }: { account: Account; now: number }) {
   return (
     <span className="acct-state-wrap inline-flex items-center gap-1.5">
       <Icon name={STATE_ICON[state]} size={14} label={STATE_WORD[state]} />
-      <span className={`badge acct-state ${state} mr-1.5 inline-block rounded-card border border-line px-1.5 text-hint text-ink-2 ${STATE_TONE}`} data-state={state}>
+      <span
+        className={`badge acct-state ${state} mr-1.5 inline-block rounded-card border border-line px-1.5 text-hint text-ink-2 ${STATE_TONE}`}
+        data-state={state}
+      >
         {state === 'out' && until ? `out until ${span(Date.parse(until) - now)} from now` : STATE_WORD[state]}
       </span>
     </span>
@@ -72,7 +76,10 @@ function Row({ account, now }: { account: Account; now: number }) {
       <StateChip account={account} now={now} />
       <Gauge label="5 h" window={account.five_hour} now={now} />
       <Gauge label="week" window={account.weekly} now={now} />
-      <span className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2" title={`Agents on it, and its cap: ${agentsLine(account)}`}>
+      <span
+        className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2"
+        title={`Agents on it, and its cap: ${agentsLine(account)}`}
+      >
         <Icon name="agent" size={14} label="Agents" />
         {account.agents.length}/{account.cap_effective}
       </span>
@@ -81,16 +88,43 @@ function Row({ account, now }: { account: Account; now: number }) {
   );
 }
 
-/** The daemon has no add call for an account, so adding one is a host command. */
+/** Founder only: a name registers the account, which then needs a login (the topic brings the row in). */
 function AddAccount() {
-  const [open, setOpen] = useState(false);
+  const founder = useStore().client.hello?.role === 'founder';
+  const { served } = useServes('account.add');
+  const open = useConnection() === 'open';
+  const [asking, setAsking] = useState(false);
+  const [name, setName] = useState('');
+  const add = useWrite('account.add', name);
+  if (!founder) return null;
+  const off = !open ? 'daemon not connected' : served ? undefined : 'this daemon does not serve account.add';
+  const close = () => (setAsking(false), setName(''), add.reset());
   return (
     <>
-      <Button icon="plus" label="Add an account" onClick={() => setOpen(true)} />
-      {open ? (
-        <Dialog title="Add an account" onClose={() => setOpen(false)}>
-          <p className="muted">The daemon adds accounts from the host. Run there:</p>
-          <p className="mono">hl account add &lt;name&gt;</p>
+      <Button icon="plus" label="Add an account" disabled={!!off} title={off} onClick={() => setAsking(true)} />
+      {asking ? (
+        <Dialog
+          title="Add an account"
+          onClose={close}
+          action={{
+            label: add.isPending ? 'Adding…' : 'Add account',
+            disabled: !name.trim() || add.isPending,
+            onClick: () => add.mutate({ account: name.trim() }, { onSuccess: close }),
+          }}
+        >
+          <Field
+            label="Name"
+            value={name}
+            autoComplete="off"
+            onChange={(e) => setName(e.target.value)}
+            note="Log it in from its page once it is added."
+          />
+          {add.error ? (
+            <p className={`${NOTE} text-bad`} role="alert">
+              <Icon name="failed" size={14} label="Error" />
+              {sentence(classify(add.error))}
+            </p>
+          ) : null}
         </Dialog>
       ) : null}
     </>
@@ -120,13 +154,7 @@ export function AccountsPage({ name }: { name: string | null }) {
         )}
         {name === null ? <AddAccount /> : null}
       </PageHead>
-      <View
-        q={q}
-        served={served}
-        shape="accounts"
-        what="accounts"
-        empty={!list.length && 'No accounts configured. Add one from the host with hl account add <name>.'}
-      >
+      <View q={q} served={served} shape="accounts" what="accounts" empty={!list.length && 'No accounts configured.'}>
         {name === null ? (
           <Card className="acct-list flex flex-col">
             {list.map((account) => (

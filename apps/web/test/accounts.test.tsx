@@ -332,4 +332,30 @@ describe('one account', () => {
       expect(button('Remove account')).toBeUndefined();
     });
   });
+  describe('add', () => {
+    const names = (s: ReturnType<typeof setup>) => s.daemon.accounts.list().accounts.map((a) => a.name);
+    const submit = () => $$('.ui-backdrop button').find((b) => text(b).startsWith('Add account')) as HTMLButtonElement;
+
+    it('registers an account by name, and a used name is refused with the reason', async () => {
+      const s = await mount();
+      await until(() => card('alpha'), 'the list');
+      await click(button('Add an account'));
+      expect(submit().disabled).toBe(true);
+      await setValue($('.ui-backdrop input') as HTMLInputElement, 'alpha');
+      await click(submit());
+      await until(() => $('.ui-backdrop [role="alert"]'), 'the refusal');
+      expect(text($('.ui-backdrop [role="alert"]'))).toContain('exists');
+      await setValue($('.ui-backdrop input') as HTMLInputElement, 'delta');
+      await click(submit());
+      await until(() => card('delta'), 'the new row');
+      expect($('.ui-backdrop')).toBeNull();
+      expect(names(s)).toContain('delta');
+    });
+
+    it('is not offered to anyone but the founder', async () => {
+      await mount('#/accounts', setup({ role: 'agent' }));
+      await until(() => card('alpha'), 'the list');
+      expect(button('Add an account')).toBeUndefined();
+    });
+  });
 });
