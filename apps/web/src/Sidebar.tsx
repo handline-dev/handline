@@ -10,7 +10,6 @@ import {
   visibleRows,
   queueOf,
   RAIL_FILTERS,
-  RAIL_STATE_WORD,
   type Dot,
   type Verb,
   badgesOf,
@@ -23,7 +22,8 @@ import { useAgents, useUnreached, useServes, useUnread, useVerbMark } from '@han
 import { VerbSheet } from './AgentVerbs.tsx';
 import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
-import { Mark, MARKS, Meter } from './RailIcons.tsx';
+import { Mark, MARKS } from './RailIcons.tsx';
+import { AgentGauges } from './AgentGauges.tsx';
 import { useNow } from './Gauge.tsx';
 import { Button, Icon, Popup, PROW } from './ui/index.ts';
 import { setting } from './daemon.ts';
@@ -211,12 +211,8 @@ export function Sidebar({
   );
 }
 
-/** The minutes left in the prompt cache; '' when there is none on record, 'out' once it has lapsed. */
-function cacheLeft(until: string | null, now: number): string {
-  if (!until) return '';
-  const m = Math.ceil((Date.parse(until) - now) / 60_000);
-  return m <= 0 ? 'out' : `${m}m`;
-}
+/** The minutes left in the prompt cache; null when none is on record, 0 or less once it has lapsed. */
+const cacheLeft = (until: string | null, now: number): number | null => (until ? Math.ceil((Date.parse(until) - now) / 60_000) : null);
 
 /** The daemon's context figure for an agent, as a whole percent; absent until the view carries it. */
 const ctxOf = (a: AgentView): number | null => {
@@ -255,7 +251,6 @@ function Row({
   const ctx = ctxOf(a);
   const queue = queueOf(a, unreached);
   const badges = badgesOf(a, store.me).filter((b) => b.kind !== 'no_terminal'); // the word already says it
-  const word = RAIL_STATE_WORD[dot];
   const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : ''].filter(Boolean).join(' · ');
   // The left edge: the waiting hue outranks the selection.
   const edge = dot === 'waiting' ? 'border-l-wait' : selected ? 'border-l-primary' : 'border-l-transparent';
@@ -295,7 +290,6 @@ function Row({
           <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
           <span className="name min-w-0 flex-1 whitespace-nowrap">{shortName(a.name, team)}</span>
           <Badges badges={badges} />
-          <span className="state-word flex-none text-hint text-ink-2">{word}</span>
           {queue.messages ? (
             <span
               className="q-msgs inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
@@ -308,23 +302,20 @@ function Row({
           {queue.tasks ? (
             <span
               className="q-tasks inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
-              title={`${queue.tasks} tasks waiting or in progress`}
+              title={`${queue.tasks} tasks queued or doing`}
             >
               <Icon name="tasks" size={12} aria-hidden />
               {queue.tasks}
             </span>
           ) : null}
-          {ctx !== null ? <Meter pct={ctx} label="context used" /> : null}
-          {cache ? (
-            <span
-              className={`cache flex-none text-hint text-ink-2${cache === 'out' ? ' out line-through' : ''}`}
-              title={cache === 'out' ? 'The prompt cache has lapsed' : `${cache} until the prompt cache lapses`}
-            >
-              {cache}
-            </span>
-          ) : null}
+          <AgentGauges ctx={ctx} cacheMin={cache} />
         </button>
-        {showControls ? <RowControls agent={a} account={account} setAccount={setAccount} onAsk={setAsk} onMenu={setMenuOpen} /> : null}
+        {/* Laid over the row's right end, not beside the name: the row is the same height with or without them. */}
+        {showControls ? (
+          <div className="absolute right-1 top-1/2 -translate-y-1/2 bg-canvas">
+            <RowControls agent={a} account={account} setAccount={setAccount} onAsk={setAsk} onMenu={setMenuOpen} />
+          </div>
+        ) : null}
       </div>
       {ask ? <VerbSheet a={a} verb={ask} onClose={() => setAsk(null)} /> : null}
     </div>

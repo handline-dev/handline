@@ -12,7 +12,7 @@ const GLYPH: Record<StateKind, { icon: IconName; label: string }> = {
   needs: { icon: 'needs', label: 'Needs you' },
   blocked: { icon: 'blocked', label: 'Blocked' },
   idle: { icon: 'idle', label: 'Idle' },
-  parked: { icon: 'waiting', label: 'Parked' },
+  parked: { icon: 'asleep', label: 'Sleeping' },
   done: { icon: 'done', label: 'Done' },
   rejected: { icon: 'dismissed', label: 'Rejected' },
   noTerminal: { icon: 'noTerminal', label: 'No terminal' },

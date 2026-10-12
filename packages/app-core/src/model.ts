@@ -72,17 +72,6 @@ export const RAIL_FILTERS: { id: string; label: string; dots: Dot[] }[] = [
   { id: 'sleeping', label: 'Sleeping', dots: ['parked', 'none'] },
 ];
 
-/** The word a row says for its state; a person's wait and a block outrank the plain states. */
-export const RAIL_STATE_WORD: Record<Dot, string> = {
-  waiting: 'needs you',
-  blocked: 'blocked',
-  running: 'working',
-  waking: 'waking',
-  idle: 'idle',
-  parked: 'sleeping',
-  none: 'sleeping',
-};
-
 /** What is piled up for an agent: tasks it owns that are not done (`task_count`) and messages owed to it that have not reached it (`unreached`, which the daemon sends only for agents.list `status: true`). A count the view does not carry is null, never 0. */
 export function queueOf(a: AgentView, unreached: number | null = null): { tasks: number | null; messages: number | null } {
   return { tasks: a.task_count ?? null, messages: a.unreached ?? unreached };
