@@ -52,3 +52,24 @@ func TestATaskRowCarriesEveryKeyOfTheContractTask(t *testing.T) {
 		t.Fatalf("%v", got[2])
 	}
 }
+
+// Python names the request out; it has no text for a draft whose request is gone, so Go's is the same words without the number.
+func TestAMismatchNamesTheRequestOutAndASettledOneLeavesTheNumberOut(t *testing.T) {
+	e := testEnv(t)
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, sent_at) VALUES(1, 'x', 'bob', 'mgr', 1, 1)")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(7, 3, 'mgr', 'bob', 'b', 'queued', 'task', 1)")
+	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 7)")
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, sent_at) VALUES(2, 'y', 'bob', 'mgr', 1, 1)")
+	got, err := e.Tasks([]int64{1, 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[1]["mismatch"] != "draft with work out (#7) - its opener has not queued it" ||
+		got[2]["mismatch"] != "draft with work out - its opener has not queued it" {
+		t.Fatalf("%v / %v", got[1]["mismatch"], got[2]["mismatch"])
+	}
+	r, _ := got[1]["requests"].([]map[string]any)
+	if len(r) != 1 || r[0]["id"] != int64(7) || r[0]["from"] != "mgr" || r[0]["to"] != "bob" || r[0]["state"] != "queued" || r[0]["at"] != ts(int64(3)) {
+		t.Fatalf("%v", got[1]["requests"])
+	}
+}

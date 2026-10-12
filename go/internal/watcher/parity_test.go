@@ -157,8 +157,14 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 			run("INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by) VALUES(3, 'held', 'carol', 'human', 1, 'human')")
 			run("INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(3, 1, 1)")
 			run("INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at, timeout_s, timeout_at) VALUES(4, 'late', 'dave', 'human', 1, 'human', 1, 3600, 100)")
+			// a draft with a request out (its mismatch names the request), and the requests linked to a task, oldest first
+			run("INSERT INTO tasks(id, title, owner, opened_by, created_at, sent_at) VALUES(5, 'unapproved', 'erin', 'human', 1, 1)")
+			run("INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(51, 7, 'human', 'erin', 'b', 'queued', 'task', 1)")
+			run("INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(50, 6, 'mgr', 'erin', 'b', 'landed', 'say', 1)")
+			run("INSERT INTO task_requests(task_id, request_id) VALUES(5, 51)")
+			run("INSERT INTO task_requests(task_id, request_id) VALUES(5, 50)")
 		})
-	if len(py) != len(events) || len(py) != 4 {
+	if len(py) != len(events) || len(py) != 5 {
 		t.Fatalf("python wrote %d rows, go %d", len(py), len(events))
 	}
 	// Go's data must equal Python's on every field of the Task: the Python CLI reads them all.
@@ -179,6 +185,17 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 		case "3":
 			if fmt.Sprint(goTask["blocked_by"]) != "[1]" {
 				t.Errorf("the held task lists its blocker: %v", goTask["blocked_by"])
+			}
+		case "2":
+			if goTask["mismatch"] != "approved, but no request is out" {
+				t.Errorf("a queued task nothing is out for says so: %v", goTask["mismatch"])
+			}
+		case "5":
+			if goTask["mismatch"] != "draft with work out (#51) - its opener has not queued it" {
+				t.Errorf("a draft with work out names the request: %v", goTask["mismatch"])
+			}
+			if reqs, _ := goTask["requests"].([]any); len(reqs) != 2 {
+				t.Errorf("both linked requests, oldest first: %v", goTask["requests"])
 			}
 		case "4":
 			if c, _ := goTask["time"].(map[string]any); c == nil || c["overdue_since"] == nil {
