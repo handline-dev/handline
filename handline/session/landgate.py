@@ -11,14 +11,11 @@ A land verb that nothing vouched for, such as one sent from inside a test run, i
 """
 from __future__ import annotations
 
-import re
 import shlex
 
 from ..infra import names, sessiontoken
 
 _OPERATORS = set(";&|<>()")
-# A Bash call holding an `hl land` anywhere in it that would send a verb: a --pass, or a --tree, and no --check or --list.
-_SENDS = re.compile(r"(?:^|[\s;&|(])(?:\S*/)?(?:" + "|".join(map(re.escape, names.COMMANDS)) + r")\s+land\s")
 MISSES = ("Refused before it ran: `hl land` sends its verb only when it is the whole Bash call, so this one would be turned "
           "away. Type it alone on one line: no cd or && before it, no 2>&1, pipe, ; or # after it, and no $ or backtick "
           "anywhere, quoted or not. `hl land --pass <sha>`, or `hl land <sha> '<message>' --tree <tree>`.")
@@ -32,12 +29,8 @@ def parse(tool_name: object, tool_input: object) -> tuple[str, str] | None:
     cmd = tool_input.get("command")
     if not isinstance(cmd, str) or any(c in cmd for c in "`$\n\r"):
         return None
-    try:
-        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
-        lex.whitespace_split = True
-        lex.commenters = ""                 # a `#` inside a word is part of the word; the shell agrees
-        words = list(lex)
-    except ValueError:
+    words = _words(cmd)                     # a `#` inside a word is part of the word; the shell agrees
+    if words is None:
         return None
     if len(words) < 3 or words[0].rsplit("/", 1)[-1] not in names.COMMANDS or words[1] != "land":
         return None
@@ -67,11 +60,36 @@ def misses(agent: str, tool_name: object, tool_input: object) -> str | None:
     """Why this Bash call would send a land verb nothing vouches for: it holds an `hl land` with more around it. None when it
     would be vouched for, sends no verb, or the session has no key to vouch with (no retyping would help that)."""
     cmd = tool_input.get("command") if tool_name == "Bash" and isinstance(tool_input, dict) else None
-    if not isinstance(cmd, str) or not _SENDS.search(cmd) or not re.search(r"--pass|--tree", cmd) or re.search(r"--check|--list", cmd):
-        return None
-    if parse(tool_name, tool_input) is not None or sessiontoken.key_held(agent) is None:
+    words = _words(cmd) if isinstance(cmd, str) else None
+    if not words or not _sends_land(words) or parse(tool_name, tool_input) is not None or sessiontoken.key_held(agent) is None:
         return None
     return MISSES
+
+
+def _words(cmd: str) -> list[str] | None:
+    """The command split as the shell would (a quoted argument is one word, a run of operators another); None when it cannot be."""
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        lex.commenters = ""
+        return list(lex)
+    except ValueError:
+        return None
+
+
+def _sends_land(words: list[str]) -> bool:
+    """Whether a command in words is `hl land` sending a verb (a --pass or a --tree, no --check or --list): the command word at the
+    start or after an operator, so a land named inside a quoted note or a heredoc line is not one."""
+    for i, w in enumerate(words[:-1]):
+        if w.rsplit("/", 1)[-1] in names.COMMANDS and words[i + 1] == "land" and (i == 0 or set(words[i - 1]) <= _OPERATORS):
+            args = []
+            for x in words[i + 2:]:
+                if set(x) <= _OPERATORS:
+                    break
+                args.append(x)
+            if ("--pass" in args or "--tree" in args) and not {"--check", "--list"} & set(args):
+                return True
+    return False
 
 
 def authorize(agent: str, tool_name: object, tool_input: object) -> bool:

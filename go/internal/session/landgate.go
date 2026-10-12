@@ -2,7 +2,6 @@ package session
 
 import (
 	"errors"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -164,31 +163,53 @@ func ParseLand(toolName string, toolInput any) (verb, sha string, ok bool) {
 	return
 }
 
-// sendsLand finds an `hl land` anywhere in a Bash call (landgate.py _SENDS).
-var sendsLand = regexp.MustCompile(`(?:^|[` + space + `;&|(])(?:[^` + space + `]*/)?(?:` + strings.Join(paths.Commands, "|") +
-	`)[` + space + `]+land[` + space + `]`)
-
 // MissesReason is why PreToolUse refuses a land command nothing would vouch for (landgate.py MISSES).
 const MissesReason = "Refused before it ran: `hl land` sends its verb only when it is the whole Bash call, so this one would be turned " +
 	"away. Type it alone on one line: no cd or && before it, no 2>&1, pipe, ; or # after it, and no $ or backtick " +
 	"anywhere, quoted or not. `hl land --pass <sha>`, or `hl land <sha> '<message>' --tree <tree>`."
 
 // Misses is MissesReason when this Bash call holds an `hl land` that would send a verb (a --pass or a --tree, no --check or
-// --list) with more around it than ParseLand accepts, and the session has a key to vouch with; "" otherwise.
+// --list) as a command of its own, with more around it than ParseLand accepts, and the session has a key to vouch with; "" otherwise.
 func Misses(keyHeld func(string) string, agent, toolName string, toolInput any) string {
 	in, isMap := toolInput.(map[string]any)
 	if toolName != "Bash" || !isMap {
 		return ""
 	}
 	cmd, _ := in["command"].(string)
-	if !sendsLand.MatchString(cmd) || !(strings.Contains(cmd, "--pass") || strings.Contains(cmd, "--tree")) ||
-		strings.Contains(cmd, "--check") || strings.Contains(cmd, "--list") {
+	words, err := shlexSplit(cmd)
+	if err != nil || !sendsLand(words) {
 		return ""
 	}
 	if _, _, ok := ParseLand(toolName, toolInput); ok || keyHeld(agent) == "" {
 		return ""
 	}
 	return MissesReason
+}
+
+// sendsLand is whether a command in words is `hl land` sending a verb (a --pass or a --tree, no --check or --list): the command
+// word at the start or after an operator, so a land named inside a quoted note or a heredoc line is not one (landgate.py _sends_land).
+func sendsLand(words []string) bool {
+	for i := 0; i+1 < len(words); i++ {
+		known := false
+		for _, n := range paths.Commands {
+			known = known || base(words[i]) == n
+		}
+		if !known || words[i+1] != "land" || (i > 0 && !onlyOperators(words[i-1])) {
+			continue
+		}
+		sends, reads := false, false
+		for _, x := range words[i+2:] {
+			if onlyOperators(x) {
+				break
+			}
+			sends = sends || x == "--pass" || x == "--tree"
+			reads = reads || x == "--check" || x == "--list"
+		}
+		if sends && !reads {
+			return true
+		}
+	}
+	return false
 }
 
 // LandVoucher is what Authorize needs of the rest of the system: the session key `hl launch` kept, and the daemon.

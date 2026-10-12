@@ -656,7 +656,10 @@ def test_a_land_with_more_around_it_is_stopped_before_it_runs_with_how_to_retype
     cases = (("hl land --pass abc", False), ("hl land abc 'm' --tree def", False), ("hl land --pass abc 2>&1", True),
              ("cd /r && hl land abc 'm' --tree def", True), ("hl land abc 'costs $5' --tree def", True),
              ("hl land --pass abc | tail -3", True), ("hl land --check abc 2>&1", False), ("hl land --list | head", False),
-             ("git log | grep land", False), ("echo hl landed --pass", False))
+             ("git log | grep land", False), ("echo hl landed --pass", False),
+             ('hl task handoff T1 orcapipe.merger "PASS recorded; land it: hl land --pass abc1234"', False),
+             ("hl say orcapipe.core 'please run hl land --pass abc1234'", False),
+             ("hl say b - <<'EOF'\nhl land --pass abc\nEOF", False), ("echo x; hl land --pass abc", True))
     bash = {"command": "hl land --pass abc 2>&1"}
     check("misses: a session with no key is not told to retype, as retyping would not help it", landgate.misses("backend", "Bash", bash) is None)
     sessiontoken.mint_key("backend")

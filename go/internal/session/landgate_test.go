@@ -108,6 +108,10 @@ func TestMisses(t *testing.T) {
 		{"hl land --list | head", false},
 		{"git log | grep land", false},
 		{"echo hl landed --pass", false},
+		{`hl task handoff T1 orcapipe.merger "PASS recorded; land it: hl land --pass abc1234"`, false},
+		{"hl say orcapipe.core 'please run hl land --pass abc1234'", false},
+		{"hl say b - <<'EOF'\nhl land --pass abc\nEOF", false},
+		{"echo x; hl land --pass abc", true},
 	} {
 		got := Misses(keyed, "a", "Bash", map[string]any{"command": c.cmd})
 		if (got != "") != c.misses {
