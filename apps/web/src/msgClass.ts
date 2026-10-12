@@ -3,7 +3,7 @@
 const BUBBLE =
   'msg group px-3 py-2 break-keep wrap-break-word rounded-dialog data-[landing=dismissed]:opacity-55 data-[landing=withdrawn]:opacity-55 data-[pending=true]:opacity-70 data-[flash]:outline-2 data-[flash]:outline-offset-2 data-[flash]:outline-dashed data-[flash]:outline-ink';
 const SIDE = {
-  person: 'person self-end bg-[color-mix(in_srgb,var(--primary)_20%,var(--panel))]',
+  person: 'person self-end bg-[color-mix(in_srgb,var(--primary)_12%,var(--panel))]',
   agent: 'agent self-start bg-surface',
   other: 'other self-start bg-surface opacity-80',
 } as const;
