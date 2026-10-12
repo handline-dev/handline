@@ -1,4 +1,4 @@
-"""Tests: chat.send, chat.answer, chat.dismiss, chat.cancel and chat.seen (contract/protocol.md): what each writes, who may call it, a refusal each,
+"""Tests: chat.send, chat.dismiss, chat.cancel and chat.seen (contract/protocol.md): what each writes, who may call it, a refusal each,
 a death between the effect and its record (nothing written, the retry does it once, the next retry is replayed), a retry after a lost
 reply, and `hl withdraw` still working from an agent session.
 
@@ -153,23 +153,6 @@ def test_send_with_a_task_gives_the_agent_that_task_in_one_write(home: Path) -> 
     _dies_then_retries("chat.send", {"agent": "worker", "body": "another piece of work", "task": {"title": "another"}, "request_id": "t2"}, None,
                        after=lambda: _count("SELECT COUNT(*) FROM tasks") == tasks + 1 and _count("SELECT COUNT(*) FROM requests") == reqs + 1,
                        unchanged=lambda: _count("SELECT COUNT(*) FROM tasks") == tasks and _count("SELECT COUNT(*) FROM requests") == reqs)
-
-
-def test_answer_settles_what_an_agent_asked_the_person(home: Path) -> None:
-    _world(home)
-    ask = _add("worker", db.HUMAN, "may I deploy?", "ask", "async")
-    r = _call("chat.answer", {"request": ask, "text": "yes, after lunch", "request_id": "a1"}, as_agent="worker")
-    check("chat.answer: an agent session is refused, gate role", _code(r) == "refused" and r["error"]["data"]["gate"] == "role", str(r))
-    side = _add("manager", "worker", "between two agents")
-    r = _call("chat.answer", {"request": side, "text": "x", "request_id": "a2"})
-    check("chat.answer: a message that asked nothing of the person is refused, gate state", _code(r) == "refused" and r["error"]["data"]["gate"] == "state", str(r))
-    for params, code in (({"request": 999, "text": "x"}, "not_found"), ({"request": ask, "text": " "}, "bad_request"), ({"request": "1", "text": "x"}, "bad_request")):
-        check(f"chat.answer: {params} is {code}", _code(_call("chat.answer", {**params, "request_id": f"a-{params}"})) == code)
-    _dies_then_retries("chat.answer", {"request": ask, "text": "yes, after lunch", "request_id": "a3"}, None,
-                       after=lambda: _row(ask)["state"] != "queued", unchanged=lambda: _row(ask)["state"] == "queued")
-    _lose_the_reply("a3")
-    again = _call("chat.answer", {"request": ask, "text": "yes, after lunch", "request_id": "a3"})
-    check("chat.answer: after a lost reply the retry replays and answers nothing twice", again["result"].get("replayed") is True, str(again))
 
 
 def test_dismiss_takes_a_message_off_without_answering_it(home: Path) -> None:
@@ -358,7 +341,7 @@ def test_the_chat_write_fixtures_pass_against_this_daemon(home: Path) -> None:
     finally:
         sessiontoken.agent_of = real
     bad = [(n, why) for st, why, n, _ in results if st != "pass"]
-    check("fixtures: every chat write fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 15, str(bad))
+    check("fixtures: every chat write fixture passes against this daemon, each as its own role", not bad and len({n for _, _, n, _ in results}) == 13, str(bad))
 
 
 def test_a_devices_chat_send_retried_after_a_lost_reply_sends_once(home: Path) -> None:
@@ -387,7 +370,6 @@ def main() -> int:
     def tests(td):
         run(lambda: test_send_is_the_persons_message_to_an_agent_through_delivery(Path(td) / "w1"))
         run(lambda: test_send_with_a_task_gives_the_agent_that_task_in_one_write(Path(td) / "w2"))
-        run(lambda: test_answer_settles_what_an_agent_asked_the_person(Path(td) / "w3"))
         run(lambda: test_dismiss_takes_a_message_off_without_answering_it(Path(td) / "w4"))
         run(lambda: test_hl_withdraw_still_works_from_an_agent_session(Path(td) / "w6"))
         run(lambda: test_send_under_a_message_answers_it_or_says_under_it(Path(td) / "w8"))

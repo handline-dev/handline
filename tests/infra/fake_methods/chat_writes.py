@@ -1,4 +1,4 @@
-"""chat.send, chat.answer, chat.dismiss, chat.withdraw, chat.cancel and chat.seen: the refusals the fixtures pin; no agent and no message exists here."""
+"""chat.send, chat.dismiss, chat.cancel and chat.seen: the refusals the fixtures pin; no agent and no message exists here."""
 from . import delivery, err, fake
 
 
@@ -14,7 +14,7 @@ def _nf(what):
     return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": what}}
 
 
-@fake("chat.send", "chat.answer", "chat.dismiss", "chat.cancel", "chat.seen")
+@fake("chat.send", "chat.dismiss", "chat.cancel", "chat.seen")
 def chat_writes(role, method, params):
     if not isinstance(params.get("request_id"), str) or not params["request_id"]:
         return "fail", err(-32600, "bad_request", field="request_id")
@@ -40,6 +40,4 @@ def chat_writes(role, method, params):
         return "fail", err(-32602, "bad_request", field="confirm")
     if method == "chat.cancel" and (done := delivery.cancel(params)):
         return done
-    if method == "chat.answer" and not _text(params.get("text")):
-        return "fail", err(-32602, "bad_request", field="text")
     return _nf("message")

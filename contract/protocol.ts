@@ -1520,7 +1520,7 @@ export interface Methods {
     title: string;
     time_box?: Duration;
   };
-  /** The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is then the message replied to, for an answer, or the new message. */
+  /** The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is the new message. */
   parent?: number;
   /** For a structured agent whose turn is running: now joins the running turn, queue (the default) is held by the daemon and written when the turn ends, one message per turn. With no turn running they are the same. A terminal agent accepts the field and ignores it. Another word is bad_request. */
   delivery?: "now" | "queue";
@@ -1536,11 +1536,6 @@ export interface Methods {
 }; result: Accepted & {
     receipt?: Receipt;
   } };
-  "chat.answer": { params: {
-  request: number;
-  text: string;
-  request_id: RequestId;
-}; result: Accepted };
   "chat.dismiss": { params: {
   request: number;
   request_id: RequestId;
@@ -2177,7 +2172,6 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "chat.search": { role: "member", callers: null, write: false, since: 1 },
   "chat.send": { role: "member", callers: null, write: true, since: 1 },
   "chat.send_now": { role: "member", callers: null, write: true, since: 1 },
-  "chat.answer": { role: "member", callers: null, write: true, since: 1 },
   "chat.dismiss": { role: "member", callers: null, write: true, since: 1 },
   "chat.cancel": { role: "member", callers: null, write: true, since: 1 },
   "chat.seen": { role: "member", callers: null, write: true, since: 1 },

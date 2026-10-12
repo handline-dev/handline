@@ -566,14 +566,15 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
-  it('answers a question from the agent', async () => {
+  it('replies to a question from the agent with a linked message, not an answer', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await until(() => msgOf('Which gap list should come first?'), 'the question');
     const id = Number(msgOf('Which gap list should come first?')!.getAttribute('data-testid')!.slice(4));
     await type(`answer-input-${id}`, 'the web one');
     await press($(`answer-send-${id}`));
-    await until(() => msgOf('Which gap list should come first?')?.textContent?.includes('You: the web one'), 'the answer');
+    await until(() => msgOf('the web one')?.textContent?.includes('↩ #'), 'the linked reply');
+    expect(msgOf('Which gap list should come first?')?.textContent).not.toContain('You: the web one');
     m.store.stop();
   });
 

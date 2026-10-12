@@ -83,14 +83,14 @@ test('chat: a send lands one step at a time on the chat topic, and ends answered
   client.close();
 });
 
-test('chat: answer and dismiss only once', async () => {
+test('chat: dismiss only once', async () => {
   const { client, daemon } = setup();
   await client.start();
   daemon.chat.ask(ARCH, 'which?', 'web-test');
   const ask = (await client.call('chat.messages', { agent: ARCH, scope: 'mine' })).messages.find(
     (x) => x.kind === 'question' && !x.answer,
   )!;
-  await client.call('chat.answer', { request: ask.id, text: 'this one' });
+  await client.call('chat.dismiss', { request: ask.id });
   await assert.rejects(client.call('chat.dismiss', { request: ask.id }), (e: RpcError) => e.code === 'refused');
   client.close();
 });

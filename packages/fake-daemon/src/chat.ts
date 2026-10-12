@@ -39,8 +39,6 @@ export function chatMethod(
     case 'chat.send':
       checkAgent();
       return chatCall(() => ok('Sent.', chat.send(p, person)));
-    case 'chat.answer':
-      return chatCall(() => (chat.answer(p), ok('Answered.')));
     case 'chat.dismiss':
       if (inboxDismiss(p.request)) return ok('Dismissed.');
       return chatCall(() => (chat.dismiss(p), ok('Dismissed.')));
@@ -138,7 +136,7 @@ export class FakeChat {
     const t = this.thread(agent);
     t.items.push({ id: t.nextItem++, at: item.at ?? this.now(), ...item });
   }
-  /** A question from the agent to the person, waiting for chat.answer. */
+  /** A question from the agent to the person, waiting for the person. */
   ask(agent: string, body: string, person: string): number {
     const at = this.now();
     const id = this.seed(agent, {
@@ -255,12 +253,6 @@ export class FakeChat {
     this.emit('chat.transcript', agent, full);
   }
 
-  answer(p: Record<string, unknown>) {
-    const m = this.find(p.request);
-    if (m.answer || m.dismissed) throw new ChatFailure('refused', 'that message is already closed', 'state');
-    if (typeof p.text !== 'string' || !p.text.trim()) throw new ChatFailure('bad_request', 'an answer needs text');
-    this.change(m, { landing: 'answered', state: 'answered', answer: { id: this.nextId++, text: p.text, at: this.now() } });
-  }
   dismiss(p: Record<string, unknown>) {
     const m = this.find(p.request);
     if (m.answer || m.dismissed) throw new ChatFailure('refused', 'that message is already closed', 'state');

@@ -66,9 +66,6 @@
  "answers.list": {
   "role": "founder"
  },
- "chat.answer": {
-  "role": "member"
- },
  "chat.cancel": {
   "role": "member"
  },

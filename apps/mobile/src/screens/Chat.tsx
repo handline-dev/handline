@@ -99,9 +99,8 @@ export function Chat(props: { detail: AgentDetail }) {
 
   const send = (delivery?: 'now' | 'queue') => {
     if (!text.trim()) return;
-    // Replying to a question that waits answers it; to anything else sends a linked message to whoever said it.
-    if (picked && isOpenAsk(picked, agent)) act.answer(picked.id, text);
-    else if (picked) act.send(text, { parent: picked.id, to: names.has(picked.from) ? picked.from : picked.to, delivery });
+    // A picked message is a reference: a linked message to whoever said it, whatever it asked.
+    if (picked) act.send(text, { parent: picked.id, to: names.has(picked.from) ? picked.from : picked.to, delivery });
     else act.send(text, { delivery });
     setPicked(null);
     setText('');
@@ -240,7 +239,7 @@ function Bubble(props: {
   const c = usePalette();
   const { m, agent } = props;
   const act = useChatActions(agent);
-  const can = useSelector((s) => ({ answer: s.can('chat.answer'), dismiss: s.can('chat.dismiss') }));
+  const can = useSelector((s) => ({ answer: s.can('chat.send'), dismiss: s.can('chat.dismiss') }));
   const side = sideOf(m, agent, props.isAgent);
   const [answer, setAnswer] = useState('');
   const unnumbered = m.id < 0; // shown before the daemon numbered it, or refused
@@ -339,7 +338,7 @@ function Bubble(props: {
               label="Answer"
               disabled={!answer.trim()}
               onPress={() => {
-                act.answer(m.id, answer);
+                act.send(answer, { parent: m.id, to: props.isAgent(m.from) ? m.from : m.to });
                 setAnswer('');
               }}
             />
