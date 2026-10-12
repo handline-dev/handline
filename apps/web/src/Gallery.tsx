@@ -63,7 +63,7 @@ export function Tokens() {
             </span>
           ))}
           <span style={{ font: 'var(--t-mono)' }} className="text-ink">
-            mono: 12px/16px — T3053, paths, output
+            mono: 12px/16px — T3053, paths, output {/* local-ref-ok: a made-up number showing the mono style */}
           </span>
         </span>
       </Section>
@@ -95,7 +95,7 @@ export function Tokens() {
 function Chat() {
   const meta = (
     <div className={MSG_META}>
-      <span className="mono">#3053</span>
+      <span className="mono">#3053</span>{/* local-ref-ok: a made-up number for the stamp example */}
       <Icon name="delivered" size={13} label="Confirmed by the agent" />
     </div>
   );
