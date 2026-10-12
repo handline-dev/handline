@@ -100,10 +100,8 @@ func (d *Daemon) gatewayPeer(pid int) error {
 	if started, ok := peer.Started(pid); !ok || started.After(st.ModTime()) {
 		return errors.New("it did not start before the pid file was written: a reused pid")
 	}
-	if r, ok := d.cfg.Auth.(interface{ SessionsReadable() error }); ok {
-		if err := r.SessionsReadable(); err != nil {
-			return fmt.Errorf("the recorded sessions cannot be read: %w", err)
-		}
+	if err := d.cfg.Auth.SessionsReadable(); err != nil {
+		return fmt.Errorf("the recorded sessions cannot be read: %w", err)
 	}
 	if d.cfg.Auth.AgentOf(pid) != "" {
 		return errors.New("it descends from an agent's session")

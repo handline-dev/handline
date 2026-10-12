@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bufio"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -83,6 +84,7 @@ func TestTheRelaySocketServesOnlyTheGateway(t *testing.T) {
 	}{
 		"another process than the gateway": {os.Getppid(), fakeAuth{}},
 		"a session of an agent":            {os.Getpid(), fakeAuth{agent: "worker"}},
+		"sessions that cannot be read":     {os.Getpid(), fakeAuth{sessions: errors.New("permission denied")}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			d := startRelaying(t, tc.auth, tc.gateway)

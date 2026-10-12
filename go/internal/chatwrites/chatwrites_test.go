@@ -412,3 +412,5 @@ limits: { max_chain_depth: 4, ask_rate_per_hour: 5 }
 		t.Fatal("the denied message stays as a row")
 	}
 }
+
+func (a auth) SessionsReadable() error { return nil }
