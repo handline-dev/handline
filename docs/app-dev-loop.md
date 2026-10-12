@@ -53,9 +53,9 @@ a second instance quits at once and focuses the running app instead.
 `HANDLINE_DEV_URL` loads the vite page instead of the built `apps/web/dist`,
 so the whole shell — tray, badge, notices — runs while the page hot-reloads.
 `HANDLINE_GATEWAY` pins the gateway address: the shell otherwise picks this
-machine's Tailscale address (and advertises its `*.ts.net` name, which a phone's
-pairing link needs; `pnpm app:watch` leaves it unset for that), and a gateway listening on loopback only is then
-unreachable and the page says so, retrying.
+machine's Tailscale address and advertises its `*.ts.net` name, which a phone's
+pairing link needs (`pnpm app:watch` leaves it unset for that). A gateway
+listening on loopback only is then unreachable and the page says so, retrying.
 
 **Common failure:** the window opens on the pairing screen — the instance
 could not pair through the gateway's local socket; paste a `hl device pair`
