@@ -90,3 +90,34 @@ func TestAuthorize(t *testing.T) {
 		t.Error("vouched on no reply")
 	}
 }
+
+// The same table runs against landgate.misses in tests/infra/test_land.py.
+func TestMisses(t *testing.T) {
+	keyed := func(string) string { return "k" }
+	for _, c := range []struct {
+		cmd    string
+		misses bool
+	}{
+		{"hl land --pass abc", false},
+		{"hl land abc 'm' --tree def", false},
+		{"hl land --pass abc 2>&1", true},
+		{"cd /r && hl land abc 'm' --tree def", true},
+		{"hl land abc 'costs $5' --tree def", true},
+		{"hl land --pass abc | tail -3", true},
+		{"hl land --check abc 2>&1", false},
+		{"hl land --list | head", false},
+		{"git log | grep land", false},
+		{"echo hl landed --pass", false},
+	} {
+		got := Misses(keyed, "a", "Bash", map[string]any{"command": c.cmd})
+		if (got != "") != c.misses {
+			t.Errorf("%q: misses %v, want %v", c.cmd, got != "", c.misses)
+		}
+	}
+	if Misses(func(string) string { return "" }, "a", "Bash", map[string]any{"command": "hl land --pass abc 2>&1"}) != "" {
+		t.Error("a session with no key is not told to retype: retyping would not help it")
+	}
+	if Misses(keyed, "a", "Read", map[string]any{"command": "hl land --pass abc 2>&1"}) != "" {
+		t.Error("only a Bash call is read")
+	}
+}

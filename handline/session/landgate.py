@@ -11,11 +11,17 @@ A land verb that nothing vouched for, such as one sent from inside a test run, i
 """
 from __future__ import annotations
 
+import re
 import shlex
 
 from ..infra import names, sessiontoken
 
 _OPERATORS = set(";&|<>()")
+# A Bash call holding an `hl land` anywhere in it that would send a verb: a --pass, or a --tree, and no --check or --list.
+_SENDS = re.compile(r"(?:^|[\s;&|(])(?:\S*/)?(?:" + "|".join(map(re.escape, names.COMMANDS)) + r")\s+land\s")
+MISSES = ("Refused before it ran: `hl land` sends its verb only when it is the whole Bash call, so this one would be turned "
+          "away. Type it alone on one line: no cd or && before it, no 2>&1, pipe, ; or # after it, and no $ or backtick "
+          "anywhere, quoted or not. `hl land --pass <sha>`, or `hl land <sha> '<message>' --tree <tree>`.")
 
 
 def parse(tool_name: object, tool_input: object) -> tuple[str, str] | None:
@@ -55,6 +61,17 @@ def parse(tool_name: object, tool_input: object) -> tuple[str, str] | None:
     if "--pass" in rest:
         return ("land_pass", positional[0]) if len(positional) == 1 and not housekeeping else None
     return ("land", positional[0]) if tree and len(positional) == 2 else None
+
+
+def misses(agent: str, tool_name: object, tool_input: object) -> str | None:
+    """Why this Bash call would send a land verb nothing vouches for: it holds an `hl land` with more around it. None when it
+    would be vouched for, sends no verb, or the session has no key to vouch with (no retyping would help that)."""
+    cmd = tool_input.get("command") if tool_name == "Bash" and isinstance(tool_input, dict) else None
+    if not isinstance(cmd, str) or not _SENDS.search(cmd) or not re.search(r"--pass|--tree", cmd) or re.search(r"--check|--list", cmd):
+        return None
+    if parse(tool_name, tool_input) is not None or sessiontoken.key_held(agent) is None:
+        return None
+    return MISSES
 
 
 def authorize(agent: str, tool_name: object, tool_input: object) -> bool:
