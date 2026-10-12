@@ -10,8 +10,7 @@
     "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
     "mobile": "node mobile/server.ts",
     "fake-daemon": "pnpm --filter @handline/fake-daemon serve",
-    "ui": "node serve-ui.ts --fake",
-    "typecheck": "tsc -p ui",
+    "typecheck": "tsc -p .",
     "lint": "eslint ."
   },
   "dependencies": {

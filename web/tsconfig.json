@@ -1,4 +1,4 @@
 {
   "extends": "../packages/config/tsconfig.node.json",
-  "include": ["test", "serve-ui.ts"]
+  "include": ["test"]
 }
