@@ -296,7 +296,7 @@ function TaskLine({ i, titles }: { i: TranscriptItem; titles?: Map<number, strin
   );
 }
 
-/** A transcript line that is not a message. A task line names what happened — opened, changed, done, withdrawn — with title and evidence. */
+/** A transcript line that is not a message: a reply, tool, prompt, session or task line. */
 export function Item({ i, titles }: { i: TranscriptItem; titles?: Map<number, string> }) {
   if (i.kind === 'reply')
     return (

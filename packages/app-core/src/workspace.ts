@@ -110,10 +110,10 @@ export function openTab(ws: Workspace, kind: TabKind, params: TabParams = {}, in
   };
 }
 
-/** Opens the Tasks tab on one task: the tab is the agent's only one, so its `task` param is set (or changed) when it is already open. */
-export function openTask(ws: Workspace, task: number, into: string = ws.active): Workspace {
+/** Opens the Tasks tab on one task: the tab is the agent's only one, so its `task` param is set (or changed) when it is already open. `null` shows the list. */
+export function openTask(ws: Workspace, task: number | null, into: string = ws.active): Workspace {
   const opened = openTab(ws, 'tasks', {}, into);
-  return { ...opened, tabs: { ...opened.tabs, [TASKS]: { ...opened.tabs[TASKS]!, params: { task } } } };
+  return { ...opened, tabs: { ...opened.tabs, [TASKS]: { ...opened.tabs[TASKS]!, params: task === null ? {} : { task } } } };
 }
 
 /** Closing only detaches: it never stops what the tab shows. Chat has no close. */

@@ -315,4 +315,5 @@ test('openTask opens the Tasks tab on that task, and moves an open one to anothe
   const b = openTask(a, 9);
   assert.equal(b.tabs.tasks!.params.task, 9);
   assert.equal(Object.keys(b.tabs).filter((k) => k === 'tasks').length, 1);
+  assert.deepEqual(openTask(b, null).tabs.tasks!.params, {});
 });

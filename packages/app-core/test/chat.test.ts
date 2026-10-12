@@ -76,7 +76,12 @@ test('the store knows which chat methods the daemon serves, and subscribes to th
 });
 
 const taskItem = (event: string, extra: object = {}): TranscriptItem =>
-  ({ id: 1, at: '2026-10-12T10:00:00Z', kind: 'task_event', task_event: { event, task: 7, request: null, evidence: null, ...extra } }) as TranscriptItem;
+  ({
+    id: 1,
+    at: '2026-10-12T10:00:00Z',
+    kind: 'task_event',
+    task_event: { event, task: 7, request: null, evidence: null, ...extra },
+  }) as TranscriptItem;
 const titles = new Map([[7, 'Fix the tray']]);
 
 test('a task line says added, edited, done or deleted', () => {
