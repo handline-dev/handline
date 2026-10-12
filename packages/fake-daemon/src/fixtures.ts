@@ -71,7 +71,7 @@ export const PROMPT_LINES = ['Bash command', '  git push origin {branch}', 'Do y
 /** A little history for the architect, one of each message state and transcript kind, so a UI has something to draw on first load. */
 export function seedChat(chat: FakeChat, at: string): void {
   const A = 'handline.architect',
-    me = 'founder';
+    me = 'human';
   const ago = (min: number) => new Date(Date.parse(at) - min * 60_000).toISOString();
   chat.seed(A, { from: me, to: A, body: 'Draft the web chat tab plan.', at: ago(50), landing: 'answered' });
   chat.seed(A, { from: me, to: A, body: 'Use the contract fixtures.', at: ago(30), landing: 'delivered_unanswered' });
@@ -170,7 +170,7 @@ export function seedInbox(inbox: FakeInbox, at: string): void {
 export function seedTasks(tasks: FakeTasks, at: string): void {
   const base = Date.parse(at);
   const ago = (min: number) => new Date(base - min * 60_000).toISOString();
-  const me = 'founder';
+  const me = 'human';
   tasks.seed({
     id: 1684,
     from: me,

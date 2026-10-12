@@ -197,7 +197,7 @@ describe('the Chat tab', () => {
   it('pages back through older messages', async () => {
     const s = setup();
     for (let i = 0; i < 60; i++)
-      s.daemon.chat.seed(ARCH, { from: 'founder', to: ARCH, body: `old ${i}`, at: new Date(Date.UTC(2020, 0, 1, 0, i)).toISOString() });
+      s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: `old ${i}`, at: new Date(Date.UTC(2020, 0, 1, 0, i)).toISOString() });
     await mount(ARCH, s);
     await until(() => msg('old 59'), 'the newest page');
     expect(msg('Which gap list')).toBeUndefined(); // it is on the second page
@@ -252,7 +252,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
   it("a reply to the agent's message that asked nothing is a say under it, not an answer", async () => {
     const t = await mount(ARCH);
     const chat = t.daemon.chat;
-    chat.change(chat.find(chat.seed(ARCH, { from: ARCH, to: 'founder', body: 'Report: gaps listed.', landing: 'delivered' })), {});
+    chat.change(chat.find(chat.seed(ARCH, { from: ARCH, to: 'human', body: 'Report: gaps listed.', landing: 'delivered' })), {});
     await until(() => msg('Report: gaps listed.'), 'the report');
     await click(msg('Report: gaps listed.')!.querySelector('.msg-body')!);
     expect(text($('.compose-ref'))).toContain('Replying to');
@@ -399,10 +399,10 @@ describe('the bridge items: send now, take back, message numbers, new, menus, se
   it('a message number in a message is a link that scrolls to that message, also one on an older page', async () => {
     const s = setup();
     const first = Number(
-      s.daemon.chat.seed(ARCH, { from: 'founder', to: ARCH, body: 'see #100 for the plan', at: '2030-01-01T00:00:00Z' }), // local-ref-ok
+      s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'see #100 for the plan', at: '2030-01-01T00:00:00Z' }), // local-ref-ok
     );
     for (let i = 0; i < 60; i++)
-      s.daemon.chat.seed(ARCH, { from: 'founder', to: ARCH, body: `filler ${i}`, at: new Date(Date.UTC(2031, 0, 1, 0, i)).toISOString() });
+      s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: `filler ${i}`, at: new Date(Date.UTC(2031, 0, 1, 0, i)).toISOString() });
     expect(first).toBeGreaterThan(100);
     await mount(ARCH, s);
     await until(() => msg('filler 59'), 'the newest page');

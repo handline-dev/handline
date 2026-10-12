@@ -14,11 +14,12 @@ export function timeline(messages: ChatMessage[], items: TranscriptItem[]): Time
   return out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.kind === b.kind ? a.id - b.id : a.kind === 'message' ? -1 : 1));
 }
 
-/** Who a message is from, for the agent whose chat this is: the person, the agent, or another agent (the *all* tab). */
-export function sideOf(m: ChatMessage, agent: string, isAgent: (name: string) => boolean): 'person' | 'agent' | 'other' {
+/** The name the daemon records for the person's own words: the CLI's `human`, or the device they typed on (`me`, e.g. "Handline desktop"). */
+export const isPerson = (name: string, me: string) => name === 'human' || (!!me && name === me);
+/** Who a message is from, for the agent whose chat this is: the person, the agent, or someone else (another agent, the task board: the *all* tab, notices). Only the person's own words sit on the person's side. */
+export function sideOf(m: ChatMessage, agent: string, me: string): 'person' | 'agent' | 'other' {
   if (m.from === agent) return 'agent';
-  if (!isAgent(m.from)) return 'person'; // the person's, whoever it was said to: the daemon names the sender by its device ("Handline desktop")
-  return 'other';
+  return isPerson(m.from, me) ? 'person' : 'other';
 }
 /** An agent's question that still waits for the person: the daemon keeps it queued until answered, so a report or reply that asked nothing is not one. */
 export const isOpenAsk = (m: ChatMessage, agent: string) =>

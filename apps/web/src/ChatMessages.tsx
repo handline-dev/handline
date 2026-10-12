@@ -4,7 +4,8 @@
 import { useState, type MouseEvent } from 'react';
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
 import { landingLabel, openTask, sendNote, sideOf, taskRow } from '@handline/app-core';
-import { useAgents, useChatActions } from '@handline/app-data';
+import { useChatActions } from '@handline/app-data';
+import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { PathText } from './PathText.tsx';
@@ -93,8 +94,7 @@ export function Message(props: {
 }) {
   const { m, agent } = props;
   const act = useChatActions(agent);
-  const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
-  const side = sideOf(m, agent, (n) => names.has(n));
+  const side = sideOf(m, agent, useStore().me);
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;

@@ -51,9 +51,9 @@ test("a reply with the same words as a message is still shown: the agent answeri
 test('who a message is from, whether an ask is open and whether a message can still be taken back', () => {
   const mine = msg({ landing: 'typed' });
   const ask = msg({ from: A, to: 'founder', state: 'queued', landing: 'delivered_unanswered' });
-  assert.equal(sideOf(mine, A, isAgent), 'person');
-  assert.equal(sideOf(ask, A, isAgent), 'agent');
-  assert.equal(sideOf(msg({ from: 'handline.auditor' }), A, isAgent), 'other');
+  assert.equal(sideOf(mine, A, mine.from), 'person');
+  assert.equal(sideOf(ask, A, mine.from), 'agent');
+  assert.equal(sideOf(msg({ from: 'handline.auditor' }), A, mine.from), 'other');
   assert.equal(canWithdraw(mine, A), true);
   assert.equal(canWithdraw(msg({ landing: 'delivered' }), A), false);
   assert.equal(canWithdraw(ask, A), false);
@@ -107,9 +107,12 @@ test('a task line carries the task, its title and only the change or evidence', 
 const pm = (o: Partial<ChatMessage>) =>
   ({ id: 5, from: 'Handline desktop', to: 'handline.x', landing: 'queued', state: 'queued', ...o }) as ChatMessage;
 
-test('a message from the device to another agent is still the person\'s', () => {
-  assert.equal(sideOf(pm({}), A, isAgent), 'person');
-  assert.equal(sideOf(pm({ from: 'handline.y' }), A, isAgent), 'other');
+test('only the person\'s own words are on their side: the CLI, this device, to whichever agent', () => {
+  assert.equal(sideOf(pm({}), A, 'Handline desktop'), 'person');
+  assert.equal(sideOf(pm({ from: 'human' }), A, 'Handline desktop'), 'person');
+  assert.equal(sideOf(pm({ from: 'handline.y' }), A, 'Handline desktop'), 'other');
+  assert.equal(sideOf(pm({ from: 'task-board', to: A }), A, 'Handline desktop'), 'other');
+  assert.equal(sideOf(pm({ from: 'schedule', to: A }), A, ''), 'other');
 });
 
 test('the person\'s message says sending, waiting behind N, queued or typed, and nothing once delivered or failed', () => {
