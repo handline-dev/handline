@@ -10,8 +10,7 @@ import {
   taskTree,
   type KV,
   type TaskColumn,
-  type TaskFilter,
-} from '@handline/app-core';
+  type TaskFilter, taskRef } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useAgents, useServes, useTasks } from '@handline/app-data';
@@ -36,7 +35,7 @@ type Open = null | 'discard' | 'owner' | 'priority' | 'merge' | 'states' | 'keys
 const matches = (query: string) => {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   return (t: Task) => {
-    const hay = `#${t.id} ${t.title} ${t.to} ${t.from}`.toLowerCase();
+    const hay = `${taskRef(t.id)} ${t.title} ${t.to} ${t.from}`.toLowerCase();
     return words.every((w) => hay.includes(w));
   };
 };
@@ -219,12 +218,12 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
       {open === 'priority' ? <PrioritySheet onCancel={shut} onPick={setPriority} /> : null}
       {open === 'merge' ? (
         <Sheet
-          label={`fold ${[...marked].filter((t) => t !== cursor).length} into #${cursor}?`}
+          label={`fold ${[...marked].filter((t) => t !== cursor).length} into ${taskRef(cursor!)}?`}
           submit="Fold"
           onCancel={shut}
           onSubmit={doMerge}
         >
-          <span className="muted">The folded tasks close; #{cursor} keeps going.</span>
+          <span className="muted">The folded tasks close; {taskRef(cursor!)} keeps going.</span>
         </Sheet>
       ) : null}
       {open === 'keys' ? <KeysSheet onClose={shut} /> : null}

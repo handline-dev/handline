@@ -300,7 +300,7 @@ describe('the task verbs', () => {
     await openTask(MINE_DRAFT);
     expect($('verb-cancel')?.textContent).toBe('Cancel');
     await press($('verb-withdraw'));
-    expect(text()).toContain(`withdraw #${MINE_DRAFT}?`);
+    expect(text()).toContain(`withdraw T${MINE_DRAFT}?`);
     await press($('sheet-cancel'));
     expect($('sheet')).toBeNull(); // nothing sent
     expect(m.daemon.tasks.get({ task: MINE_DRAFT }).state).toBe('draft');
@@ -311,7 +311,7 @@ describe('the task verbs', () => {
     await openTask(MINE_DOING);
     expect($('verb-cancel')?.textContent).toBe('Stop');
     await press($('verb-cancel'));
-    expect(text()).toContain(`stop #${MINE_DOING}? why (optional):`);
+    expect(text()).toContain(`stop T${MINE_DOING}? why (optional):`);
     await press($('sheet-submit')); // no reason is fine
     await until(() => m.daemon.tasks.get({ task: MINE_DOING }).state !== 'doing', 'the daemon');
     m.store.stop();
@@ -333,7 +333,7 @@ describe('the task verbs', () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DRAFT);
     await press($('verb-discard'));
-    expect(text()).toContain(`discard #${MINE_DRAFT}? why:`);
+    expect(text()).toContain(`discard T${MINE_DRAFT}? why:`);
     await press($('sheet-cancel'));
     expect(m.daemon.tasks.get({ task: MINE_DRAFT }).state).toBe('draft');
     await press($('verb-discard'));
