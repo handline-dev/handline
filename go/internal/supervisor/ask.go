@@ -381,6 +381,8 @@ type SayIn struct {
 	ParentID                int64
 	Speaker                 *string
 	Notify                  bool
+	// Link makes ParentID only a link: the request it names is not closed by this reply.
+	Link bool
 	// Within(q, message, request id) is more to write in the transaction that writes the reply and settles the request it answers.
 	Within func(q db.Q, message string, rid int64) error
 }
@@ -394,7 +396,7 @@ func (e *Env) Say(q db.Q, in SayIn) (*AskOut, *Settled, error) {
 	if in.ParentID != 0 || in.Within != nil {
 		ask.Within = func(c db.Q, rid int64, note string) (err error) {
 			defer Catch(&err)
-			if in.ParentID != 0 {
+			if in.ParentID != 0 && !in.Link {
 				settled = e.closeReplied(c, in.ParentID, rid, in.Body)
 			}
 			if in.Within != nil {
