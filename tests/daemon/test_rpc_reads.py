@@ -5,6 +5,7 @@ Run on its own: python3 tests/daemon/test_rpc_reads.py   (all areas: python3 tes
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -12,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.infra import sessiontoken  # noqa: E402
+from handline.infra import paths, sessiontoken  # noqa: E402
 from handline.session import term as termmod  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -301,11 +302,37 @@ def test_the_commands_the_read_methods_serve_still_work_from_an_agent_session(ho
     check("hl inbox: works at role agent", rc == 0, out)
 
 
+def test_task_done_sends_the_commit_and_shots_and_task_show_prints_them(home: Path) -> None:
+    """The daemon that keeps them is Go's, so the client's call and write stand in for it here."""
+    from handline.cli import client as cli_client
+    support._board_world(home)
+    sent, got = [], {"id": 7, "title": "Fix it", "state": "done", "to": "worker", "from": "manager", "priority": 2, "parent": None,
+                     "created": "2026-10-01T10:00:00Z", "time": None, "evidence": "abc123", "done": "2026-10-02T11:30:00Z",
+                     "body": "b", "memos": [], "result": {"commit": "abc1234def", "on_main": True, "no_shot": "a cli change",
+                                                          "shots": [{"n": 1, "bytes": 2048}]}}
+    real = cli_client.write, cli_client.call
+    cli_client.write = lambda method, params: (sent.append((method, params)), (True, "done"))[1]
+    cli_client.call = lambda method, params: got
+    try:
+        rc, out = support._cli(["task", "done", "T7", "w", "--repo", "/r", "--commit", "abc1234", "--shot", "a/../b.png",
+                                "--shot", "/s/c.png", "--no-commit", "ops", "--no-shot", "n"], as_agent="worker")
+        rc2, shown = support._cli(["task", "show", "T7"])
+    finally:
+        cli_client.write, cli_client.call = real
+    check("task done --commit/--shot: sent as given, shots made absolute",
+          rc == 0 and sent == [("task.done", {"task": 7, "repo": "/r", "evidence": "w", "commit": "abc1234", "no_commit": "ops",
+                                              "no_shot": "n", "shots": [os.path.abspath("b.png"), "/s/c.png"]})], str(sent))
+    check("task show: the commit, where main stands, each shot's file and the reason for none",
+          rc2 == 0 and "commit abc1234def (on main)\n" in shown and "no shot: a cli change\n" in shown
+          and f"shot {paths.home() / 'shots' / 'T7' / '1.png'} (2048 bytes)\n" in shown, shown)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_daemon_status_says_what_runs_and_what_it_holds(Path(td) / "r1"))
         run(lambda: test_tasks_list_pages_filters_and_shows_each_caller_its_own(Path(td) / "r2"))
         run(lambda: test_task_get_is_one_task_whole(Path(td) / "r3"))
+        run(lambda: test_task_done_sends_the_commit_and_shots_and_task_show_prints_them(Path(td) / "r10"))
         run(lambda: test_tasks_list_scopes_an_agent_as_the_command_does(Path(td) / "r7"))
         run(lambda: test_inbox_list_is_the_founders_mailbox_or_an_agents_own_requests(Path(td) / "r4"))
         run(lambda: test_inbox_list_holds_for_wait_s_and_returns_when_something_arrives(Path(td) / "r5"))

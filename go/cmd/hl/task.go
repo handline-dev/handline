@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -491,7 +492,7 @@ func taskMerge(c *hlclient.Client, args []string) (int, bool) {
 }
 
 func taskDone(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--request", "--repo"}, []string{"--reason"}, nil)
+	p, ok := parse(args, []string{"--request", "--repo", "--commit", "--no-commit", "--shot", "--no-shot"}, []string{"--reason"}, nil)
 	if !ok || len(p.pos) < 1 || len(p.pos) > 2 {
 		return 0, false
 	}
@@ -537,6 +538,26 @@ func taskDone(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if hasReq {
 		params["request"] = request
+	}
+	for opt, key := range map[string]string{"--commit": "commit", "--no-commit": "no_commit", "--no-shot": "no_shot"} {
+		if v, given := p.opt(opt); given {
+			params[key] = v
+		}
+	}
+	if shots := p.each["--shot"]; len(shots) > 0 {
+		wd, err := unix.Getwd()
+		if err != nil {
+			fmt.Printf("error: %v\n", err)
+			return 1, true
+		}
+		abs := make([]string, len(shots)) // the daemon reads them from its own cwd (os.path.abspath)
+		for i, s := range shots {
+			if !filepath.IsAbs(s) {
+				s = filepath.Join(wd, s)
+			}
+			abs[i] = filepath.Clean(s)
+		}
+		params["shots"] = abs
 	}
 	return said(c.Write("task.done", params)), true
 }

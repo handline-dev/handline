@@ -10,21 +10,27 @@ import (
 	"github.com/handline/handline/go/internal/timefmt"
 )
 
-// parsed is a command line read against one argparse parser: the positionals in order, each option's value under its
-// long name, and each flag given.
+// parsed is a command line read against one argparse parser: the positionals in order, each option's last value under
+// its long name (every value in each, for argparse's action="append"), and each flag given.
 type parsed struct {
 	pos   []string
 	opts  map[string]string
+	each  map[string][]string
 	flags map[string]bool
 }
 
 func (p parsed) opt(name string) (string, bool) { v, ok := p.opts[name]; return v, ok }
 
+func (p *parsed) set(name, value string) {
+	p.opts[name] = value
+	p.each[name] = append(p.each[name], value)
+}
+
 // parse reads args with these options: valued names take the next argument or `--name=value`, flags take none, and
 // alias maps a short name to its long one. ok is false for anything argparse would read some other way or refuse: an
 // unknown or abbreviated option, `--`, `-h`, a valued option with nothing after it. Python then parses it and says so.
 func parse(args []string, valued, flags []string, alias map[string]string) (parsed, bool) {
-	p := parsed{opts: map[string]string{}, flags: map[string]bool{}}
+	p := parsed{opts: map[string]string{}, each: map[string][]string{}, flags: map[string]bool{}}
 	isValued := map[string]bool{}
 	for _, v := range valued {
 		isValued[v] = true
@@ -47,10 +53,10 @@ func parse(args []string, valued, flags []string, alias map[string]string) (pars
 		case isFlag[name] && !inline:
 			p.flags[name] = true
 		case isValued[name] && inline:
-			p.opts[name] = value
+			p.set(name, value)
 		case isValued[name] && i+1 < len(args) && !looksLikeOption(args[i+1]):
 			i++
-			p.opts[name] = args[i]
+			p.set(name, args[i])
 		default:
 			return p, false
 		}

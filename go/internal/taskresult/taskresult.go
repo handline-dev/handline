@@ -83,7 +83,8 @@ func IsUI(q db.Q, tid int64) (bool, error) {
 // Dir is where the screenshots of task tid are kept.
 func Dir(home string, tid int64) string { return filepath.Join(home, "shots", fmt.Sprintf("T%d", tid)) }
 
-func shotFile(home string, tid int64, n int) string {
+// ShotFile is where screenshot n of task tid is kept.
+func ShotFile(home string, tid int64, n int) string {
 	return filepath.Join(Dir(home, tid), fmt.Sprintf("%d.png", n))
 }
 
@@ -207,7 +208,7 @@ func serve(home string, q db.Q, p map[string]any) (any, error) {
 		e.Data = map[string]any{"what": "shot", "task": tid, "n": n}
 		return nil, e
 	}
-	f, err := os.Open(shotFile(home, tid, int(n)))
+	f, err := os.Open(ShotFile(home, tid, int(n)))
 	if err != nil {
 		e := rpc.NotFoundError(fmt.Sprintf("the screenshot %d of T%d is no longer kept", n, tid))
 		e.Data = map[string]any{"what": "shot", "task": tid, "n": n}
