@@ -164,6 +164,12 @@ func detailLines(t obj, now float64, home string) []string {
 			out = append(out, fmt.Sprintf("  %s  %s -> %s\n    %s", stamp(h["at"]), str(h, "from"), str(h, "to"), str(h, "note")))
 		}
 	}
+	if as := list(t, "assignments"); len(as) > 0 {
+		out = append(out, "", "assignee and owner changes")
+		for _, a := range as {
+			out = append(out, fmt.Sprintf("  %s  %s %s -> %s, by %s", stamp(a["at"]), str(a, "what"), str(a, "from"), str(a, "to"), str(a, "by")))
+		}
+	}
 	return out
 }
 

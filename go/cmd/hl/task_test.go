@@ -175,7 +175,8 @@ func TestTaskShowListAndBoardRead(t *testing.T) {
 			"result":{"commit":"abc1234def","on_main":false,"shots":[{"n":1,"bytes":2048},{"n":2,"bytes":10}]},
 			"memos":[{"id":5,"author":"a.one","at":"2026-10-01T12:00:00Z","text":"a memo","edited_at":null}],
 			"blockers":[{"task":9,"owner":"c","title":"first"}],"subtasks":[{"id":8,"owner":"d","state":"doing","title":"child"}],
-			"handoffs":[{"at":"2026-10-01T13:00:00Z","from":"a.one","to":"b.two","note":"over to you"}]}`,
+			"handoffs":[{"at":"2026-10-01T13:00:00Z","from":"a.one","to":"b.two","note":"over to you"}],
+			"assignments":[{"at":"2026-10-01T14:00:00Z","by":"c","what":"owner","from":"a.one","to":"c"}]}`,
 		"tasks.list": `{"items":[{"id":7,"title":"Fix it","to":"b.two","state":"doing","parent":null,"edited_by":null,"evidence":null,
 			"discarded":null,"block_reason":"waiting: x","last_activity":"2026-10-01T10:00:00Z","priority":2,"asker":"a.one",
 			"mismatch":"","hold_reason":"","requests":[{"id":11,"from":"a.one","to":"b.two","state":"queued","at":"2026-10-01T10:00:00Z"}]}],
@@ -207,6 +208,9 @@ child tasks
 handoffs
   2026-10-01 13:00  a.one -> b.two
     over to you
+
+assignee and owner changes
+  2026-10-01 14:00  owner a.one -> c, by c
 `
 	if out, _, code := r.run(asAgent, "task", "show", "t7"); code != 0 || out != show {
 		t.Errorf("show: %d\n%s", code, out)

@@ -320,6 +320,16 @@ export type TaskDetail = Task & {
     to: string;
     note: string;
   }[];
+  /** Every change of the assignee or the owner made by an edit, oldest first; anyone may make one. Handoffs are listed in handoffs. */
+  assignments?: {
+    at: Timestamp;
+    /** Who made the change. */
+    by: string;
+    /** assignee: who works the task (its owner column); owner: who it answers to (its reporter). */
+    what: "assignee" | "owner";
+    from: string;
+    to: string;
+  }[];
   /** Who the task answers to when it closes: its reporter when one was set; else the founder (`human`) if any request linked to it came from the founder, else whoever opened it. A client lets the founder reopen a done task only when this is the founder. */
   asker: string;
   discarded: {

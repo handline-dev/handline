@@ -548,6 +548,20 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 		hs = append(hs, map[string]any{"at": ts(h["ts"]), "from": p["from"], "to": p["to"], "note": note})
 	}
 	task["handoffs"] = hs
+	edits, err := query(e.DB, "SELECT ts, agent, payload FROM events WHERE kind = 'edit_task' AND "+eventTask+" = ? ORDER BY id", *tid)
+	if err != nil {
+		return nil, err
+	}
+	as := []any{} // every change of who works the task (the owner column) or who answers for it (the reporter), by an edit
+	for _, ed := range edits {
+		p := decodeObject(ed.str("payload"))
+		for _, f := range [][2]string{{"owner", "assignee"}, {"reporter", "owner"}} {
+			if c, ok := p[f[0]].(map[string]any); ok {
+				as = append(as, map[string]any{"at": ts(ed["ts"]), "by": ed.str("agent"), "what": f[1], "from": c["old"], "to": c["new"]})
+			}
+		}
+	}
+	task["assignments"] = as
 	return task, nil
 }
 

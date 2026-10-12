@@ -9177,6 +9177,43 @@
          ]
         }
        },
+       "assignments": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "at": {
+           "$ref": "#/components/schemas/Timestamp"
+          },
+          "by": {
+           "type": "string",
+           "description": "Who made the change."
+          },
+          "what": {
+           "type": "string",
+           "enum": [
+            "assignee",
+            "owner"
+           ],
+           "description": "assignee: who works the task (its owner column); owner: who it answers to (its reporter)."
+          },
+          "from": {
+           "type": "string"
+          },
+          "to": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "at",
+          "by",
+          "what",
+          "from",
+          "to"
+         ]
+        },
+        "description": "Every change of the assignee or the owner made by an edit, oldest first; anyone may make one. Handoffs are listed in handoffs."
+       },
        "asker": {
         "type": "string",
         "description": "Who the task answers to when it closes: its reporter when one was set; else the founder (`human`) if any request linked to it came from the founder, else whoever opened it. A client lets the founder reopen a done task only when this is the founder."

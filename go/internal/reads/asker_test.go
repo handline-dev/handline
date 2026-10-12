@@ -77,3 +77,26 @@ func TestATaskGetCarriesWhatItsEndKeptAndWhetherItIsAUITask(t *testing.T) {
 		t.Fatalf("a task with neither carries nothing extra: %v", plain)
 	}
 }
+
+func TestATaskGetListsEachAssigneeAndOwnerChange(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'a', 'bob', 'human', 1)")
+	run(t, e, `INSERT INTO events(ts, agent, kind, payload) VALUES
+		(10, 'carol', 'edit_task', '{"task_id": 1, "owner": {"old": "al", "new": "bob"}, "reporter": {"old": "human", "new": "carol"}}'),
+		(11, 'human', 'edit_task', '{"task_id": 1, "title": {"old": "x", "new": "a"}}'),
+		(12, 'human', 'edit_task', '{"task_id": 2, "owner": {"old": "bob", "new": "al"}}')`)
+	got, err := e.taskGet(nil, map[string]any{"task": json.Number("1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	as, _ := got.(map[string]any)["assignments"].([]any)
+	if len(as) != 2 {
+		t.Fatalf("one entry per changed field of this task's edits, none for a title or another task: %v", as)
+	}
+	a, o := as[0].(map[string]any), as[1].(map[string]any)
+	if a["what"] != "assignee" || a["from"] != "al" || a["to"] != "bob" || a["by"] != "carol" ||
+		o["what"] != "owner" || o["from"] != "human" || o["to"] != "carol" {
+		t.Fatalf("%v", as)
+	}
+}

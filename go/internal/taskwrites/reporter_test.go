@@ -9,7 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/store"
 )
 
-func TestATasksReporterEditsItAndTheOwnersManagerMayOnlyReassignIt(t *testing.T) {
+func TestATasksReporterEditsItAndAnyoneMayReassignIt(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -50,25 +50,22 @@ func TestATasksReporterEditsItAndTheOwnersManagerMayOnlyReassignIt(t *testing.T)
 	if why := edit("other", nil, nil, s("renamed")); why != "" {
 		t.Fatalf("the reporter may edit: %s", why)
 	}
-	if why := edit("shop.a", s("shop.a"), nil, nil); !strings.HasSuffix(why, "or shop.b's manager") {
-		t.Fatalf("someone else's agent may not take it: %q", why)
+	if why := edit("shop.a", s("shop.a"), nil, nil); why != "" {
+		t.Fatalf("anyone may take it on: %s", why)
 	}
-	if why := edit("shop", s("shop.a"), nil, nil); why != "" {
-		t.Fatalf("the owner's manager may reassign it: %s", why)
+	if why := edit("shop", nil, s("shop"), nil); why != "" {
+		t.Fatalf("anyone may change who answers for it: %s", why)
 	}
-	if why := edit("shop", nil, s("shop"), nil); why == "" {
-		t.Fatal("the manager may not change the reporter")
+	if why := edit("shop.a", s("shop.b"), nil, s("both")); why == "" {
+		t.Fatal("but reshaping it stays its opener's, its reporter's or the founder's")
 	}
-	if why := edit("shop", s("shop.b"), nil, s("both")); why == "" {
-		t.Fatal("nor change more than the owner")
-	}
-	if why := edit("other.c", nil, s("other.c"), nil); why != "" {
-		t.Fatalf("the opener may change the reporter: %s", why)
-	}
-	if owner, reporter, _ := read(); owner != "shop.a" || reporter != "other.c" {
+	if owner, reporter, _ := read(); owner != "shop.a" || reporter != "shop" {
 		t.Fatalf("owner %q reporter %q", owner, reporter)
 	}
-	if why := edit("other", s("shop.b"), nil, nil); !strings.Contains(why, "whoever opened it (other.c) or the founder") {
-		t.Fatalf("the old reporter may no longer edit, and a reporter that is the opener is named once: %q", why)
+	if why := edit("other", nil, nil, s("again")); !strings.Contains(why, "whoever opened it (other.c), its reporter (shop) or the founder") {
+		t.Fatalf("the old reporter may no longer reshape it: %q", why)
+	}
+	if n := count(t, db, "SELECT COUNT(*) FROM events WHERE kind = 'edit_task' AND agent = 'shop' AND json_extract(payload, '$.reporter.new') = 'shop'"); n != 1 {
+		t.Fatalf("each change is kept with who made it: %d", n)
 	}
 }
