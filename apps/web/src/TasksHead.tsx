@@ -1,4 +1,5 @@
 // The header of the Tasks page: search, the Open / Mine / Closed pills, the Filters popover (agent and states), list or tree, select (phone), keys and New task.
+import type { ReactNode } from 'react';
 import { CLOSED, LISTED, TASK_STATES, type TaskColumn, type TaskFilter } from '@handline/app-core';
 import { BarInput, Button, Icon, Popup, Segmented, Select, Toolbar } from './ui/index.ts';
 import { STATE_GLYPH } from './taskui.tsx';
@@ -72,7 +73,9 @@ export function TasksHead(props: {
           aria-expanded={props.filtering}
           onClick={() => props.onAct('states')}
         >
-          {changed(filter) ? <span className="tdot absolute top-1 right-1 h-2 w-2 rounded-pill border border-canvas bg-ink" title="A filter is on" /> : null}
+          {changed(filter) ? (
+            <span className="tdot absolute top-1 right-1 h-2 w-2 rounded-pill border border-canvas bg-ink" title="A filter is on" />
+          ) : null}
         </Button>
         <Popup open={props.filtering} onClose={() => props.onAct('states')} title="Filters">
           <div className="tfilter-body grid gap-2 px-3 py-2">
@@ -98,7 +101,12 @@ export function TasksHead(props: {
                 <Icon name={STATE_GLYPH[s] ?? 'taskPending'} size={14} aria-hidden="true" /> {s}
               </label>
             ))}
-            <Button variant="outline" size="sm" label="Reset" onClick={() => props.onFilter({ ...filter, states: new Set(LISTED), agent: '' })} />
+            <Button
+              variant="outline"
+              size="sm"
+              label="Reset"
+              onClick={() => props.onFilter({ ...filter, states: new Set(LISTED), agent: '' })}
+            />
           </div>
         </Popup>
       </span>
@@ -121,7 +129,14 @@ export function TasksHead(props: {
         onClick={() => props.onSelecting()}
       />
       <Button icon="keys" label="Keys" title="Keys (?)" className="max-sm:min-h-[44px]" onClick={() => props.onAct('keys')} />
-      <Button icon="plus" label="New task" title="New task (n)" variant="solid" className="max-sm:min-h-[44px]" onClick={() => props.onAct('new')} />
+      <Button
+        icon="plus"
+        label="New task"
+        title="New task (n)"
+        variant="solid"
+        className="max-sm:min-h-[44px]"
+        onClick={() => props.onAct('new')}
+      />
     </header>
   );
 }
@@ -131,13 +146,22 @@ type Can = { ok: boolean; why: string | undefined };
 /** The icon bar under the table while rows are marked: it acts on them. One row's own actions are on the row. */
 export function TasksBar(props: {
   marked: number;
+  /** How many rows are shown: the bar offers to mark them all. */
+  shown?: number;
   can: { discard: Can; edit: Can; merge: Can };
   onAct: (what: 'discard' | 'owner' | 'priority' | 'merge') => void;
+  onAll?: () => void;
+  children?: ReactNode;
 }) {
   const { can } = props;
   return (
     <Toolbar label="Actions on the marked tasks">
       <span className="muted mr-auto">{props.marked} marked</span>
+      {props.onAll && props.shown !== undefined ? (
+        <Button variant="outline" size="sm" label={props.marked >= props.shown ? 'Clear' : 'Select all'} onClick={props.onAll}>
+          {props.marked >= props.shown ? 'Clear' : `Select all ${props.shown}`}
+        </Button>
+      ) : null}
       <Button
         icon="dismiss"
         label="Discard"
@@ -146,8 +170,22 @@ export function TasksBar(props: {
         className="max-sm:min-h-[44px]"
         onClick={() => props.onAct('discard')}
       />
-      <Button icon="owner" label="Owner" title={can.edit.why ?? 'Owner (o)'} disabled={!can.edit.ok} className="max-sm:min-h-[44px]" onClick={() => props.onAct('owner')} />
-      <Button icon="priority" label="Priority" title={can.edit.why ?? 'Priority (p)'} disabled={!can.edit.ok} className="max-sm:min-h-[44px]" onClick={() => props.onAct('priority')} />
+      <Button
+        icon="owner"
+        label="Owner"
+        title={can.edit.why ?? 'Owner (o)'}
+        disabled={!can.edit.ok}
+        className="max-sm:min-h-[44px]"
+        onClick={() => props.onAct('owner')}
+      />
+      <Button
+        icon="priority"
+        label="Priority"
+        title={can.edit.why ?? 'Priority (p)'}
+        disabled={!can.edit.ok}
+        className="max-sm:min-h-[44px]"
+        onClick={() => props.onAct('priority')}
+      />
       <Button
         icon="merge"
         label="Merge"
@@ -156,6 +194,7 @@ export function TasksBar(props: {
         className="max-sm:min-h-[44px]"
         onClick={() => props.onAct('merge')}
       />
+      {props.children}
     </Toolbar>
   );
 }

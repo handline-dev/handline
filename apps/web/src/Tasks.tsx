@@ -9,6 +9,7 @@ import {
   taskAgents,
   taskTree,
   type KV,
+  type RowVerb,
   type TaskColumn,
   type TaskFilter,
 } from '@handline/app-core';
@@ -22,11 +23,13 @@ import { NewTask } from './NewTask.tsx';
 import { Row } from './TaskRows.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from './TasksHead.tsx';
 import { TableHead } from './TaskTableHead.tsx';
-import { KeysSheet, OwnerSheet, PrioritySheet } from './TaskSheets.tsx';
+import { KeysSheet, MergeSheet, OwnerSheet, PrioritySheet } from './TaskSheets.tsx';
 import { Button } from './ui/index.ts';
 import { AnimatedList } from './AnimatedList.tsx';
 import { useBulk } from './taskActions.ts';
-import { ReasonSheet, Sheet, useCan, useNow, useWide } from './taskui.tsx';
+import { ReasonSheet, useCan, useNow, useWide } from './taskui.tsx';
+import { useMarks } from './useMarks.ts';
+import { VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from './TaskVerbUi.tsx';
 import { View } from './View.tsx';
 
 type Mode = 'list' | 'tree';
@@ -66,7 +69,6 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
   const [scope, setScope] = useState<Scope>('open');
   const me = useStore().me;
   const [sort, setSort] = useState<{ by: TaskColumn; reverse: boolean }>({ by: 'priority', reverse: false });
-  const [marked, setMarked] = useState<ReadonlySet<number>>(new Set());
   const [cursor, setCursor] = useState<number | null>(null);
   const [open, setOpen] = useState<Open>(null);
   const [query, setQuery] = useState('');
@@ -87,12 +89,14 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
   );
   const tree = useMemo(() => (mode === 'tree' ? taskTree(rows, all) : []), [mode, rows, all]);
   const order = mode === 'tree' ? tree.map((r) => r.task) : rows;
+  const { marked, setMarked, toggle, toggleAll } = useMarks(order.map((t) => t.id));
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
 
   const bulk = useBulk(() => setMarked(new Set()));
   const canEdit = useCan('task.edit');
   const canDiscard = useCan('task.discard');
   const canMerge = useCan('task.merge');
+  const cans = useVerbCans();
   const listServed = useServes('tasks.list').served;
 
   useEffect(() => {
@@ -105,17 +109,10 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
     queueMicrotask(() => root.current?.focus());
   };
   const targets = (): number[] => (marked.size ? order.filter((t) => marked.has(t.id)).map((t) => t.id) : cursor === null ? [] : [cursor]);
-  const setOwner = (owner: string) => {
+  /** Owner, priority and discard: the sheet closes and the batch runs on the marked rows (or the cursor row). */
+  const own = (verb: RowVerb, arg: string) => {
     shut();
-    void bulk.owner(targets(), owner);
-  };
-  const setPriority = (priority: 1 | 2 | 3) => {
-    shut();
-    void bulk.priority(targets(), priority);
-  };
-  const doDiscard = (reason: string) => {
-    shut();
-    void bulk.discard(targets(), reason);
+    void bulk.run(verb, targets(), arg);
   };
   const doMerge = () => {
     const into = cursor;
@@ -138,13 +135,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
     const next = order[Math.min(order.length - 1, Math.max(0, i + d))];
     if (next) setCursor(next.id);
   };
-  const toggle = (id: number) =>
-    setMarked((m) => {
-      const n = new Set(m);
-      if (!n.delete(id)) n.add(id);
-      return n;
-    });
-  const toggleAll = () => setMarked((m) => (m.size === order.length ? new Set() : new Set(order.map((t) => t.id))));
+  const verbs = useVerbFlow({ all, me, agents, bulk, focus: () => root.current?.focus(), own: (v) => act(v) });
   const act = (what: Exclude<Open, null>) => {
     if (what === 'discard' && !canDiscard.ok) return;
     if ((what === 'owner' || what === 'priority') && !canEdit.ok) return;
@@ -186,8 +177,14 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
 
   const listBody = (
     <>
-      <div className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface max-sm:bg-transparent max-sm:border-0" aria-busy={q.isFetching && !q.data}>
-        <table className={`ttable w-full table-fixed border-collapse max-sm:block${selecting || marked.size ? ' selecting' : ''}`} aria-label="Tasks">
+      <div
+        className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface max-sm:bg-transparent max-sm:border-0"
+        aria-busy={q.isFetching && !q.data}
+      >
+        <table
+          className={`ttable w-full table-fixed border-collapse max-sm:block${selecting || marked.size ? ' selecting' : ''}`}
+          aria-label="Tasks"
+        >
           <TableHead
             tree={mode === 'tree'}
             sort={sort}
@@ -200,9 +197,21 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
             <AnimatedList>
               {mode === 'tree'
                 ? tree.map(({ task: t, depth, dim }) => (
-                    <Row key={t.id} rows={tree.length} t={t} now={now} tree depth={depth} dim={dim} markCell={selecting || marked.size > 0} {...rowProps(t)} />
+                    <Row
+                      key={t.id}
+                      rows={tree.length}
+                      t={t}
+                      now={now}
+                      tree
+                      depth={depth}
+                      dim={dim}
+                      markCell={selecting || marked.size > 0}
+                      {...rowProps(t)}
+                    />
                   ))
-                : rows.map((t) => <Row key={t.id} rows={rows.length} t={t} now={now} markCell={selecting || marked.size > 0} {...rowProps(t)} />)}
+                : rows.map((t) => (
+                    <Row key={t.id} rows={rows.length} t={t} now={now} markCell={selecting || marked.size > 0} {...rowProps(t)} />
+                  ))}
             </AnimatedList>
           </tbody>
         </table>
@@ -212,23 +221,27 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
           label={targets().some((id) => all.find((t) => t.id === id)?.state === 'doing') ? 'stop it and discard - why:' : 'discard - why:'}
           submit="Discard"
           onCancel={shut}
-          onSubmit={doDiscard}
+          onSubmit={(reason) => own('discard', reason)}
         />
       ) : null}
-      {open === 'owner' ? <OwnerSheet agents={agents} onCancel={shut} onPick={setOwner} /> : null}
-      {open === 'priority' ? <PrioritySheet onCancel={shut} onPick={setPriority} /> : null}
+      {open === 'owner' ? <OwnerSheet agents={agents} onCancel={shut} onPick={(o) => own('owner', o)} /> : null}
+      {open === 'priority' ? <PrioritySheet onCancel={shut} onPick={(p) => own('priority', String(p))} /> : null}
       {open === 'merge' ? (
-        <Sheet
-          label={`fold ${[...marked].filter((t) => t !== cursor).length} into #${cursor}?`}
-          submit="Fold"
-          onCancel={shut}
-          onSubmit={doMerge}
-        >
-          <span className="muted">The folded tasks close; #{cursor} keeps going.</span>
-        </Sheet>
+        <MergeSheet count={[...marked].filter((t) => t !== cursor).length} into={cursor} onCancel={shut} onSubmit={doMerge} />
       ) : null}
       {open === 'keys' ? <KeysSheet onClose={shut} /> : null}
-      {marked.size ? <TasksBar marked={marked.size} can={{ discard: canDiscard, edit: canEdit, merge: canMerge }} onAct={act} /> : null}
+      <VerbSheets flow={verbs} ids={targets()} />
+      {marked.size ? (
+        <TasksBar
+          marked={marked.size}
+          shown={order.length}
+          can={{ discard: canDiscard, edit: canEdit, merge: canMerge }}
+          onAct={act}
+          onAll={toggleAll}
+        >
+          <VerbMenu tasks={verbs.byId([...marked])} me={me} cans={cans} onPick={verbs.pick} title="More actions" up />
+        </TasksBar>
+      ) : null}
     </>
   );
 
@@ -240,15 +253,23 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
     setOpen(what);
   }
 
+  /** A row's menu acts on that row, or on the marked rows when it is one of them. */
+  function rowVerb(id: number, verb: RowVerb) {
+    setCursor(id);
+    if (!marked.has(id)) setMarked(new Set());
+    verbs.pick(verb);
+  }
+
   function rowProps(t: Task) {
     return {
+      menu: <VerbMenu tasks={[t]} me={me} cans={cans} onPick={(v) => rowVerb(t.id, v)} />,
       marked: marked.has(t.id),
       cursor: cursor === t.id,
       open: selected === t.id,
       mark: (t.id < 0 || bulk.authored.has(t.id) ? 'authored' : bulk.decided.has(t.id) ? 'decided' : null) as 'authored' | 'decided' | null,
       failed: bulk.failed.has(t.id),
       onCursor: () => setCursor(t.id),
-      onMark: () => toggle(t.id),
+      onMark: (range: boolean) => toggle(t.id, range),
       can: { discard: canDiscard, edit: canEdit },
       onAct: (what: 'discard' | 'owner' | 'priority') => rowAct(t.id, what),
     };
@@ -291,9 +312,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
             ) : (
               <>
                 <p>No tasks in these states.</p>
-                {scope !== 'closed' ? (
-                  <Button variant="outline" size="sm" label="Show closed" onClick={() => setScope('closed')} />
-                ) : null}
+                {scope !== 'closed' ? <Button variant="outline" size="sm" label="Show closed" onClick={() => setScope('closed')} /> : null}
               </>
             )}
           </div>

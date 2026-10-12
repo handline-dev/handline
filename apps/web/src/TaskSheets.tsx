@@ -68,3 +68,11 @@ export function KeysSheet({ onClose }: { onClose: () => void }) {
     </Sheet>
   );
 }
+
+export function MergeSheet(props: { count: number; into: number | null; onCancel: () => void; onSubmit: () => void }) {
+  return (
+    <Sheet label={`fold ${props.count} into #${props.into}?`} submit="Fold" onCancel={props.onCancel} onSubmit={props.onSubmit}>
+      <span className="muted">The folded tasks close; #{props.into} keeps going.</span>
+    </Sheet>
+  );
+}

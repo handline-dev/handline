@@ -8,10 +8,10 @@ import { Button, Icon, VisuallyHidden } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
 import { MemoBox, MemoRow } from './TaskMemos.tsx';
-import { CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, TIMELINE, Verb } from './TaskDetailParts.tsx';
+import { CancelSheet, EditForm, ReleaseSheet, TaskLinks, TaskMeta, TaskTimeline, TIMELINE, Verb } from './TaskDetailParts.tsx';
 import { View } from './View.tsx';
 
-type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'edit';
+type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'edit' | 'release';
 
 const CLOSED = ['done', 'discarded'];
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
@@ -72,6 +72,7 @@ function Body({ t }: { t: Detail }) {
   const discard = useWrite('task.discard');
   const withdraw = useWrite('task.withdraw');
   const cancel = useWrite('task.cancel');
+  const release = useWrite('task.release');
   const can = {
     done: useCan('task.done'),
     queue: useCan('task.queue'),
@@ -84,6 +85,7 @@ function Body({ t }: { t: Detail }) {
     edit: useCan('task.edit'),
     withdraw: useCan('task.withdraw'),
     cancel: useCan('task.cancel'),
+    release: useCan('task.release'),
   };
   const authored = [...usePending('task.edit'), ...usePending('task.done'), ...usePending('task.queue'), ...usePending('task.draft')].some(
     (v) => ('task' in v ? v.task === t.id : v.tasks.includes(t.id)),
@@ -114,6 +116,7 @@ function Body({ t }: { t: Detail }) {
     e: () => open && setAsk('edit'),
     w: () => startable && mine && setAsk('withdraw'),
     c: () => open && setAsk('cancel'),
+    l: () => (running ? setAsk('release') : say(`task #${t.id} is not running`)),
   } as const;
   const key = (e: KeyboardEvent) => {
     if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -154,6 +157,7 @@ function Body({ t }: { t: Detail }) {
         <Verb k="a" icon="say" label="Add a memo" can={can.memo} onClick={verbs.a} />
         {open ? <Verb k="e" icon="answer" label="Edit" can={can.edit} onClick={verbs.e} /> : null}
         {startable && mine ? <Verb k="w" icon="withdrawn" label="Withdraw" can={can.withdraw} onClick={verbs.w} /> : null}
+        {running ? <Verb k="l" icon="retry" label="Release" can={can.release} onClick={verbs.l} busy={release.isPending} /> : null}
         {open ? <Verb k="c" icon="cancel" label="Cancel" can={can.cancel} onClick={verbs.c} /> : null}
         {open ? <Verb k="d" icon="dismiss" label="Discard" can={can.discard} onClick={verbs.d} /> : null}
       </div>
@@ -197,6 +201,13 @@ function Body({ t }: { t: Detail }) {
           id={t.id}
           onCancel={() => setAsk(null)}
           onSubmit={(reason) => (setAsk(null), cancel.mutate({ task: t.id, reason }))}
+        />
+      ) : null}
+      {ask === 'release' ? (
+        <ReleaseSheet
+          id={t.id}
+          onCancel={() => setAsk(null)}
+          onSubmit={(to, reason) => (setAsk(null), release.mutate({ task: t.id, to, ...(reason ? { reason } : {}) }))}
         />
       ) : null}
       {ask === 'edit' ? <EditForm t={t} onClose={() => setAsk(null)} /> : null}

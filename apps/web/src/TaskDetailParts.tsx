@@ -38,7 +38,14 @@ export function TaskMeta({ t, now }: { t: Detail; now: number }) {
   );
 }
 
-export function Verb(props: { k: string; icon: IconName; label: string; can: { ok: boolean; why?: string }; onClick: () => void; busy?: boolean }) {
+export function Verb(props: {
+  k: string;
+  icon: IconName;
+  label: string;
+  can: { ok: boolean; why?: string };
+  onClick: () => void;
+  busy?: boolean;
+}) {
   return (
     <Button
       icon={props.busy ? undefined : props.icon}
@@ -156,6 +163,37 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
           </NativeSelect>
         </label>
       </div>
+    </Sheet>
+  );
+}
+
+/** Takes a doing task back to queued or draft (`task.release`), with an optional reason. */
+export function ReleaseSheet(props: {
+  id: number;
+  onCancel: () => void;
+  onSubmit: (to: 'queued' | 'draft', reason: string | undefined) => void;
+}) {
+  const [to, setTo] = useState<'queued' | 'draft'>('queued');
+  const [reason, setReason] = useState('');
+  return (
+    <Sheet
+      label={`release #${props.id}?`}
+      submit="Release"
+      onCancel={props.onCancel}
+      onSubmit={() => props.onSubmit(to, reason.trim() || undefined)}
+    >
+      <NativeSelect value={to} aria-label="Release to" onChange={(e) => setTo(e.target.value === 'draft' ? 'draft' : 'queued')}>
+        <option value="queued">back to queued</option>
+        <option value="draft">back to draft</option>
+      </NativeSelect>
+      <Input
+        grow
+        className="tinput"
+        value={reason}
+        aria-label="Reason"
+        placeholder="why? (optional)"
+        onChange={(e) => setReason(e.target.value)}
+      />
     </Sheet>
   );
 }

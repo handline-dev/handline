@@ -211,6 +211,12 @@ export class FakeTasks {
     if (t.state === 'done' || t.state === 'discarded') throw new TaskFailure('refused', `task ${t.id} is ${t.state}`);
     this.change(t, { state: 'discarded', done: this.now(), hold_reason: String(p.reason) });
   }
+  /** Take a doing task back to queued (or draft). */
+  release(p: Record<string, unknown>): void {
+    const t = this.find(p.task);
+    if (t.state !== 'doing') throw new TaskFailure('refused', `task ${t.id} is ${t.state}, not doing`);
+    this.change(t, { state: p.to === 'draft' ? 'draft' : 'queued' });
+  }
   merge(p: Record<string, unknown>): void {
     const into = this.find(p.into);
     const rows = ((p.tasks as number[]) ?? []).map((id) => this.find(id));
@@ -219,7 +225,7 @@ export class FakeTasks {
   }
 }
 
-// The task methods the fake serves; the rest (memos, release, handoff) are refused as `unsupported`.
+// The task methods the fake serves; the rest (handoff) are refused as `unsupported`.
 const BASIC = new Set(['tasks.list', 'task.get', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel']);
 const VERBS = new Set([
   'task.done',
@@ -227,6 +233,7 @@ const VERBS = new Set([
   'task.queue',
   'task.draft',
   'task.discard',
+  'task.release',
   'task.merge',
   'task.memo.add',
   'task.memo.edit',
@@ -266,6 +273,8 @@ export function taskCall(
         return (tasks.move(p, 'queued', 'draft'), ok('Back to draft.'));
       case 'task.discard':
         return (tasks.discard(p), ok('Task discarded.'));
+      case 'task.release':
+        return (tasks.release(p), ok('Task released.'));
       case 'task.merge':
         return (tasks.merge(p), ok('Tasks folded.'));
       case 'task.memo.add':

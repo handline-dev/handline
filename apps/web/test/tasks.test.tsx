@@ -530,3 +530,74 @@ describe('the detail', () => {
     await until(() => text($('.toast')).includes('only a done task that you asked for can be reopened'), 'the bridge sentence');
   });
 });
+
+describe('actions on one task or many', () => {
+  const shiftClick = (el: Element | null) =>
+    act(async () => void el!.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })));
+  const popupRow = (label: string) =>
+    $$('.ui-popup [role="dialog"] button, .ui-popup button, .ui-popup [aria-disabled]').find((b) => text(b).startsWith(label));
+  const menu = async (within: ParentNode, button_: string, rowLabel: string) => {
+    await click(button(button_, within));
+    await click(popupRow(rowLabel));
+  };
+
+  it('Shift-click marks the rows between, and "Select all" marks every row shown', async () => {
+    await mount('#/tasks', withVerbs(setup()));
+    await loaded();
+    const ids = rowIds();
+    await mark(ids[0]!);
+    await shiftClick($(`input[aria-label="Mark #${ids[2]}"]`));
+    expect($$('input[type="checkbox"]:checked').filter((c) => c.getAttribute('aria-label')?.startsWith('Mark #'))).toHaveLength(3);
+    await click(button('Select all'));
+    expect(text($('.ui-toolbar, [role="toolbar"]'))).toContain(`${ids.length} marked`);
+  });
+
+  it('runs Done on the marked tasks after a confirm with the count, and lists which failed and why', async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks', s);
+    await loaded();
+    await mark(1684);
+    await mark(1688);
+    s.daemon.knobs.refuse('task.done', 'state', 'task is locked', undefined, 1);
+    await menu(box, 'More actions', 'Done');
+    const sh = sheet('Done 2 tasks?')!;
+    expect(sh).toBeTruthy();
+    await typeInto($('input[aria-label="what came of it?"]', sh) as HTMLInputElement, 'checked by hand');
+    await click(button('Done', sh));
+    await until(() => sheet('done: 1 of 2 changed'), 'the result sheet');
+    expect(text(sheet('done: 1 of 2 changed'))).toContain('task is locked');
+    expect([1684, 1688].filter((id) => s.daemon.tasks.get({ task: id }).state === 'done')).toHaveLength(1);
+  });
+
+  it('skips what a verb cannot apply to, and says so in the confirm', async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks', s);
+    await loaded();
+    await mark(1690); // queued
+    await mark(1700); // draft
+    await menu(box, 'More actions', 'Queue');
+    const sh = sheet('Queue 1 task?')!;
+    expect(text(sh)).toContain('1 skipped');
+    expect(text(sh)).toContain('#1690 is not a draft');
+    await click(button('Queue', sh));
+    await until(() => s.daemon.tasks.get({ task: 1700 }).state === 'queued', 'the draft is queued');
+  });
+
+  it("a row's own menu releases a running task", async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks', s);
+    await loaded();
+    await menu(row(1684)!, 'Actions', 'Release');
+    await click(button('Release', sheet('Release 1 task?')!));
+    await until(() => s.daemon.tasks.get({ task: 1684 }).state === 'queued', 'released');
+  });
+
+  it('a verb the daemon does not serve is listed but cannot be used, and says why', async () => {
+    await mount('#/tasks', setup());
+    await loaded();
+    await click(button('Actions', row(1684)!));
+    const done = popupRow('Done')!;
+    expect(done.getAttribute('aria-disabled')).toBe('true');
+    expect(done.getAttribute('title')).toContain('does not serve task.done');
+  });
+});

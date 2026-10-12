@@ -294,6 +294,23 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await until(() => $('.tdetail'), 'the task detail again');
   });
 
+  it('in the Tasks tab, marked tasks are acted on together: the menu confirms with the count and the daemon is written', async () => {
+    const s = setup();
+    s.daemon.tasks.verbs = true;
+    await mount(ARCH, s);
+    await until(() => msg('Which gap list'), 'history');
+    await click($('button[aria-label="Add a tab"]')!);
+    await click($$('.strip-end .ui-prow').find((b) => text(b).includes('Tasks'))!);
+    await until(() => $('.tasks-tab-row'), 'the agent tasks');
+    await click($('input[aria-label="Mark #1684"]')!);
+    await click($$('button').find((b) => b.getAttribute('aria-label') === 'Actions on the marked tasks')!);
+    await click($$('.ui-popup button').find((b) => text(b).startsWith('Discard'))!);
+    const sh = $$('.tsheet').find((x) => x.getAttribute('aria-label') === 'Discard 1 task?')!;
+    await typeInto(sh.querySelector('input[aria-label="why?"]') as HTMLInputElement, 'duplicate');
+    await click([...sh.querySelectorAll('button')].find((b) => text(b) === 'Discard')!);
+    await until(() => s.daemon.tasks.get({ task: 1684 }).state === 'discarded', 'the task is discarded');
+  });
+
   it("the Add a tab menu opens the agent's Tasks, a click opens a task in the pane and Back returns to the list", async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
