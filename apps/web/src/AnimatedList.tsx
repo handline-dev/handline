@@ -55,7 +55,8 @@ export function AnimatedItem({
       transition={transition}
       layout={layout ? 'position' : false}
       onUpdate={onFrame}
-      style={{ overflow: 'hidden' }}
+      // The grow animation clips vertically; the visible x keeps a bubble's side stamp, which hangs outside the item, in view.
+      style={{ overflowY: 'clip', overflowX: 'visible' }}
     >
       {children}
     </motion.div>
