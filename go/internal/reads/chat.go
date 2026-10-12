@@ -932,8 +932,23 @@ func taskItemOf(ev row) (item map[string]any, task int64, ok bool) {
 	} else if event == "withdrawn" {
 		evidence = p["reason"]
 	}
-	return map[string]any{"id": itemID(ev.i("ts"), itemTask, ev.i("id")), "at": ts(ev["ts"]), "kind": "task_event",
-		"task_event": map[string]any{"event": event, "task": tid, "request": p["request_id"], "evidence": evidence}}, tid, true
+	body := map[string]any{"event": event, "task": tid, "request": p["request_id"], "evidence": evidence}
+	if change := changeOf(ev.str("kind"), p); change != "" {
+		body["change"] = change
+	}
+	return map[string]any{"id": itemID(ev.i("ts"), itemTask, ev.i("id")), "at": ts(ev["ts"]), "kind": "task_event", "task_event": body}, tid, true
+}
+
+// changeOf is what a "changed" event changed, in the words chat.requests gives it: an edit's fields, "handed to X". "" for an event that says
+// no more than its event word does.
+func changeOf(kind string, p map[string]any) string {
+	switch kind {
+	case "edit_task":
+		return strings.Join(editNotes(p), ", ")
+	case "task_handoff":
+		return "handed to " + jsonStr(p["to"])
+	}
+	return ""
 }
 
 func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {

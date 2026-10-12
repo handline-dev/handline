@@ -327,8 +327,12 @@ def task_item_of(con, row) -> dict | None:
     if event is None or not isinstance(tid, int):
         return None
     evidence = payload.get("done") if event == "done" else payload.get("reason") if event == "withdrawn" else None
-    return {"id": _item_id(row["ts"], _TASK, row["id"]), "at": _TS(row["ts"]), "kind": "task_event",
-            "task_event": {"event": event, "task": tid, "request": payload.get("request_id"), "evidence": evidence}}
+    body = {"event": event, "task": tid, "request": payload.get("request_id"), "evidence": evidence}
+    change = (", ".join(_edit_notes(payload)) if row["kind"] == "edit_task"
+              else f"handed to {payload['to']}" if row["kind"] == "task_handoff" and "to" in payload else "")
+    if change:
+        body["change"] = change      # what a changed event changed, as chat.requests words it
+    return {"id": _item_id(row["ts"], _TASK, row["id"]), "at": _TS(row["ts"]), "kind": "task_event", "task_event": body}
 
 
 def _task_items(con, agent: str) -> list[dict]:
