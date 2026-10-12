@@ -55,7 +55,8 @@ func TestOnlyASessionThatBypassesPromptsIsAttestedToAndTheWeakestAuthorCounts(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	mode := peerMode(home, d)
+	from := peerFrom(home, d)
+	mode := func(agent, op string) string { return from(agent, op).Mode }
 	for _, c := range []struct{ agent, op, want string }{
 		{"free", ask("human"), peerinbox.Bypass},                              // the person's words carry the authority the session was launched with
 		{"free", ask("free2"), peerinbox.Bypass},                              // a bypassing agent's
@@ -71,6 +72,46 @@ func TestOnlyASessionThatBypassesPromptsIsAttestedToAndTheWeakestAuthorCounts(t 
 	} {
 		if got := mode(c.agent, c.op); got != c.want {
 			t.Errorf("%s %s: %q, want %q", c.agent, c.op, got, c.want)
+		}
+	}
+}
+
+func TestADeliveryNamesWhoWroteItAndNeverTheSessionsOwnPerson(t *testing.T) {
+	t.Setenv("HANDLINE_TEST_ROOT", t.TempDir())
+	for _, k := range []string{"OCP_AGENT", "HANDLINE_AGENT"} {
+		t.Setenv(k, "")
+	}
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := team.NewRoster(home)
+	for _, name := range []string{"free", "asks", "other"} {
+		if _, err := r.Register(name, team.RegisterOpts{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, err := store.Open(filepath.Join(home, "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	op := func(from string) string {
+		rid, err := db.AddRequest(d, db.NewRequest{Requester: from, Target: "free", Body: "x", Response: "async", Kind: "ask"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return supervisor.RequestOp(rid)
+	}
+	from := peerFrom(home, d)
+	for _, c := range []struct{ op, name string }{
+		{op("asks"), "asks"},
+		{op("human"), "founder"},
+		{supervisor.DaemonOp, ""},
+		{"notice:1", ""},
+	} {
+		if got := from("free", c.op); got.Name != c.name || got.Mode != "" { // "free" prompts: no class is attested to it
+			t.Errorf("%s: %+v, want name %q", c.op, got, c.name)
 		}
 	}
 }

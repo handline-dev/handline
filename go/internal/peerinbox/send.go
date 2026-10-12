@@ -101,9 +101,9 @@ func randomID() string {
 // equal messages from being dropped as a duplicate.
 func Body(text, id string) string { return text + "\n[ocp-msg " + id + "]" }
 
-// The receiver reads who a cross-session message is from, and the permission class its sender attests, from the tag the content is
-// wrapped in; content without it has no attestation. A session that bypasses permission prompts holds a message whose sender attested
-// none, or another class than its own, until its person decides ("Held message from another session").
+// The receiver reads who a cross-session message is from, and the permission class its sender attests, from the tag the content is wrapped in;
+// content without it reads as the person's own typing in a terminal session. A session that bypasses permission prompts also holds a message
+// whose sender attested none, or another class than its own, until its person decides ("Held message from another session").
 const (
 	envelopeTag = "cross-session-message"
 	senderName  = "handline"
@@ -115,17 +115,26 @@ const (
 	Prompting = "prompting"
 )
 
+// From says who a message is from: Name is shown with it (the daemon, "handline", when empty) and Mode is the class attested, Bypass or
+// Prompting, or "" for none.
+type From struct{ Name, Mode string }
+
 var tagLookalike = regexp.MustCompile(`(?i)<([\p{Cf}\s]*/?[\p{Cf}\s]*` + envelopeTag + `)`)
 
-// Envelope wraps body as the receiver reads a peer message that names its sender (handline) and attests fromMode, Bypass or Prompting.
-// The form is the receiver's canonical one: attributes in its order, and a tag of the same name inside body defanged as it does, since a
-// wrapper it cannot read back exactly is taken as plain text. fromMode "" leaves body as it is.
-func Envelope(body, fromMode string) string {
-	if fromMode == "" {
-		return body
+// Envelope wraps body as the receiver reads a peer message that names its sender and attests its class. The form is the receiver's canonical
+// one: attributes in its order, and a tag of the same name inside body defanged as it does, since a wrapper it cannot read back exactly is taken
+// as plain text.
+func Envelope(body string, from From) string {
+	name := senderName
+	if n := strings.Join(strings.Fields(strings.NewReplacer(`"`, "", "<", "", ">", "").Replace(from.Name)), " "); n != "" {
+		name = n
 	}
 	body = tagLookalike.ReplaceAllString(body, `<\$1`)
-	return "<" + envelopeTag + ` from-session="` + senderName + `" from-name="` + senderName + `" from-mode="` + fromMode + `">` + "\n" + body + "\n</" + envelopeTag + ">"
+	attrs := ` from-session="` + senderName + `" from-name="` + name + `"`
+	if from.Mode != "" {
+		attrs += ` from-mode="` + from.Mode + `"`
+	}
+	return "<" + envelopeTag + attrs + ">\n" + body + "\n</" + envelopeTag + ">"
 }
 
 // pace waits until target may be written to again, and claims the slot.
@@ -202,12 +211,12 @@ func authLine(key []byte) ([]byte, error) {
 	return append(line, '}'), nil
 }
 
-// Deliver sends text to sess, attesting fromMode (Envelope), and waits until its transcript shows it. A write that does not show within ConfirmWait is written
+// Deliver sends text to sess as from (Envelope), and waits until its transcript shows it. A write that does not show within ConfirmWait is written
 // again with the same id after ResendAfter, up to Tries writes. Delivered needs the peer's user record; a message only queued
 // behind a running tool call comes back NotDelivered with that said.
-func (s *Sender) Deliver(ctx context.Context, sess Session, text, fromMode string) Result {
+func (s *Sender) Deliver(ctx context.Context, sess Session, text string, from From) Result {
 	id := s.NewID()
-	body := Envelope(Body(text, id), fromMode)
+	body := Envelope(Body(text, id), from)
 	res := Result{ID: id}
 	tr := newTail(sess)
 	for res.Attempts < s.Tries {
@@ -216,9 +225,13 @@ func (s *Sender) Deliver(ctx context.Context, sess Session, text, fromMode strin
 				res.Kind, res.Why = NotDelivered, err.Error()
 				return res
 			}
-			// The receiver queued it behind a prompt: writing it again only adds a duplicate to the queue.
+			// The receiver queued it behind a prompt or a running turn: writing it again only adds a duplicate to the queue, which the person
+			// then reads twice.
 			if now, err := s.Refresh(sess); err == nil && now.Blocked() {
 				res.Kind, res.Why = NotDelivered, "the session waits on a person ("+blockedWord(now)+"); the message stays queued until it is answered"
+				return res
+			} else if err == nil && now.Busy() {
+				res.Kind, res.Why = NotDelivered, "the session is mid-turn; the message waits in its queue and is not written again"
 				return res
 			}
 		}
@@ -252,6 +265,7 @@ func (s *Sender) Deliver(ctx context.Context, sess Session, text, fromMode strin
 		res.Kind = NotDelivered
 		if queued {
 			res.Why = "queued by the receiver, not yet shown as a message"
+			return res // it has the message: a second write is a second copy
 		} else {
 			res.Why = "not in the receiver's transcript"
 		}

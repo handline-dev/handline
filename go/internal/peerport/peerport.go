@@ -18,7 +18,7 @@ import (
 
 // Deliverer is what the port needs of the inbox: *peerinbox.Sender.
 type Deliverer interface {
-	Deliver(ctx context.Context, sess peerinbox.Session, text, fromMode string) peerinbox.Result
+	Deliver(ctx context.Context, sess peerinbox.Session, text string, from peerinbox.From) peerinbox.Result
 }
 
 // Port delivers to terminal agents.
@@ -33,14 +33,17 @@ type Port struct {
 	OnDelivered func(agent, op string)
 	OnFailed    func(agent, op, why string, written bool)
 	Ctx         context.Context
-	// Mode is the permission class (peerinbox.Bypass or Prompting) attested for the message op to agent; "" attests none.
-	Mode func(agent, op string) string
+	// From says who the message op to agent is from and the permission class attested for it; nil is the daemon, attesting none.
+	From func(agent, op string) peerinbox.From
 
 	mu    sync.Mutex
 	lines map[string]*line
 }
 
-type job struct{ op, text, mode string }
+type job struct {
+	op, text string
+	from     peerinbox.From
+}
 
 type line struct {
 	jobs    []job
@@ -61,9 +64,9 @@ func (p *Port) Send(agent, op, text string, _ structured.Delivery) (structured.R
 	if _, err := p.Find(agent); err != nil {
 		return structured.Receipt{}, errors.New(agent + " has no live session inbox: " + err.Error())
 	}
-	mode := ""
-	if p.Mode != nil {
-		mode = p.Mode(agent, op)
+	var from peerinbox.From
+	if p.From != nil {
+		from = p.From(agent, op)
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -75,7 +78,7 @@ func (p *Port) Send(agent, op, text string, _ structured.Delivery) (structured.R
 		l = &line{}
 		p.lines[agent] = l
 	}
-	l.jobs = append(l.jobs, job{op, text, mode})
+	l.jobs = append(l.jobs, job{op, text, from})
 	if !l.running {
 		l.running = true
 		go p.drain(agent, l)
@@ -118,7 +121,7 @@ func (p *Port) deliver(ctx context.Context, agent string, j job) {
 		p.failed(agent, j.op, err.Error(), false)
 		return
 	}
-	res := p.Sender.Deliver(ctx, sess, j.text, j.mode)
+	res := p.Sender.Deliver(ctx, sess, j.text, j.from)
 	if res.Kind == peerinbox.Delivered {
 		if p.OnDelivered != nil {
 			p.OnDelivered(agent, j.op)

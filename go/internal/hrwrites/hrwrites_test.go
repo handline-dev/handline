@@ -84,6 +84,24 @@ func (r *rig) call(method, params string) map[string]any {
 	return r.callHello(`{"client":"t","protocol":1,"key":"founder"}`, method, params)
 }
 
+type agentAuth struct{ name string }
+
+func (a agentAuth) AgentOf(int) string     { return a.name }
+func (agentAuth) SessionsReadable() error  { return nil }
+func (agentAuth) FounderKeyOK(string) bool { return false }
+
+// callAs is call from the session of agent: its hello carries no key.
+func (r *rig) callAs(agent, method, params string) map[string]any {
+	r.t.Helper()
+	was := r.srv
+	defer func() { r.srv = was }()
+	s := rpc.NewServer(agentAuth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
+	s.DB = r.db
+	Register(s, r.e)
+	r.srv = s
+	return r.callHello(`{"client":"t","protocol":1}`, method, params)
+}
+
 func (r *rig) callHello(hello, method, params string) map[string]any {
 	r.t.Helper()
 	cl, sv := net.Pipe()
@@ -392,24 +410,6 @@ func TestAgentSetIsRefusedToAPairedDevice(t *testing.T) {
 	}
 }
 
-type agentAuth struct{ name string }
-
-func (a agentAuth) AgentOf(int) string     { return a.name }
-func (agentAuth) FounderKeyOK(string) bool { return false }
-func (agentAuth) SessionsReadable() error  { return nil }
-
-// callAs is call from the session of agent: its hello carries no key.
-func (r *rig) callAs(agent, method, params string) map[string]any {
-	r.t.Helper()
-	was := r.srv
-	defer func() { r.srv = was }()
-	s := rpc.NewServer(agentAuth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
-	s.DB = r.db
-	Register(s, r.e)
-	r.srv = s
-	return r.callHello(`{"client":"t","protocol":1}`, method, params)
-}
-
 func errOf(t *testing.T, res map[string]any) map[string]any {
 	t.Helper()
 	e, _ := res["error"].(map[string]any)
@@ -486,5 +486,60 @@ func TestARetriedAgentSetIsAnsweredAndWritesNothing(t *testing.T) {
 	after, _ := os.Stat(path)
 	if !after.ModTime().Equal(changed.ModTime()) || strings.Contains(r.file("agents", "alice", "agent.yaml"), "effort: high") {
 		t.Fatalf("the retry rewrote the file (was %v)", before.ModTime())
+	}
+}
+
+func TestWithdrawTakesBackAnUndecidedProposalForItsAuthorOrTheFounderAndNoOtherAgent(t *testing.T) {
+	r := newRig(t)
+	_, a := r.propose("aaaa0010", "kind", "link", "agent", "alice", "to", "bob")
+	_, b := r.propose("aaaa0011", "kind", "link", "agent", "alice", "to", "bob")
+	_, c := r.propose("aaaa0012", "kind", "link", "agent", "alice", "to", "bob")
+	call := func(who string, id int64, rid string) map[string]any {
+		params := fmt.Sprintf(`{"proposal":%d,"request_id":%q}`, id, rid)
+		if who == "" {
+			return r.call("hr.withdraw", params)
+		}
+		return r.callAs(who, "hr.withdraw", params)
+	}
+	if m := call("bob", a, "w1"); gate(m) != "role" || r.state("aaaa0010") != "proposed" {
+		t.Fatalf("another agent withdrew it: %v %s", m, r.state("aaaa0010"))
+	}
+	res := call("alice", a, "w2")["result"].(map[string]any)
+	if res["said"] != "proposal aaaa0010 withdrawn" || r.state("aaaa0010") != "withdrawn" {
+		t.Fatalf("%v %s", res, r.state("aaaa0010"))
+	}
+	if p, _ := r.e.load("aaaa0010"); p.get("decided") == nil {
+		t.Fatal("the withdrawal is not dated")
+	}
+	if again := call("alice", a, "w2")["result"].(map[string]any); again["replayed"] != true {
+		t.Fatalf("a retry repeats nothing: %v", again)
+	}
+	// the founder takes back any, even one approved and not applied
+	if m := call("", b, "w3"); m["result"] == nil || r.state("aaaa0011") != "withdrawn" {
+		t.Fatalf("%v", m)
+	}
+	p, _ := r.e.load("aaaa0012")
+	p.set("state", "approved")
+	r.e.save(p)
+	if m := call("", c, "w4"); m["result"] == nil || r.state("aaaa0012") != "withdrawn" {
+		t.Fatalf("%v", m)
+	}
+}
+
+func TestWithdrawOfASettledOrUnknownProposalIsRefusedWithTheProposalAsItIs(t *testing.T) {
+	r := newRig(t)
+	_, id := r.propose("aaaa0020", "kind", "link", "agent", "alice", "to", "bob")
+	r.decide(id, "reject", "", "d1")
+	m := r.callAs("alice", "hr.withdraw", fmt.Sprintf(`{"proposal":%d,"request_id":"w1"}`, id))
+	e, _ := m["error"].(map[string]any)
+	d, _ := e["data"].(map[string]any)
+	if d["gate"] != "proposal_settled" || d["proposal"] == nil || r.state("aaaa0020") != "rejected" {
+		t.Fatalf("%v", m)
+	}
+	if m := r.callAs("alice", "hr.withdraw", `{"proposal":999999,"request_id":"w2"}`); m["error"].(map[string]any)["data"].(map[string]any)["code"] != "not_found" {
+		t.Fatalf("%v", m)
+	}
+	if m := r.callAs("alice", "hr.withdraw", `{"proposal":"x","request_id":"w3"}`); m["error"].(map[string]any)["data"].(map[string]any)["code"] != "bad_request" {
+		t.Fatalf("%v", m)
 	}
 }
