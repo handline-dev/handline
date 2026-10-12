@@ -2595,7 +2595,7 @@ def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> No
         evidence = db.get_task(con, t)["done_evidence"]
     finally:
         con.close()
-    check("task done -: the heredoc's text is recorded, not a '-'", evidence.strip() == "merged as abc\nall green", repr(evidence))
+    check("task done -: the heredoc's text is recorded, not a '-'", evidence == "merged as abc\nall green", repr(evidence))
     rc, out = _cli(["task", "reopen", f"t{t}", "again"], as_agent="manager")
     check("T form: a lower-case t is the same", rc == 0 and f"task T{t} reopened" in out, out)
     rc, out = refused(["task", "done", "task7", "why"], "worker")

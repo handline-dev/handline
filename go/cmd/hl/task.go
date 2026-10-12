@@ -530,7 +530,7 @@ func taskDone(c *hlclient.Client, args []string) (int, bool) {
 				return 1, true
 			}
 		}
-		params["evidence"] = evidence
+		params["evidence"] = strings.TrimSpace(evidence) // a heredoc's last newline would keep a sha from reading as one
 		if p.flags["--reason"] {
 			params["reason"] = true
 		}

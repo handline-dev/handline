@@ -127,7 +127,7 @@ def cmd_task_done(args) -> int:
         if err:
             print(err)
             return 1
-        params["evidence"] = evidence
+        params["evidence"] = evidence.strip()  # a heredoc's last newline would keep a sha from reading as one
         if args.reason:
             params["reason"] = True
     if args.request is not None:
