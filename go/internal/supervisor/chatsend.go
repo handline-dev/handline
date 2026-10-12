@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/structured"
 )
@@ -143,3 +144,6 @@ func (e *Env) ReopenConfirmed(q db.Q, row *db.Request) (reopened bool, err error
 	}
 	return must(db.ReopenLanded(q, row.ID)), nil
 }
+
+// imageLines is the path lines of the images message rid carries, which follow its body when an agent is told of it.
+func (e *Env) imageLines(q db.Q, rid int64) string { return attachments.New(e.Home).Lines(q, rid) }

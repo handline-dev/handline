@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/fold"
 	"github.com/handline/handline/go/internal/handoff"
@@ -139,6 +140,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop, Dev: dev, Housekeeping: []tick.NamedSweep{
 		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
+		{Name: "attachment sweep", Run: func(db.Q, int64) error { attachments.New(home).Sweep(); return nil }},
 		{Name: "scratch sweep", Run: func(_ db.Q, now int64) error { scratch.Maybe(time.Unix(now, 0)); return nil }},
 	}, Signalled: func() bool {
 		select {
