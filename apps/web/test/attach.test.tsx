@@ -70,11 +70,14 @@ afterEach(async () => {
   box?.remove();
 });
 
+const revoked: string[] = [];
+
 describe('images in the send box', () => {
   beforeEach(() => {
     let n = 0;
     URL.createObjectURL = () => `blob:test/${++n}`;
-    URL.revokeObjectURL = () => {};
+    URL.revokeObjectURL = (u) => void revoked.push(u);
+    revoked.length = 0;
   });
 
   it('a pasted image is a chip that uploads, then Send (with no words) draws it in the message', async () => {
@@ -111,5 +114,17 @@ describe('images in the send box', () => {
     await paste(Array.from({ length: 7 }, (_, i) => image(`i${i}.png`)));
     expect(chips()).toHaveLength(6);
     expect(text($('.attach-chips'))).toContain('At most 6');
+  });
+
+  it('lets go of a preview when its chip is removed or the message is sent', async () => {
+    await mount();
+    await paste([image('a.png'), image('b.png')]);
+    await until(() => chips().length === 2 && chips().every((c) => c.getAttribute('data-state') === 'ready'), 'both uploaded');
+    const [a, b] = chips().map((c) => c.querySelector('img')!.getAttribute('src')!);
+    await click(chips()[0]!.querySelector('button[aria-label^="Remove"]')!);
+    expect(revoked).toEqual([a]);
+    await click(sendBtn());
+    await until(() => chips().length === 0, 'sent');
+    expect(revoked).toEqual([a, b]);
   });
 });

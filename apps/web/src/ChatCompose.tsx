@@ -103,6 +103,7 @@ export function Compose(props: {
     setRefused(null);
     const delivery = choosing && now ? ('now' as const) : undefined;
     // Replying to a question that waits for you answers it; to anything else sends a linked message to whoever said it.
+    // With images the message is words to the agent, never a command or an answer: a / line goes as text and an open question gets a linked reply.
     const attachments = att.ids;
     if (target && isOpenAsk(target, agent) && !attachments.length) act.answer(target.id, text);
     else if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery, attachments });

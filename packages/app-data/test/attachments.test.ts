@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RpcError } from '@handline/client';
-import { CHUNK, uploadImage, whyNotImage } from '../src/attachments.ts';
+import { CHUNK, forgetAttachment, knownAttachments, rememberAttachment, uploadImage, whyNotImage } from '../src/attachments.ts';
 
 const file = (n: number) => new Blob([new Uint8Array(n)], { type: 'image/png' });
 const A = { id: 'a1', name: 'x.png', mime: 'image/png' as const, bytes: 0 };
@@ -55,6 +55,31 @@ describe('uploadImage', () => {
       throw new RpcError('refused', 'too many', { gate: 'limit', reason: 'Too many unsent images.' });
     };
     await expect(uploadImage(limit, file(5), 'x.png', 'image/png')).rejects.toMatchObject({ gate: 'limit' });
+  });
+});
+
+describe('an upload that is cancelled', () => {
+  it('sends nothing more, not even a retry of the chunk in flight', async () => {
+    const signal = { aborted: false };
+    let calls = 0;
+    const call = async () => {
+      calls += 1;
+      signal.aborted = true;
+      throw new RpcError('transport', 'lost');
+    };
+    await expect(uploadImage(call, file(5), 'x.png', 'image/png', undefined, signal)).rejects.toThrow('cancelled');
+    expect(calls).toBe(1);
+  });
+});
+
+describe('the images a send shows before the daemon answers', () => {
+  it('are handed over once, and not at all after they were forgotten', () => {
+    rememberAttachment(A);
+    expect(knownAttachments(['a1'])).toEqual([A]);
+    expect(knownAttachments(['a1'])).toEqual([]);
+    rememberAttachment(A);
+    forgetAttachment('a1');
+    expect(knownAttachments(['a1'])).toEqual([]);
   });
 });
 

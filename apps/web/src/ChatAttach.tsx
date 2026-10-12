@@ -4,6 +4,7 @@ import { useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import type { Attachment } from '@handline/client';
 import {
   MAX_PER_MESSAGE,
+  forgetAttachment,
   rememberAttachment,
   sentence,
   classify,
@@ -30,7 +31,7 @@ export function useAttachDraft() {
   const upload = useUploadImage();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
-  const live = useRef(new Map<number, { aborted: boolean }>());
+  const live = useRef(new Map<number, { aborted: boolean; preview: string }>());
   const count = useRef(0);
   const patch = (key: number, p: Partial<Draft>) => setDrafts((d) => d.map((x) => (x.key === key ? { ...x, ...p } : x)));
 
@@ -42,9 +43,10 @@ export function useAttachDraft() {
       if (count.current >= MAX_PER_MESSAGE) return setProblem(`At most ${MAX_PER_MESSAGE} images to a message`);
       count.current += 1;
       const key = nextKey++;
-      const signal = { aborted: false };
+      const preview = URL.createObjectURL(f);
+      const signal = { aborted: false, preview };
       live.current.set(key, signal);
-      setDrafts((d) => [...d, { key, name: f.name || 'image', preview: URL.createObjectURL(f), progress: 0 }]);
+      setDrafts((d) => [...d, { key, name: f.name || 'image', preview, progress: 0 }]);
       upload(
         f,
         f.name || 'image',
@@ -52,19 +54,29 @@ export function useAttachDraft() {
         (sent, total) => patch(key, { progress: sent / total }),
         signal,
       ).then(
-        (attachment) => (rememberAttachment(attachment), patch(key, { attachment, progress: 1 })),
+        (attachment) => !signal.aborted && (rememberAttachment(attachment), patch(key, { attachment, progress: 1 })),
         (e) => !signal.aborted && patch(key, { error: sentence(classify(e)) }),
       );
     }
   };
-  const remove = (key: number) => {
-    live.current.get(key)!.aborted = true;
+  // Stops the upload and lets go of the preview; false when the draft was already gone.
+  const drop = (key: number) => {
+    const l = live.current.get(key);
+    if (!l) return false;
+    l.aborted = true;
+    URL.revokeObjectURL(l.preview);
     live.current.delete(key);
+    return true;
+  };
+  const remove = (key: number) => {
+    if (!drop(key)) return;
+    const gone = drafts.find((x) => x.key === key)?.attachment;
+    if (gone) forgetAttachment(gone.id);
     count.current -= 1;
     setDrafts((d) => d.filter((x) => x.key !== key));
   };
   const clear = () => {
-    live.current.clear();
+    for (const key of [...live.current.keys()]) drop(key);
     count.current = 0;
     setDrafts([]);
     setProblem(null);

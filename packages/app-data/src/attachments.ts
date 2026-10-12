@@ -6,6 +6,7 @@ import { useStore } from '@handline/app-react';
 import { newOperationId } from './send-ops.ts';
 import { useWrite } from './write.ts';
 
+// These mirror the daemon's limits (contract x-attachments); the contract carries them as prose, not as constants.
 export const CHUNK = 512 * 1024;
 export const MAX_IMAGE = 10 * 1024 * 1024;
 export const MAX_PER_MESSAGE = 6;
@@ -14,7 +15,14 @@ export const IMAGE_TYPES: Attachment['mime'][] = ['image/png', 'image/jpeg', 'im
 const known = new Map<string, Attachment>();
 /** An uploaded image remembered by id, so the row a send shows at once can draw it before the daemon's own arrives. */
 export const rememberAttachment = (a: Attachment) => void known.set(a.id, a);
-export const knownAttachments = (ids: string[] = []): Attachment[] => ids.flatMap((id) => known.get(id) ?? []);
+export const forgetAttachment = (id: string) => void known.delete(id);
+/** Taken once, by the row a send shows: the daemon's own row carries the images from then on. */
+export const knownAttachments = (ids: string[] = []): Attachment[] =>
+  ids.flatMap((id) => {
+    const a = known.get(id);
+    known.delete(id);
+    return a ?? [];
+  });
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 type Mime = Attachment['mime'];
@@ -55,6 +63,7 @@ export async function uploadImage(
     const params = { name, mime, bytes, data, ...(offset ? { offset } : {}), ...(upload ? { upload } : {}), request_id: newOperationId() };
     let r: { upload: string; received: number; attachment?: Attachment } | undefined;
     for (let tries = 0; !r; tries++) {
+      if (signal?.aborted) throw new Error('cancelled');
       try {
         r = (await call('attachment.put', params)) as typeof r;
       } catch (e) {
@@ -62,6 +71,7 @@ export async function uploadImage(
           offset = e.data.received;
           break;
         }
+        // `transport` is the client's only lost-connection code (the contract has no timeout code).
         if (!(e instanceof RpcError && e.code === 'transport') || tries >= 2) throw e;
       }
     }
@@ -116,6 +126,13 @@ const urlOf = (call: Call, id: string, thumb: boolean): Promise<string | null> =
   return p;
 };
 
+/** Lets go of an image's object URL; the next use reads it again. */
+const release = (id: string, thumb: boolean) => {
+  const key = `${id}:${thumb ? 't' : 'o'}`;
+  void urls.get(key)?.then((u) => u && URL.revokeObjectURL(u));
+  urls.delete(key);
+};
+
 /** The picture of an attachment as a URL once read: `gone` when the daemon has dropped it (the name is shown without the picture). */
 export function useAttachmentUrl(id: string, thumb: boolean): { url: string | null; gone: boolean } {
   const store = useStore();
@@ -128,6 +145,7 @@ export function useAttachmentUrl(id: string, thumb: boolean): { url: string | nu
     );
     return () => {
       live = false;
+      if (!thumb) release(id, false); // the original is large: kept only while it is open
     };
   }, [store, id, thumb]);
   return state;

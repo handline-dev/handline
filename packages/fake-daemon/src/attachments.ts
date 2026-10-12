@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Attachment } from '@handline/contract';
 import { badRequest, Failure, refused } from './errors.ts';
 
+// These mirror the contract's x-attachments limits (kept in prose there; app-data holds the client's copy).
 export const CHUNK = 512 * 1024;
 export const MAX_IMAGE = 10 * 1024 * 1024;
 export const MAX_PER_MESSAGE = 6;
