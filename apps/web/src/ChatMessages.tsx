@@ -20,7 +20,8 @@ const LANDING_ICON: Record<string, IconName> = {
   queued: 'queued',
   typed: 'typed',
   delivered: 'delivered',
-  delivered_unanswered: 'unanswered',
+  // Delivered but unanswered draws as delivered — the waiting is said in the tooltip, not drawn.
+  delivered_unanswered: 'delivered',
   answered: 'answered',
   dismissed: 'dismissed',
   withdrawn: 'withdrawn',
