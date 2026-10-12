@@ -29,7 +29,9 @@ export function timeline(messages: ChatMessage[], items: TranscriptItem[], scope
     }),
     ...items.map((i): TimelineEntry => ({ kind: 'item', at: i.at, id: i.id, item: i })),
   ];
-  return out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : (a.kind === 'item') === (b.kind === 'item') ? a.id - b.id : a.kind === 'item' ? 1 : -1));
+  return out.sort((a, b) =>
+    a.at < b.at ? -1 : a.at > b.at ? 1 : (a.kind === 'item') === (b.kind === 'item') ? a.id - b.id : a.kind === 'item' ? 1 : -1,
+  );
 }
 
 /** The name the daemon records for the person's own words: the CLI's `human`, or the device they typed on (`me`, e.g. "Handline desktop"). */

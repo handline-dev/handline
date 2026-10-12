@@ -38,8 +38,9 @@ const press = (el: Element, key: string, init: KeyboardEventInit = {}) =>
 const compose = () => $('.compose') as HTMLTextAreaElement;
 const msg = (body: string) => $$('.msg').find((m) => text(m).includes(body));
 
-
-const PNG = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0));
+const PNG = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), (c) =>
+  c.charCodeAt(0),
+);
 const image = (name = 'shot.png', type = 'image/png') => new File([PNG], name, { type });
 const chips = () => $$('.attach-chip');
 const paste = (files: File[]) =>

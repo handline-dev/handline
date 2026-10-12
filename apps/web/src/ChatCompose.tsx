@@ -160,11 +160,7 @@ export function Compose(props: {
       <div className="mx-3 mb-1 flex h-[26px] items-center">
         {target ? (
           <div className="compose-ref flex min-w-0 flex-1 items-center gap-1.5 rounded-chip bg-panel px-2 py-1 text-[12px]" role="status">
-            <Icon
-              name="reference"
-              size={14}
-              label={`Replying to #${target.id}`}
-            />
+            <Icon name="reference" size={14} label={`Replying to #${target.id}`} />
             <span className="mono">#{target.id}</span>
             <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>
             <button className="icon" aria-label="Drop the reply" title="Drop the reply (Esc)" onClick={onClear}>
@@ -227,7 +223,10 @@ export function Compose(props: {
           </span>
         ) : null}
         {choosing ? (
-          <label className="compose-now inline-flex gap-0.5 self-center text-ink-2" title="Join the running turn now; otherwise it waits and is sent when the turn ends">
+          <label
+            className="compose-now inline-flex gap-0.5 self-center text-ink-2"
+            title="Join the running turn now; otherwise it waits and is sent when the turn ends"
+          >
             <input type="checkbox" checked={now} onChange={(e) => setNow(e.target.checked)} /> Now
           </label>
         ) : null}

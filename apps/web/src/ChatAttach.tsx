@@ -47,13 +47,7 @@ export function useAttachDraft() {
       const signal = { aborted: false, preview };
       live.current.set(key, signal);
       setDrafts((d) => [...d, { key, name: f.name || 'image', preview, progress: 0 }]);
-      upload(
-        f,
-        f.name || 'image',
-        f.type as Attachment['mime'],
-        (sent, total) => patch(key, { progress: sent / total }),
-        signal,
-      ).then(
+      upload(f, f.name || 'image', f.type as Attachment['mime'], (sent, total) => patch(key, { progress: sent / total }), signal).then(
         (attachment) => !signal.aborted && (rememberAttachment(attachment), patch(key, { attachment, progress: 1 })),
         (e) => !signal.aborted && patch(key, { error: sentence(classify(e)) }),
       );
@@ -193,8 +187,18 @@ function Thumb({ a }: { a: Attachment }) {
     );
   return (
     <>
-      <button type="button" className="attachment border-0 bg-transparent p-0" title={a.name} aria-label={`Open ${a.name}`} onClick={() => setOpen(true)}>
-        {small.url ? <img src={small.url} alt={a.name} className="max-h-40 max-w-full rounded-chip object-cover" /> : <span className="muted text-[12px]">{a.name}</span>}
+      <button
+        type="button"
+        className="attachment border-0 bg-transparent p-0"
+        title={a.name}
+        aria-label={`Open ${a.name}`}
+        onClick={() => setOpen(true)}
+      >
+        {small.url ? (
+          <img src={small.url} alt={a.name} className="max-h-40 max-w-full rounded-chip object-cover" />
+        ) : (
+          <span className="muted text-[12px]">{a.name}</span>
+        )}
       </button>
       {open ? <Original a={a} onClose={() => setOpen(false)} /> : null}
     </>
@@ -205,7 +209,11 @@ function Original({ a, onClose }: { a: Attachment; onClose: () => void }) {
   const full = useAttachmentUrl(a.id, false);
   return (
     <Dialog title={a.name} onClose={onClose}>
-      {full.url ? <img src={full.url} alt={a.name} className="max-h-[70vh] max-w-full" /> : <p className="muted">{full.gone ? 'This image is no longer kept.' : 'Loading…'}</p>}
+      {full.url ? (
+        <img src={full.url} alt={a.name} className="max-h-[70vh] max-w-full" />
+      ) : (
+        <p className="muted">{full.gone ? 'This image is no longer kept.' : 'Loading…'}</p>
+      )}
     </Dialog>
   );
 }

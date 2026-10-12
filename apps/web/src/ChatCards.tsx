@@ -35,12 +35,7 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
         </Chip>
       ) : null}
       {detail.task ? (
-        <Chip
-          as="a"
-          href={`#/tasks/${detail.task.id}`}
-          title={detail.task.title}
-          onClick={openTaskOnClick(apply, detail.task.id)}
-        >
+        <Chip as="a" href={`#/tasks/${detail.task.id}`} title={detail.task.title} onClick={openTaskOnClick(apply, detail.task.id)}>
           <Icon name="tasks" size={13} aria-hidden />T{detail.task.id}
         </Chip>
       ) : null}

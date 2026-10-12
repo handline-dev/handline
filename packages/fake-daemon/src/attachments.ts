@@ -60,7 +60,8 @@ export class FakeAttachments {
     } else {
       up = this.uploads.get(id);
       if (!up) throw new Failure('not_found', 'That upload is unknown or expired.');
-      if (offset !== up.received) throw new Failure('bad_request', 'offset is not what the daemon holds.', { field: 'offset', received: up.received });
+      if (offset !== up.received)
+        throw new Failure('bad_request', 'offset is not what the daemon holds.', { field: 'offset', received: up.received });
     }
     up.parts.push(chunk);
     up.received += chunk.length;
@@ -80,7 +81,13 @@ export class FakeAttachments {
     const thumb = p.thumb === true;
     const offset = thumb ? 0 : typeof p.offset === 'number' ? p.offset : 0;
     const end = Math.min(f.data.length, offset + (thumb ? 256 * 1024 : CHUNK));
-    return { mime: f.mime, bytes: f.data.length, offset, data: f.data.subarray(offset, end).toString('base64'), done: end >= f.data.length };
+    return {
+      mime: f.mime,
+      bytes: f.data.length,
+      offset,
+      data: f.data.subarray(offset, end).toString('base64'),
+      done: end >= f.data.length,
+    };
   }
 
   /** The images chat.send names: each must be finished and not sent before. They are marked sent and given back as Attachments. */
@@ -102,7 +109,10 @@ export class FakeAttachments {
   }
 
   private unsent() {
-    return [...this.files.values()].filter((f) => !f.sent).reduce((n, f) => n + f.bytes, 0) + [...this.uploads.values()].reduce((n, u) => n + u.bytes, 0);
+    return (
+      [...this.files.values()].filter((f) => !f.sent).reduce((n, f) => n + f.bytes, 0) +
+      [...this.uploads.values()].reduce((n, u) => n + u.bytes, 0)
+    );
   }
 }
 

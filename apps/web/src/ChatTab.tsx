@@ -242,32 +242,38 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
               </AnimatedItem>
             );
             // A plain child of the list: never animated in or out.
-            return day ? (
-              [
-                <div
-                  key={`day ${day}`}
-                  role="separator"
-                  className="mt-3 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
-                >
-                  {day}
-                </div>,
-                body,
-              ]
-            ) : (
-              [body]
-            );
+            return day
+              ? [
+                  <div
+                    key={`day ${day}`}
+                    role="separator"
+                    className="mt-3 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
+                  >
+                    {day}
+                  </div>,
+                  body,
+                ]
+              : [body];
           })}
         </AnimatedList>
         <HrCards agent={agent} />
         {chat.working.turn_running ? (
-          <div className="line working flex items-center gap-1.5 self-start text-[12px] text-working" role="status" title={chat.working.line ?? 'Working'}>
+          <div
+            className="line working flex items-center gap-1.5 self-start text-[12px] text-working"
+            role="status"
+            title={chat.working.line ?? 'Working'}
+          >
             <State kind="working" size={14} label={chat.working.line ?? 'Working'} />
             <span>{chat.working.line ?? 'Working'}…</span>
           </div>
         ) : null}
       </div>
       {newer ? (
-        <button className="newer absolute right-4 bottom-[96px] inline-flex items-center gap-1 rounded-pill bg-panel px-2 py-1 shadow-[var(--shadow-pop)]" onClick={bottom} title="New messages">
+        <button
+          className="newer absolute right-4 bottom-[96px] inline-flex items-center gap-1 rounded-pill bg-panel px-2 py-1 shadow-[var(--shadow-pop)]"
+          onClick={bottom}
+          title="New messages"
+        >
           <Icon name="newer" size={14} aria-hidden />
           {newer}
         </button>

@@ -16,7 +16,10 @@ describe('uploadImage', () => {
     const seen: number[] = [];
     const got = await uploadImage(call, file(CHUNK + 10), 'x.png', 'image/png', (s) => seen.push(s));
     expect(got).toBe(A);
-    expect(calls.map((c) => [c.offset ?? 0, c.upload])).toEqual([[0, undefined], [CHUNK, 'u1']]);
+    expect(calls.map((c) => [c.offset ?? 0, c.upload])).toEqual([
+      [0, undefined],
+      [CHUNK, 'u1'],
+    ]);
     expect(new Set(calls.map((c) => c.request_id)).size).toBe(2);
     expect(seen).toEqual([CHUNK, CHUNK + 10]);
   });

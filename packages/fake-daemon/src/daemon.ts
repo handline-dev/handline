@@ -370,7 +370,8 @@ export class FakeDaemon {
       const s = agent();
       if (!s.open) this.script.startSession(s, false, actor);
     }
-    if (method.startsWith('chat.')) return chatMethod(this.chat, method, p, c.caller.name, agent, ok, (id) => this.inbox.dismiss(id), this.attachments.take);
+    if (method.startsWith('chat.'))
+      return chatMethod(this.chat, method, p, c.caller.name, agent, ok, (id) => this.inbox.dismiss(id), this.attachments.take);
     const owned = this.moduleCall(c, method, p, ok);
     if (owned) return owned.value;
     const handler = HANDLERS[method];

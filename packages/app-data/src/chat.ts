@@ -114,7 +114,14 @@ export function useChatActions(agent: string) {
       const was = operationOf(id);
       rows((x) => x.id !== id);
       forgetRow(id);
-      post(m.to, m.body, m.parent, was?.op, was?.delivery, m.attachments?.map((a) => a.id));
+      post(
+        m.to,
+        m.body,
+        m.parent,
+        was?.op,
+        was?.delivery,
+        m.attachments?.map((a) => a.id),
+      );
     },
     discard: (id: number) => {
       rows((x) => x.id !== id);

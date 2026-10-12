@@ -35,7 +35,10 @@ test('distance counts steps along the reports-to tree', () => {
 
 test('the picker lists who acted most recent first, then the near, then the rest by name', () => {
   const g = assignGroups(task, team, names, 'me');
-  assert.deepEqual(g.map((x) => x.key), ['acted', 'near', 'rest']);
+  assert.deepEqual(
+    g.map((x) => x.key),
+    ['acted', 'near', 'rest'],
+  );
   assert.deepEqual(g[0]!.names, ['rev', 'mobile', 'boss']);
   assert.deepEqual(g[1]!.names, ['pc-sub', 'pc-sub2']);
   assert.deepEqual(g[2]!.names, ['far', 'pc-sub3']);
@@ -44,7 +47,10 @@ test('the picker lists who acted most recent first, then the near, then the rest
 test('the holder, the viewer and the system never appear, and an empty group is left out', () => {
   const all = assignGroups(task, team, [...names, 'task-board'], 'me').flatMap((g) => g.names);
   for (const n of ['pc', 'me', 'task-board']) assert.ok(!all.includes(n));
-  assert.deepEqual(assignGroups({ ...task, events: [] }, { agents: [] }, ['a'], 'me').map((g) => g.key), ['rest']);
+  assert.deepEqual(
+    assignGroups({ ...task, events: [] }, { agents: [] }, ['a'], 'me').map((g) => g.key),
+    ['rest'],
+  );
 });
 
 test('reply chips are the people the task names, latest first, without the viewer', () => {

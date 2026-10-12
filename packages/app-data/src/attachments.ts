@@ -95,7 +95,12 @@ export async function readImage(call: Call, id: string, thumb: boolean): Promise
   const parts: Uint8Array[] = [];
   let offset = 0;
   for (;;) {
-    const r = (await call('attachment.get', { id, ...(thumb ? { thumb: true } : { offset }) })) as { mime: Mime; offset: number; data: string; done: boolean };
+    const r = (await call('attachment.get', { id, ...(thumb ? { thumb: true } : { offset }) })) as {
+      mime: Mime;
+      offset: number;
+      data: string;
+      done: boolean;
+    };
     const chunk = unbase64(r.data);
     parts.push(chunk);
     offset += chunk.length;

@@ -103,7 +103,7 @@ test('a task line carries the task, its title and only the change or evidence', 
 const pm = (o: Partial<ChatMessage>) =>
   ({ id: 5, from: 'Handline desktop', to: 'handline.x', landing: 'queued', state: 'queued', ...o }) as ChatMessage;
 
-test('only the person\'s own words are on their side: the CLI, this device, to whichever agent', () => {
+test("only the person's own words are on their side: the CLI, this device, to whichever agent", () => {
   assert.equal(sideOf(pm({}), A, 'Handline desktop'), 'person');
   assert.equal(sideOf(pm({ from: 'human' }), A, 'Handline desktop'), 'person');
   assert.equal(sideOf(pm({ from: 'handline.y' }), A, 'Handline desktop'), 'other');
@@ -111,7 +111,7 @@ test('only the person\'s own words are on their side: the CLI, this device, to w
   assert.equal(sideOf(pm({ from: 'schedule', to: A }), A, ''), 'other');
 });
 
-test('the person\'s message says sending, waiting behind N, queued or typed, and nothing once delivered or failed', () => {
+test("the person's message says sending, waiting behind N, queued or typed, and nothing once delivered or failed", () => {
   assert.equal(sendNote(pm({ id: -1 }), 0), 'Sending…');
   assert.equal(sendNote(pm({}), 2), 'Waiting behind 2');
   assert.equal(sendNote(pm({}), 0), 'Queued');
@@ -141,7 +141,7 @@ test('a message can be taken back until it is answered, and the agent is asked f
   assert.deepEqual(takeBack(r('sent')), { confirm: true });
 });
 
-test('the task board\'s words are task cards or hidden notices, in the agent\'s own chat and in the All view', () => {
+test("the task board's words are task cards or hidden notices, in the agent's own chat and in the All view", () => {
   const news = pm({ id: 7, from: 'task-board', to: A, body: 'T3492 done by handline.pair: -' });
   const delivery = pm({ id: 8, from: 'task-board', to: A, body: '#28387 to handline.pair was written to its session' });
   assert.deepEqual(noticeOf(news), { kind: 'task', task: 3492 });

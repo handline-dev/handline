@@ -395,7 +395,7 @@ describe('the bridge items: send now, take back, message numbers, new, menus, se
     expect(compose().value).toBe('');
   });
 
-  it('the task board\'s news is a task card, and its delivery notice is not in the agent\'s own chat; neither is a bubble', async () => {
+  it("the task board's news is a task card, and its delivery notice is not in the agent's own chat; neither is a bubble", async () => {
     const s = setup();
     s.daemon.chat.seed(ARCH, { from: 'task-board', to: ARCH, body: 'T3492 done by handline.pair: -' });
     s.daemon.chat.seed(ARCH, { from: 'task-board', to: ARCH, body: '#28387 to handline.pair was written to its session' });

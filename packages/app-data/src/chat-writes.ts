@@ -11,7 +11,14 @@ import type { WriteSpec } from './write-spec.ts';
 
 const allChats = (d: string) => [['d', d, 'chat-messages'] as const];
 
-export function waitingMessage(me: string, agent: string, body: string, now: string, parent: number | null = null, attachments: string[] = []): ChatMessage {
+export function waitingMessage(
+  me: string,
+  agent: string,
+  body: string,
+  now: string,
+  parent: number | null = null,
+  attachments: string[] = [],
+): ChatMessage {
   return {
     id: provisionalId(),
     at: now,
@@ -39,7 +46,8 @@ const editAll = (c: Ctx, f: (d: Pages<MsgPage>) => Pages<MsgPage>) => edit<Pages
 const setRow = (c: Ctx, id: number, patch: Partial<ChatMessage>) => editAll(c, (d) => patchMessage(d, id, patch));
 
 /** The row a send shows is told apart from the daemon's by its negative id; keyed by the send's own text and agent. */
-const sendParams = (p: never) => p as { agent: string; body: string; parent?: number; attachments?: string[]; delivery?: 'now' | 'queue'; request_id?: string };
+const sendParams = (p: never) =>
+  p as { agent: string; body: string; parent?: number; attachments?: string[]; delivery?: 'now' | 'queue'; request_id?: string };
 
 const findRow = (d: Pages<MsgPage>, id: number) => d.pages.flatMap((page) => page.messages).find((m) => m.id === id);
 const setReceipt = (c: Ctx, id: number, receipt: Receipt | undefined) =>

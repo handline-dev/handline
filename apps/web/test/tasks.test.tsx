@@ -504,7 +504,10 @@ describe('the detail', () => {
     await typeInto($('textarea', reply()) as HTMLTextAreaElement, 'is the pane done?');
     await click(button('Send to handline.architect', reply())!);
     await until(
-      () => (s.daemon.chat as unknown as { messages: { to: string; body: string }[] }).messages.some((m) => m.to === 'handline.architect' && m.body.includes('is the pane done?')),
+      () =>
+        (s.daemon.chat as unknown as { messages: { to: string; body: string }[] }).messages.some(
+          (m) => m.to === 'handline.architect' && m.body.includes('is the pane done?'),
+        ),
       'the message to the architect',
     );
   });
@@ -521,7 +524,10 @@ describe('the detail', () => {
     await click(button('Assign to handline.architect', ask)!);
     await until(() => s.daemon.tasks.get({ task: 1688 }).to === 'handline.architect', 'the new owner');
     await until(
-      () => (s.daemon.chat as unknown as { messages: { to: string; body: string }[] }).messages.some((m) => m.to === 'handline.architect' && m.body.includes('please take it')),
+      () =>
+        (s.daemon.chat as unknown as { messages: { to: string; body: string }[] }).messages.some(
+          (m) => m.to === 'handline.architect' && m.body.includes('please take it'),
+        ),
       'the note',
     );
   });

@@ -22,7 +22,8 @@ const SYSTEM = new Set(['task-board', 'schedule', 'system']);
 /** Everyone the task's history names, the most recent first, then its opener and holder; each once. */
 export function involved(t: PeopleTask): string[] {
   const seen: { name: string; at: string }[] = [];
-  for (const e of t.events) for (const name of [e.agent, e.actor && e.actor.kind !== 'daemon' ? e.actor.name : null]) if (name) seen.push({ name, at: e.at });
+  for (const e of t.events)
+    for (const name of [e.agent, e.actor && e.actor.kind !== 'daemon' ? e.actor.name : null]) if (name) seen.push({ name, at: e.at });
   for (const m of t.memos ?? []) seen.push({ name: m.author, at: m.at });
   const byTime = seen.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)).map((s) => s.name);
   return [...new Set([...byTime, t.to, t.from])].filter((n) => n && !SYSTEM.has(n));

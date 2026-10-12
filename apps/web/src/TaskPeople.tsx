@@ -7,7 +7,8 @@ import { Button, Textarea } from './ui/index.ts';
 import { Sheet, useCan } from './taskui.tsx';
 
 const CHIP = 'rounded-full border px-2 py-0.5 text-label';
-const chipLook = (on: boolean) => (on ? 'border-primary bg-primary text-on-primary' : 'border-line-strong bg-transparent text-ink hover:bg-raised');
+const chipLook = (on: boolean) =>
+  on ? 'border-primary bg-primary text-on-primary' : 'border-line-strong bg-transparent text-ink hover:bg-raised';
 
 /** Who the task can go to, in three labelled groups; one is picked, then what to say with it. */
 export function AssignSheet({ t, me, onClose }: { t: Detail; me: string; onClose: () => void }) {
@@ -32,7 +33,13 @@ export function AssignSheet({ t, me, onClose }: { t: Detail; me: string; onClose
     );
   };
   return (
-    <Sheet label={`Assign ${taskRef(t.id)} to…`} submit={to ? `Assign to ${to}` : 'Pick someone'} onCancel={onClose} onSubmit={submit} busy={edit.isPending}>
+    <Sheet
+      label={`Assign ${taskRef(t.id)} to…`}
+      submit={to ? `Assign to ${to}` : 'Pick someone'}
+      onCancel={onClose}
+      onSubmit={submit}
+      busy={edit.isPending}
+    >
       <div className="grid gap-2">
         {groups.length ? (
           groups.map((g) => (
@@ -40,7 +47,13 @@ export function AssignSheet({ t, me, onClose }: { t: Detail; me: string; onClose
               <div className="mb-1 text-label text-ink-3">{g.label}</div>
               <div className="flex flex-wrap gap-1.5">
                 {g.names.map((n) => (
-                  <button key={n} type="button" aria-pressed={to === n} className={`${CHIP} ${chipLook(to === n)}`} onClick={() => setTo(n)}>
+                  <button
+                    key={n}
+                    type="button"
+                    aria-pressed={to === n}
+                    className={`${CHIP} ${chipLook(to === n)}`}
+                    onClick={() => setTo(n)}
+                  >
                     {n}
                   </button>
                 ))}
@@ -82,7 +95,13 @@ export function ReplyBox({ t, me, box }: { t: Detail; me: string; box: React.Ref
       <h3 className="m-0 text-ink-3">Reply to</h3>
       <div className="flex flex-wrap gap-1.5">
         {people.map((n) => (
-          <button key={n} type="button" aria-pressed={to === n} className={`${CHIP} ${chipLook(to === n)}`} onClick={() => (setTo(n), box.current?.focus())}>
+          <button
+            key={n}
+            type="button"
+            aria-pressed={to === n}
+            className={`${CHIP} ${chipLook(to === n)}`}
+            onClick={() => (setTo(n), box.current?.focus())}
+          >
             {n}
           </button>
         ))}
@@ -112,7 +131,14 @@ export function ReplyBox({ t, me, box }: { t: Detail; me: string; box: React.Ref
             send();
           }}
         />
-        <Button type="submit" variant="solid" icon="send" label={to ? `Send to ${to}` : 'Send'} disabled={!can.ok || !to || !body} title={can.why}>
+        <Button
+          type="submit"
+          variant="solid"
+          icon="send"
+          label={to ? `Send to ${to}` : 'Send'}
+          disabled={!can.ok || !to || !body}
+          title={can.why}
+        >
           {to ? `Send to ${to}` : 'Send'}
         </Button>
       </form>
