@@ -379,4 +379,6 @@ export const NOT_FROM_UI = [
   'task.handoff',
   // A member command the app does not send yet.
   'task.ask',
+  // No screen attaches an image yet.
+  'attachment.put',
 ] as const;

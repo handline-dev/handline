@@ -65,12 +65,13 @@ afterEach(async () => {
 describe('X1 Worktrees', () => {
   it('shows eight skeleton rows while loading, then the fixtures as rows', async () => {
     const s = setup();
-    s.daemon.knobs.latency(400);
+    const release = s.daemon.knobs.hold('worktrees.list');
     await mount('#/worktrees', s);
     await until(() => $('.worktrees .skeleton'), 'the skeleton');
     expect($('.worktrees .skeleton')!.getAttribute('aria-busy')).toBe('true');
     expect($$('.worktrees .skeleton > *')).toHaveLength(8);
-    await until(() => rows().length === 5, 'the rows', 600);
+    release();
+    await until(() => rows().length === 5, 'the rows');
     expect($('.worktrees .skeleton')).toBeNull();
     expect(text(row('/work/handline.term-build'))).toContain('buddyron/handline.term-build');
     expect(text(row('/work/handline.term-build'))).toContain('in progress');
