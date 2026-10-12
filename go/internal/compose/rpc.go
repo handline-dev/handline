@@ -13,7 +13,7 @@ import (
 func (p *Parts) SessionRPC(cfg Config) *sessionrpc.Env {
 	c := controls{p: p, lc: p.LC}
 	f := &fold.Env{Home: cfg.Home, Today: today(cfg)}
-	return &sessionrpc.Env{DB: p.db, Home: cfg.Home, Controls: c, Procs: procs{p: p, lc: p.LC}, Now: cfg.Now, Fold: f.Fold, Roster: p.LC.roster}
+	return &sessionrpc.Env{DB: p.db, Home: cfg.Home, Controls: c, Move: c.Move, Procs: procs{p: p, lc: p.LC}, Now: cfg.Now, Fold: f.Fold, Roster: p.LC.roster}
 }
 
 // controls is sessionrpc.Controls over the lifecycle manager.
@@ -75,6 +75,14 @@ func (c controls) Restart(call sessionrpc.Call, agent string, fresh, force bool)
 // this daemon does not run yet.
 func (c controls) Park(_ sessionrpc.Call, agent string) (bool, string, error) {
 	return false, agent + ": parking is the policy tick's handoff, which this daemon does not run yet", nil
+}
+
+// Move is handoff.force_move over the lifecycle's mover.
+func (c controls) Move(call sessionrpc.Call, agent, account string) (bool, string, error) {
+	if c.lc.Mover == nil {
+		return false, agent + ": the move is the handoff's, which this daemon has not built", nil
+	}
+	return c.lc.Mover.ForceMove(agent, account, call.By)
 }
 
 // procs is sessionrpc.Procs over the structured sessions. A kill holds the agent's lock as a close does, so it never runs beside a wake.
