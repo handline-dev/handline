@@ -1,17 +1,7 @@
 // The agent list. A row is an agent's only control surface: Start or Resume on the selected row, a ⋯ menu for stopping,
 // and under the selected row the facts the old agent header showed.
 import { useState } from 'react';
-import {
-  ago,
-  dotOf,
-  railGroups,
-  shortName,
-  type Dot,
-  type Verb,
-  badgesOf,
-  type GroupBy,
-  type KV,
-  } from '@handline/app-core';
+import { ago, dotOf, railGroups, shortName, type Dot, type Verb, badgesOf, type GroupBy, type KV } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { useAgents, useServes, useUnread, useVerbMark } from '@handline/app-data';
