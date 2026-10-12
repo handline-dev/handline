@@ -2831,7 +2831,7 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "description": "A reply of the agent's own, as chat.transcript lists it (an item of kind reply: its `id`), that this message answers. The agent's turn text has no message number, so it cannot be `parent`; the two do not go together, nor does this with task (bad_request, field parent_item). An id that is no item of this agent's transcript is not_found (what: item); one that is not a reply (a tool call, a prompt, a task event, a session) is bad_request."
+      "description": "A reply of the agent's own that this message answers: the `id` of an item of kind reply that chat.transcript lists for this agent (a structured session's text block, whose live event carries the same id as `item`, or the answer to a request). The agent's turn text has no message number, so it cannot be `parent`; the two do not go together, nor does this with task (bad_request, field parent_item). It may go with attachments. An id that is no item of this agent's transcript, or one of another agent's, is not_found (what: item); one that is not a reply (a tool call, a prompt, a task event, a session) is bad_request."
      }
     },
     {
@@ -2892,7 +2892,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "To a structured agent the result holds `receipt`; to a terminal agent it does not. A repeat (the same request_id and params) returns replayed true and the receipt as it is now, not the first reply, and writes nothing; see x-delivery. A repeat of an operation that was withdrawn is refused (gate state): a retry does not bring back what the person took back. With parent_item the delivered text begins with the reply quoted, each line after `> ` and cut at 300 characters, then a blank line, then the body; the daemon keeps that quote with the message (ChatMessage.parent_item), so a client draws it without reading the transcript again and it survives the transcript being trimmed."
+   "description": "To a structured agent the result holds `receipt`; to a terminal agent it does not. A repeat (the same request_id and params) returns replayed true and the receipt as it is now, not the first reply, and writes nothing; see x-delivery. A repeat of an operation that was withdrawn is refused (gate state): a retry does not bring back what the person took back. With parent_item the delivered text begins with the reply quoted, each line after `> `, then a blank line, then the body. The quote is the reply's first 300 characters, counted as Unicode code points (not UTF-16 units), with no ellipsis added; the daemon cuts, once, and keeps the same text with the message (ChatMessage.parent_item), so a client draws it without reading the transcript again and the stored and the delivered quote are the same."
   },
   {
    "name": "chat.send_now",
@@ -10947,7 +10947,7 @@
          },
          "text": {
           "type": "string",
-          "description": "The reply's first 300 characters when the message was sent."
+          "description": "The reply's first 300 characters (Unicode code points, no ellipsis) when the message was sent."
          }
         },
         "required": [
@@ -10988,7 +10988,7 @@
     "properties": {
      "id": {
       "type": "integer",
-      "description": "Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. For kind reply it is also what chat.send takes as parent_item: it is the reply's second, its source and its position in the turn, so the same reply has the same id on every read and in the live event's `item` field."
+      "description": "Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. For kind reply it is also what chat.send takes as parent_item. A reply has one of two sources, told apart by the last digit of its number within the second: a structured session's text block (even; the same id on every read and in the live event's `item`) and the answer to a request (odd); each is the same on every read, and chat.transcript lists both."
      },
      "at": {
       "$ref": "#/components/schemas/Timestamp"

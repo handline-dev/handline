@@ -126,6 +126,260 @@
      }
     }
    ]
+  },
+  {
+   "name": "chat.send.parent_item_unknown_is_not_found",
+   "spec": "chat.send",
+   "about": "NOT_YET_IN_PYTHON An item id no transcript holds is not_found, what item (needs --var reply_agent: a structured agent with no turn running whose transcript holds a reply and a tool call).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{reply_agent}}",
+       "body": "answering",
+       "parent_item": 1000000,
+       "request_id": "conf-pi-4"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "item"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.parent_item_must_be_a_reply",
+   "spec": "chat.send",
+   "about": "NOT_YET_IN_PYTHON A tool call's item id is bad_request naming parent_item; nothing is sent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.transcript",
+      "params": {
+       "agent": "{{reply_agent}}"
+      }
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "kind": "tool",
+        "id": {
+         "$type": "integer",
+         "$save": "tid"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{reply_agent}}",
+       "body": "answering",
+       "parent_item": "{{tid}}",
+       "request_id": "conf-pi-5"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "parent_item"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.parent_item_of_another_agent_is_not_found",
+   "spec": "chat.send",
+   "about": "NOT_YET_IN_PYTHON A reply item of another agent is not_found, what item (needs --var other_reply_agent: another agent whose transcript holds a reply).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.transcript",
+      "params": {
+       "agent": "{{other_reply_agent}}"
+      }
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "kind": "reply",
+        "id": {
+         "$type": "integer",
+         "$save": "fid"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{reply_agent}}",
+       "body": "answering",
+       "parent_item": "{{fid}}",
+       "request_id": "conf-pi-6"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "item"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.parent_item_is_kept_with_the_message",
+   "spec": "chat.send",
+   "about": "NOT_YET_IN_PYTHON A reply item is accepted, and chat.messages then shows the message with parent_item {id, text}.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.transcript",
+      "params": {
+       "agent": "{{reply_agent}}"
+      }
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "kind": "reply",
+        "id": {
+         "$type": "integer",
+         "$save": "rid"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{reply_agent}}",
+       "body": "answering",
+       "parent_item": "{{rid}}",
+       "request_id": "conf-pi-7"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer",
+       "$save": "mid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{reply_agent}}",
+       "scope": "mine",
+       "limit": 1
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "id": "{{mid}}",
+        "parent_item": {
+         "id": {
+          "$type": "integer"
+         },
+         "text": {
+          "$type": "string"
+         }
+        }
+       }
+      }
+     }
+    }
+   ]
   }
  ]
 }
