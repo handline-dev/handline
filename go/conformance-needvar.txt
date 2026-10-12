@@ -46,10 +46,19 @@ hr.decide.a_settled_proposal_is_refused_with_it
 hr.settled.is_sent_when_a_proposal_is_decided
 schedule.add.a_cron_that_does_not_parse_is_bad_request
 schedule.add.then_edit_then_remove
+session.input.input_holder_gate
+session.input.screen_blocker_gate
+session.input.shell_prompt_gate
+session.input.terminal_lock_gate
+session.input.wall_gate
 session.interrupt.input_holder_gate
 session.interrupt.terminal_lock_gate
+session.keys.input_holder_gate
+session.keys.terminal_lock_gate
 session.stop.state_gate_refuses_a_session_mid_work
 session.stop.terminal_lock_gate_holds_for_exit
+session.type.input_holder_gate
+session.type.terminal_lock_gate
 session.wake.terminal_lock_gate
 settings.set.a_key_without_a_per_agent_value_is_bad_request
 stats.outlook.a_group_pick_has_an_overlay
@@ -77,6 +86,7 @@ terminal.bytes.reconnect_from_a_snapshot
 terminal.bytes.resize_gives_watchers_a_snapshot
 terminal.bytes.slow_client_gets_a_snapshot_not_a_gap
 terminal.bytes.text_and_bytes_attaches_coexist
+terminal.close.terminal_lock_gate
 terminal.history.bytes_lines_are_strings
 terminal.input.refused_to_a_non_holder
 terminal.open.says_where_the_terminal_is

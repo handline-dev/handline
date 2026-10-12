@@ -18,8 +18,10 @@ import (
 	"github.com/handline/handline/go/internal/devices"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/hrwrites"
+	"github.com/handline/handline/go/internal/inputhold"
 	"github.com/handline/handline/go/internal/lands"
 	"github.com/handline/handline/go/internal/legacyverbs"
+	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/peer"
 	"github.com/handline/handline/go/internal/prompts"
@@ -132,6 +134,7 @@ type Daemon struct {
 	acctSeq map[string]uint64 // the number of the last move published for each account
 	prompts *prompts.Env      // nil on a gateway: the Python daemon alone presses keys
 	tchan   *termchan.Env     // the terminal channel and the input hold; nil on a gateway
+	holds   *inputhold.Store  // who holds each terminal's input; nil on a gateway
 	single  *lock.Hold        // the daemon singleton, held while this daemon runs; nil on a gateway
 	running *lock.Hold        // the structured singleton, held while this daemon runs structured sessions
 	stop    chan struct{}     // closed by Close: the spool loop ends
@@ -197,6 +200,11 @@ func Start(cfg Config) (*Daemon, error) {
 			return term.Current(cfg.Home)
 		})
 		d.tchan.Structured = cfg.Structured
+		d.holds = &inputhold.Store{DB: db, Changed: d.tchan.HoldersChanged, IdleS: func() int64 {
+			return (&lifecycle.Settings{Home: cfg.Home}).ConfigSeconds("input_hold_idle_s", inputhold.DefaultIdleS)
+		}}
+		d.tchan.Holds = d.holds
+		d.prompts.Holds = d.holds
 		d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
 		d.lands = &lands.Service{DB: db, Repo: cfg.LandRepo, Tokens: sessiontoken.New(cfg.Home), Log: cfg.Log,
 			Tell: func(to, body string) {
@@ -423,10 +431,25 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 				sessionrpc.Register(s, env)
 			}
 		},
+		func(s *rpc.Server) {
+			if d.holds != nil {
+				sessionrpc.RegisterTyping(s, d.typing())
+			}
+		},
 		func(s *rpc.Server) { taskwrites.Register(s, d.cfg.Home, d.teller()) },
 		func(s *rpc.Server) { taskresult.Register(s, d.cfg.Home, d.db) },
 		func(s *rpc.Server) { termchan.Register(s, d.tchan) },
 	}
+}
+
+// typing is the env of input.take and release and the session typing methods: who holds each terminal, and the host to type at.
+func (d *Daemon) typing() *sessionrpc.Env {
+	t := term.New(term.Dynamic(d.cfg.Home), nil)
+	if d.cfg.Terminal != nil {
+		t = term.New(d.cfg.Terminal, nil)
+	}
+	return &sessionrpc.Env{DB: d.db, Home: d.cfg.Home, Holds: d.holds, Term: t, Marker: d.tchan.Marker, Structured: d.cfg.Structured,
+		Wall: func(agent string) string { why, _ := d.env().WallReason(d.db, agent, nil); return why }}
 }
 
 // operationEvent sends an operation's progress to the operations topic.

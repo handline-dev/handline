@@ -316,6 +316,17 @@ describe('the pane', () => {
     expect(m.made).toHaveLength(1); // the kept instance was reused
   });
 
+  it('says why a click could not take the keyboard, and drops the hint', async () => {
+    const m = await mount();
+    await until(() => m.term() && rows(m.term()).some((l) => l.includes('Claude Code v2.1')), 'the screen');
+    const call = m.client.call.bind(m.client);
+    vi.spyOn(m.client, 'call').mockImplementation(((method: string, p: unknown) =>
+      method === 'input.take' ? Promise.reject(new Error('method not found: input.take')) : call(method as never, p as never)) as never);
+    box.querySelector('.xterm-host div')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await until(() => box.textContent?.includes('Could not take the input: method not found'), 'the reason');
+    expect(box.textContent).not.toContain('Click the terminal to type');
+  });
+
   it('takes the keyboard on a click, sends keys to the host, sizes the grid once per burst, and lets go on Ctrl+Shift+E', async () => {
     const watchers: (() => void)[] = [];
     vi.stubGlobal(

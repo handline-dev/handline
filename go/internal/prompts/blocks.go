@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/handline/handline/go/internal/inputhold"
 	"strings"
 	"time"
 
@@ -36,6 +37,8 @@ type Env struct {
 	Reads *reads.Env
 	// Structured answers the prompts of agents that run as structured sessions; nil when there are none.
 	Structured Structured
+	// Holds is who holds each terminal's input; nil leaves an answer ungated.
+	Holds *inputhold.Store
 }
 
 func (e *Env) now() time.Time {
