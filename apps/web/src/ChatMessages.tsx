@@ -160,12 +160,6 @@ export function Message(props: {
             <Icon name={landingIcon(m.landing)} size={13} label={landingLabel(m.landing)} />
           </span>
         ) : null}
-        {open ? (
-          <span title="Waiting for you">
-            {' '}
-            <Icon name="ask" size={13} label="Waiting for your answer" />
-          </span>
-        ) : null}
         {m.tasks.map((t) => (
           <a key={t.id} className="msg-task mono text-inherit" href={`#/tasks/${t.id}`} title={t.title}>
             {' '}
