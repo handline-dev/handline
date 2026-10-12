@@ -123,7 +123,11 @@ def cmd_task_done(args) -> int:
     # decides which; a sha is checked against the repo this is typed in unless --repo names another.
     params = {"task": args.task, "repo": str(Path(args.repo) if args.repo else Path.cwd())}
     if args.evidence is not None:
-        params["evidence"] = args.evidence
+        evidence, err = _text_arg(args.evidence, None, "evidence") if args.evidence == "-" else (args.evidence, None)
+        if err:
+            print(err)
+            return 1
+        params["evidence"] = evidence
         if args.reason:
             params["reason"] = True
     if args.request is not None:
