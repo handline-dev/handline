@@ -128,6 +128,18 @@ func (p *Port) deliver(ctx context.Context, agent string, j job) {
 		}
 		return
 	}
+	if res.Kind == peerinbox.Queued {
+		// The receiver has it and shows it when its turn ends: the ledger stays written and the sender is told nothing. The line is
+		// not held for it; the confirmation comes when the transcript shows it, and a session that ends first is settled as lost.
+		if res.Await != nil && p.OnDelivered != nil {
+			go func() {
+				if res.Await(ctx) {
+					p.OnDelivered(agent, j.op)
+				}
+			}()
+		}
+		return
+	}
 	p.failed(agent, j.op, res.Why, res.Kind != peerinbox.NoSocket)
 }
 
