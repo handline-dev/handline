@@ -581,9 +581,17 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 			resumed, ok = resume, true
 			break
 		}
+		m.Log("  %s: wake attempt (%s) did not take: %s", agent, ifTrue(resume, "resume")+ifTrue(!resume, "fresh"), clip(why, 160))
 		_, statErr := os.Stat(pf)
 		taken = os.IsNotExist(statErr)
 		_ = os.Remove(pf)
+		// A resume of a long transcript can come up after the wait: a session inside the pane this launch used is this launch's own,
+		// and a fresh start over it would make a second one.
+		if late, pid := m.ownLateSession(agent); late {
+			m.Log("  %s: the %s launch's session (pid %d) came up after the wait; no second launch", agent, ifTrue(resume, "resume")+ifTrue(!resume, "fresh"), pid)
+			resumed, ok = resume, true
+			break
+		}
 		// A session owns the terminal now, and the next attempt's command would be typed into it as a prompt. It is this launch's own,
 		// come up late, only if the launch took the prompt.
 		if f, w, found := runningElsewhere(); found {
@@ -686,6 +694,20 @@ func (m *Manager) tookPrompt(agent, promptFile string) bool {
 		check(db.ClearClosed(m.Q, agent))
 	}
 	return up
+}
+
+// ownLateSession is whether the agent's live session runs inside its recorded pane.
+func (m *Manager) ownLateSession(agent string) (bool, int) {
+	handle := must(db.Terminal(m.Q, agent))
+	if handle == "" || m.TermRun == nil {
+		return false, 0
+	}
+	sessions, ok := m.Observe.LiveSessions()
+	if !ok || sessions[agent] == 0 {
+		return false, 0
+	}
+	holds, known := m.TermRun.PaneHolds(handle, sessions[agent])
+	return known && holds, sessions[agent]
 }
 
 // launchInPane runs the launch command for agent: typed into the shell its last session left, or - a closed session's pane is closed

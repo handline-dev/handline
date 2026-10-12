@@ -15,12 +15,14 @@ type fakeTermRun struct {
 	status   string
 	survives bool
 	told     []string
+	outside  bool  // the session runs in another pane than the one handed in
 	started  int64 // the start time of the process now at pid; 0 reads as unknown
 }
 
-func (f *fakeTermRun) Session(string) (int, string) { return f.pid, f.status }
-func (f *fakeTermRun) PidGone(int) bool             { return f.status == "" }
-func (f *fakeTermRun) PidStart(int) int64           { return f.started }
+func (f *fakeTermRun) Session(string) (int, string)       { return f.pid, f.status }
+func (f *fakeTermRun) PidGone(int) bool                   { return f.status == "" }
+func (f *fakeTermRun) PidStart(int) int64                 { return f.started }
+func (f *fakeTermRun) PaneHolds(string, int) (bool, bool) { return !f.outside, true }
 func (f *fakeTermRun) Tell(a, op, text string) error {
 	f.told = append(f.told, a+"|"+op+"|"+text)
 	return nil
@@ -280,5 +282,21 @@ func TestAnOwedClearWhoseOrphanExitsEndsLikeANormalClear(t *testing.T) {
 	}
 	if g.v.clearOwed("a") != 0 {
 		t.Fatal("still owed")
+	}
+}
+
+func TestASecondSessionOutsideTheClosedPaneIsReportedAndDoesNotFailTheClose(t *testing.T) {
+	g := newTermMoveRig(t)
+	g.run.survives, g.run.outside = true, true
+	g.v.PerformHandoff("a", HandoffTrigger{"context", "full"}, "")
+	row := g.row(t)
+	if !isClosed(row) || row.Terminal.String != "" {
+		t.Fatalf("the pane's own end is proved by the pane: %+v", row)
+	}
+	if _, ok, _ := db.LastEventID(g.m.Q, "a", "needs_you"); !ok {
+		t.Fatal("the stray session is not on the record")
+	}
+	if _, ok, _ := db.LastEventID(g.m.Q, "a", "close_failed"); ok {
+		t.Fatal("a stray session was counted as a failed close")
 	}
 }
