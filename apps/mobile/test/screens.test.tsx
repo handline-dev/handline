@@ -17,6 +17,15 @@ describe('the agent list', () => {
     m.store.stop();
   });
 
+  it('marks each state with its own shape, not only a colour', async () => {
+    const m = await mount();
+    await until(() => $(`agent-${ARCH}`), 'the rows');
+    const mark = $(`agent-${ARCH}`)!.querySelector('[data-testid^="state-"]');
+    expect(mark?.getAttribute('data-testid')).toBe('state-idle');
+    expect(mark?.textContent).toBe('○');
+    m.store.stop();
+  });
+
   it('shows the daemon’s sentence when the read is refused, and Retry reads again', async () => {
     const m = await mount((s) => s.daemon.knobs.refuse('agents.list', 'state', 'the daemon is resting', 'try again later'));
     await until(() => $('error'), 'the error block');
