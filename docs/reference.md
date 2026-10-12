@@ -39,7 +39,7 @@ One line each. `ocp <command> --help` has the options, and `hl guide <topic>` pr
 
 | | |
 |---|---|
-| `hl task new --owner <agent> -t <time> "<title>" "<body>" [--reply <msg> "<text>"]` | Give work, or ask something that needs an answer. The last line printed is the new `T<n>`; `--reply` also answers the founder's message with `{task}` filled in as that number. |
+| `hl task new --assign <agent> -t <time> "<title>" "<body>" [--reply <msg> "<text>"]` | Give work, or ask something that needs an answer. `--assign` is who works it; `--owner` is who answers for it (you when not given). The last line printed is the new `T<n>`; `--reply` also answers the founder's message with `{task}` filled in as that number. |
 | `hl task list` | The board. |
 | `hl task show T<n>` | One task in full: brief, memos, blockers, children, handoffs. |
 | `hl task done T<n> "<evidence>"` | Finish your task. A sha must be on `main`. |

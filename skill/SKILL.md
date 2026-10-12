@@ -7,7 +7,7 @@ description: Run as one agent in an orcapipe team. Use to give another agent a t
 
 ```
 hl team                       who you may reach, and what they are doing
-hl task new --owner <target> -t <time> "<title>" "<body>"   work or a question that needs an answer
+hl task new --assign <target> -t <time> "<title>" "<body>"   work or a question that needs an answer
 hl say <target> "<message>"   a message that needs no answer
 hl inbox                      the one item waiting for you, and a count
 hl task done T<n> "<evidence>"   finish your task (or `hl task handoff T<n> <agent> "<note>"`)

@@ -103,12 +103,14 @@ func oneTask(args []string) (int, bool) {
 }
 
 func taskNew(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--file", "--owner", "--reporter", "--parent", "--blocked-by", "--priority", "--expects", "--timeout"},
+	p, ok := parse(args, []string{"--file", "--assign", "--owner", "--parent", "--blocked-by", "--priority", "--expects", "--timeout"},
 		nil, map[string]string{"-t": "--timeout"})
 	if !ok || len(p.pos) < 1 || len(p.pos) > 2 {
 		return 0, false
 	}
-	owner, hasOwner := p.opt("--owner")
+	// --assign is who works the task; --owner is who answers for it, the opener when not given.
+	assignee, hasAssign := p.opt("--assign")
+	accountable, hasOwner := p.opt("--owner")
 	parent, hasParent, ok1 := optTask(p, "--parent")
 	blocked, hasBlocked, ok2 := optTask(p, "--blocked-by")
 	prio, hasPrio, ok3 := optPriority(p, "--priority")
@@ -119,15 +121,11 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 			return 0, false
 		}
 	}
-	if !hasOwner || !ok1 || !ok2 || !ok3 || !ok4 {
+	if !ok1 || !ok2 || !ok3 || !ok4 {
 		return 0, false
 	}
 	mutating(c, "new")
 	if !asking(c, "open a task") {
-		return 1, true
-	}
-	if owner != hlclient.Human && !slices.Contains(paths.ListAgents(c.Home), owner) {
-		fmt.Printf("no agent named %s\n", owner)
 		return 1, true
 	}
 	file, _ := p.opt("--file")
@@ -143,7 +141,10 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 				t = fmt.Sprintf("%dm", timeout/60)
 			}
 		}
-		parts := []string{"hl task new", "--owner", owner, "-t", t, shQuote(title)}
+		parts := []string{"hl task new", "--assign", assignee, "-t", t, shQuote(title)}
+		if hasOwner {
+			parts = append(parts, "--owner", accountable)
+		}
 		if body != nil && *body != "-" {
 			parts = append(parts, shQuote(*body))
 		}
@@ -163,6 +164,21 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 			parts = append(parts, "--expects "+exp)
 		}
 		return strings.Join(parts, " ")
+	}
+	if !hasAssign {
+		if hasOwner { // --owner named who works a task until owner and assignee were split
+			assignee, hasOwner = accountable, false
+		} else {
+			assignee = "<agent>"
+		}
+		fmt.Printf("a task needs --assign: who works it (--owner is who answers for it, you when not given). Try:\n  %s\n", typed(p.pos[0]))
+		return 1, true
+	}
+	for _, who := range []string{assignee, accountable} {
+		if who != "" && who != hlclient.Human && !slices.Contains(paths.ListAgents(c.Home), who) {
+			fmt.Printf("no agent named %s\n", who)
+			return 1, true
+		}
 	}
 	if !hasTimeout {
 		fmt.Printf("a task needs -t/--timeout (90m, 2h; at most %s). Try:\n  %s\n",
@@ -186,7 +202,7 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 		}
 		inline = text
 	}
-	params := map[string]any{"owner": owner, "title": title, "time_box": fmt.Sprintf("%ds", timeout)}
+	params := map[string]any{"owner": assignee, "title": title, "time_box": fmt.Sprintf("%ds", timeout)}
 	if b := textsafe.Strip(textsafe.Text(inline)); b != "" {
 		params["body"] = b
 	}
@@ -202,8 +218,8 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	if hasExp {
 		params["expects"] = exp
 	}
-	if v, given := p.opt("--reporter"); given {
-		params["reporter"] = v
+	if hasOwner {
+		params["reporter"] = accountable
 	}
 	done, msg, got := c.Written("task.new", params)
 	fmt.Println(msg)
@@ -415,7 +431,7 @@ func taskQueue(queued bool) taskCmd {
 }
 
 func taskEdit(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--owner", "--reporter", "--title", "--body", "--body-file", "--priority", "--blocked-by", "--unblock",
+	p, ok := parse(args, []string{"--assign", "--owner", "--title", "--body", "--body-file", "--priority", "--blocked-by", "--unblock",
 		"--timeout"}, nil, nil)
 	if !ok || len(p.pos) != 1 {
 		return 0, false
@@ -447,10 +463,10 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 		}
 		params["body"] = text
 	}
-	if v, given := p.opt("--owner"); given {
+	if v, given := p.opt("--assign"); given { // the wire's owner is who works the task, its reporter who answers for it
 		params["owner"] = v
 	}
-	if v, given := p.opt("--reporter"); given {
+	if v, given := p.opt("--owner"); given {
 		params["reporter"] = v
 	}
 	if v, given := p.opt("--title"); given {
@@ -469,7 +485,7 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 		params["unblock"] = unblock
 	}
 	if len(params) == 1 {
-		fmt.Println("edit needs a new owner, a new reporter, a new title, --body, --priority, --blocked-by, --unblock, or --timeout")
+		fmt.Println("edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, or --timeout")
 		return 1, true
 	}
 	return said(c.Write("task.edit", params)), true

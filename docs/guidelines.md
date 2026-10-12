@@ -11,13 +11,13 @@ like. The agent reads it with no memory of your conversation, so write it for a 
 Weak:
 
 ```bash
-hl task new --owner backend -t 1h "fix sync" "it's broken"
+hl task new --assign backend -t 1h "fix sync" "it's broken"
 ```
 
 Better:
 
 ```bash
-hl task new --owner backend -t 2h "fix flaky test_sync" \
+hl task new --assign backend -t 2h "fix flaky test_sync" \
   "tests/test_sync.py fails about one run in ten. Find the cause and fix it. Done: ten green runs in a row, and the commit sha."
 ```
 

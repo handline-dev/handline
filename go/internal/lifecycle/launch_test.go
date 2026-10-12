@@ -586,7 +586,7 @@ edges:
 		if strings.Contains(line, "no progress or FYI messages") == bossIsHuman || strings.Contains(line, "hl say") {
 			t.Errorf("%s: an agent with a boss must be told to send it only done or a blocker, and no say: %s", who, line)
 		}
-		if !strings.Contains(text, "a task of theirs: `hl task new --owner human") || !strings.Contains(text, "Never schedule your own wakeup") {
+		if !strings.Contains(text, "a task of theirs: `hl task new --assign human") || !strings.Contains(text, "Never schedule your own wakeup") {
 			t.Errorf("%s: the founder and wakeup lines are missing:\n%s", who, text)
 		}
 	}

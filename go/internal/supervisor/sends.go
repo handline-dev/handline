@@ -98,7 +98,7 @@ func (e *Env) workingSay(q db.Q, me, target, body string, parent, task int64) st
 		}
 	}
 	if parent == 0 && e.isReportOf(me, target) {
-		return fmt.Sprintf("hl task new --owner %s -t 2h '<title>' %s", target, shellQuote(body))
+		return fmt.Sprintf("hl task new --assign %s -t 2h '<title>' %s", target, shellQuote(body))
 	}
 	return sayCmd(target, body, parent)
 }
@@ -223,7 +223,7 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 	}
 	if task == 0 && in.Parent == 0 && e.isReportOf(me, target) {
 		return fail("work cannot reach a report by message: make it a task (`hl task new`), or say --task T<n> to memo one. Try:\n  " +
-			fmt.Sprintf("hl task new --owner %s -t 2h '<title>' %s", target, shellQuote(body)))
+			fmt.Sprintf("hl task new --assign %s -t 2h '<title>' %s", target, shellQuote(body)))
 	}
 	if task != 0 {
 		// Structural, not read from the text: a say to a report about a task is that task's memo, delivered as one.
@@ -414,7 +414,7 @@ func (e *Env) checkHumanResolve(q db.Q, row *db.Request, tasks []int64, noTask *
 			names = "--task T<n>"
 		}
 		return fmt.Sprintf("#%d is the founder's: say whether work follows it. %s names the tasks it opened (one per deliverable promised), "+
-			"--no-task 'reason' says nothing needs building. `hl task new --owner NAME 'title' -t 2h` makes a task.", row.ID, names)
+			"--no-task 'reason' says nothing needs building. `hl task new --assign NAME 'title' -t 2h` makes a task.", row.ID, names)
 	}
 	return ""
 }

@@ -6,7 +6,7 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   reach someone goes through `hl`.
 - There is one kind of message, `hl say <target> "..."`: typed at once, needs
   no answer, starts no work. Anything that needs an answer or a result is a
-  task: `hl task new --owner <target> -t <time> "<title>" "<body>"`. Work
+  task: `hl task new --assign <target> -t <time> "<title>" "<body>"`. Work
   reaches another agent only as a task, never a subagent: it dies with your
   session and appears on no screen.
 - You hold one task at a time. It ends with `hl task done T<n> "<evidence>"`,
@@ -15,7 +15,7 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   task arrives only then.
 - Review and merge (orcapipe's project guideline; `hl team` names your own
   project's auditor and merger) are child tasks you wait on, not handoffs: you
-  keep your task, in doing. When code is ready, `hl task new --owner <auditor>
+  keep your task, in doing. When code is ready, `hl task new --assign <auditor>
   --parent T<n> -t <time> "review T<n> @<sha>" "<branch, what changed, what to
   check>"`; the child blocks T<n>, and the auditor closes it with `hl task done
   T<child> "PASS: <notes>"` or `"FAIL: <what fails>"` - you are told when it
@@ -38,7 +38,7 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 - A manager cannot hand a report work by message: a say to a report carries
   `--task T<n>` (a memo on that task).
 - A decision only the founder can make is a task of theirs: `hl task new
-  --owner human ...`. A status report that needs nothing is `hl say human
+  --assign human ...`. A status report that needs nothing is `hl say human
   "..."`.
 
 ## Hard rules

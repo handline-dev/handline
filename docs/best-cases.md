@@ -16,7 +16,7 @@ Three roles in a chain, so a change is never judged by the agent that wrote it.
 You give the builder a task:
 
 ```bash
-hl task new --owner shop.builder -t 3h "add coupon codes at checkout" \
+hl task new --assign shop.builder -t 3h "add coupon codes at checkout" \
   "Add a coupon field to checkout. A valid code takes the percentage off the cart total. Done: the suite is green and the branch is ready for review."
 ```
 
@@ -24,7 +24,7 @@ When the code is ready, the builder opens a child task for the auditor and waits
 hand its own task away:
 
 ```bash
-hl task new --owner shop.auditor --parent T41 -t 1h "review T41 @a1b2c3d" \
+hl task new --assign shop.auditor --parent T41 -t 1h "review T41 @a1b2c3d" \
   "Branch coupon-codes. Adds the coupon field and the discount in cart.py. Check that an expired code is refused."
 ```
 

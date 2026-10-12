@@ -44,12 +44,14 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		args  []string
 		want  []string
 	}{
-		{"", []string{"task", "new", "--owner", "b.two", "-t", "90m", "  A  title ", "  the body  ", "--parent", "T5",
+		{"", []string{"task", "new", "--assign", "b.two", "-t", "90m", "  A  title ", "  the body  ", "--parent", "T5",
 			"--blocked-by=t6", "--priority", "p1", "--expects", "SHA"},
 			[]string{`task.new {"blocked_by":6,"body":"the body","expects":"sha","owner":"b.two","parent":5,"priority":1,"time_box":"5400s","title":"A  title"}`}},
-		{"from stdin\n", []string{"task", "new", "--owner", "human", "-t", "2h", "x", "--file", "-"},
+		{"from stdin\n", []string{"task", "new", "--assign", "human", "-t", "2h", "x", "--file", "-"},
 			[]string{`task.new {"body":"from stdin","owner":"human","time_box":"7200s","title":"x"}`}},
-		{"", []string{"task", "new", "--owner", "b.two", "-t", "1h", "x"},
+		{"", []string{"task", "new", "--assign", "b.two", "-t", "1h", "x", "--owner", "human"},
+			[]string{`task.new {"owner":"b.two","reporter":"human","time_box":"3600s","title":"x"}`}},
+		{"", []string{"task", "new", "--assign", "b.two", "-t", "1h", "x"},
 			[]string{`task.new {"owner":"b.two","time_box":"3600s","title":"x"}`}},
 		{"", []string{"task", "begin", "t", "--chat", "7", "--why", "w"},
 			[]string{`task.begin {"expects":"report","message":7,"title":"t","why":"w"}`}},
@@ -64,8 +66,8 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "draft", "T1"}, []string{`task.draft {"tasks":[1]}`}},
 		{"", []string{"task", "edit", "T3", "--title", "t", "--priority", "3", "--timeout", "2h", "--unblock", "T4"},
 			[]string{`task.edit {"priority":3,"task":3,"time_box":"7200s","title":"t","unblock":4}`}},
-		{"new brief", []string{"task", "edit", "T3", "--body", "-", "--owner", "b.two", "--blocked-by", "T9"},
-			[]string{`task.edit {"blocked_by":9,"body":"new brief","owner":"b.two","task":3}`}},
+		{"new brief", []string{"task", "edit", "T3", "--body", "-", "--assign", "b.two", "--owner", "a.one", "--blocked-by", "T9"},
+			[]string{`task.edit {"blocked_by":9,"body":"new brief","owner":"b.two","reporter":"a.one","task":3}`}},
 		{"", []string{"task", "merge", "T1", "T2", "T3"}, []string{`task.merge {"into":1,"tasks":[2,3]}`}},
 		{"", []string{"task", "done", "T3", "abc", "--reason", "--repo", "./a//b/"},
 			[]string{`task.done {"evidence":"abc","reason":true,"repo":"a/b","task":3}`}},
@@ -95,7 +97,7 @@ func TestTaskWritesSayWhatTheDaemonSaid(t *testing.T) {
 	r := agentsRig(t)
 	r.daemon(map[string]string{"task.new": `{"said":"task T42 opened","task":42}`, "task.start": "error:T3 is not yours", // local-ref-ok
 		"task.queue": `{"said":"queued"}`})
-	if out, _, code := r.run(asAgent, "task", "new", "--owner", "b.two", "-t", "1h", "x", "y"); code != 0 || out != "task T42 opened\nT42\n" { // local-ref-ok
+	if out, _, code := r.run(asAgent, "task", "new", "--assign", "b.two", "-t", "1h", "x", "y"); code != 0 || out != "task T42 opened\nT42\n" { // local-ref-ok
 		t.Errorf("new: %q %d", out, code)
 	}
 	if out, _, code := r.run(asAgent, "task", "start", "T3"); code != 1 || out != "T3 is not yours\n" {
@@ -114,15 +116,20 @@ func TestTaskRefusalsBeforeAnyCall(t *testing.T) {
 		args []string
 		want string
 	}{
-		{asAgent, []string{"task", "new", "--owner", "z.z", "-t", "1h", "x", "y"}, "no agent named z.z\n"},
-		{asAgent, []string{"task", "new", "--owner", "b.two", "it's", "a b", "--priority", "P2"},
-			"a task needs -t/--timeout (90m, 2h; at most 4h00m). Try:\n  hl task new --owner b.two -t 2h 'it'\"'\"'s' 'a b' --priority P2\n"},
-		{asAgent, []string{"task", "new", "--owner", "b.two", "-t", "90s", " ", "y"},
-			"a task needs a title. Try:\n  hl task new --owner b.two -t 90s '<title>' y\n"},
+		{asAgent, []string{"task", "new", "--assign", "z.z", "-t", "1h", "x", "y"}, "no agent named z.z\n"},
+		{asAgent, []string{"task", "new", "--assign", "b.two", "--owner", "z.z", "-t", "1h", "x", "y"}, "no agent named z.z\n"},
+		{asAgent, []string{"task", "new", "--owner", "b.two", "-t", "1h", "x"},
+			"a task needs --assign: who works it (--owner is who answers for it, you when not given). Try:\n  hl task new --assign b.two -t 60m x\n"},
+		{asAgent, []string{"task", "new", "-t", "1h", "x"},
+			"a task needs --assign: who works it (--owner is who answers for it, you when not given). Try:\n  hl task new --assign <agent> -t 60m x\n"},
+		{asAgent, []string{"task", "new", "--assign", "b.two", "it's", "a b", "--priority", "P2"},
+			"a task needs -t/--timeout (90m, 2h; at most 4h00m). Try:\n  hl task new --assign b.two -t 2h 'it'\"'\"'s' 'a b' --priority P2\n"},
+		{asAgent, []string{"task", "new", "--assign", "b.two", "-t", "90s", " ", "y"},
+			"a task needs a title. Try:\n  hl task new --assign b.two -t 90s '<title>' y\n"},
 		{asAgent, []string{"task", "handoff", "T3", "b.two"}, "note is required (inline, --file PATH, or on stdin)\n"},
 		{asAgent, []string{"task", "done", "T3", "-"}, "evidence is required, and stdin (-) was empty\n"},
 		{asAgent, []string{"task", "handoff", "T3", "b.two", "n", "--file", "f"}, "give note inline or with --file, not both\n"},
-		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new owner, a new reporter, a new title, --body, --priority, --blocked-by, --unblock, or --timeout\n"},
+		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, or --timeout\n"},
 		{asAgent, []string{"task", "memo", "T3", "add"}, "add takes the memo text\n"},
 		{asAgent, []string{"task", "memo", "T3", "edit", "4"}, "edit takes the memo id, then the new text\n"},
 		{nil, []string{"task", "start", "T3"}, "cannot tell who is start a tasking this: OCP_AGENT is unset and this is not an " +
@@ -143,8 +150,8 @@ func TestWhatTheTaskPortDoesNotParseIsPythons(t *testing.T) {
 	calls := r.daemon(nil)
 	for _, args := range [][]string{
 		{"task"}, {"task", "frob"}, {"task", "show", "12"}, {"task", "show", "T1", "x"}, {"task", "show", "T1", "-h"},
-		{"task", "new", "--own", "b.two", "-t", "1h", "x"}, {"task", "new", "-t", "1h", "x"}, {"task", "new", "--owner", "b", "-t", "5h", "x"},
-		{"task", "new", "--owner", "b", "-t", "1h", "x", "--reply", "1", "hi"}, {"task", "new", "--owner", "b", "-t", "1h", "x", "--", "y"},
+		{"task", "new", "--assi", "b.two", "-t", "1h", "x"}, {"task", "new", "--assign", "b", "-t", "5h", "x"},
+		{"task", "new", "--assign", "b", "-t", "1h", "x", "--reply", "1", "hi"}, {"task", "new", "--assign", "b", "-t", "1h", "x", "--", "y"},
 		{"task", "list", "--state", "nope"}, {"task", "begin", "x", "--chat", "a", "--why", "w"}, {"task", "begin", "x", "--why", "w"},
 		{"task", "memo", "T1", "bogus"}, {"task", "memo", "T1", "delete", "abc"}, {"task", "done", "T1", "--request", "x"},
 		{"task", "edit", "T1", "--title"}, {"task", "queue"}, {"task", "merge", "T1"},
@@ -177,7 +184,7 @@ func TestTaskShowListAndBoardRead(t *testing.T) {
 			"now":{"kind":"held_as_sub_task","tasks":[8],"agents":["d"]}}],"reports":[]}`,
 	})
 	show := `T7  Fix it
-state done   owner b.two   opened by a.one   P1   parent T3   created 2026-10-01 10:00
+state done   assignee b.two   owner a.one   P1   parent T3   created 2026-10-01 10:00
 timeout 1h00m - counts while the task is doing
 done 2026-10-02 11:30: abc123
 commit abc1234def (not on main)

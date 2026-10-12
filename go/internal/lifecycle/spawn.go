@@ -619,7 +619,7 @@ func (s *Spawns) RegisterWorker(agent, handle string) (string, error) {
 			}
 		}
 	}
-	spec := fmt.Sprintf("%s: a Handline agent. Work reaches it as a task (`hl task new --owner %s`); this task is the card it appears in.", agent, agent)
+	spec := fmt.Sprintf("%s: a Handline agent. Work reaches it as a task (`hl task new --assign %s`); this task is the card it appears in.", agent, agent)
 	task := s.Host.TaskCreate(spec, agent, agent, run, parent)
 	if task == "" && parent != "" {
 		// A parent in another Run - an older card, or one made before this remembered which Run was the team's - is a reason to draw the
