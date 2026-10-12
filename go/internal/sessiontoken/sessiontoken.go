@@ -9,7 +9,9 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -123,6 +125,16 @@ func (t *Tokens) AgentOf(pid int) string {
 		}
 	}
 	return ""
+}
+
+// SessionsReadable is nil when the recorded sessions can be told: the directory is read, or does not exist (no agent has
+// a session). Any other failure means AgentOf cannot say who a process is, and its "" is not an answer.
+func (t *Tokens) SessionsReadable() error {
+	_, err := os.ReadDir(filepath.Join(t.Store.Root, NS))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // IsClaude is whether a program path is Claude Code: the claude command, or its versioned binary in the folder the
