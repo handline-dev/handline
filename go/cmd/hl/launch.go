@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"syscall"
 
@@ -20,7 +19,6 @@ import (
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/term"
-	"github.com/handline/handline/go/internal/textsafe"
 	"github.com/handline/handline/go/internal/usage"
 )
 
@@ -89,7 +87,7 @@ func launcher(home string, d *sql.DB, roster *team.Roster) *lifecycle.Launcher {
 			head, err := db.EffectiveHead(q, agent)
 			return err != nil || head != nil // a read that fails says something may be waiting
 		},
-		TeamRules:      func(agent string) []string { return teamRules(home, agent, routing()) },
+		TeamRules:      func(agent string) []string { return team.Rules(home, agent, routing()) },
 		Routing:        routing,
 		McpApproved:    team.NewTrust(home).MCPApproved,
 		TerminalHandle: func() string { h, _ := tmuxOwnTerminal(); return h },
@@ -132,33 +130,6 @@ func (v launchVendors) ConfigDir(acct string) string {
 		return ""
 	}
 	return dir
-}
-
-// teamRules is the shared/team/<team>.md of each team the agent is in, as "# Rules for team X\n<text>" (launch._team_rules).
-func teamRules(home, agent string, t *team.Team) []string {
-	if t == nil {
-		return nil
-	}
-	names := make([]string, 0, len(t.Teams))
-	for name := range t.Teams {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-	var out []string
-	for _, name := range names {
-		member := false
-		for _, m := range t.Teams[name] {
-			member = member || m == agent
-		}
-		b, err := os.ReadFile(filepath.Join(home, "shared", "team", name+".md"))
-		if !member || err != nil {
-			continue
-		}
-		if text := textsafe.Strip(string(b)); text != "" {
-			out = append(out, fmt.Sprintf("# Rules for team %s\n%s", name, text))
-		}
-	}
-	return out
 }
 
 var paneRE = regexp.MustCompile(`^%\d+$`)

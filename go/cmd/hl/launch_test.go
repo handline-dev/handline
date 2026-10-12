@@ -3,13 +3,11 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/protected"
-	"github.com/handline/handline/go/internal/team"
 )
 
 // launchRig is a founder's rig whose home runs tmux, with a.one a Claude agent on account alpha, the Go launch switched on.
@@ -72,27 +70,6 @@ func TestLaunchKeepsTheHooksCurrentAndRefusesALoggedOutAccount(t *testing.T) {
 	settings, err := os.ReadFile(filepath.Join(r.home, "shared", ".claude", "settings.json"))
 	if err != nil || !strings.Contains(string(settings), " hook PreToolUse\"") || !strings.Contains(string(settings), "\"allowUnixSockets\"") {
 		t.Fatalf("shared settings %s %v", settings, err)
-	}
-}
-
-func TestTeamRulesAreTheTeamsTheAgentIsInWithText(t *testing.T) {
-	home := t.TempDir()
-	dir := filepath.Join(home, "shared", "team")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for name, text := range map[string]string{"zeta": "  last\n", "alpha": "\nfirst rule\n", "empty": " \n", "other": "not mine"} {
-		if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	tm := &team.Team{Teams: map[string][]string{"zeta": {"a"}, "alpha": {"b", "a"}, "empty": {"a"}, "other": {"b"}, "nofile": {"a"}}}
-	want := []string{"# Rules for team alpha\nfirst rule", "# Rules for team zeta\nlast"}
-	if got := teamRules(home, "a", tm); !reflect.DeepEqual(got, want) {
-		t.Errorf("got %q", got)
-	}
-	if got := teamRules(home, "a", nil); got != nil {
-		t.Errorf("no routing: %q", got)
 	}
 }
 
