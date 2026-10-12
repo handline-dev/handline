@@ -2,6 +2,7 @@
 // `useWrite`: an authored one shows at once and rolls back with the daemon's reason on a refusal; a verb the daemon does not serve is
 // disabled with the reason. The sheets keep what was typed until the daemon accepts.
 import { useState, type ReactNode } from 'react';
+import { taskRef } from '@handline/app-core';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
@@ -237,7 +238,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       )}
       {ask === 'withdraw' && (
         <Sheet
-          label={`withdraw #${t.id}?`}
+          label={`withdraw ${taskRef(t.id)}?`}
           submit="Withdraw"
           kind="no"
           onCancel={() => setAsk(null)}
@@ -248,7 +249,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       )}
       {ask === 'cancel' && (
         <ReasonSheet
-          label={running ? `stop #${t.id}? why (optional):` : `cancel #${t.id}? why (optional):`}
+          label={running ? `stop ${taskRef(t.id)}? why (optional):` : `cancel ${taskRef(t.id)}? why (optional):`}
           submit={running ? 'Stop it' : 'Cancel task'}
           kind="no"
           required={false}
@@ -258,7 +259,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       )}
       {ask === 'discard' && (
         <ReasonSheet
-          label={running ? `stop #${t.id} and discard it? why:` : `discard #${t.id}? why:`}
+          label={running ? `stop ${taskRef(t.id)} and discard it? why:` : `discard ${taskRef(t.id)}? why:`}
           submit="Discard"
           kind="no"
           required
@@ -364,7 +365,7 @@ function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
   };
   return (
     <Sheet
-      label={`edit #${t.id}`}
+      label={`edit ${taskRef(t.id)}`}
       submit="Save"
       busy={edit.isPending}
       onCancel={onClose}

@@ -1,7 +1,7 @@
 // The two menus of the message box (docs/bridge-feature-tree.md §2.4): `/` lists the agent's verbs and `#` a task or a message to refer to,
 // and Ctrl+R lists what was sent before. A menu is entries; the box decides which one is open from its text.
 import { useMemo } from 'react';
-import { openTab, verbsOf, type Verb } from '@handline/app-core';
+import { openTab, verbsOf, type Verb, taskRef } from '@handline/app-core';
 import type { AgentDetail, ChatMessage } from '@handline/client';
 import { useAgents, useServes, useTasks } from '@handline/app-data';
 import type { IconName } from './ui/index.ts';
@@ -73,7 +73,7 @@ export function useEntries(
     if (kind === 'hash') {
       const mine = (served ? (tasks.data?.items ?? []) : [])
         .filter((t) => t.to === agent)
-        .map((t): Entry => ({ key: `t${t.id}`, icon: 'tasks', label: `#${t.id}`, hint: t.title, insert: `#${t.id} ` }));
+        .map((t): Entry => ({ key: `t${t.id}`, icon: 'tasks', label: `${taskRef(t.id)}`, hint: t.title, insert: `${taskRef(t.id)} ` }));
       const said = [...messages]
         .reverse()
         .slice(0, 8)

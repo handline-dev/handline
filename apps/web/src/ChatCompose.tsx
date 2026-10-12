@@ -1,7 +1,7 @@
 // The message box: Enter sends, Shift+Enter breaks the line, the up arrow recalls what was sent, `/` and `#` open menus, Ctrl+R lists the history,
 // and an unsent draft is kept per agent. A message taken back (cancel) puts its text here again.
 import { useEffect, useRef, useState } from 'react';
-import { isOpenAsk, type KV, type Verb } from '@handline/app-core';
+import type { KV, Verb } from '@handline/app-core';
 import type { AgentDetail, ChatMessage } from '@handline/client';
 import { useAgents, useChatActions } from '@handline/app-data';
 import { setting } from './daemon.ts';
@@ -100,9 +100,8 @@ export function Compose(props: {
     }
     setRefused(null);
     const delivery = choosing && now ? ('now' as const) : undefined;
-    // Replying to a question that waits for you answers it; to anything else sends a linked message to whoever said it.
-    if (target && isOpenAsk(target, agent)) act.answer(target.id, text);
-    else if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery });
+    // A picked message is a reference: a linked message to whoever said it, whatever it asked.
+    if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery });
     else act.send(text, { delivery });
     setNow(false);
     onClear?.();
@@ -158,7 +157,7 @@ export function Compose(props: {
             <Icon
               name="reference"
               size={14}
-              label={isOpenAsk(target, agent) ? `Answering #${target.id}` : `Replying to #${target.id}`}
+              label={`Replying to #${target.id}`}
             />
             <span className="mono">#{target.id}</span>
             <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>

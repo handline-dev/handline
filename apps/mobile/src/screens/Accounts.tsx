@@ -54,14 +54,17 @@ function List(props: { onSelect: (name: string) => void }) {
   const rows = query.data?.accounts ?? [];
   return (
     <View style={{ flex: 1 }}>
-      <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700', padding: space.lg }}>Accounts</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: space.lg }}>
+        <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>Accounts</Text>
+        <Add />
+      </View>
       <Loadable
         query={query}
         served={served}
         isEmpty={rows.length === 0}
         skeleton="accounts"
         label="accounts"
-        empty="No accounts configured. Add one from the host with hl account add <name>."
+        empty="No accounts configured."
       >
         <FlatList
           data={rows}
@@ -85,6 +88,58 @@ function List(props: { onSelect: (name: string) => void }) {
           )}
         />
       </Loadable>
+    </View>
+  );
+}
+
+/** Founder only: a name registers the account, which then needs a login (the topic brings the row in). */
+function Add() {
+  const c = usePalette();
+  const founder = useStore().client.hello?.role === 'founder';
+  const off = useWhyNot('account.add');
+  const [asking, setAsking] = useState(false);
+  const [name, setName] = useState('');
+  const add = useWrite('account.add', name);
+  const adding = usePending('account.add').length > 0;
+  if (!founder) return null;
+  const close = () => (setAsking(false), setName(''), add.reset());
+  return (
+    <View style={{ gap: space.sm, alignItems: 'flex-end' }}>
+      <Button testID="account-add-open" label="Add account" disabled={!!off || asking} onPress={() => setAsking(true)} />
+      {off ? <Text style={{ color: c.muted }}>Locked: {off}.</Text> : null}
+      {asking ? (
+        <View
+          testID="sheet"
+          style={{
+            gap: space.sm,
+            padding: space.md,
+            borderWidth: 1,
+            borderColor: c.line,
+            borderRadius: radius.md,
+            backgroundColor: c.panel,
+            alignSelf: 'stretch',
+          }}
+        >
+          <Text style={{ color: c.ink, fontWeight: '600' }}>Add an account</Text>
+          <Input testID="sheet-name" label="Name" value={name} onChange={setName} />
+          <Text style={{ color: c.muted, fontSize: 12 }}>Log it in from its page once it is added.</Text>
+          {add.error ? (
+            <Text testID="sheet-error" accessibilityRole="alert" style={{ color: c.block }}>
+              {sentence(classify(add.error))}
+            </Text>
+          ) : null}
+          <View style={{ flexDirection: 'row', gap: space.sm }}>
+            <Button
+              testID="sheet-submit"
+              label={adding ? 'Adding…' : 'Add account'}
+              disabled={!name.trim() || adding}
+              onPress={() => add.mutate({ account: name.trim() }, { onSuccess: close })}
+              style={{ flex: 1 }}
+            />
+            <Button testID="sheet-cancel" label="Cancel" onPress={close} />
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }

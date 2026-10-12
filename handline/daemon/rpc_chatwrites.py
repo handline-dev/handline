@@ -1,4 +1,4 @@
-"""chat.send, chat.answer, chat.dismiss, chat.cancel and chat.seen: the chat page's writes, through the daemon.
+"""chat.send, chat.dismiss, chat.cancel and chat.seen: the chat page's writes, through the daemon.
 
 chat.send is the person's message to an agent (`hl say` is the agent's, `chat_reply` the screen's): a plain message, or with `task` a
 task the agent is given (title and time box, the message its brief). It goes through delivery as any request does (queued, typed,
@@ -118,21 +118,6 @@ def _send_under(ctx, params, agent: str, parent: int, body: str) -> dict:
     return {"accepted": True, "said": msg, "request": rid}
 
 
-def _answer(ctx, params) -> dict:
-    rid, text = _request_id(params), _text(params, "text")
-    con = db.connect()
-    try:
-        row = _message(con, rid)
-        if not _waits_on_person(row):
-            raise rpc.refused(f"#{rid} asked nothing of the person: there is nothing to answer", gate="state")
-        ok, msg = actions.answer_ok(con, rid, text, effect=_record(ctx, params, "chat.answer"))
-    finally:
-        con.close()
-    if not ok:
-        raise rpc.refused(msg)
-    return {"accepted": True, "said": msg}
-
-
 def _dismiss(ctx, params) -> dict:
     rid = _request_id(params)
     con = db.connect()
@@ -205,7 +190,6 @@ def _agent_named(params) -> str:
 
 
 rpc.METHODS["chat.send"] = rpc.Method(_send, "member", write=True)
-rpc.METHODS["chat.answer"] = rpc.Method(_answer, "member", write=True)
 rpc.METHODS["chat.dismiss"] = rpc.Method(_dismiss, "member", write=True)
 rpc.METHODS["chat.cancel"] = rpc.Method(_cancel, "member", write=True)
 rpc.METHODS["chat.seen"] = rpc.Method(_seen, "member", write=True)

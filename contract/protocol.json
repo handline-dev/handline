@@ -2824,7 +2824,7 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "description": "The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is then the message replied to, for an answer, or the new message."
+      "description": "The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is the new message."
      }
     },
     {
@@ -2954,54 +2954,6 @@
     }
    ],
    "description": "For a message to a structured agent whose receipt is queued: written to the CLI with priority now, receipt sent. Any other receipt is refused (gate state), including a message written meanwhile. The daemon makes the release atomic with its queue, so a write that has started is never promoted twice. A terminal agent's message is as before."
-  },
-  {
-   "name": "chat.answer",
-   "summary": "Answer a message that asked something.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "request",
-     "required": true,
-     "schema": {
-      "type": "integer"
-     }
-    },
-    {
-     "name": "text",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "member",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ]
   },
   {
    "name": "chat.dismiss",

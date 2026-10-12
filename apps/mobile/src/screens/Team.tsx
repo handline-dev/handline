@@ -1,5 +1,6 @@
 // The Team list: who is who and who may ask whom, as the web's TeamPage reads team.get. A card opens to the agents it may ask and be asked by.
 import { useState } from 'react';
+import { taskRef } from '@handline/app-core';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useAgents, useServes, useTeam } from '@handline/app-data';
@@ -88,7 +89,7 @@ function Card(props: {
       <Text style={{ color: c.ink }}>{a.role}</Text>
       {d?.task && (
         <Text style={{ color: c.muted, fontSize: 12 }}>
-          doing #{d.task.id} {d.task.title}
+          doing {taskRef(d.task.id)} {d.task.title}
         </Text>
       )}
       {props.open && (
