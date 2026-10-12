@@ -15,6 +15,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
@@ -104,6 +105,16 @@ func rigWith(t *testing.T, edit func(*Config)) (*Parts, string) {
 	p := New(cfg)
 	p.Sink.DB = d
 	p.Sink.Err = func(agent string, err error) { t.Error(agent, err) }
+	// A session's reader goroutine writes its events to the database and reports to t: it must be over before the test is and before the
+	// database closes. Cleanups run last first, so this one runs before the close registered above.
+	t.Cleanup(func() {
+		for _, agent := range paths.ListAgents(home) {
+			if s := p.Run.mgr.Get(agent); s != nil {
+				p.Run.mgr.Stop(agent)
+				<-s.Exited() // the exit is recorded too: its last write is over
+			}
+		}
+	})
 	return p, home
 }
 

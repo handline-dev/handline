@@ -160,6 +160,7 @@ type Session struct {
 	closeMu  sync.Mutex // one Close at a time; a repeat proves the group again
 	exitErr  error
 	done     chan struct{}
+	exited   chan struct{} // closed once OnExit has returned: nothing of the session runs after it
 	initDone chan struct{}
 }
 
@@ -205,7 +206,7 @@ func Open(ctx context.Context, l Launch, h Handlers, timeout time.Duration) (*Se
 		now = time.Now
 	}
 	s := &Session{cmd: cmd, in: in, h: h, led: led, now: now, ledger: map[string]*entry{}, byUUID: map[string]*entry{}, waiting: map[string]chan map[string]any{},
-		prompts: map[string]context.CancelFunc{}, done: make(chan struct{}), initDone: make(chan struct{})}
+		prompts: map[string]context.CancelFunc{}, done: make(chan struct{}), exited: make(chan struct{}), initDone: make(chan struct{})}
 	go s.read(out)
 	ictx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -601,6 +602,7 @@ func (s *Session) read(out io.Reader) {
 	}
 	s.mu.Unlock()
 	close(s.done)
+	defer close(s.exited)
 	if s.h.OnExit != nil {
 		s.h.OnExit(err)
 	}
@@ -783,6 +785,10 @@ func (s *Session) State() string {
 
 // Done is closed when the CLI process has exited; ExitErr is then why. Liveness is this, not a screen.
 func (s *Session) Done() <-chan struct{} { return s.done }
+
+// Exited is closed when the session's reader has finished altogether: the process has exited and OnExit, which records the end, has returned.
+// A caller that must not race the session's last write waits for this, not for Done.
+func (s *Session) Exited() <-chan struct{} { return s.exited }
 
 func (s *Session) ExitErr() error {
 	select {
