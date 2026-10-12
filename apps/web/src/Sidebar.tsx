@@ -166,7 +166,10 @@ export function Sidebar({
                 className={`${PROW} filter`}
                 onClick={() => {
                   const next = new Set(hidden);
-                  for (const d of f.dots) on ? next.add(d) : next.delete(d);
+                  for (const d of f.dots) {
+                    if (on) next.add(d);
+                    else next.delete(d);
+                  }
                   setting(storage, 'hiddenDots', '').save([...next].join(','));
                   setHidden(next);
                 }}
