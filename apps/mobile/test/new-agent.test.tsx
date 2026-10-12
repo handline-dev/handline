@@ -1,7 +1,8 @@
 // X5, the phone's New agent page on the fake daemon's agent.create: the form, one call per tap, the fields it sends, the progress, done and
 // failed, the first task, who sees the entry, and the return to the progress after a reload.
 import { act, useState, type ReactNode } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { ScrollView } from 'react-native';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import type { Store } from '@handline/app-core';
 import { Home } from '../src/screens/Home.tsx';
 import type { Pending } from '../src/screens/NewAgent.tsx';
@@ -37,6 +38,14 @@ async function fill(name = 'fresh', role = 'reviewer') {
 }
 
 describe('X5 phone New agent', () => {
+  it('lets a chip tap through while the keyboard is up, instead of spending the first tap on hiding it', async () => {
+    const render = vi.spyOn(ScrollView as unknown as { render: (props: Record<string, unknown>, ref: unknown) => unknown }, 'render');
+    onTestFinished(() => render.mockRestore());
+    await open(await mount());
+    const page = render.mock.calls.map((c) => c[0]).find((p) => p.testID === 'new-agent');
+    expect(page?.keyboardShouldPersistTaps).toBe('handled');
+  });
+
   it('keeps Create off while name, role or repo is empty, and sends nothing', async () => {
     const m = await open(await mount());
     const spy = calls(m);

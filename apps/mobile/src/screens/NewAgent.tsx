@@ -125,7 +125,11 @@ function Choice(props: {
 function Page(props: { onClose: () => void; children: React.ReactNode }) {
   const c = usePalette();
   return (
-    <ScrollView testID="new-agent" contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: 120 }}>
+    <ScrollView
+      testID="new-agent"
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: 120 }}
+    >
       <Button testID="na-back" label="‹ Back" onPress={props.onClose} style={{ alignSelf: 'flex-start' }} />
       <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>New agent</Text>
       {props.children}

@@ -29,7 +29,7 @@ appId: dev.handline.mobile
 - inputText: phonemade
 - tapOn: { id: na-role }
 - inputText: reviewer
-- hideKeyboard
+- pressKey: Enter
 - scrollUntilVisible: { element: { id: 'na-repo-/work/docs-site' } }
 - tapOn: { id: 'na-repo-/work/docs-site' }
 - takeScreenshot: shots/new-agent-form

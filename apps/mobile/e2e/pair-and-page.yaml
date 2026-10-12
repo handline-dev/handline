@@ -1,6 +1,15 @@
 # Drives the app on the iOS simulator against `pnpm fake-listener`:  maestro test -e URI="$(head -1 listener.log)" e2e/pair-and-page.yaml
 appId: dev.handline.mobile
 ---
+# the dev client's floating gear sits over New agent and takes its taps; its UserDefaults key is read from the launch arguments
+- launchApp:
+    arguments:
+      EXDevMenuShowFloatingActionButton: "NO" # NSUserDefaults reads the bool from this string; `false` leaves the gear
+# a relaunched dev client starts on its launcher: load the bundle from Metro on this machine
+- openLink: exp+handline://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8081
+- runFlow:
+    when: { visible: 'Open in.*' }
+    commands: [{ tapOn: Open }]
 # the dev client shows its menu on first launch; close it
 - runFlow:
     when: { visible: Continue }
