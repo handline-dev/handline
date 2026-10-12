@@ -239,12 +239,11 @@ function Bubble(props: {
   const c = usePalette();
   const { m, agent } = props;
   const act = useChatActions(agent);
-  const can = useSelector((s) => ({ answer: s.can('chat.send'), dismiss: s.can('chat.dismiss') }));
+  const can = useSelector((s) => ({ dismiss: s.can('chat.dismiss') }));
   const side = sideOf(m, agent, props.isAgent);
-  const [answer, setAnswer] = useState('');
   const unnumbered = m.id < 0; // shown before the daemon numbered it, or refused
   const failed = m.state === 'failed';
-  const open = isOpenAsk(m, agent) && can.answer;
+  const open = isOpenAsk(m, agent);
   const mine = side === 'person' && !unnumbered && !failed;
   const undoable = mine && ['queued', 'typed', 'delivered', 'delivered_unanswered'].includes(m.landing);
   // A sent, confirmed or unknown message is the agent's: taking it back asks first, as for a delivered one.
@@ -322,30 +321,7 @@ function Bubble(props: {
         </Row>
       )}
       {side === 'agent' && m.answer && <Text style={{ color: c.muted, fontSize: 12 }}>✓✓ You: {m.answer.text}</Text>}
-      {open && (
-        <View style={{ gap: space.xs }}>
-          <TextInput
-            testID={`answer-input-${m.id}`}
-            value={answer}
-            onChangeText={setAnswer}
-            placeholder="Answer"
-            placeholderTextColor={c.muted}
-            style={{ color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.md, padding: space.sm }}
-          />
-          <Row>
-            <Button
-              testID={`answer-send-${m.id}`}
-              label="Answer"
-              disabled={!answer.trim()}
-              onPress={() => {
-                act.send(answer, { parent: m.id, to: props.isAgent(m.from) ? m.from : m.to });
-                setAnswer('');
-              }}
-            />
-            {can.dismiss && <Button testID={`dismiss-${m.id}`} label="Dismiss" onPress={() => act.dismiss(m.id)} />}
-          </Row>
-        </View>
-      )}
+      {open && can.dismiss && <Button testID={`dismiss-${m.id}`} label="Dismiss" onPress={() => act.dismiss(m.id)} />}
     </Pressable>
   );
 }
