@@ -24,7 +24,7 @@ const TILES: [string, keyof Pick<Stats, 'tasks_done' | 'moves' | 'handoffs' | 'b
 ];
 
 const TILE =
-  'stat-tile flex flex-col gap-1 rounded-card border border-transparent bg-surface px-4 py-3 shadow-[var(--shadow-card)] [&_svg]:text-ink-3 data-[warn]:[&_svg]:text-bad';
+  'stat-tile flex flex-col gap-1 rounded-card bg-surface px-4 py-3 [&_svg]:text-ink-3 data-[warn]:[&_svg]:text-bad';
 
 /** Icon, count, name: the icon says what is counted, so the name can stay small. */
 function Tiles({ s }: { s: Stats }) {

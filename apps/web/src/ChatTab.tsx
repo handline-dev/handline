@@ -24,7 +24,7 @@ import { PromptSlot } from './PromptCard.tsx';
 import { Compose } from './ChatCompose.tsx';
 import { Item, Message, jumpTo } from './ChatMessages.tsx';
 import { ChatBanner, ChatStrip, HrCards } from './ChatCards.tsx';
-import { Button, Empty, Icon, Segmented, Textarea, ComposeRow } from './ui/index.ts';
+import { Button, Empty, Icon, Segmented, State, Textarea, ComposeRow } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import { useWorkspace } from './Workspace.tsx';
 
@@ -53,7 +53,7 @@ function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
       </div>
       <ComposeRow>
         <Textarea
-          className="compose flex-1 resize-none"
+          className="compose flex-1 resize-none border-0 bg-transparent px-1.5"
           rows={2}
           placeholder="Chat is not available from this daemon yet"
           disabled
@@ -220,7 +220,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 key={keyOf(e)}
                 instant={i <= tail || tail < 0}
                 onFrame={repin}
-                className="max-w-full has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start"
+                className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start"
               >
                 {e.kind === 'message' ? (
                   <Message
@@ -244,7 +244,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 <div
                   key={`day ${day}`}
                   role="separator"
-                  className="mt-2 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
+                  className="mt-3 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
                 >
                   {day}
                 </div>,
@@ -258,13 +258,13 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         <HrCards agent={agent} />
         {chat.working.turn_running ? (
           <div className="line working flex items-center gap-1.5 self-start text-[12px] text-working" role="status" title={chat.working.line ?? 'Working'}>
-            <Icon name="working" size={14} label={chat.working.line ?? 'Working'} aria-hidden />
+            <State kind="working" size={14} label={chat.working.line ?? 'Working'} />
             <span>{chat.working.line ?? 'Working'}…</span>
           </div>
         ) : null}
       </div>
       {newer ? (
-        <button className="newer absolute right-4 bottom-[96px] inline-flex items-center gap-1 rounded-pill border border-line-strong bg-panel px-2 py-1 shadow-[var(--shadow-pop)]" onClick={bottom} title="New messages">
+        <button className="newer absolute right-4 bottom-[96px] inline-flex items-center gap-1 rounded-pill bg-panel px-2 py-1 shadow-[var(--shadow-pop)]" onClick={bottom} title="New messages">
           <Icon name="newer" size={14} aria-hidden />
           {newer}
         </button>

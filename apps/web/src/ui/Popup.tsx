@@ -37,7 +37,7 @@ export function Popup({
   if (!open) return null;
   return (
     <div
-      className={`ui-popup ${align}${up ? ' up' : ''} absolute z-20 mt-1 min-w-[220px] rounded-card border border-line-strong bg-panel pb-1 shadow-[var(--shadow-pop)]${align === 'right' ? ' right-0' : ''}${up ? ' bottom-full mb-1' : ''}`}
+      className={`ui-popup ${align}${up ? ' up' : ''} absolute z-20 mt-1 min-w-[220px] rounded-card bg-panel pb-1 shadow-[var(--shadow-pop)]${align === 'right' ? ' right-0' : ''}${up ? ' bottom-full mb-1' : ''}`}
       role="dialog"
       aria-label={title}
       ref={box}

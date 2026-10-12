@@ -26,7 +26,7 @@ export function Segmented<V extends string>({
       value={value}
       onValueChange={(v) => onChange(v as V)}
       aria-label={label}
-      className="ui-seg inline-flex rounded-ctl border border-line-strong bg-surface p-0.5"
+      className="ui-seg inline-flex rounded-ctl bg-surface p-0.5"
     >
       {options.map((o) => (
         <Radio.Root

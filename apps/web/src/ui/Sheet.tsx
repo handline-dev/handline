@@ -16,11 +16,11 @@ export function Sheet({
   ...rest
 }: ComponentProps<'form'> & { kind?: Kind; as?: 'div' | 'span' | 'form'; danger?: boolean }) {
   const Tag = As as unknown as ComponentType<ComponentProps<'form'>>; // one of three tags that take the same props
-  const look = danger ? 'danger basis-full border-bad' : 'border-line';
+  const look = danger ? 'danger basis-full bg-[color-mix(in_srgb,var(--s-bad)_8%,var(--panel))]' : '';
   return (
     <Tag
       {...rest}
-      className={`${SIZE[kind]} flex flex-wrap items-center rounded-card border bg-panel ${look}${className ? ` ${className}` : ''}`}
+      className={`${SIZE[kind]} flex flex-wrap items-center rounded-card bg-panel ${look}${className ? ` ${className}` : ''}`}
     />
   );
 }

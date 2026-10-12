@@ -43,7 +43,7 @@ export function Dialog({
               <Base.Popup
                 initialFocus={() => box.current?.querySelector<HTMLElement>('input, textarea, select, button') ?? true}
                 ref={box}
-                className="ui-dialog flex w-[min(var(--w-dialog),calc(100vw_-_2_*_var(--sp-6)))] flex-col gap-3 rounded-dialog border border-line-strong bg-panel p-4 shadow-[var(--shadow-pop)]"
+                className="ui-dialog flex w-[min(var(--w-dialog),calc(100vw_-_2_*_var(--sp-6)))] flex-col gap-3 rounded-dialog bg-panel p-4 shadow-[var(--shadow-pop)]"
                 aria-label={title}
                 aria-modal="true"
               >

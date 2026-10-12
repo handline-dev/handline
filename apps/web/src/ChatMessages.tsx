@@ -3,11 +3,9 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent } from 'react';
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
-import { isOpenAsk, landingLabel, sideOf } from '@handline/app-core';
-import { useSelector } from '@handline/app-react';
+import { landingLabel, sideOf } from '@handline/app-core';
 import { useAgents, useChatActions } from '@handline/app-data';
-import { EditorButton } from './EditorButton.tsx';
-import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, Input, type IconName } from './ui/index.ts';
+import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { PathText } from './PathText.tsx';
 
@@ -20,7 +18,8 @@ const LANDING_ICON: Record<string, IconName> = {
   queued: 'queued',
   typed: 'typed',
   delivered: 'delivered',
-  delivered_unanswered: 'unanswered',
+  // Delivered but unanswered draws as delivered — the waiting is said in the tooltip, not drawn.
+  delivered_unanswered: 'delivered',
   answered: 'answered',
   dismissed: 'dismissed',
   withdrawn: 'withdrawn',
@@ -91,15 +90,12 @@ export function Message(props: {
 }) {
   const { m, agent } = props;
   const act = useChatActions(agent);
-  const can = useSelector((s) => ({ answer: s.can('chat.answer'), dismiss: s.can('chat.dismiss') }));
   const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
   const side = sideOf(m, agent, (n) => names.has(n));
-  const [answer, setAnswer] = useState('');
   const [ask, setAsk] = useState(false);
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
-  const open = isOpenAsk(m, agent) && can.answer;
   const mine = side === 'person' && !unnumbered && !failed;
   // Not answered yet and not already taken back: the person's own undo. A message the agent has not got just goes; one it has asks first.
   const undoable = mine && ['queued', 'typed', 'delivered', 'delivered_unanswered'].includes(m.landing);
@@ -118,6 +114,7 @@ export function Message(props: {
     props.onPick(m);
   };
   return (
+    <>
     <div
       className={bubbleClass(side, { failed, picked: props.picked, pickable: !unnumbered && !failed })}
       data-landing={m.landing}
@@ -134,7 +131,7 @@ export function Message(props: {
       ) : null}
       {m.parent != null ? (
         <button
-          className="msg-ref mb-1 flex max-w-full cursor-pointer items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap border-0 border-l-2 border-l-line bg-transparent px-1.5 py-0 text-left text-[12px] text-ink-2 [&_svg]:align-middle"
+          className="msg-ref mb-1 flex max-w-full cursor-pointer items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap border-0 bg-transparent px-1.5 py-0 text-left text-[12px] text-ink-2 [&_svg]:align-middle"
           title={parent ? snippet(parent.body) : `#${m.parent}`}
           onClick={() => jumpTo(m.parent!)}
         >
@@ -145,32 +142,6 @@ export function Message(props: {
       ) : null}
       <div className={MSG_BODY}>
         <RefText text={m.body} agent={agent} onRef={props.onRef} />
-      </div>
-      <div className={`${MSG_META} muted`}>
-        {!unnumbered ? <span className="mono">#{m.id}</span> : null}
-        {side === 'person' && !failed && m.receipt ? (
-          <span className="landing receipt" data-receipt={m.receipt.state} title={receiptOf(m.receipt.state).label}>
-            {' '}
-            <Icon name={receiptOf(m.receipt.state).icon} size={13} label={receiptOf(m.receipt.state).label} />
-          </span>
-        ) : side === 'person' && !failed ? (
-          <span className="landing" title={m.sending_reason ? `${landingLabel(m.landing)}: ${m.sending_reason}` : landingLabel(m.landing)}>
-            {' '}
-            <Icon name={landingIcon(m.landing)} size={13} label={landingLabel(m.landing)} />
-          </span>
-        ) : null}
-        {open ? (
-          <span title="Waiting for you">
-            {' '}
-            <Icon name="ask" size={13} label="Waiting for your answer" />
-          </span>
-        ) : null}
-        {m.tasks.map((t) => (
-          <a key={t.id} className="msg-task mono text-inherit" href={`#/tasks/${t.id}`} title={t.title}>
-            {' '}
-            <Icon name="tasks" size={12} label={`Task ${t.id}: ${t.title}`} />T{t.id}
-          </a>
-        ))}
       </div>
       {undoable ? (
         <div className="msg-acts mt-1 flex gap-1">
@@ -223,29 +194,34 @@ export function Message(props: {
           <Icon name="dismissed" size={13} />
         </div>
       ) : null}
-      {open ? (
-        <form
-          className="ask mt-2 flex gap-1.5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!answer.trim()) return;
-            act.answer(m.id, answer);
-            setAnswer('');
-          }}
-        >
-          <Input dense className="min-w-0 flex-1" value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Answer" aria-label={`Answer to message ${m.id}`} />
-          <EditorButton text={answer} onText={setAnswer} />
-          <button className="icon" aria-label="Answer" title="Answer" disabled={!answer.trim()}>
-            <Icon name="send" />
-          </button>
-          {can.dismiss ? (
-            <button type="button" className="icon" aria-label="Dismiss" title="Dismiss" onClick={() => act.dismiss(m.id)}>
-              <Icon name="dismiss" />
-            </button>
-          ) : null}
-        </form>
-      ) : null}
-    </div>
+      </div>
+      {/* The stamp hangs in the gutter beside the bubble, out of the flow: an agent's to its right, the person's to its left — the bubble never resizes for it. */}
+      <div
+        className={`${MSG_META} absolute bottom-0 hidden items-center whitespace-nowrap gap-1.5 text-ink-3 peer-hover:flex peer-aria-current:flex ${
+          side === 'agent' ? 'left-full ml-1.5' : 'right-full mr-1.5'
+        }`}
+      >
+        {side === 'person' && !failed && m.receipt ? (
+          <span className="landing receipt" data-receipt={m.receipt.state} title={receiptOf(m.receipt.state).label}>
+            <Icon name={receiptOf(m.receipt.state).icon} size={13} label={receiptOf(m.receipt.state).label} />
+          </span>
+        ) : side === 'person' && !failed ? (
+          <span
+            className="landing"
+            title={m.sending_reason ? `${landingLabel(m.landing)}: ${m.sending_reason}` : landingLabel(m.landing)}
+          >
+            <Icon name={landingIcon(m.landing)} size={13} label={landingLabel(m.landing)} />
+          </span>
+        ) : null}
+        {m.tasks.map((t) => (
+          <a key={t.id} className="msg-task mono text-inherit" href={`#/tasks/${t.id}`} title={t.title}>
+            <Icon name="tasks" size={12} label={`Task ${t.id}: ${t.title}`} />T{t.id}
+          </a>
+        ))}
+        {!unnumbered ? <span className="mono">#{m.id}</span> : null}
+        <span>{clock(m.at)}</span>
+      </div>
+    </>
   );
 }
 

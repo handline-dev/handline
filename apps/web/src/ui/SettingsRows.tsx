@@ -6,7 +6,7 @@ const ROW =
   'srow grid min-h-11 items-center gap-x-4 gap-y-1 px-4 py-2 [&:not(:first-child)]:border-t [&:not(:first-child)]:border-line [&_.ui-note]:col-span-full [&_.verb-sheet]:col-span-full [&_.ui-field>label]:sr-only [&_.ui-input-wrap_input]:h-8 [&_.ui-input-wrap_input]:w-40 [&_.ui-input-wrap_input]:pr-14 [&_.ui-input-wrap_input]:tabular-nums';
 
 export function SettingsCard({ as: Tag = 'div', className, ...rest }: ComponentProps<'div'> & { as?: ElementType }) {
-  return <Tag {...rest} className={join('scard m-0 list-none rounded-card border border-line bg-surface p-0', className)} />;
+  return <Tag {...rest} className={join('scard m-0 list-none rounded-card bg-surface p-0', className)} />;
 }
 
 /** `answer` is the three-column row of a standing answer: an icon, the text, then its remove button. */

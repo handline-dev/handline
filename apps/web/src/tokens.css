@@ -24,7 +24,6 @@
   --term-bg: #0a0a0b;
   --term-ink: #e8e6df;
   --shadow-pop: 0 8px 24px #0006;
-  --shadow-card: 0 1px 2px #0003;
   --scrim: #0008;
   color-scheme: dark;
 }
@@ -49,7 +48,6 @@
     --s-ok: #00875f;
     --term-bg: #16150f;
     --shadow-pop: 0 8px 24px #0002;
-  --shadow-card: 0 1px 2px #0002;
     color-scheme: light;
   }
 }
@@ -73,7 +71,6 @@
   --s-ok: #00875f;
   --term-bg: #16150f;
   --shadow-pop: 0 8px 24px #0002;
-    --shadow-card: 0 1px 2px #0002;
   color-scheme: light;
 }
 
