@@ -153,7 +153,7 @@ export function Compose(props: {
   return (
     <div className="compose-wrap flex flex-col">
       {target ? (
-        <div className="compose-ref mx-3 mb-1 flex items-center gap-1.5 rounded-chip border-l-2 border-l-primary bg-panel px-2 py-1 text-[12px]" role="status">
+        <div className="compose-ref mx-3 mb-1 flex items-center gap-1.5 rounded-chip bg-panel px-2 py-1 text-[12px]" role="status">
           <Icon name="reference" size={14} label={`Replying to #${target.id}`} />
           <span className="mono">#{target.id}</span>
           <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>

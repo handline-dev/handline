@@ -131,14 +131,10 @@ export function Message(props: {
         <div className={`${MSG_FROM} muted`}>
           {m.from} → {m.to}
         </div>
-      ) : side === 'agent' ? (
-        <div className={MSG_FROM}>
-          <span style={{ color: 'var(--s-ok)' }}>{m.from}</span> <span className="muted">{clock(m.at)}</span>
-        </div>
       ) : null}
       {m.parent != null ? (
         <button
-          className="msg-ref mb-1 flex max-w-full cursor-pointer items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap border-0 border-l-2 border-l-line bg-transparent px-1.5 py-0 text-left text-[12px] text-ink-2 [&_svg]:align-middle"
+          className="msg-ref mb-1 flex max-w-full cursor-pointer items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap border-0 bg-transparent px-1.5 py-0 text-left text-[12px] text-ink-2 [&_svg]:align-middle"
           title={parent ? snippet(parent.body) : `#${m.parent}`}
           onClick={() => jumpTo(m.parent!)}
         >
@@ -151,6 +147,7 @@ export function Message(props: {
         <RefText text={m.body} agent={agent} onRef={props.onRef} />
       </div>
       <div className={`${MSG_META} muted`}>
+        <span className="hidden group-hover:inline group-aria-current:inline">{clock(m.at)}</span>
         {!unnumbered ? <span className="mono hidden group-hover:inline group-aria-current:inline">#{m.id}</span> : null}
         {side === 'person' && !failed && m.receipt ? (
           <span className="landing receipt" data-receipt={m.receipt.state} title={receiptOf(m.receipt.state).label}>
@@ -304,9 +301,6 @@ export function Item({ i, titles }: { i: TranscriptItem; titles?: Map<number, st
   if (i.kind === 'reply')
     return (
       <div className={bubbleClass('agent')} data-kind="reply" title={full(i.at)}>
-        <div className={MSG_FROM}>
-          <span className="muted">{clock(i.at)}</span>
-        </div>
         <div className={MSG_BODY}>
           <PathText text={i.text ?? ''} />
         </div>
