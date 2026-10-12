@@ -69,7 +69,7 @@ test('the type is checked by the first bytes; over 10 MiB is refused with the li
     (e: { code?: string; gate?: string }) => e.code === 'refused' && e.gate === 'limit',
   );
   const r = await put(client, PNG);
-  daemon.attachments.expire(r.attachment!.id);
+  daemon.uploads.expire(r.attachment!.id);
   await assert.rejects(client.call('attachment.get', { id: r.attachment!.id }), (e: { code?: string }) => e.code === 'not_found');
   client.close();
 });

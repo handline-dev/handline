@@ -28,7 +28,7 @@ export function chatMethod(
   checkAgent: () => unknown,
   ok: (said: string, extra?: object) => object,
   inboxDismiss: (id: unknown) => boolean,
-  takeAttachments: (ids: unknown) => Attachment[] = () => [],
+  attachments: { take(ids: unknown): Attachment[] } = { take: () => [] },
 ): unknown {
   switch (method) {
     case 'chat.messages':
@@ -39,7 +39,7 @@ export function chatMethod(
       return chat.transcriptOf(p);
     case 'chat.send':
       checkAgent();
-      return chatCall(() => ok('Sent.', chat.send(p, person, takeAttachments)));
+      return chatCall(() => ok('Sent.', chat.send(p, person, attachments.take)));
     case 'chat.dismiss':
       if (inboxDismiss(p.request)) return ok('Dismissed.');
       return chatCall(() => (chat.dismiss(p), ok('Dismissed.')));

@@ -91,7 +91,7 @@ export class FakeDaemon {
   private floor = 0; // cursor of the newest event dropped by retention
   private conns = new Set<Conn>();
   private replies = new Replies();
-  readonly attachments = new FakeAttachments();
+  readonly uploads = new FakeAttachments();
   private timer: ReturnType<typeof setInterval> | null = null;
   private retention: number;
   private now: () => Date;
@@ -370,8 +370,7 @@ export class FakeDaemon {
       const s = agent();
       if (!s.open) this.script.startSession(s, false, actor);
     }
-    if (method.startsWith('chat.'))
-      return chatMethod(this.chat, method, p, c.caller.name, agent, ok, (id) => this.inbox.dismiss(id), this.attachments.take);
+    if (method.startsWith('chat.')) return chatMethod(this.chat, method, p, c.caller.name, agent, ok, this.inbox.dismiss, this.uploads);
     const owned = this.moduleCall(c, method, p, ok);
     if (owned) return owned.value;
     const handler = HANDLERS[method];
@@ -444,7 +443,7 @@ export class FakeDaemon {
     if (/^accounts?\./.test(method)) return { value: this.accounts.call(method, p, ok) };
     if (this.admin.owns(method)) return { value: this.admin.call(method, p, ok) };
     if (this.work.owns(method)) return { value: this.work.call(method, p, ok) };
-    if (method.startsWith('attachment.')) return { value: this.attachments.call(method, p, ok) };
+    if (method.startsWith('attachment.')) return { value: this.uploads.call(method, p, ok) };
     if (method.startsWith('inbox.')) return { value: this.inbox.call(method, p, c.caller.name, ok) };
     if (this.tasks.serves(method)) return { value: taskCall(this.tasks, method, p, c.caller.name, this.script) };
     return null;
