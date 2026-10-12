@@ -25,6 +25,7 @@ import { ensureToken, founderKeyFile, phoneLink, TokenFile, type PairDeps } from
 import { phoneHtml } from './phone-html.ts';
 import { grant } from './grant.ts';
 import { onTailnet } from './tailnet.ts';
+import { singleWindow } from './single-window.ts';
 import { TRAY_PNG } from './tray-icon.ts';
 import { trayMenu, type TrayFollow } from './tray.ts';
 
@@ -36,18 +37,19 @@ function trayIcon(): Electron.NativeImage {
 }
 
 /** A window with the QR of a fresh one-time link; rejects with the gateway's reason when it cannot make one (no network listener, no key). */
-async function openPhone(pairing: PairDeps): Promise<void> {
+const makePhone = async (pairing: PairDeps): Promise<BrowserWindow> => {
   const l = await phoneLink(pairing);
   const minutes = Math.max(1, Math.round((Date.parse(l.expiresAt) - Date.now()) / 60_000));
   const w = new BrowserWindow({ width: 340, height: 440, resizable: false, title: 'Pair a phone', webPreferences: { sandbox: true } });
   w.setMenuBarVisibility(false);
   await w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(phoneHtml(l.uri, minutes))}`);
-}
+  return w;
+};
 
 /** The tray's way: the same window, the reason in a dialog. */
-async function showPhone(pairing: PairDeps): Promise<void> {
+async function showPhone(openPhone: () => Promise<void>): Promise<void> {
   try {
-    await openPhone(pairing);
+    await openPhone();
   } catch (e) {
     dialog.showErrorBox('Cannot pair a phone', e instanceof Error ? e.message : String(e));
   }
@@ -181,7 +183,7 @@ export function ownDaemon(o: {
             link,
             switchTo: () => relaunchAs({ ...o.current, mode: mode === 'connect' ? 'own' : 'connect' }),
             pair: () => void pairClipboard(),
-            phone: o.current.remote ? undefined : () => void showPhone(pairing),
+            phone: o.current.remote ? undefined : () => void showPhone(openPhone),
           },
         ),
       ),
@@ -197,6 +199,7 @@ export function ownDaemon(o: {
     e.returnValue = fromWindow(e, o.origin) ? grant(token, ownHost, owner) : null;
   });
   const pairing = localPairing(o.home, o.gatewaySocket);
+  const openPhone = singleWindow(() => makePhone(pairing));
   /** Connect mode: attach to what is there and never start it. */
   async function connect(): Promise<string | undefined> {
     const remote = o.current.remote;
@@ -231,8 +234,7 @@ export function ownDaemon(o: {
     remote: o.current.remote,
     switchMode: (m) => relaunchAs({ ...o.current, mode: m }),
     pair,
-    phone: () =>
-      o.current.remote ? Promise.reject(new Error('paired with another device: pair the phone on that device')) : openPhone(pairing),
+    phone: () => (o.current.remote ? Promise.reject(new Error('paired with another device: pair the phone on that device')) : openPhone()),
     async ready() {
       if (mode === 'connect') return connect();
       if (!o.gateway) return undefined;
