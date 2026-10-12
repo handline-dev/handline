@@ -1,6 +1,6 @@
 // The agent list. A row shows an agent's state, its queue and a fold button when it has children; its actions (Start, the ⋯ menu)
 // show while the pointer is on it or it is selected. One filter button opens the menu of what to show.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ago,
   dotOf,
@@ -25,7 +25,7 @@ import { Badges } from './Badges.tsx';
 import { Mark, MARKS } from './RailIcons.tsx';
 import { AgentGauges } from './AgentGauges.tsx';
 import { useNow } from './Gauge.tsx';
-import { Button, Icon, Popup, PROW } from './ui/index.ts';
+import { Button, Icon, Menu, MenuContent, MenuTrigger, Popup, PROW } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import {
   goAgent,
@@ -39,7 +39,7 @@ import {
   useTeamRoute,
   useWorktreesRoute,
 } from './route.ts';
-import { RowControls } from './RowControls.tsx';
+import { AgentMenu, RowControls } from './RowControls.tsx';
 import { NewAgentButton } from './NewAgent.tsx';
 import { View } from './View.tsx';
 import { navOf, PairPhone } from './NavRows.tsx';
@@ -241,7 +241,7 @@ function Row({
 }) {
   const store = useStore();
   const dot = dotOf(a);
-  const [account, setAccount] = useState(''); // for the next start only
+  const wrap = useRef<HTMLDivElement>(null);
   const [ask, setAsk] = useState<Verb | null>(null);
   const [hot, setHot] = useState(false); // the pointer or focus is on the row: its actions show, and only then do they cost a detail read
   const [menuOpen, setMenuOpen] = useState(false);
@@ -251,73 +251,88 @@ function Row({
   const ctx = ctxOf(a);
   const queue = queueOf(a, unreached);
   const badges = badgesOf(a, store.me).filter((b) => b.kind !== 'no_terminal'); // the word already says it
-  const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : ''].filter(Boolean).join(' · ');
+  const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
+    .filter(Boolean)
+    .join(' · ');
   // The left edge: the waiting hue outranks the selection.
   const edge = dot === 'waiting' ? 'border-l-wait' : selected ? 'border-l-primary' : 'border-l-transparent';
   const showControls = selected || hot || menuOpen;
+  // The ⋯ button asks the row for its own context menu, at the button.
+  const openMenu = (at: { x: number; y: number }) =>
+    wrap.current?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y }));
   return (
-    <div
-      className={`row-wrap relative${selected ? ' on bg-canvas' : ''}`}
-      data-agent={a.name}
-      onPointerEnter={() => setHot(true)}
-      onPointerLeave={() => setHot(false)}
-      onFocus={() => setHot(true)}
-      onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setHot(false)}
-    >
-      <div
-        className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 py-[7px] border-l-[3px] hover:bg-canvas ${edge}`}
-        style={{ paddingLeft: 10 + depth * 14 }}
-      >
-        {kids ? (
-          <button
-            className="fold flex-none border-0 bg-transparent p-0 text-ink-2"
-            aria-expanded={!folded}
-            aria-label={`${folded ? 'Show' : 'Hide'} the ${kids} under ${a.name}`}
-            title={`${folded ? 'Show' : 'Hide'} the ${kids} under ${a.name}`}
-            onClick={onFold}
+    <>
+      <Menu onOpenChange={setMenuOpen}>
+        <MenuTrigger asChild>
+          <div
+            ref={wrap}
+            className={`row-wrap relative${selected ? ' on bg-canvas' : ''}`}
+            data-agent={a.name}
+            onPointerEnter={() => setHot(true)}
+            onPointerLeave={() => setHot(false)}
+            onFocus={() => setHot(true)}
+            onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setHot(false)}
           >
-            <Icon name={folded ? 'chevronRight' : 'more'} size={12} aria-hidden />
-          </button>
-        ) : (
-          <span className="w-3 flex-none" aria-hidden />
-        )}
-        <button
-          className="row-main flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left"
-          onClick={() => goAgent(a.name)}
-          aria-current={selected ? 'true' : undefined}
-          title={tip}
-        >
-          <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
-          <span className="name min-w-0 flex-1 whitespace-nowrap">{shortName(a.name, team)}</span>
-          <Badges badges={badges} />
-          {queue.messages ? (
-            <span
-              className="q-msgs inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
-              title={`${queue.messages} messages not yet delivered`}
+            <div
+              className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 py-[7px] border-l-[3px] hover:bg-canvas ${edge}`}
+              style={{ paddingLeft: 10 + depth * 14 }}
             >
-              <Icon name="inbox" size={12} aria-hidden />
-              {queue.messages}
-            </span>
-          ) : null}
-          {queue.tasks ? (
-            <span
-              className="q-tasks inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
-              title={`${queue.tasks} tasks queued or doing`}
-            >
-              <Icon name="tasks" size={12} aria-hidden />
-              {queue.tasks}
-            </span>
-          ) : null}
-          <AgentGauges ctx={ctx} cacheMin={cache} />
-        </button>
-        {/* Laid over the row's right end, not beside the name: the row is the same height with or without them. */}
-        {showControls ? (
-          <div className="absolute right-1 top-1/2 -translate-y-1/2 bg-canvas">
-            <RowControls agent={a} account={account} setAccount={setAccount} onAsk={setAsk} onMenu={setMenuOpen} />
+              {kids ? (
+                <button
+                  className="fold flex-none border-0 bg-transparent p-0 text-ink-2"
+                  aria-expanded={!folded}
+                  aria-label={`${folded ? 'Show' : 'Hide'} the ${kids} under ${a.name}`}
+                  title={`${folded ? 'Show' : 'Hide'} the ${kids} under ${a.name}`}
+                  onClick={onFold}
+                >
+                  <Icon name={folded ? 'chevronRight' : 'more'} size={12} aria-hidden />
+                </button>
+              ) : (
+                <span className="w-3 flex-none" aria-hidden />
+              )}
+              <button
+                className="row-main flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left"
+                onClick={() => goAgent(a.name)}
+                aria-current={selected ? 'true' : undefined}
+                title={tip}
+              >
+                <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
+                <span className="name min-w-0 flex-1 whitespace-nowrap">{shortName(a.name, team)}</span>
+                <Badges badges={badges} />
+                {queue.messages ? (
+                  <span
+                    className="q-msgs inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
+                    title={`${queue.messages} messages not yet delivered`}
+                  >
+                    <Icon name="inbox" size={12} aria-hidden />
+                    {queue.messages}
+                  </span>
+                ) : null}
+                {queue.tasks ? (
+                  <span
+                    className="q-tasks inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
+                    title={`${queue.tasks} tasks queued or doing`}
+                  >
+                    <Icon name="tasks" size={12} aria-hidden />
+                    {queue.tasks}
+                  </span>
+                ) : null}
+                <AgentGauges ctx={ctx} cacheMin={cache} />
+              </button>
+              {/* Laid over the row's right end, not beside the name: the row is the same height with or without them. */}
+              {showControls ? (
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 bg-canvas">
+                  <RowControls agent={a} onMenu={openMenu} />
+                </div>
+              ) : null}
+            </div>
           </div>
-        ) : null}
-      </div>
+        </MenuTrigger>
+        <MenuContent>
+          <AgentMenu agent={a} onAsk={setAsk} />
+        </MenuContent>
+      </Menu>
       {ask ? <VerbSheet a={a} verb={ask} onClose={() => setAsk(null)} /> : null}
-    </div>
+    </>
   );
 }
