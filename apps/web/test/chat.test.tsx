@@ -302,7 +302,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await click($('button[aria-label="Add a tab"]')!);
     await click($$('.strip-end .ui-prow').find((b) => text(b).includes('Tasks'))!);
     await until(() => $('.tasks-tab-row'), 'the agent tasks');
-    await click($('input[aria-label="Mark #1684"]')!);
+    await click($('input[aria-label="Mark #1684"]')!); // local-ref-ok
     await click($$('button').find((b) => b.getAttribute('aria-label') === 'Actions on the marked tasks')!);
     await click($$('.ui-popup button').find((b) => text(b).startsWith('Discard'))!);
     const sh = $$('.tsheet').find((x) => x.getAttribute('aria-label') === 'Discard 1 task?')!;

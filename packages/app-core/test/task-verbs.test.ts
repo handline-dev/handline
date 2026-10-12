@@ -14,6 +14,7 @@ test('a verb applies by the state of the task and who asked', () => {
   assert.equal(whyNot('reopen', task(1, 'done'), 'founder'), null);
   assert.match(whyNot('reopen', task(1, 'done', 'x'), 'founder')!, /you asked/);
   assert.match(whyNot('done', task(1, 'discarded'), 'founder')!, /already closed/);
+  assert.match(whyNot('done', task(1, 'draft'), 'founder')!, /draft/);
   assert.equal(whyNot('withdraw', task(1, 'queued'), 'founder'), null);
   assert.match(whyNot('withdraw', task(1, 'doing'), 'founder')!, /has started/);
 });

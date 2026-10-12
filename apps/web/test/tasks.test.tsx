@@ -578,7 +578,7 @@ describe('actions on one task or many', () => {
     await menu(box, 'More actions', 'Queue');
     const sh = sheet('Queue 1 task?')!;
     expect(text(sh)).toContain('1 skipped');
-    expect(text(sh)).toContain('#1690 is not a draft');
+    expect(text(sh)).toContain('1690 is not a draft');
     await click(button('Queue', sh));
     await until(() => s.daemon.tasks.get({ task: 1700 }).state === 'queued', 'the draft is queued');
   });

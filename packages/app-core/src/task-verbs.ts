@@ -29,6 +29,7 @@ export function whyNot(verb: RowVerb, t: Task, me: string): string | null {
   const closed = `#${t.id} is already closed`;
   switch (verb) {
     case 'done':
+      return t.state === 'draft' ? `#${t.id} is a draft, queue it first` : open(t) ? null : closed;
     case 'cancel':
     case 'discard':
     case 'owner':
