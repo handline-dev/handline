@@ -250,6 +250,39 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(icon(msg('Which gap list'), 'Your answer')).toBeFalsy();
   });
 
+  it("a reply to the agent's message that asked nothing is a say under it, not an answer", async () => {
+    const t = await mount(ARCH);
+    const chat = t.daemon.chat;
+    chat.change(chat.find(chat.seed(ARCH, { from: ARCH, to: 'human', body: 'Report: gaps listed.', landing: 'delivered' })), {});
+    await until(() => msg('Report: gaps listed.'), 'the report');
+    await click(msg('Report: gaps listed.')!.querySelector('.msg-body')!);
+    expect(text($('.compose-ref'))).toContain('Replying to');
+    await typeInto(compose(), 'thanks, go on');
+    await press(compose(), 'Enter');
+    await until(() => sentMsgs(t).some((m) => m.body === 'thanks, go on'), 'the say');
+    expect(sentMsgs(t).find((x) => x.body === 'thanks, go on')!.parent).toBe(idOf('Report: gaps listed.'));
+  });
+
+  it("a click on the agent's own reply (a transcript line with no message number) quotes it in the next message; Escape drops it", async () => {
+    const t = await mount(ARCH);
+    const reply = () => $$('[data-kind="reply"]').find((r) => text(r).includes('Here is the plan'))!;
+    await until(reply, 'the reply');
+    await click(reply());
+    expect(reply().classList.contains('picked')).toBe(true);
+    expect(text($('.compose-quote'))).toContain('Here is the plan');
+    await press(compose(), 'Escape');
+    expect($('.compose-ref')).toBeNull();
+    expect(reply().classList.contains('picked')).toBe(false);
+    await click(reply());
+    await typeInto(compose(), 'ok, start there');
+    await press(compose(), 'Enter');
+    await until(() => sentMsgs(t).some((m) => m.body.endsWith('ok, start there')), 'the daemon got it');
+    const m = sentMsgs(t).find((x) => x.body.endsWith('ok, start there'))!;
+    expect(m.body).toBe('> Here is the plan: three units, chat first.\n\nok, start there');
+    expect(m.parent ?? null).toBeNull();
+    expect($('.compose-ref')).toBeNull();
+  });
+
   it('a click on a control inside a message does not pick it', async () => {
     await mount(ARCH);
     await until(() => button(msg('Use the contract fixtures.'), 'Take back'), 'a control inside a message');

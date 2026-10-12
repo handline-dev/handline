@@ -102,6 +102,7 @@ export function Compose(props: {
     const delivery = choosing && now ? ('now' as const) : undefined;
     // A picked message is a reference: a linked message to whoever said it, whatever it asked.
     if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery });
+    else if (quote) act.send(`${quote.text.slice(0, 300).split('\n').map((l) => `> ${l}`).join('\n')}\n\n${text}`, { delivery });
     else act.send(text, { delivery });
     setNow(false);
     onClear?.();
