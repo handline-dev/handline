@@ -28,6 +28,7 @@ agent.get.view_fields_busy
 agent.get.view_fields_ready
 agent.get.view_fields_unwalled
 agent.get.view_fields_walled
+agent.unstall.state_gate_refuses_an_agent_that_is_not_stalled
 chat.cancel.a_written_operation_needs_confirm
 chat.cancel.withdraws_a_queued_operation_without_confirm
 chat.send.a_delivery_word_that_is_not_one_is_bad_request
