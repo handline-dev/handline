@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -368,5 +369,19 @@ func TestAgentSetLeavesTheCustomBrowserToATerminal(t *testing.T) {
 	r := newRig(t)
 	if res := r.call("agent.set", `{"agent":"alice","values":{"browser":"custom"},"request_id":"c1"}`); res["error"] == nil {
 		t.Fatalf("custom was saved: %v", res)
+	}
+}
+
+func TestAgentSetIsRefusedToAPairedDevice(t *testing.T) {
+	r := newRig(t)
+	c := &rpc.Conn{Caller: rpc.Caller{Role: "member", Info: map[string]any{"kind": "device", "name": "phone", "device": "d1"}}}
+	before := r.file("agents", "alice", "agent.yaml")
+	_, err := r.e.agentSetMethod(c, map[string]any{"agent": "alice", "values": map[string]any{"skip_permissions": "on", "sandbox": "off"}})
+	var re *rpc.Error
+	if !errors.As(err, &re) || re.Data["gate"] != "role" {
+		t.Fatalf("a device was not refused at the role gate: %v", err)
+	}
+	if r.file("agents", "alice", "agent.yaml") != before {
+		t.Fatal("a refused device changed the agent")
 	}
 }
