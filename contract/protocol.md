@@ -100,7 +100,7 @@ A method marked write takes a required `request_id`.
 | `agent.strip` | member |  | `agent` | `{agent, model, account, ctx_pct, ctx_used, ctx_limit, cache_left_s, screen_word, screen_detail}` | `not_found`, `bad_request` |  |
 | `chat.refs` | member |  | `agent` | `{requests}` | `not_found`, `bad_request` |  |
 | `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` | `bad_request`, `not_found` |  |
-| `chat.send` | member | yes | `agent`, `body`, `task?`, `parent?`, `delivery?`, `request_id` | `Accepted & {request, receipt}` | `refused`, `not_found`, `bad_request` |  |
+| `chat.send` | member | yes | `agent`, `body`, `task?`, `parent?`, `parent_item?`, `delivery?`, `request_id` | `Accepted & {request, receipt}` | `refused`, `not_found`, `bad_request` |  |
 | `chat.send_now` | member | yes | `request`, `request_id` | `Accepted & {receipt}` | `refused`, `not_found`, `bad_request` |  |
 | `chat.answer` | member | yes | `request`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `chat.dismiss` | member | yes | `request`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -337,7 +337,7 @@ Find messages by text; each hit carries the scope that shows it (the jump is cha
 
 ### `chat.send`
 
-A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold. With parent, a reply to a message. To a structured agent the request_id is the operation id and the result carries a receipt. To a structured agent the result holds `receipt`; to a terminal agent it does not. A repeat (the same request_id and params) returns replayed true and the receipt as it is now, not the first reply, and writes nothing; see x-delivery. A repeat of an operation that was withdrawn is refused (gate state): a retry does not bring back what the person took back.
+A message to an agent through the daemon's delivery (queued, typed, landed); needs no input hold. With parent, a reply to a message. To a structured agent the request_id is the operation id and the result carries a receipt. To a structured agent the result holds `receipt`; to a terminal agent it does not. A repeat (the same request_id and params) returns replayed true and the receipt as it is now, not the first reply, and writes nothing; see x-delivery. A repeat of an operation that was withdrawn is refused (gate state): a retry does not bring back what the person took back. With parent_item the delivered text begins with the reply quoted, each line after `> ` and cut at 300 characters, then a blank line, then the body; the daemon keeps that quote with the message (ChatMessage.parent_item), so a client draws it without reading the transcript again and it survives the transcript being trimmed.
 
 ### `chat.send_now`
 

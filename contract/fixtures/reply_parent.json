@@ -1,0 +1,131 @@
+{
+ "fixtures": [
+  {
+   "name": "chat.send.parent_item_is_a_number",
+   "spec": "chat.send",
+   "about": "NOT_YET_IN_PYTHON parent_item must be an integer: bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "x",
+       "body": "hello",
+       "parent_item": "one",
+       "request_id": "conf-pi-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "parent_item"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.parent_item_and_parent_do_not_go_together",
+   "spec": "chat.send",
+   "about": "NOT_YET_IN_PYTHON A message answers a message or a reply, not both: bad_request naming parent_item.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "x",
+       "body": "hello",
+       "parent": 1,
+       "parent_item": 1790000000100000,
+       "request_id": "conf-pi-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "parent_item"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.parent_item_with_a_task_is_bad_request",
+   "spec": "chat.send",
+   "about": "NOT_YET_IN_PYTHON A task has no reply parent: bad_request naming parent_item.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "x",
+       "body": "hello",
+       "task": {
+        "title": "t"
+       },
+       "parent_item": 1790000000100000,
+       "request_id": "conf-pi-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "parent_item"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

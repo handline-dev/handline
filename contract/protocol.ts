@@ -779,10 +779,16 @@ export type ChatMessage = {
   scope?: "mine" | "all";
   /** Only for a message to a structured agent, while it is drawn (a withdrawn one is not). Changes ride the chat event. See x-delivery. */
   receipt?: Receipt;
+  parent_item?: {
+    /** The transcript item id. chat.transcript with since=id reads the page that shows it. */
+    id: number;
+    /** The reply's first 300 characters when the message was sent. */
+    text: string;
+  } | null;
 };
 
 export type TranscriptItem = {
-  /** Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. */
+  /** Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. For kind reply it is also what chat.send takes as parent_item: it is the reply's second, its source and its position in the turn, so the same reply has the same id on every read and in the live event's `item` field. */
   id: number;
   at: Timestamp;
   kind: "reply" | "tool" | "prompt" | "task_event" | "session";
@@ -1522,6 +1528,8 @@ export interface Methods {
   };
   /** The message this one replies to. When that message waits on the person (a question or a decision put to them, or an answer to what they asked) this is its answer, as chat.answer; otherwise it is a say to the agent under it. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is then the message replied to, for an answer, or the new message. */
   parent?: number;
+  /** A reply of the agent's own, as chat.transcript lists it (an item of kind reply: its `id`), that this message answers. The agent's turn text has no message number, so it cannot be `parent`; the two do not go together, nor does this with task (bad_request, field parent_item). An id that is no item of this agent's transcript is not_found (what: item); one that is not a reply (a tool call, a prompt, a task event, a session) is bad_request. */
+  parent_item?: number;
   /** For a structured agent whose turn is running: now joins the running turn, queue (the default) is held by the daemon and written when the turn ends, one message per turn. With no turn running they are the same. A terminal agent accepts the field and ignores it. Another word is bad_request. */
   delivery?: "now" | "queue";
   request_id: RequestId;
