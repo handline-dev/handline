@@ -161,9 +161,7 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 	if len(py) != len(events) || len(py) != 4 {
 		t.Fatalf("python wrote %d rows, go %d", len(py), len(events))
 	}
-	// The Task Go's reads serve leaves out five optional fields Python's carries, on purpose: no app reads them from a Task (a discarded task
-	// is told by its state). Go's data must equal Python's on every field it has.
-	missing := map[string]bool{"last_activity": true, "edited_by": true, "discarded": true, "mismatch": true, "requests": true}
+	// Go's data must equal Python's on every field of the Task: the Python CLI reads them all.
 	for i, e := range events {
 		sameRow(t, i, py[i], e)
 		pyTask, _ := norm(py[i]["data"]).(map[string]any)
@@ -171,7 +169,6 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 		for k, v := range pyTask {
 			g, has := goTask[k]
 			switch {
-			case !has && missing[k]:
 			case !has:
 				t.Errorf("row %d: Go's Task lacks %s", i, k)
 			case !same(v, g):
@@ -191,11 +188,6 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 		for k := range goTask {
 			if _, has := pyTask[k]; !has {
 				t.Errorf("row %d: Go's Task has %s, Python's does not", i, k)
-			}
-		}
-		for k := range missing {
-			if _, has := goTask[k]; has {
-				t.Errorf("row %d: Go now serves %s: take it off the missing list", i, k)
 			}
 		}
 	}

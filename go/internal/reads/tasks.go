@@ -299,6 +299,12 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	reqs, err := query(e.DB, "SELECT r.*, MAX(COALESCE(r.ts, 0), COALESCE(r.state_at, 0), "+
+		"COALESCE((SELECT MAX(a.ts) FROM requests a WHERE a.settles = r.id), 0)) AS touched "+
+		"FROM requests r JOIN task_requests l ON l.request_id = r.id WHERE l.task_id = ? ORDER BY r.id", t.i("id"))
+	if err != nil {
+		return nil, err
+	}
 	blockedBy := make([]int64, len(blockers))
 	for i, b := range blockers {
 		blockedBy[i] = b.i("id")
@@ -310,6 +316,19 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 		"parent": t.intOrNil("parent_task"), "created": ts(t["created_at"]), "delivered": ts(t["delivered_at"]),
 		"done": ts(t["done_at"]), "priority": t.i("priority"), "hold_reason": hold, "block_reason": nil, "evidence": t.strOrNil("done_evidence"),
 	}
+	active := max(t.i("created_at"), t.i("edited_at"), t.i("done_at"), t.i("discarded_at"))
+	linked := make([]map[string]any, len(reqs))
+	for i, r := range reqs {
+		active = max(active, r.i("touched"))
+		linked[i] = map[string]any{"id": r.i("id"), "from": r.str("requester"), "to": r.str("target"),
+			"state": r.str("state"), "at": ts(r["ts"])}
+	}
+	task["last_activity"], task["edited_by"], task["requests"] = ts(active), t.strOrNil("edited_by"), linked
+	task["discarded"] = nil
+	if t.str("discarded_by") != "" {
+		task["discarded"] = map[string]any{"by": t.str("discarded_by"), "reason": t.str("discard_reason"), "at": ts(t["discarded_at"])}
+	}
+	task["mismatch"] = taskMismatch(t, state, reqs)
 	if t.i("timeout_s") != 0 {
 		task["time_box"] = duration(t.i("timeout_s"))
 	}
@@ -321,6 +340,26 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 		task["block_reason"] = "waiting on " + strings.Join(ids, ", ")
 	}
 	return task, nil
+}
+
+// taskMismatch is where a task's state and its delivery disagree, or nil, as actions.task_mismatch has it.
+func taskMismatch(t row, state string, reqs []row) any {
+	if state == "done" || state == "discarded" {
+		return nil
+	}
+	sent := t.set("sent_at")
+	if t.str("queued_by") == "" && sent {
+		for _, r := range reqs {
+			if r.str("state") == "queued" || (r.str("state") == "landed" && r.str("kind") == "task" && r.set("queue_order")) {
+				return fmt.Sprintf("draft with work out (#%d) - its opener has not queued it", r.i("id"))
+			}
+		}
+		return "draft with work out - its opener has not queued it"
+	}
+	if state == "queued" && !sent && t.str("owner") != human {
+		return "approved, but no request is out"
+	}
+	return nil
 }
 
 // waitLine is what shows beside a waiting task: the reason the Python daemon's tick recorded for it and how long it
