@@ -133,7 +133,7 @@
   "role": "agent"
  },
  "hr.decide": {
-  "role": "founder"
+  "role": "member"
  },
  "hr.list": {
   "role": "agent"

@@ -269,7 +269,7 @@ describe('U15 HR', () => {
     expect(btn(card(2), 'Edit settings')).toBeUndefined();
   });
 
-  it('a new proposal shows on another page with Approve; the HR tab and a member do not get the banner', async () => {
+  it('a new proposal shows on another page with Approve; the HR tab does not get the banner', async () => {
     const s = setup();
     const a = raise(s, 1);
     await open(s, '#/stats');
@@ -339,21 +339,13 @@ describe('U15 HR', () => {
     }
   });
 
-  it('a member gets no banner', async () => {
+  it('a paired member gets the banner and can approve from the card', async () => {
     const s = setup({ role: 'member' });
-    raise(s, 1);
+    const a = raise(s, 1);
     await open(s, '#/stats');
-    await wait(100);
-    expect($('.hr-banner')).toBeNull();
-  });
-
-  it('a member reads the cards but has no decide control', async () => {
-    const s = setup({ role: 'member' });
-    raise(s, 1);
-    await open(s);
-    await until(() => $('.hr-card'), 'the card');
-    expect(card(1).querySelector('button')).toBeNull();
-    expect($$('button').some((b) => text(b) === 'Approve all')).toBe(false);
+    await until(() => $('.hr-banner-item'), 'the banner');
+    await click(btn($('.hr-banner-item')!, 'Approve'));
+    await until(() => a.state === 'approved', 'approved by a member');
   });
 
   it('a deep link opens the HR tab on its card', async () => {
