@@ -388,6 +388,17 @@ func (d *Daemon) accountChanged(name string, login weblogin.Login) {
 	d.acctSeq[name] = login.Seq
 }
 
+// accountAdded says an account was added on the accounts topic, as accounts.list shows it: registered, not logged in.
+func (d *Daemon) accountAdded(name string) {
+	acct, ok := (&reads.Env{DB: d.db, Home: d.cfg.Home, Login: func(string) *weblogin.Login { return nil }}).Account(name)
+	if !ok {
+		return
+	}
+	if err := d.hub.AccountChanged(acct); err != nil {
+		d.cfg.Log("  stream: account.changed %s: %v", name, err)
+	}
+}
+
 // transcripts says whether this daemon serves the transcript stream: it has the sink that numbers the events and knows which agents are
 // structured sessions.
 func (d *Daemon) transcripts() bool { return d.cfg.Transcript != nil && d.cfg.Structured != nil }
@@ -397,7 +408,7 @@ func (d *Daemon) transcripts() bool { return d.cfg.Transcript != nil && d.cfg.St
 func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 	return []func(*rpc.Server){
 		func(s *rpc.Server) {
-			adminwrites.Register(s, &adminwrites.Env{DB: d.db, Home: d.cfg.Home, Logins: d.logins})
+			adminwrites.Register(s, &adminwrites.Env{DB: d.db, Home: d.cfg.Home, Logins: d.logins, Changed: d.accountAdded})
 		},
 		func(s *rpc.Server) { attachments.Register(s, attachments.New(d.cfg.Home)) },
 		func(s *rpc.Server) { chatwrites.Register(s, d.env(), d.teller()) },

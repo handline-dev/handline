@@ -22,6 +22,8 @@ type Env struct {
 	Logins *weblogin.Manager
 	// Run runs the vendor's logout for account.remove and answers its exit code (-1 when it could not run); nil runs the command.
 	Run func(argv []string, env map[string]string) int
+	// Changed tells the accounts topic that an account was added; nil tells no one.
+	Changed func(account string)
 }
 
 // Register adds the writes to the server's table.

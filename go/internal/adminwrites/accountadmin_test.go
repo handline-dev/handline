@@ -14,6 +14,8 @@ func TestAccountAddMakesAndLinksTheDirectoryAndLogsNothingIn(t *testing.T) {
 	shared := filepath.Join(r.home, "shared", ".claude")
 	os.MkdirAll(filepath.Join(shared, "skills"), 0o755)
 	os.WriteFile(filepath.Join(shared, "settings.json"), []byte("{}"), 0o644)
+	var told []string
+	r.e.Changed = func(a string) { told = append(told, a) }
 	call := `{"account":"spare","request_id":"ad1"}`
 	res := r.result(r.one("account.add", call))
 	if res["account"] != "spare" || res["accepted"] != true {
@@ -28,7 +30,10 @@ func TestAccountAddMakesAndLinksTheDirectoryAndLogsNothingIn(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cdir, ".credentials.json")); err == nil {
 		t.Fatal("an account that was only added is logged in")
 	}
-	if again := r.result(r.one("account.add", call)); again["replayed"] != true {
+	if len(told) != 1 || told[0] != "spare" {
+		t.Fatalf("the accounts topic was told %v", told)
+	}
+	if again := r.result(r.one("account.add", call)); again["replayed"] != true || len(told) != 1 {
 		t.Fatalf("a retry answers what the first did: %v", again)
 	}
 	// another vendor records itself; one with no driver is refused and leaves nothing
