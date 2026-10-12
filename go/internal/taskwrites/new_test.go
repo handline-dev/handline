@@ -3,6 +3,7 @@ package taskwrites
 import (
 	"fmt"
 	"testing"
+	"time"
 )
 
 func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
@@ -65,5 +66,30 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	r = call(t, mk("manager", f), line(2, base, "d1"))
 	if code(r[0]) != "refused" || count(t, db, "SELECT COUNT(*) FROM tasks") != 5 || count(t, db, "SELECT COUNT(*) FROM requests WHERE state = 'denied'") != 1 {
 		t.Fatalf("a refused owner leaves no task behind, only the denial: %v", r[0])
+	}
+}
+
+func TestNewReturnsBeforeTheOwnerIsTold(t *testing.T) {
+	db, mk := discardEnv(t)
+	release, told := make(chan struct{}), make(chan struct{})
+	f := &fakeTeller{after: func() string {
+		<-release // a closed owner's session starts here and the telling waits on it
+		close(told)
+		return "delivered"
+	}}
+	r := call(t, mk("manager", f), `{"jsonrpc":"2.0","id":1,"method":"task.new","params":{"owner":"worker","title":"t","body":"b","time_box":"1h","request_id":"a1"}}`)
+	if r[0]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM tasks WHERE title = 't' AND owner = 'worker'") != 1 {
+		t.Fatalf("the task is open when the call returns: %v", r[0])
+	}
+	select {
+	case <-told:
+		t.Fatal("the call returned only after the owner was told")
+	default:
+	}
+	close(release)
+	select {
+	case <-told:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the owner is told after the call has returned")
 	}
 }

@@ -158,13 +158,10 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if secs != 0 {
 			limit = ", timeout " + timefmt.Span(secs, false)
 		}
-		msg := asked.Msg
 		if asked.After != nil {
-			if extra := asked.After(); extra != "" {
-				msg += "\n" + extra
-			}
+			go asked.After() // the inbox file and the telling can start a closed session and wait on it: the task is open, so the call returns
 		}
-		out["said"] = fmt.Sprintf("task T%d opened for %s (P%d, expects %s%s): %s", tid, owner, prio, expects, limit, msg)
+		out["said"] = fmt.Sprintf("task T%d opened for %s (P%d, expects %s%s): %s", tid, owner, prio, expects, limit, asked.Msg)
 		return out, nil
 	}
 }
