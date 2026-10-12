@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/taskresult"
 )
 
 func TestATaskAnswersToTheFounderWhenARequestOfItsCameFromThem(t *testing.T) {
@@ -44,5 +45,35 @@ func TestATaskAnswersToTheFounderWhenARequestOfItsCameFromThem(t *testing.T) {
 	}
 	if seen != 5 {
 		t.Errorf("listed %d tasks", seen)
+	}
+}
+
+func TestATaskGetCarriesWhatItsEndKeptAndWhetherItIsAUITask(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(1, 1, 'human', 'bob', 'b', 'queued', 'task', 1)")
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'a', 'bob', 'human', 1), (2, 'plain', 'bob', 'human', 1)")
+	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 1)")
+	if err := taskresult.MarkUI(e.DB, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := taskresult.Save(e.DB, 1, taskresult.Result{Commit: "abc", OnMain: true, Shots: []taskresult.Shot{{N: 1, Bytes: 9}}}); err != nil {
+		t.Fatal(err)
+	}
+	get := func(id string) map[string]any {
+		got, err := e.taskGet(nil, map[string]any{"task": json.Number(id)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.(map[string]any)
+	}
+	one := get("1")
+	res, _ := one["result"].(map[string]any)
+	shots, _ := res["shots"].([]any)
+	if one["ui"] != true || res["commit"] != "abc" || res["on_main"] != true || len(shots) != 1 || shots[0].(map[string]any)["bytes"] != int64(9) {
+		t.Fatalf("%v", one)
+	}
+	if plain := get("2"); plain["result"] != nil || plain["ui"] != nil {
+		t.Fatalf("a task with neither carries nothing extra: %v", plain)
 	}
 }

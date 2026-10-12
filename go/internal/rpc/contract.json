@@ -330,6 +330,9 @@
  "task.reopen": {
   "role": "agent"
  },
+ "task.shot": {
+  "role": "member"
+ },
  "task.start": {
   "role": "agent"
  },

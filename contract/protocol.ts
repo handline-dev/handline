@@ -358,6 +358,22 @@ export type TaskDetail = Task & {
     team: string[];
     others: string[];
   };
+  /** The task was opened as a ui task. Absent when it was not. */
+  ui?: boolean;
+  /** What the task's end kept beyond its evidence. Absent for a task without any. */
+  result?: {
+    /** The full sha it was done at. */
+    commit?: string;
+    /** Whether main reaches commit. */
+    on_main?: boolean;
+    no_commit?: string;
+    no_shot?: string;
+    /** Fetch each with task.shot. */
+    shots: {
+      n: number;
+      bytes: number;
+    }[];
+  };
 };
 
 export type DecisionOption = {
@@ -1718,6 +1734,20 @@ export interface Methods {
   "task.get": { params: {
   task: number;
 }; result: TaskDetail };
+  "task.shot": { params: {
+  task: number;
+  /** The screenshot's number in the task's result, from 1. */
+  n: number;
+  /** Where the chunk starts in the file; 0 when omitted. */
+  offset?: number;
+}; result: {
+    mime: "image/png";
+    bytes: number;
+    offset: number;
+    /** The chunk, in base64: at most 512 KiB of file. */
+    data: string;
+    done: boolean;
+  } };
   "task.new": { params: {
   owner: string;
   /** Who the task answers to: told when it ends, and may edit or reassign it. Default: the caller. */
@@ -1739,6 +1769,8 @@ export interface Methods {
     /** {task} is replaced by the new task's number. */
     text: string;
   };
+  /** The task shows something on a screen: it cannot be done without a screenshot (task.done shots), or the reason for none (no_shot). The founder is exempt. */
+  ui?: boolean;
   request_id: RequestId;
 }; result: Accepted & {
     task: number;
@@ -1759,6 +1791,14 @@ export interface Methods {
   repo?: string;
   /** Record evidence as words even if it looks like hex. */
   reason?: boolean;
+  /** The sha the work was done at; it must be a commit in repo (it need not be on main). The result says whether main reaches it. A sha given as evidence is a commit on main already. */
+  commit?: string;
+  /** Why there is no commit (research, ops). Not with commit. */
+  no_commit?: string;
+  /** Absolute paths of PNG files, at most 10 MiB each. An agent names files under its worktree, its folder in the daemon's home or the scratch folder; the founder any file. The daemon copies them under its home (shots/T<n>/<k>.png, outside any repo) once the task's end has committed, and serves them with task.shot. */
+  shots?: string[];
+  /** Why a ui task has no screenshot. Not with shots. */
+  no_shot?: string;
   request_id: RequestId;
 }; result: Accepted };
   "task.reopen": { params: {
@@ -2250,6 +2290,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },
   "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.get": { role: "agent", callers: null, write: false, since: 1 },
+  "task.shot": { role: "member", callers: null, write: false, since: 1 },
   "task.new": { role: "agent", callers: null, write: true, since: 1 },
   "task.handoff": { role: "agent", callers: null, write: true, since: 1 },
   "task.done": { role: "agent", callers: null, write: true, since: 1 },

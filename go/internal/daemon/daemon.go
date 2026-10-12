@@ -30,6 +30,7 @@ import (
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/stream"
 	"github.com/handline/handline/go/internal/supervisor"
+	"github.com/handline/handline/go/internal/taskresult"
 	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/termchan"
@@ -423,6 +424,7 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 			}
 		},
 		func(s *rpc.Server) { taskwrites.Register(s, d.cfg.Home, d.teller()) },
+		func(s *rpc.Server) { taskresult.Register(s, d.cfg.Home, d.db) },
 		func(s *rpc.Server) { termchan.Register(s, d.tchan) },
 	}
 }
