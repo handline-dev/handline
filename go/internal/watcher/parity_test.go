@@ -157,13 +157,17 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 			run("INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by) VALUES(3, 'held', 'carol', 'human', 1, 'human')")
 			run("INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(3, 1, 1)")
 			run("INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at, timeout_s, timeout_at) VALUES(4, 'late', 'dave', 'human', 1, 'human', 1, 3600, 100)")
+			// a draft with a request out (its mismatch names the request), and the requests linked to a task, oldest first
+			run("INSERT INTO tasks(id, title, owner, opened_by, created_at, sent_at) VALUES(5, 'unapproved', 'erin', 'human', 1, 1)")
+			run("INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(51, 7, 'human', 'erin', 'b', 'queued', 'task', 1)")
+			run("INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(50, 6, 'mgr', 'erin', 'b', 'landed', 'say', 1)")
+			run("INSERT INTO task_requests(task_id, request_id) VALUES(5, 51)")
+			run("INSERT INTO task_requests(task_id, request_id) VALUES(5, 50)")
 		})
-	if len(py) != len(events) || len(py) != 4 {
+	if len(py) != len(events) || len(py) != 5 {
 		t.Fatalf("python wrote %d rows, go %d", len(py), len(events))
 	}
-	// The Task Go's reads serve leaves out five optional fields Python's carries, on purpose: no app reads them from a Task (a discarded task
-	// is told by its state). Go's data must equal Python's on every field it has.
-	missing := map[string]bool{"last_activity": true, "edited_by": true, "discarded": true, "mismatch": true, "requests": true}
+	// Go's data must equal Python's on every field of the Task: the Python CLI reads them all.
 	for i, e := range events {
 		sameRow(t, i, py[i], e)
 		pyTask, _ := norm(py[i]["data"]).(map[string]any)
@@ -171,7 +175,6 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 		for k, v := range pyTask {
 			g, has := goTask[k]
 			switch {
-			case !has && missing[k]:
 			case !has:
 				t.Errorf("row %d: Go's Task lacks %s", i, k)
 			case !same(v, g):
@@ -183,6 +186,17 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 			if fmt.Sprint(goTask["blocked_by"]) != "[1]" {
 				t.Errorf("the held task lists its blocker: %v", goTask["blocked_by"])
 			}
+		case "2":
+			if goTask["mismatch"] != "approved, but no request is out" {
+				t.Errorf("a queued task nothing is out for says so: %v", goTask["mismatch"])
+			}
+		case "5":
+			if goTask["mismatch"] != "draft with work out (#51) - its opener has not queued it" {
+				t.Errorf("a draft with work out names the request: %v", goTask["mismatch"])
+			}
+			if reqs, _ := goTask["requests"].([]any); len(reqs) != 2 {
+				t.Errorf("both linked requests, oldest first: %v", goTask["requests"])
+			}
 		case "4":
 			if c, _ := goTask["time"].(map[string]any); c == nil || c["overdue_since"] == nil {
 				t.Errorf("the late task says since when: %v", goTask["time"])
@@ -191,11 +205,6 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 		for k := range goTask {
 			if _, has := pyTask[k]; !has {
 				t.Errorf("row %d: Go's Task has %s, Python's does not", i, k)
-			}
-		}
-		for k := range missing {
-			if _, has := goTask[k]; has {
-				t.Errorf("row %d: Go now serves %s: take it off the missing list", i, k)
 			}
 		}
 	}
