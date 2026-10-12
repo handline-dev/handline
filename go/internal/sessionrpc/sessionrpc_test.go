@@ -110,6 +110,7 @@ func (r *rig) dial(agent bool) *conn {
 	srv := rpc.NewServer(auth{agent: map[bool]string{true: "ann"}[agent]}, "sha", 1, "local", func(string, ...any) {})
 	srv.DB = r.e.DB
 	Register(srv, r.e)
+	RegisterTyping(srv, r.e)
 	r.e.RegisterUnstall(srv) // only a test daemon serves agent.unstall
 	cl, sv := net.Pipe()
 	go func() { srv.Serve(rpc.NewLineTransport(sv), 0); sv.Close() }()

@@ -6,8 +6,8 @@
 // that lost the reply replays it instead of acting again. A refusal names its gate: terminal_lock when whoever types at a terminal agent
 // holds the lock the tick takes, state for every other reason the action gives.
 //
-// Dropped with the design (structured sessions replace driving the TUI with keys): session.input, keys and type, the input holder, and
-// the exit mode that typed /exit. session.interrupt is a control request to the CLI, not Esc. A method whose port is
+// session.input, keys and type and the input holder (typing.go) serve a terminal agent; a structured session has no terminal to hold and
+// chat.send reaches it. Dropped with the design: the exit mode that typed /exit. session.interrupt is a control request to the CLI, not Esc. A method whose port is
 // nil is not registered, so hello never lists what cannot be served.
 package sessionrpc
 
@@ -18,11 +18,13 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/inputhold"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/term"
 )
 
 // TypingElsewhere is the refusal's reason while whoever types at a terminal agent holds the lock the tick takes.
@@ -71,6 +73,13 @@ type Env struct {
 	// Marker tells whoever watches the agent's terminal that a control call happened (termchan.Env.Marker); nil tells no one.
 	Marker func(agent, kind string, actor map[string]any, text string)
 	Now    func() time.Time
+	// Typing at a terminal: who holds each terminal's input, the host to type at, and why the usage wall stands in the way ("" for none).
+	// Without Holds none of input.take, release, session.input, keys and type is served; without Term the three session ones are not.
+	Holds *inputhold.Store
+	Term  *term.Term
+	Wall  func(agent string) string
+	// Structured says whether an agent runs as a structured session, which has no terminal to hold; nil is none.
+	Structured func(agent string) bool
 	// Roster registers the agent of agent.create, and Emit tells the operations topic its progress; with Controls they serve agent.create.
 	Roster *team.Roster
 	Emit   func(topic, typ string, data any, agent string)

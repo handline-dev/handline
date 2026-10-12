@@ -159,7 +159,7 @@ A method marked write takes a required `request_id`.
 | `memory.status` | agent |  | `agent?` | `{agents}` |  |  |
 | `team.get` | agent |  | none | `{agents, edges}` |  |  |
 | `hr.list` | agent |  | `state?` | `{proposals}` | `bad_request` |  |
-| `hr.decide` | founder | yes | `proposal`, `decision`, `note?`, `subject?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | proposal_changed, proposal_settled |
+| `hr.decide` | member | yes | `proposal`, `decision`, `note?`, `subject?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | proposal_changed, proposal_settled |
 | `accounts.list` | agent |  | `roster?`, `usage?` | `{accounts}` | `bad_request` |  |
 | `status.pick` | agent |  | none | `{picked, candidates, agent_costs}` |  |  |
 | `account.set` | founder | yes | `account`, `label?`, `cap?`, `recover?`, `cycle?`, `cycle_end?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |

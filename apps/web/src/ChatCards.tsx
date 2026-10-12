@@ -8,6 +8,7 @@ import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOf } fro
 import { goTeam } from './route.ts';
 import { openTaskOnClick } from './ChatMessages.tsx';
 import { useWorkspace } from './Workspace.tsx';
+import { AgentGauges } from './AgentGauges.tsx';
 
 const until = (iso: string | null): number | null => {
   const t = iso ? Date.parse(iso) : NaN;
@@ -39,15 +40,7 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
           <Icon name="tasks" size={13} aria-hidden />T{detail.task.id}
         </Chip>
       ) : null}
-      {cache !== null ? (
-        <Chip
-          title={cache > 0 ? `Prompt cache warm for ${cache} min` : 'Prompt cache has lapsed'}
-          data-lapsed={cache <= 0 ? '' : undefined}
-        >
-          <Icon name={cache > 0 ? 'waiting' : 'unanswered'} size={13} aria-hidden />
-          {cache > 0 ? `${cache}m` : null}
-        </Chip>
-      ) : null}
+      <AgentGauges ctx={typeof detail.ctx_pct === 'number' ? Math.round(detail.ctx_pct) : null} cacheMin={cache} />
     </div>
   );
 }

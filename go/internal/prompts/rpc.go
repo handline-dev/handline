@@ -3,6 +3,7 @@ package prompts
 import (
 	"errors"
 	"fmt"
+	"github.com/handline/handline/go/internal/inputhold"
 	"sort"
 	"strconv"
 	"strings"
@@ -172,6 +173,15 @@ func (e *Env) answer(c *rpc.Conn, params map[string]any) (any, error) {
 	if lock.TerminalBusy(e.Home, name) { // refuse at once, before anything is done
 		return nil, rpc.Refused(name+": "+typingElsewhere, "terminal_lock", "")
 	}
+	if e.Holds != nil {
+		row, err := e.Holds.Holder(name)
+		if err != nil {
+			return nil, err
+		}
+		if me, _ := c.Caller.Info["name"].(string); row != nil && row.Name != me {
+			return nil, rpc.Refused(inputhold.HeldWhy(name, row.Name), "input_holder", "")
+		}
+	}
 	block, err := e.OpenBlockOf(name)
 	if err != nil {
 		return nil, err
@@ -190,6 +200,12 @@ func (e *Env) answer(c *rpc.Conn, params map[string]any) (any, error) {
 	ok, said := e.Answer(block.ID, pick)
 	if !ok {
 		return nil, rpc.Refused(said, "", "")
+	}
+	if e.Holds != nil {
+		me, _ := c.Caller.Info["name"].(string)
+		if err := e.Holds.Touch(name, me); err != nil {
+			return nil, err
+		}
 	}
 	return map[string]any{"accepted": true, "said": said}, nil
 }

@@ -30,6 +30,10 @@ const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null | undefined) => el?.textContent ?? '';
+// The row's context menu is Radix's, in a portal: it opens on the row's contextmenu event.
+const menuItem = (label: string) => [...document.querySelectorAll('[role=menuitem]')].find((b) => text(b) === label)!;
+const openMenu = (agent: string) =>
+  act(async () => void $(`[data-agent="${agent}"]`)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
 
 async function mount(agent: string, s = setup()) {
   const store = new Store(s.client);
@@ -170,10 +174,8 @@ describe('the transcript of a structured agent', () => {
     await act(async () => s.daemon.chat.setTurn(AUD, true));
     s.daemon.dropConnections(); // the rows are read again
     await until(() => $(`[data-agent="${AUD}"] .row-main`)?.getAttribute('title')?.includes('running'), 'the row running', 600);
-    const menu = $(`[aria-label="More actions for ${AUD}"]`)!;
-    await click(menu);
-    expect(text(menu.parentElement)).not.toContain('start on auto'); // no account picker for a structured agent
-    await click($$('.row-actions .ui-popup button').find((b) => text(b) === 'Close')!);
+    await openMenu(AUD);
+    await click(menuItem('Close'));
     const sheet = $('.verb-sheet')!;
     expect(text(sheet)).toContain('mid-turn');
     expect(text(sheet)).not.toContain('terminal');
@@ -187,8 +189,8 @@ describe('the transcript of a structured agent', () => {
     s.daemon.sessions.get(AUD)!.state = 'running';
     await act(async () => s.daemon.chat.setTurn(AUD, true));
     s.daemon.knobs.refuse('session.stop', 'state', 'A turn is running', undefined, 1);
-    await click($(`[aria-label="More actions for ${AUD}"]`)!);
-    await click($$('.row-actions .ui-popup button').find((b) => text(b) === 'Close')!);
+    await openMenu(AUD);
+    await click(menuItem('Close'));
     await click([...$('.verb-sheet')!.querySelectorAll('button')].find((b) => text(b) === 'Confirm')!);
     await until(() => text($('.verb-sheet [role=alert]')).includes('A turn is running'), 'the reason on the sheet');
     expect($('.verb-sheet')).not.toBeNull();
