@@ -74,6 +74,8 @@ type Env struct {
 	// Roster registers the agent of agent.create, and Emit tells the operations topic its progress; with Controls they serve agent.create.
 	Roster *team.Roster
 	Emit   func(topic, typ string, data any, agent string)
+	// Move is handoff.force_move: the agent's session to another account now, a closed agent's next wake there; nil serves no agent.move.
+	Move func(call Call, agent, account string) (ok bool, said string, err error)
 }
 
 // Register adds the methods the Env has the ports for.
@@ -87,6 +89,9 @@ func Register(s *rpc.Server, e *Env) {
 	}
 	if e.Controls != nil && e.Roster != nil {
 		s.Register("agent.create", rpc.Method{Role: "founder", Write: true, Handler: e.create})
+	}
+	if e.Move != nil {
+		s.Register("agent.move", rpc.Method{Role: "agent", Write: true, Handler: e.move})
 	}
 	if e.Fold != nil {
 		s.Register("agent.fold", rpc.Method{Role: "agent", Write: true, Handler: e.fold})
@@ -268,6 +273,35 @@ func (e *Env) restart(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	return e.run(c, "session.restart", params, false, func(call Call, agent string) (map[string]any, error) {
 		return done(e.Controls.Restart(call, agent, fresh, force))
+	})
+}
+
+// move is agent.move. A forced move ends a session, which is the founder's call (a person's, from a terminal or the screen), not an agent's.
+func (e *Env) move(c *rpc.Conn, params map[string]any) (any, error) {
+	if !c.Caller.Allows("member") {
+		return nil, rpc.Refused("a forced move ends a session: it is the founder's, from a terminal or the screen, not an agent's", "role", "")
+	}
+	account, _ := params["account"].(string)
+	if account == "" {
+		return nil, bad("account is the account to move the agent to", "account")
+	}
+	return e.run(c, "agent.move", params, false, func(call Call, agent string) (map[string]any, error) {
+		return done(e.Move(call, agent, account))
+	})
+}
+
+// RegisterUnstall adds agent.unstall. No real daemon registers it (the founder keeps Clear stall off); a test daemon does.
+func (e *Env) RegisterUnstall(s *rpc.Server) {
+	if e.DB != nil {
+		s.Register("agent.unstall", rpc.Method{Role: "founder", Write: true, Handler: e.unstall})
+	}
+}
+
+// unstall is agent.unstall: a stalled agent goes to queued (Unstall); one that is not is refused with the action's own words.
+func (e *Env) unstall(c *rpc.Conn, params map[string]any) (any, error) {
+	return e.run(c, "agent.unstall", params, true, func(_ Call, agent string) (map[string]any, error) {
+		said, err := e.Unstall(agent)
+		return done(err == nil && !strings.Contains(said, ": not STALLED ("), said, err)
 	})
 }
 
