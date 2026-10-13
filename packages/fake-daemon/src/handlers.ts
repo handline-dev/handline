@@ -1,6 +1,6 @@
 // The methods that act on a session, its input and its terminal, one function each.
 import type { Actor, Caller, Notifications, Timestamp } from '@handline/contract';
-import { badRequest, Failure, refused } from './errors.ts';
+import { badRequest, Failure, invalidParams, refused } from './errors.ts';
 import type { Script } from './script.ts';
 import { coded, snapshotOf } from './bytes.ts';
 import { SETTINGS_HANDLERS } from './settings.ts';
@@ -171,6 +171,20 @@ const BASE: Record<string, (h: Call) => unknown> = {
       history: { first, lines: s.lines.slice(first, off).map(rowOf), more: first > 0 },
       holder: s.holder,
     };
+  },
+  'terminal.open': ({ p, agent }) => {
+    if (typeof p.agent !== 'string') throw invalidParams('agent is required', 'agent');
+    const s = agent();
+    if (!s.hasTerminal) throw new Failure('not_found', `${s.fx.name} has no terminal`, { field: 'terminal' });
+    return { agent: s.fx.name, terminal: tid(s), host: 'fake', attach: { argv: ['fake-attach', tid(s)] }, focused: false, local: true };
+  },
+  'terminal.close': ({ actor, script, agent }) => {
+    const s = agent();
+    if (s.open) throw refused('state', `${s.fx.name} has a session running: stop it first`);
+    if (!s.hasTerminal) throw refused('state', `${s.fx.name} has no terminal`);
+    s.hasTerminal = false;
+    script.setState(s, 'no_terminal', actor);
+    return script.accepted('Terminal closed.');
   },
   'terminal.detach': (h) => {
     const { c, p } = h;

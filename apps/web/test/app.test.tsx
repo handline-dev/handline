@@ -304,7 +304,7 @@ describe('the sidebar', () => {
     await until(() => $('.row-actions .ui-btn.solid'), 'Start on the selected row');
     await click($('.row-actions [aria-haspopup="menu"]')!);
     await until(() => menuItems().length, 'the row menu');
-    expect(menuItems()).toEqual(['Copy path', 'Copy worktree name', 'Move account']); // nothing to stop yet
+    expect(menuItems()).toEqual(['Copy path', 'Copy worktree name', 'Move account', 'Close terminal']); // nothing to stop yet; its terminal can be closed
     await act(async () => void document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     await click($('.row-actions .ui-btn.solid')!);
     await until(() => daemon.sessions.get(TB)!.state !== 'parked', 'session started');
