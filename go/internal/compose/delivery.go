@@ -85,16 +85,21 @@ func (d delivery) ForgottenResolve(q db.Q, agent string, row *db.AgentState, now
 	return f.Head.ID, f.IdleS, true, nil
 }
 
-// Fire is the trigger the policy tick would hand the agent off for: the same reading, context limit and Evaluate it judges by.
-func (d delivery) Fire(q db.Q, agent string, row *db.AgentState, account string) (string, error) {
-	if d.p.LC == nil || !d.p.LC.Manager.TriggersApplyTo(agent, row) {
-		return "", nil
+// Trigger is what the policy tick would decide: the same reading, context limit and Evaluate it judges by. For an agent whose triggers do
+// not apply, the wording ps prints for a wake that is due and walled.
+func (d delivery) Trigger(q db.Q, agent string, row *db.AgentState, account string) (reads.Trigger, error) {
+	if d.p.LC == nil {
+		return reads.Trigger{}, nil
+	}
+	if !d.p.LC.Manager.TriggersApplyTo(agent, row) {
+		yes, err := d.p.LC.Manager.WouldWake(row)
+		if err != nil || !yes {
+			return reads.Trigger{}, err
+		}
+		return reads.Trigger{Reason: d.p.LC.Launch.WakeWaitReason(q, agent, row)}, nil
 	}
 	tu := tickUsage{p: d.p, u: d.p.LC.usage, roster: d.p.LC.roster}
 	st := tu.ReadForAgent(agent, account)
 	t := tick.Evaluate(st.ShortTrusted, st.TrustedCtxUsed, st.LongTrusted, tu.ContextLimit(agent, st.ModelID))
-	if !t.Fired {
-		return "", nil
-	}
-	return t.Kind, nil
+	return reads.Trigger{Applies: true, Fired: t.Fired, Kind: t.Kind, Reason: t.Reason}, nil
 }

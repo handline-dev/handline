@@ -555,7 +555,7 @@ Drop a declared root (hl trust remove); needs no approval. The founder's: the de
 
 ### `agent.triggers`
 
-What the daemon would decide for an agent right now (hl triggers).
+What the daemon would decide for an agent right now (hl triggers). One row per agent the daemon knows, in name order; with `agent`, that agent's row alone, and an agent the home does not have is not_found. `fired` is whether the next tick would hand it off; `reason` is the trigger's reason, or for an agent whose triggers do not apply, what holds it (a walled wake, its state until its wake, or no session).
 
 ### `memory.status`
 
