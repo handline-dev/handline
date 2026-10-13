@@ -52,7 +52,6 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `attempt_limit` | Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes. |
 | `unpaired` | A network connection with no valid device token called anything but device.redeem. The reply is always message "refused" and reason "not paired": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed. |
 | `pairing_code` | device.redeem: the code is wrong, expired or already used. The reply does not say which. |
-| `session_token` | Session token and peer-pid check, unchanged. |
 | `proposal_changed` | hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again. |
 | `proposal_settled` | hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now. |
 | `confirm` | chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do. |
@@ -146,9 +145,6 @@ A method marked write takes a required `request_id`.
 | `task.edit` | agent | yes | `task`, `owner?`, `reporter?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `blocked_by?`, `unblock?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.ask` | member | yes | `task`, `to`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
-| `land` | agent (only agent) | yes | `sha`, `message`, `tree?`, `fix?`, `squash?`, `request_id` | `Accepted` | `refused` | not_self, session_token |
-| `land.pass` | agent (only agent) | yes | `sha`, `request_id` | `Accepted` | `refused` | not_self, session_token |
-| `land.authorize` | agent (only agent) | yes | `agent`, `land_verb`, `sha`, `key`, `request_id` | `Accepted` | `refused` | not_self, session_token |
 | `hook.record` | agent (only agent) | yes | `agent`, `kind`, `at`, `data`, `request_id` | `Accepted` | `refused` | not_self |
 | `hr.propose` | agent | yes | `kind`, `args`, `why?`, `request_id` | `Accepted & {proposal}` | `refused`, `bad_request` |  |
 | `hr.withdraw` | agent | yes | `proposal`, `request_id` | `Accepted` | `refused`, `not_found` | proposal_settled |
@@ -518,18 +514,6 @@ The founder asks an agent a question about a task: a message linked to the task,
 
 A message typed at once; needs no answer, starts no work.
 
-### `land`
-
-Request a land; accepted only from the session's own hl land (session token and peer pid, as today). Queue a land: the merger's alone (`caller` is the session, never a name in the request), and only for a sha an auditor recorded a PASS for (land.pass), with the tree the merger's test saw; the daemon merges it itself and fast-forwards main only when the result is that tree. A sha lands once. Accepted only for the vouch of land.authorize: exactly this agent, verb and sha as typed, once, within 60 seconds.
-
-### `land.pass`
-
-Record a land pass. Record an auditor's PASS for a sha: any agent named `<team>.auditor` (numbered when a team has more), from its own session, and only for the vouch of land.authorize: exactly this agent, verb and sha as typed, once, within 60 seconds.
-
-### `land.authorize`
-
-The session's hl land vouches for the next land verb (legacy land_authorize). The session's own PreToolUse hook vouches for the one `hl land` command it is about to run. It names the agent, the verb (land or land_pass) and the sha exactly as typed, and holds the per-session key `hl launch` kept in a folder the sandbox hides. The daemon keeps the vouch for 60 seconds and spends it on the first matching land or land.pass, so code the session runs (a test run, a script) cannot send one. The legacy verb land_authorize takes the same arguments and answers {ok, said}.
-
 ### `hook.record`
 
 A hook records an event; the spool replays it with the same request_id.
@@ -684,7 +668,7 @@ Cancel a device and close its connections at once. Cancels the device's token. I
 
 ## Who the caller is
 
-x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress, land, land.pass, land.authorize) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).
+x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).
 
 - **Sender:** say and task.new carry no sender parameter: the daemon sets it. An agent's calls carry its own name; a member device's and the founder's carry `human`.
 - **Ownership:** Methods that act on a request or task by id (withdraw, edit, release, discard, merge, memo.edit, memo.delete, queue, draft) keep today's checks on who may: the opener, the owner, the owner's manager or the founder; a refusal is `refused` with the reason.
@@ -718,8 +702,6 @@ Every `hl` command an agent runs today and the method that serves it.
 | `hl inbox` | `inbox.list` |
 | `hl read` | `inbox.get` |
 | `hl say` | `say` |
-| `hl land` | `land` |
-| `hl land --pass` | `land.pass` |
 | `hl hook` | `hook.record` |
 | `hl agent set` | `agent.set` |
 | `hl agent move` | `agent.move` |
@@ -749,7 +731,7 @@ Agent commands the spec does not keep at agent role, for the founder to decide. 
 
 - **Founder only today:** `hl cancel`; `hl unstall`; `hl team seal`; `hl hr approve|reject|apply|relabel|rehome|links`; `hl trust remove|apply|mcp`; `hl schedule add|edit|remove`; `hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)`; `hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)`; `hl dev-mode`; `hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)`; `hl service ...`
 - **Needs a decision:** `hl spawn (a founder's act; agent.create serves it to the founder's apps, and no agent-role method serves it)`; `hl agent register (a roster change, founder)`
-- **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl go`; `hl install-hooks`; `hl daemon`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl withdraw`; `hl memory migrate`; `hl task note (suppressed)`
+- **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl go`; `hl install-hooks`; `hl daemon`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl withdraw`; `hl memory migrate`; `hl task note (suppressed)`; `hl land (no daemon method serves it any more; the CLI goes next)`
 
 The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.
 
@@ -870,9 +852,6 @@ Format `text` sends plain text rows (frame notices). Format `styled` sends the s
 
 | Legacy verb | Method |
 |---|---|
-| `land` | `land` |
-| `land_pass` | `land.pass` |
-| `land_authorize` | `land.authorize` |
 | `agent_set` | `agent.set` |
 | `message` | none |
 | `say` | `say` |

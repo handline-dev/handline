@@ -24,7 +24,7 @@ prompt.answer input.take input.release inbox.list inbox.mark_read inbox.answer i
 task.cancel task.edit team.get hr.list hr.decide account.login repos.list worktrees.list worktree.diff
 agent.options schedules.list schedule.add schedule.edit schedule.remove stats.get settings.get
 settings.set devices.list chat.messages chat.transcript chat.locate chat.send chat.dismiss chat.search terminal.close terminal.detach device.pair device.redeem device.revoke events.feed whoami hello subscribe""".split()
-AGENT_COMMANDS = "task.new task.handoff task.done task.reopen task.progress inbox.list inbox.get say land hook.record agent.set " \
+AGENT_COMMANDS = "task.new task.handoff task.done task.reopen task.progress inbox.list inbox.get say hook.record agent.set " \
                  "session.wake session.stop session.restart session.park".split()
 BARRED_FROM_AGENTS = "session.input session.keys session.interrupt prompt.answer input.take input.release terminal.attach " \
                      "terminal.history terminal.resize terminal.close chat.send chat.send_now devices.list device.pair device.revoke settings.set".split()
@@ -96,7 +96,7 @@ def test_every_agent_command_has_a_method_an_agent_may_call() -> None:
 
 
 def test_identity_methods_are_the_callers_own_and_closed_to_devices() -> None:
-    own = ("hook.record", "agent.set", "task.progress", "land", "land.pass", "land.authorize")
+    own = ("hook.record", "agent.set", "task.progress")
     check("contract: identity methods list their callers and refuse a stranger's agent name",
           all(METHODS[n].get("x-callers") and "member" not in METHODS[n]["x-callers"] and "not_self" in METHODS[n].get("x-gates", []) for n in own))
     check("contract: x-callers are roles", all(set(m["x-callers"]) <= set(ROLES) for m in METHODS.values() if "x-callers" in m))
@@ -144,7 +144,7 @@ def test_every_topic_has_a_snapshot_method_and_the_terminal_channel_is_text() ->
 def test_the_legacy_verbs_all_map() -> None:
     src = (ROOT / "handline" / "daemon" / "socket_server.py").read_text()
     block = src.split("VERBS = {", 1)[1].split("}", 1)[0]
-    verbs = {ln.split('"')[1] for ln in block.splitlines() if ln.strip().startswith('"')} | {"land_authorize"}
+    verbs = {ln.split('"')[1] for ln in block.splitlines() if ln.strip().startswith('"')}
     check("contract: every legacy socket verb is mapped", verbs == set(SPEC["x-legacy"]), str(verbs ^ set(SPEC["x-legacy"])))
 
 

@@ -5,8 +5,8 @@ import (
 	"github.com/handline/handline/go/internal/team"
 )
 
-// SystemSay is a say from a part of the daemon itself (a land's result, from "land") to an agent: a fire-and-forget say, written to its
-// inbox and typed at once, with no routing decision and nobody parked on it (daemon/lands.py _tell).
+// SystemSay is a say from a part of the daemon itself (the dangling sweep) to an agent: a fire-and-forget say, written to its inbox and
+// typed at once, with no routing decision and nobody parked on it.
 func (e *Env) SystemSay(requester, target, body string) error {
 	return e.SystemSayThen(requester, target, body, nil)
 }

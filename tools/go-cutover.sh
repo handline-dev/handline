@@ -3,8 +3,8 @@
 #
 #   tools/go-cutover.sh [--dry-run]
 #
-# Run it by the founder from a shell outside the agent sandbox (launchd, ~/Library/LaunchAgents and the daemon socket are denied inside it),
-# with OCP_LAND_REPO set to the checkout `hl land` merges into. It reads no credential and makes no model call.
+# Run it by the founder from a shell outside the agent sandbox (launchd, ~/Library/LaunchAgents and the daemon socket are denied inside it).
+# It reads no credential and makes no model call.
 # --dry-run checks the preconditions and prints the steps; it changes nothing.
 set -eu
 
@@ -22,9 +22,7 @@ fail() { echo "go-cutover: $*" >&2; exit 1; }
 # `hl service install` builds the job's PATH from the PATH of this shell plus python3's directory, and takes claude from this PATH.
 command -v hl >/dev/null 2>&1 || fail "hl is not on PATH"
 [ -z "${OCP_SERVICE_LABEL:-}" ] || fail "OCP_SERVICE_LABEL is set ($OCP_SERVICE_LABEL): that is a rehearsal's label, not the live service. Unset it."
-[ -n "${OCP_LAND_REPO:-}" ] || fail "OCP_LAND_REPO is not set: export it as the checkout hl land merges into"
-git -C "$OCP_LAND_REPO" rev-parse --git-dir >/dev/null 2>&1 || fail "OCP_LAND_REPO=$OCP_LAND_REPO is not a git checkout"
-command -v python3 >/dev/null 2>&1 || fail "python3 is not on PATH: the land verbs run tools/localrefs.py with it"
+command -v python3 >/dev/null 2>&1 || fail "python3 is not on PATH: hl runs with it"
 command -v claude >/dev/null 2>&1 || fail "claude is not on PATH: the Go job takes it as -structured-cli"
 [ -x "$top/go/handlined" ] || fail "$top/go/handlined is not built: run tools/build-go.sh"
 
@@ -33,7 +31,7 @@ steps="  2. record the current daemon (hl service status)
   4. verify: daemon: go, loaded, a pid, hl ps shows that pid running with a code sha; again after 10 s
   5. on a failure after 3: hl service use python; hl service install; verify daemon: python and hl ps"
 if [ "$dry" = 1 ]; then
-    echo "go-cutover --dry-run: preconditions hold (OCP_LAND_REPO=$OCP_LAND_REPO, python3=$(command -v python3), claude=$(command -v claude), $top/go/handlined built)."
+    echo "go-cutover --dry-run: preconditions hold (python3=$(command -v python3), claude=$(command -v claude), $top/go/handlined built)."
     echo "Steps:"
     echo "$steps"
     exit 0

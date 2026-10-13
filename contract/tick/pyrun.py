@@ -270,7 +270,7 @@ def _run(fixture: dict, root: Path) -> dict:
     from handline.team import accounts
     from handline.usage import status as _status  # noqa: F401
     from handline.vendors import claude_meter
-    from handline.daemon import evaluate, delivery, lands, sends, subscriptions
+    from handline.daemon import evaluate, delivery, sends, subscriptions
     from handline.session import fold as foldmod
     import datetime as _dt
 
@@ -331,8 +331,6 @@ def _run(fixture: dict, root: Path) -> dict:
         n_ops, n_log = len(ops), len(log)
         t = evaluate.tick(con, log.append)
         subscriptions.wait_for_plan_ask()
-        if lands._worker.get("thread"):
-            lands._worker["thread"].join()
         con.commit()
         states.append(dump_db(con))
         out["ticks"].append({
