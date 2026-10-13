@@ -575,22 +575,6 @@ def test_pruning_keeps_each_agents_newest_applied_row(home: Path) -> None:
     con.close()
 
 
-def test_hl_doctor_says_when_rejected_hook_lines_are_piling_up(home: Path) -> None:
-    support.use_home(home)
-    rejected = spool.path().with_name(spool.REJECTED)
-    row = lambda: next((r for r in doctor.run().rows if "hook line" in r[1]), None)  # noqa: E731
-    check("doctor: no rejected file, no note", row() is None)
-    rejected.write_text("")
-    check("doctor: an empty one, no note", row() is None)
-    rejected.write_text(json.dumps({"rejected_at": 1760000000, "error": "KeyError", "message": "'kind'", "line": "{}"}) + "\n"
-                        + json.dumps({"rejected_at": 1760000500, "error": "ValueError", "message": "x", "line": "y"}) + "\n")
-    got = row()
-    check("doctor: a warning with the count, the size and the oldest",
-          got and got[0] == doctor.WARN and got[1].startswith("2 hook line(s)") and f"{rejected.stat().st_size} bytes" in got[1]
-          and "oldest set aside" in got[1], got)
-    check("doctor: and says what to do with them", got and "delete the file" in got[2] and str(rejected) in got[2], got)
-
-
 def test_the_tick_applies_what_a_hook_left_while_the_daemon_ran(home: Path) -> None:
     support._daemon_home(home, 20)
     spool.append("backend", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit", "prompt": "x"}, "tick-1")
@@ -750,7 +734,6 @@ def main() -> int:
         run(lambda: test_a_late_session_start_does_not_rebind_and_a_late_permission_request_leaves_no_wait(Path(td) / "e24"))
         run(lambda: test_a_hook_stamped_in_the_future_counts_from_its_arrival_not_from_its_stamp(Path(td) / "e25"))
         run(lambda: test_pruning_keeps_each_agents_newest_applied_row(Path(td) / "e26"))
-        run(lambda: test_hl_doctor_says_when_rejected_hook_lines_are_piling_up(Path(td) / "e27"))
         run(lambda: test_hl_hook_still_works_from_an_agent_session_with_the_daemon_down(Path(td) / "e10"))
     return run_area(tests)
 

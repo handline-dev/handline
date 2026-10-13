@@ -378,8 +378,7 @@ def _check_stuck_running(r: Report) -> None:
     The sweep repairs this on its own, so this is not a report of something
     nobody is doing anything about - it is the half the sweep declines to do.
     Unsticking rests on a probe, so the sweep wants a second witness before it
-    acts, and stays its hand when Orca cannot be reached or says the terminal is
-    mid-turn. An agent that stays here across several runs of `doctor` is one
+    acts, and stays its hand when the session cannot be read or is mid-turn. An agent that stays here across several runs of `doctor` is one
     the sweep has looked at and left, which is either a genuinely long turn or
     something a human needs to see.
     """
@@ -393,7 +392,7 @@ def _check_stuck_running(r: Report) -> None:
             mins = silent // 60
             r.add(WARN, f"agent {row['agent']}: RUNNING with nothing heard for {mins}m",
                   "no work is delivered to a RUNNING agent and its session is never "
-                  "closed; the sweep unsticks it once Orca agrees it is idle")
+                  "closed; the daemon unsticks it once its session reads as idle too")
     finally:
         con.close()
 
