@@ -164,8 +164,7 @@ export class FakeChat {
     const mine = p.scope === 'mine';
     const limit = typeof p.limit === 'number' ? p.limit : 50;
     let list = this.messages.filter(
-      (m) =>
-        m.agent === agent && !(m.receipt && m.landing === 'withdrawn') && (!mine || !this.sessions.has(m.from) || !this.sessions.has(m.to)),
+      (m) => m.agent === agent && !(m.receipt && m.landing === 'withdrawn') && (!mine || this.shownInMine(m)),
     );
     if (typeof p.before === 'number') list = list.filter((m) => m.id < (p.before as number));
     if (typeof p.since === 'number') list = list.filter((m) => m.id > (p.since as number));
@@ -350,7 +349,7 @@ export class FakeChat {
   locate(p: Record<string, unknown>) {
     const m = this.find(p.request);
     const agent = typeof p.agent === 'string' ? p.agent : m.agent;
-    const scope = this.sessions.has(m.from) && this.sessions.has(m.to) ? 'all' : 'mine';
+    const scope = this.shownInMine(m) ? 'mine' : 'all';
     const list = this.messages.filter((x) => x.agent === agent).sort((a, b) => b.id - a.id);
     const at = list.findIndex((x) => x.id === m.id);
     const limit = typeof p.limit === 'number' ? p.limit : 50;
@@ -369,6 +368,8 @@ export class FakeChat {
   search(p: Record<string, unknown>) {
     const query = typeof p.query === 'string' ? p.query.trim().toLowerCase() : '';
     if (!query) throw invalidParams('query is text and not empty', 'query');
+    if (p.limit !== undefined && !(Number.isInteger(p.limit) && (p.limit as number) > 0))
+      throw invalidParams('limit is a positive integer', 'limit');
     const limit = typeof p.limit === 'number' ? p.limit : 50;
     const hits = this.messages
       .filter(
