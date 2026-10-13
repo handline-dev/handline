@@ -7,7 +7,8 @@ import type { AgentDetail, AgentView, TerminalView } from '@handline/client';
 import { space } from '@handline/tokens';
 import { drawRows } from './termspans.tsx';
 import { Skeleton } from '../skeleton.tsx';
-import { dotColor, usePalette } from '../theme.ts';
+import { usePalette } from '../theme.ts';
+import { StateMark } from './StateMark.tsx';
 import { AgentSettings } from './AgentSettings.tsx';
 import { AgentVerbs } from './AgentVerbs.tsx';
 import { Chat } from './Chat.tsx';
@@ -55,7 +56,7 @@ export function AgentPage() {
         <Pressable testID="back" onPress={back} accessibilityLabel="Back" hitSlop={12}>
           <Text style={{ color: c.accent, fontSize: 28 }}>‹</Text>
         </Pressable>
-        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: dotColor(c, state) }} />
+        <StateMark agent={{ state, has_dialog: row?.has_dialog ?? false, block: row?.block }} />
         <View style={{ flex: 1 }}>
           <Text style={{ color: c.ink, fontWeight: '700', fontSize: 16 }}>{name}</Text>
           <Text style={{ color: c.muted, fontSize: 12 }}>
