@@ -73,7 +73,10 @@ func (e *Env) requestRead(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, err
 	}
 	id := r.i("id")
-	if c.Caller.Role == "founder" { // not a member's device: hl read opens a request only at the founder's own shell
+	// A wait that ends with the request still queued shows nothing (hl read --wait prints only that no answer came), so it opens nothing.
+	waited, _ := rpc.AsInt(params["wait_s"])
+	shown := waited == 0 || r.str("state") != "queued"
+	if shown && c.Caller.Role == "founder" { // not a member's device: hl read opens a request only at the founder's own shell
 		if err := db.MarkRead(e.DB, []int64{id}); err != nil {
 			return nil, err
 		}

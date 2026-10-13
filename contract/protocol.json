@@ -4116,7 +4116,7 @@
   {
    "name": "request.read",
    "summary": "One request whole, as hl read prints it.",
-   "description": "Any caller may read any request, with both of its ends named; a request to an agent that the routing table has not passed yet is not_found to that agent. The founder reading one opens it: it is marked read, and when it is one the founder asked, its answer is marked told. A member's device reading it opens nothing. With `wait_s` the call holds while the request is queued; `state` says whether it settled.",
+   "description": "Any caller may read any request, with both of its ends named; a request to an agent that the routing table has not passed yet is not_found to that agent. The founder reading one opens it: it is marked read, and when it is one the founder asked, its answer is marked told. A member's device reading it opens nothing. With `wait_s` the call holds while the request is queued; `state` says whether it settled, and a wait that ends with it still queued opens nothing.",
    "paramStructure": "by-name",
    "params": [
     {
