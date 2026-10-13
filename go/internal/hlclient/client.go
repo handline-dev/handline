@@ -121,7 +121,7 @@ var launchctl = func(args ...string) (string, error) {
 
 // kickstart asks launchd to start the installed service; this never starts a daemon itself, so there is never a second one.
 // A plist this process cannot see, a sandboxed agent's case, is not taken as installed. One installed and not loaded (after a
-// bootout, or a login that did not load it) is loaded as it is, never rewritten, and started (daemon/client.ensure_daemon).
+// bootout, or a login that did not load it) is loaded as it is, never rewritten, and started (handline/infra/daemonclient.ensure_daemon).
 func kickstart() error {
 	plist := filepath.Join(paths.UserHome(), "Library", "LaunchAgents", label+".plist")
 	if _, err := os.Stat(plist); err != nil {
@@ -288,7 +288,7 @@ func (c *Client) Written(method string, params map[string]any) (bool, string, ma
 }
 
 // Legacy sends one legacy socket verb and answers the daemon's `{ok, said}` reply, nil when it could not be sent or read
-// (daemon/client.send). The daemon answers and hangs up, so a refused shutdown of the write side is no failure.
+// (handline/infra/daemonclient.send). The daemon answers and hangs up, so a refused shutdown of the write side is no failure.
 func (c *Client) Legacy(payload map[string]any, timeout time.Duration) map[string]any {
 	conn, err := c.Connect()
 	if err != nil {
