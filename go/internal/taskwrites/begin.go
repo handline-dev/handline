@@ -42,15 +42,15 @@ func parseExpects(v any) (string, error) {
 }
 
 // begin is task.begin (actions.task_begin): the founder's own message to the caller is approval enough, so the caller opens a task for
-// itself and starts it. What stands in for the approval is the record: why on the event, and the message linked to the task.
+// itself and starts it. What stands in for the approval is the message linked to the task; why, when given, goes on the event.
 func begin(c *rpc.Conn, p map[string]any) (any, error) {
 	title, err := text(p, "title")
 	if err != nil {
 		return nil, err
 	}
-	why, err := text(p, "why")
-	if err != nil {
-		return nil, err
+	why, ok := p["why"].(string)
+	if p["why"] != nil && !ok {
+		return nil, badParam("why is text", "why")
 	}
 	if p["body"] != nil {
 		return nil, badParam("body is not served yet: a task's words are its title and the founder's message it links", "body")
@@ -79,10 +79,6 @@ func begin(c *rpc.Conn, p map[string]any) (any, error) {
 	return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 		if me == human {
 			return nil, refusal("a task is begun by an agent, never in the founder's name")
-		}
-		said := strings.TrimSpace(textsafe.Oneline(why))
-		if said == "" {
-			return nil, refusal("say what led to this (--why): the record is the approval")
 		}
 		req, err := db.GetRequest(tx, chat)
 		if err != nil {
@@ -117,7 +113,11 @@ func begin(c *rpc.Conn, p map[string]any) (any, error) {
 				return nil, err
 			}
 		}
-		if err := addEvent(tx, me, "task_begin", kv{"task_id", tid}, kv{"chat_request", chat}, kv{"why", said}); err != nil {
+		ev := []kv{{"task_id", tid}, {"chat_request", chat}}
+		if said := strings.TrimSpace(textsafe.Oneline(why)); said != "" {
+			ev = append(ev, kv{"why", said})
+		}
+		if err := addEvent(tx, me, "task_begin", ev...); err != nil {
 			return nil, err
 		}
 		msg := fmt.Sprintf("task T%d begun from founder message #%d", tid, chat)

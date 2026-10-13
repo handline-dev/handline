@@ -4701,10 +4701,10 @@
     },
     {
      "name": "why",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string",
-      "description": "What led to this, in a line."
+      "description": "What led to this, in a line; optional, since the linked message is the reason."
      }
     },
     {

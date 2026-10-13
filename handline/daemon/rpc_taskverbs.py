@@ -43,7 +43,7 @@ def _in_one_transaction(ctx, params, name: str, run) -> dict:
 
 
 def _begin(ctx, params) -> dict:
-    title, why = rpc_tasks._text(params, "title"), rpc_tasks._text(params, "why")
+    title, why = rpc_tasks._text(params, "title"), rpc_tasks._text(params, "why", required=False)
     if params.get("body") is not None:
         raise rpc.bad_request(_BODY_NOT_SERVED, "body", rpc.INVALID_PARAMS)
     message = rpc_tasks._task_id(params, "message")

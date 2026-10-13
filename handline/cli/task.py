@@ -283,7 +283,9 @@ def cmd_task_begin(args) -> int:
     if not title:
         print("a task needs a title")
         return 1
-    params = {"title": title, "message": args.chat, "why": args.why}
+    params = {"title": title, "message": args.chat}
+    if args.why is not None:
+        params["why"] = args.why
     if args.priority is not None:
         params["priority"] = args.priority
     if args.expects is not None:

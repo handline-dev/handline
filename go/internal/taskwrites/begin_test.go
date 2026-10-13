@@ -17,7 +17,8 @@ func TestBeginOpensATaskOnTheFoundersMessageAndStartsIt(t *testing.T) {
 	}
 	defer db.Close()
 	if _, err := db.Exec("INSERT INTO requests(id, requester, target, body, state, kind, ts) VALUES(1, 'human', 'worker', 'do it', 'queued', 'say', 1), " +
-		"(2, 'human', 'worker', 'and this', 'queued', 'say', 1), (3, 'manager', 'worker', 'not the founder', 'queued', 'task', 1)"); err != nil {
+		"(2, 'human', 'worker', 'and this', 'queued', 'say', 1), (3, 'manager', 'worker', 'not the founder', 'queued', 'task', 1), " +
+		"(4, 'human', 'worker', 'no why', 'queued', 'say', 1)"); err != nil {
 		t.Fatal(err)
 	}
 	s := rpc.NewServer(auth{"worker"}, "x", store.LatestVersion(), "local", func(string, ...any) {})
@@ -32,7 +33,9 @@ func TestBeginOpensATaskOnTheFoundersMessageAndStartsIt(t *testing.T) {
 		line(4, `"title":"two","message":2,"why":"asked",`, "b3"),
 		line(5, `"title":"x","message":3,"why":"w",`, "b4"),
 		line(6, `"title":"x","message":9,"why":"w",`, "b5"),
-		line(7, `"title":"x","message":2,"why":"w","priority":"P9",`, "b6"))
+		line(7, `"title":"x","message":2,"why":"w","priority":"P9",`, "b6"),
+		line(8, `"title":"x","message":4,"why":7,`, "b7"),
+		line(9, `"title":"three","message":4,`, "b8"))
 	if said := r[0]["result"].(map[string]any)["said"]; said != "task T1 begun from founder message #1 and is now your current task" {
 		t.Fatalf("%v", r[0])
 	}
@@ -50,6 +53,12 @@ func TestBeginOpensATaskOnTheFoundersMessageAndStartsIt(t *testing.T) {
 	if r[5]["error"].(map[string]any)["data"].(map[string]any)["code"] != "bad_request" {
 		t.Fatalf("a bad priority: %v", r[5])
 	}
+	if d := r[6]["error"].(map[string]any)["data"].(map[string]any); d["code"] != "bad_request" || d["field"] != "why" {
+		t.Fatalf("a why that is not text: %v", r[6])
+	}
+	if r[7]["result"].(map[string]any)["task"] == nil {
+		t.Fatalf("why is optional: %v", r[7])
+	}
 	var prio int
 	var expects, ev string
 	var cur sql.NullInt64
@@ -58,5 +67,9 @@ func TestBeginOpensATaskOnTheFoundersMessageAndStartsIt(t *testing.T) {
 	db.QueryRow("SELECT payload FROM events WHERE kind = 'task_begin' ORDER BY id LIMIT 1").Scan(&ev)
 	if prio != 1 || expects != "sha" || cur.Int64 != 1 || ev != `{"task_id": 1, "chat_request": 1, "why": "asked"}` {
 		t.Fatalf("%d %q %v %q", prio, expects, cur, ev)
+	}
+	db.QueryRow("SELECT payload FROM events WHERE kind = 'task_begin' ORDER BY id DESC LIMIT 1").Scan(&ev)
+	if ev != `{"task_id": 3, "chat_request": 4}` {
+		t.Fatalf("no why, none on the event: %q", ev)
 	}
 }

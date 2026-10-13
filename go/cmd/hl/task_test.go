@@ -55,6 +55,8 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 			[]string{`task.new {"owner":"b.two","time_box":"3600s","title":"x"}`}},
 		{"", []string{"task", "begin", "t", "--chat", "7", "--why", "w"},
 			[]string{`task.begin {"expects":"report","message":7,"title":"t","why":"w"}`}},
+		{"", []string{"task", "begin", "t", "--chat", "7"},
+			[]string{`task.begin {"expects":"report","message":7,"title":"t"}`}},
 		{"", []string{"task", "handoff", "T3", "b.two", "the note"}, []string{`task.handoff {"note":"the note","task":3,"to":"b.two"}`}},
 		{"piped note", []string{"task", "handoff", "T3", "b.two"}, []string{`task.handoff {"note":"piped note","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "start", "T3"}, []string{`task.start {"task":3}`}},
@@ -154,7 +156,7 @@ func TestWhatTheTaskPortDoesNotParseIsPythons(t *testing.T) {
 		{"task"}, {"task", "frob"}, {"task", "show", "12"}, {"task", "show", "T1", "x"}, {"task", "show", "T1", "-h"},
 		{"task", "new", "--assi", "b.two", "-t", "1h", "x"}, {"task", "new", "--assign", "b", "-t", "5h", "x"},
 		{"task", "new", "--assign", "b", "-t", "1h", "x", "--reply", "1", "hi"}, {"task", "new", "--assign", "b", "-t", "1h", "x", "--", "y"},
-		{"task", "list", "--state", "nope"}, {"task", "begin", "x", "--chat", "a", "--why", "w"}, {"task", "begin", "x", "--why", "w"},
+		{"task", "list", "--state", "nope"}, {"task", "begin", "x", "--chat", "a", "--why", "w"}, {"task", "begin", "x", "--why", "w"}, {"task", "begin", "x"},
 		{"task", "memo", "T1", "bogus"}, {"task", "memo", "T1", "delete", "abc"}, {"task", "done", "T1", "--request", "x"},
 		{"task", "edit", "T1", "--title"}, {"task", "queue"}, {"task", "merge", "T1"},
 	} {
