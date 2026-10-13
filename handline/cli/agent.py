@@ -7,13 +7,14 @@ from pathlib import Path
 
 from .. import actions
 from ..team import agent_settings, agents, ask as askmod, hr
-from ..daemon import handoff as dmn_handoff, lifecycle as dmn_lifecycle
 from ..infra import daemonclient as dmn_client
 from ..session import states as dmn_states
 from .. import db
 from ..session import launch, term
 from ..infra import names, paths, protected
 from ..team import spawn as spawnmod
+
+from . import client
 
 
 def cmd_agent_move(args) -> int:
@@ -30,11 +31,7 @@ def cmd_agent_move(args) -> int:
                  f"ends its session if one runs, and starts a new one there (y/N): ").strip().lower() != "y":
             print("not moved")
             return 1
-    con = db.connect()
-    try:
-        ok, msg = dmn_handoff.force_move(con, args.agent, args.account, "human (cli)", print)
-    finally:
-        con.close()
+    ok, msg = client.write("agent.move", {"agent": args.agent, "account": args.account})
     print(msg, file=None if ok else sys.stderr)
     return 0 if ok else 1
 
@@ -120,16 +117,7 @@ def cmd_agent_register(args) -> int:
 
 
 def cmd_resume(args) -> int:
-    con = db.connect()
-    try:
-        ok, msg = dmn_lifecycle.wake_agent(con, args.agent, print)
-        if ok:
-            db.set_agent_state(con, args.agent, dmn_states.QUEUED, wake_at=None,
-                               detail="resumed by hand")
-        print(msg)
-    finally:
-        con.close()
-    return 0 if ok else 1
+    return client.said(*client.write("session.wake", {"agent": args.agent}))
 
 
 # ---------------------------------------------------------------- launch
