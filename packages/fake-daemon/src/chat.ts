@@ -51,6 +51,8 @@ export function chatMethod(
       return chatCall(() => (chat.seen(p), ok('Seen.')));
     case 'chat.locate':
       return chatCall(() => chat.locate(p));
+    case 'chat.search':
+      return chat.search(p);
     default:
       throw refused('unsupported', `the fake daemon does not serve ${method}`);
   }
@@ -362,6 +364,26 @@ export class FakeChat {
       more_older: from + limit < list.length,
       more_newer: from > 0,
     };
+  }
+  /** Messages whose body holds the text, newest first, each with the agent and the chat (scope) that shows it. */
+  search(p: Record<string, unknown>) {
+    const query = typeof p.query === 'string' ? p.query.trim().toLowerCase() : '';
+    if (!query) throw invalidParams('query is text and not empty', 'query');
+    const limit = typeof p.limit === 'number' ? p.limit : 50;
+    const hits = this.messages
+      .filter(
+        (m) =>
+          (typeof p.agent !== 'string' || m.agent === p.agent) &&
+          !(m.receipt && m.landing === 'withdrawn') &&
+          m.body.toLowerCase().includes(query) &&
+          (p.scope !== 'mine' || this.shownInMine(m)),
+      )
+      .sort((a, b) => b.id - a.id)
+      .slice(0, limit);
+    return { messages: hits.map((m) => ({ ...this.view(m), agent: m.agent, scope: this.shownInMine(m) ? 'mine' : 'all' })) };
+  }
+  private shownInMine(m: ChatMessage & { agent: string }): boolean {
+    return !this.sessions.has(m.from) || !this.sessions.has(m.to);
   }
   /** One scripted step; false when none is waiting. */
   tick(): boolean {

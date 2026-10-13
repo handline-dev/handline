@@ -24,6 +24,7 @@ import { PromptSlot } from './PromptCard.tsx';
 import { Compose } from './ChatCompose.tsx';
 import { Item, Message, TaskNote, jumpTo } from './ChatMessages.tsx';
 import { ChatBanner, ChatStrip, HrCards } from './ChatCards.tsx';
+import { ChatSearch } from './ChatSearch.tsx';
 import { Button, Empty, Icon, Segmented, State, Textarea, ComposeRow } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import { useWorkspace } from './Workspace.tsx';
@@ -173,6 +174,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     <section className={CHAT}>
       <div className="chat-head flex h-[var(--h-tabs)] items-center justify-between gap-2 border-b border-line px-2">
         <ChatStrip detail={detail} />
+        <ChatSearch agent={agent} scope={scope} onGo={jump} />
         <Segmented
           label="Which messages"
           value={scope}
