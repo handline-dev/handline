@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("OCP_TERMINAL", "tmux")
 
 from handline import db  # noqa: E402
-from handline.daemon import locks as daemon_locks  # noqa: E402
+from handline.infra import daemonlock  # noqa: E402
 from handline.session import backends, term  # noqa: E402
 from handline.team import spawn  # noqa: E402
 
@@ -80,7 +80,7 @@ def main() -> int:
     if host.name != "tmux" or not host.available():
         print("this trial is for tmux: set OCP_TERMINAL=tmux and have tmux on PATH", file=sys.stderr)
         return 2
-    pid = daemon_locks.running_elsewhere()
+    pid = daemonlock.running_elsewhere()
     if pid:
         print(f"a daemon is running (pid {pid}); stop it first (`hl service uninstall`), or it will "
               f"treat the trial's tmux handle as a terminal that is gone", file=sys.stderr)

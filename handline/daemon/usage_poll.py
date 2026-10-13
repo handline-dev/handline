@@ -13,8 +13,7 @@ from ..team import spawn as spawnmod
 from ..usage import status
 from ..usage import usage_api
 
-from .states import (LOGIN_CHECK_COOLDOWN_S, USAGE_FAIL_BACKOFF_CAP_S, USAGE_MAX_AGE_S,
-                     USAGE_POLL_S, USAGE_REFRESH_COOLDOWN_S)
+from .states import LOGIN_CHECK_COOLDOWN_S, USAGE_FAIL_BACKOFF_CAP_S, USAGE_MAX_AGE_S, USAGE_POLL_S, USAGE_REFRESH_COOLDOWN_S
 
 
 _last_rollover_day = {"day": ""}

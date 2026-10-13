@@ -24,9 +24,8 @@ from ..team import trust
 from .. import vendors
 
 from . import inputhold, delivery, handoff, handoff_note
-from .states import (DEGRADED, EVALUATED, HANDOFF, HANDOFF_DEADLINE_S, IDLE, IDLE_CLOSE_S,
-                     MAX_FAILED_ATTEMPTS, PARKED, RESUME_WARM_S, RUNNING, STALLED,
-                     THROTTLED)
+from .states import HANDOFF_DEADLINE_S, IDLE_CLOSE_S, MAX_FAILED_ATTEMPTS, RESUME_WARM_S
+from ..session.states import DEGRADED, EVALUATED, HANDOFF, IDLE, PARKED, RUNNING, STALLED, THROTTLED
 
 
 def should_close(con, agent: str, state: str, row, now: int, st) -> bool:

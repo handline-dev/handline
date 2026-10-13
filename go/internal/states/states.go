@@ -1,4 +1,4 @@
-// Package states is the states an agent is in, what wakes each, and the timing constants the daemon runs on (daemon/states.py).
+// Package states is the states an agent is in, what wakes each, and the timing constants the daemon runs on (session/states.py, daemon/states.py).
 package states
 
 import (

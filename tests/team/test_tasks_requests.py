@@ -1722,7 +1722,7 @@ def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_re
             table["backend"] = 4242
             return list(sent)
 
-        for idle in (dmn_states.RESUME_WARM_S + 60, None):
+        for idle in (dmn_timing.RESUME_WARM_S + 60, None):
             label = "past the window" if idle else "with no clock"
             s1 = wake(idle)
             check(f"cache: {label}, no handoff, it is not resumed",
@@ -1733,7 +1733,7 @@ def test_a_cold_wake_with_no_handoff_still_tells_the_agent_its_transcript_and_re
             check(f"cache: {label}, the request is still its own",
                   (db.head_of_queue(con, "backend") or {"id": 0})["id"] == rid)
         # Control: inside the window, no handoff needed, resumed as before.
-        s2 = wake(dmn_states.RESUME_WARM_S - 120)
+        s2 = wake(dmn_timing.RESUME_WARM_S - 120)
         check("cache: inside the window it resumes and takes no handoff",
               any("--resume sess-7" in t for t in s2) and not seen[0].count("Where you left off"),
               str(s2))
@@ -2489,7 +2489,7 @@ def test_a_task_command_is_a_call_to_the_daemon(home: Path) -> None:
     """`hl task` writes go through the daemon's methods (cli/client.py): made under the caller the daemon finds, a
     refusal is the daemon's own words, and with no daemon nothing is done."""
     from handline.cli import client as cli_client
-    from handline.daemon import client as dmn_client
+    from handline.infra import daemonclient as dmn_client
     _board_world(home)
     con = db.connect()
     try:

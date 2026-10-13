@@ -12,7 +12,7 @@ from pathlib import Path
 from .. import actions
 from ..infra import timefmt
 from ..team import ask as askmod
-from ..daemon import client as dmn_client
+from ..infra import daemonclient as dmn_client
 from .. import db
 from . import client
 from ..infra import gitrun, names, paths

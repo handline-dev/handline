@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sys
 
-from ..daemon import devmode
+from ..infra import devmode
 from ..infra.yamlcompat import ConfigError
 from .health import cmd_status
 

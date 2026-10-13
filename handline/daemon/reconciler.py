@@ -13,8 +13,8 @@ from ..usage import status
 from ..infra.yamlcompat import ConfigError
 
 from . import agentview, delivery, evaluate, fds, handoff, lifecycle, login_expired
-from .states import (DEGRADED, DEGRADED_RETRY_S, IDLE, MAX_FAILED_ATTEMPTS, PARKED, RUNNING,
-                     STALLED, STUCK_RUNNING_S, THROTTLED)
+from .states import DEGRADED_RETRY_S, MAX_FAILED_ATTEMPTS, STUCK_RUNNING_S
+from ..session.states import DEGRADED, IDLE, PARKED, RUNNING, STALLED, THROTTLED
 
 
 def expire_handoffs(con, log) -> list[str]:

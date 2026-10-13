@@ -19,7 +19,8 @@ from ..infra import cron, paths
 from ..session import events as evmod, idle_close, term
 from ..team import accounts, agents, team as teammod
 from ..usage import cycle, load as loadmod, status
-from . import agentview, devmode, inputhold, rpc, rpc_schedules, rpc_settings, rpc_status, timebox
+from . import agentview, inputhold, rpc, rpc_schedules, rpc_settings, rpc_status, timebox
+from ..infra import devmode
 
 _TS = agentview._ts
 MOVES_SHOWN = 20

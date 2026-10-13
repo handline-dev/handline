@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 
-from ..daemon import locks as dmn_locks
-from ..infra import paths, protected, service
+from ..infra import daemonlock, paths, protected, service
 from ..usage import load
 from ..infra import textsafe
 from ..infra import venv as venvmod
@@ -11,7 +10,7 @@ from ..infra import venv as venvmod
 
 # ---------------------------------------------------------------- service
 def cmd_service_install(args) -> int:
-    pid = dmn_locks.running_elsewhere()
+    pid = daemonlock.running_elsewhere()
     if pid and pid != service.status()["pid"]:
         print(f"note: pid {pid} is already running by hand - the launchd job will "
               f"refuse to start (it cannot have the daemon lock) until it exits")

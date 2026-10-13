@@ -21,8 +21,9 @@ import (
 const pythonDetector = `
 import json, os, sqlite3, sys
 sys.path.insert(0, os.getcwd())
-from handline.daemon import locks, stream
-locks.running_elsewhere = os.getpid  # this detector is the daemon, as the Go one is: not the live one's lock
+from handline.daemon import stream
+from handline.infra import daemonlock
+daemonlock.running_elsewhere = os.getpid  # this detector is the daemon, as the Go one is: not the live one's lock
 con = sqlite3.connect(sys.argv[1]); con.row_factory = sqlite3.Row
 state = {}
 stream.%s(con, state); con.commit()

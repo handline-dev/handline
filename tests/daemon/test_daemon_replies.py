@@ -16,7 +16,8 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline import STARTED  # noqa: E402
 from handline.cli import daemon as clidaemon  # noqa: E402
-from handline.daemon import client, devmode, loop, rpc, socket_server  # noqa: E402
+from handline.daemon import devmode, loop, rpc, socket_server  # noqa: E402
+from handline.infra import daemonclient as client, devmode as devsetting
 from handline.infra import gitrun  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -73,13 +74,13 @@ def _tree_dev_mode(fps, changed_since_start):
     clock = {"t": 1000.0}
     state = {"fp": None, "warned": None, "seen": None}
     checks = []
-    real = (devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, devmode._now,
+    real = (devmode._code_fingerprint, devmode._dev_import_check, devsetting.dev_mode_enabled, devmode._now,
             devmode._changed_since_start, devmode.QUIET_S)
     seq = iter(fps)
     cur = {"fp": None}
     devmode._code_fingerprint = lambda root: cur["fp"]
     devmode._dev_import_check = lambda log: checks.append(cur["fp"]) or True
-    devmode.dev_mode_enabled = lambda: True
+    devsetting.dev_mode_enabled = lambda: True
     devmode._now = lambda: clock["t"]
     devmode._changed_since_start = lambda root: changed_since_start
     devmode.QUIET_S = 30.0
@@ -90,7 +91,7 @@ def _tree_dev_mode(fps, changed_since_start):
         return devmode._dev_mode_should_restart(state, lambda m: None)
 
     def restore():
-        (devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, devmode._now,
+        (devmode._code_fingerprint, devmode._dev_import_check, devsetting.dev_mode_enabled, devmode._now,
          devmode._changed_since_start, devmode.QUIET_S) = real
     return step, state, checks, restore
 
@@ -160,7 +161,7 @@ def _simulate(writes, changed_since_start, horizon=400, carried=None, step=10):
     it starts when the last one restarts (a second later, with a fresh state and what the restart carried), and
     `changed_since_start(last_write_time, process_start)` says whether the stale rule sees a write after its
     start. Returns how many restarts happened in the horizon."""
-    real = (devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, devmode._now,
+    real = (devmode._code_fingerprint, devmode._dev_import_check, devsetting.dev_mode_enabled, devmode._now,
             devmode._changed_since_start, devmode.QUIET_S, os.environ.get(devmode.CARRY_ENV))
     clock = {"t": 0.0}
     cur = {"started": -100.0}
@@ -171,7 +172,7 @@ def _simulate(writes, changed_since_start, horizon=400, carried=None, step=10):
         return (done[-1][1] if done else "v0"), (done[-1][0] if done else -1000.0)
     devmode._code_fingerprint = lambda root: tree(clock["t"])[0]
     devmode._dev_import_check = lambda log: True
-    devmode.dev_mode_enabled = lambda: True
+    devsetting.dev_mode_enabled = lambda: True
     devmode._now = lambda: clock["t"]
     devmode._changed_since_start = lambda root: changed_since_start(tree(clock["t"])[1], cur["started"])
     devmode.QUIET_S = 30.0
@@ -192,7 +193,7 @@ def _simulate(writes, changed_since_start, horizon=400, carried=None, step=10):
                 t += 1
             t += step
     finally:
-        (devmode._code_fingerprint, devmode._dev_import_check, devmode.dev_mode_enabled, devmode._now,
+        (devmode._code_fingerprint, devmode._dev_import_check, devsetting.dev_mode_enabled, devmode._now,
          devmode._changed_since_start, devmode.QUIET_S, old) = real
         if old is None:
             os.environ.pop(devmode.CARRY_ENV, None)
@@ -230,9 +231,9 @@ def test_a_mtime_ahead_of_the_clock_is_no_evidence_of_a_write(home: Path) -> Non
 
 def test_the_carried_tree_is_compared_not_trusted(home: Path) -> None:
     support.use_home(home)
-    real = (devmode._code_fingerprint, devmode.dev_mode_enabled, devmode._changed_since_start, os.environ.get(devmode.CARRY_ENV))
+    real = (devmode._code_fingerprint, devsetting.dev_mode_enabled, devmode._changed_since_start, os.environ.get(devmode.CARRY_ENV))
     devmode._code_fingerprint = lambda root: "v7"
-    devmode.dev_mode_enabled = lambda: True
+    devsetting.dev_mode_enabled = lambda: True
     devmode._changed_since_start = lambda root: True
     try:
         os.environ[devmode.CARRY_ENV] = devmode._digest("something else")
@@ -244,7 +245,7 @@ def test_the_carried_tree_is_compared_not_trusted(home: Path) -> None:
         devmode._dev_mode_should_restart(state, lambda m: None)
         check("carry: this tree's own digest makes it the baseline", state["fp"] == "v7")
     finally:
-        devmode._code_fingerprint, devmode.dev_mode_enabled, devmode._changed_since_start, old = real
+        devmode._code_fingerprint, devsetting.dev_mode_enabled, devmode._changed_since_start, old = real
         if old is None:
             os.environ.pop(devmode.CARRY_ENV, None)
         else:

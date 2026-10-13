@@ -21,7 +21,7 @@ from handline.daemon import delivery, lifecycle, socket_server  # noqa: E402
 from handline.infra import lock, sessiontoken  # noqa: E402
 from handline.session import observe as obs  # noqa: E402
 from handline.session import term as termmod  # noqa: E402
-from handline.daemon import client as dmn_client  # noqa: E402
+from handline.infra import daemonclient as dmn_client  # noqa: E402
 from handline.cli import task as cli_task  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

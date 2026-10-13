@@ -727,7 +727,7 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
         # must not judge the row from before it and overwrite the lift's detail.
         stalled_on_the_trust_screen()
         db.set_closed(con, "backend", "sess-1")
-        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
+        for _ in range(dmn_timing.MAX_FAILED_ATTEMPTS):
             db.bump_counter(con, "backend", "wake_failures")
         said = sweep()
         row = db.get_agent_state(con, "backend")
@@ -744,7 +744,7 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
         screen["v"] = trust_screen
         rid = stalled_on_the_trust_screen()
         db.set_closed(con, "backend", "sess-1")
-        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
+        for _ in range(dmn_timing.MAX_FAILED_ATTEMPTS):
             db.bump_counter(con, "backend", "wake_failures")
         said = sweep()
         row = db.get_agent_state(con, "backend")
@@ -778,7 +778,7 @@ def test_a_trust_stall_is_lifted_once_the_prompt_is_answered_and_the_session_run
         # session, once.
         db.set_agent_state(con, "backend", dmn_states.STALLED, detail="3 failed attempts: x")
         db.set_closed(con, "backend", "sess-1")
-        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
+        for _ in range(dmn_timing.MAX_FAILED_ATTEMPTS):
             db.bump_counter(con, "backend", "wake_failures")
         said = sweep()
         row = db.get_agent_state(con, "backend")

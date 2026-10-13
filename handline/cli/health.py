@@ -51,13 +51,13 @@ def stale_long_lived(started_at=None) -> list[str]:
     newest code file on disk (they run older code, and a connect of theirs would re-add the columns a drop
     removed), or whose start cannot be read. Each is named with its pid."""
     started_at = started_at or _started_at
-    from ..daemon import devmode, locks as dmn_locks
-    from ..infra import lock
+    from ..daemon import devmode
+    from ..infra import daemonlock, lock
     code = max((f.stat().st_mtime for f in devmode._watched_files(paths.repo_root()) if f.exists()), default=0)
     stale = []
-    pid = dmn_locks.running_elsewhere()
+    pid = daemonlock.running_elsewhere()
     if pid:
-        began = started_at(pid, paths.home() / "locks" / f"{dmn_locks.DAEMON_LOCK}.{lock.SINGLETON}")
+        began = started_at(pid, paths.home() / "locks" / f"{daemonlock.DAEMON_LOCK}.{lock.SINGLETON}")
         if began is None:
             stale.append(f"daemon (pid {pid}; cannot tell when it started)")
         elif began < code:

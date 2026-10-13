@@ -11,7 +11,8 @@ import hashlib
 
 from .. import actions, db
 from ..infra import paths
-from . import rpc, schedules
+from . import rpc
+from ..team import schedules
 
 
 def schedule_id(agent: str, item: dict) -> int:

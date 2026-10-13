@@ -7,8 +7,7 @@ import sys
 from pathlib import Path
 
 from .. import db
-from ..daemon import client as dmn_client
-from ..infra import paths, textsafe
+from ..infra import daemonclient as dmn_client, paths, textsafe
 from ..team import ask as askmod
 
 

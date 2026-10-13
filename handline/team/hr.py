@@ -78,7 +78,7 @@ def _daemon_impl(v: str) -> str:
 
 def _set_global(switch: str, value: str) -> None:
     from ..session import autoaccept, idle_close
-    from ..daemon import devmode
+    from ..infra import devmode
     if switch == "idle-timeout":
         idle_close.set_close_timeout(idle_close.NEVER if value == "never" else int(value))
     elif switch == "notice-digest":
@@ -280,7 +280,7 @@ def _schedule_draft(agent: str, sets: dict, coming: bool) -> tuple[dict, str]:
     acts on by what it is (`sid`, and its cron and message for the card), not by its number: numbers
     shift when another change lands first."""
     from ..actions import schedule as schedmod
-    from ..daemon import schedules
+    from . import schedules
     action = sets.get("action")
     if action not in SCHEDULE_ACTIONS:
         return {}, f"a schedule change is one of {', '.join(SCHEDULE_ACTIONS)}"
@@ -1399,7 +1399,7 @@ def _context(prop: dict, con) -> tuple[bool, str]:
 def _schedule(prop: dict, con) -> tuple[bool, str]:
     """Exactly the schedule change that was proposed, through the one schedule write path."""
     from ..actions import schedule as schedmod
-    from ..daemon import schedules
+    from . import schedules
     st = _sets_of(prop)
     try:
         if st["action"] == "add":

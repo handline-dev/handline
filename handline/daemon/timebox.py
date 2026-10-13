@@ -30,7 +30,7 @@ from ..session import handoff as progressmod
 from ..session import bgjobs, idle_close
 from .. import db
 from . import delivery
-from .states import IDLE, RUNNING
+from ..session.states import IDLE, RUNNING
 
 UNASKED_RUNNING_S = 900
 TITLE_SHOWN = 60

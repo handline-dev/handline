@@ -1,4 +1,4 @@
-// Package hlclient is the hl command's way to the daemon (handline/daemon/client.py and handline/cli/client.py): one
+// Package hlclient is the hl command's way to the daemon (handline/infra/daemonclient.py and handline/cli/client.py): one
 // JSON-RPC call on a fresh connection, hello first, as the founder when this terminal holds the founder key and as the
 // agent when it runs in an agent's session (the daemon tells which from the process, not from anything said here).
 package hlclient

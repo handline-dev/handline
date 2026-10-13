@@ -448,7 +448,7 @@ def test_an_empty_ocp_home_is_refused_not_read_as_the_current_directory() -> Non
 
 def test_every_daemon_actions_and_team_module_imports_on_its_own() -> None:
     """The daemon, actions and team packages import each other; a module imported first in a fresh
-    interpreter (as tools/migrate_home.py does with handline.daemon.locks) must not hit a cycle."""
+    interpreter (as tools/migrate_home.py does with handline.infra.daemonlock) must not hit a cycle."""
     from concurrent.futures import ThreadPoolExecutor
     mods = sorted(f"ocp.{pkg}.{f.stem}" for pkg in ("daemon", "actions", "team")
                   for f in (ROOT / "handline" / pkg).glob("*.py") if f.stem != "__init__")

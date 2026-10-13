@@ -6,7 +6,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 )
 
-// The states an agent is in (daemon/states.py).
+// The states an agent is in (session/states.py).
 const (
 	Running  = "RUNNING"
 	Handoff  = "HANDOFF"

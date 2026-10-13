@@ -23,7 +23,7 @@ from __future__ import annotations
 from .. import db
 from ..session import cachettl, events, idle_close
 from . import delivery, handoff_note, lifecycle
-from .states import IDLE
+from ..session.states import IDLE
 
 RENEWAL_KEY = "cache_renewal"
 FOLD_KEY = "idle_fold"

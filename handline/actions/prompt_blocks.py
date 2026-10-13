@@ -14,8 +14,7 @@ import json
 import time
 
 from .. import db
-from ..daemon import client
-from ..infra import lock
+from ..infra import daemonclient as client, lock
 from ..session import term, waiting
 from . import ask_question, confirmations, dialogs
 

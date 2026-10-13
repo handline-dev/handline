@@ -994,7 +994,7 @@ def test_doctor_service_check(home: Path) -> None:
         # A human deliberately running it by hand is a working setup, not a
         # defect - doctor's warnings are what we read to know something is
         # actually wrong, so this must not be one of them.
-        with lock.singleton(dmn_locks.DAEMON_LOCK):
+        with lock.singleton(daemonlock.DAEMON_LOCK):
             r = doctor.Report()
             doctor._check_service(r)
             check("doctor: not-installed is fine when a daemon is running by hand",

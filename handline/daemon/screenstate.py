@@ -9,7 +9,8 @@ from .. import actions, db, vendors
 from ..infra import timefmt
 from ..infra.textsafe import oneline
 from ..session import blocked as blockedmod, term
-from . import delivery as dmn_delivery, lifecycle as dmn_lifecycle, states as dmn_states
+from . import delivery as dmn_delivery, lifecycle as dmn_lifecycle
+from ..session import states as dmn_states
 
 # DETAIL_CAP bounds the free text screen_state() shows beside a word - a
 # dialog's own detail, or who an IDLE reply-wait is for - to what the state

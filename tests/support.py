@@ -73,11 +73,13 @@ from handline.usage import windows  # noqa: E402
 from handline.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
 from handline.infra import backup as backupmod, doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
 from handline.view import viewdata  # noqa: E402
-from handline.daemon import (client as dmn_client, delivery as dmn_delivery, devmode as dmn_devmode,  # noqa: E402
+from handline.infra import daemonclient as dmn_client, daemonlock, devmode as devsetting  # noqa: E402
+from handline.session import states as dmn_states  # noqa: E402
+from handline.daemon import (delivery as dmn_delivery, devmode as dmn_devmode,  # noqa: E402
                         evaluate as dmn_evaluate, handoff as dmn_handoff, lifecycle as dmn_lifecycle,
                         locks as dmn_locks, login_expired as dmn_login_expired, loop as dmn_loop, messaging as dmn_messaging,
                         reconciler as dmn_reconciler, socket_server as dmn_socket_server,
-                        states as dmn_states, usage_poll as dmn_usage_poll)
+                        states as dmn_timing, usage_poll as dmn_usage_poll)
 from handline.vendors import opencode as ocmod  # noqa: E402
 
 PASS, FAIL = [], []
@@ -1817,7 +1819,7 @@ def _park_behind(home: Path, tail, ends_at_limit: bool = True, **term_kw):
     if ends_at_limit:
         db.add_event(con, "keeper", "StopFailure", {"limit": "5h"})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'keeper' AND kind = 'StopFailure'",
-                    (int(time.time()) - dmn_states.LIMIT_SETTLE_S - 60,))
+                    (int(time.time()) - dmn_timing.LIMIT_SETTLE_S - 60,))
     termmod.available = lambda: True
     termmod.alive = lambda h: True
     termmod.wait_idle = lambda h, timeout_ms=0: True
@@ -2430,6 +2432,9 @@ __all__ = [
     'dmn_login_expired',
     'dmn_messaging',
     'dmn_states',
+    'dmn_timing',
+    'daemonlock',
+    'devsetting',
     'dmn_reconciler',
     'dmn_loop',
     'dmn_socket_server',

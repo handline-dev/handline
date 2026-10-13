@@ -12,7 +12,8 @@ from .. import db
 from ..infra import textsafe
 from ..session import waiting
 
-from ..daemon import client as dmn_client, delivery as dmn_delivery
+from ..daemon import delivery as dmn_delivery
+from ..infra import daemonclient as dmn_client
 
 
 def _refused_listing(target: str | None) -> bool:

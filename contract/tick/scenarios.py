@@ -25,7 +25,8 @@ SKIP = ("db.sqlite",)
 
 import support as S  # noqa: E402  (sets the test home before handline is used)
 from handline import db  # noqa: E402
-from handline.daemon import states  # noqa: E402
+from handline.daemon import states as timing  # noqa: E402
+from handline.session import states
 
 time.time = lambda: float(T0)
 SCENARIOS: list[tuple[str, str, str, object]] = []
@@ -226,7 +227,7 @@ def _(w):
           "A due DEGRADED agent already at the throttle streak limit goes to STALLED, not back to work.")
 def _(w):
     db.set_agent_state(w.con, "backend", states.DEGRADED, wake_at=T0 - 1, detail="handoff degraded")
-    w.con.execute("UPDATE agent_state SET throttle_count = ? WHERE agent = 'backend'", (states.MAX_THROTTLE_STREAK,))
+    w.con.execute("UPDATE agent_state SET throttle_count = ? WHERE agent = 'backend'", (timing.MAX_THROTTLE_STREAK,))
     w.request()
     w.status(pct_5h=100, pct_7d=10, ctx_pct=5, reset_5h=T0 + 1800)
 

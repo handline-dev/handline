@@ -7,7 +7,8 @@ import time
 from .. import actions
 from ..infra import timefmt
 from ..session import blocked as blockedmod
-from ..daemon import client as dmn_client, devmode as dmn_devmode, lifecycle as dmn_lifecycle, locks as dmn_locks, loop as dmn_loop
+from ..daemon import lifecycle as dmn_lifecycle, locks as dmn_locks, loop as dmn_loop
+from ..infra import daemonclient as dmn_client, devmode as dmn_devmode, daemonlock
 from .. import db
 from ..session import launch
 from ..session import observe as obs
@@ -78,7 +79,7 @@ def _code_line() -> str:
 
 def cmd_daemon_status(args) -> int:
     _print_waits()
-    pid = dmn_locks.running_elsewhere()
+    pid = daemonlock.running_elsewhere()
     supervisor = service.supervisor_of(pid)
     print(f"daemon: {'running, pid ' + str(pid) if pid else 'not running'} - {supervisor}")
     if pid:

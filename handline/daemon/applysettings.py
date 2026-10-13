@@ -18,7 +18,7 @@ from ..session import launch, term
 from ..team import agents
 from ..usage import status
 from . import delivery, lifecycle
-from .states import IDLE, QUEUED
+from ..session.states import IDLE, QUEUED
 
 WHO = "the daemon"
 APPLIED = "settings_applied:"

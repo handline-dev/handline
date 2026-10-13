@@ -19,8 +19,9 @@ import time
 from .. import db
 from ..infra import paths, timefmt
 from ..session import blocked, waiting
-from . import delivery, locks
-from .states import IDLE, QUEUED
+from . import delivery
+from ..infra import daemonlock
+from ..session.states import IDLE, QUEUED
 
 PREFIX = "taskhold:"
 # Owner able, task still waiting: this long is a missed delivery, not a tick's delay.
@@ -149,7 +150,7 @@ def wait_line(con, row, state: str) -> str | None:
     rec = _read(con, int(row["id"]))
     if rec is None and state != "queued":
         return None
-    running = bool(locks.running_elsewhere())
+    running = bool(daemonlock.running_elsewhere())
     if not running:
         return ("waiting: the daemon is not running, so nothing lands it"
                 + (f" (was: {rec['why']})" if rec else ""))
@@ -161,7 +162,7 @@ def wait_line(con, row, state: str) -> str | None:
 def agent_waits(con, agent: str) -> list[tuple[int, str]]:
     """(task id, the daemon's reason) for each of `agent`'s tasks that is waiting, oldest first. With
     no daemon running the reason is that: what it recorded is no longer being kept true."""
-    running = bool(locks.running_elsewhere())
+    running = bool(daemonlock.running_elsewhere())
     out = []
     for row in db.open_tasks(con):
         rec = _read(con, int(row["id"])) if row["owner"] == agent else None

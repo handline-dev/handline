@@ -13,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.session import term  # noqa: E402
-from handline.daemon import noticedigest, states as dmn_states  # noqa: E402
+from handline.daemon import noticedigest  # noqa: E402
+from handline.session import states as dmn_states
 from handline.session import idle_close  # noqa: E402
 
 TEAM = """

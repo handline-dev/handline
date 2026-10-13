@@ -17,11 +17,11 @@ process beside the Go daemon. Those are the **switch** rows: the module goes onc
 
 | module | lines | used outside the package by | verdict | what happens |
 |---|---|---|---|---|
-| `client` | 155 | 7 `cli/` files, `session/events`, `session/landgate`, `team/ask`, `actions/prompt_blocks` | keep | The socket client for JSON-RPC and the legacy verbs. No import from the package. To `handline/cli`, beside `cli/client.py`. |
-| `locks` | 80 | `cli/daemon`, `cli/health`, `cli/service`, `infra/doctor`, `actions/stuck` | move | `running_elsewhere` and `DAEMON_LOCK` to `handline/infra`: the Go daemon holds the same `daemon` lock. `processes` looks for `hl daemon` in the process table and is deleted. |
-| `states` | 167 | `actions/control`, `actions/stuck`, `cli/agent`, `session/blocked`, `session/idle_close` | move | The state words and `park_wakeable` to `handline/session`. The tick's timing constants are deleted with their readers. |
-| `schedules` | 120 | `cli/schedule`, `actions/schedule`, `team/hr` | move | `parse`, `load`, `of`, `sid` read an agent's schedules from its agent.yaml: to `handline/team`. Firing them is the Go tick's. Go serves `schedules.list` and `schedule.add`, so `hl schedule` can switch later. |
-| `devmode` | 174 | `cli/daemon`, `cli/bridge`, `cli/health`, `team/hr` | move | `dev_mode_enabled` and `set_dev_mode` read and write one setting: to `handline/infra`. The file watcher that restarts the Python daemon is deleted (Go has `tick/devmode.go`). |
+| `client` | 155 | 7 `cli/` files, `session/events`, `session/landgate`, `team/ask`, `actions/prompt_blocks` | keep | The socket client for JSON-RPC and the legacy verbs. Moved whole to `handline/infra/daemonclient.py`, not `handline/cli`: `session/`, `team/` and `actions/` call it too, and importing anything under `handline/cli` loads the whole command parser. |
+| `locks` | 80 | `cli/daemon`, `cli/health`, `cli/service`, `infra/doctor`, `actions/stuck` | move | Moved: `running_elsewhere` and `DAEMON_LOCK` are `handline/infra/daemonlock.py`. `processes` stays for step 4; `running_elsewhere` still asks it when the lock holder wrote no pid. |
+| `states` | 167 | `actions/control`, `actions/stuck`, `cli/agent`, `session/blocked`, `session/idle_close` | move | Moved: the state words and `park_wakeable` are `handline/session/states.py`. The timing constants stay for step 4; `actions/stuck` and `session/idle_close` still read one each. |
+| `schedules` | 120 | `cli/schedule`, `actions/schedule`, `team/hr` | move | Moved: `parse`, `load`, `of`, `sid` are `handline/team/schedules.py`. `sweep`, which fires them, stays for step 4; only the Python tick calls it. Go serves `schedules.list` and `schedule.add`, so `hl schedule` can switch later. |
+| `devmode` | 174 | `cli/daemon`, `cli/bridge`, `cli/health`, `team/hr` | move | Moved: `dev_mode_enabled` and `set_dev_mode` are `handline/infra/devmode.py`. The file watcher that restarts the Python daemon stays for step 4 (Go has `tick/devmode.go`); `cli/health` still reads its file list. |
 | `lifecycle` | 1,419 | `cli/agent`, `cli/daemon`, `cli/health`, `cli/team`, `actions/control`, `actions/stuck`, `session/blocked`, `session/launch`, `team/ask`, `view/viewdata` | switch | `hl resume` wakes the agent in its own process: call `session.wake`. `would_wake` and `triggers_apply` feed `hl ps`, `hl status`, `hl team` and `hl triggers`: read `agents.list`, `team.get`. |
 | `handoff` | 681 | `cli/agent`, `actions/control` | switch | `hl agent move` moves the agent itself: call `agent.move`. |
 | `delivery` | 1,531 | `cli/ask`, `actions/control`, `actions/stuck`, `session/blocked`, `session/handoff`, `session/stopgate`, `team/ask`, `team/spawn`, `ui`, `view/viewdata` | switch | `hl inbox` and `hl read` use three text helpers and mark requests read themselves: call `inbox.list`, `inbox.get`, `inbox.mark_read`. The rest is typing at sessions, the Go daemon's. |
@@ -43,8 +43,8 @@ imported from outside, and `cmd_daemon*`, `cmd_dev_mode` are names of `cli/daemo
 ## Order
 
 1. Done with this survey: `hl service use python` is refused, by the command and by the proposal path in both daemons.
-2. Move the keep and move rows (`client`, `locks`, `states`, `schedules`, `devmode`). None imports a switch or delete row
-   once the deleted parts are cut, so this lands before anything else changes.
+2. Done: the keep and move rows are out of `handline/daemon` (see their rows). What is left of `locks`, `states`,
+   `schedules` and `devmode` there is deleted in step 4.
 3. Switch the commands, one method at a time.
 4. Delete `handline/daemon`, `hl daemon`, and the tests that only exercise it: 65 test files import the package, 48 of
    them in `tests/daemon`.

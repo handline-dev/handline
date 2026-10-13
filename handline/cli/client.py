@@ -1,4 +1,4 @@
-"""The commands' way to the daemon's methods: one JSON-RPC call on a fresh connection (`daemon.client.call`), as the
+"""The commands' way to the daemon's methods: one JSON-RPC call on a fresh connection (`infra.daemonclient.call`), as the
 founder when this terminal holds the founder key, and as the agent when it runs in an agent's session (the daemon
 tells which from the process, not from anything said here). `connect` is the one place a socket comes from, so a
 test serves a socketpair in its place."""
@@ -8,8 +8,7 @@ import socket
 import uuid
 from datetime import datetime
 
-from ..daemon import client
-from ..infra import sessiontoken
+from ..infra import daemonclient as client, sessiontoken
 
 CLIENT = "hl"
 
