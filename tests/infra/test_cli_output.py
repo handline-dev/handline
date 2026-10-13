@@ -441,11 +441,53 @@ def _run_main(argv: list[str]) -> tuple[int, str]:
     return rc, buf.getvalue()
 
 
+def test_read_prints_the_daemons_request(home: Path) -> None:
+    """`hl read` draws request.read's reply; a wait longer than the method holds one call asks again."""
+    from handline.cli import client as cliclient
+    _daemon_home(home, 20)
+    row = {"id": 7, "requester": "backend", "target": "reviewer", "kind": "ask", "state": "queued", "created": "2026-10-01T10:00:00Z",
+           "relation": "peer", "response": "async", "chain_depth": 1, "parent": {"id": 3, "line": "which \x9b31mone?"},
+           "body": "this one", "answer": None, "dismissal": None}
+    asked, real = [], cliclient.call
+
+    def call(method, params=None, start=True, timeout=None):
+        asked.append((method, params))
+        if params["id"] == 9:
+            raise dmn_client.RpcError({"message": "no request 9", "data": {"code": "not_found"}})
+        return dict(row)
+    cliclient.call = call
+    try:
+        rc, out = _run_main(["read", "7"])
+        check("read: one call, no wait, and the request as it came", rc == 0 and asked == [("request.read", {"id": 7, "wait_s": 0})]
+              and "#7  backend → reviewer  ask  queued" in out and "in reply to #3: which" in out and "\x9b" not in out
+              and "relation peer   response async   depth 1" in out and "this one" in out and "---" not in out, out)
+        del asked[:]
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc, out = _run_main(["read", "7", "--wait", "--timeout", "700"])
+        check("read --wait: a wait past 600 s is asked in two calls, and still queued is exit 1 with nothing printed",
+              rc == 1 and [p["wait_s"] for _m, p in asked] == [600, 100] and out == "" and "#7 has no answer yet" in err.getvalue(),
+              f"{asked} {out!r} {err.getvalue()!r}")
+        row.update(state="withdrawn", answer="taken back")
+        del asked[:]
+        rc, out = _run_main(["read", "7", "--wait", "--timeout", "700"])
+        check("read --wait: a settled request ends the wait, and one that never reached its target is not headed as answered",
+              rc == 0 and len(asked) == 1 and "--- withdrawn ---\ntaken back" in out and "answered by" not in out, out)
+        row.update(state="landed", answer=None, dismissal={"by": "human", "reason": "not now"})
+        rc, out = _run_main(["read", "7"])
+        check("read: a dismissal names who and why", rc == 0 and "--- dismissed by human ---\nnot now" in out, out)
+        rc, out = _run_main(["read", "9"])
+        check("read: a request the daemon does not have", rc == 1 and out.strip() == "no request #9", out)
+    finally:
+        cliclient.call = real
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_no_command_prints_what_a_terminal_would_obey(Path(td) / 'cli'))
         run(lambda: test_triggers_draws_the_daemons_verdicts(Path(td) / 'trig'))
         run(lambda: test_status_prints_the_daemons_pick(Path(td) / 'status'))
+        run(lambda: test_read_prints_the_daemons_request(Path(td) / 'read'))
         run(lambda: test_ps_and_team_draw_the_daemons_status_lines(Path(td) / 'ps'))
     return run_area(tests)
 

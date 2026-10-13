@@ -410,7 +410,7 @@ An inbox as hl inbox prints it. An agent's inbox is the one request at the head 
 
 ### `inbox.get`
 
-One item (hl read).
+One item.
 
 ### `request.read`
 
@@ -728,7 +728,7 @@ Every `hl` command an agent runs today and the method that serves it.
 | `hl task memo delete` | `task.memo.delete` |
 | `hl progress` | `task.progress` |
 | `hl inbox` | `inbox.list` |
-| `hl read` | `inbox.get` |
+| `hl read` | `request.read` |
 | `hl say` | `say` |
 | `hl hook` | `hook.record` |
 | `hl agent set` | `agent.set` |
