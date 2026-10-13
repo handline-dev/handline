@@ -1,10 +1,9 @@
 // One line of the conversation: the person's and the agent's messages with how far each got, and the transcript's tool, prompt, task and
 // session lines as small cards. What a line is and where it stands is an icon with its words as the tooltip; a click on a message picks it
 // to reply to (the reference the composer shows).
-import { useState, type MouseEvent, type ReactNode } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { useState, type MouseEvent } from 'react';
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
-import { landingLabel, openTask, sendNote, sessionLine, sideOf, taskRow, tickLevel } from '@handline/app-core';
+import { landingLabel, openTask, sessionLine, sideOf, taskRow, tickLevel } from '@handline/app-core';
 import { useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
@@ -90,27 +89,6 @@ function Ticks({ level, label, receipt }: { level: 0 | 1 | 2; label: string; rec
   );
 }
 
-/** Folds its children away, height auto to 0, when `show` turns false (at once under reduced motion). */
-function Fold({ show, children }: { show: boolean; children: ReactNode }) {
-  const reduced = useReducedMotion();
-  if (reduced) return show ? <>{children}</> : null;
-  return (
-    <AnimatePresence initial={false}>
-      {show ? (
-        <motion.div
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: 'auto', opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.18, ease: 'easeOut' }}
-          style={{ overflow: 'clip' }}
-        >
-          {children}
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
-  );
-}
-
 export function Message(props: {
   m: ChatMessage;
   agent: string;
@@ -119,8 +97,6 @@ export function Message(props: {
   onPick?: (m: ChatMessage) => void;
   /** The messages the page holds, to say what a reply refers to. */
   byId?: Map<number, ChatMessage>;
-  /** How many of the person's messages to this agent are queued ahead of this one. */
-  behind?: number;
   /** A message number in the text was clicked. */
   onRef?: (id: number) => void;
 }) {
@@ -130,7 +106,6 @@ export function Message(props: {
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
-  const note = side === 'person' ? sendNote(m, props.behind ?? 0) : null;
   // A click on the message, not on a control in it, picks it to reply to.
   const pick = (e: MouseEvent) => {
     if (unnumbered || failed || !props.onPick || (e.target as HTMLElement).closest('button, a, input, textarea, form')) return;
@@ -179,11 +154,6 @@ export function Message(props: {
           </div>
         ) : null}
         {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
-        <Fold show={!!note}>
-          <div className={`${MSG_META} state-note`} role="status">
-            {note}
-          </div>
-        </Fold>
         {m.receipt?.state === 'unknown' ? (
           <div className={MSG_FAILED} role="note">
             <Icon name="maybeRan" size={13} /> This message may or may not have run. It is not sent again; send it again yourself if it

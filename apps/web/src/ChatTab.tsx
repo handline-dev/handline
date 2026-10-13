@@ -5,7 +5,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { behindCount, timeline } from '@handline/app-core';
+import { timeline } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import {
   Skeleton,
@@ -69,11 +69,11 @@ function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
 
 const CHAT = 'chat relative flex min-h-0 min-w-0 flex-col border-r border-line [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]';
 
-/** The agent is writing: three dots that rise in turn, with what it is doing beside them. */
+/** The agent is writing: three dots that rise in turn; what it is doing is the tooltip. */
 function Typing({ line }: { line: string }) {
   const reduced = useReducedMotion();
   return (
-    <div className="line working flex items-center gap-2 text-[12px] text-working" role="status" title={line}>
+    <div className="line working flex items-center text-working" role="status" title={line} aria-label={line}>
       <span className="inline-flex items-center gap-[3px]" aria-hidden="true">
         {[0, 1, 2].map((n) => (
           <motion.span
@@ -84,7 +84,6 @@ function Typing({ line }: { line: string }) {
           />
         ))}
       </span>
-      <span>{line}</span>
     </div>
   );
 }
@@ -250,15 +249,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start"
               >
                 {e.kind === 'message' ? (
-                  <Message
-                    m={e.message}
-                    agent={agent}
-                    picked={e.id === picked}
-                    onPick={pick}
-                    byId={byId}
-                    behind={behindCount(chat.messages, e.message)}
-                    onRef={jump}
-                  />
+                  <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} onRef={jump} />
                 ) : e.kind === 'note' ? (
                   <TaskNote m={e.message} task={e.task} titles={titles} />
                 ) : (
