@@ -49,6 +49,41 @@ func TestOneTickWakesAClosedStructuredAgentWithWorkWaitingAndLeavesATerminalAgen
 	}
 }
 
+func TestTheTicksIdleCloseIsRecordedForTheStartAfterIt(t *testing.T) {
+	p, _, _, _ := wired(t)
+	d := p.Sink.DB
+	if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "alice", Body: "begin", Response: "async", Kind: "ask"}); err != nil {
+		t.Fatal(err)
+	}
+	tk := p.Tick(p.Run.cfg, TickConfig{})
+	// The first tick wakes her and the second tells her the ask; a turn still running at the close check holds the session open. The
+	// fake session sends no hooks: without the Stop the real one records, her cache reads cold and the second tick closes her for that.
+	for range 2 {
+		if _, err := tk.Tick.Run(nil); err != nil {
+			t.Fatal(err)
+		}
+		if !p.Run.WaitIdle("alice", 10*time.Second) {
+			t.Fatal("her turn ends")
+		}
+		if _, err := dbpkg.AddEvent(d, "alice", "Stop"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := d.Exec("UPDATE events SET ts = ts - 7200 WHERE agent = 'alice'"); err != nil { // idle for longer than any close window
+		t.Fatal(err)
+	}
+	res, err := tk.Tick.Run(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row, _ := dbpkg.GetAgentState(d, "alice"); row == nil || !row.ClosedAt.Valid || row.ClosedAt.Int64 == 0 {
+		t.Fatalf("the tick did not close her: %v", res.Actions)
+	}
+	if _, ok, _ := dbpkg.LastEventID(d, "alice", lifecycle.IdleCloseKind); !ok {
+		t.Fatalf("the idle close was not recorded as one: %v", res.Actions)
+	}
+}
+
 func TestAnAgentWithTheRenewalSwitchOnIsNotStalledForWantingACacheClock(t *testing.T) {
 	p, _, _, wt := wired(t)
 	d := p.Sink.DB
