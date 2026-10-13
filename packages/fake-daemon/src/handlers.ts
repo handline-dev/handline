@@ -7,6 +7,7 @@ import { SETTINGS_HANDLERS } from './settings.ts';
 import { withStructured } from './structured-controls.ts';
 import type { FakeTranscript } from './transcript.ts';
 import { HR_HANDLERS, teamOf } from './hr.ts';
+import { STRIP_HANDLERS } from './strip.ts';
 import { DAEMON_HOLDER, row, scrolledOff, styledRow, tid, visible, type Attach, type Session } from './session.ts';
 
 export interface Who {
@@ -34,6 +35,7 @@ function formatOf(p: Record<string, unknown>): 'text' | 'bytes' | 'styled' {
 const BASE: Record<string, (h: Call) => unknown> = {
   ...SETTINGS_HANDLERS,
   ...HR_HANDLERS,
+  ...STRIP_HANDLERS,
   'transcript.events': ({ p, transcript }) => transcript.read(p),
   'team.get': ({ script, iso }) => teamOf([...script.sessions.values()], iso()),
   'session.start': (h) => {

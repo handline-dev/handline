@@ -93,6 +93,7 @@ export function useAgentTasks(agent: string) {
   const items = useMemo(() => [...(held.data?.items ?? []), ...(opened.data?.items ?? [])], [held.data, opened.data]);
   return { query, items, capped: !!(held.data?.more || opened.data?.more) };
 }
+export const useAgentStrip = (agent: string) => useRead('agent.strip', { agent }, { enabled: agent !== '' });
 export const useTask = (task: number) => useRead('task.get', { task });
 export const useMemos = (task: number) => useRead('task.memo.list', { task });
 export const useTaskBoard = () => useRead('task.board', {});

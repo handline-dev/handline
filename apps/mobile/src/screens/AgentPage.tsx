@@ -10,6 +10,7 @@ import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
 import { StateMark } from './StateMark.tsx';
 import { AgentSettings } from './AgentSettings.tsx';
+import { AgentStrip } from './AgentStrip.tsx';
 import { AgentTasks } from './AgentTasks.tsx';
 import { AgentVerbs } from './AgentVerbs.tsx';
 import { Chat } from './Chat.tsx';
@@ -65,6 +66,7 @@ export function AgentPage() {
           </Text>
         </View>
       </Row>
+      <AgentStrip agent={name} />
       <Loadable query={detailQuery} served={served} skeleton="agentDetail" label="the agent" empty={`${name} is gone`}>
         {detail &&
           (settings ? (
