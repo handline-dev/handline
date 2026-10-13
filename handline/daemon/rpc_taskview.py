@@ -87,22 +87,23 @@ def task_of(con, row, state: str) -> dict:
 
 
 def _scope(ctx, params) -> set[str] | None:
-    """The owners whose tasks this call shows, as `hl task list` scopes them: an agent sees itself and its reports,
-    unless it asks for everyone's; a person sees all."""
+    """The names whose tasks this call shows, as assignee or owner, as `hl task list` scopes them: an agent sees itself
+    and its reports, unless it asks for everyone's; a person sees all."""
     everyone = _flag(params, "everyone")
     return None if everyone or ctx.caller.role != "agent" else actions.reach(ctx.caller.info["name"])
 
 
 def _tasks_list(ctx, params) -> dict:
-    owner, opener, state = _str(params, "owner"), _str(params, "from"), _str(params, "state")
+    owner, closer, opener, state = _str(params, "owner"), _str(params, "reporter"), _str(params, "from"), _str(params, "state")
     parent, before, limit, ended = _int(params, "parent"), _int(params, "before"), _limit(params), _flag(params, "all")
     gaps = _flag(params, "reason_gaps")
     owners = _scope(ctx, params)
-    if owner is not None and owners is not None and owner not in owners:
-        raise rpc.refused(f"{owner} is not you or one of your reports: everyone shows every team's tasks")
+    for name in (owner, closer):
+        if name is not None and owners is not None and name not in owners:
+            raise rpc.refused(f"{name} is not you or one of your reports: everyone shows every team's tasks")
     con = db.connect()
     try:
-        rows = actions.task_rows(con, owner=owner, state=state, include_ended=ended, owners=owners)
+        rows = actions.task_rows(con, owner=owner, state=state, include_ended=ended, owners=owners, closer=closer)
         rows = [r for r in rows
                 if (opener is None or r["opened_by"] == opener)
                 and (parent is None or r["parent_task"] == parent)
@@ -227,19 +228,21 @@ def _now(con, t, me: str) -> dict:
 
 
 def _board(ctx, params) -> dict:
-    """The caller's open tasks (`mine`) and its reports' (`reports`), each with who holds it now. The founder's board is the
-    tasks it owns, unless it asks for everyone's."""
+    """The open tasks the caller works, or owns while someone outside its reports works them (`mine`), and those its reports
+    work (`reports`), each with who holds it now. The founder's board is the tasks assigned to it, unless it asks for
+    everyone's: every task begun on its word answers to it."""
     me, everyone = ctx.caller.actor, _flag(params, "everyone")
     owners = None if everyone else {me} if me == db.HUMAN else actions.reach(me)
     con = db.connect()
     try:
         out = {"mine": [], "reports": []}
         for t in db.open_tasks(con):
-            if owners is not None and t["owner"] not in owners:
+            reach = owners is None or t["owner"] in owners
+            if not reach and (me == db.HUMAN or actions.task_asker(con, t) not in owners):
                 continue
             row = {"task": task_of(con, t, actions.task_state(con, t)), "holder": None, "now": _now(con, t, me)}
             row["holder"] = (row["now"]["agents"] or [None])[0]
-            out["mine" if t["owner"] == me else "reports"].append(row)
+            out["mine" if t["owner"] == me or not reach else "reports"].append(row)
         return out
     finally:
         con.close()

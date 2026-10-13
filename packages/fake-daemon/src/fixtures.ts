@@ -71,7 +71,7 @@ export const PROMPT_LINES = ['Bash command', '  git push origin {branch}', 'Do y
 /** A little history for the architect, one of each message state and transcript kind, so a UI has something to draw on first load. */
 export function seedChat(chat: FakeChat, at: string): void {
   const A = 'handline.architect',
-    me = 'founder';
+    me = 'human';
   const ago = (min: number) => new Date(Date.parse(at) - min * 60_000).toISOString();
   chat.seed(A, { from: me, to: A, body: 'Draft the web chat tab plan.', at: ago(50), landing: 'answered' });
   chat.seed(A, { from: me, to: A, body: 'Use the contract fixtures.', at: ago(30), landing: 'delivered_unanswered' });
@@ -98,7 +98,11 @@ export function seedChat(chat: FakeChat, at: string): void {
   chat.seedItem(A, { at: ago(48), kind: 'tool', tool: 'Read', text: 'docs/pc-app-gaps.md' });
   chat.seedItem(A, { at: ago(47), kind: 'task_event', task_event: { event: 'opened', task: 1684, request: null, evidence: null } });
   chat.seedItem(A, { at: ago(25), kind: 'task_event', task_event: { event: 'done', task: 1684, request: null, evidence: 'auditor PASS' } });
-  chat.seedItem(A, { at: ago(20), kind: 'task_event', task_event: { event: 'changed', task: 1684, request: null, evidence: null, change: 'assigned to alice, priority 2 -> 1' } });
+  chat.seedItem(A, {
+    at: ago(20),
+    kind: 'task_event',
+    task_event: { event: 'changed', task: 1684, request: null, evidence: null, change: 'assigned to alice, priority 2 -> 1' },
+  });
   chat.seedItem(A, {
     at: ago(10),
     kind: 'task_event',

@@ -210,7 +210,7 @@ def check_human_resolve(con, row, tasks: list[int] | None, no_task: str | None,
                 f"{'--task T<n>' if one_task else '--task T<n> [T<n> ...]'} "
                 "names the tasks it opened (one per deliverable promised), "
                 "--no-task 'reason' says nothing needs building. "
-                "`hl task new --owner NAME 'title' -t 2h` makes a task.")
+                "`hl task new --assign NAME 'title' -t 2h` makes a task.")
     return None
 
 

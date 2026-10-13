@@ -188,6 +188,7 @@ def _seed(home: Path) -> dict:
     decision = db.new_task(con, "Pick one of two", db.HUMAN, "worker", expects="decision")
     card = db.add_request(con, "worker", db.HUMAN, "Pick one of two\nA or B", None, None, None, "ask", 0, None)
     db.link_request(con, decision, card)
+    db.new_task(con, "Owned, worked elsewhere", "backend", "manager", reporter="worker")   # in worker's scope by its owner alone
     _seed_accounts(home, con, now)
     db.add_event(con, "worker", "schedule_fired", {"cron": "0 8 1 * *"})
     db.set_cursor(con, f"schedule_at:worker:{schedules.sid({'cron': '30 2 * * 0,7', 'message': 'weekly'})}", now - 7200)
@@ -396,6 +397,9 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         ("backend", "tasks.list", {}),
         ("backend", "tasks.list", {"everyone": True}),
         ("worker", "tasks.list", {"owner": "manager"}),
+        ("worker", "tasks.list", {"reporter": "worker"}),
+        ("worker", "tasks.list", {"reporter": "manager"}),
+        (None, "tasks.list", {"reporter": "manager", "owner": "worker"}),
         ("manager", "task.get", {"task": a}),
         ("worker", "inbox.list", {}),
         ("manager", "inbox.list", {}),
@@ -414,6 +418,12 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
     views = {v["name"]: v for v in want[(None, "agents.list", "{}")]["result"]["agents"]}
     timed = {t["title"]: t for t in want[(None, "tasks.list", json.dumps({"all": True}))]["result"]["items"]}
     clock = lambda title: timed[f"{title} work"]["time"]
+    titles = lambda who, p: [t["title"] for t in want[(who, "tasks.list", json.dumps(p, sort_keys=True))]["result"]["items"]]
+    check("go reads: setup: a task is in an agent's scope by its owner as well as its assignee, and reporter narrows to the owner",
+          "Owned, worked elsewhere" in titles("worker", {}) and "Owned, worked elsewhere" in titles("worker", {"reporter": "worker"})
+          and "first" not in titles("worker", {"reporter": "worker"}) and "Owned, worked elsewhere" not in titles(None, {"reporter": "manager", "owner": "worker"})
+          and "error" in want[("worker", "tasks.list", json.dumps({"reporter": "manager"}))],
+          str((titles("worker", {}), titles("worker", {"reporter": "worker"}))))
     check("go reads: setup: the rows the new AgentView and Task fields are asked of are in the states they are meant to be",
           all(views[n]["ready"] for n in ("view_done", "view_parked", "view_bg", "view_term")) and not views["view_timed"]["ready"]
           and views["view_walled"]["wall"]["account"] == "zeta" and views["view_done"]["wall"] is None and views["view_done"]["task_count"] == 1

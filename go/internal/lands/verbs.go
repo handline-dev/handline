@@ -54,7 +54,7 @@ func (s *Service) Legacy(payload map[string]any, pid int) map[string]any {
 	if !s.Grants.Take(agent, verb, pyval.Str(payload["sha"])) {
 		s.log("  %s refused: nothing the session's own command vouched for (%s)", verb, shown(agent))
 		return map[string]any{"ok": false, "said": verb + " is accepted only from the session's own `hl land` command, " +
-			"not from other code it runs (a test run, a script)"}
+			"not from other code it runs (a test run, a script): run it as a Bash call of its own, with no pipe, redirect, `&&` or `$`"}
 	}
 	ok, said := s.run(verb, payload, agent, s.inTx)
 	return map[string]any{"ok": ok, "said": said}
@@ -239,7 +239,8 @@ func (s *Service) landCall(verb string) func(*rpc.Conn, map[string]any) (any, er
 			}
 		}
 		if !s.Grants.Take(agent, verb, sha) {
-			return nil, rpc.Refused(verb+" is accepted only from the session's own `hl land` command, not from other code it runs (a test run, a script)",
+			return nil, rpc.Refused(verb+" is accepted only from the session's own `hl land` command, not from other code it runs (a test run, a script): "+
+				"run it as a Bash call of its own, with no pipe, redirect, `&&` or `$`",
 				"session_token", "")
 		}
 		do, said := s.prepare(verb, payload, agent) // before the write transaction: git and python run in it

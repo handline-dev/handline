@@ -1,7 +1,7 @@
 // The fake daemon's chat: messages with landing state, the transcript and the working line, on the chat topic.
 // A sent message lands one tick at a time (typed, delivered, working, answered) so a UI sees every state; `tick` is driven by the daemon's own.
 import { refused, storeFailure } from './errors.ts';
-import type { ChatMessage, Landing, TranscriptItem, Working } from '@handline/contract';
+import type { Attachment, ChatMessage, Landing, TranscriptItem, Working } from '@handline/contract';
 import { deliveryOf, receiptPatch, uuidFor, type Msg } from './delivery.ts';
 
 type Emit = (
@@ -28,6 +28,7 @@ export function chatMethod(
   checkAgent: () => unknown,
   ok: (said: string, extra?: object) => object,
   inboxDismiss: (id: unknown) => boolean,
+  attachments: { take(ids: unknown): Attachment[] } = { take: () => [] },
 ): unknown {
   switch (method) {
     case 'chat.messages':
@@ -38,7 +39,7 @@ export function chatMethod(
       return chat.transcriptOf(p);
     case 'chat.send':
       checkAgent();
-      return chatCall(() => ok('Sent.', chat.send(p, person)));
+      return chatCall(() => ok('Sent.', chat.send(p, person, attachments.take)));
     case 'chat.dismiss':
       if (inboxDismiss(p.request)) return ok('Dismissed.');
       return chatCall(() => (chat.dismiss(p), ok('Dismissed.')));
@@ -128,7 +129,8 @@ export class FakeChat {
       ...m,
       agent,
     } as ChatMessage & { agent: string };
-    msg.state = msg.landing;
+    // Like the daemon: an agent's question to the person stays queued until it is answered.
+    msg.state = msg.from === agent && msg.landing === 'delivered_unanswered' ? 'queued' : msg.landing;
     this.messages.push(msg);
     return msg.id;
   }
@@ -177,10 +179,11 @@ export class FakeChat {
     return { items: items.slice(-limit), more: items.length > limit, working: t.working };
   }
 
-  send(p: Record<string, unknown>, person: string) {
+  send(p: Record<string, unknown>, person: string, takeAttachments: (ids: unknown) => Attachment[] = () => []) {
     const agent = String(p.agent),
       body = p.body;
-    if (typeof body !== 'string' || !body.trim()) throw new ChatFailure('bad_request', 'a message needs a body');
+    const attachments = takeAttachments(p.attachments);
+    if (typeof body !== 'string' || (!body.trim() && !attachments.length)) throw new ChatFailure('bad_request', 'a message needs a body');
     const open = this.sessions.get(agent)?.state !== 'parked';
     const delivery = deliveryOf(p);
     const s = this.sessions.get(agent);
@@ -197,6 +200,7 @@ export class FakeChat {
       to: agent,
       at,
       parent: typeof p.parent === 'number' ? p.parent : null,
+      ...(attachments.length ? { attachments } : {}),
       landing: 'queued',
       delivered_at: null,
       typed_at: null,

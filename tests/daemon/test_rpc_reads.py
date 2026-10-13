@@ -138,13 +138,19 @@ def test_tasks_list_scopes_an_agent_as_the_command_does(home: Path) -> None:
     check("tasks.list: a manager sees what hl task list shows it, same world",
           rc == 0 and shown == ids(_call("tasks.list")) == sorted([opened_by_founder, opened_by_manager, own]), f"{shown} / {out}")
     check("tasks.list: a report's task opened by the founder is in it", opened_by_founder in ids(_call("tasks.list")))
-    check("tasks.list: a report sees only its own and not the manager's", ids(_call("tasks.list", as_agent="worker")) == sorted([opened_by_founder, opened_by_manager]))
+    check("tasks.list: a report sees the tasks it works, and the manager's only one it owns (it opened it)",
+          ids(_call("tasks.list", as_agent="worker")) == sorted([opened_by_founder, opened_by_manager, own]))
+    mgr_alone = _task("the manager's alone", owner="manager", by="worker")
+    con = db.connect()
+    con.execute("UPDATE tasks SET reporter = ? WHERE id = ?", (db.HUMAN, mgr_alone))
+    con.close()
+    check("tasks.list: and not one the manager works for someone else", mgr_alone not in ids(_call("tasks.list", as_agent="worker")))
     r = _call("tasks.list", {"owner": "manager"}, as_agent="worker")
     rc, out = support._cli(["task", "list", "--owner", "manager"], as_agent="worker")
     check("tasks.list: an owner outside the reach is refused, as the command refuses it",
           _code(r) == "refused" and rc == 1 and "is not you or one of your reports" in out
           and "is not you or one of your reports" in r["error"]["message"], f"{r} / {out}")
-    check("tasks.list: everyone lifts the scope", len(ids(_call("tasks.list", {"everyone": True}, as_agent="worker"))) == 3)
+    check("tasks.list: everyone lifts the scope", len(ids(_call("tasks.list", {"everyone": True}, as_agent="worker"))) == 4)
 
 
 def test_task_get_is_one_task_whole(home: Path) -> None:

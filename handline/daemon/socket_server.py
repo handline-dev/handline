@@ -180,7 +180,8 @@ def _handle_request(payload: dict, log, peer: int | None = None) -> dict:
         if not landauth.take(agent, verb, str(payload.get("sha"))):
             log(f"  {verb} refused: nothing the session's own command vouched for ({str(agent)[:60]!r})")
             return {"ok": False, "said": f"{verb} is accepted only from the session's own `hl land` command, "
-                    f"not from other code it runs (a test run, a script)"}
+                    f"not from other code it runs (a test run, a script): run it as a Bash call of its own, "
+                    f"with no pipe, redirect, `&&` or `$`"}
         kw["caller"] = agent
     con = None
     try:

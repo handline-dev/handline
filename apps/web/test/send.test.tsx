@@ -78,12 +78,14 @@ describe('a message to a structured agent', () => {
     await send('hello');
     await until(() => receipt('hello') === 'sent', 'sent');
     expect($('.compose-now')).toBeNull(); // no turn runs: nothing to choose
-    expect(button(msg('hello'), 'Take back')).toBeDefined(); // written: it can still be taken back, after a confirm
+    expect(button(msg('hello'), 'Take back')).toBeUndefined(); // the person has no take-back
+    expect(text(msg('hello'))).toContain('Sent, not confirmed yet');
     act(() => void s.daemon.chat.tick());
     await until(() => receipt('hello') === 'confirmed', 'confirmed');
+    expect(text(msg('hello'))).not.toContain('Sent, not confirmed yet'); // delivered: no state left
   });
 
-  it('is queued behind a running turn, written when it ends, and can be sent now', async () => {
+  it('is queued behind a running turn, written when it ends', async () => {
     const s = setup();
     s.daemon.sessions.get(AUD)!.state = 'running';
     running(s);
@@ -93,8 +95,7 @@ describe('a message to a structured agent', () => {
     await until(() => receipt('later') === 'queued', 'queued');
     await send('sooner');
     await until(() => receipt('sooner') === 'queued', 'queued too');
-    await click(button(msg('later'), 'Send now')!);
-    await until(() => receipt('later') === 'sent', 'sent now');
+    expect(button(msg('later'), 'Send now')).toBeUndefined();
     expect(receipt('sooner')).toBe('queued');
   });
 
@@ -110,19 +111,6 @@ describe('a message to a structured agent', () => {
     expect(($('.compose-now input') as HTMLInputElement).checked).toBe(false); // back to queue for the next one
   });
 
-  it('is withdrawn while queued: it leaves the list and its words come back to the box', async () => {
-    const s = setup();
-    s.daemon.sessions.get(AUD)!.state = 'running';
-    running(s);
-    await mount(s);
-    await until(() => $('.compose-now'), 'the choice');
-    await send('changed my mind');
-    await until(() => receipt('changed my mind') === 'queued', 'queued');
-    await click(button(msg('changed my mind'), 'Take back')!);
-    await until(() => !msg('changed my mind'), 'gone from the list');
-    expect(compose().value).toBe('changed my mind');
-  });
-
   it('says it may or may not have run when it is lost after being written, and offers no resend', async () => {
     const s = await mount();
     await send('lost');
@@ -132,8 +120,5 @@ describe('a message to a structured agent', () => {
     expect(text(msg('lost'))).toContain('may or may not have run');
     expect(button(msg('lost'), 'Retry')).toBeUndefined();
     expect(msg('lost')!.querySelector('[aria-label="Retry"]')).toBeNull();
-    await click(button(msg('lost'), 'Take back')!); // the daemon has it written: taking it back asks first
-    expect(text(document.body)).toContain('Take it back?');
-    expect(msg('lost')).toBeDefined();
   });
 });

@@ -26,7 +26,7 @@ Survey of main `321bfb5a`, by `git grep`. Nothing is removed. Status: **asked** 
 
 ## 3. Checked and kept
 
-The typing methods `session.input|keys|type`, `input.take|release`, `terminal.input|resize|close` and `trust.*`, `agent.unstall`: Go does not serve them, but the apps call them for terminal agents (`packages/app-data/src/writes.ts`, `packages/client/src/bytes-channel.ts`), so they are not dead. `x-legacy` verbs with no method (`push`, `push_answer`, `notify_cancelled`): daemon-internal delivery, still used by `go/internal/legacyverbs`. The `ocp` package shim and `bin/ocp`: the Electron owner starts it.
+The typing methods `session.input|keys|type`, `input.take|release`, `terminal.input|resize|close` and `trust.*`: Go does not serve them, but the apps call them for terminal agents (`packages/app-data/src/writes.ts`, `packages/client/src/bytes-channel.ts`), so they are not dead. `x-legacy` verbs with no method (`push`, `push_answer`, `notify_cancelled`): daemon-internal delivery, still used by `go/internal/legacyverbs`. The `ocp` package shim and `bin/ocp`: the Electron owner starts it.
 
 ## 4. Order
 

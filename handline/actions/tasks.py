@@ -1879,7 +1879,7 @@ def merge_tasks(con, keep: int, others: list[int], by: str, effect=None) -> tupl
 
 
 def task_rows(con, owner: str | None = None, state: str | list[str] | None = None,
-              include_ended: bool = False, owners: set[str] | None = None) -> list[dict]:
+              include_ended: bool = False, owners: set[str] | None = None, closer: str | None = None) -> list[dict]:
     """The board as data (T68): one dict per task, ordered by priority then by
     number. What a screen or `hl task list` draws from, so both say the same.
 
@@ -1888,8 +1888,9 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
     `last_activity` the latest time anything happened to it or a request
     linked to it. Done and discarded tasks are left out unless
     `include_ended`, or unless `state` names one. `owner` and `state` narrow
-    the rows; `state` may be one name or several. `owners`, when given, is every
-    owner that may appear (see `reach`).
+    the rows; `state` may be one name or several; `closer` keeps the tasks that answer
+    to that name. `owners`, when given, is every name that may appear as the task's
+    owner or closer (see `reach`).
     """
     states = None if state is None else {state} if isinstance(state, str) else set(state)
     ended = ("done", "discarded")
@@ -1898,9 +1899,10 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
     facts = _board_facts(con, [t for t in tasks if not db.task_ended(t)])
     out = []
     for t in tasks:
-        if owner is not None and t["owner"] != owner:
+        asker = facts.asker(t)
+        if (owner is not None and t["owner"] != owner) or (closer is not None and asker != closer):
             continue
-        if owners is not None and t["owner"] not in owners:
+        if owners is not None and t["owner"] not in owners and asker not in owners:
             continue
         st = facts.state(t)
         if states is not None and st not in states:
@@ -1910,7 +1912,7 @@ def task_rows(con, owner: str | None = None, state: str | list[str] | None = Non
             "owner": t["owner"], "opened_by": t["opened_by"], "reporter": db.task_reporter(t),
             "parent_task": t["parent_task"], "priority": t["priority"],
             "priority_ref": priority_ref(t["priority"]), "state": st,
-            "closer": facts.asker(t),
+            "closer": asker,
             "blocked_by": facts.blockers.get(t["id"], []),
             "last_activity": facts.last_activity(t),
             "timeout": None if st in ended else task_timeout(con, t, st),

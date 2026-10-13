@@ -248,9 +248,13 @@ def test_the_list_row_says_what_hl_task_list_prints_and_the_board_says_who_holds
     mine = [r for r in board["reports"] if r["task"]["id"] == tid]
     check("task.board: a report's task is under reports, held by who the request is with",
           mine and mine[0]["now"] == {"kind": "held", "agents": ["worker"], "tasks": []} and mine[0]["holder"] == "worker", str(board))
+    con = db.connect()
+    owned = db.new_task(con, "owned by worker", "manager", "manager", reporter="worker")
+    con.commit(), con.close()
     theirs = _call("task.board", {}, as_agent="worker")["result"]
-    check("task.board: an agent's board is its own tasks and its reports' only", all(r["task"]["to"] == "worker" for r in theirs["mine"])
-          and not theirs["reports"], str(theirs))
+    check("task.board: an agent's board is the tasks it works or owns, and its reports'",
+          all("worker" in (r["task"]["to"], r["task"]["asker"]) for r in theirs["mine"])
+          and any(r["task"]["id"] == owned for r in theirs["mine"]) and not theirs["reports"], str(theirs))
     mark = _call("task.board", {"everyone": True}, as_agent=None)["result"]
     check("task.board: the founder's board is the tasks it owns, with everyone asked for all", mark["mine"] == []
           and any(r["task"]["id"] == tid for r in mark["reports"]), str(mark))

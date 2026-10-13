@@ -27,7 +27,7 @@ const TONE: Record<string, string> = {
 const CHIP = 'inline-flex items-center gap-0.5 align-middle text-ink-2 [&>svg]:shrink-0';
 
 /** A state is a shape of its own (the glyph), then a tooltip, then colour; the word stays for a screen reader. `mark` says what the write in flight is: hollow dot, or the decided "…". */
-export function StateChip({ state, mark }: { state: string; mark?: 'authored' | 'decided' | null }) {
+export function StateChip({ state, mark, word }: { state: string; mark?: 'authored' | 'decided' | null; word?: boolean }) {
   if (mark === 'decided')
     return (
       <span className={`tchip pending ${CHIP}`} title="waiting for the daemon">
@@ -44,7 +44,7 @@ export function StateChip({ state, mark }: { state: string; mark?: 'authored' | 
         aria-hidden="true"
         className={state === 'doing' ? 'animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none' : undefined}
       />
-      <VisuallyHidden>{state}</VisuallyHidden>
+      {word ? <span className="ml-0.5">{state}</span> : <VisuallyHidden>{state}</VisuallyHidden>}
     </span>
   );
 }
@@ -100,7 +100,11 @@ export function Sheet(props: {
       as="form"
       kind="form"
       ref={ref}
-      className={props.full ? 'full max-sm:fixed max-sm:inset-0 max-sm:z-20 max-sm:m-0 max-sm:p-4 max-sm:rounded-none max-sm:overflow-auto max-sm:content-start' : undefined}
+      className={
+        props.full
+          ? 'full max-sm:fixed max-sm:inset-0 max-sm:z-20 max-sm:m-0 max-sm:p-4 max-sm:rounded-none max-sm:overflow-auto max-sm:content-start'
+          : undefined
+      }
       role="group"
       aria-label={props.label}
       onSubmit={(e) => {

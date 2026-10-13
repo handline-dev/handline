@@ -248,7 +248,7 @@ Move an agent to another account (legacy move).
 
 ### `agent.unstall`
 
-Clear a STALLED agent: it goes to queued with its failure counters reset, as hl unstall does. Refused (gate state) when the agent is not stalled. Only a test daemon serves it; the real daemon does not list it, and an app then shows Clear stall off.
+Clear a STALLED agent: it goes to queued with its failure counters reset, as hl unstall does. Refused (gate state) when the agent is not stalled.
 
 ### `agent.create`
 

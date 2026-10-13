@@ -102,6 +102,9 @@ func Register(s *rpc.Server, e *Env) {
 	if e.Move != nil {
 		s.Register("agent.move", rpc.Method{Role: "agent", Write: true, Handler: e.move})
 	}
+	if e.DB != nil {
+		s.Register("agent.unstall", rpc.Method{Role: "founder", Write: true, Handler: e.unstall})
+	}
 	if e.Fold != nil {
 		s.Register("agent.fold", rpc.Method{Role: "agent", Write: true, Handler: e.fold})
 	}
@@ -228,8 +231,8 @@ func (e *Env) wake(c *rpc.Conn, params map[string]any) (any, error) {
 			return nil, err
 		}
 		if row != nil && row.State == states.Stalled { // a wake of a stalled agent clears the stall, as the verb does
-			said, err := e.Unstall(agent)
-			return done(err == nil, said, err)
+			cleared, said, err := e.Unstall(agent)
+			return done(err == nil && cleared, said, err)
 		}
 		ok, why, err := e.Controls.Wake(call, agent)
 		if err != nil {
@@ -242,33 +245,33 @@ func (e *Env) wake(c *rpc.Conn, params map[string]any) (any, error) {
 	})
 }
 
-// Unstall clears a stall, the one state the daemon will not leave alone (control.unstall).
-func (e *Env) Unstall(agent string) (string, error) {
+// Unstall clears a stall, the one state the daemon will not leave alone (control.unstall). cleared is false when the agent was not STALLED.
+func (e *Env) Unstall(agent string) (cleared bool, said string, err error) {
 	row, err := db.GetAgentState(e.DB, agent)
 	if err != nil {
-		return "", err
+		return false, "", err
 	}
 	if row == nil || row.State != states.Stalled {
 		state := "no state"
 		if row != nil {
 			state = row.State
 		}
-		return fmt.Sprintf("%s: not STALLED (%s)", agent, state), nil
+		return false, fmt.Sprintf("%s: not STALLED (%s)", agent, state), nil
 	}
 	if err := db.SetAgentState(e.DB, agent, states.Queued, 0, "cleared by a human"); err != nil {
-		return "", err
+		return false, "", err
 	}
 	for _, col := range []string{"failed_attempts", "throttle_count", "wake_failures"} {
 		if err := db.ResetCounter(e.DB, agent, col); err != nil {
-			return "", err
+			return false, "", err
 		}
 	}
 	for _, key := range []string{"dialog_since:", "dialog_title:"} {
 		if err := db.ClearCursor(e.DB, key+agent); err != nil {
-			return "", err
+			return false, "", err
 		}
 	}
-	return agent + ": STALLED -> QUEUED", nil
+	return true, agent + ": STALLED -> QUEUED", nil
 }
 
 func (e *Env) restart(c *rpc.Conn, params map[string]any) (any, error) {
@@ -299,18 +302,11 @@ func (e *Env) move(c *rpc.Conn, params map[string]any) (any, error) {
 	})
 }
 
-// RegisterUnstall adds agent.unstall. No real daemon registers it (the founder keeps Clear stall off); a test daemon does.
-func (e *Env) RegisterUnstall(s *rpc.Server) {
-	if e.DB != nil {
-		s.Register("agent.unstall", rpc.Method{Role: "founder", Write: true, Handler: e.unstall})
-	}
-}
-
 // unstall is agent.unstall: a stalled agent goes to queued (Unstall); one that is not is refused with the action's own words.
 func (e *Env) unstall(c *rpc.Conn, params map[string]any) (any, error) {
 	return e.run(c, "agent.unstall", params, true, func(_ Call, agent string) (map[string]any, error) {
-		said, err := e.Unstall(agent)
-		return done(err == nil && !strings.Contains(said, ": not STALLED ("), said, err)
+		cleared, said, err := e.Unstall(agent)
+		return done(err == nil && cleared, said, err)
 	})
 }
 

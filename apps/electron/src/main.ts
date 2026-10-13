@@ -156,6 +156,8 @@ if (!app.requestSingleInstanceLock()) {
     const settings = new SettingsFile(path.join(app.getPath('userData'), 'settings.json'));
     const current = settings.read(parseMode(env('MODE')));
     const remote = current.mode === 'connect' ? current.remote : null;
+    if (!remote && gateway && !env('GATEWAY') && !onTailnet(gateway))
+      console.warn(`Tailscale is down: the gateway listens on ${gateway} only, so a phone cannot pair`);
     if (remote) {
       gateway = remote.host;
       ws = remoteUrl(remote);

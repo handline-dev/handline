@@ -83,9 +83,8 @@ func undeliverable(tx *sql.Tx, t *task, to, home string) (string, error) {
 	return "", nil
 }
 
-// editTask is actions.edit_task: a task's owner, reporter, title, priority, timeout and/or body changed by whoever opened it, its reporter
-// or the founder, and the owner alone also by the owner's manager. It answers the refusal ("" when it edited), the message and the fields
-// that changed.
+// editTask is actions.edit_task: a task's owner and reporter changed by anyone, its title, priority, timeout and/or body by whoever
+// opened it, its reporter or the founder. It answers the refusal ("" when it edited), the message and the fields that changed.
 func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, title, body *string, priority, timeoutS *int64) (string, string, error) {
 	t, err := getTask(tx, tid)
 	if err != nil {

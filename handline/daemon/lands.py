@@ -5,7 +5,7 @@ runs unsandboxed. It therefore runs only git, and main's own tools/localrefs.py 
 given. The test is the merger's, in the merger's sandbox (`tools/land.sh --check`), and it names the
 tree it tested. A sha lands when
   - an auditor (any agent named `<team>.auditor`) recorded a PASS for that exact sha (`hl land --pass`), and
-  - the merger recorded it with the tree its test saw (`hl land <sha> <message> --tree <tree>`).
+  - a merger (any agent named `<team>.merger`) recorded it with the tree its test saw (`hl land <sha> <message> --tree <tree>`).
 The merger may also fix what is not the auditor's to judge - a list-file or README conflict, a missing doc line -
 with `--fix <dir>`: whole files on main's tools/housekeeping.paths, written over the merge; anything else needs a
 PASS. With `--squash` main gets one commit carrying the merger's message, so a WIP branch message never lands.
@@ -31,7 +31,7 @@ from ..infra import gitrun, housekeeping, names, paths, textsafe
 from ..team import ask as askmod, team
 
 REQUESTER = "land"
-MERGER = "orcapipe.merger"
+MERGER_ROLE = "merger"
 AUDITOR_ROLE = "auditor"
 OUTPUT_KEPT = 1500
 
@@ -76,6 +76,12 @@ def is_auditor(agent: str | None) -> bool:
     branch."""
     return (bool(agent) and team.parent_name(agent) is not None
             and re.fullmatch(rf"{AUDITOR_ROLE}\d*", agent.rpartition(".")[2]) is not None)
+
+
+def is_merger(agent: str | None) -> bool:
+    """Whether `agent` holds the merger role (`<team>.merger`), named and vouched for as `is_auditor` is. Any team's
+    merger may land."""
+    return bool(agent) and team.parent_name(agent) is not None and agent.rpartition(".")[2] == MERGER_ROLE
 
 
 def record_pass(con, sha: str, caller: str | None) -> tuple[bool, str]:
@@ -124,7 +130,7 @@ def request(con, sha: str, message: str, tree: str | None, caller: str | None, f
             squash: bool = False) -> tuple[bool, str]:
     """Queue `sha` to be landed with `message`, the merger having tested a merge whose tree is `tree` - with `fix`,
     its housekeeping files written over the merge, and with `squash`, as one commit carrying `message`."""
-    if caller != MERGER:
+    if not is_merger(caller):
         return False, f"{caller or 'someone else'} may not land a branch; the merger does"
     message = (message or "").strip()
     if not message or not (tree or "").strip():
