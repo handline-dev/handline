@@ -176,7 +176,7 @@ describe('read = gone', () => {
     expect(s.daemon.inbox.get(5).read).toBe(false);
   });
 
-  it('Mark read turns the row's mark to read', async () => {
+  it('Mark read turns the row mark to read', async () => {
     await mount();
     await until(() => $$('.inbox-card').length === 3, 'the cards');
     await click(button(card(3), 'Mark read'));
