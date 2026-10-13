@@ -9,7 +9,7 @@ import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { Pictures } from './ChatAttach.tsx';
-import { PathText } from './PathText.tsx';
+import { RichText } from './RichText.tsx';
 import { useWorkspace } from './Workspace.tsx';
 
 /** A plain click on a task link opens the task in the workspace; a modified or middle click keeps the browser's own. */
@@ -53,30 +53,6 @@ const full = (at: string) => {
   const d = new Date(at);
   return Number.isNaN(+d) ? undefined : d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 };
-
-/** Text with its paths made clickable (when the shell can open them) and a message number as a link to that message. */
-export function RefText({ text, agent, onRef }: { text: string; agent?: string; onRef?: (id: number) => void }) {
-  if (!onRef || !/#\d/.test(text)) return <PathText text={text} agent={agent} />;
-  return (
-    <>
-      {text.split(/(?<![\w&])(#\d{1,9})\b/).map((part, i) =>
-        /^#\d+$/.test(part) ? (
-          <button
-            key={i}
-            type="button"
-            className="ref border-0 bg-transparent p-0 font-mono text-[12px] leading-4 text-link underline"
-            title={`Go to ${part}`}
-            onClick={() => onRef(Number(part.slice(1)))}
-          >
-            {part}
-          </button>
-        ) : (
-          <PathText key={i} text={part} agent={agent} />
-        ),
-      )}
-    </>
-  );
-}
 
 // A message to a structured agent says how far into the CLI it is; `unknown` is never resent, so the person is told it may have run.
 const RECEIPT: Record<string, { icon: IconName; label: string }> = {
@@ -155,7 +131,7 @@ export function Message(props: {
         ) : null}
         {m.body ? (
           <div className={MSG_BODY}>
-            <RefText text={m.body} agent={agent} onRef={props.onRef} />
+            <RichText text={m.body} agent={agent} onRef={props.onRef} />
           </div>
         ) : null}
         {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
@@ -184,7 +160,7 @@ export function Message(props: {
         {side === 'agent' && m.answer ? (
           <div className={bubbleClass('person', { nested: true })}>
             <div className={MSG_BODY}>
-              <PathText text={m.answer.text} agent={agent} />
+              <RichText text={m.answer.text} agent={agent} />
             </div>
             <div className={`${MSG_META} muted`}>
               {clock(m.answer.at)} <Icon name="answered" size={13} label="Your answer" />
@@ -342,7 +318,7 @@ export function Item({ i, titles, onReply }: { i: TranscriptItem; titles?: Map<n
     return (
       <div className={bubbleClass('agent')} data-kind="reply" data-id={i.id} title={full(i.at)}>
         <div className={MSG_BODY}>
-          <PathText text={i.text ?? ''} />
+          <RichText text={i.text ?? ''} />
         </div>
         {onReply ? (
           <button className="icon mt-1" aria-label="Reply to this" title="Reply to this" onClick={() => onReply(i)}>

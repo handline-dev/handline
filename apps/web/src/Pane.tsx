@@ -11,6 +11,7 @@ import {
   moveTab,
   moveTabBy,
   openTab,
+  taskRef,
   type Group,
   type Preset,
   type Tab,
@@ -33,7 +34,9 @@ const label = (t: Tab, structured = false): string =>
   t.kind === 'chat'
     ? 'Chat'
     : t.kind === 'tasks'
-      ? 'Tasks'
+      ? t.params.pinned
+        ? taskRef(Number(t.params.task))
+        : 'Tasks'
       : t.kind === 'timeline'
         ? 'Timeline'
         : t.kind === 'transcript' || (t.kind === 'terminal' && structured)

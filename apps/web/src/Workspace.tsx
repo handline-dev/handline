@@ -45,6 +45,9 @@ export const useWorkspace = (): WorkspaceCtx => {
   return v;
 };
 
+/** The workspace when the caller sits in one; a text on a page with no panes (the Tasks page) has none. */
+export const useWorkspaceIfAny = (): WorkspaceCtx | null => useContext(Ctx);
+
 export function AgentWorkspace({ agent, daemon, storage }: { agent: string; daemon: string; storage: KV | null }) {
   const q = useAgentDetail(agent);
   const list = useAgents();
