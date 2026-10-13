@@ -1,5 +1,5 @@
 // Package housekeeping is what keeps a daemon that runs for weeks from filling the disk or running out of descriptors: log rotation, the
-// descriptor count, the sweep of stale repo copies in the sessions' scratch root, and a stack dump on SIGUSR1.
+// descriptor count and a stack dump on SIGUSR1.
 package housekeeping
 
 import (

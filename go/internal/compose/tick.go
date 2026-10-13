@@ -57,9 +57,6 @@ type TickConfig struct {
 	// Terminals puts the terminal agents under this tick: it wakes, closes, restarts and hands off their sessions. Their agent_view rows
 	// stay the Python daemon's until the view covers them.
 	Terminals bool
-	// ScratchRoot is the sessions' scratch root whose stale repo copies are deleted; empty sweeps none (a test must not delete from the
-	// machine's real one).
-	ScratchRoot string
 }
 
 // Tick builds the tick. The lifecycle must be built and the database bound.
@@ -141,12 +138,10 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	dev.Exe, _ = os.Executable()
 	dev.Baseline()
 	fds := &housekeeping.FDs{Log: logLine}
-	scratch := &housekeeping.Scratch{Root: tc.ScratchRoot, Log: logLine}
 	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop, Dev: dev, Housekeeping: []tick.NamedSweep{
 		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
 		{Name: "attachment sweep", Run: func(db.Q, int64) error { attachments.New(home).Sweep(); return nil }},
-		{Name: "scratch sweep", Run: func(_ db.Q, now int64) error { scratch.Maybe(time.Unix(now, 0)); return nil }},
 	}, Signalled: func() bool {
 		select {
 		case <-tc.Stop:
