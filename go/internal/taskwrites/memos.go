@@ -73,7 +73,7 @@ func Register(s *rpc.Server, home string, tell Teller) {
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopenMethod(home, tell)})
 	s.Register("task.done", rpc.Method{Role: "agent", Write: true, Handler: doneMethod(home, tell)})
 	s.Register("task.cancel", rpc.Method{Role: "member", Write: true, Handler: cancelMethod(home, tell)})
-	s.Register("task.release", rpc.Method{Role: "agent", Write: true, Handler: releaseMethod(tell)})
+	s.Register("task.release", rpc.Method{Role: "agent", Write: true, Handler: releaseMethod(home, tell)})
 	s.Register("task.merge", rpc.Method{Role: "agent", Write: true, Handler: mergeMethod(home, tell)})
 	s.Register("task.memo.add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd(tell)})
 	s.Register("task.memo.edit", rpc.Method{Role: "agent", Write: true, Handler: memoEdit(tell)})

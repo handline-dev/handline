@@ -71,3 +71,26 @@ func TestAnyoneChangesATaskAndItsOpenerAndAssigneeAreTold(t *testing.T) {
 		t.Fatalf("the actor is not told of its own change: %q", got)
 	}
 }
+
+func TestADiscardTellsTheAskerBesideTheOpenerAndAMoveLeavesTheNewOwnerToItsBrief(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db, "INSERT INTO tasks(id, title, owner, opened_by, created_at, reporter) VALUES(1, 'one', 'worker', 'manager', 1, 'other'), "+
+		"(2, 'two', 'worker', 'manager', 1, NULL)")
+	f := &fakeTeller{}
+	r := call(t, mk("gp", f),
+		`{"jsonrpc":"2.0","id":2,"method":"task.discard","params":{"task":1,"reason":"dup","request_id":"d1"}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"task.edit","params":{"task":2,"owner":"other","request_id":"e1"}}`)
+	if r[0]["result"] == nil || r[1]["result"] == nil {
+		t.Fatalf("%v %v", r[0], r[1])
+	}
+	targets := func(like string) (to string) {
+		db.QueryRow("SELECT group_concat(target, ' ') FROM (SELECT target FROM requests WHERE body LIKE ? ORDER BY target)", like).Scan(&to)
+		return
+	}
+	if got := targets("T1 discarded by gp: dup%"); got != "manager other worker" {
+		t.Errorf("a discard tells the asker, the opener and the assignee: %q", got)
+	}
+	if got := targets("task T2 edited by gp%"); got != "manager worker" {
+		t.Errorf("a move tells the opener and the old owner; the new one is sent the brief itself: %q", got)
+	}
+}

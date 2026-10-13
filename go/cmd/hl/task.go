@@ -610,13 +610,5 @@ func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key st
 }
 
 func taskRelease(c *hlclient.Client, args []string) (int, bool) {
-	tid, ok := oneTask(args)
-	if !ok {
-		return 0, false
-	}
-	mutating(c, "release")
-	if !asking(c, "release a task") {
-		return 1, true
-	}
-	return said(c.Write("task.release", map[string]any{"task": tid})), true
+	return taskWithReason(c, args, "release", "release a task", "task.release", "reason")
 }

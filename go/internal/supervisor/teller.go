@@ -68,7 +68,11 @@ func (e *Env) Released(tid int64, why string, retired []taskwrites.Retired) []st
 	for _, r := range retired {
 		if r.Held {
 			e.typeSay(e.DB, r.Target, why+" - stop work on it", "task released")
-			said = append(said, fmt.Sprintf("#%d ended; %s told to stop", r.RID, r.Target))
+			if r.RID == 0 {
+				said = append(said, r.Target+" told to stop")
+			} else {
+				said = append(said, fmt.Sprintf("#%d ended; %s told to stop", r.RID, r.Target))
+			}
 			continue
 		}
 		row, err := db.GetRequest(e.DB, r.RID)

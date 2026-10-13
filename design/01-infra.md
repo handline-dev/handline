@@ -183,8 +183,8 @@ Keep all of `~/.orcapipe` **as a git repo.** Digest generations, rollback and ch
   agents/
     <name>/
       agent.yaml
-      ROLE.md                   # ≤1KB
-      base.md                   # ≤2KB: fixed cost injected into every session
+      ROLE.md
+      base.md                   # injected into every session
       inbox/
       journal/2026-09-15.md     # digest. Git keeps the generations
 ```

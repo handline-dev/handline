@@ -5129,7 +5129,7 @@
   },
   {
    "name": "task.release",
-   "summary": "Take a doing task back to queued or draft: the opener or the founder.",
+   "summary": "Take a doing task back to queued or draft: anyone may, with a reason the opener and assignee are told (and the founder, for a task begun on their message).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5152,7 +5152,7 @@
     },
     {
      "name": "reason",
-     "required": false,
+     "required": true,
      "schema": {
       "type": "string"
      }

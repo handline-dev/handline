@@ -138,7 +138,7 @@ A method marked write takes a required `request_id`.
 | `task.queue` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.draft` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `task.release` | agent | yes | `task`, `to?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.release` | agent | yes | `task`, `to?`, `reason`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.discard` | agent | yes | `task`, `reason`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.board` | agent |  | `everyone?` | `{mine, reports}` |  |  |
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -488,7 +488,7 @@ Fold tasks into one: the kept task takes their titles, requests and sub-tasks; a
 
 ### `task.release`
 
-Take a doing task back to queued or draft: the opener or the founder.
+Take a doing task back to queued or draft: anyone may, with a reason the opener and assignee are told (and the founder, for a task begun on their message).
 
 ### `task.discard`
 

@@ -79,7 +79,7 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 			[]string{`task.done {"commit":"abc1234","evidence":"w","repo":"/r","shots":["` + real + `/b.png","/s/c.png"],"task":3}`}},
 		{"", []string{"task", "reopen", "T3", "why"}, []string{`task.reopen {"note":"why","task":3}`}},
 		{"", []string{"task", "discard", "T3", "why"}, []string{`task.discard {"reason":"why","task":3}`}},
-		{"", []string{"task", "release", "T3"}, []string{`task.release {"task":3}`}},
+		{"", []string{"task", "release", "T3", "why"}, []string{`task.release {"reason":"why","task":3}`}},
 	}
 	seen := 0
 	for _, c := range cases {
