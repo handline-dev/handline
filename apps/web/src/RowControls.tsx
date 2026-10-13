@@ -1,7 +1,7 @@
 // Start and the ⋯ button of an agent row, and the agent's context menu (right-click on the row, or the ⋯ button). There is no Resume: a message to an agent with no session wakes it.
 import { controlsOf, asks, verbsOf, type Verb, type VerbId } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
-import { useStore } from '@handline/app-react';
+import { useSelector, useStore } from '@handline/app-react';
 import { useAgentDetail, useVerbMark, useVerbRun, useWrite } from '@handline/app-data';
 import { useServed } from './AgentVerbs.tsx';
 import { Button, Icon, MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger, type IconName } from './ui/index.ts';
@@ -63,6 +63,8 @@ export function AgentMenu({ agent: a, onAsk }: { agent: AgentView; onAsk: (v: Ve
   const run = useVerbRun(agent);
   const served = useServed();
   const busy = !!useVerbMark(agent);
+  const closeServed = useSelector((st) => st.served.has('terminal.close'));
+  const closeTerminal = useWrite('terminal.close', agent);
   const open = shell('openPath');
   if (!d) return null;
   const copy = (text: string) => void navigator.clipboard?.writeText(text);
@@ -96,6 +98,11 @@ export function AgentMenu({ agent: a, onAsk }: { agent: AgentView; onAsk: (v: Ve
           {v.id === 'park' ? 'Sleep' : v.label}
         </MenuItem>
       ))}
+      {d.terminal && !d.session_open && closeServed ? (
+        <MenuItem icon="close" disabled={busy || closeTerminal.isPending} onSelect={() => closeTerminal.mutate({ agent })}>
+          Close terminal
+        </MenuItem>
+      ) : null}
     </>
   );
 }

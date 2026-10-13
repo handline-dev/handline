@@ -172,6 +172,19 @@ const BASE: Record<string, (h: Call) => unknown> = {
       holder: s.holder,
     };
   },
+  'terminal.open': ({ agent }) => {
+    const s = agent();
+    if (!s.hasTerminal) throw new Failure('not_found', `${s.fx.name} has no terminal`, { field: 'terminal' });
+    return { agent: s.fx.name, terminal: tid(s), host: 'fake', attach: { argv: ['fake-attach', tid(s)] }, focused: false, local: true };
+  },
+  'terminal.close': ({ actor, script, agent }) => {
+    const s = agent();
+    if (s.open) throw refused('state', `${s.fx.name} has a session running: stop it first`);
+    if (!s.hasTerminal) throw refused('state', `${s.fx.name} has no terminal`);
+    s.hasTerminal = false;
+    script.setState(s, 'no_terminal', actor);
+    return script.accepted('Terminal closed.');
+  },
   'terminal.detach': (h) => {
     const { c, p } = h;
     c.attached.delete(String(p.terminal));

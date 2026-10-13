@@ -1,4 +1,6 @@
 // The writes and the in-flight mark of the agent verbs (wake, interrupt, restart, close, park, fold, move account, clear stall), shared by the web menu and the phone's.
+import { useMutation } from '@tanstack/react-query';
+import { useStore } from '@handline/app-react';
 import { callOf, VERBS, type Verb, type VerbId } from '@handline/app-core';
 import { usePending, useWrite } from './write.ts';
 
@@ -43,4 +45,10 @@ export function useVerbMark(agent: string, skip: VerbId[] = []): string | null {
   ];
   const hit = hits.find(([on, id]) => on && !skip.includes(id));
   return hit ? VERBS[hit[1]].gerund : null;
+}
+
+/** Where an agent's terminal is and how to attach to it (`terminal.open`): a question, not a write, asked on each click. */
+export function useOpenTerminal(agent: string) {
+  const store = useStore();
+  return useMutation({ mutationFn: () => store.client.call('terminal.open', { agent }) });
 }
