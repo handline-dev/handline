@@ -6094,6 +6094,7 @@
   {
    "name": "agent.triggers",
    "summary": "What the daemon would decide for an agent right now (hl triggers).",
+   "description": "One row per agent the daemon knows, in name order; with `agent`, that agent's row alone, and an agent the home does not have is not_found. `fired` is whether the next tick would hand it off; `reason` is the trigger's reason, or for an agent whose triggers do not apply, what holds it (a walled wake, its state until its wake, or no session).",
    "paramStructure": "by-name",
    "params": [
     {

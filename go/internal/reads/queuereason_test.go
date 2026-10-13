@@ -22,7 +22,9 @@ func (f fakeDelivery) AccountFull(string) (string, int, bool)                  {
 func (f fakeDelivery) ForgottenResolve(db.Q, string, *db.AgentState, int64) (int64, int64, bool, error) {
 	return 7, f.forgotten, f.forgotten != 0, nil
 }
-func (f fakeDelivery) Fire(db.Q, string, *db.AgentState, string) (string, error) { return f.fire, nil }
+func (f fakeDelivery) Trigger(db.Q, string, *db.AgentState, string) (Trigger, error) {
+	return Trigger{Applies: f.fire != "", Fired: f.fire != "", Kind: f.fire}, nil
+}
 
 func run(t *testing.T, e *Env, q string, args ...any) {
 	t.Helper()

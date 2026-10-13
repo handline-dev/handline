@@ -1,0 +1,131 @@
+{
+ "fixtures": [
+  {
+   "name": "agent.triggers.every_agent",
+   "spec": "agent.triggers",
+   "about": "NOT_YET_IN_PYTHON With no agent, one row per agent the daemon knows: whether its triggers fire now and why, as hl triggers prints them.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.triggers",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$each": {
+        "agent": {
+         "$type": "string"
+        },
+        "fired": {
+         "$type": "boolean"
+        },
+        "reason": {
+         "$type": "string"
+        },
+        "$exact": true
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.triggers.one_agent",
+   "spec": "agent.triggers",
+   "about": "NOT_YET_IN_PYTHON With agent, that agent's row alone. Needs --var triggers_agent: an agent the daemon knows.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.triggers",
+      "params": {
+       "agent": "{{triggers_agent}}"
+      }
+     },
+     "result": {
+      "agents": [
+       {
+        "agent": "{{triggers_agent}}",
+        "fired": {
+         "$type": "boolean"
+        },
+        "reason": {
+         "$type": "string"
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.triggers.unknown_agent_is_not_found",
+   "spec": "agent.triggers",
+   "about": "NOT_YET_IN_PYTHON An agent the home does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.triggers",
+      "params": {
+       "agent": "no.such.agent"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "agent"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

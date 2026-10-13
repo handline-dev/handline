@@ -53,7 +53,7 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
             con.commit()
             con.close()
             return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, "session_agent": output_agent,
-                    "ask_agent": ask_agent, **WORKROOM}
+                    "ask_agent": ask_agent, "triggers_agent": names["idle"], **WORKROOM}
         except sqlite3.Error:
             if daemon.poll() is not None:
                 break
