@@ -192,7 +192,13 @@
  "repos.list": {
   "role": "member"
  },
+ "request.cancel": {
+  "role": "founder"
+ },
  "request.read": {
+  "role": "agent"
+ },
+ "request.withdraw": {
   "role": "agent"
  },
  "say": {
