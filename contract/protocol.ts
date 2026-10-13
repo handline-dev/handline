@@ -1833,8 +1833,8 @@ export interface Methods {
   message: number;
   priority?: 1 | 2 | 3;
   expects?: Expects;
-  /** What led to this, in a line. */
-  why: string;
+  /** What led to this, in a line; optional, since the linked message is the reason. */
+  why?: string;
   request_id: RequestId;
 }; result: Accepted & {
     task: number;

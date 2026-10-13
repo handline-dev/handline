@@ -612,7 +612,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("title")
     p.add_argument("--chat", type=int, required=True, metavar="ID",
                    help="the founder's message to you (a request id): what you were told")
-    p.add_argument("--why", required=True, help="what led to this, in a line")
+    p.add_argument("--why", default=None, help="optional: what led to this, in a line (the linked message is the reason)")
     p.add_argument("--priority", type=_priority_arg, default=None, metavar="P",
                    help="P1 (high), P2 (default) or P3 (low)")
     p.add_argument("--expects", type=_expects_arg, default="report", metavar="K",

@@ -78,9 +78,11 @@ def test_begin_opens_and_starts_a_task_on_a_founder_message_once(home: Path) -> 
     check("begin: a message that already opened a task cannot open another", _code(r) == "refused" and _one("SELECT COUNT(*) FROM tasks") == 1, str(r))
     other = _call("task.begin", {"title": "x", "message": _founder_message("manager"), "why": "w", "request_id": "b3"})
     check("begin: a message to someone else is not this caller's approval", _code(other) == "refused", str(other))
-    for bad, field in (({"why": ""}, "why"), ({"title": "  "}, "title"), ({"body": "b"}, "body"), ({"message": "x"}, "message"), ({"priority": 7}, None)):
+    for bad, field in (({"why": 7}, "why"), ({"title": "  "}, "title"), ({"body": "b"}, "body"), ({"message": "x"}, "message"), ({"priority": 7}, None)):
         r = _call("task.begin", {"title": "t", "message": _founder_message(), "why": "w", "request_id": "bb", **bad})
         check(f"begin {bad}: bad_request", _code(r) == "bad_request" and (field is None or r["error"]["data"]["field"] == field), str(r))
+    r = _call("task.begin", {"title": "no why", "message": _founder_message(), "request_id": "bn"})
+    check("begin: why is optional", r.get("result", {}).get("accepted") is True, str(r))
     r = _call("task.begin", {"title": "t", "message": msg, "why": "w", "request_id": "bf"}, as_agent=None)
     check("begin: never in the founder's name", _code(r) == "refused", str(r))
 

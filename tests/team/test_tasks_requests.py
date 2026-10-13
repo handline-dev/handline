@@ -8374,8 +8374,6 @@ def test_a_founder_message_lets_the_agent_begin_its_own_task(home: Path) -> None
         check("begin: nor one the founder sent someone else", not ok and "founder" in msg, msg)
         ok, msg, _ = actions.task_begin(con, "worker", "fix retry", 9999, "why")
         check("begin: nor a request that is not there", not ok and "no request" in msg, msg)
-        ok, msg, _ = actions.task_begin(con, "worker", "fix retry", chat, "  ")
-        check("begin: a reason is required", not ok and "--why" in msg, msg)
         ok, msg, tid = actions.task_begin(con, "worker", "fix retry", chat, "founder asked in chat")
         check("begin: the founder's message opens it", ok and tid, msg)
         row = db.get_task(con, tid)
@@ -8406,6 +8404,11 @@ def test_a_founder_message_lets_the_agent_begin_its_own_task(home: Path) -> None
         check("begin: the cli opens it too", rc == 0 and "begun from founder message" in out, out)
         rc, out = _cli(["task", "begin", "cli two", "--chat", str(other), "--why", "x"], as_agent="worker")
         check("begin: the cli refuses another agent's message", rc == 1 and "founder" in out, out)
+        chat3 = db.add_request(con, "human", "worker", "no reason given", None, None, "async", "ask", 0, None)
+        rc, out = _cli(["task", "begin", "cli three", "--chat", str(chat3)], as_agent="worker")
+        ev = con.execute("SELECT payload FROM events WHERE kind = 'task_begin' ORDER BY id DESC LIMIT 1").fetchone()[0]
+        check("begin: --why is optional, and none goes on the event without it",
+              rc == 0 and "begun from founder message" in out and '"why"' not in ev, f"{out} {ev}")
         chat2 = db.add_request(con, "human", "worker", "one more", None, None, "async", "ask", 0, None)
         ok, msg, t2 = actions.task_begin(con, "worker", "second", chat2, "another instruction")
         check("begin: a second task leaves the first current and says how to switch",
