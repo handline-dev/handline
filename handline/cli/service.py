@@ -22,7 +22,10 @@ def cmd_service_install(args) -> int:
 
 def cmd_service_use(args) -> int:
     """Choose which daemon the service runs. Only the setting changes: the plist is rewritten by `hl service install`, so the
-    switch and the rollback are each this and one install."""
+    switch is this and one install. Python is refused: it is being removed."""
+    if args.impl == "python":
+        print(service.PYTHON_RETIRED)
+        return 1
     if protected.in_agent_session():
         from .hr import propose_for_session
         return propose_for_session("global", "service-use", {"value": args.impl}, args.why)

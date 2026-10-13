@@ -407,7 +407,7 @@ checkout that holds the branch to be tried, with `tools/build-go.sh` run once:
 2. `hl service use go`, then `hl service install`. It prints `daemon go`; `hl service status` shows the label, `daemon: go`, loaded, a pid.
 3. `hl ps` and `hl inbox` answer from the Go daemon; `tail $OCP_HOME/logs/daemon.err.log` holds one `handlined <sha> serving` line.
    `hl service status` does not say crash-looping.
-4. Rollback: `hl service use python`, `hl service install`; `hl service status` shows `daemon: python` and a new pid; `hl ps` still answers.
+4. There is no rollback to Python: `hl service use python` is refused (`docs/python-daemon-removal.md`).
 5. Clean up: `hl service uninstall` (with the same two variables set), then remove the scratch folder.
 
 The Go daemon takes the same singleton lock as the Python one and writes its pid into `locks/daemon.lock`
@@ -418,7 +418,7 @@ beside the Go one.
 Crash-loop detection reads the Go daemon's own stderr log when it is chosen: the `handlined <sha> serving` line of a start that got up,
 and the `handlined: <why>` line of one that refused (lock held, database, a bad flag), so a job respawning into a refusal is counted.
 
-Rollback is `hl service use python` and `hl service install`: the same plist as before the switch, the schema untouched.
+`hl service use python` is refused now that the Python daemon is being removed (`docs/python-daemon-removal.md`).
 The Go daemon's start line and the singleton lock are the only things the two share on disk besides the database, so
 stopping the one and starting the other is the whole swap. The founder approves the live switch (task 24); nothing here
 flips it.

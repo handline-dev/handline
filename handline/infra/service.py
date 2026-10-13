@@ -78,6 +78,7 @@ def ocp_executable() -> str:
 # ---------------------------------------------------------------- plist
 IMPL_KEY = "daemon_impl"        # config.yaml: "python" (the default) or "go"
 IMPLS = ("python", "go")
+PYTHON_RETIRED = "the Python daemon is being removed (docs/python-daemon-removal.md): the service runs the Go daemon"
 
 
 class ServiceError(Exception):

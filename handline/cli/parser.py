@@ -411,7 +411,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sv.add_parser("install", help="write the plist and load it into launchd")
     p.add_argument("--allow-live-home", action="store_true", help="with the Go daemon chosen, install it on the live home too")
     p.set_defaults(fn=cmd_service_install)
-    p = sv.add_parser("use", help="choose the daemon the service runs; `hl service install` applies it")
+    p = sv.add_parser("use", help="choose the daemon the service runs (python is refused: it is being removed); `hl service install` applies it")
     p.add_argument("impl", choices=service.IMPLS)
     p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
                    "for the founder: why")

@@ -71,8 +71,8 @@ def _span(v: str) -> str:
 
 def _daemon_impl(v: str) -> str:
     from ..infra import service
-    if v not in service.IMPLS:
-        raise ValueError(" or ".join(service.IMPLS))
+    if v != "go":
+        raise ValueError("go: " + service.PYTHON_RETIRED if v == "python" else "go")
     return v
 
 

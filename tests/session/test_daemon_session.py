@@ -1891,18 +1891,21 @@ def test_service_plist_runs_the_go_daemon_when_asked_and_the_live_home_needs_a_w
 
 
 def test_service_use_sets_the_daemon_the_next_install_runs(home: Path) -> None:
-    import argparse
+    import argparse, contextlib, io
     from handline.cli import service as cli_service
     use_home(home)
     check("service use: python before anything is set", service.daemon_impl() == "python")
-    for impl in ("go", "python"):
-        rc = cli_service.cmd_service_use(argparse.Namespace(impl=impl))
-        check(f"service use: {impl} is the setting afterwards", rc == 0 and service.daemon_impl() == impl)
+    rc = cli_service.cmd_service_use(argparse.Namespace(impl="go"))
+    check("service use: go is the setting afterwards", rc == 0 and service.daemon_impl() == "go")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        rc = cli_service.cmd_service_use(argparse.Namespace(impl="python"))
+    check("service use: python is refused in one line that says why, and the setting stays go",
+          rc == 1 and service.daemon_impl() == "go" and out.getvalue() == service.PYTHON_RETIRED + "\n", out.getvalue())
     fresh = home / "not-made-yet" / "home"
     os.environ["OCP_HOME"] = str(fresh)
     rc = cli_service.cmd_service_use(argparse.Namespace(impl="go"))
     check("service use: go on a home that does not exist yet makes it, so the next install runs go", rc == 0 and service.daemon_impl() == "go")
-    cli_service.cmd_service_use(argparse.Namespace(impl="python"))
 
 
 def test_service_use_from_an_agent_session_is_a_proposal(home: Path) -> None:
@@ -1926,6 +1929,10 @@ def test_service_use_from_an_agent_session_is_a_proposal(home: Path) -> None:
         check("service use: approving the proposal sets daemon_impl", service.daemon_impl() == "go")
         ok, said = real_propose("global", "service-use", requester="worker", why="x", sets={"value": "rust"})
         check("service use: a daemon that does not exist is not proposed", not ok, said)
+        ok, said = real_propose("global", "service-use", requester="worker", why="x", sets={"value": "python"})
+        check("service use: nor is python, and the refusal says it is being removed", not ok and "being removed" in said, said)
+        check("service use: an agent's session is refused python before any proposal",
+              cli_service.cmd_service_use(argparse.Namespace(impl="python", why="back")) == 1 and len(got) == 1)
     finally:
         hr.propose, ask.asking_agent = real_propose, real_asking
         hr._set_global("service-use", "python")

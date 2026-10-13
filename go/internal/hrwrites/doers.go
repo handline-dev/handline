@@ -605,8 +605,8 @@ func (e *Env) doGlobal(p step) (bool, string, error) {
 		}
 		set = func(_ func(string) any, put func(string, any)) { put("notice_digest_s", n) }
 	case "service-use":
-		if value != "python" && value != "go" {
-			return false, switchName + " takes python or go", nil
+		if value != "go" { // hl service use refuses python the same way (infra/service.py PYTHON_RETIRED)
+			return false, switchName + " takes go: the Python daemon is being removed", nil
 		}
 		set = func(_ func(string) any, put func(string, any)) { put("daemon_impl", value) }
 	case "ignore-cache-expiry", "auto-accept", "dev-mode":
