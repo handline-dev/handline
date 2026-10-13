@@ -32,14 +32,6 @@ func (t *task) endWord() string {
 	return "done"
 }
 
-// blockerGuard is _blocker_guard: whoever may edit the task, or its owner, who knows what it waits for, may record or clear its waits.
-func blockerGuard(t *task, by string) string {
-	if by == t.Owner {
-		return ""
-	}
-	return editGuard(guardRow(t), by)
-}
-
 // cyclePath is _cycle_path: the waits from blocksOn back to tid that tid waiting on blocksOn would close into a loop, nil when it would not.
 func cyclePath(tx *sql.Tx, tid, blocksOn int64) ([]int64, error) {
 	seen := map[int64]bool{}
@@ -77,9 +69,6 @@ func recordBlock(tx *sql.Tx, tid, blocksOn int64, by string) (string, error) {
 	}
 	if t == nil {
 		return fmt.Sprintf("no task T%d", tid), nil
-	}
-	if g := blockerGuard(t, by); g != "" {
-		return g, nil
 	}
 	if on, err := getTask(tx, blocksOn); err != nil {
 		return "", err
@@ -121,9 +110,6 @@ func unblock(tx *sql.Tx, tid, blocksOn int64, by string) (string, error) {
 	}
 	if t == nil {
 		return fmt.Sprintf("no task T%d", tid), nil
-	}
-	if g := blockerGuard(t, by); g != "" {
-		return g, nil
 	}
 	gone, err := db.RemoveBlock(tx, tid, blocksOn)
 	if err != nil {

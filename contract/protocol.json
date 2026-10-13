@@ -74,7 +74,7 @@
  "x-identity": {
   "rule": "x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress, land, land.pass, land.authorize) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).",
   "sender": "say and task.new carry no sender parameter: the daemon sets it. An agent's calls carry its own name; a member device's and the founder's carry `human`.",
-  "ownership": "Methods that act on a request or task by id (withdraw, edit, release, discard, merge, memo.edit, memo.delete, queue, draft) keep today's checks on who may: the opener, the owner, the owner's manager or the founder; a refusal is `refused` with the reason."
+  "ownership": "Methods that act on a task by id (edit, merge, discard, reopen, queue, draft) are anyone's: the task's opener and assignee are told, and its history keeps who did it. withdraw, release, memo.edit and memo.delete keep their checks on who may; a refusal is `refused` with the reason."
  },
  "x-agent-commands": {
   "hl task new": "task.new",
@@ -4522,7 +4522,7 @@
   },
   {
    "name": "task.reopen",
-   "summary": "Reopen a task.",
+   "summary": "Reopen a done task: anyone may, with a reason the opener and assignee are told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -4990,7 +4990,7 @@
   },
   {
    "name": "task.queue",
-   "summary": "Approve draft tasks to run: the founder or the owner's manager.",
+   "summary": "Approve draft tasks to run: anyone may; each task's opener and assignee are told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5034,7 +5034,7 @@
   },
   {
    "name": "task.draft",
-   "summary": "Send queued tasks back to draft: the founder or the owner's manager.",
+   "summary": "Send queued tasks back to draft: anyone may; each task's opener and assignee are told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5078,7 +5078,7 @@
   },
   {
    "name": "task.merge",
-   "summary": "Fold tasks into one: the kept task takes their titles, requests and sub-tasks; opener or founder only.",
+   "summary": "Fold tasks into one: the kept task takes their titles, requests and sub-tasks; anyone may, and the opener and assignee of each are told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5188,7 +5188,7 @@
   },
   {
    "name": "task.discard",
-   "summary": "Throw away a task that is not done: the asker or the founder, with a reason.",
+   "summary": "Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5278,7 +5278,7 @@
   },
   {
    "name": "task.withdraw",
-   "summary": "Withdraw a task the caller made.",
+   "summary": "Withdraw a task the caller asked for; anyone else discards it with a reason.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5361,7 +5361,7 @@
   },
   {
    "name": "task.edit",
-   "summary": "Change a task: owner, reporter, title and priority by its opener, its reporter or the founder; the owner also by the owner's manager (its owner may record what it waits on), body and time box until it is delivered. Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the holder is told.",
+   "summary": "Change a task: owner, reporter, title, priority, body and time box, by anyone (body and time box until it is delivered). Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the opener and assignee are told, and the edit is kept with who made it.",
    "paramStructure": "by-name",
    "params": [
     {

@@ -83,8 +83,8 @@ func undeliverable(tx *sql.Tx, t *task, to, home string) (string, error) {
 	return "", nil
 }
 
-// editTask is actions.edit_task: a task's owner and reporter changed by anyone, its title, priority, timeout and/or body by whoever
-// opened it, its reporter or the founder. It answers the refusal ("" when it edited), the message and the fields that changed.
+// editTask is actions.edit_task: a task's owner, reporter, title, priority, timeout and/or body changed by anyone; every change is kept as
+// an edit_task event under who made it. It answers the refusal ("" when it edited) and the message.
 func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, title, body *string, priority, timeoutS *int64) (string, string, error) {
 	t, err := getTask(tx, tid)
 	if err != nil {
@@ -93,13 +93,7 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 	if t == nil {
 		return fmt.Sprintf("no task T%d", tid), "", nil
 	}
-	// Anyone may change who works a task (owner) and who answers for it (reporter); every change is kept as an edit_task event.
 	reshape := title != nil || priority != nil || timeoutS != nil || body != nil
-	if reshape {
-		if g := editGuard(guardRow(t), by); g != "" {
-			return g, "", nil
-		}
-	}
 	if owner != nil && *owner != t.Owner && *owner != human {
 		if why, err := undeliverable(tx, t, *owner, home); err != nil || why != "" {
 			return why, "", err
@@ -305,7 +299,10 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			}
 		}
 		me := c.Caller.Actor()
-		var done Edited
+		var (
+			done  Edited
+			notes []told
+		)
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 			done = Edited{Task: tid, By: me}
 			if t, err := getTask(tx, tid); err != nil {
@@ -359,10 +356,19 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			if owner == nil {
 				done.WasOwner = ""
 			}
-			return accepted(strings.Join(msgs, "; "), nil), nil
+			said := strings.Join(msgs, "; ")
+			t, err := getTask(tx, tid)
+			if err != nil {
+				return nil, err
+			}
+			if notes, err = tellTask(tx, home, t, me, said, done.WasOwner); err != nil {
+				return nil, err
+			}
+			return accepted(said, nil), nil
 		})
 		if err == nil && tell != nil {
 			tell.Edited(done)
+			tell.Notified(notes)
 		}
 		return out, err
 	}

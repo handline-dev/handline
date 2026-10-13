@@ -228,6 +228,13 @@ func (e *Env) Edited(ed taskwrites.Edited) {
 	}
 }
 
+// Notified delivers the notices a task write left for the task's opener and assignee.
+func (e *Env) Notified(told []db.Notice) {
+	var out string
+	defer e.guard("telling of a task change", &out)
+	e.deliverUnblocked(e.DB, told, nil)
+}
+
 // tellBodyEdited: after an edit changed a task's body, the holder is told at once, typed like a say, when the task is being worked.
 func (e *Env) tellBodyEdited(q db.Q, tid int64, by string) {
 	row := must(db.GetTask(q, tid))

@@ -27,6 +27,7 @@ type fakeTeller struct {
 	handed    []Handover
 	opened    []string
 	edited    []Edited
+	notified  []db.Notice
 }
 
 func (f *fakeTeller) MemoChanged(tid int64, by, what, text string) {
@@ -48,6 +49,7 @@ func (f *fakeTeller) Cancelled(tid int64, by, owner string, stop bool, closed []
 func (f *fakeTeller) Done(tid int64, by, owner string, told []db.Notice, forget []db.InboxFile, finished bool) {
 	f.done = append(f.done, fmt.Sprintf("T%d %s %s %d %v", tid, by, owner, len(told), finished))
 }
+func (f *fakeTeller) Notified(told []db.Notice) { f.notified = append(f.notified, told...) }
 func (f *fakeTeller) Released(tid int64, why string, retired []Retired) []string {
 	f.released = retired
 	return []string{fmt.Sprintf("%d stopped", len(retired))}

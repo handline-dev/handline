@@ -9,65 +9,90 @@ import (
 	"github.com/handline/handline/go/internal/rpc"
 )
 
-// merge is task.merge (actions.merge_tasks): each named task's title is added to the kept one's, its requests, sub-tasks, memos
-// and the tasks waiting on it move to the kept task, and it closes as merged into it. All or none. Telling: none in Python.
-func merge(c *rpc.Conn, p map[string]any) (any, error) {
-	keep, err := taskID(map[string]any{"task": p["into"]})
-	if err != nil {
-		return nil, badParam("into is a task number", "into")
-	}
-	others, err := taskIDs(p, "tasks")
-	if err != nil {
-		return nil, err
-	}
-	by := c.Caller.Actor()
-	return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-		keepRow, rows, err := mergeChecks(tx, keep, others, by)
+// mergeMethod is task.merge (actions.merge_tasks), anyone's call: each named task's title is added to the kept one's, its requests,
+// sub-tasks, memos and the tasks waiting on it move to the kept task, and it closes as merged into it. All or none. The opener and assignee
+// of every task in it are told.
+func mergeMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
+	return func(c *rpc.Conn, p map[string]any) (any, error) {
+		keep, err := taskID(map[string]any{"task": p["into"]})
+		if err != nil {
+			return nil, badParam("into is a task number", "into")
+		}
+		others, err := taskIDs(p, "tasks")
 		if err != nil {
 			return nil, err
 		}
-		title := keepRow.Title
-		for _, r := range rows {
-			res, err := tx.Exec("UPDATE tasks SET discarded_by = ?, discarded_at = ?, discard_reason = ?, merged_into = ? WHERE id = ? AND "+openSQL,
-				by, time.Now().Unix(), fmt.Sprintf("merged into T%d", keep), keep, r.ID)
+		by := c.Caller.Actor()
+		var notes []told
+		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+			notes = nil
+			keepRow, rows, err := mergeChecks(tx, keep, others)
 			if err != nil {
 				return nil, err
 			}
-			if _, err := tx.Exec("UPDATE tasks SET sent_at = NULL WHERE id = ?", r.ID); err != nil {
+			var involved []*task
+			for _, id := range append([]int64{keep}, others...) {
+				t, err := getTask(tx, id)
+				if err != nil {
+					return nil, err
+				}
+				involved = append(involved, t)
+			}
+			title := keepRow.Title
+			for _, r := range rows {
+				res, err := tx.Exec("UPDATE tasks SET discarded_by = ?, discarded_at = ?, discard_reason = ?, merged_into = ? WHERE id = ? AND "+openSQL,
+					by, time.Now().Unix(), fmt.Sprintf("merged into T%d", keep), keep, r.ID)
+				if err != nil {
+					return nil, err
+				}
+				if _, err := tx.Exec("UPDATE tasks SET sent_at = NULL WHERE id = ?", r.ID); err != nil {
+					return nil, err
+				}
+				if n, _ := res.RowsAffected(); n == 0 {
+					return nil, refusal(fmt.Sprintf("task T%d was done or discarded by someone else just now", r.ID))
+				}
+				edges, err := blocksOn(tx, keep) // keep waiting on the folded task is no wait on itself: that edge goes
+				if err != nil {
+					return nil, err
+				}
+				dropped := false
+				for _, e := range edges {
+					dropped = dropped || e == r.ID
+				}
+				if err := moveTaskLinks(tx, r.ID, keep); err != nil {
+					return nil, err
+				}
+				payload := []kv{{"task_id", r.ID}, {"into", keep}}
+				if dropped {
+					payload = append(payload, kv{"dropped_wait", true})
+				}
+				if err := addEvent(tx, by, "merge_task", payload...); err != nil {
+					return nil, err
+				}
+				title += fmt.Sprintf(" (+ T%d: %s)", r.ID, r.Title)
+			}
+			if _, err := tx.Exec("UPDATE tasks SET edited_by = ?, edited_at = ?, title = ? WHERE id = ?", by, time.Now().Unix(), title, keep); err != nil {
 				return nil, err
 			}
-			if n, _ := res.RowsAffected(); n == 0 {
-				return nil, refusal(fmt.Sprintf("task T%d was done or discarded by someone else just now", r.ID))
+			names := make([]string, len(rows))
+			for i, r := range rows {
+				names[i] = fmt.Sprintf("T%d", r.ID)
 			}
-			edges, err := blocksOn(tx, keep) // keep waiting on the folded task is no wait on itself: that edge goes
-			if err != nil {
+			said := fmt.Sprintf("%s merged into T%d by %s", strings.Join(names, ", "), keep, by)
+			var who []string
+			for _, t := range involved {
+				who = append(who, t.OpenedBy, t.Owner)
+			}
+			if notes, err = tellTask(tx, home, involved[0], by, said, who...); err != nil {
 				return nil, err
 			}
-			dropped := false
-			for _, e := range edges {
-				dropped = dropped || e == r.ID
-			}
-			if err := moveTaskLinks(tx, r.ID, keep); err != nil {
-				return nil, err
-			}
-			payload := []kv{{"task_id", r.ID}, {"into", keep}}
-			if dropped {
-				payload = append(payload, kv{"dropped_wait", true})
-			}
-			if err := addEvent(tx, by, "merge_task", payload...); err != nil {
-				return nil, err
-			}
-			title += fmt.Sprintf(" (+ T%d: %s)", r.ID, r.Title)
+			return accepted(said, nil), nil
+		})
+		if err == nil && tell != nil {
+			tell.Notified(notes)
 		}
-		if _, err := tx.Exec("UPDATE tasks SET edited_by = ?, edited_at = ?, title = ? WHERE id = ?", by, time.Now().Unix(), title, keep); err != nil {
-			return nil, err
-		}
-		names := make([]string, len(rows))
-		for i, r := range rows {
-			names[i] = fmt.Sprintf("T%d", r.ID)
-		}
-		return accepted(fmt.Sprintf("%s merged into T%d by %s", strings.Join(names, ", "), keep, by), nil), nil
-	})
+		return out, err
+	}
 }
 
 // mergeRow is the columns of a task the merge's checks and its title read.
@@ -92,7 +117,7 @@ func mergeRowOf(tx *sql.Tx, tid int64) (*mergeRow, error) {
 	return r, err
 }
 
-// editGuard is _task_edit_guard: a task is reshaped by whoever opened it, its reporter or the founder.
+// editGuard is _task_edit_guard, left only on release: whoever opened the task, its reporter or the founder.
 func editGuard(r *mergeRow, by string) string {
 	if by != r.OpenedBy && by != r.Reporter && by != human {
 		return fmt.Sprintf("task T%d can only be edited by whoever opened it (%s or the founder", r.ID, openerAndReporter(r.OpenedBy, r.Reporter))
@@ -114,7 +139,7 @@ func guardRow(t *task) *mergeRow {
 }
 
 // mergeChecks is _merge_checks: the refusal, if any, and the rows to fold, read in the merge's own transaction.
-func mergeChecks(tx *sql.Tx, keep int64, others []int64, by string) (*mergeRow, []*mergeRow, error) {
+func mergeChecks(tx *sql.Tx, keep int64, others []int64) (*mergeRow, []*mergeRow, error) {
 	keepRow, err := mergeRowOf(tx, keep)
 	if err != nil {
 		return nil, nil, err
@@ -132,9 +157,6 @@ func mergeChecks(tx *sql.Tx, keep int64, others []int64, by string) (*mergeRow, 
 	if seen[keep] {
 		return nil, nil, refusal(fmt.Sprintf("task T%d cannot merge into itself", keep))
 	}
-	if g := editGuard(keepRow, by); g != "" {
-		return nil, nil, refusal(g)
-	}
 	if keepRow.Discarded {
 		return nil, nil, refusal(fmt.Sprintf("task T%d is discarded - nothing can merge into it", keep))
 	}
@@ -150,7 +172,7 @@ func mergeChecks(tx *sql.Tx, keep int64, others []int64, by string) (*mergeRow, 
 		if r == nil {
 			return nil, nil, refusal(fmt.Sprintf("no task T%d", tid))
 		}
-		if why, err := mergeRefusal(tx, keepRow, r, by); err != nil || why != "" {
+		if why, err := mergeRefusal(tx, keepRow, r); err != nil || why != "" {
 			if err == nil {
 				err = refusal(why)
 			}
@@ -162,10 +184,7 @@ func mergeChecks(tx *sql.Tx, keep int64, others []int64, by string) (*mergeRow, 
 }
 
 // mergeRefusal is _merge_refusal: why `r` cannot be folded into `keep`, or "".
-func mergeRefusal(tx *sql.Tx, keep, r *mergeRow, by string) (string, error) {
-	if g := editGuard(r, by); g != "" {
-		return g, nil
-	}
+func mergeRefusal(tx *sql.Tx, keep, r *mergeRow) (string, error) {
 	if r.Discarded {
 		return fmt.Sprintf("task T%d is already discarded", r.ID), nil
 	}
