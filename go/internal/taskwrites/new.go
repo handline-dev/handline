@@ -221,9 +221,6 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 	if owner == human {
 		kind = ""
 	}
-	if tell == nil {
-		return 0, nil, fmt.Errorf("task.new needs the supervisor to route its ask")
-	}
 	open := func(rid int64) error { // rid 0: a todo the founder opens for themself, which asks no one
 		var err error
 		reporter := in.Reporter
@@ -280,6 +277,9 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 			return 0, nil, err
 		}
 		return tid, &Asked{OK: true, Msg: "a todo of your own"}, nil
+	}
+	if tell == nil {
+		return 0, nil, fmt.Errorf("task.new needs the supervisor to route its ask")
 	}
 	asked, err = tell.TaskAsk(tx, AskReq{From: me, To: owner, Body: body, Kind: kind, NoCard: true, Notify: true, Within: open})
 	if err != nil {
