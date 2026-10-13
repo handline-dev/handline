@@ -2,10 +2,8 @@ package main
 
 import (
 	"fmt"
-	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -276,33 +274,7 @@ func taskHandoff(c *hlclient.Client, args []string) (int, bool) {
 		fmt.Println(why)
 		return 1, true
 	}
-	done, msg := c.Write("task.handoff", map[string]any{"task": tid, "to": p.pos[1], "note": note})
-	fmt.Println(msg)
-	if done {
-		if behind, known := commitsBehindMain(); known && behind > behindWarn {
-			fmt.Printf("warning (T935): this branch was forked %d commits before main's tip. "+ // local-ref-ok
-				"If its diff or merge looks wrong, rebase onto `main` (not `orcapipe`) first.\n", behind)
-		}
-		return 0, true
-	}
-	return 1, true
-}
-
-// behindWarn is gitrun.BEHIND_WARN: a branch forked this many commits before main's tip was not branched from it.
-const behindWarn = 100
-
-// commitsBehindMain is how many commits main holds that HEAD was forked before (gitrun.commits_behind_main).
-func commitsBehindMain() (int, bool) {
-	base, err := exec.Command("git", "merge-base", "HEAD", "main").Output()
-	if err != nil || strings.TrimSpace(string(base)) == "" {
-		return 0, false
-	}
-	out, err := exec.Command("git", "rev-list", "--count", strings.TrimSpace(string(base))+"..main").Output()
-	if err != nil {
-		return 0, false
-	}
-	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
-	return n, err == nil
+	return said(c.Write("task.handoff", map[string]any{"task": tid, "to": p.pos[1], "note": note})), true
 }
 
 func taskStart(c *hlclient.Client, args []string) (int, bool) {

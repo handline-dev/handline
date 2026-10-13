@@ -15,7 +15,7 @@ from ..team import ask as askmod
 from ..infra import daemonclient as dmn_client
 from .. import db
 from . import client
-from ..infra import gitrun, names, paths
+from ..infra import names, paths
 from ..infra import textsafe
 
 from .ask import _text_arg, _who_refusal
@@ -316,10 +316,6 @@ def cmd_task_handoff(args) -> int:
         return 1
     ok, msg = client.write("task.handoff", {"task": args.task, "to": args.to, "note": note})
     print(msg)
-    behind = gitrun.commits_behind_main(Path.cwd()) if ok else None
-    if behind is not None and behind > gitrun.BEHIND_WARN:
-        print(f"warning (T935): this branch was forked {behind} commits before main's tip. "
-              f"If its diff or merge looks wrong, rebase onto `main` (not `orcapipe`) first.")
     return 0 if ok else 1
 
 
