@@ -15,11 +15,7 @@ import (
 )
 
 // The numbers the settings screen shows as defaults (timebox.py, delivery.py): the daemon's own constants, not config.
-const (
-	unaskedRunningS   = 900
-	stopWaitBackstopS = 900
-	staleBackgroundS  = 3000
-)
+const stopWaitBackstopS = 900
 
 // perAgent is rpc_settings.PER_AGENT: the settings an agent.yaml may override.
 var perAgent = []string{"park_timeout_s", "ignore_cache_expiry", "bg_notice_s", "bg_grace_s", "bg_check_s", "notice_digest_s"}
@@ -118,10 +114,9 @@ func (e *Env) settingsValues() map[string]any {
 		"dev_mode":    truthy(cfg["dev_mode"]),
 		"bg_notice_s": s.ConfigSeconds("bg_notice_s", bgNotice), "bg_grace_s": s.ConfigSeconds("bg_grace_s", lifecycle.BgGraceS),
 		"bg_check_s": s.ConfigSeconds("bg_check_s", lifecycle.BgCheckS), "notice_digest_s": s.ConfigSeconds("notice_digest_s", lifecycle.NoticeDigestS),
-		"unasked_running_s":    s.ConfigSeconds("unasked_running_s", unaskedRunningS),
 		"stop_wait_backstop_s": s.ConfigSeconds("stop_wait_backstop_s", stopWaitBackstopS),
-		"stale_background_s":   s.ConfigSeconds("stale_background_s", staleBackgroundS), "token_prices": prices,
-		"input_hold_idle_s": s.ConfigSeconds("input_hold_idle_s", defaultHoldIdleS),
+		"token_prices":         prices,
+		"input_hold_idle_s":    s.ConfigSeconds("input_hold_idle_s", defaultHoldIdleS),
 	}
 }
 

@@ -61,6 +61,8 @@ type Sessions interface {
 	FindTranscript(session, account string) string
 	// MovableTrigger says whether a handoff trigger parks the agent until its usage window rolls over.
 	MovableTrigger(kind string) bool
+	// CacheLeft is the seconds until the agent's prompt cache lapses, by the TTL its session wrote; ok is false when that is unknown.
+	CacheLeft(agent string, now int64) (left int64, ok bool)
 }
 
 // Lifecycle is daemon/lifecycle.py (G6): starting and waking an agent's session.

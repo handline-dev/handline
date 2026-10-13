@@ -117,10 +117,6 @@ func (t timeboxPorts) SupervisorOf(agent string) string {
 	}
 	return tm.SupervisorOf(agent)
 }
-func (t timeboxPorts) ChildWait(q db.Q, agent string) bool {
-	w, err := db.ChildWait(q, agent)
-	return err == nil && w != ""
-}
 
 // StopWaitReason is actions.stop_wait_reason: why the agent should not stop now - it holds a current task with no recorded wait.
 func (t timeboxPorts) StopWaitReason(q db.Q, agent string) string {

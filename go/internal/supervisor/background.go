@@ -18,10 +18,11 @@ const (
 	ForgottenStuckS = states.StuckRunningS
 	// NudgeRetryS: a nudge that could not be typed is not asked again for this long, because the idle probe that says no costs its whole timeout.
 	NudgeRetryS = 60
-	// StaleBgS: background work the agent has shown nothing beside this long is stale, under the hour a prompt cache lives.
-	StaleBgS = 3000
 	// StaleBgVetoS: once the supervisor has been told, this long passes before the work may be stopped.
 	StaleBgVetoS = 600
+	// StaleBgLeadS: background work is stale this long before the agent's prompt cache lapses, so a stop after the veto still lands five
+	// minutes before the cache does, and the work's end is never sent to a cold cache.
+	StaleBgLeadS = StaleBgVetoS + 300
 )
 
 // NudgeScheduleS is how many times a forgotten head is nudged, and how long it must have sat idle for each: ten minutes, thirty, then two
@@ -174,14 +175,22 @@ func (e *Env) bgSilentS(q db.Q, agent string, now int64) (int64, bool) {
 	return 0, true
 }
 
-// BgStale: forgotten background work, shown nothing beside it for StaleBgS. Never while the agent is RUNNING: one foreground step can run that
-// long with no hook event, and a turn stuck that long is reported elsewhere.
+// BgStale: background work whose agent's prompt cache has StaleBgLeadS or less left - by the session's own TTL, else an hour from what the
+// agent last showed beside the work. Never while the agent is RUNNING: one foreground step can run that long with no hook event, and a
+// turn stuck that long is reported elsewhere.
 func (e *Env) bgStale(q db.Q, agent string, now int64) bool {
 	if row := stateOf(q, agent); row != nil && row.State == states.Running {
 		return false
 	}
 	silent, ok := e.bgSilentS(q, agent, now)
-	return ok && silent >= e.Idle.ConfigSeconds("stale_background_s", StaleBgS)
+	if !ok {
+		return false
+	}
+	left, known := e.Sessions.CacheLeft(agent, now)
+	if !known {
+		left = states.PromptCacheS - silent
+	}
+	return left <= StaleBgLeadS
 }
 
 // BgMayStop: an agent that owes nothing is told to finish or stop the work, and shown nothing for its grace window since. Any other: stale, and
