@@ -2,6 +2,7 @@ package dangling
 
 import (
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,8 @@ type host struct {
 	session map[string]int // pane -> the pid of the session in it
 	running map[int]int64  // pid -> its start time
 	survive bool           // a session goes on when its pane closes
+	keep    bool           // a close reports ok and the pane stays
+	askErr  error
 	asked   []int
 	closed  []string
 	killed  []int
@@ -33,9 +36,12 @@ func (h *host) PaneStarted(handle string) int64 {
 	return 900
 }
 func (h *host) PaneSession(handle string) (int, bool) { return h.session[handle], true }
-func (h *host) Ask(pid int, _ string) error           { h.asked = append(h.asked, pid); return nil }
+func (h *host) Ask(pid int, _ string) error           { h.asked = append(h.asked, pid); return h.askErr }
 func (h *host) Close(handle string) (bool, string) {
 	h.closed = append(h.closed, handle)
+	if h.keep {
+		return true, ""
+	}
 	delete(h.live, handle)
 	if pid := h.session[handle]; pid != 0 && !h.survive {
 		delete(h.running, pid)
@@ -103,6 +109,7 @@ func (r *rig) closedAt(t *testing.T, handle string) sql.NullInt64 {
 func TestADanglingPaneWithNoSessionIsClosedAtOnceAndTheManagerIsTold(t *testing.T) {
 	r := newRig(t)
 	r.run(t, 3000)
+	r.run(t, 3005)
 	if strings.Join(r.h.closed, ",") != "%1" || !r.closedAt(t, "%1").Valid || r.closedAt(t, "%2").Valid {
 		t.Fatalf("only the old pane closes: %v", r.h.closed)
 	}
@@ -126,6 +133,7 @@ func TestADanglingSessionIsAskedForItsHandoffAndClosedOnceItIsWritten(t *testing
 	os.MkdirAll(filepath.Dir(note), 0o755)
 	os.WriteFile(note, []byte("where I was"), 0o644)
 	r.run(t, 3020)
+	r.run(t, 3025)
 	if strings.Join(r.h.closed, ",") != "%1" || !r.closedAt(t, "%1").Valid {
 		t.Fatalf("closed once the note is in: %v", r.h.closed)
 	}
@@ -201,5 +209,40 @@ func TestARecordedPaneThatIsGoneIsRecordedClosed(t *testing.T) {
 	r.run(t, 3000)
 	if len(r.h.closed) != 0 || len(r.h.told) != 0 || !r.closedAt(t, "%1").Valid {
 		t.Fatalf("nothing to close, only the record: %v %v", r.h.closed, r.h.told)
+	}
+}
+
+func TestAPidWhoseStartCannotBeReadNowIsNotEndedButLeftToAPerson(t *testing.T) {
+	r := newRig(t)
+	r.h.session["%1"], r.h.running[37735], r.h.survive = 37735, 500, true
+	r.run(t, 3000)
+	r.run(t, 3000+AskWaitS)
+	r.h.running[37735] = 0 // ps cannot read it any more
+	r.run(t, 3000+AskWaitS+5)
+	if len(r.h.killed) != 0 || len(r.h.told) != 2 || !strings.Contains(r.h.told[1], "end it by hand") || !r.closedAt(t, "%1").Valid {
+		t.Fatalf("an unproven pid is never hit: killed %v told %v", r.h.killed, r.h.told)
+	}
+}
+
+func TestAPaneStillStandingAfterItsCloseIsClosedAgainWithoutASecondNotice(t *testing.T) {
+	r := newRig(t)
+	r.h.session["%1"], r.h.running[37735], r.h.keep = 37735, 500, true
+	r.run(t, 3000)
+	r.run(t, 3000+AskWaitS)
+	r.run(t, 3000+AskWaitS+5)
+	var events int
+	r.q.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'terminal_closed'").Scan(&events)
+	if len(r.h.closed) != 2 || len(r.h.told) != 1 || events != 1 {
+		t.Fatalf("closed twice, told once: closed %v told %v events %d", r.h.closed, r.h.told, events)
+	}
+}
+
+func TestTheNoticeSaysWhenTheSessionCouldNotBeAsked(t *testing.T) {
+	r := newRig(t)
+	r.h.session["%1"], r.h.running[37735], r.h.askErr = 37735, 500, errors.New("no socket")
+	r.run(t, 3000)
+	r.run(t, 3000+AskWaitS)
+	if len(r.h.told) != 1 || !strings.Contains(r.h.told[0], "could not be asked for a handoff") {
+		t.Fatalf("the notice does not claim an ask: %v", r.h.told)
 	}
 }

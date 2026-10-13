@@ -15,8 +15,12 @@ import (
 	"github.com/handline/handline/go/internal/team"
 )
 
-// danglingPorts is dangling.Ports over the daemon's terminal host, the session files and the process table.
-type danglingPorts struct{ p *Parts }
+// danglingPorts is dangling.Ports over the daemon's terminal host, the session files and the process table. deliver is the peer inbox's,
+// unless a test hands in its own.
+type danglingPorts struct {
+	p       *Parts
+	deliver func(ctx context.Context, sess peerinbox.Session, text string, from peerinbox.From) peerinbox.Result
+}
 
 var _ dangling.Ports = danglingPorts{}
 
@@ -70,7 +74,11 @@ func (d danglingPorts) Ask(pid int, text string) error {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		if res := peerinbox.New().Deliver(ctx, sess, text, peerinbox.From{Name: dangling.Requester}); res.Kind != peerinbox.Delivered {
+		deliver := d.deliver
+		if deliver == nil {
+			deliver = peerinbox.New().Deliver
+		}
+		if res := deliver(ctx, sess, text, peerinbox.From{Name: dangling.Requester}); res.Kind != peerinbox.Delivered {
 			return errors.New(res.Why)
 		}
 		return nil

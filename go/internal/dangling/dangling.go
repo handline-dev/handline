@@ -62,6 +62,11 @@ func askKey(handle string) string   { return "dangling:" + handle }
 func pidKey(handle string) string   { return "dangling:" + handle + ":pid" }
 func startKey(handle string) string { return "dangling:" + handle + ":start" }
 
+// reachedKey is set when the ask was delivered; toldKey once the close was told, so a pane still standing after it is closed again
+// without a second notice.
+func reachedKey(handle string) string { return "dangling:" + handle + ":reached" }
+func toldKey(handle string) string    { return "dangling:" + handle + ":told" }
+
 func (s *Sweep) log(format string, a ...any) {
 	if s.Log != nil {
 		s.Log(format, a...)
@@ -131,26 +136,39 @@ func (s *Sweep) one(r db.OpenTerminal, standing bool, now int64) error {
 		s.log("  %s: its dangling terminal %s would not close: %s", r.Agent, r.Handle, why)
 		return nil
 	}
-	if _, err := db.AddEvent(s.Q, r.Agent, "terminal_closed", db.KV{K: "handle", V: r.Handle}, db.KV{K: "why", V: "dangling"}); err != nil {
+	told, err := db.Cursor(s.Q, toldKey(r.Handle))
+	if err != nil {
 		return err
 	}
-	s.notify(r, current, spid, note)
-	if spid == 0 || s.ended(r.Handle, spid) {
-		return s.settle(r.Handle)
+	if told == 0 {
+		if _, err := db.AddEvent(s.Q, r.Agent, "terminal_closed", db.KV{K: "handle", V: r.Handle}, db.KV{K: "why", V: "dangling"}); err != nil {
+			return err
+		}
+		reached, err := db.Cursor(s.Q, reachedKey(r.Handle))
+		if err != nil {
+			return err
+		}
+		s.notify(r, current, spid, reached != 0, note)
+		if err := db.SetCursor(s.Q, toldKey(r.Handle), now); err != nil {
+			return err
+		}
 	}
-	return nil // the session outlived its pane: the next look ends it by its pid
+	return nil // the record is closed once its pane is seen gone; a session that outlived it is ended by its pid then
 }
 
 func (s *Sweep) ask(r db.OpenTerminal, pid int, note string, now int64) error {
 	if err := os.Remove(note); err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	var reached int64
 	if err := s.Ports.Ask(pid, fmt.Sprintf(askText, r.Agent, r.Handle, AskWaitS/60, note)); err != nil {
 		s.log("  %s: could not ask the session (pid %d) in its dangling terminal %s for its handoff: %v", r.Agent, pid, r.Handle, err)
 	} else {
+		reached = 1
 		s.log("  %s: asked the session (pid %d) in its dangling terminal %s for its handoff", r.Agent, pid, r.Handle)
 	}
-	for k, v := range map[string]int64{askKey(r.Handle): now, pidKey(r.Handle): int64(pid), startKey(r.Handle): s.Ports.PidStart(pid)} {
+	for k, v := range map[string]int64{askKey(r.Handle): now, pidKey(r.Handle): int64(pid), startKey(r.Handle): s.Ports.PidStart(pid),
+		reachedKey(r.Handle): reached} {
 		if err := db.SetCursor(s.Q, k, v); err != nil {
 			return err
 		}
@@ -168,14 +186,14 @@ func (s *Sweep) ended(handle string, pid int) bool {
 	return start != 0 && now != 0 && now != start
 }
 
-// end stops a session that outlived its closed pane. With no start time read at the ask, the pid cannot be proved to be that session: it
-// is left to a person, once.
+// end stops a session that outlived its closed pane. With a start time unread, at the ask or now, the pid cannot be proved to be that
+// session: it is left to a person, once.
 func (s *Sweep) end(r db.OpenTerminal, pid int) error {
 	start, err := db.Cursor(s.Q, startKey(r.Handle))
 	if err != nil {
 		return err
 	}
-	if start == 0 {
+	if start == 0 || s.Ports.PidStart(pid) != start {
 		s.tell(r.Agent, fmt.Sprintf("%s's session (pid %d) outlived its closed terminal %s and could not be proved to be that session; end it by hand", r.Agent, pid, r.Handle))
 		return s.settle(r.Handle)
 	}
@@ -187,9 +205,12 @@ func (s *Sweep) end(r db.OpenTerminal, pid int) error {
 	return nil
 }
 
-func (s *Sweep) notify(r db.OpenTerminal, current string, pid int, note string) {
+func (s *Sweep) notify(r db.OpenTerminal, current string, pid int, reached bool, note string) {
 	what := "no session ran in it"
-	if pid != 0 {
+	switch {
+	case pid != 0 && !reached:
+		what = fmt.Sprintf("its session (pid %d) could not be asked for a handoff", pid)
+	case pid != 0:
 		what = fmt.Sprintf("its session (pid %d) was asked for a handoff", pid)
 		if _, err := os.Stat(note); err == nil {
 			what += ", written to " + note
@@ -216,7 +237,7 @@ func (s *Sweep) tell(agent, text string) {
 
 // settle records the terminal closed and forgets what was kept of it.
 func (s *Sweep) settle(handle string) error {
-	for _, k := range []string{askKey(handle), pidKey(handle), startKey(handle)} {
+	for _, k := range []string{askKey(handle), pidKey(handle), startKey(handle), reachedKey(handle), toldKey(handle)} {
 		if err := db.ClearCursor(s.Q, k); err != nil {
 			return err
 		}
