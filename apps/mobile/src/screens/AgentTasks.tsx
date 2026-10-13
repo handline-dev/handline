@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { agentTasks, CLOSED, dueOf, taskRef } from '@handline/app-core';
-import { useServes, useTasks } from '@handline/app-data';
+import { useAgentTasks, useServes } from '@handline/app-data';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
@@ -12,20 +12,9 @@ export function AgentTasks({ agent }: { agent: string }) {
   const c = usePalette();
   const { served } = useServes('tasks.list');
   const [open, setOpen] = useState<number | null>(null);
-  // Two reads, as on the web: the daemon pages tasks.list and filters by owner or by opener.
-  const held = useTasks({ all: true, owner: agent, limit: 200 });
-  const opened = useTasks({ all: true, from: agent, limit: 200 });
-  const query = {
-    isPending: held.isPending || opened.isPending,
-    isFetching: held.isFetching || opened.isFetching,
-    isError: held.isError || opened.isError,
-    error: held.error ?? opened.error,
-    data: held.data && opened.data ? [held.data, opened.data] : undefined,
-    refetch: () => Promise.all([held.refetch(), opened.refetch()]),
-  };
+  const { query, items, capped } = useAgentTasks(agent);
   const now = Date.now();
-  const rows = agentTasks([...(held.data?.items ?? []), ...(opened.data?.items ?? [])], agent, now);
-  const capped = !!(held.data?.more || opened.data?.more);
+  const rows = agentTasks(items, agent, now);
   if (open !== null) return <Detail id={open} onBack={() => setOpen(null)} />;
   return (
     <Loadable
@@ -56,7 +45,6 @@ export function AgentTasks({ agent }: { agent: string }) {
           return (
             <Pressable
               testID={`agent-task-${t.id}`}
-              accessibilityState={{ disabled: closed }}
               onPress={() => setOpen(t.id)}
               style={{
                 minHeight: 48,

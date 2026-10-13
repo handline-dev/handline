@@ -2,7 +2,7 @@
 // the same pane (the task detail of the Tasks page) and Back returns to the list.
 import { useMemo } from 'react';
 import { agentTasks, dueOf, openTask, taskRef, type RowVerb } from '@handline/app-core';
-import { useServes, useTasks } from '@handline/app-data';
+import { useAgentTasks, useServes } from '@handline/app-data';
 import { Icon } from './Icon.tsx';
 import { StateChip, useNow } from './taskui.tsx';
 import { TaskDetail } from './TaskDetail.tsx';
@@ -18,27 +18,13 @@ import { useWorkspace } from './Workspace.tsx';
 const CLOSED = ['done', 'discarded'];
 
 export function TasksTab({ agent, task = null }: { agent: string; task?: number | null }) {
-  // Two reads (not a client filter of one page): the daemon pages tasks.list and filters by owner or by opener.
-  const held = useTasks({ all: true, owner: agent, limit: 200 });
-  const opened = useTasks({ all: true, from: agent, limit: 200 });
-  const q = {
-    isPending: held.isPending || opened.isPending,
-    isFetching: held.isFetching || opened.isFetching,
-    isError: held.isError || opened.isError,
-    data: held.data && opened.data ? [held.data, opened.data] : undefined,
-    error: held.error ?? opened.error,
-    refetch: () => Promise.all([held.refetch(), opened.refetch()]),
-  };
-  const capped = !!(held.data?.more || opened.data?.more);
+  const { query: q, items, capped } = useAgentTasks(agent);
   const now = useNow();
   const { served } = useServes('tasks.list');
   const { apply } = useWorkspace();
   const open = task; // the open task lives in the tab's params, so a chat line can open one on a tab already there
   const setOpen = (id: number | null) => apply((w) => openTask(w, id));
-  const rows = useMemo(
-    () => agentTasks([...(held.data?.items ?? []), ...(opened.data?.items ?? [])], agent, now),
-    [held.data, opened.data, agent, now],
-  );
+  const rows = useMemo(() => agentTasks(items, agent, now), [items, agent, now]);
   const mine = useMemo(() => rows.map((r) => r.task), [rows]);
   const me = useStore().me;
   const cans = useVerbCans();
