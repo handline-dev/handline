@@ -977,7 +977,7 @@
      "required": false,
      "schema": {
       "type": "boolean",
-      "description": "Add the status-line fields of each agent (started, has_repo, has_terminal, screen_word, screen_detail, unreached, task_waits, wake_wait_reason), read now and not from the stored view. Default false."
+      "description": "Add the status-line fields of each agent (started, has_repo, has_terminal, screen_word, screen_detail, unreached, task_waits, wake_wait_reason), read at the call; screen_word and screen_detail may be as old as the stored view. Default false."
      }
     }
    ],

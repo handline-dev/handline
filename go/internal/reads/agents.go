@@ -155,9 +155,9 @@ func (e *Env) addStatusLine(roster *team.Roster, name string, view map[string]an
 	if e.Delivery == nil {
 		return nil
 	}
-	t, err := e.Delivery.Trigger(e.DB, name, row, row.Account.String)
-	if err == nil && !t.Applies && t.Reason != "" {
-		view["wake_wait_reason"] = t.Reason
+	why, err := e.Delivery.WakeWaitReason(e.DB, name, row)
+	if why != "" {
+		view["wake_wait_reason"] = why
 	}
 	return err
 }

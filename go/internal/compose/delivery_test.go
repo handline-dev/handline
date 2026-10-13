@@ -163,4 +163,28 @@ func TestTheTriggerOfAClosedAgentWhoseWakeIsWalledIsTheWaitTheDaemonPrints(t *te
 	if err != nil || want == "" || got != (reads.Trigger{Reason: want}) {
 		t.Fatalf("%+v %v, want the reason %q", got, err, want)
 	}
+	// agents.list says the same sentence in its status line, and nothing once the request is settled
+	srv := rpc.NewServer(founder{}, "x", store.LatestVersion(), "local", func(string, ...any) {})
+	srv.DB = d
+	reads.Register(srv, reads.Env{DB: d, Home: home, Delivery: p.Delivery()})
+	said := func() any {
+		t.Helper()
+		r := call(t, srv, `{"jsonrpc":"2.0","id":2,"method":"agents.list","params":{"status":true}}`)[0]
+		for _, a := range r["result"].(map[string]any)["agents"].([]any) {
+			if a := a.(map[string]any); a["name"] == "alice" {
+				return a["wake_wait_reason"]
+			}
+		}
+		t.Fatalf("alice is not listed: %v", r)
+		return nil
+	}
+	if got := said(); got != want {
+		t.Fatalf("agents.list: %v, want %q", got, want)
+	}
+	if _, err := d.Exec("UPDATE requests SET state = 'answered' WHERE target = 'alice'"); err != nil {
+		t.Fatal(err)
+	}
+	if got := said(); got != nil {
+		t.Fatalf("nothing wakes it, so nothing is walled: %v", got)
+	}
 }
