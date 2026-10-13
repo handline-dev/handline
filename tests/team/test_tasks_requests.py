@@ -2045,8 +2045,6 @@ def test_a_row_nobody_has_edge_checked_is_not_readable_by_its_target(home: Path)
         os.environ["OCP_AGENT"] = "reviewer"
         out = _capture(lambda: climod.main(["read", str(rid)]))
         check("edge: the target cannot read it", "unchecked body" not in out and "no request" in out, out)
-        out = _capture(lambda: climod.main(["inbox", "--all"]))
-        check("edge: nor list it", "unchecked body" not in out and f"#{rid}" not in out, out)
         con = db.connect()
         try:
             db.clear_edge(con, rid)
@@ -2054,8 +2052,6 @@ def test_a_row_nobody_has_edge_checked_is_not_readable_by_its_target(home: Path)
             con.close()
         out = _capture(lambda: climod.main(["read", str(rid)]))
         check("edge: once checked, the target reads it", "unchecked body" in out, out)
-        out = _capture(lambda: climod.main(["inbox", "--all"]))
-        check("edge: and lists it", f"#{rid}" in out, out)
     finally:
         if real_agent is None:
             os.environ.pop("OCP_AGENT", None)
@@ -2111,15 +2107,16 @@ edges:
     rc, out = _cli(["events"], as_agent=askmod.HUMAN)
     check("T39: plain `ocp events` as the human shows everyone",
           "note of marina" in out and "note of dohyun" in out, out)
-    rc, out = _cli(["inbox", "marina"], as_agent="marina")
-    check("T39: an agent lists its own inbox", rc == 0 and "secret of marina" in out, out)
-    rc, out = _cli(["inbox", "marina", "--all"], as_agent="manager")
-    check("T39: a supervisor lists its report's queue", rc == 0 and "secret of marina" in out, out)
+    with support.daemon_says("inbox.queue", support.queue_head):
+        rc, out = _cli(["inbox", "marina"], as_agent="manager")
+        check("listing: a supervisor lists its report's queue", rc == 0 and "secret of marina" in out, out)
+        rc, out = _cli(["inbox", "marina"], as_agent=askmod.HUMAN)
+        check("listing: the human lists any agent's queue", rc == 0 and "secret of marina" in out, out)
+        rc, out = _cli(["inbox", "marina"], as_agent="marina")
+        check("listing: an agent lists its own inbox", rc == 0 and "secret of marina" in out, out)
     rc, out = _cli(["inbox", "manager"], as_agent="marina")
     check("T39: a report may not list its supervisor's queue",
           rc == 1 and "may not list manager's messages" in out, out)
-    rc, out = _cli(["inbox", "marina", "--all"], as_agent=askmod.HUMAN)
-    check("T39: the human lists any agent's queue", rc == 0 and "secret of marina" in out, out)
     for cmd in (["inbox", "marina"], ["events"]):
         rc, out = _cli(cmd, as_agent=None)
         check(f"T39: a caller with no name is refused `ocp {' '.join(cmd)}`",
@@ -2150,10 +2147,10 @@ def test_inbox_and_withdraw_cli(home: Path) -> None:
     real_agent = os.environ.get("OCP_AGENT")
     try:
         os.environ["OCP_AGENT"] = "reviewer"
-        out = _capture(lambda: climod.main(["inbox"]))
+        with support.daemon_says("inbox.queue", support.queue_head):
+            out = _capture(lambda: climod.main(["inbox"]))
         check("inbox: shows the head's body", "task one" in out, out)
         check("inbox: not the one behind it", "task two" not in out, out)
-        check("inbox: says how many more are waiting", "1 more waiting" in out, out)
 
         con = db.connect()
         try:
@@ -2161,10 +2158,6 @@ def test_inbox_and_withdraw_cli(home: Path) -> None:
                   db.get_request(con, rid1)["delivered_at"] is not None)
         finally:
             con.close()
-
-        out = _capture(lambda: climod.main(["inbox", "--all"]))
-        check("inbox --all: shows the whole queue",
-              "task one" in out and "task two" in out, out)
 
         os.environ["OCP_AGENT"] = "backend"
         out = _capture(lambda: climod.main(["withdraw", str(rid2)]))
@@ -3262,13 +3255,6 @@ def test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(home: Path) -
 
     check("wait: --wait sits next to the positional instead of swallowing it",
           parser.parse_args(["inbox", "reviewer", "--wait"]).agent == "reviewer")
-    con = db.connect()
-    try:
-        seen = cliask._waiting_ids(con, "reviewer")
-    finally:
-        con.close()
-    check("wait: what is already on the list is not what a wait is waiting for",
-          rid2 in seen and rid not in seen, str(seen))
 
 
 def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
@@ -3480,13 +3466,6 @@ def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
         refused = [m for m in actions.messages(con) if m["id"] == rid2]
         check("mailbox: a refusal comes back, and says it is one",
               len(refused) == 1 and refused[0]["kind"] == "refused", str(refused))
-
-        # And the CLI holds the same rows, or clearing one leaves the other
-        # still asking.
-        os.environ["OCP_AGENT"] = actions.HUMAN
-        out = _capture(lambda: climod.main(["inbox", actions.HUMAN]))
-        os.environ.pop("OCP_AGENT", None)
-        check("mailbox: `hl inbox` shows the answer too", f"#{rid2}" in out, out[:200])
 
         actions.dismiss(con, rid2)
         check("mailbox: a dismiss clears it from both",
@@ -7087,11 +7066,6 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
             check(f"dismissed ({label}): hl read shows a state, not an answer",
                   rc == 0 and "--- dismissed" in out and "answered by" not in out
                   and "read - no reply" not in out, out)
-        rc, out = _cli(["inbox", "--all"], as_agent=askmod.HUMAN)
-        others = "\n".join(l for l in out.splitlines() if "what I mean" not in l)
-        check("dismissed: the founder's history says dismissed",
-              "dismissed by manager - dup of #9" in others and "read - no reply" not in others,
-              out)
 
         for legacy in (old, old_blank):         # as the upgrade leaves an untold old answer: it has a say
             db.add_answer(con, legacy, db.get_request(con, legacy)["answer"])

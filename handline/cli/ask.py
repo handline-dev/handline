@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import sys
-import time
 from pathlib import Path
 
 from .. import actions
@@ -10,7 +9,6 @@ from ..infra import names, timefmt
 from ..team import ask as askmod
 from .. import db
 from ..infra import textsafe
-from ..session import waiting
 
 from ..infra import daemonclient as dmn_client
 from ..infra.daemonclient import TIMEOUT_S, DaemonDown, RpcError
@@ -127,36 +125,15 @@ def cmd_cancel(args) -> int:
     return 0
 
 
-# A blocking wait polls; these are how often, and for how long by default. Ten
-# minutes is a while to hold a terminal, and an answer that has not come in ten
-# is usually one to go and look at.
-WAIT_POLL_S = 3
+# How long a --wait waits by default: ten minutes is a while to hold a terminal, and an answer that has not come in
+# ten is usually one to go and look at. The daemon holds one call for WAIT_MAX_S at most; a longer wait asks again.
 WAIT_DEFAULT_S = 600
 WAIT_MAX_S = 600
 
 
-def _wait_for(check, timeout: int, what: str) -> bool:
-    """Block until `check(con)` is true, or the timeout runs out. True if it came.
-
-    Polling, not a notification: what this waits on is another process writing
-    a row, and sqlite has nowhere to hang a listener. One connection serves the
-    whole wait - `db.connect` runs the schema and its migrations on every call.
-    """
-    deadline = time.time() + timeout
-    con = db.connect()
-    try:
-        while True:
-            if check(con):
-                return True
-            if time.time() >= deadline:
-                print(f"nothing after {timeout}s: {what}", file=sys.stderr)
-                return False
-            time.sleep(WAIT_POLL_S)
-    finally:
-        con.close()
-
-
 def cmd_inbox(args) -> int:
+    """An inbox as the daemon lists it (inbox.queue): an agent's is the head of its queue, the founder's the mailbox
+    folded to a line per agent; `--all` adds the history, or what the founder already dealt with."""
     agent = args.agent or askmod.asking_agent()
     if not agent:
         print(_who_refusal("read the inbox") if names.getenv("OCP_AGENT") else
@@ -165,54 +142,47 @@ def cmd_inbox(args) -> int:
         return 1
     if _refused_listing(agent):
         return 1
-    if args.wait:
-        con = db.connect()
-        try:
-            seen = _waiting_ids(con, agent)
-        finally:
-            con.close()
-        if not _wait_for(lambda c: _waiting_ids(c, agent) - seen, args.timeout,
-                         f"nothing new for {agent}"):
-            return 0  # nothing new is an outcome, not a failure
-
+    params = {"whose": agent, "all": bool(args.all)}
+    try:
+        got = client.call("inbox.queue", params)
+        left, since = (args.timeout, got["newest"]) if args.wait else (0, 0)
+        while left > 0:
+            hold = min(left, WAIT_MAX_S)
+            got = client.call("inbox.queue", {**params, "since": since, "wait_s": hold}, timeout=hold + TIMEOUT_S)
+            if got["newest"] > since:
+                break
+            left -= hold
+    except RpcError as e:
+        print(e)
+        return 1
+    except (DaemonDown, OSError) as e:
+        print(f"could not read the inbox: {e}", file=sys.stderr)
+        return 1
+    if args.wait and got["newest"] <= since:
+        print(f"nothing after {args.timeout}s: nothing new for {agent}", file=sys.stderr)
+        return 0  # nothing new is an outcome, not a failure
     if agent == actions.HUMAN:
-        return _human_inbox(args.all)
+        return _human_inbox(got, args.all)
     if args.all:
-        rows = askmod.inbox(agent, unread_only=False)
+        rows = got["history"]
         if not rows:
             print(f"{agent}: inbox empty")
             return 0
         print(f"{len(rows)} total. `hl read <id>` shows one whole.")
         for r in rows:
             print(f"#{r['id']:<5} from {r['requester']:<12} {r['state']:<9} "
-                  f"depth={r['chain_depth']} {textsafe.oneline(r['body'])[:60]}")
+                  f"depth={r['chain_depth']} {textsafe.oneline(r['line'])}")
         return 0
-
-    con = db.connect()
-    try:
-        head = db.head_of_queue(con, agent)
-        if not head:
-            print(f"{agent}: inbox empty")
-            return 0
-        more = db.queue_depth(con, agent) - 1
-    finally:
-        con.close()
+    head = got["head"]
+    if not head:
+        print(f"{agent}: inbox empty")
+        return 0
     print(f"#{head['id']} from {head['requester']}  depth={head['chain_depth']}")
     print()
     print(textsafe.text(head["body"] or "(empty)"))
-    from ..daemon import delivery
-    waiting = delivery.more_waiting(head["kind"], more)
-    if waiting:
-        print(f"\n{waiting}")
-    if head["kind"] == "task":
-        con = db.connect()
-        try:
-            closes = delivery.answer_verb(con, head)
-        finally:
-            con.close()
-    else:
-        closes = f"`hl say {head['requester']} --parent <id> \"<answer>\"` answers it"
-    print(f"\n{closes}. `hl inbox --all` shows the whole queue and its history.")
+    if head["more_waiting_line"]:
+        print(f"\n{textsafe.oneline(head['more_waiting_line'])}")
+    print(f"\n{textsafe.oneline(head['how_to_close'])}. `hl inbox --all` shows the whole queue and its history.")
     # Only a look at your own queue counts as being told - a foreign `hl inbox <name>` must not spend the
     # requester's withdraw/replace. Sent after the item is out, so a daemon slow to answer does not hold it back.
     if agent == askmod.asking_agent():
@@ -223,54 +193,24 @@ def cmd_inbox(args) -> int:
     return 0
 
 
-def _human_inbox(show_all: bool = False) -> int:
-    """The human's mailbox, which holds one more thing than an agent's.
-
-    An agent is told what came back to it by the daemon typing into its
-    terminal. Nobody types into a human, so an answer to something the human
-    asked has to be somewhere they look - and this command and `hl` have
-    to hold the same rows, or clearing one leaves the other still asking.
-
-    `--all` adds what has already been dealt with, the way it does everywhere
-    else. It used to fall through to the agent view, which has no answers in
-    it, so asking for more showed less.
-    """
-    con = db.connect()
-    try:
-        rows = actions.messages(con)
-        if not rows and not show_all:
-            print("nothing waiting on you")
-            return 0
-        # A count of messages, not of lines: read the same unfolded rows a
-        # fold draws from, not the fold's own line count.
-        print(f"{len(actions.mailbox_rows(con))} waiting. "
-              f"`hl read <id>` shows one whole.")
-        for m in rows:
-            mark = "!" if m["gate"] else ("<" if m["answer"] else ".")
-            behind = f" (+{m['unread'] - 1})" if m["unread"] > 1 else ""
-            print(f"{mark} #{m['id']:<5} {m['from']:<12} {(m['kind'] or 'ask'):<9} "
-                  f"{textsafe.oneline(actions.first_line(m['body']))[:60]}{behind}")
-        print("`hl say <who> --parent <id> \"<text>\"` answers one - a reply settles what it "
-              "answers, and on a `<` row it goes back in that thread.")
-        if show_all:
-            # Not the ones printed above: an answer that is still on the list is
-            # not "already dealt with", and printing it twice would say it was.
-            waiting = {m["id"] for m in rows}
-            done = con.execute(
-                "SELECT id, ts, requester, target, state, body, "
-                f"{db.DISMISSED_SQL}, {db.ANSWER_SQL} FROM requests "
-                "WHERE (target = ? OR requester = ?) AND state != 'queued' "
-                "ORDER BY id DESC LIMIT 20", (actions.HUMAN, actions.HUMAN)).fetchall()
-            done = [r for r in done if r["id"] not in waiting]
-            print(f"\n{len(done)} most recent, already dealt with:")
-            for r in done:
-                other = r["target"] if r["requester"] == actions.HUMAN else r["requester"]
-                arrow = "→" if r["requester"] == actions.HUMAN else "←"
-                print(f"  #{r['id']:<5} {arrow} {other:<12} {r['state']:<9} "
-                      f"{textsafe.oneline(actions.first_line(db.shown_verdict(r) or r['body']))[:60]}")
+def _human_inbox(got: dict, show_all: bool) -> int:
+    """The human's mailbox, which holds one more thing than an agent's: nobody types into a human, so an answer to
+    something the human asked is listed here too (`<`). `--all` adds what has already been dealt with."""
+    if not got["lines"] and not show_all:
+        print("nothing waiting on you")
         return 0
-    finally:
-        con.close()
+    print(f"{got['waiting']} waiting. `hl read <id>` shows one whole.")
+    for m in got["lines"]:
+        mark = "!" if m["decision"] else ("<" if m["answer"] else ".")
+        behind = f" (+{m['unread'] - 1})" if m["unread"] > 1 else ""
+        print(f"{mark} #{m['id']:<5} {m['from']:<12} {m['kind']:<9} {textsafe.oneline(m['line'])}{behind}")
+    print("`hl say <who> --parent <id> \"<text>\"` answers one - a reply settles what it "
+          "answers, and on a `<` row it goes back in that thread.")
+    if show_all:
+        print(f"\n{len(got['dealt'])} most recent, already dealt with:")
+        for r in got["dealt"]:
+            print(f"  #{r['id']:<5} {'→' if r['outgoing'] else '←'} {r['agent']:<12} {r['state']:<9} {textsafe.oneline(r['line'])}")
+    return 0
 
 
 def _who_refusal(verb: str) -> str:
@@ -302,20 +242,6 @@ SETTLED = ("landed", *db.NEVER_REACHED_TARGET)
 # here silently reads as "answered by {target}" again).
 _NEVER_ANSWERED_HEADERS = {"denied": "refused", "withdrawn": "withdrawn",
                            "replaced": "replaced"}
-
-
-def _waiting_ids(con, agent: str) -> set:
-    """The request ids currently on this agent's list, human or not.
-
-    The human's own list is read unfolded (`mailbox_rows`, not `messages`):
-    a wait is for a new row landing, and a fold can leave the id set
-    unchanged - a new row ties the folded representative's time and loses the
-    tiebreak - although something real just arrived.
-    """
-    if agent == actions.HUMAN:
-        return {r["id"] for r in actions.mailbox_rows(con)}
-    return {r["id"] for r in askmod.inbox(agent, unread_only=False)
-            if r["state"] not in SETTLED}
 
 
 def cmd_read(args) -> int:

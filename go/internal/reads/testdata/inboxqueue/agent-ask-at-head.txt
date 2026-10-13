@@ -1,0 +1,8 @@
+#3 from amy  depth=2
+
+a long first line a long first line a long first line a long first line a long first line a long first line 
+second line
+
+3 more waiting - the next comes when you answer this one.
+
+`hl say amy --parent <id> "<answer>"` answers it. `hl inbox --all` shows the whole queue and its history.

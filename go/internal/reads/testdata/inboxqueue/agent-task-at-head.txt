@@ -1,0 +1,7 @@
+#4 from cy  depth=0
+
+T1 handed to you
+
+2 more waiting - the next comes when you hand this on or finish it.
+
+you own T1 now: hand it on with `hl task handoff T1 <agent> "<note>"`, or `hl task done T1` if you are its last step. `hl inbox --all` shows the whole queue and its history.

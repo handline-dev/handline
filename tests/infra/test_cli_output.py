@@ -130,6 +130,19 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         # `write-handoff` reads the agent's own terminal for the handoff, which
         # there is none of here: stand in for that step and print what it stored.
         handoffmod.record = lambda con, agent: []
+
+        def queue(params: dict) -> dict:
+            """inbox.queue is the Go daemon's: every string of its reply is text somebody typed, given here as it would come."""
+            if params["whose"] == "human":
+                return {"whose": "human", "newest": h, "head": None, "waiting": 1, "lines": [
+                    {"id": h, "from": "reviewer", "kind": "ask", "decision": True, "answer": False, "line": f"decision {p}", "unread": 1}],
+                    "dealt": [{"id": d, "outgoing": False, "agent": "backend", "state": "landed", "line": f"verdict {p}"}]}
+            return {"whose": params["whose"], "newest": q, "history": [
+                {"id": q, "requester": "marina", "state": "queued", "chain_depth": 0, "line": f"body {p} end"}], "head": {
+                "id": q, "requester": "marina", "chain_depth": 0, "body": f"body {p} end\n\tsecond {p}", "more_waiting": 1,
+                "more_waiting_line": f"1 more waiting {p}", "how_to_close": f"answer {p}"}}
+        says = support.daemon_says("inbox.queue", queue)
+        says.__enter__()
         try:
             run_it(["fold", "reviewer", "--account", "alpha"], key="fold reviewer (model lost a done item)")
             for leaf, runs in driven.items():
@@ -141,6 +154,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             run_it(*driven["withdraw"][0][:2], key=driven["withdraw"][0][2])
             run_it(driven["unstall"][0])
         finally:
+            says.__exit__(None, None, None)
             foldmod.run_model, handoffmod.record = real_model, real_record
         scene.driven = driven
         return out
@@ -482,12 +496,79 @@ def test_read_prints_the_daemons_request(home: Path) -> None:
         cliclient.call = real
 
 
+def test_inbox_prints_the_daemons_queue(home: Path) -> None:
+    """`hl inbox` draws inbox.queue's reply; --wait asks for what is newer than the newest it first saw."""
+    from handline.cli import client as cliclient
+    _daemon_home(home, 20)
+    head = {"id": 7, "requester": "backend", "chain_depth": 1, "body": "do \x9b31mthis", "more_waiting": 2,
+            "more_waiting_line": "2 more waiting - the next comes when you answer this one.",
+            "how_to_close": "answer with `hl say backend --parent 7 \"<answer>\"`"}
+    replies, asked, marks = [], [], []
+    real = cliclient.call, cliclient.write
+
+    def call(method, params=None, start=True, timeout=None):
+        asked.append((method, params))
+        return replies.pop(0)
+    cliclient.call = call
+    cliclient.write = lambda method, params: (marks.append((method, params)), (True, "item 7 read"))[1]
+    saved = os.environ.get("OCP_AGENT")
+    os.environ["OCP_AGENT"] = "reviewer"
+    try:
+        replies[:] = [{"whose": "reviewer", "newest": 7, "head": head}]
+        rc, out = _run_main(["inbox"])
+        check("inbox: the head, what waits behind it and how to close it, then the mark for what was shown",
+              rc == 0 and asked == [("inbox.queue", {"whose": "reviewer", "all": False})] and out.startswith("#7 from backend  depth=1\n")
+              and "\x9b" not in out and "2 more waiting" in out and "--parent 7" in out
+              and marks == [("inbox.mark_read", {"ids": [7]})], f"{asked} {marks} {out}")
+        del asked[:], marks[:]
+        replies[:] = [{"whose": "reviewer", "newest": 7, "head": head}, {"whose": "reviewer", "newest": 7, "head": head},
+                      {"whose": "reviewer", "newest": 7, "head": head}]
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc, out = _run_main(["inbox", "--wait", "--timeout", "700"])
+        check("inbox --wait: nothing newer in 700 s is two held calls, exit 0, nothing printed and nothing marked",
+              rc == 0 and [(p.get("since"), p.get("wait_s")) for _m, p in asked] == [(None, None), (7, 600), (7, 100)] and out == ""
+              and marks == [] and "nothing new for reviewer" in err.getvalue(), f"{asked} {out!r} {err.getvalue()!r}")
+        del asked[:]
+        replies[:] = [{"whose": "reviewer", "newest": 7, "head": None}, {"whose": "reviewer", "newest": 9, "head": {**head, "id": 9}}]
+        rc, out = _run_main(["inbox", "--wait"])
+        check("inbox --wait: something newer ends the wait and is shown", rc == 0 and len(asked) == 2 and out.startswith("#9 from"), out)
+        replies[:] = [{"whose": "reviewer", "newest": 9, "head": None, "history": [
+            {"id": 7, "requester": "backend", "state": "landed", "chain_depth": 1, "line": "do this"}]}]
+        rc, out = _run_main(["inbox", "--all"])
+        check("inbox --all: the history, a row each", rc == 0 and "1 total." in out and "#7     from backend      landed    depth=1 do this" in out, out)
+        os.environ["OCP_AGENT"] = askmod.HUMAN
+        replies[:] = [{"whose": "human", "newest": 9, "head": None, "waiting": 3, "lines": [
+            {"id": 4, "from": "backend", "kind": "task", "decision": True, "answer": False, "line": "pick one", "unread": 1},
+            {"id": 9, "from": "reviewer", "kind": "answer", "decision": False, "answer": True, "line": "done", "unread": 3}],
+            "dealt": [{"id": 2, "outgoing": True, "agent": "backend", "state": "landed", "line": "ok"}]}]
+        del marks[:]
+        rc, out = _run_main(["inbox", "human", "--all"])
+        check("inbox human: the count, a decision and a folded answer, what was dealt with, and no mark",
+              rc == 0 and "3 waiting." in out and "! #4     backend      task      pick one\n" in out
+              and "< #9     reviewer     answer    done (+2)" in out and "1 most recent, already dealt with:" in out
+              and "  #2     → backend      landed    ok" in out and marks == [], out)
+
+        def refused(method, params=None, start=True, timeout=None):
+            raise dmn_client.RpcError({"message": "reviewer may not list backend's messages", "data": {"code": "refused"}})
+        cliclient.call = refused
+        rc, out = _run_main(["inbox", "human"])
+        check("inbox: the daemon's refusal is printed, exit 1", rc == 1 and "may not list" in out, out)
+    finally:
+        cliclient.call, cliclient.write = real
+        if saved is None:
+            os.environ.pop("OCP_AGENT", None)
+        else:
+            os.environ["OCP_AGENT"] = saved
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_no_command_prints_what_a_terminal_would_obey(Path(td) / 'cli'))
         run(lambda: test_triggers_draws_the_daemons_verdicts(Path(td) / 'trig'))
         run(lambda: test_status_prints_the_daemons_pick(Path(td) / 'status'))
         run(lambda: test_read_prints_the_daemons_request(Path(td) / 'read'))
+        run(lambda: test_inbox_prints_the_daemons_queue(Path(td) / 'inbox'))
         run(lambda: test_ps_and_team_draw_the_daemons_status_lines(Path(td) / 'ps'))
     return run_area(tests)
 

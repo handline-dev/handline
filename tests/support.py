@@ -163,6 +163,31 @@ _served_call = _cli_client.call
 _cli_client.call = lambda method, params=None, **kw: (_request_read(params) if method == "request.read"
                                                       else _served_call(method, params, **kw))
 
+@contextlib.contextmanager
+def daemon_says(method: str, reply):
+    """`hl`'s call of `method` gets `reply`, or `reply(params)`: for a method only the Go daemon serves."""
+    real = _cli_client.call
+    _cli_client.call = lambda m, params=None, **kw: ((reply(params) if callable(reply) else reply) if m == method
+                                                     else real(m, params, **kw))
+    try:
+        yield
+    finally:
+        _cli_client.call = real
+
+
+def queue_head(params: dict) -> dict:
+    """An inbox.queue reply that carries only the head of the named agent's queue, read from the database. What waits behind it,
+    how to close it, the history and the founder's mailbox are the Go daemon's and are tested there."""
+    con = db.connect()
+    try:
+        head = db.head_of_queue(con, params["whose"])
+    finally:
+        con.close()
+    return {"whose": params["whose"], "newest": head["id"] if head else 0, "history": [], "head": head and {
+        "id": head["id"], "requester": head["requester"], "chain_depth": head["chain_depth"], "body": head["body"],
+        "more_waiting": 0, "more_waiting_line": None, "how_to_close": "answer it"}}
+
+
 REAL_CLI_CONNECT = _cli_client.connect  # for a test that puts its own socket under the real call
 _cli_client.connect = _serve_cli
 

@@ -3975,11 +3975,8 @@ def test_a_wake_reads_the_screen_before_typing_into_it(home: Path) -> None:
         row = db.get_agent_state(con, "backend")
         check("wake: the agent is stalled instead of retried into the same screen",
               row["state"] == dmn_states.STALLED, str(dict(row)))
-        os.environ["OCP_AGENT"] = "human"
-        printed = _capture(lambda: climod.main(["inbox", "human"]))
-        os.environ.pop("OCP_AGENT", None)
-        check("wake: and the founder's own queue is told, not just the screen",
-              "trust" in printed.lower() and "backend" in printed, printed)
+        told = [m for m in actions.messages(con) if m["from"] == "backend" and "trust" in (m["body"] or "").lower()]
+        check("wake: and the founder's own queue is told, not just the screen", told, str(actions.messages(con)))
 
         termmod.trust_prompt_showing = lambda h: False
         db.set_agent_state(con, "backend", dmn_states.PARKED, detail="reset for the next case")

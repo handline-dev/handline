@@ -1,0 +1,7 @@
+7 waiting. `hl read <id>` shows one whole.
+! #5     bob          task      approve the plan
+. #4     bob          ask       which one?
+. #3     amy          say       report two (+1)
+< #6     cy           answer    done as asked
+. #10    dee          ask       no kind
+`hl say <who> --parent <id> "<text>"` answers one - a reply settles what it answers, and on a `<` row it goes back in that thread.

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -21,36 +20,6 @@ func queueOf(t *testing.T, e *Env, c *rpc.Conn, params map[string]any) map[strin
 		t.Fatal(err)
 	}
 	return got.(map[string]any)
-}
-
-// Python's hl inbox (cmd_inbox in handline/cli/ask.py) on the database the Go method reads, run as the founder.
-const pythonInbox = `
-import os, sys, types
-sys.path.insert(0, os.getcwd())
-from handline.cli import ask
-from handline.team import ask as askmod
-askmod.asking_agent = lambda: "human"
-sys.exit(ask.cmd_inbox(types.SimpleNamespace(agent=sys.argv[1], all=sys.argv[2] == "all", wait=False, timeout=0)))
-`
-
-func pythonHlInbox(t *testing.T, home, whose string, all bool) string {
-	t.Helper()
-	root, _ := filepath.Abs("../../..")
-	flag := "head"
-	if all {
-		flag = "all"
-	}
-	cmd := exec.Command("python3", "-I", "-c", pythonInbox, whose, flag)
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "OCP_HOME="+home, "HANDLINE_HOME="+home, "HANDLINE_TEST_ROOT="+filepath.Dir(home), "OCP_TEST_ROOT="+filepath.Dir(home))
-	out, err := cmd.CombinedOutput()
-	if errors.Is(err, exec.ErrNotFound) {
-		t.Skip("no python3:", err)
-	}
-	if err != nil {
-		t.Fatalf("the Python hl inbox failed: %v: %s", err, out)
-	}
-	return string(out)
 }
 
 // drawn is the reply as cmd_inbox prints it: only layout is added here, every word of a request and every sentence is the daemon's.
@@ -114,25 +83,37 @@ func drawn(q map[string]any, all bool) string {
 	return b.String()
 }
 
-func sameAsPython(t *testing.T, e *Env, whose string) {
+// printsAs holds the reply, drawn, to what the Python hl inbox printed of the same rows when it still read the database itself
+// (testdata/inboxqueue, written from this test while the two agreed). UPDATE_GOLDEN=1 rewrites the files.
+func printsAs(t *testing.T, e *Env, whose, name string) {
 	t.Helper()
 	for _, all := range []bool{false, true} {
 		got := drawn(queueOf(t, e, asFounder, map[string]any{"whose": whose, "all": all}), all)
-		if want := pythonHlInbox(t, e.Home, whose, all); got != want {
-			t.Errorf("hl inbox %s (all %v)\nGo:\n%s\nPython:\n%s", whose, all, got, want)
+		file := filepath.Join("testdata", "inboxqueue", name+map[bool]string{false: ".txt", true: "-all.txt"}[all])
+		if os.Getenv("UPDATE_GOLDEN") != "" {
+			if err := os.WriteFile(file, []byte(got), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != string(want) {
+			t.Errorf("hl inbox %s (all %v)\ngot:\n%s\nwant:\n%s", whose, all, got, want)
 		}
 	}
 }
 
-func TestInboxQueueOfAnAgentPrintsAsThePythonHlInbox(t *testing.T) {
+func TestInboxQueueOfAnAgentPrintsAsHlInboxDid(t *testing.T) {
 	e := testEnv(t)
-	sameAsPython(t, e, "bob") // empty
+	printsAs(t, e, "bob", "agent-empty") // empty
 	long := strings.Repeat("a long first line ", 6)
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, chain_depth) VALUES"+
 		"(1, 1, 'amy', 'bob', 'old news', 'landed', 'ask', 1, 0), (2, 2, 'amy', 'bob', 'fyi', 'queued', 'say', 1, 0), "+
 		"(3, 3, 'amy', 'bob', ?, 'queued', 'ask', 1, 2), (4, 4, 'cy', 'bob', 'T1 handed to you', 'queued', 'task', 1, 0), "+
 		"(5, 5, 'cy', 'bob', 'not routed yet', 'queued', 'ask', 0, 0), (6, 6, 'cy', 'bob', 'taken back', 'withdrawn', 'ask', 1, 0)", long+"\nsecond line")
-	sameAsPython(t, e, "bob") // an ask at the head, a say and a task behind it
+	printsAs(t, e, "bob", "agent-ask-at-head") // an ask at the head, a say and a task behind it
 	got := queueOf(t, e, asBob, nil)
 	if head := got["head"].(map[string]any); head["id"] != int64(3) || head["more_waiting"] != 3 || got["newest"] != int64(4) {
 		t.Fatalf("the head is the oldest queued request that is not a say, and newest the newest still open: %v", got)
@@ -140,14 +121,14 @@ func TestInboxQueueOfAnAgentPrintsAsThePythonHlInbox(t *testing.T) {
 	run(t, e, "UPDATE requests SET state = 'landed' WHERE id = 3")
 	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 't', 'bob', 'cy', 1)")
 	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 4)")
-	sameAsPython(t, e, "bob") // a task at the head
+	printsAs(t, e, "bob", "agent-task-at-head") // a task at the head
 	run(t, e, "UPDATE requests SET state = 'landed' WHERE id = 4")
-	sameAsPython(t, e, "bob") // only a say left: no head
+	printsAs(t, e, "bob", "agent-only-a-say") // only a say left: no head
 }
 
-func TestInboxQueueOfTheFounderPrintsAsThePythonHlInbox(t *testing.T) {
+func TestInboxQueueOfTheFounderPrintsAsHlInboxDid(t *testing.T) {
 	e := testEnv(t)
-	sameAsPython(t, e, human) // nothing waiting
+	printsAs(t, e, human, "founder-empty") // nothing waiting
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, response, landed_at) VALUES"+
 		"(1, 10, 'amy', 'human', 'seen before', 'landed', 'say', 1, NULL, 10), (2, 20, 'amy', 'human', 'report one', 'landed', 'say', 1, NULL, 20), "+
 		"(3, 30, 'amy', 'human', 'report two\nmore', 'landed', 'say', 1, NULL, 30), (4, 40, 'bob', 'human', 'which one?', 'queued', 'ask', 1, 'async', NULL), "+
@@ -159,7 +140,7 @@ func TestInboxQueueOfTheFounderPrintsAsThePythonHlInbox(t *testing.T) {
 	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 5)")
 	run(t, e, "INSERT INTO cursors(name, row_id, updated) VALUES('for_you_seen:amy', 1, 1)")
 	run(t, e, `INSERT INTO events(ts, agent, kind, payload) VALUES(91, 'human', 'dismissed', '{"request_id": 9, "by": "human", "reason": "stale"}')`)
-	sameAsPython(t, e, human)
+	printsAs(t, e, human, "founder-mailbox")
 	got := queueOf(t, e, asFounder, nil)
 	if got["waiting"] != 7 || got["newest"] != int64(10) || got["head"] != nil || got["dealt"] != nil {
 		t.Fatalf("%v", got)
