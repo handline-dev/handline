@@ -5891,9 +5891,9 @@ def test_the_owner_records_what_its_task_waits_on_and_task_show_reads_it_whole(h
     _cli(["task", "memo", f"T{tid}", "add", "a correction"], as_agent="manager")
     _cli(["task", "edit", f"T{tid}", "--blocked-by", f"T{t_blocker}"], as_agent="manager")
     rc, out = _cli(["task", "show", f"T{tid}"], as_agent="worker")
-    check("show: title, owner, brief, memo and blocker are all there",
+    check("show: title, assignee, brief, memo and blocker are all there",
           rc == 0 and "show me" in out and "the whole brief, kept in the request" in out
-          and "a correction" in out and f"T{t_blocker} (manager)" in out and "owner worker" in out, out)
+          and "a correction" in out and f"T{t_blocker} (manager)" in out and "assignee worker" in out, out)
     rc, out = _cli(["task", "show", "T99999"], as_agent="worker")
     check("show: a task that does not exist says so", rc == 1 and "no task T99999" in out, out)
 
