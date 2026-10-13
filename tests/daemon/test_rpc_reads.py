@@ -311,8 +311,29 @@ def test_the_commands_the_read_methods_serve_still_work_from_an_agent_session(ho
     check("hl task show: an owner apart from the opener names the opener, and the change is listed",
           "assignee worker   owner human   opened by manager" in out and "assignee and owner changes" in out
           and "owner " in out.split("assignee and owner changes", 1)[-1] and ", by manager" in out, f"{edited}\n{out}")
+    from handline.cli import client as cli_client
+
+    def head():
+        con = db.connect()
+        try:
+            return db.head_of_queue(con, "worker")
+        finally:
+            con.close()
+    first = head()
+    sent, real = [], cli_client.write
+    cli_client.write = lambda method, params: (sent.append((method, params)), (False, "daemon not running, nothing done: down"))[1]
+    err = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(err):
+            rc, out = support._cli(["inbox"], as_agent="worker")
+    finally:
+        cli_client.write = real
+    check("hl inbox: the read mark is the daemon's write, and without it the item is shown and says it is not marked",
+          first is not None and rc == 0 and f"#{first['id']} from" in out and sent == [("inbox.mark_read", {"ids": [first["id"]]})]
+          and "not marked read: daemon not running" in err.getvalue() and not head()["landed_at"], f"{out}\n{err.getvalue()}")
     rc, out = support._cli(["inbox"], as_agent="worker")
-    check("hl inbox: works at role agent", rc == 0, out)
+    check("hl inbox: works at role agent, and the item it shows is read", rc == 0 and f"#{first['id']} from" in out
+          and head()["delivered_at"] and head()["landed_at"], out)
 
 
 def test_task_done_sends_the_commit_and_shots_and_task_show_prints_them(home: Path) -> None:

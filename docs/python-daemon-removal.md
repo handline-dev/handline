@@ -24,7 +24,7 @@ process beside the Go daemon. Those are the **switch** rows: the module goes onc
 | `devmode` | 174 | `cli/daemon`, `cli/bridge`, `cli/health`, `team/hr` | move | Moved: `dev_mode_enabled` and `set_dev_mode` are `handline/infra/devmode.py`. The file watcher that restarts the Python daemon stays for step 4 (Go has `tick/devmode.go`); `cli/health` still reads its file list. |
 | `lifecycle` | 1,419 | `cli/agent`, `actions/control`, `actions/stuck`, `session/blocked`, `session/launch`, `team/ask`, `view/viewdata` | switch | `hl resume` wakes the agent in its own process: call `session.wake`. Done: `hl triggers` reads `agent.triggers`, `hl status` reads `status.pick`, and `hl ps` and `hl team` read `wake_wait_reason` of `agents.list` with `status: true`. |
 | `handoff` | 681 | `cli/agent`, `actions/control` | switch | `hl agent move` moves the agent itself: call `agent.move`. |
-| `delivery` | 1,531 | `cli/ask`, `actions/control`, `actions/stuck`, `session/blocked`, `session/handoff`, `session/stopgate`, `team/ask`, `team/spawn`, `ui`, `view/viewdata` | switch | `hl inbox` and `hl read` use three text helpers and mark requests read themselves: call `inbox.list`, `inbox.get`, `inbox.mark_read`. The rest is typing at sessions, the Go daemon's. |
+| `delivery` | 1,531 | `cli/ask`, `actions/control`, `actions/stuck`, `session/blocked`, `session/handoff`, `session/stopgate`, `team/ask`, `team/spawn`, `ui`, `view/viewdata` | switch | Done: `hl inbox` marks the item it shows read with `inbox.mark_read`. `hl inbox` and `hl read` still use three text helpers and read the requests themselves: an `Item` of `inbox.list` and `inbox.get` has no requester and target, state, depth, relation, parent, answer text or dismissal, and names no head of the queue. The rest is typing at sessions, the Go daemon's. |
 | `taskholds` | 170 | - | switch | Done: `hl team` reads why a task waits from `task_waits` of `agents.list` with `status: true`. |
 | `screenstate` | 193 | `view/viewdata`, `ui` | switch | The word a row shows. Done for `hl ps` and `hl team`: `screen_word` of `agents.list` with `status: true`. The terminal UI still reads it through `viewdata`. |
 | `agentview` | 195 | `view/viewdata` | switch | As `screenstate`. |
@@ -45,8 +45,9 @@ imported from outside, and `cmd_daemon*`, `cmd_dev_mode` are names of `cli/daemo
 1. Done with this survey: `hl service use python` is refused, by the command and by the proposal path in both daemons.
 2. Done: the keep and move rows are out of `handline/daemon` (see their rows). What is left of `locks`, `states`,
    `schedules` and `devmode` there is deleted in step 4.
-3. Switch the commands, one method at a time. Done: `hl triggers`, `hl status`, `hl ps`, `hl team`. Next: `hl resume`,
-   `hl agent move`, `hl inbox` and `hl read`.
+3. Switch the commands, one method at a time. Done: `hl triggers`, `hl status`, `hl ps`, `hl team`, and the read mark
+   of `hl inbox`. Next: `hl resume`, `hl agent move`, and the rest of `hl inbox` and `hl read` once the Go methods carry it
+   (the `delivery` row).
 4. Delete `handline/daemon`, `hl daemon`, and the tests that only exercise it: 65 test files import the package, 48 of
    them in `tests/daemon`.
 
