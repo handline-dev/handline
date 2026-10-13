@@ -231,21 +231,9 @@ func urgent(result string) bool {
 // written in this transaction. The opener's say is typed at once; also's are notices for the digest unless the result is urgent (a done
 // task that says it failed). Whoever only passed the task along (a linked delivery's asker) hears only an urgent result.
 func endTask(tx *sql.Tx, home string, tid int64, by string, t *task, text string, urgentResult bool, also []string) ([]told, []db.InboxFile, error) {
-	reqs, err := taskRequests(tx, tid)
+	reqs, forget, err := closeDeliveries(tx, tid)
 	if err != nil {
 		return nil, nil, err
-	}
-	var forget []db.InboxFile
-	for _, r := range reqs {
-		if r.State == "queued" {
-			closed, err := closeQueuedQuietly(tx, r)
-			if err != nil {
-				return nil, nil, err
-			}
-			if closed {
-				forget = append(forget, db.InboxFile{Target: r.Target, RID: r.ID})
-			}
-		}
 	}
 	skip := map[string]bool{by: true, noticeFrom: true}
 	if t.Parent.Valid {
@@ -293,6 +281,27 @@ func endTask(tx *sql.Tx, home string, tid int64, by string, t *task, text string
 		out = append(out, told{RID: rid, To: to, Text: text})
 	}
 	return out, forget, nil
+}
+
+// closeDeliveries closes the task's queued requests quietly: the requests linked to it, and the inbox files of those it closed.
+func closeDeliveries(tx *sql.Tx, tid int64) ([]linked, []db.InboxFile, error) {
+	reqs, err := taskRequests(tx, tid)
+	if err != nil {
+		return nil, nil, err
+	}
+	var forget []db.InboxFile
+	for _, r := range reqs {
+		if r.State == "queued" {
+			closed, err := closeQueuedQuietly(tx, r)
+			if err != nil {
+				return nil, nil, err
+			}
+			if closed {
+				forget = append(forget, db.InboxFile{Target: r.Target, RID: r.ID})
+			}
+		}
+	}
+	return reqs, forget, nil
 }
 
 // clearBlocksOn drops every block row naming tid after it was discarded, and for each task left with no open blocker writes the

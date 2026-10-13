@@ -15,16 +15,18 @@ type task struct {
 	ID                                  int64
 	Owner, OpenedBy, Title              string
 	DoneEvidence, DiscardedBy, QueuedBy sql.NullString
-	Reporter                            sql.NullString
-	SentAt                              sql.NullInt64
+	Reporter, Report, ReportVia         sql.NullString
+	SentAt, ReportedAt                  sql.NullInt64
 	TimeoutS                            sql.NullInt64
 	Parent                              sql.NullInt64
 }
 
 func getTask(tx *sql.Tx, tid int64) (*task, error) {
 	t := &task{ID: tid}
-	err := tx.QueryRow("SELECT owner, opened_by, title, done_evidence, discarded_by, queued_by, sent_at, timeout_s, parent_task, reporter FROM tasks WHERE id = ?", tid).
-		Scan(&t.Owner, &t.OpenedBy, &t.Title, &t.DoneEvidence, &t.DiscardedBy, &t.QueuedBy, &t.SentAt, &t.TimeoutS, &t.Parent, &t.Reporter)
+	err := tx.QueryRow("SELECT owner, opened_by, title, done_evidence, discarded_by, queued_by, sent_at, timeout_s, parent_task, reporter, "+
+		"reported_at, report, report_via FROM tasks WHERE id = ?", tid).
+		Scan(&t.Owner, &t.OpenedBy, &t.Title, &t.DoneEvidence, &t.DiscardedBy, &t.QueuedBy, &t.SentAt, &t.TimeoutS, &t.Parent, &t.Reporter,
+			&t.ReportedAt, &t.Report, &t.ReportVia)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -32,6 +34,9 @@ func getTask(tx *sql.Tx, tid int64) (*task, error) {
 }
 
 func (t *task) done() bool { return t.DoneEvidence.Valid && t.DoneEvidence.String != "" }
+
+// reported is whether its assignee's done waits on the reporter's accept or reject.
+func (t *task) reported() bool { return t.ReportedAt.Valid && !t.done() }
 
 // reporter is db.task_reporter: who the task answers to, its opener when none was set.
 func (t *task) reporter() string {
@@ -92,7 +97,7 @@ func holdsCurrent(tx *sql.Tx, t *task) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return cur == nil || cur.done() || cur.DiscardedBy.Valid && cur.DiscardedBy.String != "", nil
+	return cur == nil || cur.done() || cur.reported() || cur.DiscardedBy.Valid && cur.DiscardedBy.String != "", nil
 }
 
 // isDoing is reads_doing and holds_current: sent, or an open child sent, or begun on a founder message; and the one its owner holds.
@@ -104,13 +109,16 @@ func isDoing(tx *sql.Tx, t *task) (bool, error) {
 	return holdsCurrent(tx, t)
 }
 
-// state is task_state: discarded, done, doing (asked and held by its owner), else queued (approved, or asked but held back) or draft.
+// state is task_state: discarded, done, reported, doing (asked and held by its owner), else queued (approved, or asked but held back) or
+// draft.
 func state(tx *sql.Tx, t *task) (string, error) {
 	switch {
 	case t.DiscardedBy.Valid && t.DiscardedBy.String != "":
 		return "discarded", nil
 	case t.done():
 		return "done", nil
+	case t.reported():
+		return "reported", nil
 	}
 	asked, err := readsDoing(tx, t)
 	if err != nil {
