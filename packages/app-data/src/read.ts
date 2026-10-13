@@ -113,4 +113,4 @@ export const useDevices = () => useRead('devices.list', {});
 export const useOperation = (operation: string) => useRead('operation.get', { operation });
 /** Where a message number sits (its chat and scope); `enabled` false reads nothing until a message number is clicked. */
 export const useChatLocate = (params: CallParams<'chat.locate'>, enabled = true) => useRead('chat.locate', params, { enabled });
-export const useChatSearch = (params: CallParams<'chat.search'>) => useRead('chat.search', params);
+export const useChatSearch = (params: CallParams<'chat.search'>, enabled = true) => useRead('chat.search', params, { enabled });
