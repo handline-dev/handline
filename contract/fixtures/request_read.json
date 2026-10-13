@@ -1,0 +1,255 @@
+{
+ "fixtures": [
+  {
+   "name": "request.read.a_reply_names_both_ends_and_its_parent",
+   "spec": "request.read",
+   "about": "NOT_YET_IN_PYTHON A reply is read whole: both ends, its state, and the first line of what it answers (needs --var ask_agent: an agent with one open question to the person, `which one?`).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "to": "human",
+        "answer": null,
+        "id": {
+         "$type": "integer",
+         "$save": "ask"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "the second\nplease",
+       "parent": "{{ask}}",
+       "request_id": "conf-rr-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$above": "ask",
+       "$save": "reply"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "request.read",
+      "params": {
+       "id": "{{reply}}"
+      }
+     },
+     "result": {
+      "id": "{{reply}}",
+      "requester": "human",
+      "target": "{{ask_agent}}",
+      "kind": {
+       "$type": "string"
+      },
+      "state": {
+       "$type": "string"
+      },
+      "created": {
+       "$type": "timestamp"
+      },
+      "relation": {
+       "$oneOf": [
+        {
+         "$type": "string"
+        },
+        null
+       ]
+      },
+      "response": {
+       "$oneOf": [
+        {
+         "$type": "string"
+        },
+        null
+       ]
+      },
+      "chain_depth": {
+       "$type": "integer"
+      },
+      "parent": {
+       "id": "{{ask}}",
+       "line": "which one?"
+      },
+      "body": "the second\nplease",
+      "answer": null,
+      "dismissal": null
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "request.read",
+      "params": {
+       "id": "{{ask}}"
+      }
+     },
+     "result": {
+      "id": "{{ask}}",
+      "requester": "{{ask_agent}}",
+      "target": "human",
+      "parent": null,
+      "body": "which one?"
+     }
+    }
+   ]
+  },
+  {
+   "name": "request.read.unknown_request_is_not_found",
+   "spec": "request.read",
+   "about": "NOT_YET_IN_PYTHON A request that does not exist is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "request.read",
+      "params": {
+       "id": 999999999
+      }
+     },
+     "error": {
+      "code": -32001,
+      "message": {
+       "$regex": "."
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "request.read.id_is_a_number",
+   "spec": "request.read",
+   "about": "NOT_YET_IN_PYTHON An id that is not a number is invalid params naming id.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "request.read",
+      "params": {
+       "id": "seven"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "bad_request",
+       "field": "id"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "request.read.wait_is_bounded",
+   "spec": "request.read",
+   "about": "NOT_YET_IN_PYTHON wait_s over 600 is invalid params naming wait_s.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "request.read",
+      "params": {
+       "id": 1,
+       "wait_s": 601
+      }
+     },
+     "error": {
+      "code": -32602,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "bad_request",
+       "field": "wait_s"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -3875,6 +3875,182 @@
    ]
   },
   {
+   "name": "request.read",
+   "summary": "One request whole, as hl read prints it.",
+   "description": "Any caller may read any request, with both of its ends named; a request to an agent that the routing table has not passed yet is not_found to that agent. The founder reading one opens it: it is marked read. With `wait_s` the call holds while the request is queued; `state` says whether it settled.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "id",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "wait_s",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 600,
+      "description": "Hold the call up to this many seconds while the request is queued. Default 0, at most 600."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "id": {
+       "type": "integer"
+      },
+      "requester": {
+       "type": "string"
+      },
+      "target": {
+       "type": "string"
+      },
+      "kind": {
+       "type": "string",
+       "description": "ask, task, say and the like; a request with none is an ask."
+      },
+      "state": {
+       "type": "string",
+       "description": "queued until it settles; then landed, or denied, withdrawn or replaced for one that never reached its target."
+      },
+      "created": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "relation": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "response": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "chain_depth": {
+       "type": "integer"
+      },
+      "parent": {
+       "oneOf": [
+        {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "integer"
+          },
+          "line": {
+           "type": "string",
+           "description": "The start of the parent's first line, at most 40 characters and an ellipsis."
+          }
+         },
+         "required": [
+          "id",
+          "line"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "body": {
+       "type": "string"
+      },
+      "answer": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "What came back, or for a request that never reached its target why it closed. Null while there is none and for a dismissal."
+      },
+      "dismissal": {
+       "oneOf": [
+        {
+         "type": "object",
+         "properties": {
+          "by": {
+           "oneOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "reason": {
+           "oneOf": [
+            {
+             "type": "string"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          }
+         },
+         "required": [
+          "by",
+          "reason"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Set when the request was dismissed: who did it and why, each null when not recorded."
+      }
+     },
+     "required": [
+      "id",
+      "requester",
+      "target",
+      "kind",
+      "state",
+      "created",
+      "relation",
+      "response",
+      "chain_depth",
+      "parent",
+      "body",
+      "answer",
+      "dismissal"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "inbox.mark_read",
    "summary": "Mark items read; an id that is not yours is not_found.",
    "paramStructure": "by-name",

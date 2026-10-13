@@ -1750,6 +1750,36 @@ export interface Methods {
   /** Hold the call up to this many seconds until the request has been answered. Default 0, at most 600. */
   wait_s?: number;
 }; result: InboxItem };
+  "request.read": { params: {
+  id: number;
+  /** Hold the call up to this many seconds while the request is queued. Default 0, at most 600. */
+  wait_s?: number;
+}; result: {
+    id: number;
+    requester: string;
+    target: string;
+    /** ask, task, say and the like; a request with none is an ask. */
+    kind: string;
+    /** queued until it settles; then landed, or denied, withdrawn or replaced for one that never reached its target. */
+    state: string;
+    created: Timestamp;
+    relation: string | null;
+    response: string | null;
+    chain_depth: number;
+    parent: {
+      id: number;
+      /** The start of the parent's first line, at most 40 characters and an ellipsis. */
+      line: string;
+    } | null;
+    body: string;
+    /** What came back, or for a request that never reached its target why it closed. Null while there is none and for a dismissal. */
+    answer: string | null;
+    /** Set when the request was dismissed: who did it and why, each null when not recorded. */
+    dismissal: {
+      by: string | null;
+      reason: string | null;
+    } | null;
+  } };
   "inbox.mark_read": { params: {
   ids: number[];
   request_id: RequestId;
@@ -2331,6 +2361,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "debug.terminals": { role: "member", callers: null, write: false, since: 1 },
   "inbox.list": { role: "agent", callers: null, write: false, since: 1 },
   "inbox.get": { role: "agent", callers: null, write: false, since: 1 },
+  "request.read": { role: "agent", callers: null, write: false, since: 1 },
   "inbox.mark_read": { role: "agent", callers: null, write: true, since: 1 },
   "inbox.answer": { role: "member", callers: null, write: true, since: 1 },
   "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },

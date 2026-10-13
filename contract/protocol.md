@@ -117,6 +117,7 @@ A method marked write takes a required `request_id`.
 | `debug.terminals` | member |  | none | `{host, now, panes}` | `refused` | role, unsupported, state |
 | `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?`, `queue?` | `{items, more, more_waiting}` |  |  |
 | `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem` | `not_found`, `bad_request` |  |
+| `request.read` | agent |  | `id`, `wait_s?` | `{id, requester, target, kind, state, created, relation, response, chain_depth, parent, body, answer, dismissal}` | `not_found`, `bad_request` |  |
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found`, `refused`, `bad_request` |  |
 | `inbox.answer` | member | yes | `id`, `option?`, `text?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -404,6 +405,10 @@ Inbox items; an agent sees its own.
 ### `inbox.get`
 
 One item (hl read).
+
+### `request.read`
+
+One request whole, as hl read prints it. Any caller may read any request, with both of its ends named; a request to an agent that the routing table has not passed yet is not_found to that agent. The founder reading one opens it: it is marked read. With `wait_s` the call holds while the request is queued; `state` says whether it settled.
 
 ### `inbox.mark_read`
 
