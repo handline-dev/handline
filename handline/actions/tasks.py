@@ -1194,7 +1194,7 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     The owner's current task (bullet 1) is set to this one only if it holds
     none yet - never for a human owner, who holds no current task at all.
 
-    The founder may open one for an agent; it is queued by them as it opens.
+    The founder may open one for an agent, queued by them as it opens, or for themself (a todo of their own).
 
     T294: a child task always blocks its parent (orcapipe's #1910: every
     `--parent` adds the block, no --expects gate, even when the parent's own
@@ -1203,10 +1203,8 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     the board's "waiting on" line, and the notice `_clear_blocks_on` sends
     once the child is discarded.
     """
-    if me == HUMAN and owner == HUMAN:
-        return False, "the founder opens a task for an agent, not for themself", None
-    # A task of the founder's is a decision unless it says otherwise.
-    expects = expects or ("decision" if owner == HUMAN else "report")
+    # A task given to the founder is a decision unless it says otherwise.
+    expects = expects or ("decision" if owner == HUMAN and me != HUMAN else "report")
     if not (body or "").strip():
         return False, ("a task needs a body: the work itself, what done looks like - "
                        "the title alone is not a brief"), None
@@ -1226,19 +1224,35 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     kind = None if owner == HUMAN else "task"
     opened: list[int] = []
 
-    def together(con, rid: int, _note: str) -> None:
-        """In the transaction that writes the delivery: the task, its link and `effect` (the daemon's record of the write) land with it."""
+    def together(con, rid: int | None, _note: str) -> None:
+        """In the transaction that writes the delivery: the task, its link and `effect` (the daemon's record of the write) land with it.
+        `rid` None is a todo the founder opens for themself, which asks no one."""
         tid = db.new_task(con, title, owner, me, parent, priority, expects=expects, timeout_s=timeout_s,
                           reporter=reporter)
         if me == HUMAN:         # the founder's own task needs no one's approval
             db.set_task_queued(con, tid, HUMAN)
         opened.append(tid)
-        _link_delivery(con, tid, owner, rid)
+        if rid is not None:
+            _link_delivery(con, tid, owner, rid)
         db.add_event(con, me, "task_new", {"task_id": tid, "request_id": rid, "owner": owner, "expects": expects})
         _block_parent_on_child(con, parent, tid, me)
         if effect:
             effect(con, tid)
-    ok, msg, rid = askmod.ask(owner, body, requester=me, kind=kind, card=False, within=together)
+    if me == HUMAN and owner == HUMAN:
+        con = db.connect()
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            try:
+                together(con, None, "")
+                con.execute("COMMIT")
+            except BaseException:
+                con.execute("ROLLBACK")
+                raise
+        finally:
+            con.close()
+        ok, msg = True, "a todo of your own"
+    else:
+        ok, msg, _rid = askmod.ask(owner, body, requester=me, kind=kind, card=False, within=together)
     if not ok:
         return False, msg, None
     tid = opened[0]

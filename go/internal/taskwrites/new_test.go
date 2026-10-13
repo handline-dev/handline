@@ -57,17 +57,21 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 		}
 	}
 
-	// The founder opens a task for an agent, queued as it opens; never one for themself.
-	r = call(t, mk("", &fakeTeller{}), line(2, base, "f1"), line(3, `"owner":"human","title":"t","body":"b","time_box":"1h",`, "f2"))
+	// The founder opens a task for an agent, queued as it opens, or a todo of their own, which asks no one.
+	f = &fakeTeller{}
+	r = call(t, mk("", f), line(2, base, "f1"), line(3, `"owner":"human","title":"mine","body":"b","time_box":"1h",`, "f2"))
 	if r[0]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM tasks WHERE id = 5 AND opened_by = 'human' AND queued_by = 'human'") != 1 {
 		t.Fatalf("the founder's task opens queued: %v", r[0])
 	}
-	if code(r[1]) != "refused" || count(t, db, "SELECT COUNT(*) FROM tasks") != 5 {
-		t.Fatalf("not one for the founder themself: %v", r[1])
+	if r[1]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM requests WHERE requester = 'human' AND target = 'human'") != 0 ||
+		count(t, db, "SELECT COUNT(*) FROM tasks WHERE id = 6 AND owner = 'human' AND opened_by = 'human' AND queued_by = 'human' AND expects = 'report'") != 1 ||
+		count(t, db, "SELECT COUNT(*) FROM task_requests WHERE task_id = 6") != 0 ||
+		count(t, db, "SELECT COUNT(*) FROM events WHERE kind = 'task_new' AND json_extract(payload, '$.task_id') = 6 AND json_extract(payload, '$.request_id') IS NULL") != 1 {
+		t.Fatalf("the founder's own todo opens queued, a report, with no request: %v", r[1])
 	}
 	f = &fakeTeller{deny: "no edge"}
 	r = call(t, mk("manager", f), line(2, base, "d1"))
-	if code(r[0]) != "refused" || count(t, db, "SELECT COUNT(*) FROM tasks") != 5 || count(t, db, "SELECT COUNT(*) FROM requests WHERE state = 'denied'") != 1 {
+	if code(r[0]) != "refused" || count(t, db, "SELECT COUNT(*) FROM tasks") != 6 || count(t, db, "SELECT COUNT(*) FROM requests WHERE state = 'denied'") != 1 {
 		t.Fatalf("a refused owner leaves no task behind, only the denial: %v", r[0])
 	}
 }

@@ -133,13 +133,13 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if err != nil {
 			return nil, err
 		}
+		me := c.Caller.Actor()
 		if expects == "" {
 			expects = "report"
-			if owner == human { // a task of the founder's is a decision unless it says otherwise
+			if owner == human && me != human { // a task given to the founder is a decision unless it says otherwise
 				expects = "decision"
 			}
 		}
-		me := c.Caller.Actor()
 		clean := strings.TrimSpace(textsafe.Oneline(title))
 		var (
 			tid   int64
@@ -200,9 +200,6 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 	owner, body, prio, expects, secs := in.Owner, in.Body, in.Prio, in.Expects, in.Secs
 	parent, hasParent, blocker, hasBlocker := in.Parent, in.HasParent, in.Blocker, in.HasBlocker
 	clean := in.Title
-	if me == human && owner == human {
-		return 0, nil, refusal("the founder opens a task for an agent, not for themself")
-	}
 	if hasBlocker { // refused before anything is opened, as the command does
 		if why, err := blockerRefusal(tx, blocker); err != nil {
 			return 0, nil, err
@@ -227,7 +224,7 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 	if tell == nil {
 		return 0, nil, fmt.Errorf("task.new needs the supervisor to route its ask")
 	}
-	asked, err = tell.TaskAsk(tx, AskReq{From: me, To: owner, Body: body, Kind: kind, NoCard: true, Notify: true, Within: func(rid int64) error {
+	open := func(rid int64) error { // rid 0: a todo the founder opens for themself, which asks no one
 		var err error
 		reporter := in.Reporter
 		if reporter == me {
@@ -246,8 +243,12 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 				return err
 			}
 		}
-		if err := db.LinkRequest(tx, tid, rid); err != nil {
-			return err
+		var asking any
+		if rid != 0 {
+			if err := db.LinkRequest(tx, tid, rid); err != nil {
+				return err
+			}
+			asking = rid
 		}
 		if _, held, err := db.CurrentTask(tx, owner); err != nil {
 			return err
@@ -256,7 +257,7 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 				return err
 			}
 		}
-		if err := addEvent(tx, me, "task_new", kv{"task_id", tid}, kv{"request_id", rid}, kv{"owner", owner}, kv{"expects", expects}); err != nil {
+		if err := addEvent(tx, me, "task_new", kv{"task_id", tid}, kv{"request_id", asking}, kv{"owner", owner}, kv{"expects", expects}); err != nil {
 			return err
 		}
 		if hasParent { // a child task always blocks its parent
@@ -273,7 +274,14 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 			}
 		}
 		return nil
-	}})
+	}
+	if me == human && owner == human {
+		if err := open(0); err != nil {
+			return 0, nil, err
+		}
+		return tid, &Asked{OK: true, Msg: "a todo of your own"}, nil
+	}
+	asked, err = tell.TaskAsk(tx, AskReq{From: me, To: owner, Body: body, Kind: kind, NoCard: true, Notify: true, Within: open})
 	if err != nil {
 		return 0, nil, err
 	}

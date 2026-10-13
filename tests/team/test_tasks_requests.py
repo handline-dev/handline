@@ -4158,8 +4158,15 @@ def test_task_new_list_and_link(home: Path) -> None:
     check("task new: opens a task", rc == 0 and "task T1" in out, out)
     rc, out = _cli(["task", "new", "--owner", "nobody", "x", "x", "-t", "1h"])
     check("task new: an owner that is not an agent is refused", rc == 1, out)
-    rc, out = _cli(["task", "new", "--owner", askmod.HUMAN, "x", "x", "-t", "1h"], as_agent=askmod.HUMAN)
-    check("task new: the founder opens one for an agent, not for themself", rc == 1 and "for an agent" in out, out)
+    rc, out = _cli(["task", "new", "--owner", askmod.HUMAN, "my own", "a todo of mine", "-t", "1h"], as_agent=askmod.HUMAN)
+    con = db.connect()
+    own = con.execute("SELECT * FROM tasks WHERE title = 'my own'").fetchone()
+    links = con.execute("SELECT COUNT(*) FROM task_requests WHERE task_id = ?", (own["id"],)).fetchone()[0] if own else None
+    state = actions.task_state(con, own) if own else None
+    con.close()
+    check("task new: the founder opens a todo for themself: queued, a report, asking no one",
+          rc == 0 and "a todo of your own" in out and (own["owner"], own["opened_by"], own["expects"]) == (askmod.HUMAN, askmod.HUMAN, "report")
+          and links == 0 and state == "queued", f"{out} / {state}")
     rc, out = _cli(["task", "new", "--owner", "worker", "part", "part", "--parent", "T9", "-t", "1h"])
     check("task new: a parent that does not exist is refused", rc == 1, out)
     rc, out = _cli(["task", "new", "--owner", "worker", "part one", "part one", "--parent", "T1", "-t", "1h"])
