@@ -69,3 +69,13 @@ func TestAgentTriggersForOneAgentAndForANameItDoesNotKnow(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+func TestAStructuredAgentWithItsSessionOpenIsJudgedAgainAtItsWake(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "sam", "")
+	run(t, e, "INSERT INTO agent_state(agent, state, updated, terminal, closed_at) VALUES('sam', 'PARKED', 0, NULL, NULL)")
+	e.SessionOpen = func(agent string) bool { return agent == "sam" }
+	if got := triggers(t, e, nil); got[0]["reason"] != "parked; judged again at its wake" {
+		t.Fatalf("%v", got)
+	}
+}
