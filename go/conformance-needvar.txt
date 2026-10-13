@@ -73,6 +73,7 @@ stats.outlook.a_pick_that_is_nobody_has_an_empty_overlay
 stats.outlook.agent_use_rows_carry_what_the_table_draws
 stats.outlook.an_agent_asked_for_has_an_overlay
 tasks.list.a_done_task_has_no_clock
+tasks.list.a_paused_clock_says_what_it_has_left
 tasks.list.a_task_not_held_has_an_empty_blocked_by
 tasks.list.an_overdue_task_says_since_when
 tasks.list.before_pages_through_every_task

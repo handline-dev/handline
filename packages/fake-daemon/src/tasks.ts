@@ -156,6 +156,7 @@ export class FakeTasks {
       body: String(p.body ?? ''),
       state: 'queued',
       time_box: String(p.time_box ?? '2h'),
+      clock: { length_s: 7200, default: p.time_box === undefined, start: null, end: null, overdue_since: null, told: 0, left_s: null },
       priority: (p.priority as 1 | 2 | 3 | undefined) ?? undefined,
       parent: typeof p.parent === 'number' ? p.parent : null,
     });

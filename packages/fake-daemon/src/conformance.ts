@@ -6,7 +6,7 @@
 // view_busy_agent=view.busy view_walled_agent=view.walled view_plain_agent=view.plain; and, for agent_view_attention.json, view_fire_agent=view.fire
 // view_ask_agent=view.ask view_alert_agent=view.alert view_stuck_agent=view.stuck view_ignored_agent=view.ignored view_broken_agent=view.broken (plus busy and plain); and, for account_login.json and account_add.json, login_account=conf.login login_code=good-code login_wrong_code=wrong-code add_account=conf.added
 // add_used_account=conf.used add_retry_account=conf.retried; and, for tasks_list_fields.json,
-// tasks_blocked_owner=t.blocked tasks_timed_owner=t.timed tasks_overdue_owner=t.overdue tasks_done_owner=t.done; and, for transcript_output.json, output_agent=conf.output (three Bash tool items: one with output, one with output and dropped_lines 8, one with neither); and, for reply_parent.json, reply_agent=conf.reply other_reply_agent=conf.reply2
+// tasks_blocked_owner=t.blocked tasks_timed_owner=t.timed tasks_overdue_owner=t.overdue tasks_done_owner=t.done tasks_paused_owner=t.paused; and, for transcript_output.json, output_agent=conf.output (three Bash tool items: one with output, one with output and dropped_lines 8, one with neither); and, for reply_parent.json, reply_agent=conf.reply other_reply_agent=conf.reply2
 import { DaemonClient, memoryPair } from '@handline/client';
 import type { FakeDaemon } from './daemon.ts';
 import { AGENTS } from './fixtures.ts';
@@ -58,7 +58,7 @@ export async function seedConformance(daemon: FakeDaemon): Promise<void> {
     daemon.chat.seedItem(name, { kind: 'reply', text: `Read it; ${name} has one question.` });
   }
   const at = new Date().toISOString();
-  const clock = { length_s: 3600, default: false, start: at, end: at, overdue_since: null, told: 0 };
+  const clock = { length_s: 3600, default: false, start: at, end: at, overdue_since: null, told: 0, left_s: null };
   const task = (id: number, to: string, state: string, more: object = {}) =>
     daemon.tasks.seed({ id, from: 'handline.architect', to, title: `task ${id}`, state, clock, ...more });
   task(9011, 't.blocked', 'doing');
@@ -70,6 +70,7 @@ export async function seedConformance(daemon: FakeDaemon): Promise<void> {
   task(9021, 't.timed', 'doing');
   task(9031, 't.overdue', 'doing', { clock: { ...clock, overdue_since: at, told: 1 } });
   task(9041, 't.done', 'done', { done: at });
+  task(9051, 't.paused', 'doing', { clock: { ...clock, start: null, end: null, left_s: 1200 } });
   const client = new DaemonClient({
     client: 'conformance-seed',
     connect: async () => {

@@ -216,10 +216,12 @@ def _task_owner_ok(name: str) -> bool:
 
 
 def _new_cmd(args, title: str) -> str:
-    """The `task new` line as typed, with -t added: what to paste when only the timeout was missing."""
+    """The `task new` line as typed: what to paste when something was missing."""
     secs = args.timeout
-    typed = "2h" if secs is None else f"{secs // 60}m" if secs % 60 == 0 else f"{secs}s"
-    parts = ["hl task new", "--assign", args.owner, "-t", typed, shlex.quote(title)]
+    parts = ["hl task new", "--assign", args.owner]
+    if secs is not None:
+        parts += ["-t", f"{secs // 60}m" if secs % 60 == 0 else f"{secs}s"]
+    parts.append(shlex.quote(title))
     if args.reporter:
         parts += ["--owner", args.reporter]
     if args.body not in (None, "-"):
@@ -254,11 +256,6 @@ def cmd_task_new(args) -> int:
         if who is not None and not _task_owner_ok(who):
             print(f"no agent named {who}")
             return 1
-    if args.timeout is None:
-        print("a task needs -t/--timeout (90m, 2h; at most "
-              f"{timefmt.span(actions.MAX_TASK_TIMEOUT_S)}). Try:\n"
-              f"  {_new_cmd(args, args.title)}")
-        return 1
     title = textsafe.oneline(args.title).strip()
     if not title:
         print(f"a task needs a title. Try:\n  {_new_cmd(args, '<title>')}")
@@ -270,7 +267,7 @@ def cmd_task_new(args) -> int:
             print(err)
             return 1
     body = textsafe.text(inline).strip() if inline else None
-    params = {"owner": args.owner, "title": title, "time_box": f"{args.timeout}s", "body": body or None,
+    params = {"owner": args.owner, "title": title, "time_box": None if args.timeout is None else f"{args.timeout}s", "body": body or None,
               "parent": args.parent, "blocked_by": args.blocked_by, "priority": args.priority,
               "reporter": args.reporter}
     ok, msg, got = client.written("task.new", {k: v for k, v in params.items() if v is not None})
@@ -474,12 +471,21 @@ def _clock(time_box: dict, now: float) -> dict:
     """The wire's `time` as the dict actions.timeout_lines reads."""
     start, end, over = (client.epoch(time_box[k]) for k in ("start", "end", "overdue_since"))
     t = {"length": time_box["length_s"], "default": time_box["default"], "start": start, "end": end,
-         "told": time_box["told"], "state": "length", "left": None, "over": None}
+         "told": time_box["told"], "state": "length", "left": None, "over": None, "paused": time_box.get("left_s")}
     if over is not None:
         t.update(state="over", over=int(now - over))
     elif end is not None:
         t.update(state="left", left=int(end - now))
     return t
+
+
+def _waits_on(t: dict) -> str:
+    """What holds a task's clock: its open blockers, else its open children."""
+    blockers = [f"T{b['task']}" for b in t.get("blockers") or []]
+    kids = [f"T{k['id']}" for k in t.get("subtasks") or [] if k["state"] not in ("done", "discarded")]
+    if blockers:
+        return " - blocked by " + ", ".join(blockers)
+    return " - waiting on " + ", ".join(kids) if kids else ""
 
 
 def _result_lines(r: dict, tid: int) -> list[str]:
@@ -504,7 +510,7 @@ def _detail_lines(t: dict, now: float) -> list[str]:
            + (f"   parent T{t['parent']}" if t["parent"] else "")
            + f"   created {timefmt.stamp(client.epoch(t['created']))}"]
     if t["time"] is not None:
-        out += actions.timeout_lines(_clock(t["time"], now))
+        out += actions.timeout_lines(_clock(t["time"], now), _waits_on(t))
     if t["evidence"]:
         out.append(f"done {timefmt.stamp(client.epoch(t['done']))}: {t['evidence']}")
     if t.get("report"):

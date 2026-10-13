@@ -145,7 +145,8 @@ def _clock(con, row, state: str) -> dict | None:
     now = time.time()
     t = actions.task_timeout(con, row, state, now)
     return {"length_s": t["length"], "default": t["default"], "start": agentview._ts(t["start"]), "end": agentview._ts(t["end"]),
-            "overdue_since": None if t["over"] is None else agentview._ts(now - t["over"]), "told": t["told"]}
+            "overdue_since": None if t["over"] is None else agentview._ts(now - t["over"]), "told": t["told"],
+            "left_s": row["timeout_left"] if row["timeout_at"] is None else None}
 
 
 def _timeline(con, tid: int) -> list[dict]:

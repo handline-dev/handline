@@ -13,7 +13,7 @@ def row() -> dict:
 def detail() -> dict:
     return {**row(), "body": "a brief the page shows", "deliveries": [], "events": [], "memos": [], "blockers": [], "children": [], "handoffs": [],
             "asker": "a.one", "discarded": None, "merged_into": None,
-            "time": {"length_s": 3600, "default": False, "start": TS, "end": TS, "overdue_since": None, "told": 0},
+            "time": {"length_s": 3600, "default": CURRENT.ctx.state["task_page"]["default"], "start": TS, "end": TS, "overdue_since": None, "told": 0, "left_s": None},
             "parent_title": None, "subtasks": [], "timeline": [], "people": {"recent": [], "team": [], "others": []}}
 
 

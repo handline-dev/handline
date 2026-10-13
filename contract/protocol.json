@@ -4294,7 +4294,7 @@
     },
     {
      "name": "time_box",
-     "required": true,
+     "required": false,
      "schema": {
       "$ref": "#/components/schemas/Duration"
      }
@@ -8750,7 +8750,7 @@
       "oneOf": [
        {
         "$ref": "#/components/schemas/Timestamp",
-        "description": "When the current stretch began counting; null until the task is doing."
+        "description": "`end` less the length, so a clock that paused and resumed reads as begun later than it was; null until the task is doing and while the clock is paused."
        },
        {
         "type": "null"
@@ -8761,7 +8761,7 @@
       "oneOf": [
        {
         "$ref": "#/components/schemas/Timestamp",
-        "description": "Its deadline; null until the task is doing."
+        "description": "Its deadline; null until the task is doing and while the clock is paused."
        },
        {
         "type": "null"
@@ -8782,6 +8782,17 @@
      "told": {
       "type": "integer",
       "description": "How many overrun notices the opener has had."
+     },
+     "left_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "description": "The seconds the clock had left when it paused: the task waits on a blocker or an open child, or is no longer doing. It resumes from this. Null while the clock runs or never ran."
+       },
+       {
+        "type": "null"
+       }
+      ]
      }
     },
     "required": [
@@ -8790,7 +8801,8 @@
      "start",
      "end",
      "overdue_since",
-     "told"
+     "told",
+     "left_s"
     ],
     "description": "The task's clock."
    },

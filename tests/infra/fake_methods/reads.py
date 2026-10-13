@@ -8,16 +8,18 @@ TS = "2026-01-01T00:00:00Z"
 def _task(id, owner, state, **kw) -> dict:
     return {"id": id, "from": "a.one", "to": owner, "title": f"task {id}", "state": state, "relation": "", "response": "", "time_box": "1h",
             "parent": None, "created": TS, "delivered": None, "done": None, "hold_reason": None, "block_reason": None, "evidence": None,
-            "blocked_by": [], "time": {"length_s": 3600, "default": False, "start": TS, "end": TS, "overdue_since": None, "told": 0}, **kw}
+            "blocked_by": [], "time": {"length_s": 3600, "default": False, "start": TS, "end": TS, "overdue_since": None, "told": 0, "left_s": None}, **kw}
 
 
 # The owners the tasks_list_fields fixtures name (--var tasks_*_owner) and the tasks each owns.
 LIST_FIELDS = {
     "a.t.blocked": [_task(11, "a.t.blocked", "doing"),
                     _task(12, "a.t.blocked", "queued", blocked_by=[11], block_reason="waiting on its blocker",
-                          time={"length_s": 3600, "default": True, "start": None, "end": None, "overdue_since": None, "told": 0})],
+                          time={"length_s": 3600, "default": True, "start": None, "end": None, "overdue_since": None, "told": 0, "left_s": None})],
     "a.t.timed": [_task(21, "a.t.timed", "doing")],
-    "a.t.overdue": [_task(31, "a.t.overdue", "doing", time={"length_s": 3600, "default": False, "start": TS, "end": TS, "overdue_since": TS, "told": 1})],
+    "a.t.overdue": [_task(31, "a.t.overdue", "doing", time={"length_s": 3600, "default": False, "start": TS, "end": TS, "overdue_since": TS, "told": 1, "left_s": None})],
+    "a.t.paused": [_task(51, "a.t.paused", "doing", blocked_by=[11], block_reason="waiting on its blocker",
+                         time={"length_s": 3600, "default": False, "start": None, "end": None, "overdue_since": None, "told": 0, "left_s": 1200})],
     "a.t.done": [_task(41, "a.t.done", "done", done=TS, time=None)],
 }
 

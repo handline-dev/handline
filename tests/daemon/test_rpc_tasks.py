@@ -244,7 +244,7 @@ def test_the_task_fixtures_pass_against_this_daemon(home: Path) -> None:
         sessiontoken.agent_of = real
     bad = [(n, why) for st, why, n, _ in results if st != "pass"]
     names = {n for _, _, n, _ in results}
-    check("fixtures: every task fixture passes against this daemon, each as its own role", not bad and len(names) == 8, str(bad))
+    check("fixtures: every task fixture passes against this daemon, each as its own role", not bad and len(names) == 9, str(bad))
 
 
 def main() -> int:

@@ -247,6 +247,7 @@ export type TaskClock = {
   overdue_since: Timestamp | null;
   /** How many overrun notices the opener has had. */
   told: number;
+  left_s: number | null;
 };
 
 /** A task row without its body. */
@@ -1814,7 +1815,7 @@ export interface Methods {
   reporter?: string;
   title: string;
   body?: string;
-  time_box: Duration;
+  time_box?: Duration;
   relation?: string;
   response?: string;
   parent?: number;

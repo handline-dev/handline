@@ -599,8 +599,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="P1 (high), P2 (default) or P3 (low)")
     p.add_argument("--expects", default=None, help=argparse.SUPPRESS)       # accepted and ignored: a done is a report its owner accepts
     p.add_argument("-t", "--timeout", type=_timeout_arg, default=None, metavar="DURATION",
-                   help="required: notify the opener each time this long passes with the task "
-                   f"still open (90m, 2h; at most {timefmt.span(actions.MAX_TASK_TIMEOUT_S)})")
+                   help="notify the opener each time this long passes with the task doing (90m, 2h; at most "
+                   f"{timefmt.span(actions.MAX_TASK_TIMEOUT_S)}); the daemon's default when not given")
     p.add_argument("--reply", nargs=2, default=None, metavar=("MSG", "TEXT"),
                    help="also answer the founder's message MSG with TEXT, where {task} is this "
                         "task's real number - never type the number yourself")
