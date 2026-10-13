@@ -4463,7 +4463,7 @@ def test_close_says_what_it_read_and_never_guesses(home: Path) -> None:
           rc == 1 and "task done" in out and "task reopen" in out, out)
     rc, out = _cli(["close", "42"])
     check("close: a bare number is no agent", rc == 1 and "not an agent" in out, out)
-    _cli(["task", "new", "--owner", "worker", "t", "t", "-t", "1h"])
+    _cli(["task", "new", "--assign", "worker", "t", "t", "-t", "1h"])
     rc, out = _cli(["close", "T1"])
     check("close: a real task is refused too, and stays open", rc == 1 and "task done" in out, out)
     con = db.connect()
