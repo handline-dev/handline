@@ -3,10 +3,10 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent } from 'react';
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
-import { landingLabel, openTask, sendNote, sideOf, taskRow } from '@handline/app-core';
+import { landingLabel, openTask, sendNote, sessionLine, sideOf, taskRow } from '@handline/app-core';
 import { useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { Button, Card, CardCode, CardWhat, CodeBlock, Icon, type IconName } from './ui/index.ts';
+import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { Pictures } from './ChatAttach.tsx';
 import { PathText } from './PathText.tsx';
@@ -247,24 +247,27 @@ function ToolLine({ i }: { i: TranscriptItem }) {
   );
 }
 
-/** A session marker: the handoff's first line, and the whole of it, scrollable, behind a button. */
+/** A session boundary: a centered divider with the reason in words, and the handoff the new session began from in a dialog. */
 function SessionCard({ i }: { i: TranscriptItem }) {
   const [open, setOpen] = useState(false);
-  const handoff = i.session?.handoff;
+  const { reason, handoff } = sessionLine(i);
   return (
-    <Card variant="chat" className="card-session flex-wrap" data-kind="session">
-      <Icon name="session" />
-      <CardWhat className="muted">{handoff ? `Handoff: ${handoff}` : null}</CardWhat>
+    <div className="card-session flex items-center gap-3 text-meta text-muted" data-kind="session">
+      <hr className="m-0 h-px flex-1 border-0 bg-line" />
+      <span>{reason}</span>
       {handoff ? (
-        <Button variant="outline" size="sm" label="Whole handoff" icon={open ? 'less' : 'more'} onClick={() => setOpen(!open)}>
-          {open ? 'Hide' : 'Whole handoff'}
+        <Button variant="outline" size="sm" label="Handoff" onClick={() => setOpen(true)}>
+          Handoff
         </Button>
       ) : null}
-      <span className="muted card-time">{clock(i.at)}</span>
+      <span className="card-time">{clock(i.at)}</span>
+      <hr className="m-0 h-px flex-1 border-0 bg-line" />
       {open ? (
-        <CodeBlock className="handoff-full basis-full max-h-[20lh] overflow-auto max-sm:whitespace-pre-wrap">{handoff}</CodeBlock>
+        <Dialog title="Handoff" onClose={() => setOpen(false)}>
+          <CodeBlock className="handoff-full max-h-[60vh] overflow-auto whitespace-pre-wrap">{handoff}</CodeBlock>
+        </Dialog>
       ) : null}
-    </Card>
+    </div>
   );
 }
 

@@ -75,6 +75,26 @@ const LABELS: Record<string, string> = {
 };
 export const landingLabel = (l: Landing): string => LABELS[l] ?? l;
 
+const SESSION_WHY: Record<string, string> = {
+  handoff: 'Started again from a handoff',
+  restart: 'Restarted',
+  'fresh close': 'Restarted with a fresh conversation',
+  wake: 'Woke from a close',
+  move: 'Moved to another account',
+  context_full: 'Context full, started again from a handoff',
+  settings_applied: 'Restarted to apply settings',
+  crash_recovery: 'Resumed after a crash',
+  idle_close: 'Woke after closing when idle',
+  launch: 'Launched',
+  start: 'Started',
+};
+/** What a session line says: the reason a new session began in plain words (the cause is an open set, so an unknown one is shown as it came), and the handoff text it began with. */
+export function sessionLine(i: TranscriptItem): { reason: string; handoff: string | null } {
+  const cause = i.session?.cause?.trim();
+  const reason = !cause ? 'New session' : (SESSION_WHY[cause] ?? `New session (${cause})`);
+  return { reason, handoff: i.session?.handoff || null };
+}
+
 const TASK_LABEL: Record<string, string> = { opened: 'Task added', changed: 'Task edited', done: 'Task done', withdrawn: 'Task deleted' };
 /** What a task line in the chat shows: the label (added / edited / done / deleted), the task, and only what changed, briefly. */
 export interface TaskRow {

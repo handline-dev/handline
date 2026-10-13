@@ -840,6 +840,8 @@ export type TranscriptItem = {
     id: string;
     started: Timestamp;
     handoff: string | null;
+    /** Why the session began (restart, wake, fresh close, move, handoff, launch, start). An open set: a client draws a word it does not know as text. Absent from a daemon that does not serve it. */
+    cause?: string;
   };
 };
 
