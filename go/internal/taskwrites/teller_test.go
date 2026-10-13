@@ -21,6 +21,8 @@ type fakeTeller struct {
 	released  []Retired
 	cancelled []Retired
 	done      []string
+	reported  []string
+	rejected  []string
 	stopped   bool
 	deny      string
 	after     func() string // the telling that follows the commit of an ask, when set
@@ -50,6 +52,14 @@ func (f *fakeTeller) Done(tid int64, by, owner string, told []db.Notice, forget 
 	f.done = append(f.done, fmt.Sprintf("T%d %s %s %d %v", tid, by, owner, len(told), finished))
 }
 func (f *fakeTeller) Notified(told []db.Notice) { f.notified = append(f.notified, told...) }
+func (f *fakeTeller) Reported(tid int64, owner string, told []db.Notice, forget []db.InboxFile) {
+	f.reported = append(f.reported, fmt.Sprintf("T%d %s %d", tid, owner, len(told)))
+	f.told, f.forget = told, forget
+}
+func (f *fakeTeller) Rejected(tid int64, by string, told []db.Notice) string {
+	f.rejected = append(f.rejected, fmt.Sprintf("T%d %s %d", tid, by, len(told)))
+	return fmt.Sprintf("delivered T%d", tid)
+}
 func (f *fakeTeller) Released(tid int64, why string, retired []Retired) []string {
 	f.released = retired
 	return []string{fmt.Sprintf("%d stopped", len(retired))}

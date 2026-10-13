@@ -158,6 +158,40 @@ func TestABoardReadsATaskStartedAsItsOwnersOwnAsBegun(t *testing.T) {
 	}
 }
 
+func TestABoardReadsAReportedTaskAsReportedAndFreesItsOwner(t *testing.T) {
+	e := testEnv(t)
+	for _, q := range []string{
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, sent_at, reported_at, report) VALUES(1, 'r', 'w', 'boss', 1, NULL, 5, 'shipped'), (2, 'next', 'w', 'boss', 1, 6, NULL, NULL)",
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('w', 'IDLE', 1, 1)",
+	} {
+		if _, err := e.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, err := e.loadBoard(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := query(e.DB, "SELECT * FROM tasks ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := b.state(rows[0]); got != "reported" {
+		t.Fatalf("a task with a report waiting reads %s", got)
+	}
+	if got := b.state(rows[1]); got != "doing" {
+		t.Fatalf("the owner of a reported task is free for the next: %s", got)
+	}
+	task, err := e.taskOf(rows[0], "reported")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, _ := task["report"].(map[string]any)
+	if rep["by"] != "w" || rep["evidence"] != "shipped" || task["evidence"] != nil {
+		t.Fatalf("the report is shown apart from the evidence: %v", task)
+	}
+}
+
 func TestDurationsAndAges(t *testing.T) {
 	for in, want := range map[int64]string{7200: "2h", 5400: "90m", 86400: "1d", 61: "61s"} {
 		if got := duration(in); got != want {

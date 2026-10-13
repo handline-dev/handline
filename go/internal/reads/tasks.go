@@ -71,7 +71,7 @@ func (e *Env) loadBoard(open []row) (*board, error) {
 	for _, r := range rows {
 		b.current[r.str("agent")] = r.i("current_task")
 	}
-	if rows, err = query(e.DB, "SELECT id, discarded_by, done_evidence FROM tasks WHERE id IN "+
+	if rows, err = query(e.DB, "SELECT id, discarded_by, done_evidence, reported_at FROM tasks WHERE id IN "+
 		"(SELECT current_task FROM agent_state WHERE current_task IS NOT NULL)"); err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (b *board) holds(t row) bool {
 		return true
 	}
 	cur, ok := b.held[held]
-	return !ok || ended(cur)
+	return !ok || ended(cur) || cur.set("reported_at")
 }
 
 func (b *board) asked(id int64) bool {
@@ -103,13 +103,16 @@ func (b *board) asked(id int64) bool {
 	return false
 }
 
-// state is one of draft, queued, doing, done, discarded.
+// state is one of draft, queued, doing, reported, done, discarded.
 func (b *board) state(t row) string {
 	if t.str("discarded_by") != "" {
 		return "discarded"
 	}
 	if t.str("done_evidence") != "" {
 		return "done"
+	}
+	if t.set("reported_at") {
+		return "reported"
 	}
 	asked := b.asked(t.i("id"))
 	if asked && b.holds(t) {
@@ -342,7 +345,10 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 			"state": r.str("state"), "at": ts(r["ts"])}
 	}
 	task["last_activity"], task["edited_by"], task["requests"] = ts(active), t.strOrNil("edited_by"), linked
-	task["discarded"] = nil
+	task["discarded"], task["report"] = nil, nil
+	if state == "reported" {
+		task["report"] = map[string]any{"by": t.str("owner"), "evidence": t.str("report"), "at": ts(t["reported_at"])}
+	}
 	if t.str("discarded_by") != "" {
 		task["discarded"] = map[string]any{"by": t.str("discarded_by"), "reason": t.str("discard_reason"), "at": ts(t["discarded_at"])}
 	}

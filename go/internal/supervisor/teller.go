@@ -137,6 +137,25 @@ func (e *Env) Done(tid int64, by, owner string, told []db.Notice, forget []db.In
 	e.deliverUnblocked(e.DB, told, freed)
 }
 
+// Reported is what a done filed as a report does after it commits: the inbox files of the requests it closed go, the owner is moved on, and the
+// report is typed to whoever the task answers to. The task is still open: nothing it blocks is released.
+func (e *Env) Reported(tid int64, owner string, told []db.Notice, forget []db.InboxFile) {
+	var out string
+	defer e.guard("telling after a report", &out)
+	for _, f := range forget {
+		e.ForgetInbox(f.Target, f.RID)
+	}
+	e.deliverUnblocked(e.DB, told, []string{owner})
+}
+
+// Rejected is what a rejected report does after it commits: the note is typed to the owner and the task, queued again, goes out if the owner
+// is free.
+func (e *Env) Rejected(tid int64, by string, told []db.Notice) (out string) {
+	defer e.guard("telling after a reject", &out)
+	e.deliverUnblocked(e.DB, told, nil)
+	return e.QueueDelivered(tid, by, true)
+}
+
 // TaskAsk routes the request that delivers a task, in the transaction of the write that opens or moves it; in.Within is that write, run once
 // the ask is allowed. A handoff types nothing here (its push waits for the commit, after the move, in HandedOver); task.new asks for it.
 func (e *Env) TaskAsk(tx *sql.Tx, in taskwrites.AskReq) (*taskwrites.Asked, error) {

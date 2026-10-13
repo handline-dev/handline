@@ -255,6 +255,7 @@ export type Task = {
   from: string;
   to: string;
   title: string;
+  /** draft, queued, doing, reported (its owner's done waits on task.accept or task.reject), done or discarded. */
   state: string;
   /** e.g. manager. */
   relation: string;
@@ -296,6 +297,12 @@ export type Task = {
   blocked_by?: number[];
   /** The task's clock, the same object task.get gives; null once it is done or discarded. Absent from a daemon that does not send it. */
   time?: TaskClock | null;
+  /** The done that waits on acceptance while the task is reported; null otherwise. Absent from a daemon that does not send it. */
+  report?: {
+    by: string;
+    evidence: string;
+    at: Timestamp;
+  } | null;
 };
 
 export type TaskDetail = Task & {
@@ -1804,6 +1811,16 @@ export interface Methods {
   shots?: string[];
   request_id: RequestId;
 }; result: Accepted };
+  "task.accept": { params: {
+  task: number;
+  request_id: RequestId;
+}; result: Accepted };
+  "task.reject": { params: {
+  task: number;
+  /** One line: what is missing. It is told to the owner. */
+  note: string;
+  request_id: RequestId;
+}; result: Accepted };
   "task.reopen": { params: {
   task: number;
   note?: string;
@@ -2275,6 +2292,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.new": { role: "agent", callers: null, write: true, since: 1 },
   "task.handoff": { role: "agent", callers: null, write: true, since: 1 },
   "task.done": { role: "agent", callers: null, write: true, since: 1 },
+  "task.accept": { role: "agent", callers: null, write: true, since: 1 },
+  "task.reject": { role: "agent", callers: null, write: true, since: 1 },
   "task.reopen": { role: "agent", callers: null, write: true, since: 1 },
   "task.progress": { role: "agent", callers: ["agent"], write: true, since: 1 },
   "progress.get": { role: "agent", callers: ["agent"], write: false, since: 1 },
