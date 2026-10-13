@@ -49,6 +49,182 @@
    ]
   },
   {
+   "name": "agents.list.status_adds_the_status_line",
+   "spec": "agents.list",
+   "about": "With status: true every row carries the eight status-line fields, and an agent that never started has none of them set. Needs --var state_idle: an agent with a stored view and no state row.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agents.list",
+      "params": {
+       "status": true
+      }
+     },
+     "result": {
+      "agents": {
+       "$each": {
+        "started": {
+         "$type": "boolean"
+        },
+        "has_repo": {
+         "$type": "boolean"
+        },
+        "has_terminal": {
+         "$type": "boolean"
+        },
+        "screen_word": {
+         "$oneOf": [
+          {
+           "$regex": "^(RUNNING|IDLE|PENDING|MOVING|DIALOG|FATAL)$"
+          },
+          null
+         ]
+        },
+        "screen_detail": {
+         "$type": "string"
+        },
+        "unreached": {
+         "$type": "integer"
+        },
+        "task_waits": {
+         "$each": {
+          "task": {
+           "$type": "integer"
+          },
+          "words": {
+           "$type": "string"
+          }
+         }
+        },
+        "wake_wait_reason": {
+         "$oneOf": [
+          {
+           "$type": "string"
+          },
+          null
+         ]
+        }
+       },
+       "$contains": {
+        "name": "{{state_idle}}",
+        "started": false,
+        "has_repo": false,
+        "has_terminal": false,
+        "screen_word": null,
+        "screen_detail": "",
+        "unreached": 0,
+        "task_waits": [],
+        "wake_wait_reason": null
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agents.list.without_status_has_no_status_line",
+   "spec": "agents.list",
+   "about": "Without status the rows are the stored views alone.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agents.list",
+      "params": {
+       "status": false
+      }
+     },
+     "result": {
+      "agents": {
+       "$each": {
+        "started": {
+         "$absent": true
+        },
+        "screen_word": {
+         "$absent": true
+        },
+        "task_waits": {
+         "$absent": true
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agents.list.status_is_true_or_false",
+   "spec": "agents.list",
+   "about": "A status that is not a boolean is invalid params naming status.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agents.list",
+      "params": {
+       "status": 1
+      }
+     },
+     "error": {
+      "code": -32602,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "bad_request",
+       "field": "status"
+      }
+     }
+    }
+   ]
+  },
+  {
    "name": "agent.timeline.unknown_agent",
    "spec": "agent.timeline",
    "about": "An agent that does not exist is not_found.",
