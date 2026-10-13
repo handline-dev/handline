@@ -80,16 +80,7 @@ export function State({ kind, label, word, size = 16 }: { kind: StateKind; label
       data-state={kind}
       title={text}
     >
-      {kind === 'noTerminal' ? (
-        <span className="ui-state-slash relative inline-flex">
-          <Icon name={g.icon} size={size} label={text} />
-          <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true" className="absolute inset-0">
-            <line x1="2" y1="14" x2="14" y2="2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </span>
-      ) : (
-        <Icon name={g.icon} size={size} label={text} />
-      )}
+      <Icon name={g.icon} size={size} label={text} />
       {word ? <span className="ui-state-word text-hint text-ink-2">{g.label}</span> : null}
     </span>
   );

@@ -94,7 +94,10 @@ export const chatWrites: Record<string, WriteSpec> = {
         text == null ? null : { id: parent_item!, text: [...text].slice(0, 300).join('') },
       );
       if (request_id) rememberOperation(row.id, request_id, delivery);
-      editAll(c, (d) => mapPages(d, (page, i) => (i === 0 ? { ...page, messages: [row, ...page.messages] } : page)));
+      // Only the chat of the agent it is said to: another agent's chat must not show it.
+      edit<Pages<MsgPage>>(c.qc, qk.chatMessagesOf(c.d, agent), (d) =>
+        mapPages(d, (page, i) => (i === 0 ? { ...page, messages: [row, ...page.messages] } : page)),
+      );
     },
     // The row stays, said to have failed, with the daemon's sentence; Retry and Discard act on it.
     fail: (c, p, e) => {

@@ -39,6 +39,19 @@ describe('send as one operation with a receipt', () => {
     expect(other).not.toBe(first);
   });
 
+  it("a send's waiting row goes only in the chat of the agent it is said to", async () => {
+    const { store, daemon } = await connected();
+    const other = 'handline.architect';
+    const v = probe(() => ({ aud: useChat(AUD, 'mine'), arch: useChat(other, 'mine'), act: useChatActions(other) }));
+    await mount(store, v.node);
+    await until(() => v.get().aud.status === 'ready' && v.get().arch.status === 'ready', 'both conversations');
+    daemon.knobs.latency(300);
+    act(() => v.get().act.send('for the architect'));
+    await until(() => v.get().arch.messages.some((m) => m.body === 'for the architect'), 'the row at once');
+    expect(v.get().aud.messages.some((m) => m.body === 'for the architect')).toBe(false);
+    daemon.knobs.latency(0);
+  });
+
   it('a reply to an agent reply shows its quote at once, and a retry keeps parent_item', async () => {
     const { store, daemon, v, rows } = await connected((s) =>
       s.daemon.chat.seedItem(AUD, { kind: 'reply', text: 'I would cut the third gap.' }),

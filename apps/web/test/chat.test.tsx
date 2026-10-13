@@ -158,7 +158,7 @@ describe('the Chat tab', () => {
     await until(() => landing('ship it') === 'typed', 'typed');
     t.daemon.chat.tick();
     t.daemon.chat.tick();
-    await until(() => text($('.working')).includes('Reading the code'), 'the working line');
+    await until(() => $('.working')?.getAttribute('title')?.includes('Reading the code'), 'the working line');
     t.daemon.chat.tick();
     await until(() => landing('ship it') === 'answered', 'answered');
     expect($('.working')).toBeNull();

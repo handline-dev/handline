@@ -1,9 +1,9 @@
 // One line of the conversation: the person's and the agent's messages with how far each got, and the transcript's tool, prompt, task and
 // session lines as small cards. What a line is and where it stands is an icon with its words as the tooltip; a click on a message picks it
 // to reply to (the reference the composer shows).
-import { useState, type MouseEvent } from 'react';
-import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
-import { landingLabel, openTask, sendNote, sessionLine, sideOf, taskRow } from '@handline/app-core';
+import { useState, type MouseEvent, type ReactNode } from 'react';
+import type { ChatMessage, TranscriptItem } from '@handline/client';
+import { landingLabel, openTask, sessionLine, sideOf, taskRow, tickLevel } from '@handline/app-core';
 import { useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
@@ -24,18 +24,6 @@ const clock = (at: string) => {
   return Number.isNaN(+d) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-const LANDING_ICON: Record<string, IconName> = {
-  queued: 'queued',
-  typed: 'typed',
-  delivered: 'delivered',
-  // Delivered but unanswered draws as delivered — the waiting is said in the tooltip, not drawn.
-  delivered_unanswered: 'delivered',
-  answered: 'answered',
-  dismissed: 'dismissed',
-  withdrawn: 'withdrawn',
-};
-export const landingIcon = (l: Landing): IconName => LANDING_ICON[l] ?? 'delivered';
-
 /** Scrolls the message with this number into view and flashes it; false when it is not drawn (another page, another tab). */
 export function jumpTo(id: number): boolean {
   const el = document.querySelector<HTMLElement>(`.msg[data-id="${id}"]`);
@@ -55,15 +43,55 @@ const full = (at: string) => {
 };
 
 // A message to a structured agent says how far into the CLI it is; `unknown` is never resent, so the person is told it may have run.
-const RECEIPT: Record<string, { icon: IconName; label: string }> = {
-  queued: { icon: 'queued', label: 'Queued: sent when the running turn ends' },
-  sent: { icon: 'typed', label: 'Sent to the agent, not confirmed yet' },
-  confirmed: { icon: 'delivered', label: 'Confirmed by the agent' },
-  unknown: { icon: 'maybeRan', label: 'May or may not have run' },
+const RECEIPT: Record<string, string> = {
+  queued: 'Queued: sent when the running turn ends',
+  sent: 'Sent to the agent, not confirmed yet',
+  confirmed: 'Confirmed by the agent',
+  unknown: 'May or may not have run',
 };
-const receiptOf = (state: string) => RECEIPT[state] ?? RECEIPT.sent!;
+const receiptLabel = (state: string) => RECEIPT[state] ?? RECEIPT.sent!;
+
+/** A click on a control inside a bubble is that control's, not a pick of the bubble. */
+const onControl = (e: MouseEvent) => !!(e.target as HTMLElement).closest('button, a, input, textarea, form');
+
+/** The stamp hangs in the gutter beside the bubble, out of the flow: an agent's to its right, the person's to its left — the bubble never resizes for it. */
+function Stamp({ left, children }: { left?: boolean; children: ReactNode }) {
+  return (
+    <div
+      className={`${MSG_META} absolute bottom-0 hidden items-center justify-end whitespace-nowrap gap-1.5 text-ink-3 peer-hover:flex peer-aria-current:flex ${
+        left ? 'right-full mr-1.5' : 'left-full ml-1.5'
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
 
 const snippet = (body: string) => (body.length > 80 ? `${body.slice(0, 80)}…` : body);
+
+const tickLabel = (m: ChatMessage) =>
+  m.receipt
+    ? receiptLabel(m.receipt.state)
+    : m.sending_reason
+      ? `${landingLabel(m.landing)}: ${m.sending_reason}`
+      : landingLabel(m.landing);
+
+/** Two ticks: both grey while unsent, one coloured once sent, both coloured once read. */
+function Ticks({ level, label, receipt }: { level: 0 | 1 | 2; label: string; receipt?: string }) {
+  return (
+    <span
+      className="landing receipt inline-flex items-center"
+      data-ticks={level}
+      data-receipt={receipt}
+      title={label}
+      role="img"
+      aria-label={label}
+    >
+      <Icon name="delivered" size={13} className={level >= 1 ? 'text-ok' : 'text-ink-3'} aria-hidden />
+      <Icon name="delivered" size={13} className={`-ml-[7px] ${level >= 2 ? 'text-ok' : 'text-ink-3'}`} aria-hidden />
+    </span>
+  );
+}
 
 export function Message(props: {
   m: ChatMessage;
@@ -73,22 +101,18 @@ export function Message(props: {
   onPick?: (m: ChatMessage) => void;
   /** The messages the page holds, to say what a reply refers to. */
   byId?: Map<number, ChatMessage>;
-  /** How many of the person's messages to this agent are queued ahead of this one. */
-  behind?: number;
   /** A message number in the text was clicked. */
   onRef?: (id: number) => void;
 }) {
   const { m, agent } = props;
   const act = useChatActions(agent);
-  const { apply } = useWorkspace();
   const side = sideOf(m, agent, useStore().me);
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
-  const note = side === 'person' ? sendNote(m, props.behind ?? 0) : null;
   // A click on the message, not on a control in it, picks it to reply to.
   const pick = (e: MouseEvent) => {
-    if (unnumbered || failed || !props.onPick || (e.target as HTMLElement).closest('button, a, input, textarea, form')) return;
+    if (unnumbered || failed || !props.onPick || onControl(e)) return;
     props.onPick(m);
   };
   return (
@@ -116,7 +140,6 @@ export function Message(props: {
             onClick={() => jumpTo(m.parent!)}
           >
             <Icon name="reference" size={12} label={`Reply to #${m.parent}`} className="shrink-0" />
-            <span className="mono shrink-0">#{m.parent}</span>
             {parent ? <span className="min-w-0 truncate">{parent.body.replace(/\s+/g, ' ')}</span> : null}
           </button>
         ) : null}
@@ -135,11 +158,6 @@ export function Message(props: {
           </div>
         ) : null}
         {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
-        {note ? (
-          <div className={`${MSG_META} state-note`} role="status">
-            {note}
-          </div>
-        ) : null}
         {m.receipt?.state === 'unknown' ? (
           <div className={MSG_FAILED} role="note">
             <Icon name="maybeRan" size={13} /> This message may or may not have run. It is not sent again; send it again yourself if it
@@ -173,35 +191,10 @@ export function Message(props: {
           </div>
         ) : null}
       </div>
-      {/* The stamp hangs in the gutter beside the bubble, out of the flow: an agent's to its right, the person's to its left — the bubble never resizes for it. */}
-      <div
-        className={`${MSG_META} absolute bottom-0 hidden items-center whitespace-nowrap gap-1.5 text-ink-3 peer-hover:flex peer-aria-current:flex ${
-          side === 'agent' ? 'left-full ml-1.5' : 'right-full mr-1.5'
-        }`}
-      >
-        {side === 'person' && !failed && m.receipt ? (
-          <span className="landing receipt" data-receipt={m.receipt.state} title={receiptOf(m.receipt.state).label}>
-            <Icon name={receiptOf(m.receipt.state).icon} size={13} label={receiptOf(m.receipt.state).label} />
-          </span>
-        ) : side === 'person' && !failed ? (
-          <span className="landing" title={m.sending_reason ? `${landingLabel(m.landing)}: ${m.sending_reason}` : landingLabel(m.landing)}>
-            <Icon name={landingIcon(m.landing)} size={13} label={landingLabel(m.landing)} />
-          </span>
-        ) : null}
-        {m.tasks.map((t) => (
-          <a
-            key={t.id}
-            className="msg-task mono text-inherit"
-            href={`#/tasks/${t.id}`}
-            title={t.title}
-            onClick={openTaskOnClick(apply, t.id)}
-          >
-            <Icon name="tasks" size={12} label={`Task ${t.id}: ${t.title}`} />T{t.id}
-          </a>
-        ))}
-        {!unnumbered ? <span className="mono">#{m.id}</span> : null}
+      <Stamp left={side !== 'agent'}>
         <span>{clock(m.at)}</span>
-      </div>
+        {side === 'person' && !failed ? <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} /> : null}
+      </Stamp>
     </>
   );
 }
@@ -313,19 +306,39 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
 }
 
 /** A transcript line that is not a message: a reply, tool, prompt, session or task line. */
-export function Item({ i, titles, onReply }: { i: TranscriptItem; titles?: Map<number, string>; onReply?: (i: TranscriptItem) => void }) {
+export function Item({
+  i,
+  titles,
+  onReply,
+  picked,
+}: {
+  i: TranscriptItem;
+  titles?: Map<number, string>;
+  onReply?: (i: TranscriptItem) => void;
+  /** The reply is being written to this item. */
+  picked?: boolean;
+}) {
   if (i.kind === 'reply')
     return (
-      <div className={bubbleClass('agent')} data-kind="reply" data-id={i.id} title={full(i.at)}>
-        <div className={MSG_BODY}>
-          <RichText text={i.text ?? ''} />
+      <>
+        <div
+          className={bubbleClass('agent', { picked, pickable: !!onReply })}
+          data-kind="reply"
+          data-id={i.id}
+          title={full(i.at)}
+          aria-current={picked ? 'true' : undefined}
+          onClick={(e) => {
+            if (onReply && !onControl(e)) onReply(i);
+          }}
+        >
+          <div className={MSG_BODY}>
+            <RichText text={i.text ?? ''} />
+          </div>
         </div>
-        {onReply ? (
-          <button className="icon mt-1" aria-label="Reply to this" title="Reply to this" onClick={() => onReply(i)}>
-            <Icon name="reference" size={14} label="Reply to this" />
-          </button>
-        ) : null}
-      </div>
+        <Stamp>
+          <span>{clock(i.at)}</span>
+        </Stamp>
+      </>
     );
   if (i.kind === 'tool') return <ToolLine i={i} />;
   if (i.kind === 'prompt') {

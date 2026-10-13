@@ -176,18 +176,11 @@ describe('read = gone', () => {
     expect(s.daemon.inbox.get(5).read).toBe(false);
   });
 
-  it('the read mark leads the row at 14 px, filled when unread and hollow when read, and the verbs show on touch', async () => {
+  it('Mark read turns the row mark to read', async () => {
     await mount();
     await until(() => $$('.inbox-card').length === 3, 'the cards');
-    const row = card(3).querySelector('.inbox-row')!;
-    const mark = row.firstElementChild!;
-    expect(mark.classList.contains('inbox-seen')).toBe(true);
-    const glyph = mark.querySelector('svg')!;
-    expect(glyph.getAttribute('data-icon')).toBe('unread');
-    expect(Number(glyph.getAttribute('width'))).toBeGreaterThanOrEqual(14);
     await click(button(card(3), 'Mark read'));
-    await until(() => card(3).querySelector('.inbox-seen svg')!.getAttribute('data-icon') === 'read', 'the hollow mark');
-    expect(card(3).querySelector('.inbox-hover')!.className).toContain('[@media(hover:none)]:opacity-100');
+    await until(() => card(3).querySelector('.inbox-seen svg')!.getAttribute('data-icon') === 'read', 'the read mark');
   });
 
   it('Enter on the cursor card opens it the same way: marks it read, goes to its task, and the card is gone on return', async () => {

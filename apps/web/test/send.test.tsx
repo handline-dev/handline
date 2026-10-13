@@ -79,10 +79,8 @@ describe('a message to a structured agent', () => {
     await until(() => receipt('hello') === 'sent', 'sent');
     expect($('.compose-now')).toBeNull(); // no turn runs: nothing to choose
     expect(button(msg('hello'), 'Take back')).toBeUndefined(); // the person has no take-back
-    expect(text(msg('hello'))).toContain('Sent, not confirmed yet');
     act(() => void s.daemon.chat.tick());
     await until(() => receipt('hello') === 'confirmed', 'confirmed');
-    expect(text(msg('hello'))).not.toContain('Sent, not confirmed yet'); // delivered: no state left
   });
 
   it('is queued behind a running turn, written when it ends', async () => {

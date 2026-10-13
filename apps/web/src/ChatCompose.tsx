@@ -165,7 +165,6 @@ export function Compose(props: {
         {target ? (
           <div className="compose-ref flex min-w-0 flex-1 items-center gap-1.5 rounded-chip bg-panel px-2 py-1 text-[12px]" role="status">
             <Icon name="reference" size={14} label={`Replying to #${target.id}`} />
-            <span className="mono">#{target.id}</span>
             <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>
             <button className="icon" aria-label="Drop the reply" title="Drop the reply (Esc)" onClick={onClear}>
               <Icon name="close" size={14} label="Drop the reply" />

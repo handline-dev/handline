@@ -1,6 +1,5 @@
-// The one renderer of free text: paths the shell can open, task numbers (T<N>) as links to the task, and, where the caller has messages, #N as a link
-// to that message. A plain click opens the task in this pane's Tasks tab, a ctrl, cmd or middle click in a tab of its own; on a page with no panes
-// it goes to the Tasks page. A number the daemon has no task for stays text.
+// The one renderer of free text: openable paths, T<N> as a link to the task (plain click: this pane's Tasks tab; ctrl, cmd or middle click: a tab
+// of its own; the Tasks page where there are no panes), and #N as a link to that message where the caller has messages.
 import type { MouseEvent, ReactNode } from 'react';
 import { findRefs, openTask, openTaskTab, taskRef } from '@handline/app-core';
 import { useTasks } from '@handline/app-data';

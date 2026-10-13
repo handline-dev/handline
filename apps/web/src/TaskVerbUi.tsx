@@ -85,7 +85,7 @@ const NEEDS: Record<RowVerb, 'text' | 'optional' | 'owner' | 'priority' | 'time'
   discard: 'text',
   reopen: 'optional',
   cancel: 'optional',
-  release: null,
+  release: 'text',
   owner: 'owner',
   priority: 'priority',
   timebox: 'time',
@@ -96,6 +96,7 @@ const NEEDS: Record<RowVerb, 'text' | 'optional' | 'owner' | 'priority' | 'time'
 const PROMPT: Partial<Record<RowVerb, string>> = {
   done: 'what came of it?',
   discard: 'why?',
+  release: 'why?',
   reopen: 'why? (optional)',
   cancel: 'why? (optional)',
   timebox: 'time box (2h, 30m)',

@@ -2,19 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import {
-  Store,
-  behindCount,
-  noticeOf,
-  takeBack,
-  isOpenAsk,
-  landingLabel,
-  sendNote,
-  sessionLine,
-  sideOf,
-  taskRow,
-  timeline,
-} from '../src/index.ts';
+import { Store, noticeOf, takeBack, isOpenAsk, landingLabel, tickLevel, sessionLine, sideOf, taskRow, timeline } from '../src/index.ts';
 
 const A = 'handline.architect';
 const msg = (over: Partial<ChatMessage>): ChatMessage => ({
@@ -123,22 +111,13 @@ test("only the person's own words are on their side: the CLI, this device, to wh
   assert.equal(sideOf(pm({ from: 'schedule', to: A }), A, ''), 'other');
 });
 
-test("the person's message says sending, waiting behind N, queued or typed, and nothing once delivered or failed", () => {
-  assert.equal(sendNote(pm({ id: -1 }), 0), 'Sending…');
-  assert.equal(sendNote(pm({}), 2), 'Waiting behind 2');
-  assert.equal(sendNote(pm({}), 0), 'Queued');
-  assert.equal(sendNote(pm({ landing: 'typed' }), 0), 'Typed, not read yet');
-  assert.equal(sendNote(pm({ landing: 'delivered' }), 0), null);
-  assert.equal(sendNote(pm({ landing: 'answered' }), 0), null);
-  assert.equal(sendNote(pm({ state: 'failed', id: -1 }), 0), null);
-});
-
-test('behindCount counts the earlier messages still queued to the same agent', () => {
-  const a = pm({ id: 1 });
-  const b = pm({ id: 2, landing: 'delivered' });
-  const c = pm({ id: 3 });
-  assert.equal(behindCount([a, b, c], c), 1);
-  assert.equal(behindCount([a, b, c], a), 0);
+test('the ticks: none until sent, one sent and not read, two read', () => {
+  assert.equal(tickLevel(pm({ id: -1 })), 0);
+  assert.equal(tickLevel(pm({})), 0);
+  assert.equal(tickLevel(pm({ landing: 'typed' })), 1);
+  assert.equal(tickLevel(pm({ landing: 'delivered' })), 2);
+  assert.equal(tickLevel(pm({ landing: 'delivered', receipt: { state: 'sent' } as ChatMessage['receipt'] })), 1);
+  assert.equal(tickLevel(pm({ landing: 'delivered', receipt: { state: 'confirmed' } as ChatMessage['receipt'] })), 2);
 });
 
 test('a message can be taken back until it is answered, and the agent is asked first once it has it', () => {

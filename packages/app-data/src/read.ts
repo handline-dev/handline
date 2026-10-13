@@ -67,10 +67,8 @@ export const useAgentDetail = (agent: string) => useRead('agent.get', { agent })
 export const useAgentTimeline = (agent: string) => useRead('agent.timeline', { agent });
 
 /**
- * An agent's timeline, newest first. The first page is the read the agents feed keeps current; *Older* pages are fetched with `before` and kept
- * until the agent changes, and `more` is the daemon's answer for the oldest page fetched. Older pages hold the ids below `base`, the oldest the first
- * page had when the first of them was fetched; once the first page has moved on past `base` (many new events), what lay between would be missing, so
- * they are dropped and Older fetches them again.
+ * An agent's timeline, newest first: the first page the agents feed keeps current, plus *Older* pages fetched with `before`. Older pages hold the
+ * ids below `base`; once new events move the first page past `base` they would leave a gap, so they are dropped.
  */
 export function useTimeline(agent: string) {
   const first = useAgentTimeline(agent);
