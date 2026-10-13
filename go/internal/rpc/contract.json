@@ -165,24 +165,6 @@
  "input.take": {
   "role": "member"
  },
- "land": {
-  "callers": [
-   "agent"
-  ],
-  "role": "agent"
- },
- "land.authorize": {
-  "callers": [
-   "agent"
-  ],
-  "role": "agent"
- },
- "land.pass": {
-  "callers": [
-   "agent"
-  ],
-  "role": "agent"
- },
  "memory.status": {
   "role": "agent"
  },

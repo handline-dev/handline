@@ -20,7 +20,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
-AUDITOR = "alpha.auditor"
 
 
 def _af_unix_bind_works() -> bool:
@@ -540,34 +539,14 @@ def test_the_daemon_raises_its_descriptor_soft_limit_past_the_connection_cap(hom
     check("socket: the real getrlimit is put back", res.getrlimit is real)
 
 
-def test_a_land_verb_is_judged_by_the_process_on_the_other_end_of_the_socket(home: Path) -> None:
-    """The daemon takes the peer pid from the kernel and accepts `land_pass` only from the process tree
-    of the session recorded for the auditor."""
-    from handline.daemon import lands
+def test_peer_pid_names_the_process_on_the_other_end_of_the_socket(home: Path) -> None:
     from handline.infra import sessiontoken
-    _daemon_home(home, 20)
     a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         check("socket: peer_pid names the process on the other end of a socket pair",
               sessiontoken.peer_pid(a) == os.getpid(), str(sessiontoken.peer_pid(a)))
     finally:
         a.close(); b.close()
-    ask = {"verb": "land_pass", "agent": AUDITOR, "sha": "0" * 40}
-    sessiontoken.record(AUDITOR, os.getpid())
-    reply = _serve_one_roundtrip(ask)
-    check("socket: land_pass from the recorded auditor session gets past the identity check",
-          reply is not None and "not this request's session" not in reply["said"], str(reply))
-    other = subprocess.Popen(["sleep", "300"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    try:
-        # Only the other process is recorded; record() itself would keep this one too while it runs.
-        from handline.infra import protected
-        protected.put(sessiontoken.NS, AUDITOR, f"{other.pid} {sessiontoken._proc(other.pid)[1]}")
-        reply = _serve_one_roundtrip(ask)
-        check("socket: land_pass is refused when another process is the recorded auditor session",
-              reply is not None and reply["ok"] is False and "not this request's session" in reply["said"], str(reply))
-    finally:
-        other.kill()
-        other.wait()
 
 
 def main() -> int:
@@ -592,7 +571,7 @@ def main() -> int:
         run(lambda: test_a_socket_message_racing_the_tick_for_the_same_agent_never_doubles_up(Path(td) / 's4'))
         run(lambda: test_control_start_refuses_when_the_lock_is_held_elsewhere(Path(td) / 's4a'))
         run(lambda: test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(Path(td) / 's5'))
-        run(lambda: test_a_land_verb_is_judged_by_the_process_on_the_other_end_of_the_socket(Path(td) / 's6'))
+        run(lambda: test_peer_pid_names_the_process_on_the_other_end_of_the_socket(Path(td) / 's6'))
         run(lambda: test_the_accept_loop_outlives_running_out_of_descriptors(Path(td) / 's7'))
         run(lambda: test_the_daemon_raises_its_descriptor_soft_limit_past_the_connection_cap(Path(td) / 's8'))
         run(lambda: test_the_accept_loop_leaves_a_dead_listener_and_retries_only_what_can_come_back(Path(td) / 's9'))

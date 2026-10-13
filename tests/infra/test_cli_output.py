@@ -257,8 +257,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "trust mcp": "founder-only; approves a declared folder's .mcp.json servers; driven by trust.approve_mcp in test_only_mcp_servers_the_founder_approved_by_content_are_enabled_at_launch",
         "trust proposals": "lists proposal files; prints their ids",
         "trust apply": "founder-only; applies a proposal and prints its id",
-        "land": "queues a branch for the daemon to land on main; driven in "
-                "test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code, not this scene",
+        "land": "checks a branch with tools/land.sh; driven in test_ocp_land_checks_and_sends_in_two_steps, not this scene",
         "venv install": "creates a real venv and pip installs into it",
         "say": "opens and delivers a say (send_now, never a head), or --needs-task "
                "replies to the sender; driven in tests/team/test_say.py, not this scene",

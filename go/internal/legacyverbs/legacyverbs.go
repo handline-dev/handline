@@ -3,11 +3,11 @@
 // already exist (the supervisor's say and pushes, the session controls, the agent roster, the prompt answers).
 //
 // Served: say, push, push_answer, notify_cancelled, close, restart, agent_set, answer_block. Not served, because nothing sends them any
-// more (the UI and the bridge call the JSON-RPC methods): message, wake, park, fold, move, start and trust. land, land_pass and
-// land_authorize are the lands package's. A verb not served here is left to the server's own answer.
+// more (the UI and the bridge call the JSON-RPC methods): message, wake, park, fold, move, start and trust. A verb not served here is left
+// to the server's own answer.
 //
-// None of these verbs acts on the strength of who the caller is (Python's TOKEN_VERBS are the land verbs only): the socket is private to the
-// user, and the requester and speaker in a request are taken at their word, as OCP_AGENT always was.
+// None of these verbs acts on the strength of who the caller is: the socket is private to the user, and the requester and speaker in a
+// request are taken at their word, as OCP_AGENT always was.
 package legacyverbs
 
 import (

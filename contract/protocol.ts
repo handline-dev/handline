@@ -1932,27 +1932,6 @@ export interface Methods {
   parent?: number;
   request_id: RequestId;
 }; result: Accepted };
-  "land": { params: {
-  sha: string;
-  message: string;
-  tree?: string;
-  /** The merger's housekeeping: whole files by path, written over the merge. Each path must be on main's tools/housekeeping.paths and no file agents read as instructions; at most 1 MiB in all. Anything else needs a PASS. */
-  fix?: { [key: string]: string };
-  /** Main gets one commit carrying `message`, not the merge. */
-  squash?: boolean;
-  request_id: RequestId;
-}; result: Accepted };
-  "land.pass": { params: {
-  sha: string;
-  request_id: RequestId;
-}; result: Accepted };
-  "land.authorize": { params: {
-  agent: AgentName;
-  land_verb: "land" | "land_pass";
-  sha: string;
-  key: string;
-  request_id: RequestId;
-}; result: Accepted };
   "hook.record": { params: {
   agent: AgentName;
   kind: string;
@@ -2316,9 +2295,6 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.edit": { role: "agent", callers: null, write: true, since: 1 },
   "task.ask": { role: "member", callers: null, write: true, since: 1 },
   "say": { role: "agent", callers: null, write: true, since: 1 },
-  "land": { role: "agent", callers: ["agent"], write: true, since: 1 },
-  "land.pass": { role: "agent", callers: ["agent"], write: true, since: 1 },
-  "land.authorize": { role: "agent", callers: ["agent"], write: true, since: 1 },
   "hook.record": { role: "agent", callers: ["agent"], write: true, since: 1 },
   "hr.propose": { role: "agent", callers: null, write: true, since: 1 },
   "hr.withdraw": { role: "agent", callers: null, write: true, since: 1 },

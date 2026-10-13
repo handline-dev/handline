@@ -787,6 +787,16 @@ def _agent_terminals(con) -> None:
     """)
 
 
+def _drop_lands(con) -> None:
+    """The daemon no longer lands branches: merging is plain git. Additive: only the land verbs of code from before
+    read these tables, and nothing sends them any more, so that code still runs on the database without them."""
+    con.executescript("""
+        DROP TABLE IF EXISTS lands;
+        DROP TABLE IF EXISTS land_passes;
+        DROP TABLE IF EXISTS land_fixes;
+    """)
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
@@ -802,6 +812,7 @@ MIGRATIONS = [
     (12, "land_fixes", _land_fixes, True),
     (13, "task_reporter", _task_reporter, True),
     (14, "agent_terminals", _agent_terminals, True),
+    (15, "drop_lands", _drop_lands, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

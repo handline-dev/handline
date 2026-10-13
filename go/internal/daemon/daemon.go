@@ -19,7 +19,6 @@ import (
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/hrwrites"
 	"github.com/handline/handline/go/internal/inputhold"
-	"github.com/handline/handline/go/internal/lands"
 	"github.com/handline/handline/go/internal/legacyverbs"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/lock"
@@ -28,7 +27,6 @@ import (
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/sessionrpc"
-	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/stream"
 	"github.com/handline/handline/go/internal/supervisor"
@@ -82,12 +80,6 @@ type Config struct {
 	// to the home's tokens: the store is outside the home, so a test leaves it nil).
 	EnsureFounderKey func() bool
 
-	// LandRepo is the repository main is checked out in, for the land verbs; empty reads OCP_LAND_REPO and refuses a land with none.
-	LandRepo string
-	// LandSweep makes this daemon merge the lands that are queued: on only where the Python daemon no longer ticks, since two
-	// sweeps over one home would race for the same row.
-	LandSweep bool
-
 	// Teller follows the task writes with what Python did after their commit (the typed says, the deliveries): the supervisor's telling
 	// layer. Nil is the Env's own telling once its ports are all wired (OnOpen sets them), and tells nothing before that.
 	Teller taskwrites.Teller
@@ -127,7 +119,6 @@ type Daemon struct {
 	cfg    Config
 	db     *sql.DB
 	hooks  *hooks.Recorder
-	lands  *lands.Service    // the land verbs; nil on a gateway
 	logins *weblogin.Manager // the web logins; nil in a gateway
 
 	acctMu  sync.Mutex        // one account.changed is made and published at a time, so the topic gets a login's moves in order
@@ -206,12 +197,6 @@ func Start(cfg Config) (*Daemon, error) {
 		d.tchan.Holds = d.holds
 		d.prompts.Holds = d.holds
 		d.ingestSpool() // what hooks left while no daemon ran, before the first call is served
-		d.lands = &lands.Service{DB: db, Repo: cfg.LandRepo, Tokens: sessiontoken.New(cfg.Home), Log: cfg.Log,
-			Tell: func(to, body string) {
-				if err := d.env().SystemSay(lands.Requester, to, body); err != nil {
-					cfg.Log("  land: telling %s: %v", to, err)
-				}
-			}}
 	}
 	if cfg.Gateway {
 		pid, err := takePidFile(cfg.PidFile)
@@ -293,10 +278,6 @@ func Start(cfg Config) (*Daemon, error) {
 		d.wg.Add(1)
 		go d.spoolLoop()
 	}
-	if d.lands != nil && cfg.LandSweep {
-		d.wg.Add(1)
-		go d.landLoop()
-	}
 	d.wg.Add(1)
 	go func() {
 		defer d.wg.Done()
@@ -360,13 +341,8 @@ func (d *Daemon) hrEnv() *hrwrites.Env {
 	return h
 }
 
-// legacy answers a legacy `{verb}` request: the land verbs, then the rest that Python's hl still sends. nil is a verb served by neither.
+// legacy answers a legacy `{verb}` request that Python's hl still sends. nil is a verb it does not serve.
 func (d *Daemon) legacy(payload map[string]any, pid int) map[string]any {
-	if d.lands != nil {
-		if reply := d.lands.Legacy(payload, pid); reply != nil {
-			return reply
-		}
-	}
 	e := &legacyverbs.Env{DB: d.db, Home: d.cfg.Home, Sup: d.env(), Prompts: d.prompts, SetByAgent: d.hrEnv().SetByAgent, Log: d.cfg.Log}
 	if d.cfg.Session != nil {
 		e.Controls = func() sessionrpc.Controls { return d.cfg.Session().Controls }
@@ -475,9 +451,6 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	if transport == "local" {
 		s.Legacy = d.legacy
 	}
-	if d.lands != nil && transport == "local" {
-		lands.Register(s, d.lands)
-	}
 	devices.Register(s, d.dev, d.hub.Emit)
 	stream.Register(s, d.hub)
 	renv := reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion(), Delivery: d.cfg.Delivery}
@@ -501,26 +474,6 @@ func (d *Daemon) ingestSpool() {
 		d.cfg.Log("  spool: %v", err)
 	}
 }
-
-// landLoop starts the oldest queued land every LandEvery, the work the Python daemon does each tick.
-func (d *Daemon) landLoop() {
-	defer d.wg.Done()
-	t := time.NewTicker(landEvery)
-	defer t.Stop()
-	for {
-		select {
-		case <-d.stop:
-			return
-		case <-t.C:
-			if err := d.lands.Sweep(); err != nil {
-				d.cfg.Log("  lands: %v", err)
-			}
-		}
-	}
-}
-
-// landEvery is how often a queued land is looked for.
-const landEvery = 2 * time.Second
 
 // spoolLoop reads the hook spool every SpoolEvery, the work the Python daemon does each tick.
 func (d *Daemon) spoolLoop() {

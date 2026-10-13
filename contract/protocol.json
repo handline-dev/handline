@@ -44,7 +44,6 @@
   "attempt_limit": "Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes.",
   "unpaired": "A network connection with no valid device token called anything but device.redeem. The reply is always message \"refused\" and reason \"not paired\": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed.",
   "pairing_code": "device.redeem: the code is wrong, expired or already used. The reply does not say which.",
-  "session_token": "Session token and peer-pid check, unchanged.",
   "proposal_changed": "hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again.",
   "proposal_settled": "hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now.",
   "confirm": "chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do.",
@@ -52,9 +51,6 @@
  },
  "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
  "x-legacy": {
-  "land": "land",
-  "land_pass": "land.pass",
-  "land_authorize": "land.authorize",
   "agent_set": "agent.set",
   "message": null,
   "say": "say",
@@ -72,7 +68,7 @@
   "trust": null
  },
  "x-identity": {
-  "rule": "x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress, land, land.pass, land.authorize) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).",
+  "rule": "x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).",
   "sender": "say and task.new carry no sender parameter: the daemon sets it. An agent's calls carry its own name; a member device's and the founder's carry `human`.",
   "ownership": "Methods that act on a task by id (edit, merge, discard, reopen, queue, draft) are anyone's: the task's opener and assignee are told, and its history keeps who did it. withdraw, release, memo.edit and memo.delete keep their checks on who may; a refusal is `refused` with the reason."
  },
@@ -100,8 +96,6 @@
   "hl inbox": "inbox.list",
   "hl read": "inbox.get",
   "hl say": "say",
-  "hl land": "land",
-  "hl land --pass": "land.pass",
   "hl hook": "hook.record",
   "hl agent set": "agent.set",
   "hl agent move": "agent.move",
@@ -161,7 +155,8 @@
    "hl guide",
    "hl withdraw",
    "hl memory migrate",
-   "hl task note (suppressed)"
+   "hl task note (suppressed)",
+   "hl land (no daemon method serves it any more; the CLI goes next)"
   ]
  },
  "x-topics": {
@@ -5592,193 +5587,6 @@
      "$ref": "#/components/errors/bad_request"
     }
    ]
-  },
-  {
-   "name": "land",
-   "summary": "Request a land; accepted only from the session's own hl land (session token and peer pid, as today).",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "sha",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "message",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "tree",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "fix",
-     "required": false,
-     "schema": {
-      "type": "object",
-      "additionalProperties": {
-       "type": "string"
-      },
-      "description": "The merger's housekeeping: whole files by path, written over the merge. Each path must be on main's tools/housekeeping.paths and no file agents read as instructions; at most 1 MiB in all. Anything else needs a PASS."
-     }
-    },
-    {
-     "name": "squash",
-     "required": false,
-     "schema": {
-      "type": "boolean",
-      "description": "Main gets one commit carrying `message`, not the merge."
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "agent",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    }
-   ],
-   "x-gates": [
-    "not_self",
-    "session_token"
-   ],
-   "x-callers": [
-    "agent"
-   ],
-   "description": "Queue a land: the merger's alone (`caller` is the session, never a name in the request), and only for a sha an auditor recorded a PASS for (land.pass), with the tree the merger's test saw; the daemon merges it itself and fast-forwards main only when the result is that tree. A sha lands once. Accepted only for the vouch of land.authorize: exactly this agent, verb and sha as typed, once, within 60 seconds."
-  },
-  {
-   "name": "land.pass",
-   "summary": "Record a land pass.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "sha",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "agent",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    }
-   ],
-   "x-gates": [
-    "not_self",
-    "session_token"
-   ],
-   "x-callers": [
-    "agent"
-   ],
-   "description": "Record an auditor's PASS for a sha: any agent named `<team>.auditor` (numbered when a team has more), from its own session, and only for the vouch of land.authorize: exactly this agent, verb and sha as typed, once, within 60 seconds."
-  },
-  {
-   "name": "land.authorize",
-   "summary": "The session's hl land vouches for the next land verb (legacy land_authorize).",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "agent",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/AgentName"
-     }
-    },
-    {
-     "name": "land_verb",
-     "required": true,
-     "schema": {
-      "type": "string",
-      "enum": [
-       "land",
-       "land_pass"
-      ]
-     }
-    },
-    {
-     "name": "sha",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "key",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "agent",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    }
-   ],
-   "x-gates": [
-    "not_self",
-    "session_token"
-   ],
-   "x-callers": [
-    "agent"
-   ],
-   "description": "The session's own PreToolUse hook vouches for the one `hl land` command it is about to run. It names the agent, the verb (land or land_pass) and the sha exactly as typed, and holds the per-session key `hl launch` kept in a folder the sandbox hides. The daemon keeps the vouch for 60 seconds and spends it on the first matching land or land.pass, so code the session runs (a test run, a script) cannot send one. The legacy verb land_authorize takes the same arguments and answers {ok, said}."
   },
   {
    "name": "hook.record",
