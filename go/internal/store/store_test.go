@@ -367,3 +367,32 @@ func TestADatabaseAtStepFourteenLosesTheLandTables(t *testing.T) {
 		t.Fatalf("land tables %d, version %d", n, v)
 	}
 }
+
+// A step tools/go_schema.py cannot dump is generated as a comment only and ported into byHand under its number, so
+// each comment-only step has a byHand step and each byHand step names one.
+func TestEachByHandStepIsTheStepGeneratedAsAComment(t *testing.T) {
+	ms, err := migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := map[int]bool{}
+	for _, m := range ms {
+		var body []string
+		for _, line := range strings.Split(m.sql, "\n") {
+			if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "--") {
+				body = append(body, line)
+			}
+		}
+		if len(body) == 0 {
+			named[m.version] = true
+			if byHand[m.version] == nil {
+				t.Errorf("step %d (%s) is a comment only and has no byHand step", m.version, m.name)
+			}
+		}
+	}
+	for v := range byHand {
+		if !named[v] {
+			t.Errorf("byHand step %d is not a step generated as a comment only", v)
+		}
+	}
+}
