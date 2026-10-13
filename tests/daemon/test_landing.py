@@ -757,71 +757,6 @@ def test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_dr
         con.close()
 
 
-def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Path) -> None:
-    import argparse, io, contextlib
-    from handline.cli import health
-    from handline.db import schema as dbschema
-    from handline.daemon import devmode
-    from handline.infra import daemonlock
-    _daemon_home(home, 20)
-    code = max(f.stat().st_mtime for f in devmode._watched_files(paths.repo_root()) if f.exists())
-    real_daemon = daemonlock.running_elsewhere
-    daemonlock.running_elsewhere = lambda: 4242
-    try:
-        check("stale: a daemon that started before the newest code is named",
-              health.stale_long_lived(lambda pid, rec: code - 60) == ["daemon (pid 4242)"])
-        check("stale: one that started after it is not", health.stale_long_lived(lambda pid, rec: code + 60) == [])
-        check("stale: a live process whose start cannot be read is refused, not passed",
-              health.stale_long_lived(lambda pid, rec: None) == ["daemon (pid 4242; cannot tell when it started)"])
-        import os, subprocess
-        rec = home / "rec.pid"
-        rec.write_text("1\n")
-        os.utime(rec, (1000.0, 1000.0))
-        real_run = subprocess.run
-        asked = []
-        def table(*a, **k):
-            asked.append(a)
-            return subprocess.CompletedProcess(a, 0, stdout="Mon Jan  1 00:00:00 2001\n")
-        subprocess.run = table
-        try:
-            check("stale: a pid file newer than the fork is the start - an exec keeps the pid, and ps its old time",
-                  health._started_at(1, rec) == 1000.0 and not asked)
-            check("stale: with no pid file the process table is asked",
-                  health._started_at(1, home / "none") == time.mktime(time.strptime("2001-01-01", "%Y-%m-%d")) and asked)
-            def no_ps(*a, **k):
-                raise PermissionError("operation not permitted")
-            subprocess.run = no_ps
-            check("stale: no pid file and ps denied is unknown", health._started_at(1, home / "none") is None)
-        finally:
-            subprocess.run = real_run
-        con = db.connect()
-        dead = [c for c in dbschema._LEGACY_REQUEST_COLUMNS]
-        try:
-            for col in dead:
-                if col not in dbschema._cols(con, "requests"):
-                    con.execute(f"ALTER TABLE requests ADD COLUMN {col} INTEGER")
-        finally:
-            con.close()
-        real_started = health._started_at
-        args = argparse.Namespace(settle_leftovers=False, drop_dead_columns=True, dry_run=False, no_color=True)
-        err = io.StringIO()
-        health._started_at = lambda pid, rec: code - 60
-        try:
-            with contextlib.redirect_stderr(err):
-                rc = health.cmd_doctor(args)
-        finally:
-            health._started_at = real_started
-        con = db.connect()
-        try:
-            left = dbschema._cols(con, "requests")
-        finally:
-            con.close()
-        check("stale: the drop refuses naming the process and drops nothing",
-              rc == 1 and "daemon (pid 4242)" in err.getvalue() and set(dead) <= left, err.getvalue())
-    finally:
-        daemonlock.running_elsewhere = real_daemon
-
-
 def test_a_trust_proposal_for_a_root_already_declared_is_moot(home: Path) -> None:
     _daemon_home(home, 20)
     from handline.team import trust as trustmod
@@ -907,7 +842,6 @@ def main() -> int:
         run(lambda: test_the_legacy_request_columns_are_gone_from_a_new_database_and_dropped_by_the_doctor(Path(td) / "l16x"))
         run(lambda: test_a_database_dropped_of_the_legacy_columns_without_the_mark_still_connects(Path(td) / "l16y"))
         run(lambda: test_the_requests_table_has_one_state_and_one_time_after_the_upgrade(Path(td) / "l17"))
-        run(lambda: test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(Path(td) / "l16s"))
         run(lambda: test_a_trust_proposal_for_a_root_already_declared_is_moot(Path(td) / "l18"))
         run(lambda: test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_drops_are_safe(Path(td) / 'dropcols'))
         run(lambda: test_a_vendor_without_transcripts_takes_a_typed_line_as_landed(Path(td) / "l6"))

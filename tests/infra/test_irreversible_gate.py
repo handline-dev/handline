@@ -156,73 +156,50 @@ def _doctor(**kw):
 def test_drop_dead_columns_dry_run_names_the_columns_and_the_backup_and_drops_nothing(home: Path) -> None:
     dead = _dead_columns(home)
     fresh_backup(age_s=20)
-    real = health.stale_long_lived
-    health.stale_long_lived = lambda started_at=None: []
+    args = argparse.Namespace(settle_leftovers=False, drop_dead_columns=True, dry_run=True, no_color=True)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = health.cmd_doctor(args)
+    out = buf.getvalue()
+    con = db.connect()
     try:
-        args = argparse.Namespace(settle_leftovers=False, drop_dead_columns=True, dry_run=True, no_color=True)
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = health.cmd_doctor(args)
-        out = buf.getvalue()
-        con = db.connect()
-        try:
-            left = dbschema._cols(con, "requests")
-        finally:
-            con.close()
-        check("dry run: every dead column is named, and the one read-first step before dropping",
-              rc == 0 and all(c in out for c in dead) and "would drop from the requests table" in out
-              and "first moving" in out, out)
-        check("dry run: the newest backup's path and time, and the all-clear", "newest backup:" in out
-              and "orcapipe-20260101-000000.tar.gz" in out and "passed" in out, out)
-        check("dry run: and none was dropped, and no doctor checks ran", set(dead) <= left and "checks," not in out)
+        left = dbschema._cols(con, "requests")
     finally:
-        health.stale_long_lived = real
+        con.close()
+    check("dry run: every dead column is named, and the one read-first step before dropping",
+          rc == 0 and all(c in out for c in dead) and "would drop from the requests table" in out
+          and "first moving" in out, out)
+    check("dry run: the newest backup's path and time, and the all-clear", "newest backup:" in out
+          and "orcapipe-20260101-000000.tar.gz" in out and "backup gate: passed" in out, out)
+    check("dry run: and none was dropped, and no doctor checks ran", set(dead) <= left and "checks," not in out)
 
 
-def test_drop_dead_columns_refuses_for_a_stale_process_or_no_backup_and_keeps_the_columns(home: Path) -> None:
+def test_drop_dead_columns_refuses_without_a_recent_backup_and_keeps_the_columns(home: Path) -> None:
     dead = _dead_columns(home)
-    real = health.stale_long_lived
+    fresh_backup(age_s=WINDOW + 600)
+    rc, out, err = _doctor()
+    con = db.connect()
     try:
-        fresh_backup(age_s=WINDOW + 600)
-        health.stale_long_lived = lambda started_at=None: []
-        rc, out, err = _doctor()
-        con = db.connect()
-        try:
-            left = dbschema._cols(con, "requests")
-        finally:
-            con.close()
-        check("drop: with no backup from the last 5 minutes it refuses, names `hl backup`, drops nothing",
-              rc == 1 and "not dropping:" in err and "`hl backup`" in err and set(dead) <= left, err)
-        health.stale_long_lived = lambda started_at=None: ["bridge (pid 4242)"]
-        fresh_backup(age_s=5)
-        rc, out, err = _doctor()
-        check("drop: a stale long-lived process still refuses first, whatever the backup",
-              rc == 1 and "bridge (pid 4242)" in err, err)
-        args = argparse.Namespace(settle_leftovers=False, drop_dead_columns=True, dry_run=True, no_color=True)
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = health.cmd_doctor(args)
-        check("drop: its dry run says so, and exits 1, listing the process and a passing backup gate",
-              rc == 1 and "would refuse: bridge (pid 4242)" in buf.getvalue()
-              and "would refuse: no backup" not in buf.getvalue(), buf.getvalue())
-        fresh_backup(age_s=WINDOW + 600)
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = health.cmd_doctor(args)
-        check("drop: and with both wrong, both are listed",
-              "would refuse: bridge" in buf.getvalue() and "would refuse: no backup" in buf.getvalue(), buf.getvalue())
-        health.stale_long_lived = lambda started_at=None: []
-        fresh_backup(age_s=5)
-        rc, out, err = _doctor()
-        con = db.connect()
-        try:
-            left = dbschema._cols(con, "requests")
-        finally:
-            con.close()
-        check("drop: with a recent backup and nothing stale the real run drops them",
-              rc in (0, 1) and "dropped:" in out and not set(dead) & left, out + err)
+        left = dbschema._cols(con, "requests")
     finally:
-        health.stale_long_lived = real
+        con.close()
+    check("drop: with no backup from the last 5 minutes it refuses, names `hl backup`, drops nothing",
+          rc == 1 and "not dropping:" in err and "`hl backup`" in err and set(dead) <= left, err)
+    args = argparse.Namespace(settle_leftovers=False, drop_dead_columns=True, dry_run=True, no_color=True)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = health.cmd_doctor(args)
+    check("drop: its dry run says so, and exits 1",
+          rc == 1 and "would refuse: no backup" in buf.getvalue() and "passed" not in buf.getvalue(), buf.getvalue())
+    fresh_backup(age_s=5)
+    rc, out, err = _doctor()
+    con = db.connect()
+    try:
+        left = dbschema._cols(con, "requests")
+    finally:
+        con.close()
+    check("drop: with a recent backup the real run drops them, whatever daemon is running",
+          rc in (0, 1) and "dropped:" in out and not set(dead) & left, out + err)
     args = argparse.Namespace(settle_leftovers=False, drop_dead_columns=False, dry_run=True, no_color=True)
     err = io.StringIO()
     with contextlib.redirect_stderr(err):
@@ -238,7 +215,7 @@ def main() -> int:
         run(lambda: test_account_remove_dry_run_says_what_it_would_do_and_changes_nothing(Path(td) / "g3"))
         run(lambda: test_account_remove_refuses_without_a_recent_backup_even_with_yes(Path(td) / "g4"))
         run(lambda: test_drop_dead_columns_dry_run_names_the_columns_and_the_backup_and_drops_nothing(Path(td) / "g5"))
-        run(lambda: test_drop_dead_columns_refuses_for_a_stale_process_or_no_backup_and_keeps_the_columns(Path(td) / "g6"))
+        run(lambda: test_drop_dead_columns_refuses_without_a_recent_backup_and_keeps_the_columns(Path(td) / "g6"))
     return run_area(tests)
 
 

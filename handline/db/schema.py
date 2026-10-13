@@ -1371,8 +1371,8 @@ def _requests_one_state(con, legacy: bool = True) -> None:
 # Request columns nothing reads or writes any more (T797 branch 7). They are NOT dropped at connect:
 # a long-lived process on older code (the bridge, an agent's own CLI) still names them in its
 # statements and re-adds them when it connects, so a drop at connect crashes it - or flaps against it
-# on every call (T830). Dropped by `ocp doctor --drop-dead-columns`, once everything long-lived has
-# been restarted; new code never names them and a fresh database never has them.
+# on every call. Dropped by `ocp doctor --drop-dead-columns`; new code never names them, the
+# Go daemon never did, and a fresh database never has them.
 _UNREAD_REQUEST_COLUMNS = ("timebox_s", "timebox_noticed_at", "landing_tries", "told_out_of_turn",
                            *_LEGACY_REQUEST_COLUMNS)
 
