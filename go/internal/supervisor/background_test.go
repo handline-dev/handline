@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/states"
 )
 
 func TestTrackBackgroundWorkFollowsTheFooterAndEndsTheSpell(t *testing.T) {
@@ -41,31 +42,39 @@ func TestTrackBackgroundWorkFollowsTheFooterAndEndsTheSpell(t *testing.T) {
 	}
 }
 
-func TestBackgroundWorkGoesStaleOnlyWhenNothingElseIsShown(t *testing.T) {
+func TestBackgroundWorkGoesStaleBeforeThePromptCacheLapses(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	row, _ := db.GetAgentState(r.DB, "bob")
 	r.term.background = "1 monitor"
 	r.TrackBackgroundWork(r.DB, "bob", row)
 	start := r.clock
-	if r.bgStale(r.DB, "bob", start+StaleBgS-1) {
+	// The session's own TTL: stale once StaleBgLeadS or less is left, whatever the silence.
+	r.sessions.cacheLeft = map[string]int64{"bob": StaleBgLeadS + 1}
+	if r.bgStale(r.DB, "bob", start+10) {
 		t.Fatal("stale too soon")
 	}
-	if !r.bgStale(r.DB, "bob", start+StaleBgS) {
-		t.Fatal("not stale")
+	r.sessions.cacheLeft["bob"] = StaleBgLeadS
+	if !r.bgStale(r.DB, "bob", start+10) {
+		t.Fatal("not stale with the cache about to lapse")
+	}
+	// A running turn is never forgotten work.
+	db.SetAgentState(r.DB, "bob", "RUNNING", 0, "")
+	if r.bgStale(r.DB, "bob", start+10) {
+		t.Fatal("a running turn is stale")
+	}
+	db.SetAgentState(r.DB, "bob", "IDLE", 0, "")
+	// No TTL known: an hour from what the agent last showed beside the work.
+	r.sessions.cacheLeft = nil
+	edge := start + states.PromptCacheS - StaleBgLeadS
+	if r.bgStale(r.DB, "bob", edge-1) || !r.bgStale(r.DB, "bob", edge) {
+		t.Fatal("the fallback clock is not an hour from the silence")
 	}
 	if silent, ok := r.bgSilentS(r.DB, "bob", start+100); !ok || silent != 100 {
 		t.Fatal(silent, ok)
 	}
-	// a running turn is never forgotten work
-	db.SetAgentState(r.DB, "bob", "RUNNING", 0, "")
-	if r.bgStale(r.DB, "bob", start+StaleBgS*2) {
-		t.Fatal("a running turn is stale")
-	}
-	db.SetAgentState(r.DB, "bob", "IDLE", 0, "")
-	// activity inside the window resets the silence
-	db.AddEventAt(r.DB, start+StaleBgS-10, "bob", "Stop")
-	if r.bgStale(r.DB, "bob", start+StaleBgS) {
+	db.AddEventAt(r.DB, edge-10, "bob", "Stop")
+	if r.bgStale(r.DB, "bob", edge) {
 		t.Fatal("stale with recent activity")
 	}
 }
@@ -119,7 +128,7 @@ func TestBgMayStopAnAgentThatOwesNothingAfterItsGraceOrAStaleOneAfterTheVeto(t *
 	if r.bgMayStop(r.DB, "bob", now) {
 		t.Fatal("not stale yet")
 	}
-	if !r.bgMayStop(r.DB, "bob", r.clock+StaleBgS+StaleBgVetoS) {
+	if !r.bgMayStop(r.DB, "bob", r.clock+states.PromptCacheS-StaleBgLeadS+StaleBgVetoS) {
 		t.Fatal("stale and vetoed past its window, but not stoppable")
 	}
 }

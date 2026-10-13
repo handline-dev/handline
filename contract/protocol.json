@@ -11861,23 +11861,11 @@
       "default": 900,
       "description": "Seconds after the first waiting result before the agent is woken once with a digest. Per agent."
      },
-     "unasked_running_s": {
-      "type": "integer",
-      "minimum": 1,
-      "default": 900,
-      "description": "Seconds an unasked running agent may go before it is asked."
-     },
      "stop_wait_backstop_s": {
       "type": "integer",
       "minimum": 1,
       "default": 900,
       "description": "Backstop for a stop-wait."
-     },
-     "stale_background_s": {
-      "type": "integer",
-      "minimum": 1,
-      "default": 3000,
-      "description": "Seconds of silence after which background work counts as stale."
      },
      "token_prices": {
       "type": "object",
@@ -12017,18 +12005,6 @@
       ],
       "description": "Seconds after the first waiting result before the agent is woken once with a digest. Per agent. null removes the key (back to the default)."
      },
-     "unasked_running_s": {
-      "oneOf": [
-       {
-        "type": "integer",
-        "minimum": 1
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "description": "Seconds an unasked running agent may go before it is asked. null removes the key (back to the default)."
-     },
      "stop_wait_backstop_s": {
       "oneOf": [
        {
@@ -12040,18 +12016,6 @@
        }
       ],
       "description": "Backstop for a stop-wait. null removes the key (back to the default)."
-     },
-     "stale_background_s": {
-      "oneOf": [
-       {
-        "type": "integer",
-        "minimum": 1
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "description": "Seconds of silence after which background work counts as stale. null removes the key (back to the default)."
      },
      "token_prices": {
       "oneOf": [

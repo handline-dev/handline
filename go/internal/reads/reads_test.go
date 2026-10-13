@@ -8,11 +8,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/sealed"
 	"github.com/handline/handline/go/internal/store"
 )
 
 func testEnv(t *testing.T) *Env {
 	t.Helper()
+	// Run as the founder, whatever session runs the suite, with the protected store (the seals) under a stand-in user home.
+	t.Setenv("HANDLINE_AGENT", "")
+	t.Setenv("OCP_AGENT", "")
+	t.Setenv("HANDLINE_TEST_ROOT", t.TempDir())
 	home := t.TempDir()
 	db, err := store.Open(filepath.Join(home, "db.sqlite"))
 	if err != nil {
@@ -25,6 +30,17 @@ func testEnv(t *testing.T) *Env {
 		return err == nil, true
 	}
 	return &Env{DB: db, Home: home, Started: time.Now(), LoginState: login}
+}
+
+// writeAgentYAML is the founder's edit of an agent's file: written and sealed, so the roster trusts it.
+func writeAgentYAML(t *testing.T, e *Env, name, text string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(e.Home, "agents", name, "agent.yaml"), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sealed.New(e.Home).Seal(sealed.AgentKey(name), text); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func addAgent(t *testing.T, e *Env, name, role string) {

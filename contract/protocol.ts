@@ -958,12 +958,8 @@ export type SettingsValues = {
   bg_check_s?: number;
   /** Seconds after the first waiting result before the agent is woken once with a digest. Per agent. */
   notice_digest_s?: number;
-  /** Seconds an unasked running agent may go before it is asked. */
-  unasked_running_s?: number;
   /** Backstop for a stop-wait. */
   stop_wait_backstop_s?: number;
-  /** Seconds of silence after which background work counts as stale. */
-  stale_background_s?: number;
   /** Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored. */
   token_prices?: { [key: string]: number };
   /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). */
@@ -992,12 +988,8 @@ export type SettingsChanges = {
   bg_check_s?: number | null;
   /** Seconds after the first waiting result before the agent is woken once with a digest. Per agent. null removes the key (back to the default). */
   notice_digest_s?: number | null;
-  /** Seconds an unasked running agent may go before it is asked. null removes the key (back to the default). */
-  unasked_running_s?: number | null;
   /** Backstop for a stop-wait. null removes the key (back to the default). */
   stop_wait_backstop_s?: number | null;
-  /** Seconds of silence after which background work counts as stale. null removes the key (back to the default). */
-  stale_background_s?: number | null;
   /** Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored. null removes the key (back to the default). */
   token_prices?: { [key: string]: number } | null;
   /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). null removes the key (back to the default). */
