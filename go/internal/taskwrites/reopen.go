@@ -74,7 +74,7 @@ func reopenMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any
 			if err := addEvent(tx, by, "reopen_task", kv{"task_id", tid}, kv{"reason", said}, kv{"after_request", after}); err != nil {
 				return nil, err
 			}
-			if notes, err = tellTask(tx, home, t, by, msg); err != nil {
+			if notes, err = tellTask(tx, home, by, msg, t.OpenedBy, t.Owner); err != nil {
 				return nil, err
 			}
 			return accepted(msg, nil), nil

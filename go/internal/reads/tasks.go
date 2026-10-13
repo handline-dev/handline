@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -43,7 +44,8 @@ type board struct {
 func (e *Env) loadBoard(open []row) (*board, error) {
 	b := &board{begun: map[int64]bool{}, sent: map[int64]bool{}, children: map[int64][]int64{},
 		current: map[string]int64{}, held: map[int64]row{}}
-	rows, err := query(e.DB, "SELECT DISTINCT "+eventTask+" AS t FROM events WHERE kind IN ('task_begin', 'task_self_start')")
+	begunTask := "CASE WHEN json_valid(e.payload) THEN json_extract(e.payload, '$.task_id') END"
+	rows, err := query(e.DB, "SELECT DISTINCT "+begunTask+" AS t FROM events e WHERE kind IN ('task_begin', 'task_self_start')"+db.SinceRelease(begunTask))
 	if err != nil {
 		return nil, err
 	}

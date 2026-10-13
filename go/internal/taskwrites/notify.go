@@ -6,25 +6,26 @@ import (
 	"github.com/handline/handline/go/internal/paths"
 )
 
-// tellTask writes a notice of a change to task t for its opener, its assignee and anyone in also, to be delivered after the commit
-// (Teller.Notified). Anyone may change a task, so these are who learn of it; the actor, the board and names no one holds are skipped.
-func tellTask(tx *sql.Tx, home string, t *task, by, text string, also ...string) ([]told, error) {
+// tellTask writes a notice of a change to a task for each of to (its opener and assignee, and whoever else the change concerns), to be
+// delivered after the commit (Teller.Notified). Anyone may change a task, so these are who learn of it; the actor, the board and names no
+// one holds are skipped.
+func tellTask(tx *sql.Tx, home, by, text string, to ...string) ([]told, error) {
 	known := map[string]bool{human: true}
 	for _, a := range paths.ListAgents(home) {
 		known[a] = true
 	}
 	seen := map[string]bool{by: true, noticeFrom: true}
 	var out []told
-	for _, to := range append([]string{t.OpenedBy, t.Owner}, also...) {
-		if seen[to] || !known[to] {
+	for _, who := range to {
+		if seen[who] || !known[who] {
 			continue
 		}
-		seen[to] = true
-		rid, err := addSay(tx, noticeFrom, to, text, true)
+		seen[who] = true
+		rid, err := addSay(tx, noticeFrom, who, text, true)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, told{RID: rid, To: to, Text: text})
+		out = append(out, told{RID: rid, To: who, Text: text})
 	}
 	return out, nil
 }

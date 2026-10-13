@@ -361,7 +361,11 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			if err != nil {
 				return nil, err
 			}
-			if notes, err = tellTask(tx, home, t, me, said, done.WasOwner); err != nil {
+			to := []string{t.OpenedBy, done.WasOwner}
+			if done.WasOwner == "" || done.WasOwner == t.Owner { // a new owner is asked the brief itself (Teller.Edited)
+				to = append(to, t.Owner)
+			}
+			if notes, err = tellTask(tx, home, me, said, to...); err != nil {
 				return nil, err
 			}
 			return accepted(said, nil), nil

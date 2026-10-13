@@ -83,7 +83,7 @@ func mergeMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any,
 			for _, t := range involved {
 				who = append(who, t.OpenedBy, t.Owner)
 			}
-			if notes, err = tellTask(tx, home, involved[0], by, said, who...); err != nil {
+			if notes, err = tellTask(tx, home, by, said, who...); err != nil {
 				return nil, err
 			}
 			return accepted(said, nil), nil
@@ -117,25 +117,12 @@ func mergeRowOf(tx *sql.Tx, tid int64) (*mergeRow, error) {
 	return r, err
 }
 
-// editGuard is _task_edit_guard, left only on release: whoever opened the task, its reporter or the founder.
-func editGuard(r *mergeRow, by string) string {
-	if by != r.OpenedBy && by != r.Reporter && by != human {
-		return fmt.Sprintf("task T%d can only be edited by whoever opened it (%s or the founder", r.ID, openerAndReporter(r.OpenedBy, r.Reporter))
-	}
-	return ""
-}
-
 // openerAndReporter is _opener_and_reporter: the opener named in a refusal, then the reporter when it is someone else.
 func openerAndReporter(opener, reporter string) string {
 	if reporter == opener {
 		return opener + ")"
 	}
 	return opener + "), its reporter (" + reporter + ")"
-}
-
-// guardRow is the part of a task editGuard reads.
-func guardRow(t *task) *mergeRow {
-	return &mergeRow{ID: t.ID, OpenedBy: t.OpenedBy, Reporter: t.reporter()}
 }
 
 // mergeChecks is _merge_checks: the refusal, if any, and the rows to fold, read in the merge's own transaction.

@@ -712,10 +712,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_reopen)
-    p = tk.add_parser("release", help="T286: take a doing task back to queued/draft - the "
-                                      "opener or the founder, the other answer to a timeout "
-                                      "notice besides `edit --timeout`")
+    p = tk.add_parser("release", help="take a doing task back to queued/draft, "
+                                      "with a one-line reason its opener and assignee are told; "
+                                      "the other answer to a timeout notice besides `edit --timeout`")
     p.add_argument("task", type=_task_arg, metavar="T")
+    p.add_argument("reason")
     p.set_defaults(fn=cmd_task_release)
     p = tk.add_parser("discard", help="throw away a task that is not done (#85) - anyone, with a "
                                       "one-line reason its opener and assignee are told")

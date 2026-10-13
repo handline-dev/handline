@@ -184,13 +184,13 @@ def cmd_task_reopen(args) -> int:
 
 
 def cmd_task_release(args) -> int:
-    """T286: take a doing task back to queued/draft - the opener's or the
-    founder's answer, besides `task edit --timeout`, to a timeout notice."""
+    """Take a doing task back to queued/draft, with a reason - the answer,
+    besides `task edit --timeout`, to a timeout notice."""
     me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("release a task"))
         return 1
-    return client.said(*client.write("task.release", {"task": args.task}))
+    return client.said(*client.write("task.release", {"task": args.task, "reason": args.reason}))
 
 
 def _task_owner_ok(name: str) -> bool:

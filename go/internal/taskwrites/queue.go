@@ -117,6 +117,6 @@ func setQueued(tx *sql.Tx, home string, tid int64, by string, queued bool) (stri
 		return "", nil, err
 	}
 	msg := fmt.Sprintf("task T%d is %s (%s)", tid, word, by)
-	notes, err := tellTask(tx, home, t, by, msg)
+	notes, err := tellTask(tx, home, by, msg, t.OpenedBy, t.Owner)
 	return msg, notes, err
 }

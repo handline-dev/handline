@@ -35,7 +35,8 @@ def task_moves(role, method, params):
     elif method == "task.reopen" and params.get("note") is not None and not isinstance(params["note"], str):
         return "fail", err(-32602, "bad_request", field="note")
     elif method == "task.release":
-        for k in ("to", "reason"):
-            if params.get(k) is not None:
-                return "fail", err(-32602, "bad_request", field=k)
+        if params.get("to") is not None:
+            return "fail", err(-32602, "bad_request", field="to")
+        if params.get("reason") is not None and not isinstance(params["reason"], str):
+            return "fail", err(-32602, "bad_request", field="reason")
     return "fail", {"code": -32001, "message": "not_found", "data": {"code": "not_found", "what": "task"}}
