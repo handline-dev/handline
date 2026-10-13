@@ -61,6 +61,9 @@ listening on loopback only is then unreachable and the page says so, retrying.
 could not pair through the gateway's local socket; paste a `hl device pair`
 code into the page, as with a browser.
 
+To run the page and the shell against your team's own daemon and branch
+instead, use `pnpm dev:team <team>`: see [dev-instances](dev-instances.md).
+
 ## Pairing and devices
 
 Every pairing is a device acting as the founder: `hl device list` shows them,
