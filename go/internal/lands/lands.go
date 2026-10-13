@@ -3,7 +3,7 @@
 // The daemon is outside every agent's sandbox, so it alone can write main's checkout; whatever it runs runs unsandboxed. It therefore
 // runs only git, and main's own tools/localrefs.py on the message it is given. The test is the merger's, in the merger's sandbox
 // (`tools/land.sh --check`), and it names the tree it tested. A sha lands when an auditor (any agent named `<team>.auditor`) recorded a
-// PASS for that exact sha (`hl land --pass`) and the merger recorded it with the tree its test saw (`hl land <sha> <message> --tree
+// PASS for that exact sha (`hl land --pass`) and a merger (`<team>.merger`) recorded it with the tree its test saw (`hl land <sha> <message> --tree
 // <tree>`). The merger may also fix what is not the auditor's to judge, with `--fix`: whole files on main's tools/housekeeping.paths,
 // written over the merge; anything else needs a PASS. With `--squash` main gets one commit carrying the merger's message.
 //
@@ -38,9 +38,8 @@ import (
 const (
 	// Requester is who a land's result is said to the merger from.
 	Requester = "land"
-	// Merger is the one agent that may land a branch.
-	Merger = "orcapipe.merger" // local-ref-ok: the merger is the one agent of the repo's own team that lands
 
+	mergerRole  = "merger"
 	auditorRole = "auditor"
 	outputKept  = 1500
 	// FixMaxBytes is the most housekeeping a land carries.
@@ -179,6 +178,11 @@ func IsAuditor(agent string) bool {
 	return auditorName.MatchString(agent[strings.LastIndex(agent, ".")+1:])
 }
 
+// IsMerger is whether agent holds the merger role (`<team>.merger`), named and vouched for as IsAuditor is. Any team's merger may land.
+func IsMerger(agent string) bool {
+	return team.ParentName(agent) != "" && agent[strings.LastIndex(agent, ".")+1:] == mergerRole
+}
+
 // PreparePass is the full sha an auditor's PASS names, or why the caller may not pass it: the part that needs no database.
 func (s *Service) PreparePass(sha, caller string) (full, why string) {
 	if !IsAuditor(caller) {
@@ -272,7 +276,7 @@ type Prepared struct {
 
 // Prepare is the refusals a land has that need no database, in Python's order. A nil *Prepared comes with the why.
 func (s *Service) Prepare(in RequestIn) (*Prepared, string) {
-	if in.Caller != Merger {
+	if !IsMerger(in.Caller) {
 		who := in.Caller
 		if who == "" {
 			who = "someone else"
