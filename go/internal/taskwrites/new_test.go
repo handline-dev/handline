@@ -32,7 +32,7 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 		line(9, base+`"parent":99,`, "n7"),
 		line(10, base+`"relation":"x",`, "n8"))
 	res := r[0]["result"].(map[string]any)
-	if res["task"].(float64) != 4 || res["said"] != "task T4 opened for worker (P1, expects sha, timeout 2h00m): queued as #1 for worker" {
+	if res["task"].(float64) != 4 || res["said"] != "task T4 opened for worker (P1, timeout 2h00m): queued as #1 for worker" {
 		t.Fatalf("%v", r[0])
 	}
 	if r[1]["result"].(map[string]any)["replayed"] != true || count(t, db, "SELECT COUNT(*) FROM tasks WHERE opened_by = 'manager' AND title LIKE 'build%'") != 1 {
@@ -46,7 +46,7 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	}
 	for q, want := range map[string]int{
 		"SELECT COUNT(*) FROM tasks": 4,
-		"SELECT COUNT(*) FROM tasks WHERE id = 4 AND title = 'build  it' AND owner = 'worker' AND opened_by = 'manager' AND parent_task = 1 AND priority = 1 AND expects = 'sha' AND timeout_s = 7200 AND timeout_at IS NULL": 1,
+		"SELECT COUNT(*) FROM tasks WHERE id = 4 AND title = 'build  it' AND owner = 'worker' AND opened_by = 'manager' AND parent_task = 1 AND priority = 1 AND expects = 'report' AND timeout_s = 7200 AND timeout_at IS NULL": 1,
 		"SELECT COUNT(*) FROM task_requests WHERE task_id = 4":                                                      1,
 		"SELECT COUNT(*) FROM agent_state WHERE agent = 'worker' AND current_task = 4":                              1,
 		"SELECT COUNT(*) FROM task_blocks WHERE (task_id = 1 AND blocks_on = 4) OR (task_id = 4 AND blocks_on = 2)": 2,

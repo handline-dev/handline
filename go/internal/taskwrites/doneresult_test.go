@@ -125,12 +125,12 @@ func TestDoneRefusesACommitThatIsNotOneAndAShaThatNeverLanded(t *testing.T) {
 	if got := errText(done("w", "c4", 5, fmt.Sprintf(`,"evidence":%q,"repo":%q`, offMain, repo))); got != offMain+" is not an ancestor of main" {
 		t.Fatalf("%q", got)
 	}
-	// a task that expects a sha does not take words from its owner
-	if got := errText(done("w", "c5", 5, `,"evidence":"it is fine"`)); !strings.Contains(got, "expects a sha") {
-		t.Fatalf("%q", got)
-	}
 	if resultOf(1).Commit != "" || resultOf(5).Commit != "" {
 		t.Fatal("a refusal kept a commit")
+	}
+	// a task once expecting a sha takes words from its owner
+	if r := done("w", "c5", 5, `,"evidence":"it is fine"`); r["error"] != nil {
+		t.Fatalf("%v", r)
 	}
 }
 
