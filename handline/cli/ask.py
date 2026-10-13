@@ -15,6 +15,8 @@ from ..session import waiting
 from ..daemon import delivery as dmn_delivery
 from ..infra import daemonclient as dmn_client
 
+from . import client
+
 
 def _refused_listing(target: str | None) -> bool:
     """Print why and return True when the caller may not list `target`."""
@@ -192,13 +194,14 @@ def cmd_inbox(args) -> int:
             print(f"{agent}: inbox empty")
             return 0
         more = db.queue_depth(con, agent) - 1
-        # Only a look at your own queue counts as being told - a foreign
-        # `hl inbox <name>` must not spend the requester's withdraw/replace.
-        if agent == askmod.asking_agent():
-            db.mark_delivered(con, int(head["id"]))
-            db.mark_landed(con, int(head["id"]))       # it has read it
     finally:
         con.close()
+    # Only a look at your own queue counts as being told - a foreign
+    # `hl inbox <name>` must not spend the requester's withdraw/replace.
+    if agent == askmod.asking_agent():
+        ok, why = client.write("inbox.mark_read", {"ids": [int(head["id"])]})
+        if not ok:
+            print(f"#{head['id']} is shown but not marked read: {why}", file=sys.stderr)
     print(f"#{head['id']} from {head['requester']}  depth={head['chain_depth']}")
     print()
     print(textsafe.text(head["body"] or "(empty)"))
