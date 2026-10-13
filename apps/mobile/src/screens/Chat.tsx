@@ -191,7 +191,7 @@ export function Chat(props: { detail: AgentDetail }) {
                 canSend && canReplyItem
                   ? (i) => {
                       setPicked(null);
-                      setItem(i);
+                      setItem((p) => (p?.id === i.id ? null : i));
                     }
                   : undefined
               }

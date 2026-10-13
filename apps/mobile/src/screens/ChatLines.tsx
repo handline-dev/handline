@@ -22,7 +22,13 @@ export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: Transcri
         <Text style={{ color: c.ink }}>{i.text}</Text>
         <Text style={small}>{clock(i.at)}</Text>
         {onReply && (
-          <Pressable testID={`reply-to-${i.id}`} accessibilityRole="button" accessibilityLabel="Reply to this" hitSlop={8} onPress={() => onReply(i)}>
+          <Pressable
+            testID={`reply-to-${i.id}`}
+            accessibilityRole="button"
+            accessibilityLabel="Reply to this"
+            hitSlop={8}
+            onPress={() => onReply(i)}
+          >
             <Text style={{ color: c.accent, fontSize: 12, fontWeight: '600' }}>↩ Reply</Text>
           </Pressable>
         )}

@@ -53,7 +53,7 @@ describe('replying to an agent reply', () => {
     await press(replyButton());
     expect($('replying')).toBeNull();
     expect($('replying-item')).not.toBeNull();
-    await press($('drop-reply-item'));
+    await press(replyButton()); // a second Reply on the same reply drops it, as on the web
     expect($('replying-item')).toBeNull();
     m.store.stop();
   });
