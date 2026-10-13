@@ -334,6 +334,10 @@ func TestContextScheduleGlobalAndSettingsAreAppliedAsProposed(t *testing.T) {
 	if !strings.Contains(r.file("config.yaml"), "daemon_impl: go") {
 		t.Fatalf("%q", r.file("config.yaml"))
 	}
+	p, id = r.propose("aaaa0009c", "kind", "global", "agent", "service-use", "set.value", "python")
+	if res := r.decide(id, "approve", p.subject(), "f3c"); !strings.Contains(fmt.Sprint(res), "being removed") || !strings.Contains(r.file("config.yaml"), "daemon_impl: go") {
+		t.Fatalf("the Python daemon is not chosen again: %v\n%s", res, r.file("config.yaml"))
+	}
 	p, id = r.propose("aaaa000a", "kind", "settings", "agent", "alice", "set.effort", "high")
 	res := r.decide(id, "approve", p.subject(), "f4")
 	if res["result"] == nil || !strings.Contains(r.file("agents", "alice", "agent.yaml"), "effort: high") {
