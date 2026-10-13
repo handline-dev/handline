@@ -10,7 +10,6 @@ import {
   Dialog,
   Empty,
   Field,
-  Page,
   Popup,
   PopupRow,
   Segmented,
@@ -18,7 +17,6 @@ import {
   State,
   Switch,
   stateOf,
-  type StateKind,
 } from '../src/ui/index.ts';
 import { DOT_ORDER, Mark } from '../src/RailIcons.tsx';
 import { AgentGauges } from '../src/AgentGauges.tsx';
@@ -44,7 +42,6 @@ const press = (key: string, init: KeyboardEventInit = {}) =>
   act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init })));
 
 describe('State', () => {
-  const KINDS: StateKind[] = ['working', 'booting', 'needs', 'blocked', 'idle', 'parked', 'done', 'noTerminal'];
   it("takes the screen's reason as the tooltip and prints the name with `word`", async () => {
     await show(<State kind="blocked" label="Blocked: waits for the build" word />);
     expect($('.ui-state')!.getAttribute('title')).toBe('Blocked: waits for the build');

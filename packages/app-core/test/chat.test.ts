@@ -10,6 +10,7 @@ import {
   isOpenAsk,
   landingLabel,
   sendNote,
+  tickLevel,
   sessionLine,
   sideOf,
   taskRow,
@@ -123,14 +124,23 @@ test("only the person's own words are on their side: the CLI, this device, to wh
   assert.equal(sideOf(pm({ from: 'schedule', to: A }), A, ''), 'other');
 });
 
-test("the person's message says sending, waiting behind N, queued or typed, and nothing once delivered or failed", () => {
+test("the person's message says sending, waiting behind N, or queued, and nothing once typed, delivered or failed", () => {
   assert.equal(sendNote(pm({ id: -1 }), 0), 'Sending…');
   assert.equal(sendNote(pm({}), 2), 'Waiting behind 2');
   assert.equal(sendNote(pm({}), 0), 'Queued');
-  assert.equal(sendNote(pm({ landing: 'typed' }), 0), 'Typed, not read yet');
+  assert.equal(sendNote(pm({ landing: 'typed' }), 0), null);
   assert.equal(sendNote(pm({ landing: 'delivered' }), 0), null);
   assert.equal(sendNote(pm({ landing: 'answered' }), 0), null);
   assert.equal(sendNote(pm({ state: 'failed', id: -1 }), 0), null);
+});
+
+test('the ticks: none until sent, one sent and not read, two read', () => {
+  assert.equal(tickLevel(pm({ id: -1 })), 0);
+  assert.equal(tickLevel(pm({})), 0);
+  assert.equal(tickLevel(pm({ landing: 'typed' })), 1);
+  assert.equal(tickLevel(pm({ landing: 'delivered' })), 2);
+  assert.equal(tickLevel(pm({ landing: 'delivered', receipt: { state: 'sent' } as ChatMessage['receipt'] })), 1);
+  assert.equal(tickLevel(pm({ landing: 'delivered', receipt: { state: 'confirmed' } as ChatMessage['receipt'] })), 2);
 });
 
 test('behindCount counts the earlier messages still queued to the same agent', () => {
