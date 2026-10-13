@@ -73,7 +73,7 @@ func TestPreVersionDatabaseIsLeftToThePythonDaemon(t *testing.T) {
 func TestOldDatabaseMigratesOnceUnderConcurrentOpens(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "db.sqlite")
 	db, _ := Open(p)
-	db.Exec("DROP TABLE land_fixes") // the latest step, not run, has not made its table
+	db.Exec("DROP TABLE agent_terminals") // the latest step, not run, has not made its table
 	db.Exec("DELETE FROM schema_version WHERE version = ?", LatestVersion())
 	db.Close()
 	var wg sync.WaitGroup
@@ -297,7 +297,7 @@ func TestAnOlderStampIsFilledInByTheNextStepRun(t *testing.T) {
 		}
 	}
 	raw, _ = sql.Open("sqlite", "file:"+p)
-	raw.Exec("DROP TABLE land_fixes") // the latest step, not run, has not made its table
+	raw.Exec("DROP TABLE agent_terminals") // the latest step, not run, has not made its table
 	raw.Exec("DELETE FROM schema_version WHERE version = ?", LatestVersion())
 	raw.Close()
 	db, err := Open(p)
@@ -320,6 +320,7 @@ func TestADatabaseAtStepNineGetsTheExtraWorktreesColumn(t *testing.T) {
 	}
 	// Back to step 9: a step that was not run has not made its column or its tables.
 	for _, q := range []string{"ALTER TABLE agent_state DROP COLUMN extra_worktrees", "DROP TABLE land_fixes", "DROP TABLE transcript_events",
+		"DROP TABLE agent_terminals",
 		"DELETE FROM schema_version WHERE version > 9"} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatal(err)

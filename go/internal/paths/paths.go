@@ -3,6 +3,7 @@ package paths
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -96,6 +97,11 @@ func AgentStatusFile(home, name string) string {
 }
 func HandoffNoteFile(home, agent string) string {
 	return filepath.Join(AgentDir(home, agent), "handoff.md")
+}
+
+// StrayHandoffFile is where a session in a dangling terminal of the agent writes its handoff before the terminal is closed.
+func StrayHandoffFile(home, agent string, pid int) string {
+	return filepath.Join(AgentDir(home, agent), fmt.Sprintf("handoff-%d.md", pid))
 }
 
 // ListAccounts is the account folders, by name, not hidden ones.

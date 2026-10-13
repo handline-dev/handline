@@ -112,6 +112,27 @@ def test_a_database_made_before_the_extra_worktrees_column_gets_it_on_connect(ho
     con.close()
 
 
+def test_a_database_made_before_agent_terminals_records_every_terminal_after_connect(home: Path) -> None:
+    from handline.db import agent_state
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "noterm.db"
+    dbschema.connect(p).close()
+    raw = sqlite3.connect(p)
+    raw.execute("DROP TABLE agent_terminals")
+    raw.execute("DELETE FROM schema_version WHERE version >= 14")
+    raw.commit()
+    raw.close()
+    con = dbschema.connect(p)
+    agent_state.set_terminal(con, "a", "%1", "/wt")
+    agent_state.set_terminal(con, "a", "%2", "/wt")
+    agent_state.set_terminal(con, "a", None, "/wt")
+    agent_state.record_terminal(con, "%3", None)
+    rows = [tuple(r) for r in con.execute("SELECT handle, agent, closed_at FROM agent_terminals ORDER BY handle")]
+    check("agent_terminals: a relaunch keeps the terminal it left, a close records none, a plain one has no agent",
+          rows == [("%1", "a", None), ("%2", "a", None), ("%3", None, None)], str(rows))
+    con.close()
+
+
 def test_the_command_a_refusal_names_parses(home: Path) -> None:
     from handline.cli import parser as parsermod
     cmd = dbschema.RESTART_COMMAND
@@ -329,6 +350,7 @@ def main() -> int:
         run(lambda: test_a_plain_connect_runs_the_additive_steps_and_stops_at_one_that_is_not(Path(td) / "v2"))
         run(lambda: test_a_database_one_additive_step_behind_is_brought_up_by_a_plain_connect(Path(td) / "v2a"))
         run(lambda: test_a_database_made_before_the_extra_worktrees_column_gets_it_on_connect(Path(td) / "v2e"))
+        run(lambda: test_a_database_made_before_agent_terminals_records_every_terminal_after_connect(Path(td) / "v2f"))
         run(lambda: test_the_command_a_refusal_names_parses(Path(td) / "v2b"))
         run(lambda: test_the_daemon_migrates_a_database_waiting_for_a_step_once(Path(td) / "v2c"))
         run(lambda: test_a_migrator_that_holds_the_lock_too_long_is_named(Path(td) / "v2d"))

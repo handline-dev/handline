@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/attachments"
+	"github.com/handline/handline/go/internal/dangling"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/fold"
 	"github.com/handline/handline/go/internal/handoff"
@@ -132,6 +133,10 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		Config:  tickConfig{roster: lc.roster, set: lc.Manager.Settings},
 	}
 	t.Passes = append(p.passes(cfg, t, tc.Cutover), agentViewPass(view))
+	if tc.Terminals {
+		strays := &dangling.Sweep{Q: q, Home: home, Ports: danglingPorts{p: p}, Log: cfg.Log}
+		t.Passes = append(t.Passes, tick.NamedSweep{Name: "dangling-terminals", Run: func(_ db.Q, now int64) error { return strays.Run(now) }})
+	}
 	dev := &tick.DevMode{Enabled: func() bool { return lc.Manager.Settings.Flag("dev_mode", false) }, Log: logLine, Now: nowOf(cfg.Now)}
 	dev.Exe, _ = os.Executable()
 	dev.Baseline()
