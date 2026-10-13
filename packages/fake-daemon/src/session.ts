@@ -1,5 +1,5 @@
 import { PROTOCOL } from '@handline/contract';
-import type { AgentDetail, AgentView, InputHolder, Notifications, Prompt, Row, Timestamp } from '@handline/contract';
+import type { AgentDetail, AgentView, InputHolder, Methods, Notifications, Prompt, Row, Timestamp } from '@handline/contract';
 import { BANNER, type AgentFixture } from './fixtures.ts';
 import { refused } from './errors.ts';
 import { defaultSettings } from './settings.ts';
@@ -46,6 +46,7 @@ export interface Session {
   queue: (() => void)[]; // the scripted turn, one step per tick
   counter: number;
   settings: Record<string, string>; // agent.set's values
+  strip?: Partial<Methods['agent.strip']['result']>; // what a test sets over the numbers agent.strip answers
   received: { kind: 'text' | 'key'; value: string; actor: string }[]; // what reached the terminal
 }
 
