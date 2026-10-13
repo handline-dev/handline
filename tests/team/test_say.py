@@ -99,7 +99,7 @@ limits:
     check("--task: a task its sender did not open is still no reply to the founder",
           rc == 1 and "is with worker" in out, out)
     chat = _human_request("manager")
-    rc, out = _cli(["task", "new", "-t", "1h", "--owner", "worker", "next piece", "its brief",
+    rc, out = _cli(["task", "new", "-t", "1h", "--assign", "worker", "next piece", "its brief",
                     "--reply", str(chat), "on it as {task}"], as_agent="manager")
     last = out.strip().splitlines()[-1] if out.strip() else ""
     con = db.connect()
@@ -117,7 +117,7 @@ limits:
     ok, msg, rid = askmod.say("manager", "a question", requester="worker")
     rc, out = _cli(["say", "worker", "the answer", "--parent", str(rid)], as_agent="manager")
     check("a reply to a say is a say, whatever its direction", rc == 0, out)
-    rc, out = _cli(["task", "new", "-t", "1h", "--owner", "worker", "no brief"], as_agent="manager")
+    rc, out = _cli(["task", "new", "-t", "1h", "--assign", "worker", "no brief"], as_agent="manager")
     check("task new without a body is refused", rc == 1 and "needs a body" in out, out)
 
 
@@ -678,7 +678,7 @@ edges:
     check("owner swap: refused, naming the holder", rc == 1 and f"T{tt} is with third, not worker" in out, out)
     rc, out = _paste(out)
     check("owner swap: pasted, it is accepted", rc == 0, out)
-    rc, out = _cli(["task", "new", "--owner", "worker", "the title", "the body", "--priority", "P1"],
+    rc, out = _cli(["task", "new", "--assign", "worker", "the title", "the body", "--priority", "P1"],
                    as_agent="manager")
     check("task new without -t: refused", rc == 1 and "Try:" in out, out)
     rc, out = _paste(out)
@@ -691,7 +691,7 @@ edges:
                                              "ORDER BY id DESC LIMIT 1").fetchone()["body"] or ""), out)
     finally:
         con.close()
-    rc, out = _cli(["task", "new", "--owner", "worker", "-t", "45m", " ", "the body"], as_agent="manager")
+    rc, out = _cli(["task", "new", "--assign", "worker", "-t", "45m", " ", "the body"], as_agent="manager")
     check("task new without a title: refused, keeping the typed timeout and body",
           rc == 1 and "-t 45m '<title>' 'the body'" in out, out)
     con = db.connect()
@@ -699,7 +699,7 @@ edges:
                           "fire_and_forget", None, 0, None)
     con.commit()
     con.close()
-    rc, out = _cli(["task", "new", "--owner", "worker", "reply title", "reply body", "--reply", str(mrid),
+    rc, out = _cli(["task", "new", "--assign", "worker", "reply title", "reply body", "--reply", str(mrid),
                     "opened as {task}"], as_agent="manager")
     check("task new without -t: the suggestion keeps --reply, both values quoted",
           rc == 1 and f"--reply {mrid} 'opened as {{task}}'" in out, out)

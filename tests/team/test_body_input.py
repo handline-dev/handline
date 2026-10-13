@@ -48,19 +48,19 @@ def test_say_task_new_handoff_and_memo_take_their_text_from_a_file_or_stdin(home
     note.write_text(TRICKY)
     con = db.connect()
     try:
-        rc, out = _cli(["task", "new", "-t", "1h", "--owner", "worker", "from a file", "--file", str(note)])
+        rc, out = _cli(["task", "new", "-t", "1h", "--assign", "worker", "from a file", "--file", str(note)])
         tid = int(out.split("task T", 1)[1].split()[0]) if rc == 0 else 0
         check("task new: --file is the body, byte for byte", rc == 0
               and db.task_requests(con, tid)[0]["body"] == TRICKY, out)
-        rc, out = _stdin(TRICKY, ["task", "new", "-t", "1h", "--owner", "worker", "from stdin", "-"])
+        rc, out = _stdin(TRICKY, ["task", "new", "-t", "1h", "--assign", "worker", "from stdin", "-"])
         tid2 = int(out.split("task T", 1)[1].split()[0]) if rc == 0 else 0
         check("task new: '-' reads the body from stdin", rc == 0
               and db.task_requests(con, tid2)[0]["body"] == TRICKY, out)
-        rc, out = _stdin(TRICKY, ["task", "new", "-t", "1h", "--owner", "worker", "both", "x", "--file", "-"])
+        rc, out = _stdin(TRICKY, ["task", "new", "-t", "1h", "--assign", "worker", "both", "x", "--file", "-"])
         check("task new: a body and --file together are refused", rc == 1 and "not both" in out, out)
-        rc, out = _stdin("", ["task", "new", "-t", "1h", "--owner", "worker", "empty", "-"])
+        rc, out = _stdin("", ["task", "new", "-t", "1h", "--assign", "worker", "empty", "-"])
         check("task new: an empty stdin is refused, nothing opened", rc == 1 and "stdin" in out, out)
-        rc, out = _cli(["task", "new", "-t", "1h", "--owner", "worker", "no brief"])
+        rc, out = _cli(["task", "new", "-t", "1h", "--assign", "worker", "no brief"])
         check("task new: with no body at all it still asks for one", rc == 1 and "needs a body" in out, out)
 
         ok, _, hand = actions.task_new("manager", "worker", "to hand on", "w")

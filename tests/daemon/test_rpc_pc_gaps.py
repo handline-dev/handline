@@ -184,7 +184,7 @@ def test_a_multi_prompt_takes_an_array_of_keys_and_no_other_prompt_does(home: Pa
 
 def test_hl_task_edit_with_a_priority_works_from_an_agent_session(home: Path) -> None:
     support._board_world(home)
-    rc, out = support._cli(["task", "new", "-t", "1h", "--owner", "worker", "by the command", "the brief, with a result"])
+    rc, out = support._cli(["task", "new", "-t", "1h", "--assign", "worker", "by the command", "the brief, with a result"])
     tid = _count("SELECT MAX(id) FROM tasks")
     rc, out = support._cli(["task", "edit", f"T{tid}", "--priority", "P1"])
     check("hl task edit --priority: works at role agent", rc == 0 and _count("SELECT priority FROM tasks WHERE id = ?", tid) == 1, out)

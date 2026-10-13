@@ -578,18 +578,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     tk = sub.add_parser("task", help="the task board").add_subparsers(dest="sub", required=True)
     p = tk.add_parser("new", help="open and deliver a task in one step (T292): a request "
-                                  "to --owner, checked against the routing table")
+                                  "to --assign, checked against the routing table")
     p.add_argument("title")
     p.add_argument("body", nargs="?", default=None,
-                   help="the work itself, sent to --owner; required - the title is not a brief. "
+                   help="the work itself, sent to --assign; required - the title is not a brief. "
                         "'-' reads it from stdin")
     p.add_argument("--file", default=None, metavar="PATH",
                    help="read the body from this file, or from stdin with '-', instead of the "
                         "inline argument - safe against a shell expanding backticks or $()")
-    p.add_argument("--assign", "--owner", dest="owner", required=True,
-                   help="who works it: an agent, or 'human' for a decision task (--owner is the old name)")
-    p.add_argument("--reporter", default=None,
-                   help="who the task answers to - told when it ends, may edit or reassign it (default: you)")
+    p.add_argument("--assign", dest="owner", default=None,
+                   help="required: who works it, an agent or 'human' for a decision task")
+    p.add_argument("--owner", dest="reporter", default=None,
+                   help="who answers for it - told when it ends, may reopen or discard it (default: you)")
     p.add_argument("--parent", type=_task_arg, default=None, metavar="T",
                    help="the task this is a part of, written T<number>")
     p.add_argument("--blocked-by", type=_task_arg, default=None, metavar="T",
@@ -652,7 +652,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_task_show)
     p = tk.add_parser("list", help="the open tasks and their requests")
     p.add_argument("--all", action="store_true", help="done and discarded tasks too")
-    p.add_argument("--owner", default=None, help="only this agent's tasks")
+    p.add_argument("--assign", dest="owner", default=None, help="only the tasks this agent works")
+    p.add_argument("--owner", dest="reporter", default=None, help="only the tasks this agent answers for")
     p.add_argument("--everyone", action="store_true",
                    help="every team's tasks, not just yours and your reports'")
     p.add_argument("--state", default=None,
@@ -665,13 +666,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = tk.add_parser("draft", help="send queued tasks back to draft - the founder or the owner's manager")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")
     p.set_defaults(fn=cmd_task_draft)
-    p = tk.add_parser("edit", help="change a task's owner, reporter and/or title - its opener, its reporter "
-                                   "or the founder (the owner also by the owner's manager; the owner itself "
-                                   "may record what it waits on), and never silent about it")
+    p = tk.add_parser("edit", help="change a task's assignee or owner (anyone, and kept in its history), or its "
+                                   "title, brief, priority or timeout (its opener, its owner or the founder; the "
+                                   "assignee may record what it waits on), and never silent about it")
     p.add_argument("task", type=_task_arg, metavar="T")
-    p.add_argument("--assign", "--owner", dest="owner", default=None,
-                   help="give the task to another agent; it is delivered to them (--owner is the old name)")
-    p.add_argument("--reporter", default=None, help="who the task answers to")
+    p.add_argument("--assign", dest="owner", default=None,
+                   help="give the task to another agent to work; it is delivered to them")
+    p.add_argument("--owner", dest="reporter", default=None,
+                   help="who answers for it; needs --assign too, naming the assignee it keeps")
     p.add_argument("--title", default=None)
     p.add_argument("--body", default=None, help="the task's brief, replaced (the holder is told)")
     p.add_argument("--body-file", default=None, metavar="PATH",

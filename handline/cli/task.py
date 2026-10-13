@@ -203,7 +203,9 @@ def _new_cmd(args, title: str) -> str:
     """The `task new` line as typed, with -t added: what to paste when only the timeout was missing."""
     secs = args.timeout
     typed = "2h" if secs is None else f"{secs // 60}m" if secs % 60 == 0 else f"{secs}s"
-    parts = ["hl task new", "--owner", args.owner, "-t", typed, shlex.quote(title)]
+    parts = ["hl task new", "--assign", args.owner, "-t", typed, shlex.quote(title)]
+    if args.reporter:
+        parts += ["--owner", args.reporter]
     if args.body not in (None, "-"):
         parts.append(shlex.quote(args.body))
     if args.file:
@@ -228,9 +230,16 @@ def cmd_task_new(args) -> int:
     if me is None:
         print(_who_refusal("open a task"))
         return 1
-    if not _task_owner_ok(args.owner):
-        print(f"no agent named {args.owner}")
+    if args.owner is None:
+        # --owner named who works a task until owner and assignee were split
+        args.owner, args.reporter = args.reporter or "<agent>", None
+        print("a task needs --assign: who works it (--owner is who answers for it, you when not given). Try:\n"
+              f"  {_new_cmd(args, args.title)}")
         return 1
+    for who in (args.owner, args.reporter):
+        if who is not None and not _task_owner_ok(who):
+            print(f"no agent named {who}")
+            return 1
     if args.timeout is None:
         print("a task needs -t/--timeout (90m, 2h; at most "
               f"{timefmt.span(actions.MAX_TASK_TIMEOUT_S)}). Try:\n"
@@ -370,13 +379,20 @@ def cmd_task_memo(args) -> int:
 
 
 def cmd_task_edit(args) -> int:
-    """Every part named (`--owner`/`--title`, `--blocked-by`, `--unblock`, ...) is one `task.edit`, one
+    """Every part named (`--assign`/`--title`, `--blocked-by`, `--unblock`, ...) is one `task.edit`, one
     transaction: a later part's refusal leaves nothing of the earlier ones applied, and only that refusal
-    is said. The new owner, the body's readers and an
+    is said. The new assignee, the body's readers and an
     unblocked owner are told by the daemon once it has committed."""
     me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("edit a task"))
+        return 1
+    # --owner moved the work until owner and assignee were split; alone it would now quietly leave the work where it is.
+    if args.reporter is not None and args.owner is None:
+        print(f"--owner is who answers for a task, not who works it, so it needs --assign too. To move the work:\n"
+              f"  hl task edit T{args.task} --assign {args.reporter}\n"
+              f"To change only who answers for it, name the assignee it keeps:\n"
+              f"  hl task edit T{args.task} --owner {args.reporter} --assign <its assignee>")
         return 1
     body = None
     if args.body is not None or args.body_file:
@@ -389,7 +405,7 @@ def cmd_task_edit(args) -> int:
               "time_box": None if args.timeout is None else f"{args.timeout}s",
               "blocked_by": args.blocked_by, "unblock": args.unblock}
     if all(v is None for k, v in params.items() if k != "task"):
-        print("edit needs a new owner, a new reporter, a new title, --body, --priority, --blocked-by, --unblock, "
+        print("edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, "
               "or --timeout")
         return 1
     return client.said(*client.write("task.edit", {k: v for k, v in params.items() if v is not None}))
@@ -501,7 +517,7 @@ def cmd_task_show(args) -> int:
 
 def cmd_task_list(args) -> int:
     """The caller's tasks and its reports', or every team's with --everyone, by priority then number."""
-    params = {k: v for k, v in (("owner", args.owner), ("state", args.state)) if v is not None}
+    params = {k: v for k, v in (("owner", args.owner), ("reporter", args.reporter), ("state", args.state)) if v is not None}
     params.update(all=bool(args.all), everyone=bool(args.everyone), limit=200)
     rows, gaps = [], None
     try:
@@ -514,7 +530,7 @@ def cmd_task_list(args) -> int:
             params["before"] = page["items"][-1]["id"]
     except dmn_client.RpcError as e:
         print(e)
-        if args.owner is not None and not args.everyone:
+        if (args.owner is not None or args.reporter is not None) and not args.everyone:
             print("`hl task list --everyone` shows every team's tasks")
         return 1
     except (dmn_client.DaemonDown, OSError) as e:

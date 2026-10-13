@@ -213,7 +213,7 @@ def test_task_withdraw_and_task_cancel_end_a_task_for_the_right_caller(home: Pat
 
 def test_the_commands_these_methods_serve_still_work_from_an_agent_session(home: Path) -> None:
     support._board_world(home)
-    rc, out = support._cli(["task", "new", "-t", "1h", "--owner", "worker", "by the command", "the brief, with a result"])
+    rc, out = support._cli(["task", "new", "-t", "1h", "--assign", "worker", "by the command", "the brief, with a result"])
     check("hl task new: works at role agent", rc == 0 and "opened for worker" in out, out)
     tid = _count("SELECT MAX(id) FROM tasks")
     rc, out = support._cli(["task", "edit", f"T{tid}", "--title", "renamed"])
