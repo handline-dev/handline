@@ -131,7 +131,7 @@ describe('the Chat tab', () => {
     await mount(ARCH, t);
     await until(() => $$('[data-kind="session"]').some((c) => /Handoff/.test(text(c))), 'the boundary');
     const line = $$('[data-kind="session"]').find((c) => /Handoff/.test(text(c)))!;
-    expect(text(line)).toContain('Context full, started again from a handoff');
+    expect(text(line)).toContain('Started again from a handoff');
     expect($('.handoff-full')).toBeNull();
     await click([...line.querySelectorAll('button')].find((b) => /Handoff/.test(text(b)))!);
     await until(() => $('.handoff-full'), 'the dialog');

@@ -76,7 +76,7 @@ const LABELS: Record<string, string> = {
 export const landingLabel = (l: Landing): string => LABELS[l] ?? l;
 
 const SESSION_WHY: Record<string, string> = {
-  handoff: 'Context full, started again from a handoff',
+  handoff: 'Started again from a handoff',
   restart: 'Restarted',
   'fresh close': 'Restarted with a fresh conversation',
   wake: 'Woke from a close',
