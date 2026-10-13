@@ -134,6 +134,10 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 			continue // a terminal agent's task: the Python daemon's clock
 		}
 		tid := row.ID
+		if row.Reported() {
+			b.remindReported(t, row, now)
+			continue
+		}
 		if !b.Ports.TaskDoing(t.Q, row) {
 			if row.TimeoutAt.Valid {
 				check(db.PauseTaskTimeout(t.Q, tid))
@@ -148,10 +152,7 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 			continue
 		}
 		box := row.TimeoutS.Int64
-		title := strings.Join(strings.Fields(row.Title), " ")
-		if r := []rune(title); len(r) > TitleShown {
-			title = strings.TrimRight(string(r[:TitleShown]), " \t\n") + "…"
-		}
+		title := shortTitle(row.Title)
 		text := fmt.Sprintf("T%d (%s), held by %s, has been doing past its %s timeout. Keep it going: `hl task edit T%d --timeout <duration>`. "+
 			"Stop it: `hl task release T%d \"<reason>\"` takes it back.", tid, title, row.Owner, timefmt.Ago(box), tid, tid)
 		if b.tell(t, row.OpenedBy, text, now) {
@@ -166,6 +167,33 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 				db.KV{K: "text", V: text}, db.KV{K: "deadline", V: row.TimeoutAt.Int64}, db.KV{K: "next", V: nextAt}))
 			t.logf("  T%d: doing, past its %s timeout - %s told", tid, timefmt.Ago(box), row.OpenedBy)
 		}
+	}
+}
+
+// shortTitle is a task's title on one line, cut to TitleShown.
+func shortTitle(title string) string {
+	title = strings.Join(strings.Fields(title), " ")
+	if r := []rune(title); len(r) > TitleShown {
+		title = strings.TrimRight(string(r[:TitleShown]), " \t\n") + "…"
+	}
+	return title
+}
+
+// remindReported is the clock of a task whose done waits on acceptance: it runs on from where the doing left it, and past it whoever the task
+// answers to is reminded, again every stretch until they accept or reject it.
+func (b *Timebox) remindReported(t *Tick, row *db.Task, now int64) {
+	if !row.TimeoutAt.Valid || row.TimeoutAt.Int64 > now {
+		return
+	}
+	to := row.AnswersTo()
+	text := fmt.Sprintf("T%d (%s) was reported done by %s and waits on you: accept it (`hl task accept T%d`) or send it back (`hl task reject T%d \"<note>\"`).",
+		row.ID, shortTitle(row.Title), row.Owner, row.ID, row.ID)
+	if b.tell(t, to, text, now) {
+		check(db.AdvanceTaskTimeout(t.Q, row.ID, now, db.DefaultTaskTimeoutS))
+		next := must(db.GetTask(t.Q, row.ID))
+		must(db.AddEvent(t.Q, to, "task_timeout_exceeded", db.KV{K: "task_id", V: row.ID}, db.KV{K: "timeout_s", V: row.TimeoutS.Int64},
+			db.KV{K: "text", V: text}, db.KV{K: "deadline", V: row.TimeoutAt.Int64}, db.KV{K: "next", V: next.TimeoutAt.Int64}))
+		t.logf("  T%d: reported, past its timeout - %s reminded", row.ID, to)
 	}
 }
 

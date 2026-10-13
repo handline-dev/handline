@@ -41,8 +41,8 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 	git("commit", "-q", "--allow-empty", "-m", "off main")
 	offMain := git("rev-parse", "HEAD")
 	for _, q := range []string{
-		"INSERT INTO tasks(id, title, owner, opened_by, created_at, expects) VALUES(1, 'a', 'w', 'boss', 1, 'report'), (2, 'parent', 'w', 'boss', 1, 'report'), (3, 'kid', 'w', 'boss', 1, 'report'), " +
-			"(4, 'waits', 'w', 'boss', 1, 'report'), (5, 'blocker', 'boss', 'boss', 1, 'report'), (6, 'sha', 'w', 'boss', 1, 'sha'), (7, 'ans', 'w', 'boss', 1, 'report'), (8, 'left', 'w', 'boss', 1, 'report')",
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, expects) VALUES(1, 'a', 'w', 'w', 1, 'report'), (2, 'parent', 'w', 'boss', 1, 'report'), (3, 'kid', 'w', 'boss', 1, 'report'), " +
+			"(4, 'waits', 'w', 'boss', 1, 'report'), (5, 'blocker', 'boss', 'boss', 1, 'report'), (6, 'sha', 'w', 'w', 1, 'sha'), (7, 'ans', 'w', 'w', 1, 'report'), (8, 'left', 'w', 'boss', 1, 'report')",
 		"UPDATE tasks SET parent_task = 2 WHERE id = 3",
 		"INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(4, 5, 1)",
 		"INSERT INTO requests(id, requester, target, kind, state, ts, body) VALUES(10, 'boss', 'w', 'task', 'queued', 1, 'x'), (11, 'boss', 'w', 'say', 'landed', 1, 'x'), (12, 'boss', 'w', 'task', 'queued', 1, 'x')",
@@ -91,9 +91,9 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 	if via != "reason" || count("SELECT COUNT(*) FROM requests WHERE id = 10 AND state = 'withdrawn'") != 1 {
 		t.Fatalf("the evidence kind is kept and the leftover delivery is closed quietly: %q", via)
 	}
-	if count("SELECT COUNT(*) FROM requests WHERE kind = 'say' AND body = 'T1 done by w: all done' AND target = 'boss' AND notice IS NULL") != 1 ||
-		count("SELECT COUNT(*) FROM events WHERE kind = 'mark_task_done'") != 1 || len(f.done) != 1 || f.done[0] != "T1 w w 1 true" {
-		t.Fatalf("the opener is told once, typed, and the teller follows: %v", f.done)
+	if count("SELECT COUNT(*) FROM requests WHERE body LIKE 'T1 done%'") != 0 ||
+		count("SELECT COUNT(*) FROM events WHERE kind = 'mark_task_done'") != 1 || len(f.done) != 1 || f.done[0] != "T1 w w 0 true" {
+		t.Fatalf("an owner closing its own task tells nobody, and the teller follows: %v", f.done)
 	}
 
 	r = done("w", "c2", 6, `,"evidence":"it never merged"`)

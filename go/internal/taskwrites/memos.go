@@ -38,6 +38,12 @@ type Teller interface {
 	// (finished) the tasks it was the last blocker of are released; the says it wrote are typed. finished is false when only a leftover request
 	// of an already done task was settled.
 	Done(tid int64, by, owner string, told []db.Notice, forget []db.InboxFile, finished bool)
+	// Reported is what a done filed as a report leaves: the inbox files of the requests it closed go, the owner moves on to its next task,
+	// and whoever the task answers to is typed the report. The task is open, so nothing it blocks is released.
+	Reported(tid int64, owner string, told []db.Notice, forget []db.InboxFile)
+	// Rejected is what a rejected report leaves: the note typed to the owner and the task, queued again, sent to it if it is free. It answers
+	// what happened to the task, as QueueDelivered does.
+	Rejected(tid int64, by string, told []db.Notice) string
 	// TaskAsk routes the request that delivers a task to its owner, in the transaction of the write that opens or moves it: the request row (a
 	// refusal's denial row too, which stands), then within once the ask is allowed. The ask's inbox file and telling wait for the commit
 	// (Asked.After).
@@ -72,6 +78,8 @@ func Register(s *rpc.Server, home string, tell Teller) {
 	s.Register("task.start", rpc.Method{Role: "agent", Write: true, Handler: start})
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopenMethod(home, tell)})
 	s.Register("task.done", rpc.Method{Role: "agent", Write: true, Handler: doneMethod(home, tell)})
+	s.Register("task.accept", rpc.Method{Role: "agent", Write: true, Handler: acceptMethod(home, tell)})
+	s.Register("task.reject", rpc.Method{Role: "agent", Write: true, Handler: rejectMethod(tell)})
 	s.Register("task.cancel", rpc.Method{Role: "member", Write: true, Handler: cancelMethod(home, tell)})
 	s.Register("task.release", rpc.Method{Role: "agent", Write: true, Handler: releaseMethod(home, tell)})
 	s.Register("task.merge", rpc.Method{Role: "agent", Write: true, Handler: mergeMethod(home, tell)})

@@ -4558,7 +4558,99 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result)."
+   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner, when the task answers to someone else (its reporter, or its opener), does not close it: the task turns reported and waits for task.accept or task.reject by them. A done by the founder, or by an owner the task answers to, closes it at once."
+  },
+  {
+   "name": "task.accept",
+   "summary": "Accept a task's report: it closes done.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "The task must be reported (an owner it does not answer to ran task.done). Only whoever it answers to, its opener or the founder may accept. It closes with the report as its evidence; the owner is told."
+  },
+  {
+   "name": "task.reject",
+   "summary": "Reject a task's report: it goes back to its owner.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "note",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "One line: what is missing. It is told to the owner."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "The task must be reported. Only whoever it answers to, its opener or the founder may reject. The report and its commit and shots are dropped, the task is queued again for its owner, and the note is told to the owner."
   },
   {
    "name": "task.reopen",
@@ -8716,7 +8808,8 @@
       "type": "string"
      },
      "state": {
-      "type": "string"
+      "type": "string",
+      "description": "draft, queued, doing, reported (its owner's done waits on task.accept or task.reject), done or discarded."
      },
      "relation": {
       "type": "string",
@@ -8914,6 +9007,33 @@
        }
       ],
       "description": "The task's clock, the same object task.get gives; null once it is done or discarded. Absent from a daemon that does not send it."
+     },
+     "report": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "by": {
+          "type": "string"
+         },
+         "evidence": {
+          "type": "string"
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "by",
+         "evidence",
+         "at"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The done that waits on acceptance while the task is reported; null otherwise. Absent from a daemon that does not send it."
      }
     },
     "required": [

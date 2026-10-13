@@ -73,7 +73,7 @@ func HoldsCurrent(q Q, t *Task) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return cur == nil || cur.Ended(), nil
+	return cur == nil || cur.Ended() || cur.Reported(), nil
 }
 
 // IsDoing is actions.is_doing: reads_doing and the one its owner holds.
@@ -94,6 +94,8 @@ func stateOf(t *Task, doing, asked bool) string {
 		return "discarded"
 	case t.DoneEvidence.String != "":
 		return "done"
+	case t.ReportedAt.Valid:
+		return "reported"
 	case doing:
 		return "doing"
 	case t.QueuedBy.Valid && t.QueuedBy.String != "" || asked:
@@ -102,9 +104,9 @@ func stateOf(t *Task, doing, asked bool) string {
 	return "draft"
 }
 
-// TaskState is actions.task_state: draft, queued, doing, done or discarded.
+// TaskState is actions.task_state: draft, queued, doing, reported (its done waits on acceptance), done or discarded.
 func TaskState(q Q, t *Task) (string, error) {
-	if t.Ended() {
+	if t.Ended() || t.Reported() {
 		return stateOf(t, false, false), nil
 	}
 	asked, err := ReadsDoing(q, t.ID)
@@ -162,7 +164,7 @@ func currentOpen(q Q, agent string) (*Task, error) {
 		return nil, err
 	}
 	t, err := GetTask(q, tid)
-	if err != nil || t == nil || t.Ended() {
+	if err != nil || t == nil || t.Ended() || t.Reported() {
 		return nil, err
 	}
 	return t, nil
@@ -222,7 +224,7 @@ func NewestRequest(q Q) (int64, error) {
 }
 
 // resetEvents are the events after which a task's earlier answers no longer mean it was handled.
-var resetEvents = []string{"reopen_task", "unblock_task", "task_unblocked", "queue_task"}
+var resetEvents = []string{"reopen_task", "unblock_task", "task_unblocked", "queue_task", "reject_task"}
 
 // WaitingTask is a task that could become current and its own queued request, nil when it was never delivered.
 type WaitingTask struct {
@@ -239,7 +241,7 @@ func WaitingTasks(q Q, agent string) ([]WaitingTask, error) {
 	}
 	var out []WaitingTask
 	for _, t := range open {
-		if t.Owner != agent || t.DoneEvidence.String != "" {
+		if t.Owner != agent || t.DoneEvidence.String != "" || t.Reported() {
 			continue
 		}
 		bs, err := TaskBlockers(q, t.ID)

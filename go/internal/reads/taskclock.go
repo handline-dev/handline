@@ -7,7 +7,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 )
 
-// taskClock is the spec's TaskClock: the task's time box, null once it is done or discarded. The overdue moment is the first deadline
+// taskClock is the spec's TaskClock: the task's time box, null once it is done or discarded; it runs while doing and while reported. The overdue moment is the first deadline
 // missed, found by following the overrun notices back from the deadline now in force (an edit replaces the deadline and ends the chain).
 func (e *Env) taskClock(t row, state string) (any, error) {
 	if state == "done" || state == "discarded" {
@@ -19,7 +19,7 @@ func (e *Env) taskClock(t row, state string) (any, error) {
 		length = db.DefaultTaskTimeoutS
 	}
 	clock := map[string]any{"length_s": length, "default": isDefault, "start": nil, "end": nil, "overdue_since": nil, "told": 0}
-	if state != "doing" || !t.set("timeout_at") {
+	if state != "doing" && state != "reported" || !t.set("timeout_at") {
 		return clock, nil
 	}
 	now, end := time.Now().Unix(), t.i("timeout_at")
