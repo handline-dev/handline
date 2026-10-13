@@ -266,14 +266,19 @@ def prune(dest: Path, now: float) -> list[Path]:
 
 
 # ---------------------------------------------------------------- launchd
+def label() -> str:
+    """LABEL, or one under the service's own label when a rehearsal set that, so its job is not the live home's."""
+    return LABEL if service.label() == service.LABEL else f"{service.label()}.backup"
+
+
 def plist_path() -> Path:
-    return paths.user_home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+    return paths.user_home() / "Library" / "LaunchAgents" / f"{label()}.plist"
 
 
 def build_plist(home: Path | None = None) -> dict:
     home = home or paths.home()
     return {
-        "Label": LABEL,
+        "Label": label(),
         "ProgramArguments": [service.ocp_executable(), "backup"],
         "StartInterval": INTERVAL_S,
         "RunAtLoad": True,
@@ -288,12 +293,14 @@ def build_plist(home: Path | None = None) -> dict:
 
 def install(home: Path | None = None) -> tuple[bool, str]:
     home = home or paths.home()
+    if not service.serves_this_home(home):
+        return False, f"{home} is not the live home, so the live backup job is not its to replace; nothing was done"
     service.log_dir(home).mkdir(parents=True, exist_ok=True)
     path = plist_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "wb") as f:
         plistlib.dump(build_plist(home), f)
-    target = f"{service.domain_target()}/{LABEL}"
+    target = f"{service.domain_target()}/{label()}"
     service.run_launchctl(["bootout", target])
     res = service.run_launchctl(["bootstrap", service.domain_target(), str(path)])
     if res.returncode != 0:
