@@ -3,7 +3,7 @@ import tailwindcss from '@tailwindcss/vite';
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 
-/** `HANDLINE_FAKE=1 vite` also runs the fake daemon: a WebSocket on 127.0.0.1:HANDLINE_FAKE_PORT (7790), for developing without a real daemon. */
+/** `HANDLINE_FAKE=1 vite` also runs the fake daemon (`HANDLINE_FAKE_VERBS=1` adds the task verbs): a WebSocket on 127.0.0.1:HANDLINE_FAKE_PORT (7790), for developing without a real daemon. */
 function fakeDaemon(): Plugin {
   return {
     name: 'handline-fake-daemon',
@@ -14,6 +14,7 @@ function fakeDaemon(): Plugin {
       const { serveWs } = await import('@handline/fake-daemon/serve');
       const daemon = new FakeDaemon();
       daemon.autoplay(4000);
+      if (process.env.HANDLINE_FAKE_VERBS) daemon.tasks.verbs = true; // serve the task verbs of the daemon's plan too
       const port = Number(process.env.HANDLINE_FAKE_PORT ?? 7790);
       serveWs(daemon, port);
       console.log(`fake daemon: ws://127.0.0.1:${port}  (open the app with ?daemon=ws://127.0.0.1:${port})`);

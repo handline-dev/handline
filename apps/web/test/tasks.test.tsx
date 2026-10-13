@@ -406,7 +406,7 @@ describe('the detail', () => {
     expect(text(d)).toContain('Asked by');
     expect(text(d)).toContain('handline.architect');
     expect(text(d)).toContain('T1684'); // under, local-ref-ok
-    expect(text(d)).toContain('Delivery history');
+    expect(text(d)).toContain('History');
     await press('Escape', {}, $('.tbody')!);
     await until(() => location.hash === '#/tasks', 'the list again');
   });
@@ -435,7 +435,6 @@ describe('the detail', () => {
     const verbs = $('.tverbs')!;
     for (const [label, method] of [
       ['Done', 'task.done'],
-      ['Add a memo', 'task.memo.add'],
       ['Discard', 'task.discard'],
     ] as const) {
       expect((button(label, verbs) as HTMLButtonElement).disabled).toBe(true);
@@ -494,21 +493,51 @@ describe('the detail', () => {
     expect(button('Cancel', $('.tverbs')!)).toBeUndefined(); // closed: no verbs left that stop it
   });
 
-  it('a memo can be edited and deleted from the task page', async () => {
+  it('replies to someone the task names: pick the chip, type, send', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    await until(() => $('.tmemo'), 'the memo box');
-    await typeInto($('.tmemo textarea') as HTMLTextAreaElement, 'first note');
-    await click($('.tmemo button')!);
-    await until(() => $('[aria-label="Edit memo"]'), 'the memo');
-    await click($('[aria-label="Edit memo"]')!);
-    const row = () => $('[aria-label="Memo text"]')?.closest('li') ?? $('[aria-label="Edit memo"]')!.closest('li')!;
-    await typeInto($('[aria-label="Memo text"]') as HTMLTextAreaElement, 'second note');
-    await click(button('Save', row())!);
-    await until(() => text(row()).includes('second note'), 'the edited memo');
-    await click($('[aria-label="Delete memo"]')!);
-    await click(button('Delete', $('[role="alertdialog"][aria-label="Delete memo"]')!)!);
-    await until(() => !$('[aria-label="Edit memo"]'), 'no memos left');
+    const reply = () => $('section[aria-label="Reply to someone"]')!;
+    await until(() => $('section[aria-label="Reply to someone"]'), 'the reply box');
+    expect($('[aria-label="Add a memo"]')).toBeNull();
+    expect((button('Send', reply()) as HTMLButtonElement).disabled).toBe(true); // nobody picked yet
+    await click(button('handline.architect', reply())!);
+    await typeInto($('textarea', reply()) as HTMLTextAreaElement, 'is the pane done?');
+    await click(button('Send to handline.architect', reply())!);
+    await until(
+      () =>
+        (s.daemon.chat as unknown as { messages: { to: string; body: string }[] }).messages.some(
+          (m) => m.to === 'handline.architect' && m.body.includes('is the pane done?'),
+        ),
+      'the message to the architect',
+    );
+  });
+
+  it('assigns the task: the picker groups who worked on it, then the note goes with it', async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks/1688', s);
+    await until(() => button('Assign', $('.tverbs') ?? box), 'Assign');
+    await click(button('Assign', $('.tverbs')!)!);
+    const ask = sheet('Assign T1688 to…')!; // local-ref-ok
+    expect($('section[aria-label="Worked on this task"]', ask)).not.toBeNull();
+    await click(button('handline.architect', ask)!);
+    await typeInto($('textarea', ask) as HTMLTextAreaElement, 'please take it');
+    await click(button('Assign to handline.architect', ask)!);
+    await until(() => s.daemon.tasks.get({ task: 1688 }).to === 'handline.architect', 'the new owner');
+    await until(
+      () =>
+        (s.daemon.chat as unknown as { messages: { to: string; body: string }[] }).messages.some(
+          (m) => m.to === 'handline.architect' && m.body.includes('please take it'),
+        ),
+      'the note',
+    );
+  });
+
+  it('shows every action and state as a word', async () => {
+    await mount('#/tasks/1688');
+    await until(() => $('.tverbs'), 'the verbs');
+    for (const b of $$('button', $('.tverbs')!)) expect(text(b).trim()).not.toBe('');
+    expect(text($('.tdetail-head'))).toContain('doing');
+    expect(text($('.tmeta'))).toContain('Owner');
   });
 
   it('serves the verbs of the daemon plan once it lists them: done needs a result, reopen only for a done task I asked for', async () => {
@@ -529,5 +558,76 @@ describe('the detail', () => {
     expect(button('Reopen', $('.tverbs')!)).toBeUndefined(); // asked by 'founder', not by me
     await press('r', {}, $('.tbody')!);
     await until(() => text($('.toast')).includes('only a done task that you asked for can be reopened'), 'the bridge sentence');
+  });
+});
+
+describe('actions on one task or many', () => {
+  const shiftClick = (el: Element | null) =>
+    act(async () => void el!.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })));
+  const popupRow = (label: string) =>
+    $$('.ui-popup [role="dialog"] button, .ui-popup button, .ui-popup [aria-disabled]').find((b) => text(b).startsWith(label));
+  const menu = async (within: ParentNode, button_: string, rowLabel: string) => {
+    await click(button(button_, within));
+    await click(popupRow(rowLabel));
+  };
+
+  it('Shift-click marks the rows between, and "Select all" marks every row shown', async () => {
+    await mount('#/tasks', withVerbs(setup()));
+    await loaded();
+    const ids = rowIds();
+    await mark(ids[0]!);
+    await shiftClick($(`input[aria-label="Mark T${ids[2]}"]`));
+    expect($$('input[type="checkbox"]:checked').filter((c) => c.getAttribute('aria-label')?.startsWith('Mark T'))).toHaveLength(3);
+    await click(button('Select all'));
+    expect(text($('.ui-toolbar, [role="toolbar"]'))).toContain(`${ids.length} marked`);
+  });
+
+  it('runs Done on the marked tasks after a confirm with the count, and lists which failed and why', async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks', s);
+    await loaded();
+    await mark(1684);
+    await mark(1688);
+    s.daemon.knobs.refuse('task.done', 'state', 'task is locked', undefined, 1);
+    await menu(box, 'More actions', 'Done');
+    const sh = sheet('Done 2 tasks?')!;
+    expect(sh).toBeTruthy();
+    await typeInto($('input[aria-label="what came of it?"]', sh) as HTMLInputElement, 'checked by hand');
+    await click(button('Done', sh));
+    await until(() => sheet('done: 1 of 2 changed'), 'the result sheet');
+    expect(text(sheet('done: 1 of 2 changed'))).toContain('task is locked');
+    expect([1684, 1688].filter((id) => s.daemon.tasks.get({ task: id }).state === 'done')).toHaveLength(1);
+  });
+
+  it('skips what a verb cannot apply to, and says so in the confirm', async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks', s);
+    await loaded();
+    await mark(1690); // queued
+    await mark(1700); // draft
+    await menu(box, 'More actions', 'Queue');
+    const sh = sheet('Queue 1 task?')!;
+    expect(text(sh)).toContain('1 skipped');
+    expect(text(sh)).toContain('1690 is not a draft');
+    await click(button('Queue', sh));
+    await until(() => s.daemon.tasks.get({ task: 1700 }).state === 'queued', 'the draft is queued');
+  });
+
+  it("a row's own menu releases a running task", async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks', s);
+    await loaded();
+    await menu(row(1684)!, 'Actions', 'Release');
+    await click(button('Release', sheet('Release 1 task?')!));
+    await until(() => s.daemon.tasks.get({ task: 1684 }).state === 'queued', 'released');
+  });
+
+  it('a verb the daemon does not serve is listed but cannot be used, and says why', async () => {
+    await mount('#/tasks', setup());
+    await loaded();
+    await click(button('Actions', row(1684)!));
+    const done = popupRow('Done')!;
+    expect(done.getAttribute('aria-disabled')).toBe('true');
+    expect(done.getAttribute('title')).toContain('does not serve task.done');
   });
 });

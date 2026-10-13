@@ -1,6 +1,6 @@
 // The message box: Enter sends, Shift+Enter breaks the line, the up arrow recalls what was sent, `/` and `#` open menus, Ctrl+R lists the history,
-// and an unsent draft is kept per agent. A message taken back (cancel) puts its text here again.
-import { useEffect, useRef, useState } from 'react';
+// and an unsent draft is kept per agent.
+import { useRef, useState } from 'react';
 import type { KV, Verb } from '@handline/app-core';
 import type { AgentDetail, ChatMessage } from '@handline/client';
 import { useAgents, useChatActions } from '@handline/app-data';
@@ -8,6 +8,8 @@ import { setting } from './daemon.ts';
 import { replyTo } from './ChatMessages.tsx';
 import { menuOf, useEntries, useOpenTerminal, type Entry, type MenuKind } from './ChatMenus.tsx';
 import { VerbSheet } from './AgentVerbs.tsx';
+import { useCan } from './taskui.tsx';
+import { AttachChips, attachHandlers, PickButton, useAttachDraft } from './ChatAttach.tsx';
 import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow } from './ui/index.ts';
 
 export function Compose(props: {
@@ -21,13 +23,13 @@ export function Compose(props: {
   /** The message this one answers or replies to; Escape or the close mark drops it. */
   target?: ChatMessage | null;
   onClear?: () => void;
-  /** Text to put back in the box (a message that was taken back); `n` tells one from the next. */
-  restore?: { text: string; n: number } | null;
   /** The agent is mid-turn: a message to a structured agent is then queued behind it or joins the turn. */
   running?: boolean;
 }) {
-  const { agent, detail, storage, canSend, history, messages, target, onClear, restore, running } = props;
+  const { agent, detail, storage, canSend, history, messages, target, onClear, running } = props;
   const act = useChatActions(agent);
+  const att = useAttachDraft();
+  const canAttach = useCan('attachment.put');
   const agents = useAgents().data?.agents ?? [];
   const names = new Set(agents.map((a) => a.name));
   const view = agents.find((a) => a.name === agent);
@@ -48,15 +50,6 @@ export function Compose(props: {
     draft.save(v);
     setClearing(false);
   };
-
-  const seen = useRef(0);
-  useEffect(() => {
-    if (!restore || restore.n === seen.current) return;
-    seen.current = restore.n;
-    set(text.trim() ? `${restore.text}\n${text}` : restore.text);
-    box.current?.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restore]);
 
   const asked = ctrlR ? { kind: 'history' as MenuKind, query: text } : menuOf(text);
   const open = asked && shut !== text ? asked : null;
@@ -83,9 +76,9 @@ export function Compose(props: {
   // The message shows at once and the box clears; a refused one stays in the list as a failed row with Retry, so its words are not lost.
   const choosing = !!running && !!view?.structured;
   const send = () => {
-    if (!text.trim() || ctrlR) return;
+    if ((!text.trim() && !att.ids.length) || att.busy || ctrlR) return;
     // A / line is a command, never words to the agent: run it or refuse it here.
-    if (typed) {
+    if (typed && !att.ids.length) {
       const id = typed[2] === 'fresh' ? `${typed[1]}_fresh` : typed[1]!;
       const hit = slashEntries.find((e) => e.key === id);
       if (hit?.verb || hit?.terminal) {
@@ -101,8 +94,10 @@ export function Compose(props: {
     setRefused(null);
     const delivery = choosing && now ? ('now' as const) : undefined;
     // A picked message is a reference: a linked message to whoever said it, whatever it asked.
-    if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery });
-    else act.send(text, { delivery });
+    const attachments = att.ids;
+    if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery, attachments });
+    else act.send(text, { delivery, attachments });
+    att.clear();
     setNow(false);
     onClear?.();
     set('');
@@ -149,16 +144,12 @@ export function Compose(props: {
     }
   };
   return (
-    <div className="compose-wrap flex flex-col">
+    <div className="compose-wrap flex flex-col" {...attachHandlers(canAttach.ok ? att.add : () => undefined)}>
       {/* The reply bar's row is always this tall, so picking a message never shifts the stream to make room. */}
       <div className="mx-3 mb-1 flex h-[26px] items-center">
         {target ? (
           <div className="compose-ref flex min-w-0 flex-1 items-center gap-1.5 rounded-chip bg-panel px-2 py-1 text-[12px]" role="status">
-            <Icon
-              name="reference"
-              size={14}
-              label={`Replying to #${target.id}`}
-            />
+            <Icon name="reference" size={14} label={`Replying to #${target.id}`} />
             <span className="mono">#{target.id}</span>
             <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>
             <button className="icon" aria-label="Drop the reply" title="Drop the reply (Esc)" onClick={onClear}>
@@ -173,6 +164,7 @@ export function Compose(props: {
           <Icon name="warn" size={14} aria-hidden /> {refused}
         </p>
       ) : null}
+      <AttachChips drafts={att.drafts} problem={att.problem} onRemove={att.remove} />
       <ComposeRow>
         {menu ? (
           <ul
@@ -213,13 +205,17 @@ export function Compose(props: {
           }}
           onKeyDown={onKey}
         />
+        <PickButton onPick={att.add} disabled={!canSend || !canAttach.ok} />
         {clearing ? (
           <span className="compose-clear self-center text-wait" role="status" title="Esc again clears the draft">
             <Icon name="warn" size={14} label="Esc again clears the draft" />
           </span>
         ) : null}
         {choosing ? (
-          <label className="compose-now inline-flex gap-0.5 self-center text-ink-2" title="Join the running turn now; otherwise it waits and is sent when the turn ends">
+          <label
+            className="compose-now inline-flex gap-0.5 self-center text-ink-2"
+            title="Join the running turn now; otherwise it waits and is sent when the turn ends"
+          >
             <input type="checkbox" checked={now} onChange={(e) => setNow(e.target.checked)} /> Now
           </label>
         ) : null}
@@ -229,7 +225,7 @@ export function Compose(props: {
           icon="send"
           label="Send"
           title="Send (Enter)"
-          disabled={!canSend || !text.trim()}
+          disabled={!canSend || (!text.trim() && !att.ids.length) || att.busy}
           onClick={send}
         />
       </ComposeRow>

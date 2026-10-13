@@ -15,3 +15,4 @@ export * from './verbs.ts';
 export * from './write.ts';
 export * from './write-spec.ts';
 export * from './writes.ts';
+export * from './attachments.ts';

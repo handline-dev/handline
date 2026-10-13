@@ -95,25 +95,33 @@ export function useChatActions(agent: string) {
       .flatMap(([, d]) => d?.pages.flatMap((p) => p.messages) ?? [])
       .find((m) => m.id === id && m.state === 'failed');
   /** One operation id per message; a retry of a failed row sends the row's own. */
-  const post = (to: string, body: string, parent: number | null, op = newOperationId(), delivery?: Delivery) =>
+  const post = (to: string, body: string, parent: number | null, op = newOperationId(), delivery?: Delivery, attachments: string[] = []) =>
     send.mutate({
       agent: to,
       body,
       ...(parent != null ? { parent } : {}),
+      ...(attachments.length ? { attachments } : {}),
       ...(delivery ? { delivery } : {}),
       request_id: op,
     });
   return {
     /** `parent` makes it a reply to that message; `to` is the agent it goes to when that is not this chat's (a reply in the All tab). */
-    send: (body: string, opts?: { parent?: number; to?: string; delivery?: Delivery }) =>
-      post(opts?.to ?? agent, body, opts?.parent ?? null, undefined, opts?.delivery),
+    send: (body: string, opts?: { parent?: number; to?: string; delivery?: Delivery; attachments?: string[] }) =>
+      post(opts?.to ?? agent, body, opts?.parent ?? null, undefined, opts?.delivery, opts?.attachments),
     retry: (id: number) => {
       const m = failed(id);
       if (!m) return;
       const was = operationOf(id);
       rows((x) => x.id !== id);
       forgetRow(id);
-      post(m.to, m.body, m.parent, was?.op, was?.delivery);
+      post(
+        m.to,
+        m.body,
+        m.parent,
+        was?.op,
+        was?.delivery,
+        m.attachments?.map((a) => a.id),
+      );
     },
     discard: (id: number) => {
       rows((x) => x.id !== id);

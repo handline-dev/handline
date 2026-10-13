@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { isOpenAsk, landingLabel, sideOf, timeline } from '@handline/app-core';
 import { classify, sentence, useAgents, useChat, useChatActions, useInbox, useWrite, type ChatScope } from '@handline/app-data';
-import { useSelector } from '@handline/app-react';
+import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, Landing } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
@@ -164,12 +164,11 @@ export function Chat(props: { detail: AgentDetail }) {
           </Text>
         )}
         {entries.map((e) =>
-          e.kind === 'message' ? (
+          e.kind !== 'item' ? (
             <Bubble
               key={`m${e.id}`}
               m={e.message}
               agent={agent}
-              isAgent={(n) => names.has(n)}
               picked={picked?.id === e.id}
               working={working}
               onPick={(m) => setPicked((p) => (p?.id === m.id ? null : m))}
@@ -230,7 +229,6 @@ export function Chat(props: { detail: AgentDetail }) {
 function Bubble(props: {
   m: ChatMessage;
   agent: string;
-  isAgent: (n: string) => boolean;
   picked: boolean;
   working: boolean;
   onPick: (m: ChatMessage) => void;
@@ -240,7 +238,7 @@ function Bubble(props: {
   const { m, agent } = props;
   const act = useChatActions(agent);
   const can = useSelector((s) => ({ dismiss: s.can('chat.dismiss') }));
-  const side = sideOf(m, agent, props.isAgent);
+  const side = sideOf(m, agent, useStore().me);
   const unnumbered = m.id < 0; // shown before the daemon numbered it, or refused
   const failed = m.state === 'failed';
   const open = isOpenAsk(m, agent);

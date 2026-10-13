@@ -33,7 +33,7 @@ export function Button({ variant = 'ghost', size = 'md', icon, label, keys, chil
       title={rest.title ?? label}
       aria-label={rest['aria-label'] ?? (iconOnly ? label : undefined)}
     >
-      {icon ? <Icon name={icon} label={label} size={size === 'sm' ? 14 : 16} /> : null}
+      {icon ? <Icon name={icon} label={label} size={size === 'sm' ? 14 : 16} aria-hidden={iconOnly ? undefined : true} /> : null}
       {children ?? (icon ? null : label)}
       {keys ? <kbd className="ui-keys ml-1 rounded-[3px] border border-line px-1 font-sans text-hint opacity-70">{keys}</kbd> : null}
     </button>

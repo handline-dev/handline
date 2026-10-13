@@ -6,6 +6,8 @@ import type { AgentDetail } from '@handline/client';
 import { useHr, useWrite } from '@handline/app-data';
 import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOf } from './ui/index.ts';
 import { goTeam } from './route.ts';
+import { openTaskOnClick } from './ChatMessages.tsx';
+import { useWorkspace } from './Workspace.tsx';
 import { AgentGauges } from './AgentGauges.tsx';
 
 const until = (iso: string | null): number | null => {
@@ -16,6 +18,7 @@ const until = (iso: string | null): number | null => {
 /** One line of icons: the state, the model and effort, the account, the task, and the prompt cache's clock. The words are tooltips. */
 export function ChatStrip({ detail }: { detail: AgentDetail }) {
   const cache = until(detail.cache_until);
+  const { apply } = useWorkspace();
   return (
     <div className="chat-strip flex min-w-0 items-center gap-2 overflow-hidden text-hint text-ink-2">
       <State kind={stateOf(detail.state)} label={detail.state_detail ? `${detail.state}: ${detail.state_detail}` : detail.state} />
@@ -33,7 +36,7 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
         </Chip>
       ) : null}
       {detail.task ? (
-        <Chip as="a" href={`#/tasks/${detail.task.id}`} title={detail.task.title}>
+        <Chip as="a" href={`#/tasks/${detail.task.id}`} title={detail.task.title} onClick={openTaskOnClick(apply, detail.task.id)}>
           <Icon name="tasks" size={13} aria-hidden />T{detail.task.id}
         </Chip>
       ) : null}
