@@ -44,22 +44,30 @@ export function ChatSearch({ agent, scope, onGo }: { agent: string; scope: ChatS
     const t = setTimeout(() => setQuery(text.trim()), 250);
     return () => clearTimeout(t);
   }, [text]);
+  const [shut, setShut] = useState(false); // Escape or a click elsewhere hides the results; typing brings them back
   const found = useChatSearch({ agent, query, scope }, query !== '');
   if (!served) return null;
   const hits = found.data?.messages ?? [];
   const go = (id: number) => (setText(''), onGo(id));
+  // Results show for the text as it stands, not for the query of a moment ago.
+  const showing = !shut && text.trim() !== '' && query === text.trim();
   return (
-    <div className="chat-search relative" role="search">
+    <div
+      className="chat-search relative"
+      role="search"
+      onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setShut(true)}
+      onFocus={() => setShut(false)}
+    >
       <BarInput
         type="search"
         className="w-44"
         placeholder="Search this chat"
         aria-label="Search messages"
         value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => e.key === 'Escape' && setText('')}
+        onChange={(e) => (setText(e.target.value), setShut(false))}
+        onKeyDown={(e) => e.key === 'Escape' && setShut(true)}
       />
-      {text.trim() && query ? (
+      {showing ? (
         <div
           className="results absolute top-full right-0 z-10 mt-1 max-h-80 w-96 max-w-[80vw] overflow-auto rounded-dialog border border-line bg-panel shadow-[var(--shadow-pop)]"
           aria-live="polite"
@@ -73,7 +81,7 @@ export function ChatSearch({ agent, scope, onGo }: { agent: string; scope: ChatS
           ) : (
             hits.map((m) => <Hit key={m.id} m={m} query={query} onGo={go} />)
           )}
-          {found.isFetching && !found.data ? (
+          {found.isFetching ? (
             <p className="flex items-center gap-1.5 p-2 text-body text-ink-3">
               <Icon name="search" size={14} aria-hidden /> Searching…
             </p>
