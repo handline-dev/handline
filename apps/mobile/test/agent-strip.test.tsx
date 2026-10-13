@@ -33,6 +33,12 @@ describe('the strip under the agent header', () => {
     m.store.stop();
   });
 
+  it('counts the seconds down while under a minute', async () => {
+    const m = await open((s) => (s.daemon.sessions.get(ARCH)!.strip = { cache_left_s: 4 }));
+    for (const n of [3, 2, 1]) await until(() => text($('strip-cache')).includes(`${n}s left`), `${n}s left`, 2500);
+    m.store.stop();
+  });
+
   it('is absent when the daemon does not serve agent.strip', async () => {
     const m = await open((s) => s.daemon.knobs.unserve('agent.strip'));
     await until(() => $('tab-chat'), 'the page');

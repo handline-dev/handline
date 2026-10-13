@@ -24,7 +24,9 @@ export function AgentStrip({ agent }: { agent: string }) {
   const [tick, redraw] = useState(0);
   useEffect(() => {
     if (lapsesAt === null || lapsesAt <= Date.now()) return;
-    const t = setTimeout(() => redraw(tick + 1), Math.min(lapsesAt - Date.now() + 50, 30_000));
+    // Each second under a minute; above it, at the next whole minute left, where the text changes.
+    const ms = lapsesAt - Date.now();
+    const t = setTimeout(() => redraw(tick + 1), (ms <= 60_000 ? ms % 1000 || 1000 : ms % 60_000 || 60_000) + 50);
     return () => clearTimeout(t);
   }, [lapsesAt, tick]);
   if (!served || !strip) return null;
