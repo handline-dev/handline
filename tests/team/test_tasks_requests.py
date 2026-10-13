@@ -2109,11 +2109,11 @@ edges:
           "note of marina" in out and "note of dohyun" in out, out)
     with support.daemon_says("inbox.queue", support.queue_head):
         rc, out = _cli(["inbox", "marina"], as_agent="manager")
-        check("T39: a supervisor lists its report's queue", rc == 0 and "secret of marina" in out, out)
+        check("listing: a supervisor lists its report's queue", rc == 0 and "secret of marina" in out, out)
         rc, out = _cli(["inbox", "marina"], as_agent=askmod.HUMAN)
-        check("T39: the human lists any agent's queue", rc == 0 and "secret of marina" in out, out)
+        check("listing: the human lists any agent's queue", rc == 0 and "secret of marina" in out, out)
         rc, out = _cli(["inbox", "marina"], as_agent="marina")
-        check("T39: an agent lists its own inbox", rc == 0 and "secret of marina" in out, out)
+        check("listing: an agent lists its own inbox", rc == 0 and "secret of marina" in out, out)
     rc, out = _cli(["inbox", "manager"], as_agent="marina")
     check("T39: a report may not list its supervisor's queue",
           rc == 1 and "may not list manager's messages" in out, out)
