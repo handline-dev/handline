@@ -122,11 +122,11 @@ func TestAgentViewServesCacheIgnoredAndConfigError(t *testing.T) {
 	if v = viewOfAgent(t, e, "bob"); v["cache_ignored"] != true {
 		t.Fatalf("global switch: %v", v)
 	}
-	os.WriteFile(filepath.Join(e.Home, "agents", "bob", "agent.yaml"), []byte("ignore_cache_expiry: false\n"), 0o644)
+	writeAgentYAML(t, e, "bob", "ignore_cache_expiry: false\n")
 	if v = viewOfAgent(t, e, "bob"); v["cache_ignored"] != false {
 		t.Fatalf("own switch: %v", v)
 	}
-	os.WriteFile(filepath.Join(e.Home, "agents", "bob", "agent.yaml"), []byte("- not a map\n"), 0o644)
+	writeAgentYAML(t, e, "bob", "- not a map\n")
 	v = viewOfAgent(t, e, "bob")
 	if msg, _ := v["config_error"].(string); msg == "" || strings.Contains(msg, "\n") {
 		t.Fatalf("config_error %v", v["config_error"])
