@@ -937,6 +937,7 @@ def main() -> int:
         run(lambda: test_a_check_runs_the_python_suite_only_when_the_merge_changes_more_than_go_and_the_apps(Path(td) / "l2d"))
         run(lambda: test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(Path(td) / "l3"))
         run(lambda: test_a_pass_comes_from_the_auditor_of_any_team_and_from_no_one_else(Path(td) / "l3a"))
+        run(lambda: test_a_land_comes_from_the_merger_of_any_team_and_from_no_one_else(Path(td) / "l3b"))
         run(lambda: test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(Path(td) / "l4"))
         run(lambda: test_the_merger_fixes_housekeeping_at_land_time_and_nothing_else(Path(td) / "l4b"))
         run(lambda: test_a_housekeeping_fix_never_reaches_agent_instructions(Path(td) / "l4c"))
