@@ -197,9 +197,11 @@ func (m *Manager) writeWakePrompt(agent, text, suffix string) (string, error) {
 // WakeOpts say why and how a session is brought back. Force is a human asking for the session: a closed agent is brought back with
 // nothing waiting for it. Warm resumes the session whatever its prompt cache says. Cause is what the start is recorded as ("wake",
 // "fresh close" or "move" when empty). RestartedBy names who asked for a restart: the session's first prompt says so. MovedTo names the
-// account this wake starts the agent on when it is not the one the last session was on.
+// account this wake starts the agent on when it is not the one the last session was on. Person is a start a person pressed, not a restart
+// the daemon owes nor a tick's wake: it queues behind no older closed agent, and a full or walled account sends it to one with room at once.
 type WakeOpts struct {
 	Force, Warm bool
+	Person      bool
 	Cause       string
 	RestartedBy string
 	Applying    []string
@@ -365,16 +367,32 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	}
 	// `hl launch` refuses at the 5h wall, and the daemon can read that before it types anything. Trying anyway would spend the wake
 	// timeout to be told what we already knew, and count a streak against an agent whose only problem rolls over by itself. The account
-	// this launch lands on is the one a session to resume lives under, so an agent whose own account is at the wall waits for its window
-	// rather than losing its conversation - a fresh start elsewhere comes back with only the handoff.
+	// this launch lands on is the one a session to resume lives under. Keeping the conversation is worth a wait only while its prompt cache
+	// lives; past that a resume pays for its context in full, and a fresh start elsewhere with the handoff is no worse.
 	session := row.ResumeSession.String
 	wait := m.Launch.WakeWait(m.Q, agent, row)
+	if o.Person && wait != nil && movedTo == "" {
+		// A person's start queues behind no older closed agent, and a full or walled account sends it where there is room now: the account
+		// it was last on first (its input cache may still be warm there), else the one with the most headroom.
+		if wait.Slot && wait.Busy < wait.Full {
+			wait = nil
+		} else if session != "" {
+			to, why := m.Launch.RoomNow(m.Q, agent, row, wait.Account, lastLeft(m.Q, agent))
+			if to != "" && !m.startFreshElsewhere(agent, session, wait.Account, to, "started by a person, "+wait.Account+" has no room") {
+				to, why = "", "its handoff could not be read whole"
+			}
+			if to == "" {
+				return false, m.Launch.DescribeWakeWait(wait) + "; not moved: " + why
+			}
+			session, movedTo, wait = "", to, nil
+		}
+	}
 	if wait != nil && wait.Slot {
-		// No wall, no slot. Waiting here has no end anyone can name, so the agent moves to an account with a free slot, the one furthest
-		// behind its week; a fresh start costs only the handoff. Only a restart asked to keep the conversation (warm) stays and waits,
-		// and with nowhere to go any wake waits.
+		// No wall, no slot. When a slot frees cannot be told, so it is never within the prompt cache's life: the agent moves to an account
+		// with a free slot, the one furthest behind its week, a warm restart too; a fresh start costs only the handoff. With nowhere to go
+		// any wake waits.
 		to := ""
-		if movedTo == "" && !warm && session != "" {
+		if movedTo == "" && session != "" {
 			to = m.Launch.SlowestPaced(m.Q, agent, row, wait.Account)
 		}
 		if to == "" || !m.startFreshElsewhere(agent, session, wait.Account, to, fmt.Sprintf("%s is full", wait.Account)) {
@@ -383,7 +401,8 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 		session, movedTo, wait = "", to, nil
 	}
 	if wait != nil {
-		// The resume account is at the wall. If another account has room, start fresh there: a resume id cannot follow an account change.
+		// The resume account is at the wall. Unless it resets within the prompt cache's life (MovePlan), start fresh where another account
+		// has room: a resume id cannot follow an account change.
 		// The handoff is the record the close took while the session was live; a snapshot read now is stale by construction. One that is
 		// missing a fact keeps the id, since the session is the only complete copy of the context.
 		rescued := false
@@ -394,7 +413,7 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 		}
 		elsewhere, planWhy := "", ""
 		if session != "" && !wait.Assumed && !m.Handoff.BackingOff(m.Q, agent) {
-			elsewhere, planWhy = m.Handoff.MovePlan(m.Q, agent, kind)
+			elsewhere, planWhy = m.Handoff.MovePlan(m.Q, agent, kind, true)
 		}
 		if elsewhere != "" {
 			why := fmt.Sprintf("pinned to %s at %d%% (%s)", acct, pct, wait.Window)

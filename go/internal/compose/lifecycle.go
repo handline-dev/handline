@@ -260,8 +260,8 @@ func (h *handoffPort) RequestLine(_ db.Q, agent string) string {
 }
 
 // MovePlan is the account a walled agent can move to: the same plan the tick makes, so a wake and a handoff agree.
-func (h *handoffPort) MovePlan(_ db.Q, agent, kind string) (string, string) {
-	dest, why, err := h.mover().MovePlan(agent, kind)
+func (h *handoffPort) MovePlan(_ db.Q, agent, kind string, starting bool) (string, string) {
+	dest, why, err := h.mover().MovePlan(agent, kind, starting)
 	if err != nil {
 		return "", err.Error()
 	}

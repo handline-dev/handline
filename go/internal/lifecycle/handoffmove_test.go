@@ -158,6 +158,33 @@ func TestACloseThatIsRefusedLeavesTheAgentOnItsAccountAndLooksAgainSoon(t *testi
 	}
 }
 
+func TestAWakeWaitsOnItsWallOnlyForAResetWithinThePromptCachesLife(t *testing.T) {
+	g := newMoveRig(t)
+	g.v.E.StayWithin = func(*float64, float64) float64 { return 2 * 3600 } // a cold start measured dearer than the cache lives
+	g.v.E.StayOrMove = func(work bool, resetIn *float64, within float64) (bool, string) {
+		if !work {
+			return false, "idle"
+		}
+		if resetIn != nil && *resetIn <= within {
+			return false, "cheaper to wait"
+		}
+		return true, ""
+	}
+	// Nothing is queued for it: only the wake asks for it.
+	at := func(resetIn int64) Windows { return Windows{ShortReset: g.m.now() + resetIn} }
+	g.v.E.Windows = func(string) Windows { return at(30 * 60) }
+	if dest, why, _ := g.v.MovePlan("a", "usage", true); dest != "" || why != "cheaper to wait" {
+		t.Fatalf("a reset within the cache's life is waited for: %q %q", dest, why)
+	}
+	g.v.E.Windows = func(string) Windows { return at(90 * 60) }
+	if dest, why, _ := g.v.MovePlan("a", "usage", true); dest != "beta" {
+		t.Fatalf("past it, the wake moves at once, though the cold start costs more: %q %q", dest, why)
+	}
+	if dest, why, _ := g.v.MovePlan("a", "usage", false); dest != "" || why != "idle" {
+		t.Fatalf("a live agent with nothing waiting stays: %q %q", dest, why)
+	}
+}
+
 func TestAMoveLeavesOutTheAccountItIsAtAndTheOneItJustLeftUntilItResets(t *testing.T) {
 	g := newMoveRig(t)
 	db.AddEvent(g.m.Q, "a", "moved_account", db.KV{K: "from", V: "gamma"}, db.KV{K: "to", V: "acct"})
@@ -167,7 +194,7 @@ func TestAMoveLeavesOutTheAccountItIsAtAndTheOneItJustLeftUntilItResets(t *testi
 		}
 		return Windows{}
 	}
-	if dest, _, err := g.v.MovePlan("a", "usage"); err != nil || dest != "beta" {
+	if dest, _, err := g.v.MovePlan("a", "usage", false); err != nil || dest != "beta" {
 		t.Fatalf("%q %v", dest, err)
 	}
 	if _, here := g.l.excluded["acct"]; !here {
@@ -178,7 +205,7 @@ func TestAMoveLeavesOutTheAccountItIsAtAndTheOneItJustLeftUntilItResets(t *testi
 	}
 	// once that account has reset it is a place to go again
 	g.v.E.Windows = func(string) Windows { return Windows{} }
-	g.v.MovePlan("a", "usage")
+	g.v.MovePlan("a", "usage", false)
 	if _, left := g.l.excluded["gamma"]; left {
 		t.Fatalf("still excluded after its reset: %v", g.l.excluded)
 	}

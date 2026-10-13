@@ -52,8 +52,8 @@ type UsagePort interface {
 	// Fit is whether nothing says the account is a bad place to start: a stale or missing reading is the account nobody has run on
 	// lately, and the session about to start is the only thing that writes a fresh one.
 	Fit(acct, agent string) bool
-	// CapOf is how many agents the account may have mid-turn at once: the configured cap shrunk by its weekly pace (none when it is ahead
-	// of its week).
+	// CapOf is how many agents the account may have mid-turn at once: the configured cap, shrunk only where its current burn would hit a
+	// window's block before that window resets.
 	CapOf(acct string) int
 	// Headroom is what the account's weekly bucket still holds as a share of the week's quota, ok false when the pace cannot be read. The
 	// larger, the slower-paced.
@@ -228,7 +228,7 @@ type WakeWait struct {
 	Assumed bool
 	Window  string // the walled window's length as a person says it
 	IsLong  bool   // the longest window, not the shortest
-	// Slot: no wall, no slot - the account is full. Full is its cap now (0 when it is ahead of its week), Busy the others mid-turn on it,
+	// Slot: no wall, no slot - the account is full. Full is its cap now (0 when it would run out before it resets), Busy the others mid-turn on it,
 	// Older the closed agents the daemon wakes first.
 	Slot              bool
 	Full, Busy, Older int
@@ -248,12 +248,16 @@ func (l *Launcher) wall(acct string, assumed bool) *WakeWait {
 }
 
 // full is a resume's wait for a slot on its own account, where it is not moved: none is left once the others on it (agent itself left out)
-// fill the cap, or older closed agents waiting for the same account would take what is free. Oldest waiter first.
-func (l *Launcher) full(q db.Q, agent string, row *db.AgentState, acct string, assumed bool) (*WakeWait, error) {
+// fill the cap, or older closed agents waiting for the same account would take what is free. Oldest waiter first; queue false (a person's
+// start) counts no waiter.
+func (l *Launcher) full(q db.Q, agent string, row *db.AgentState, acct string, assumed, queue bool) (*WakeWait, error) {
 	cap, others := l.Ports.Usage.CapOf(acct), l.Ports.Usage.ActiveOn(q, acct, agent)
-	rows, err := db.AllAgentStates(q)
-	if err != nil {
-		return nil, err
+	var rows []*db.AgentState
+	if queue {
+		var err error
+		if rows, err = db.AllAgentStates(q); err != nil {
+			return nil, err
+		}
 	}
 	older := 0
 	for _, r := range rows {
@@ -295,6 +299,16 @@ func asWaiter(row *db.AgentState) *db.AgentState {
 // RoomElsewhere is SlowestPaced with a reason for each account passed over: exclude names the accounts left out and why. The second result
 // is why no account has room, "" when one does. A move to an account is held to this same test, so a wake and a handoff cannot disagree.
 func (l *Launcher) RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string) (string, string) {
+	return l.roomElsewhere(q, agent, row, exclude, "", true)
+}
+
+// RoomNow is a person's start off skip, where it does not wait its turn: prefer (the account it was last on) when that has a free slot,
+// else the account with the most headroom, with no older closed agent counted ahead of it.
+func (l *Launcher) RoomNow(q db.Q, agent string, row *db.AgentState, skip, prefer string) (string, string) {
+	return l.roomElsewhere(q, agent, row, map[string]string{skip: ""}, prefer, false)
+}
+
+func (l *Launcher) roomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string, prefer string, queue bool) (string, string) {
 	row = asWaiter(row)
 	vendor := l.Ports.Vendors.AgentVendor(agent)
 	best, most := "", math.Inf(-1)
@@ -307,13 +321,16 @@ func (l *Launcher) RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclu
 			passed = append(passed, a+": not a place for it")
 			continue
 		}
-		if w, err := l.full(q, agent, row, a, false); err != nil || w != nil {
+		if w, err := l.full(q, agent, row, a, false, queue); err != nil || w != nil {
 			passed = append(passed, a+": no free slot")
 			continue
 		}
 		h, ok := l.Ports.Usage.Headroom(a)
 		if !ok {
 			h = 0 // a pace nobody can read is not evidence of room beyond the burst
+		}
+		if a == prefer {
+			h = math.Inf(1)
 		}
 		if h > most {
 			best, most = a, h
@@ -335,7 +352,7 @@ func (l *Launcher) RoomOn(q db.Q, agent string, row *db.AgentState, acct string)
 		if l.Ports.Usage.NotFor(a, l.Ports.Vendors.AgentVendor(agent)) || !l.Ports.Usage.Fit(a, agent) {
 			return "is not a place for it"
 		}
-		if w, err := l.full(q, agent, row, a, false); err != nil || w != nil {
+		if w, err := l.full(q, agent, row, a, false, true); err != nil || w != nil {
 			return "has no free slot"
 		}
 		return ""
@@ -398,7 +415,7 @@ func (l *Launcher) WakeWait(q db.Q, agent string, row *db.AgentState) *WakeWait 
 		if w := l.wall(acct, source == "assumed"); w != nil {
 			return w
 		}
-		return must(l.full(q, agent, row, acct, source == "assumed"))
+		return must(l.full(q, agent, row, acct, source == "assumed", true))
 	}
 	if l.ChooseAccount(agent, false, "") != "" {
 		return nil
@@ -430,7 +447,7 @@ func WaitClock(w *WakeWait, unknown string) string {
 // DescribeWakeWait is the wording for a wait already computed, so a caller that holds one does not recompute it.
 func DescribeWakeWait(w *WakeWait) string {
 	if w.Slot && w.Full == 0 {
-		return fmt.Sprintf("waiting for %s: it is ahead of its week and takes no new agent", w.Account)
+		return fmt.Sprintf("waiting for %s: it would run out before it resets and takes no new agent", w.Account)
 	}
 	if w.Slot {
 		first := ""
@@ -983,6 +1000,10 @@ func (p LaunchPort) RoomElsewhere(q db.Q, agent string, row *db.AgentState, excl
 
 func (p LaunchPort) RoomOn(q db.Q, agent string, row *db.AgentState, acct string) string {
 	return p.L.RoomOn(q, agent, row, acct)
+}
+
+func (p LaunchPort) RoomNow(q db.Q, agent string, row *db.AgentState, skip, prefer string) (string, string) {
+	return p.L.RoomNow(q, agent, row, skip, prefer)
 }
 
 var _ Launch = LaunchPort{}

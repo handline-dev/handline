@@ -617,7 +617,7 @@ func (h tickHandoff) SettleOwedClear(_ db.Q, agent string) bool {
 }
 func (h tickHandoff) Movable(kind string) bool { return lifecycle.MovableTrigger(kind) }
 func (h tickHandoff) MovePlan(_ db.Q, agent, kind string) (string, string) {
-	dest, why, err := h.mv.MovePlan(agent, kind)
+	dest, why, err := h.mv.MovePlan(agent, kind, false)
 	if err != nil {
 		return "", err.Error()
 	}
