@@ -240,10 +240,6 @@ def kind(cfg: dict) -> str:
     return out if vendor == DEFAULT_VENDOR else f"{vendor} {out}"
 
 
-BASE_BUDGET_BYTES = 2048  # base.md <= 2KB (team model section 1)
-ROLE_BUDGET_BYTES = 1024  # ROLE.md <= 1KB
-
-
 def is_structured(name: str) -> bool:
     """Is this agent a structured session, driven by the Go daemon (agent.yaml `structured: true`)?
 
@@ -427,12 +423,12 @@ def register(name: str, role: str = "", model: str | None = None,
             raise ValueError(f"--role-file not found: {src}")
         role_path.write_text(src.read_text())
     elif not role_path.exists():
-        role_path.write_text(f"# {name}\n\n{role or '(describe the role, under 1KB)'}\n")
+        role_path.write_text(f"# {name}\n\n{role or '(describe the role)'}\n")
     base_file = d / "base.md"
     if not base_file.exists():
         base_file.write_text(
             f"# base - {name}\n\n"
-            "(injected into every session, so it is fixed overhead. Keep it under 2KB.)\n"
+            "(injected into every session, so it is fixed overhead.)\n"
         )
     return d
 
@@ -516,12 +512,3 @@ def repo_of(name: str) -> str | None:
     return str(repo) if repo else None
 
 
-def budget_report(name: str) -> list[tuple[str, int, int, bool]]:
-    """(file, bytes, budget, over?) for the per-session fixed overhead."""
-    d = paths.agent_dir(name)
-    out = []
-    for fn, budget in (("base.md", BASE_BUDGET_BYTES), ("ROLE.md", ROLE_BUDGET_BYTES)):
-        p = d / fn
-        size = p.stat().st_size if p.exists() else 0
-        out.append((fn, size, budget, size > budget))
-    return out

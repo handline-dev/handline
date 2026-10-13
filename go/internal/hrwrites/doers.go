@@ -486,7 +486,7 @@ func (e *Env) SetByAgent(agent string, values map[string]string, speaker string)
 	return e.roster().SetByAgent(e.DB, agent, values, speaker, "", idleMinutes, idleClose{e})
 }
 
-var contextBudget = map[string]int{"ROLE.md": team.RoleBudgetBytes, "base.md": team.BaseBudgetBytes}
+var contextFiles = map[string]bool{"ROLE.md": true, "base.md": true}
 
 func contextProblem(texts [][2]string) string {
 	if len(texts) == 0 {
@@ -494,16 +494,13 @@ func contextProblem(texts [][2]string) string {
 	}
 	for _, t := range texts {
 		fn, text := t[0], t[1]
-		budget, known := contextBudget[fn]
 		switch {
-		case !known:
+		case !contextFiles[fn]:
 			return fmt.Sprintf("only ROLE.md and base.md can be changed this way, not %s", pyRepr(fn))
 		case strings.TrimSpace(text) == "":
 			return fn + " cannot be empty"
 		case textsafe.HasUnsafe(strings.NewReplacer("\t", "", "\n", "").Replace(text)):
 			return fn + " carries a control character"
-		case len(text) > budget:
-			return fmt.Sprintf("%s is %d bytes, over its %d-byte budget: it is paid for in every session", fn, len(text), budget)
 		}
 	}
 	return ""

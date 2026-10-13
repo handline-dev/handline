@@ -482,8 +482,8 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
               file=sys.stderr)
 
     # The agent's standing context (team model section 1). base.md is injected
-    # every session - that is what its 2KB budget is a budget for - and the
-    # handoff waiting for it is injected so it picks up where it left off.
+    # every session, and the handoff waiting for it is injected so it picks up
+    # where it left off.
     preamble = context_for(agent)
     memory_dir = paths.agent_dir(agent) / "memory"
     memory_dir.mkdir(parents=True, exist_ok=True)

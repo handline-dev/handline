@@ -31,9 +31,6 @@ const (
 	DefaultBrowserProf = "Profile 17"
 	DefaultMode        = "auto"
 
-	BaseBudgetBytes = 2048 // base.md <= 2KB
-	RoleBudgetBytes = 1024 // ROLE.md <= 1KB
-
 	skipNS = "skip_permissions"
 )
 
@@ -626,7 +623,7 @@ func (r *Roster) Register(name string, o RegisterOpts) (string, error) {
 	} else if _, err := os.Stat(rolePath); err != nil {
 		role := o.Role
 		if role == "" {
-			role = "(describe the role, under 1KB)"
+			role = "(describe the role)"
 		}
 		if err := os.WriteFile(rolePath, []byte("# "+name+"\n\n"+role+"\n"), 0o644); err != nil {
 			return "", err
@@ -634,7 +631,7 @@ func (r *Roster) Register(name string, o RegisterOpts) (string, error) {
 	}
 	base := filepath.Join(d, "base.md")
 	if _, err := os.Stat(base); err != nil {
-		body := "# base - " + name + "\n\n(injected into every session, so it is fixed overhead. Keep it under 2KB.)\n"
+		body := "# base - " + name + "\n\n(injected into every session, so it is fixed overhead.)\n"
 		if err := os.WriteFile(base, []byte(body), 0o644); err != nil {
 			return "", err
 		}
@@ -797,27 +794,4 @@ func ReadAccount(db *sql.DB, name string, reported func() string) (AccountReadin
 		return AccountReading{acct.String, "assumed"}, true, nil
 	}
 	return AccountReading{}, false, nil
-}
-
-// BudgetFile is one file of the per-session fixed overhead: its size, its budget and whether it is over.
-type BudgetFile struct {
-	File         string
-	Bytes, Limit int64
-	Over         bool
-}
-
-// BudgetReport is base.md and ROLE.md against their budgets.
-func BudgetReport(home, name string) []BudgetFile {
-	var out []BudgetFile
-	for _, f := range []struct {
-		name  string
-		limit int64
-	}{{"base.md", BaseBudgetBytes}, {"ROLE.md", RoleBudgetBytes}} {
-		var size int64
-		if st, err := os.Stat(filepath.Join(paths.AgentDir(home, name), f.name)); err == nil {
-			size = st.Size()
-		}
-		out = append(out, BudgetFile{f.name, size, f.limit, size > f.limit})
-	}
-	return out
 }

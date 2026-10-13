@@ -15,7 +15,7 @@ than none").
   loads only the index at start, so the other 7 are never loaded unless an
   agent happens to open them. Two files (`ocp-cli-habits`, `ocp-resolve-quoting`)
   say the same thing; three UI-testing files overlap.
-- `agents/<name>/journal` is unused. `base.md` (2KB) and `ROLE.md` are injected
+- `agents/<name>/journal` is unused. `base.md` and `ROLE.md` are injected
   as the system-prompt appendix on every launch (`launch.context_for`).
 
 ## Layers
