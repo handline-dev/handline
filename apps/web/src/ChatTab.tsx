@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage } from '@handline/client';
-import { timeline } from '@handline/app-core';
+import { behindCount, timeline } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import {
   Skeleton,
@@ -22,7 +22,7 @@ import {
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { PromptSlot } from './PromptCard.tsx';
 import { Compose } from './ChatCompose.tsx';
-import { Item, Message, jumpTo } from './ChatMessages.tsx';
+import { Item, Message, TaskNote, jumpTo } from './ChatMessages.tsx';
 import { ChatBanner, ChatStrip, HrCards } from './ChatCards.tsx';
 import { Button, Empty, Icon, Segmented, State, Textarea, ComposeRow } from './ui/index.ts';
 import { setting } from './daemon.ts';
@@ -75,14 +75,13 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const [scope, setScope] = useState<ChatScope>(keptScope.value === 'all' ? 'all' : 'mine');
   const chat = useChat(agent, scope);
   const [picked, setPicked] = useState<number | null>(null);
-  const [restore, setRestore] = useState<{ text: string; n: number } | null>(null);
   const [newer, setNewer] = useState(0); // entries that arrived while the person was reading further up
   const [going, setGoing] = useState<number | null>(null); // a message number being found
   const act = useChatActions(agent);
   const locate = useChatLocate({ request: going ?? 0 }, going !== null);
   const stream = useRef<HTMLDivElement>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
-  const entries = timeline(chat.messages, chat.items);
+  const entries = timeline(chat.messages, chat.items, scope);
   // Task titles for the transcript's task lines, so a card can say what it is about without opening the task.
   const { served } = useServes('tasks.list');
   const tasks = useTasks({});
@@ -95,7 +94,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const byId = new Map(chat.messages.map((m) => [m.id, m]));
   const target = picked != null ? (byId.get(picked) ?? null) : null;
   const pick = (m: ChatMessage) => setPicked((p) => (p === m.id ? null : m.id));
-  const keyOf = (e: (typeof entries)[number]) => (e.kind === 'message' ? `m${e.id}` : `i${e.id}`);
+  const keyOf = (e: (typeof entries)[number]) => (e.kind === 'item' ? `i${e.id}` : `m${e.id}`);
   // Only an entry that arrives after the one that was last grows; older pages and a switch of scope appear at once.
   const seen = useRef<{ scope: ChatScope; last: string | null }>({ scope, last: null });
   const tail = seen.current.scope === scope && seen.current.last !== null ? entries.findIndex((e) => keyOf(e) === seen.current.last) : -1;
@@ -229,42 +228,49 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                     picked={e.id === picked}
                     onPick={pick}
                     byId={byId}
-                    working={chat.working.turn_running}
-                    onRestore={(text) => setRestore({ text, n: (restore?.n ?? 0) + 1 })}
+                    behind={behindCount(chat.messages, e.message)}
                     onRef={jump}
                   />
+                ) : e.kind === 'note' ? (
+                  <TaskNote m={e.message} task={e.task} titles={titles} />
                 ) : (
                   <Item i={e.item} titles={titles} />
                 )}
               </AnimatedItem>
             );
             // A plain child of the list: never animated in or out.
-            return day ? (
-              [
-                <div
-                  key={`day ${day}`}
-                  role="separator"
-                  className="mt-3 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
-                >
-                  {day}
-                </div>,
-                body,
-              ]
-            ) : (
-              [body]
-            );
+            return day
+              ? [
+                  <div
+                    key={`day ${day}`}
+                    role="separator"
+                    className="mt-3 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
+                  >
+                    {day}
+                  </div>,
+                  body,
+                ]
+              : [body];
           })}
         </AnimatedList>
         <HrCards agent={agent} />
         {chat.working.turn_running ? (
-          <div className="line working flex items-center gap-1.5 self-start text-[12px] text-working" role="status" title={chat.working.line ?? 'Working'}>
+          <div
+            className="line working flex items-center gap-1.5 self-start text-[12px] text-working"
+            role="status"
+            title={chat.working.line ?? 'Working'}
+          >
             <State kind="working" size={14} label={chat.working.line ?? 'Working'} />
             <span>{chat.working.line ?? 'Working'}…</span>
           </div>
         ) : null}
       </div>
       {newer ? (
-        <button className="newer absolute right-4 bottom-[96px] inline-flex items-center gap-1 rounded-pill bg-panel px-2 py-1 shadow-[var(--shadow-pop)]" onClick={bottom} title="New messages">
+        <button
+          className="newer absolute right-4 bottom-[96px] inline-flex items-center gap-1 rounded-pill bg-panel px-2 py-1 shadow-[var(--shadow-pop)]"
+          onClick={bottom}
+          title="New messages"
+        >
           <Icon name="newer" size={14} aria-hidden />
           {newer}
         </button>
@@ -282,7 +288,6 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         messages={chat.messages}
         target={target}
         onClear={() => setPicked(null)}
-        restore={restore}
         running={chat.working.turn_running}
       />
     </section>

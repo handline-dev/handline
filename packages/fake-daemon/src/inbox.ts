@@ -106,11 +106,11 @@ export class FakeInbox {
   }
 
   /** An item is a request under the same id, so `chat.dismiss` takes it off the list; false when this inbox does not hold it. */
-  dismiss(id: unknown): boolean {
+  dismiss = (id: unknown): boolean => {
     const at = this.items.findIndex((i) => i.id === id);
     if (at >= 0) this.items.splice(at, 1);
     return at >= 0;
-  }
+  };
 
   private find(id: unknown): InboxItem {
     const item = this.items.find((i) => i.id === id);

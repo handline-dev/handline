@@ -1,12 +1,12 @@
 // The task detail's presentational parts: the meta grid, one verb button, the link and timeline sections, and the two small sheets.
 import { useState } from 'react';
-import { timeoutText, taskRef } from '@handline/app-core';
+import { taskRef, timeoutText } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { useWrite } from '@handline/app-data';
 import { Icon, type IconName } from './ui/Icon.tsx';
 import { Sheet } from './taskui.tsx';
-import { Button, Input, MetaField, MetaGrid, NativeSelect, Textarea, VisuallyHidden } from './ui/index.ts';
-import { when } from './TaskMemos.tsx';
+import { Button, Input, MetaField, MetaGrid, NativeSelect, Textarea } from './ui/index.ts';
+import { when } from './TaskTime.tsx';
 
 export const TIMELINE = 'ttimeline m-0 list-none p-0 [&_svg]:shrink-0 [&_svg]:self-center [&_svg]:text-ink-3';
 
@@ -38,7 +38,14 @@ export function TaskMeta({ t, now }: { t: Detail; now: number }) {
   );
 }
 
-export function Verb(props: { k: string; icon: IconName; label: string; can: { ok: boolean; why?: string }; onClick: () => void; busy?: boolean }) {
+export function Verb(props: {
+  k: string;
+  icon: IconName;
+  label: string;
+  can: { ok: boolean; why?: string };
+  onClick: () => void;
+  busy?: boolean;
+}) {
   return (
     <Button
       icon={props.busy ? undefined : props.icon}
@@ -46,10 +53,10 @@ export function Verb(props: { k: string; icon: IconName; label: string; can: { o
       aria-label={props.label}
       title={props.can.why ?? `${props.label} (${props.k})`}
       disabled={!props.can.ok || props.busy}
-      className={`max-sm:min-h-[44px]${props.busy ? ' w-7 justify-center p-0' : ''}`}
+      className="max-sm:min-h-[44px]"
       onClick={props.onClick}
     >
-      {props.busy ? '…' : undefined}
+      {props.busy ? '…' : props.label}
     </Button>
   );
 }
@@ -59,8 +66,7 @@ export function TaskLinks({ icon, label, items }: { icon: IconName; label: strin
   return (
     <>
       <h3 className={H3}>
-        <Icon name={icon} label={label} aria-hidden="true" />
-        <VisuallyHidden>{label}</VisuallyHidden>
+        <Icon name={icon} label={label} aria-hidden="true" /> <span className="ml-1">{label}</span>
       </h3>
       <ul className="tlinks m-0 list-none p-0">
         {items.map((b) => (
@@ -82,7 +88,7 @@ export function TaskTimeline({ deliveries, events }: { deliveries: Detail['deliv
       {deliveries.map((d) => (
         <li key={d.at} title={`delivered by ${d.how}`} className={LI}>
           <Icon name="delivered" label="Delivered" aria-hidden="true" size={14} />
-          <span className="mono">{when(d.at)}</span> {d.how}: {d.outcome}
+          <span className="mono">{when(d.at)}</span> Delivered ({d.how}): {d.outcome}
         </li>
       ))}
       {events.map((e, i) => (
