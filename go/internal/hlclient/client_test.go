@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/pairsock"
+	"github.com/handline/handline/go/internal/paths"
 )
 
 // hangUp is an answer that closes the connection instead.
@@ -250,9 +252,11 @@ func TestTheRigSocketOutlivesACollectionBetweenDialers(t *testing.T) {
 func TestKickstartLoadsAServiceThatIsInstalledAndNotLoaded(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HANDLINE_TEST_ROOT", root)
-	plist := filepath.Join(root, "Library", "LaunchAgents", label+".plist")
-	real := launchctl
-	t.Cleanup(func() { launchctl = real })
+	plist := filepath.Join(root, "Library", "LaunchAgents", liveLabel+".plist")
+	home := filepath.Join(root, ".handline")
+	real, realLive := launchctl, liveHomes
+	t.Cleanup(func() { launchctl, liveHomes = real, realLive })
+	liveHomes = func() []string { return []string{paths.Realpath(home)} }
 	var calls []string
 	answers := map[string][]struct {
 		out string
@@ -270,7 +274,7 @@ func TestKickstartLoadsAServiceThatIsInstalledAndNotLoaded(t *testing.T) {
 		}
 		return a[0].out, nil
 	}
-	if err := kickstart(); err == nil || err.Error() != "no service is installed to start it (`hl service install`)" || len(calls) != 0 {
+	if err := kickstart(home); err == nil || err.Error() != "no service is installed to start it (`hl service install`)" || len(calls) != 0 {
 		t.Fatalf("no plist: %v %v", err, calls)
 	}
 	if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
@@ -284,7 +288,7 @@ func TestKickstartLoadsAServiceThatIsInstalledAndNotLoaded(t *testing.T) {
 		out string
 		ok  bool
 	}{{notFound, false}, {"", true}}
-	if err := kickstart(); err != nil || strings.Join(calls, " ") != "kickstart bootstrap enable kickstart" {
+	if err := kickstart(home); err != nil || strings.Join(calls, " ") != "kickstart bootstrap enable kickstart" {
 		t.Fatalf("loaded and started: %v %v", err, calls)
 	}
 	calls = nil
@@ -296,7 +300,7 @@ func TestKickstartLoadsAServiceThatIsInstalledAndNotLoaded(t *testing.T) {
 		out string
 		ok  bool
 	}{{"Bootstrap failed: 5: Input/output error", false}}
-	if err := kickstart(); err == nil || err.Error() != "the service is installed but not loaded, and launchd would not load it: "+
+	if err := kickstart(home); err == nil || err.Error() != "the service is installed but not loaded, and launchd would not load it: "+
 		"Bootstrap failed: 5: Input/output error (`hl service install`)" || strings.Join(calls, " ") != "kickstart bootstrap" {
 		t.Fatalf("would not load: %v %v", err, calls)
 	}
@@ -304,7 +308,44 @@ func TestKickstartLoadsAServiceThatIsInstalledAndNotLoaded(t *testing.T) {
 		out string
 		ok  bool
 	}{{"", false}}
-	if err := kickstart(); err == nil || err.Error() != "launchd would not start it: no reason given" {
+	if err := kickstart(home); err == nil || err.Error() != "launchd would not start it: no reason given" {
 		t.Fatalf("would not start: %v", err)
+	}
+}
+
+func TestAHomeThatIsNotTheLiveOneNeverAddressesTheLiveService(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HANDLINE_TEST_ROOT", root)
+	t.Setenv("HANDLINE_SERVICE_LABEL", "")
+	t.Setenv("OCP_SERVICE_LABEL", "")
+	for _, l := range []string{liveLabel, "dev.handline.rehearsal"} {
+		plist := filepath.Join(root, "Library", "LaunchAgents", l+".plist")
+		if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(plist, []byte("<plist/>"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	real, realLive := launchctl, liveHomes
+	t.Cleanup(func() { launchctl, liveHomes = real, realLive })
+	var calls []string
+	launchctl = func(args ...string) (string, error) {
+		calls = append(calls, strings.Join(args, " "))
+		return "", nil
+	}
+	live, scratch := filepath.Join(root, ".handline"), filepath.Join(root, "scratch")
+	liveHomes = func() []string { return []string{paths.Realpath(live)} }
+	if err := kickstart(scratch); err == nil || !strings.Contains(err.Error(), "is not the live home") || len(calls) != 0 {
+		t.Fatalf("a scratch home with the live plist installed: %v %v", err, calls)
+	}
+	target := fmt.Sprintf("gui/%d/", os.Getuid())
+	if err := kickstart(live); err != nil || len(calls) != 1 || calls[0] != "kickstart "+target+liveLabel {
+		t.Fatalf("the live home: %v %v", err, calls)
+	}
+	calls = nil
+	t.Setenv("HANDLINE_SERVICE_LABEL", "dev.handline.rehearsal")
+	if err := kickstart(scratch); err != nil || len(calls) != 1 || calls[0] != "kickstart "+target+"dev.handline.rehearsal" {
+		t.Fatalf("a scratch home with a label of its own: %v %v", err, calls)
 	}
 }

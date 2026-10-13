@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..team import accounts
 from ..team import agents
-from ..daemon import inputhold, delivery as dmn_delivery, handoff as dmn_handoff, lifecycle as dmn_lifecycle
+from ..daemon import inputhold, handoff as dmn_handoff, lifecycle as dmn_lifecycle
 from ..session import states as dmn_states
 from .. import db
 from ..infra import lock, waits

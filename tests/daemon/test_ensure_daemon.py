@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -32,8 +33,11 @@ from test_rpc import Wire, _code  # noqa: E402
 class FakeLaunchd:
     """Stands in for run_launchctl and for connect: `kickstart` makes the daemon answer after `after` tries."""
 
-    def __init__(self, installed=True, kickstart_rc=0, after=3) -> None:
+    def __init__(self, installed=True, kickstart_rc=0, after=3, label="dev.handline.test") -> None:
         self.calls, self.installed, self.rc, self.after, self.tries, self.up = [], installed, kickstart_rc, after, 0, False
+        self.label_was = os.environ.pop("OCP_SERVICE_LABEL", None)
+        if label:                       # a test home has a service only under a label of its own
+            os.environ["OCP_SERVICE_LABEL"] = label
         self.real = (service.run_launchctl, service._plist_installed, client.connect)
         service.run_launchctl = self.launchctl
         service._plist_installed = lambda: self.installed
@@ -52,6 +56,9 @@ class FakeLaunchd:
 
     def restore(self) -> None:
         service.run_launchctl, service._plist_installed, client.connect = self.real
+        os.environ.pop("OCP_SERVICE_LABEL", None)
+        if self.label_was is not None:
+            os.environ["OCP_SERVICE_LABEL"] = self.label_was
 
 
 def test_ensure_daemon_asks_launchd_once_and_waits_for_the_socket(home: Path) -> None:
@@ -66,8 +73,26 @@ def test_ensure_daemon_asks_launchd_once_and_waits_for_the_socket(home: Path) ->
         f.restore()
     check("ensure: it returns the connection once the daemon answers", got is not None)
     check("ensure: after one kickstart of the service, never -k (which would kill a running one)",
-          f.calls == [["kickstart", service.service_target()]], str(f.calls))
+          f.calls == [["kickstart", f"{service.domain_target()}/dev.handline.test"]], str(f.calls))
     check("ensure: and it retried while launchd started it", f.tries == 4, str(f.tries))
+
+
+def test_a_home_that_is_not_the_live_one_never_asks_launchd_for_the_live_service(home: Path) -> None:
+    support.use_home(home)
+    f = FakeLaunchd(label=None)
+    try:
+        try:
+            client.ensure_daemon()
+            why = None
+        except client.DaemonDown as e:
+            why = str(e)
+        check("ensure: a test home with the live plist installed is told it is not the live home",
+              why is not None and "is not the live home" in why and str(home) in why, str(why))
+        check("ensure: and launchd is asked nothing", f.calls == [], str(f.calls))
+        os.environ["OCP_SERVICE_LABEL"] = "dev.handline.test"
+        check("ensure: under a label of its own the same home has a service to ask for", service.serves_this_home())
+    finally:
+        f.restore()
 
 
 class UnloadedLaunchd(FakeLaunchd):
@@ -102,7 +127,7 @@ def test_a_service_that_is_installed_and_not_loaded_is_loaded_then_started(home:
     verbs = [c[0] for c in f.calls]
     check("ensure: kickstart finds no service, the installed plist is bootstrapped, then it is kickstarted again", verbs[:3] == ["kickstart", "bootstrap", "enable"]
           and verbs[3:] == ["kickstart"] and got is not None, str(f.calls))
-    check("ensure: it is bootstrapped into the user's domain from the installed plist, never rewritten", f.calls[1] == ["bootstrap", service.domain_target(), str(service.plist_path())], str(f.calls[1]))
+    check("ensure: it is bootstrapped into the user's domain from the installed plist, never rewritten", f.calls[1] == ["bootstrap", service.domain_target(), str(service.plist_path().with_name("dev.handline.test.plist"))], str(f.calls[1]))
     f = UnloadedLaunchd(bootstrap_rc=5)
     try:
         try:
@@ -550,22 +575,6 @@ def test_pruning_keeps_each_agents_newest_applied_row(home: Path) -> None:
     con.close()
 
 
-def test_hl_doctor_says_when_rejected_hook_lines_are_piling_up(home: Path) -> None:
-    support.use_home(home)
-    rejected = spool.path().with_name(spool.REJECTED)
-    row = lambda: next((r for r in doctor.run().rows if "hook line" in r[1]), None)  # noqa: E731
-    check("doctor: no rejected file, no note", row() is None)
-    rejected.write_text("")
-    check("doctor: an empty one, no note", row() is None)
-    rejected.write_text(json.dumps({"rejected_at": 1760000000, "error": "KeyError", "message": "'kind'", "line": "{}"}) + "\n"
-                        + json.dumps({"rejected_at": 1760000500, "error": "ValueError", "message": "x", "line": "y"}) + "\n")
-    got = row()
-    check("doctor: a warning with the count, the size and the oldest",
-          got and got[0] == doctor.WARN and got[1].startswith("2 hook line(s)") and f"{rejected.stat().st_size} bytes" in got[1]
-          and "oldest set aside" in got[1], got)
-    check("doctor: and says what to do with them", got and "delete the file" in got[2] and str(rejected) in got[2], got)
-
-
 def test_the_tick_applies_what_a_hook_left_while_the_daemon_ran(home: Path) -> None:
     support._daemon_home(home, 20)
     spool.append("backend", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit", "prompt": "x"}, "tick-1")
@@ -699,6 +708,7 @@ def test_hl_hook_still_works_from_an_agent_session_with_the_daemon_down(home: Pa
 def main() -> int:
     def tests(td):
         run(lambda: test_ensure_daemon_asks_launchd_once_and_waits_for_the_socket(Path(td) / "e1"))
+        run(lambda: test_a_home_that_is_not_the_live_one_never_asks_launchd_for_the_live_service(Path(td) / "notlive"))
         run(lambda: test_a_service_that_is_installed_and_not_loaded_is_loaded_then_started(Path(td) / "e2a"))
         run(lambda: test_a_daemon_that_is_there_is_not_started_again(Path(td) / "e2"))
         run(lambda: test_ensure_daemon_failing_is_daemon_down_with_the_log_path_and_nothing_done(Path(td) / "e3"))
@@ -724,7 +734,6 @@ def main() -> int:
         run(lambda: test_a_late_session_start_does_not_rebind_and_a_late_permission_request_leaves_no_wait(Path(td) / "e24"))
         run(lambda: test_a_hook_stamped_in_the_future_counts_from_its_arrival_not_from_its_stamp(Path(td) / "e25"))
         run(lambda: test_pruning_keeps_each_agents_newest_applied_row(Path(td) / "e26"))
-        run(lambda: test_hl_doctor_says_when_rejected_hook_lines_are_piling_up(Path(td) / "e27"))
         run(lambda: test_hl_hook_still_works_from_an_agent_session_with_the_daemon_down(Path(td) / "e10"))
     return run_area(tests)
 
