@@ -1,0 +1,6 @@
+5 total. `hl read <id>` shows one whole.
+#1     from amy          landed    depth=0 old news
+#2     from amy          queued    depth=0 fyi
+#3     from amy          landed    depth=2 a long first line a long first line a long first line a long
+#4     from cy           landed    depth=0 T1 handed to you
+#6     from cy           withdrawn depth=0 taken back
