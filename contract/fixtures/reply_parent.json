@@ -25,7 +25,7 @@
       "id": 2,
       "method": "chat.send",
       "params": {
-       "agent": "x",
+       "agent": "{{reply_agent}}",
        "body": "hello",
        "parent_item": "one",
        "request_id": "conf-pi-1"
@@ -66,7 +66,7 @@
       "id": 2,
       "method": "chat.send",
       "params": {
-       "agent": "x",
+       "agent": "{{reply_agent}}",
        "body": "hello",
        "parent": 1,
        "parent_item": 1790000000100000,
@@ -108,7 +108,7 @@
       "id": 2,
       "method": "chat.send",
       "params": {
-       "agent": "x",
+       "agent": "{{reply_agent}}",
        "body": "hello",
        "task": {
         "title": "t"
