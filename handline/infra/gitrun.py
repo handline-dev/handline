@@ -19,8 +19,6 @@ def run(cwd: str | Path, *args: str, timeout: int = 15) -> tuple[int | None, str
 # from the repo's origin/HEAD, so a clone whose origin/HEAD says another branch (the manager's own
 # `orcapipe`, T935) sends every agent branching and merge-treeing from a ref that went stale.
 INTEGRATION_BRANCH = "main"
-# A branch forked this many commits before main's tip was not branched from main's tip.
-BEHIND_WARN = 100
 
 
 def point_origin_head_at_main(cwd: str | Path) -> bool:
@@ -31,13 +29,3 @@ def point_origin_head_at_main(cwd: str | Path) -> bool:
         return False
     rc, _, _ = run(cwd, "remote", "set-head", "origin", INTEGRATION_BRANCH)
     return rc == 0
-
-
-def commits_behind_main(cwd: str | Path) -> int | None:
-    """How many commits `main` holds that `HEAD` was forked before: None with no `main`, no HEAD
-    or no common ancestor."""
-    rc, base, _ = run(cwd, "merge-base", "HEAD", INTEGRATION_BRANCH)
-    if rc != 0 or not base.strip():
-        return None
-    rc, out, _ = run(cwd, "rev-list", "--count", f"{base.strip()}..{INTEGRATION_BRANCH}")
-    return int(out) if rc == 0 and out.strip().isdigit() else None
