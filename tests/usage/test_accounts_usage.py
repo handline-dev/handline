@@ -4046,6 +4046,26 @@ def test_an_agent_cannot_force_a_move(home: Path) -> None:
             os.environ["OCP_AGENT"] = real
 
 
+def test_a_forced_move_is_the_daemons(home: Path) -> None:
+    """`hl agent move` asks the daemon (agent.move, served by the Go daemon only, so the reply is given here)."""
+    from handline.cli import client as cliclient
+    _daemon_home(home, 20)
+    sent, real = [], cliclient.write
+    replies = [(True, "keeper moved alpha -> beta (forced by human)"), (False, "keeper is already on beta")]
+    cliclient.write = lambda method, params: (sent.append((method, params)), replies.pop(0))[1]
+    try:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            codes = [climod.main(["agent", "move", "keeper", "beta", "--yes"]) for _ in range(2)]
+    finally:
+        cliclient.write = real
+    check("forced: the move is sent to the daemon, with the agent and the account",
+          sent == [("agent.move", {"agent": "keeper", "account": "beta"})] * 2, str(sent))
+    check("forced: what it did is printed, and a refusal goes to stderr with exit 1",
+          codes == [0, 1] and "moved alpha -> beta" in out.getvalue() and "already on beta" in err.getvalue()
+          and "already" not in out.getvalue(), f"{codes} {out.getvalue()!r} {err.getvalue()!r}")
+
+
 def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
     """Total throughput is accounts x window, and moving a session does not change
     it. What it changes is whether an agent sits out its own five hours while
@@ -6328,6 +6348,7 @@ def main() -> int:
         run(lambda: test_a_move_is_not_recorded_while_the_process_is_still_on_the_old_account(Path(td) / 'movever'))
         run(lambda: test_a_forced_move_goes_through_the_verified_move_or_not_at_all(Path(td) / 'forced'))
         run(lambda: test_an_agent_cannot_force_a_move(Path(td) / 'forcedagent'))
+        run(lambda: test_a_forced_move_is_the_daemons(Path(td) / 'forcedcli'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
         run(lambda: test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(
             Path(td) / 'movedialog'))

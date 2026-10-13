@@ -7,7 +7,6 @@ from pathlib import Path
 
 from .. import actions
 from ..team import agent_settings, agents, ask as askmod, hr
-from ..daemon import handoff as dmn_handoff
 from ..infra import daemonclient as dmn_client
 from ..session import states as dmn_states
 from .. import db
@@ -32,11 +31,7 @@ def cmd_agent_move(args) -> int:
                  f"ends its session if one runs, and starts a new one there (y/N): ").strip().lower() != "y":
             print("not moved")
             return 1
-    con = db.connect()
-    try:
-        ok, msg = dmn_handoff.force_move(con, args.agent, args.account, "human (cli)", print)
-    finally:
-        con.close()
+    ok, msg = client.write("agent.move", {"agent": args.agent, "account": args.account})
     print(msg, file=None if ok else sys.stderr)
     return 0 if ok else 1
 
