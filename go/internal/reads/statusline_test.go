@@ -37,10 +37,7 @@ func TestAgentsListWithStatusAddsWhatHlTeamDraws(t *testing.T) {
 		"(5, 'no hold', 'ann', 'human', 1, 2, NULL), (6, 'another owner', 'bob', 'human', 1, 2, NULL)")
 	run(t, e, `INSERT INTO meta(name, value, updated) VALUES('taskhold:2', '{"why": "blocked by T9 (cat)", "able": false}', 0), ('taskhold:3', '{"why": "behind T2"}', 0), `+
 		`('taskhold:4', '{"why": "ended"}', 0), ('taskhold:6', '{"why": "bob is closed"}', 0)`)
-	e.Delivery = triggerDelivery{by: map[string]Trigger{
-		"ann": {Applies: true, Reason: "shortest window 10% below the wall"},
-		"bob": {Reason: "waiting for alpha's window at 14:00"},
-	}}
+	e.Delivery = fakeDelivery{wakeWait: map[string]string{"bob": "waiting for alpha's window at 14:00"}}
 	got := listed(t, e, map[string]any{"status": true})
 	status := func(name string) map[string]any {
 		out := map[string]any{}

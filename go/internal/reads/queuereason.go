@@ -21,6 +21,8 @@ type Delivery interface {
 	Wall(q db.Q, agent string, row *db.AgentState) (*Wall, error)
 	// ForgottenResolve is the head request an agent looks to have forgotten (told, still open, nothing asked) and how long it has sat idle.
 	ForgottenResolve(q db.Q, agent string, row *db.AgentState, now int64) (head, idleS int64, found bool, err error)
+	// WakeWaitReason is the sentence for a wake that is due and walled, "" when no wake is due or nothing holds it back.
+	WakeWaitReason(q db.Q, agent string, row *db.AgentState) (string, error)
 	// Trigger is what the daemon's next tick would decide for the agent on account (hl triggers).
 	Trigger(q db.Q, agent string, row *db.AgentState, account string) (Trigger, error)
 }
