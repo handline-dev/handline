@@ -976,11 +976,11 @@ def test_the_row_says_how_long_and_when_stale(home: Path) -> None:
         db.set_agent_state(con, "marina", dmn_states.IDLE, detail="finished its turn")
         _stale_bg(con, "marina", 60)
         con.execute("UPDATE cursors SET updated = ? WHERE name = 'bgwork:marina'", (int(time.time()) - 720,))
-        word, detail = viewdata.screen_state(con, db.get_agent_state(con, "marina"))
+        word, detail = screenstate.screen_state(con, db.get_agent_state(con, "marina"))
         check("row: idle, background and how long", (word, detail) == ("IDLE", "background 12m"),
               str((word, detail)))
         _stale_bg(con, "marina", dmn_delivery.STALE_BG_S + 5)
-        word, detail = viewdata.screen_state(con, db.get_agent_state(con, "marina"))
+        word, detail = screenstate.screen_state(con, db.get_agent_state(con, "marina"))
         check("row: and stale once the agent has shown nothing that long",
               word == "IDLE" and detail == "background 3h, stale", detail)
     finally:

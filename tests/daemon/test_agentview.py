@@ -1,6 +1,6 @@
 """Tests: the stored per-agent view (daemon/agentview.py) and the three methods that serve it, agents.list,
-agent.get and agent.timeline. The drift guard compares the stored view with what the screens and the daemon
-work out for themselves, on several states of one agent.
+agent.get and agent.timeline. The drift guard compares the stored view with what the daemon's own deciders
+work out, on several states of one agent.
 
 Run on its own: python3 tests/daemon/test_agentview.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -19,42 +19,24 @@ from handline.daemon import agentview, delivery, handoff_note, lifecycle, rpc  #
 from handline.infra import sessiontoken  # noqa: E402
 from handline.session import states as dmn_states, idle_close, observe as obs, term  # noqa: E402
 from handline.team import ask as askmod  # noqa: E402
-from handline.ui.components import agent_rows  # noqa: E402
-from handline.view import viewdata  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_rpc import Wire, _code, _hp  # noqa: E402
 
 
-def _ui_row(con, name, now):
-    rows, _ = viewdata.agents_data(con, now)
-    return next(r for r in rows if r.name == name)
-
-
 def _drift(con, label: str, now: int) -> None:
-    """The stored view agrees with the screen's own row and with the daemon's own deciders."""
+    """The stored view agrees with the daemon's own deciders."""
     agentview.refresh(con, now)
-    view, row, ui = agentview.stored(con, "backend"), db.get_agent_state(con, "backend"), _ui_row(con, "backend", now)
-    check(f"{label}: the state word and what is said beside it are the screen's", agentview.screen_word(view) == (ui.state, ui.until),
-          f"{view['state']} {view['state_detail']!r} vs {ui.state} {ui.until!r}")
-    check(f"{label}: the state column renders from the view alone",
-          viewdata.state_cell_of_view(view) == viewdata.state_cell(ui.state, ui.until))
-    check(f"{label}: has_dialog is the DIALOG word", view["has_dialog"] == (ui.state == "DIALOG"))
+    view, row = agentview.stored(con, "backend"), db.get_agent_state(con, "backend")
+    word, detail = screenstate.screen_state(con, row, now)
+    check(f"{label}: the state word and what is said beside it are screen_state's", agentview.screen_word(view) == (word, detail),
+          f"{view['state']} {view['state_detail']!r} vs {word} {detail!r}")
+    check(f"{label}: has_dialog is the DIALOG word", view["has_dialog"] == (word == "DIALOG"))
     check(f"{label}: wall_reason and would_wake are the daemon's",
           view["wall_reason"] == delivery.wall_reason(con, "backend", row) and view["would_wake"] == bool(lifecycle.would_wake(con, row)))
     left = handoff_note.cache_left(con, "backend", now)
     check(f"{label}: the cache time is the daemon's",
           (view["cache_until"] is None) == (left is None) and (left is None or view["cache_until"] == agentview._ts(now + left)))
-    check(f"{label}: kind, task_count and ready are the screen's", (view["kind"], view["task_count"], view["ready"]) == (ui.kind, ui.tasks, ui.ready),
-          f"{view['kind']} {view['task_count']} {view['ready']} vs {ui.kind} {ui.tasks} {ui.ready}")
-    check(f"{label}: wall is the screen's wall cell", (view["wall"] is None) == (ui.wall is None) and (
-        ui.wall is None or (view["wall"]["account"], view["wall"]["assumed"]) == (ui.wall.account, ui.wall.mark == "?")), str(view["wall"]))
-    stuck = agent_rows._stuck_by_agent(con)
-    glyph, _, colour = agent_rows.fold_urgency(con, ["backend"], stuck) or (None, 0, None)
-    want = None if glyph is None else {"✉": "ask", "▶": "running"}.get(glyph) or ("alert" if colour == viewdata.RED else "stuck")
-    check(f"{label}: attention is the screen's fold urgency for the agent alone", view["attention"] == want, f"{view['attention']} vs {glyph} {colour}")
-    check(f"{label}: the trigger about to fire is the screen's warning cell", (view["fire"] in ("usage", "context")) == bool(ui.fire)
-          or view["fire"] == "usage_7d", f"{view['fire']} vs {ui.fire!r}")
     check(f"{label}: cache_ignored and config_error", view["cache_ignored"] is idle_close.ignore_cache_expiry("backend")
           and view["config_error"] is None, str(view))
     check(f"{label}: account, task and parent", view["account"] == agents.current_account("backend", con)
@@ -122,11 +104,7 @@ edges:
 limits:
   max_chain_depth: 4
 """)
-        viewdata.EXPANDED.add("manager")         # a closed supervisor's report is not drawn
-        try:
-            _drift(con, "supervised", now)
-        finally:
-            viewdata.EXPANDED.discard("manager")
+        _drift(con, "supervised", now)
         check("parent: the agent its routing table says it answers to", agentview.stored(con, "backend")["parent"] == "manager")
     finally:
         con.close()
@@ -457,7 +435,7 @@ def test_agents_list_with_status_adds_what_hl_team_draws(home: Path) -> None:
     con = db.connect()
     db.set_agent_state(con, "backend", dmn_states.RUNNING)
     agentview.refresh(con)
-    word, _ = viewdata.screen_state(con, db.get_agent_state(con, "backend"))
+    word, _ = screenstate.screen_state(con, db.get_agent_state(con, "backend"))
     con.close()
     w = Wire()
     w.call("hello", _hp())
@@ -541,7 +519,7 @@ def test_a_name_no_agent_has_gets_no_state_row_and_a_stale_one_is_swept(home: Pa
 
 def test_a_running_agent_whose_session_died_is_stuck_in_the_view_as_on_the_screen(home: Path) -> None:
     """The view is built from the tick's reading of the process table, not from none: queued work for a RUNNING agent with no session
-    in its terminal is a stuck delivery on the screen, and the view says the same, before the sweep has reconciled the row."""
+    in its terminal is a stuck delivery to actions.stuck, and the view says the same, before the sweep has reconciled the row."""
     support._daemon_home(home, 20)
     con = db.connect()
     try:
@@ -553,9 +531,9 @@ def test_a_running_agent_whose_session_died_is_stuck_in_the_view_as_on_the_scree
             {"backend": obs.Observed(terminal_alive=alive, session_pid=None, session_seen=True)}) or delivery._seen_at.update(t=time.time())
         sees(True)
         agentview.refresh(con, int(time.time()))
-        want = agent_rows._stuck_by_agent(con).get("backend")
-        check("the screen finds the delivery stuck: no session", want is not None and want["what"] and "no session" in want["why"], str(want))
-        check("the view's attention is the screen's", agentview.stored(con, "backend")["attention"] == "stuck", str(agentview.stored(con, "backend")))
+        want = next((b for b in actions.stuck(con) if b["agent"] == "backend"), None)
+        check("actions.stuck finds the delivery stuck: no session", want is not None and want["what"] and "no session" in want["why"], str(want))
+        check("the view's attention says the same", agentview.stored(con, "backend")["attention"] == "stuck", str(agentview.stored(con, "backend")))
         delivery._seen_at["t"] = 0.0
         agentview.refresh(con, int(time.time()))
         check("with no reading from this tick the view leaves out what only the table could say",

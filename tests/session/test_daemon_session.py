@@ -1116,7 +1116,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
             bg[0] = "3 monitors"
             dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
             row = db.get_agent_state(con, "backend")
-            word = viewdata.screen_state(con, row)[0]
+            word = screenstate.screen_state(con, row)[0]
             if state == dmn_states.IDLE:
                 check(f"background {state}: the row is not shown working",
                       word == "IDLE", word)
@@ -1324,15 +1324,15 @@ def test_a_closed_session_shows_no_background_work(home: Path) -> None:
         db.set_terminal(con, "backend", "term_x", "wt")
         db.set_agent_state(con, "backend", dmn_states.IDLE, detail="finished its turn")
         dmn_delivery.track_background_work(con, "backend", db.get_agent_state(con, "backend"))
-        seen = viewdata.screen_state(con, db.get_agent_state(con, "backend"))
+        seen = screenstate.screen_state(con, db.get_agent_state(con, "backend"))
         check("closed: setup - an open session with background work reads idle, with the background note",
               seen[0] == "IDLE" and seen[1].startswith("background"), str(seen))
 
         db.set_closed(con, "backend", "sess-1")
         row = db.get_agent_state(con, "backend")
         check("closed: the moment it is recorded closed the row is not RUNNING",
-              viewdata.screen_state(con, row) == ("IDLE", "") and not dmn_delivery.has_background_work(con, "backend"),
-              str(viewdata.screen_state(con, row)))
+              screenstate.screen_state(con, row) == ("IDLE", "") and not dmn_delivery.has_background_work(con, "backend"),
+              str(screenstate.screen_state(con, row)))
         check("closed: a closed session has no background 'since'", dmn_delivery.bg_since(con, "backend") is None)
         dmn_delivery.track_background_work(con, "backend", row)
         check("closed: the tick drops the stale cursor, so a wake starts clean",
@@ -3677,10 +3677,8 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
         os.environ["OCP_AGENT"] = "reviewer"
         team_out = _capture(lambda: climod.main(["team"]))
         del os.environ["OCP_AGENT"]
-        wide = viewdata._ANSI.sub("", _snap(200, 40))
         check("walled: and every screen falls silent with it",
-              "rolls over" not in ps_out
-              and when not in team_out and when not in wide,
+              "rolls over" not in ps_out and when not in team_out,
               "still walled somewhere after the window rolled over")
     finally:
         (termmod.available,) = real
@@ -3718,13 +3716,9 @@ def test_a_walled_wake_is_not_shown_with_nothing_waiting(home: Path) -> None:
         os.environ["OCP_AGENT"] = "reviewer"
         team_out = _capture(lambda: climod.main(["team"]))
         del os.environ["OCP_AGENT"]
-        frame = viewdata._ANSI.sub("", _snap(200, 40))
         check("walled: `hl ps` stays quiet with nothing waiting",
               "rolls over" not in ps_out, ps_out)
         check("walled: `hl team` stays quiet too", "rolls over" not in team_out, team_out)
-        check("walled: and the bridge",
-              "rolls over" not in frame and "⏳" not in frame,
-              str([ln for ln in frame.splitlines() if "backend" in ln]))
 
         # `wake_wait` itself still answers - it is the daemon's own call site
         # (a move's wake included) that needs the raw answer unconditionally,
@@ -4264,12 +4258,11 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
     """should-fix 1 (#1762): the thrash test above proves triggers.evaluate
     honours a ctx_limit it is handed - its control builds that trigger by
     calling evaluate() directly, so supervise() is never actually reached for
-    the overridden agent. Nothing there proves the daemon and the bridge row
-    resolve and pass a per-agent limit rather than the flat
-    default. Two agents, same account, same 200,000-token reading: only each
-    call site's own status.effective_context_limit(agents.read(agent), ...)
-    can tell them apart, so both are driven through their real code
-    path, not a stand-in for it."""
+    the overridden agent. Nothing there proves the daemon resolves and passes
+    a per-agent limit rather than the flat default. Two agents, same account,
+    same 200,000-token reading: only the call site's own
+    status.effective_context_limit(agents.read(agent), ...) can tell them
+    apart, so both are driven through the real code path, not a stand-in."""
     _daemon_home(home, 20)
     agents.register("ctxreal")
     agents.register("ctxctl")
@@ -4306,20 +4299,6 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
         check("supervise: the overridden agent, same reading, does not - "
               "the daemon's own call site honoured agent.yaml, not just evaluate()",
               cleared["term_ctl"] == 0, cleared)
-
-        # The fold parked it, and a parked row is judged no further - so the
-        # screens are read as of the next session, still on the same reading.
-        for name in ("ctxreal", "ctxctl"):
-            db.set_agent_state(con, name, dmn_states.IDLE)
-
-        # 2. tui's bridge row.
-        wide = viewdata._ANSI.sub("", _snap(200, 40))
-        real_row = next(ln for ln in wide.splitlines() if "ctxreal" in ln)
-        ctl_row = next(ln for ln in wide.splitlines() if "ctxctl" in ln)
-        check("bridge: shows the fired context warning for the default-limit agent",
-              "context" in real_row, real_row)
-        check("bridge: does not for the overridden agent, same reading",
-              "context" not in ctl_row, ctl_row)
     finally:
         (termmod.available, termmod.alive, termmod.idle_now,
          termmod.clear_context, dmn_delivery.session_present) = real
