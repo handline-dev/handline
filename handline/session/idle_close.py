@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from ..team import agents
 from ..infra import paths
-from ..daemon.states import IDLE_CLOSE_S
+from .states import IDLE_CLOSE_S
 from ..usage import load
 
 # A `park_timeout_s` of 0 - global or per-agent - is the explicit "never

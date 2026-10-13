@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from ..team import accounts, agents, team as teammod, trust
@@ -18,8 +19,7 @@ from ..session import launch, observe as obs, term
 from ..usage import load as loadmod, status
 from . import paths, protected, sealed, service, textsafe
 from . import timefmt
-from ..daemon import reconciler as dmn_reconciler
-from ..session import events
+from ..session import events, states
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 
@@ -386,9 +386,11 @@ def _check_stuck_running(r: Report) -> None:
     con = db.connect()
     try:
         for row in db.all_agent_states(con):
-            mins = dmn_reconciler.silent_minutes(con, row["agent"], row)
-            if mins is None:
+            last = db.last_activity(con, row["agent"]) if row["state"] == states.RUNNING else None
+            silent = None if last is None else int(time.time()) - last
+            if silent is None or silent < states.STUCK_RUNNING_S:
                 continue
+            mins = silent // 60
             r.add(WARN, f"agent {row['agent']}: RUNNING with nothing heard for {mins}m",
                   "no work is delivered to a RUNNING agent and its session is never "
                   "closed; the sweep unsticks it once Orca agrees it is idle")
@@ -683,8 +685,7 @@ def _check_leftover_deliveries(r: Report) -> None:
 def _check_rejected_hook_lines(r: Report) -> None:
     """Hook lines the daemon could not apply are set aside whole in a file of their own, where they would
     otherwise pile up unseen. Their events were not recorded."""
-    from ..daemon import spool
-    f = spool.path().with_name(spool.REJECTED)
+    f = paths.home() / paths.HOOK_SPOOL_REJECTED
     try:
         lines = [ln for ln in f.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
         size = f.stat().st_size
