@@ -43,9 +43,8 @@ type BgJob struct{ Line string }
 
 // TimeboxPorts are the foreign calls the notices make: the board's actions, delivery's background bookkeeping, and the idle-close settings.
 type TimeboxPorts interface {
-	// TaskDoing is actions.task_state(row) == "doing"; TaskBegun is actions._begun.
+	// TaskDoing is actions.task_state(row) == "doing".
 	TaskDoing(q db.Q, t *db.Task) bool
-	TaskBegun(q db.Q, tid int64) bool
 	// SupervisorOf is actions.supervisor_of(routing(), agent), "" when it has none.
 	SupervisorOf(agent string) string
 	// StopWaitReason is actions.stop_wait_reason ("" for none).
@@ -153,13 +152,8 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 		if r := []rune(title); len(r) > TitleShown {
 			title = strings.TrimRight(string(r[:TitleShown]), " \t\n") + "…"
 		}
-		// A task begun on a founder's message has no queue to go back to: release refuses it.
-		stop := ""
-		if !b.Ports.TaskBegun(t.Q, tid) {
-			stop = fmt.Sprintf(" Stop it: `hl task release T%d` sends it back to queued.", tid)
-		}
-		text := fmt.Sprintf("T%d (%s), held by %s, has been doing past its %s timeout. Keep it going: `hl task edit T%d --timeout <duration>`.%s",
-			tid, title, row.Owner, timefmt.Ago(box), tid, stop)
+		text := fmt.Sprintf("T%d (%s), held by %s, has been doing past its %s timeout. Keep it going: `hl task edit T%d --timeout <duration>`. "+
+			"Stop it: `hl task release T%d \"<reason>\"` takes it back.", tid, title, row.Owner, timefmt.Ago(box), tid, tid)
 		if b.tell(t, row.OpenedBy, text, now) {
 			check(db.AdvanceTaskTimeout(t.Q, tid, now, db.DefaultTaskTimeoutS))
 			// the deadline missed and the one that replaced it: a screen chains notices by them
@@ -377,12 +371,8 @@ func (b *Timebox) SweepForgottenResolveCapped(t *Tick, now int64) {
 		}
 		var look string
 		if found.Task != nil {
-			// A task begun on a founder's message has no queue to go back to: release refuses it.
-			back := ""
-			if !b.Ports.TaskBegun(t.Q, found.Task.ID) {
-				back = fmt.Sprintf("; take it back with `hl task release T%d`", found.Task.ID)
-			}
-			look = fmt.Sprintf("Look at it: `hl read %d`%s, or ask %s by message (`hl say %s \"...\"`).", found.HeadID, back, agent, agent)
+			look = fmt.Sprintf("Look at it: `hl read %d`; take it back with `hl task release T%d \"<reason>\"`, or ask %s by message (`hl say %s \"...\"`).",
+				found.HeadID, found.Task.ID, agent, agent)
 		} else {
 			look = fmt.Sprintf("Look at it: `hl read %d`, or message %s (`hl say %s \"...\"`).", found.HeadID, agent, agent)
 		}

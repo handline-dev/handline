@@ -661,15 +661,14 @@ def build_parser() -> argparse.ArgumentParser:
                    choices=("draft", "queued", "doing", "done", "discarded"),
                    help="only tasks in this state; a done or discarded one shows even without --all")
     p.set_defaults(fn=cmd_task_list)
-    p = tk.add_parser("queue", help="approve draft tasks to run - the founder or the owner's manager")
+    p = tk.add_parser("queue", help="approve draft tasks to run - anyone; its opener and assignee are told")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")
     p.set_defaults(fn=cmd_task_queue)
-    p = tk.add_parser("draft", help="send queued tasks back to draft - the founder or the owner's manager")
+    p = tk.add_parser("draft", help="send queued tasks back to draft - anyone; its opener and assignee are told")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")
     p.set_defaults(fn=cmd_task_draft)
-    p = tk.add_parser("edit", help="change a task's assignee or owner (anyone, and kept in its history), or its "
-                                   "title, brief, priority or timeout (its opener, its owner or the founder; the "
-                                   "assignee may record what it waits on), and never silent about it")
+    p = tk.add_parser("edit", help="change a task's assignee, owner, title, brief, priority, timeout or what it "
+                                   "waits on - anyone; its opener and assignee are told and its history keeps who")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("--assign", dest="owner", default=None,
                    help="give the task to another agent to work; it is delivered to them")
@@ -691,7 +690,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_task_edit)
     p = tk.add_parser("merge", help="fold tasks into one: the kept task takes their titles, "
                                     "requests and sub-tasks, the rest close as merged - "
-                                    "opener or founder only")
+                                    "anyone; their openers and assignees are told")
     p.add_argument("keep", type=_task_arg, metavar="T", help="the task that stays")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T", help="the tasks folded in")
     p.set_defaults(fn=cmd_task_merge)
@@ -709,18 +708,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--shot", action="append", default=None, metavar="FILE.png",
                    help="a screenshot of the result, kept with the task; repeat for more")
     p.set_defaults(fn=cmd_task_done)
-    p = tk.add_parser("reopen", help="send a done task back to doing (#71) - the asker "
-                                     "or the founder; needs a one-line reason")
+    p = tk.add_parser("reopen", help="send a done task back to doing (#71) - anyone, with a "
+                                     "one-line reason its opener and assignee are told")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_reopen)
-    p = tk.add_parser("release", help="T286: take a doing task back to queued/draft - the "
-                                      "opener or the founder, the other answer to a timeout "
-                                      "notice besides `edit --timeout`")
+    p = tk.add_parser("release", help="take a doing task back to queued/draft, "
+                                      "with a one-line reason its opener and assignee are told; "
+                                      "the other answer to a timeout notice besides `edit --timeout`")
     p.add_argument("task", type=_task_arg, metavar="T")
+    p.add_argument("reason")
     p.set_defaults(fn=cmd_task_release)
-    p = tk.add_parser("discard", help="throw away a task that is not done (#85) - the asker or the founder; "
-                                      "needs a one-line reason")
+    p = tk.add_parser("discard", help="throw away a task that is not done (#85) - anyone, with a "
+                                      "one-line reason its opener and assignee are told")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("reason")
     p.set_defaults(fn=cmd_task_discard)

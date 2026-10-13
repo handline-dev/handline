@@ -68,7 +68,11 @@ func (e *Env) Released(tid int64, why string, retired []taskwrites.Retired) []st
 	for _, r := range retired {
 		if r.Held {
 			e.typeSay(e.DB, r.Target, why+" - stop work on it", "task released")
-			said = append(said, fmt.Sprintf("#%d ended; %s told to stop", r.RID, r.Target))
+			if r.RID == 0 {
+				said = append(said, r.Target+" told to stop")
+			} else {
+				said = append(said, fmt.Sprintf("#%d ended; %s told to stop", r.RID, r.Target))
+			}
 			continue
 		}
 		row, err := db.GetRequest(e.DB, r.RID)
@@ -226,6 +230,13 @@ func (e *Env) Edited(ed taskwrites.Edited) {
 			e.Push(e.DB, ed.Freed, 0)
 		}
 	}
+}
+
+// Notified delivers the notices a task write left for the task's opener and assignee.
+func (e *Env) Notified(told []db.Notice) {
+	var out string
+	defer e.guard("telling of a task change", &out)
+	e.deliverUnblocked(e.DB, told, nil)
 }
 
 // tellBodyEdited: after an edit changed a task's body, the holder is told at once, typed like a say, when the task is being worked.

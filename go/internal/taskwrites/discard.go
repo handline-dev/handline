@@ -11,14 +11,14 @@ import (
 	"github.com/handline/handline/go/internal/textsafe"
 )
 
-// discardMethod is task.discard: the asker's or the founder's call, with a one-line reason.
+// discardMethod is task.discard: anyone's call, with a one-line reason its opener, assignee and asker are told.
 func discardMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		reason, err := text(p, "reason")
 		if err != nil {
 			return nil, err
 		}
-		return discard(c, p, home, tell, reason, false)
+		return discard(c, p, home, tell, reason, false, false)
 	}
 }
 
@@ -35,21 +35,22 @@ func cancelMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any
 				reason = s
 			}
 		}
-		return discard(c, p, home, tell, reason, true)
+		return discard(c, p, home, tell, reason, true, false)
 	}
 }
 
-// withdrawMethod is task.withdraw: an opener throwing its own task away.
+// withdrawMethod is task.withdraw: an opener throwing its own task away, so with no reason of its own.
 func withdrawMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
-		return discard(c, p, home, tell, "withdrawn by whoever opened it", false)
+		return discard(c, p, home, tell, "withdrawn by whoever opened it", false, true)
 	}
 }
 
 // discard throws a task away before it is done (actions.discard_task, without the founder's stop of open requests, which is
 // task.cancel's): refused while a child is open, while it waits on an open blocker, or while a request is still out on it.
 // What follows the commit - the says typed, the owner's next task, the closed requests' inbox files - is the Teller's.
-func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason string, stop bool) (any, error) {
+// own is a withdraw: only the asker may, since anyone else must say why.
+func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason string, stop, own bool) (any, error) {
 	tid, err := taskID(p)
 	if err != nil {
 		return nil, err
@@ -80,8 +81,8 @@ func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason str
 		if err != nil {
 			return nil, err
 		}
-		if by != who && by != human {
-			return nil, refusal(fmt.Sprintf("task T%d can only be discarded by %s - whoever asked for it - or the founder", tid, who))
+		if own && by != who {
+			return nil, refusal(fmt.Sprintf("task T%d was asked for by %s, so only they withdraw it - discard it with a reason instead", tid, who))
 		}
 		said := strings.TrimSpace(textsafe.Oneline(reason))
 		if said == "" {
@@ -180,9 +181,7 @@ func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason str
 		if !inHand {
 			also = append(also, t.Owner)
 		}
-		if who != t.Owner {
-			also = append(also, who)
-		}
+		also = append(also, who, t.OpenedBy)
 		ended, gone, err := endTask(tx, home, tid, by, t, strings.TrimRight(fmt.Sprintf("T%d discarded by %s: %s", tid, byWord, said), ": "), false, also)
 		if err != nil {
 			return nil, err

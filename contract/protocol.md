@@ -138,7 +138,7 @@ A method marked write takes a required `request_id`.
 | `task.queue` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.draft` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `task.release` | agent | yes | `task`, `to?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.release` | agent | yes | `task`, `to?`, `reason`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.discard` | agent | yes | `task`, `reason`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.board` | agent |  | `everyone?` | `{mine, reports}` |  |  |
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -440,7 +440,7 @@ Finish a task with evidence. Exactly one of evidence, request or reason-with-evi
 
 ### `task.reopen`
 
-Reopen a task.
+Reopen a done task: anyone may, with a reason the opener and assignee are told.
 
 ### `task.progress`
 
@@ -476,23 +476,23 @@ Delete a memo: its author or the founder.
 
 ### `task.queue`
 
-Approve draft tasks to run: the founder or the owner's manager.
+Approve draft tasks to run: anyone may; each task's opener and assignee are told.
 
 ### `task.draft`
 
-Send queued tasks back to draft: the founder or the owner's manager.
+Send queued tasks back to draft: anyone may; each task's opener and assignee are told.
 
 ### `task.merge`
 
-Fold tasks into one: the kept task takes their titles, requests and sub-tasks; opener or founder only.
+Fold tasks into one: the kept task takes their titles, requests and sub-tasks; anyone may, and the opener and assignee of each are told.
 
 ### `task.release`
 
-Take a doing task back to queued or draft: the opener or the founder.
+Take a doing task back to queued or draft: anyone may, with a reason the opener and assignee are told (and the founder, for a task begun on their message).
 
 ### `task.discard`
 
-Throw away a task that is not done: the asker or the founder, with a reason.
+Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told.
 
 ### `task.board`
 
@@ -500,7 +500,7 @@ The caller's open tasks and its reports', and who holds each now. The founder's 
 
 ### `task.withdraw`
 
-Withdraw a task the caller made.
+Withdraw a task the caller asked for; anyone else discards it with a reason.
 
 ### `task.cancel`
 
@@ -508,7 +508,7 @@ Cancel a task.
 
 ### `task.edit`
 
-Change a task: owner, reporter, title and priority by its opener, its reporter or the founder; the owner also by the owner's manager (its owner may record what it waits on), body and time box until it is delivered. Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the holder is told.
+Change a task: owner, reporter, title, priority, body and time box, by anyone (body and time box until it is delivered). Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the opener and assignee are told, and the edit is kept with who made it.
 
 ### `task.ask`
 
@@ -687,7 +687,7 @@ Cancel a device and close its connections at once. Cancels the device's token. I
 x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress, land, land.pass, land.authorize) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).
 
 - **Sender:** say and task.new carry no sender parameter: the daemon sets it. An agent's calls carry its own name; a member device's and the founder's carry `human`.
-- **Ownership:** Methods that act on a request or task by id (withdraw, edit, release, discard, merge, memo.edit, memo.delete, queue, draft) keep today's checks on who may: the opener, the owner, the owner's manager or the founder; a refusal is `refused` with the reason.
+- **Ownership:** Methods that act on a task by id (edit, merge, discard, reopen, queue, draft) are anyone's: the task's opener and assignee are told, and its history keeps who did it. withdraw, release, memo.edit and memo.delete keep their checks on who may; a refusal is `refused` with the reason.
 
 ## Agent commands
 

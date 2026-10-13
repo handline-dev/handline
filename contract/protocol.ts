@@ -1874,7 +1874,7 @@ export interface Methods {
   "task.release": { params: {
   task: number;
   to?: "queued" | "draft";
-  reason?: string;
+  reason: string;
   request_id: RequestId;
 }; result: Accepted };
   "task.discard": { params: {

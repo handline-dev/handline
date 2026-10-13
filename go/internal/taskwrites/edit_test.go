@@ -16,11 +16,7 @@ func TestEditChangesATaskInOneTransactionAndLeavesTheTellingToTheTeller(t *testi
 	}
 	code := func(r map[string]any) any { return r["error"].(map[string]any)["data"].(map[string]any)["code"] }
 	f := &fakeTeller{}
-	r := call(t, mk("worker", f), line(2, `"title":"x",`, "w1"))
-	if code(r[0]) != "refused" {
-		t.Fatalf("only the opener or the founder edits: %v", r[0])
-	}
-	r = call(t, mk("manager", f),
+	r := call(t, mk("manager", f),
 		line(2, ``, "m0"),
 		line(3, `"title":"new title","priority":1,"time_box":"90m","body":"the new brief",`, "m1"),
 		line(4, `"title":"new title",`, "m2"),

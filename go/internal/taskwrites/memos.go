@@ -53,6 +53,8 @@ type Teller interface {
 	// Edited is what a committed task.edit leaves: a changed body told to the holder of a doing task, a task that changed hands sent on to its new
 	// owner, an owner whose last blocker cleared moved on.
 	Edited(ed Edited)
+	// Notified delivers the notices a write left for the people a task's change concerns (tellTask).
+	Notified(told []db.Notice)
 }
 
 func Register(s *rpc.Server, home string, tell Teller) {
@@ -68,11 +70,11 @@ func Register(s *rpc.Server, home string, tell Teller) {
 	s.Register("task.edit", rpc.Method{Role: "agent", Write: true, Handler: editMethod(home, tell)})
 	s.Register("task.ask", rpc.Method{Role: "member", Write: true, Handler: askMethod(home, tell)})
 	s.Register("task.start", rpc.Method{Role: "agent", Write: true, Handler: start})
-	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopen})
+	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopenMethod(home, tell)})
 	s.Register("task.done", rpc.Method{Role: "agent", Write: true, Handler: doneMethod(home, tell)})
 	s.Register("task.cancel", rpc.Method{Role: "member", Write: true, Handler: cancelMethod(home, tell)})
-	s.Register("task.release", rpc.Method{Role: "agent", Write: true, Handler: releaseMethod(tell)})
-	s.Register("task.merge", rpc.Method{Role: "agent", Write: true, Handler: merge})
+	s.Register("task.release", rpc.Method{Role: "agent", Write: true, Handler: releaseMethod(home, tell)})
+	s.Register("task.merge", rpc.Method{Role: "agent", Write: true, Handler: mergeMethod(home, tell)})
 	s.Register("task.memo.add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd(tell)})
 	s.Register("task.memo.edit", rpc.Method{Role: "agent", Write: true, Handler: memoEdit(tell)})
 	s.Register("task.memo.delete", rpc.Method{Role: "agent", Write: true, Handler: memoDelete(tell)})

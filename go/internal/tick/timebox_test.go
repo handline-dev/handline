@@ -13,7 +13,6 @@ import (
 type tbPorts struct {
 	TimeboxPorts
 	doing      map[int64]bool
-	begun      bool
 	boss       string
 	stopWait   string
 	sendOK     bool
@@ -34,7 +33,6 @@ type tbPorts struct {
 }
 
 func (p *tbPorts) TaskDoing(_ db.Q, t *db.Task) bool           { return p.doing[t.ID] }
-func (p *tbPorts) TaskBegun(db.Q, int64) bool                  { return p.begun }
 func (p *tbPorts) SupervisorOf(string) string                  { return p.boss }
 func (p *tbPorts) StopWaitReason(db.Q, string) string          { return p.stopWait }
 func (p *tbPorts) BgStale(db.Q, string, int64) bool            { return p.bgStale }
@@ -59,7 +57,7 @@ func (p *tbPorts) SendNotice(_ db.Q, who, text string) bool {
 
 func timebox(t *testing.T) (*Tick, *world, *Timebox, *tbPorts) {
 	tk, w := newWorld(t)
-	p := &tbPorts{doing: map[int64]bool{}, sendOK: true, begun: true}
+	p := &tbPorts{doing: map[int64]bool{}, sendOK: true}
 	return tk, w, &Timebox{Ports: p}, p
 }
 
@@ -90,8 +88,8 @@ func TestATaskThatIsDoingStartsItsClockThenTellsItsOpenerPastTheDeadlineAndRearm
 		!strings.Contains(p.sent[0], "held by a") || !strings.Contains(p.sent[0], "hl task edit T") {
 		t.Fatalf("%v", p.sent)
 	}
-	if strings.Contains(p.sent[0], "Stop it") {
-		t.Fatalf("a task begun on a founder's message has no queue to go back to: %v", p.sent)
+	if !strings.Contains(p.sent[0], `hl task release T1 "<reason>"`) {
+		t.Fatalf("any doing task can be released, with a reason: %v", p.sent)
 	}
 	task, _ = db.GetTask(tk.Q, tid)
 	if task.TimeoutAt.Int64 != 1300 {
