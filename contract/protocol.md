@@ -698,6 +698,8 @@ Every `hl` command an agent runs today and the method that serves it.
 | `hl task edit` | `task.edit` |
 | `hl task merge` | `task.merge` |
 | `hl task release` | `task.release` |
+| `hl task accept` | `task.accept` |
+| `hl task reject` | `task.reject` |
 | `hl task discard` | `task.discard` |
 | `hl task queue` | `task.queue` |
 | `hl task draft` | `task.draft` |
