@@ -20,7 +20,9 @@ import (
 	"github.com/handline/handline/go/internal/store"
 )
 
-// teamName is the team the merger belongs to; the other agents of the tests are its members.
+// Merger is the tests' merger; teamName is its team, whose members the other agents of the tests are.
+const Merger = "x.merger"
+
 var teamName = strings.TrimSuffix(Merger, ".merger")
 
 const core = "x.core"
@@ -179,6 +181,16 @@ func TestOnlyAnAuditorPassesAndOnlyTheMergerLands(t *testing.T) {
 	for _, name := range []string{"auditor", Merger, teamName + ".auditorx", teamName + ".auditor.go", ""} {
 		if IsAuditor(name) {
 			t.Errorf("%s is not", name)
+		}
+	}
+	for _, name := range []string{Merger, "y.merger", "a.b.merger"} { // any team's merger lands
+		if !IsMerger(name) {
+			t.Errorf("%s is a merger", name)
+		}
+	}
+	for _, name := range []string{"merger", ".merger", core, teamName + ".merger2", teamName + ".merger.go", ""} {
+		if IsMerger(name) {
+			t.Errorf("%s is not a merger", name)
 		}
 	}
 }
