@@ -6,16 +6,12 @@ import (
 	"context"
 	"errors"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 )
 
 // IntegrationBranch is the branch work is branched from and merged into.
 const IntegrationBranch = "main"
-
-// BehindWarn: a branch forked this many commits before main's tip was not branched from main's tip.
-const BehindWarn = 100
 
 // Result is what git said, untouched. RC is -1 when git could not be run at all (missing, or past the timeout) and Stderr says why.
 type Result struct {
@@ -54,15 +50,4 @@ func PointOriginHeadAtMain(cwd string) bool {
 		return false
 	}
 	return Run(cwd, "remote", "set-head", "origin", IntegrationBranch).RC == 0
-}
-
-// CommitsBehindMain is how many commits main holds that HEAD was forked before; ok is false with no main, no HEAD or no common ancestor.
-func CommitsBehindMain(cwd string) (n int, ok bool) {
-	base := Run(cwd, "merge-base", "HEAD", IntegrationBranch)
-	if base.RC != 0 || strings.TrimSpace(base.Stdout) == "" {
-		return 0, false
-	}
-	out := Run(cwd, "rev-list", "--count", strings.TrimSpace(base.Stdout)+".."+IntegrationBranch)
-	n, err := strconv.Atoi(strings.TrimSpace(out.Stdout))
-	return n, out.RC == 0 && err == nil
 }

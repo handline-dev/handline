@@ -217,3 +217,17 @@ func TestWaitingForTheTrustPromptToGoGivesUpAfterFiveSeconds(t *testing.T) {
 		t.Fatal("it was showing")
 	}
 }
+
+func TestOnlyTmuxIsAHostAndAnyOtherNameIsNeverAvailable(t *testing.T) {
+	t.Setenv("HANDLINE_TERMINAL", "")
+	t.Setenv("OCP_TERMINAL", "")
+	home := t.TempDir()
+	if b := Current(home); b.Name() != "tmux" {
+		t.Fatalf("with nothing said: %q", b.Name())
+	}
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("terminal: orca\n"), 0o644)
+	b := Current(home)
+	if ok, why := b.Send("h", "x", true); b.Name() != "orca" || b.Available() || b.ListTerminals() != nil || ok || !strings.Contains(why, "orca") {
+		t.Fatalf("a host the daemon does not drive: %q %v %q", b.Name(), b.Available(), why)
+	}
+}

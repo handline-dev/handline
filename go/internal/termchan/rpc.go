@@ -105,12 +105,11 @@ func Register(s *rpc.Server, e *Env) {
 	}
 }
 
-// capabilities is the formats the terminal channel serves, in all and by host (x-terminal-bytes): tmux has text, bytes and styled,
-// Orca text.
+// capabilities is the formats the terminal channel serves, in all and by host (x-terminal-bytes).
 func capabilities() map[string]any {
 	return map[string]any{
 		"terminal_format": []any{"text", "bytes", "styled"},
-		"terminal_hosts":  map[string]any{"tmux": []any{"text", "bytes", "styled"}, "orca": []any{"text"}},
+		"terminal_hosts":  map[string]any{"tmux": []any{"text", "bytes", "styled"}},
 	}
 }
 

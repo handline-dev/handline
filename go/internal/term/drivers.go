@@ -133,7 +133,7 @@ func (claude) TurnOnScreen(tail []string) bool {
 	return false
 }
 
-// Orca reads claude's working state; the screen carries no turn marker the daemon reads, so it is never the witness.
+// claude's hooks report its working state; the screen carries no turn marker the daemon reads, so it is never the witness.
 func (claude) WorkingOnScreen([]string) (bool, bool) { return false, false }
 
 var spinnerRowRE = regexp.MustCompile(`^\S\s+\S+…(\s|$)`)

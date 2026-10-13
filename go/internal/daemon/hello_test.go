@@ -35,7 +35,7 @@ func TestHelloReportsTheDeclaredCapabilitiesAndTheMethodsByName(t *testing.T) {
 	}
 	json.Unmarshal(line, &r)
 	want := map[string]any{"chat": false, "review": false, "terminal_format": []any{"text", "bytes", "styled"},
-		"terminal_hosts": map[string]any{"tmux": []any{"text", "bytes", "styled"}, "orca": []any{"text"}}, "transcript": false}
+		"terminal_hosts": map[string]any{"tmux": []any{"text", "bytes", "styled"}}, "transcript": false}
 	if !reflect.DeepEqual(r.Result.Capabilities, want) {
 		t.Fatalf("%v", r.Result.Capabilities)
 	}

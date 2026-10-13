@@ -6,7 +6,6 @@ package term
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"regexp"
@@ -216,98 +215,6 @@ func equalRows(a, b []string) bool {
 	return true
 }
 
-// ---- Orca: one `orca` CLI call each. Unmaintained since 2026-10-07; only the terminal calls the daemon's readers use.
-
-// Orca drives terminals through the orca CLI.
-type Orca struct{}
-
-func (Orca) Name() string { return "orca" }
-
-func (Orca) Available() bool { _, err := exec.LookPath("orca"); return err == nil }
-
-// orca is `orca <args>` as (ok, its text or why it could not run).
-func (Orca) orca(timeout time.Duration, args ...string) (bool, string) {
-	code, out, err := run(timeout, "", "orca", args...)
-	out = textsafe.Oneline(strings.TrimSpace(out))
-	if out == "" {
-		out = err
-	}
-	return code == 0, out
-}
-
-func (o Orca) ListTerminals() map[string]bool {
-	ok, out := o.orca(120*time.Second, "terminal", "list", "--json")
-	if !ok {
-		return nil
-	}
-	var reply struct {
-		Result struct {
-			Terminals []map[string]any `json:"terminals"`
-		} `json:"result"`
-	}
-	if json.Unmarshal([]byte(out), &reply) != nil || reply.Result.Terminals == nil {
-		return nil
-	}
-	set := map[string]bool{}
-	for _, t := range reply.Result.Terminals {
-		if h, _ := t["handle"].(string); h != "" {
-			set[h] = true
-		}
-	}
-	return set
-}
-
-func (o Orca) ReadScreen(handle string, limit int) *Screen {
-	ok, out := o.orca(30*time.Second, "terminal", "read", "--terminal", handle, "--screen", "--limit", strconv.Itoa(limit), "--json")
-	if !ok {
-		return nil
-	}
-	var reply struct {
-		Result struct {
-			Terminal map[string]any `json:"terminal"`
-		} `json:"result"`
-	}
-	if json.Unmarshal([]byte(out), &reply) != nil || reply.Result.Terminal == nil {
-		return nil
-	}
-	rows, isList := reply.Result.Terminal["tail"].([]any)
-	if !isList {
-		return &Screen{Source: "unreadable"}
-	}
-	scr := &Screen{Tail: []string{}}
-	scr.Source, _ = reply.Result.Terminal["source"].(string)
-	for _, r := range rows {
-		s, _ := r.(string)
-		scr.Tail = append(scr.Tail, s)
-	}
-	return scr
-}
-
-func (o Orca) Send(handle, text string, enter bool) (bool, string) {
-	args := []string{"terminal", "send", "--terminal", handle, "--text", text}
-	if enter {
-		args = append(args, "--enter")
-	}
-	return o.orca(180*time.Second, args...)
-}
-
-// WaitIdle: `ok` only says the wait command ran; result.wait.satisfied is the answer.
-func (o Orca) WaitIdle(handle string, timeoutMs int, _ func([]string) bool) bool {
-	ok, out := o.orca(time.Duration(timeoutMs/1000+30)*time.Second, "terminal", "wait", "--terminal", handle,
-		"--for", "tui-idle", "--timeout-ms", strconv.Itoa(timeoutMs), "--json")
-	if !ok {
-		return false
-	}
-	var reply struct {
-		Result struct {
-			Wait struct {
-				Satisfied bool `json:"satisfied"`
-			} `json:"wait"`
-		} `json:"result"`
-	}
-	return json.Unmarshal([]byte(out), &reply) == nil && reply.Result.Wait.Satisfied
-}
-
 // ---- which host
 
 type unknown struct{ name string }
@@ -345,8 +252,6 @@ func Current(home string) Backend {
 	switch name := ConfiguredName(home); name {
 	case "tmux":
 		return Tmux{}
-	case "orca":
-		return Orca{}
 	default:
 		return unknown{name}
 	}
