@@ -88,15 +88,15 @@ func TestTheDeliveryKnowsNothingBeforeTheLifecycleIsBuilt(t *testing.T) {
 	if _, _, full := d.AccountFull("alice"); full {
 		t.Fatal("no lifecycle, no full account")
 	}
-	if fire, err := d.Fire(p.Sink.DB, "alice", nil, "a1"); fire != "" || err != nil {
-		t.Fatalf("%q %v", fire, err)
+	if tr, err := d.Trigger(p.Sink.DB, "alice", nil, "a1"); tr != (reads.Trigger{}) || err != nil {
+		t.Fatalf("%+v %v", tr, err)
 	}
 	if _, _, found, err := d.ForgottenResolve(p.Sink.DB, "alice", nil, 0); found || err != nil {
 		t.Fatalf("%v %v", found, err)
 	}
 }
 
-func TestFireIsTheTriggerTheTickWouldHandTheAgentOffFor(t *testing.T) {
+func TestTheTriggerIsWhatTheTickWouldHandTheAgentOffFor(t *testing.T) {
 	p, lc, _, _ := wired(t)
 	d, home := p.Sink.DB, p.home
 	if err := dbpkg.SetAccount(d, "alice", "a1", "test"); err != nil {
@@ -112,11 +112,11 @@ func TestFireIsTheTriggerTheTickWouldHandTheAgentOffFor(t *testing.T) {
 	fire := func() string {
 		t.Helper()
 		row, _ := dbpkg.GetAgentState(d, "alice")
-		got, err := p.Delivery().Fire(d, "alice", row, "a1")
+		got, err := p.Delivery().Trigger(d, "alice", row, "a1")
 		if err != nil {
 			t.Fatal(err)
 		}
-		return got
+		return got.Kind
 	}
 	at(100)
 	if got := fire(); got != "" {
