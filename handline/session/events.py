@@ -41,7 +41,7 @@ CAPTURED = {
 ANSWERS = {"PostToolUse", "PostToolUseFailure"}
 
 # Hooks that can refuse a tool call: an ocp command that would substitute in
-# double quotes (`shellguard.guard`) and the edit and land gates, matched to the
+# double quotes (`shellguard.guard`) and the edit gate, matched to the
 # tools they look at rather than firing on every call.
 GUARDS = {"PreToolUse"}
 
@@ -233,11 +233,6 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
             if why is None:
                 from . import edittask
                 why = edittask.guard(agent, raw.get("tool_name"), raw.get("tool_input"))
-            if why is None:
-                from . import landgate
-                why = landgate.misses(agent, raw.get("tool_name"), raw.get("tool_input"))
-                if why is None:
-                    landgate.authorize(agent, raw.get("tool_name"), raw.get("tool_input"))
         except Exception:  # noqa: BLE001 - a hook must never break the session
             why = None
         print(json.dumps({"hookSpecificOutput": {

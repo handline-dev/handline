@@ -106,7 +106,7 @@ agent (ROLE.md, base.md); this file does not repeat them.
   tests you touched (`tools/test.sh -k <name>`, or `tools/test.sh tests/<group>/test_<area>.py`); do not run the
   whole suite before you hand the task to the auditor. The auditor runs the tests once at the
   exact sha (`tools/check.sh main`, in the foreground with a 600000 ms Bash timeout, never in the
-  background); a count you quote is not a verdict. `tools/check.sh` is also what `hl land --check` runs:
+  background); a count you quote is not a verdict. `tools/check.sh` is also what `tools/land.sh --check` runs:
   the Go suite and the Python files that test only Go (its GO_FILES) for a change to go/ or the apps only, the whole suite
   (`tools/suite.sh`) for anything else, nothing for documentation.
 - Lighter review: a docs-only change, or a re-merge of main onto an already PASSed sha with no

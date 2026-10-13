@@ -10,7 +10,6 @@ import (
 
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/protected"
-	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/store"
 )
 
@@ -64,23 +63,6 @@ func TestHookLetsThroughWithEmptyJSON(t *testing.T) {
 		if out, errs, code := r.runIn(c.stdin, c.env, "hook", "PreToolUse"); code != 0 || errs != "" || out != "{}\n" {
 			t.Errorf("%s: exit %d, out %q, err %q", name, code, out, errs)
 		}
-	}
-}
-
-func TestHookVouchesForALandCall(t *testing.T) {
-	r := hookRig(t, true)
-	if !sessiontoken.New(r.home).MintKey("a.one") {
-		t.Fatal("no key")
-	}
-	calls := r.daemon(nil)
-	if out, _, _ := r.runIn(preToolUse("Bash", map[string]any{"command": "hl land --pass abc123"}), asAgent, "hook", "PreToolUse"); out != "{}\n" {
-		t.Fatalf("out %q", out)
-	}
-	key := sessiontoken.New(r.home).KeyHeld("a.one")
-	got := calls()
-	if len(got) != 1 || got[0]["verb"] != "land_authorize" || got[0]["agent"] != "a.one" || got[0]["land_verb"] != "land_pass" ||
-		got[0]["sha"] != "abc123" || got[0]["key"] != key {
-		t.Fatalf("sent %v", got)
 	}
 }
 

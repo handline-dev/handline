@@ -265,7 +265,7 @@ func TestALegacyVerbIsAnsweredByTheHookWithThePeerPid(t *testing.T) {
 		cl, sv := net.Pipe()
 		srv := NewServer(fakeAuth{}, "abc1234", 7, transport, func(string, ...any) {})
 		srv.Legacy = func(p map[string]any, pid int) map[string]any {
-			if p["verb"] != "land_authorize" {
+			if p["verb"] != "answer_block" {
 				return nil
 			}
 			return map[string]any{"ok": true, "said": "pid " + strconv.Itoa(pid)}
@@ -273,7 +273,7 @@ func TestALegacyVerbIsAnsweredByTheHookWithThePeerPid(t *testing.T) {
 		done := make(chan struct{})
 		go func() { srv.Serve(NewLineTransport(sv), 4321); sv.Close(); close(done) }()
 		c := &client{cl, bufio.NewReader(cl)}
-		got := c.raw(t, `{"verb":"land_authorize"}`)
+		got := c.raw(t, `{"verb":"answer_block"}`)
 		if transport == "local" && (got["ok"] != true || got["said"] != "pid 4321") {
 			t.Fatalf("%v", got)
 		}

@@ -28,7 +28,6 @@ MOVING = {
     ("health.py", "handline.db"),
     ("health.py", "handline.db.schema"),
     ("hr.py", "handline.db"),
-    ("land.py", "handline.db"),
     ("task.py", "handline.db"),
 }
 

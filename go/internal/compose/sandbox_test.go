@@ -78,7 +78,7 @@ func TestAStructuredSessionHidesTheOtherAgentsWithTheSandboxOffByDefault(t *test
 		!slices.Contains(got.Permissions.Deny, "Read(/"+bobMemory+"/**)") {
 		t.Fatalf("another agent's memory is not hidden: %s", b)
 	}
-	for _, folder := range sessiontoken.New(home).HiddenFolders() { // the hooks' keys and the founder's
+	for _, folder := range sessiontoken.New(home).HiddenFolders() { // the founder's key
 		if !slices.Contains(got.Sandbox.Filesystem.DenyRead, folder) || !slices.Contains(got.Permissions.Deny, "Read(/"+folder+"/**)") {
 			t.Fatalf("the key folder %s is not hidden: %s", folder, b)
 		}

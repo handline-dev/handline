@@ -835,8 +835,8 @@ def test_a_session_may_not_write_the_roster_files(home: Path) -> None:
           agents.register("backend", effort="low") and agents.read("backend")["effort"] == "low")
 
 
-def test_launch_hides_the_hook_key_folder_and_makes_it_first(home: Path) -> None:
-    """The hook key (session/landgate.py) must not be readable by a session's Bash or Read tool, and the
+def test_launch_hides_the_founder_key_folder_and_makes_it_first(home: Path) -> None:
+    """The founder key must not be readable by a session's Bash or Read tool, and the
     folder must exist when the first launch on a machine names it."""
     from handline.infra import sessiontoken
     use_home(home)
@@ -844,18 +844,18 @@ def test_launch_hides_the_hook_key_folder_and_makes_it_first(home: Path) -> None
     agents.register("backend")
     (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
     vendors.get("claude").binary = lambda: "/x/bin/claude"
-    check("hook key: the folder does not exist before the first launch", not sessiontoken.key_folder().exists())
+    check("founder key: the folder does not exist before the first launch", not sessiontoken.hidden_folders()[0].exists())
     argv = launch.build("backend")[0]
     settings = json.loads(argv[argv.index("--settings") + 1])
-    folder = str(sessiontoken.key_folder())
-    check("hook key: the folder exists once a launch has been built", sessiontoken.key_folder().is_dir())
-    check("hook key: made private, with the store's root, as a first put makes them",
-          oct(sessiontoken.key_folder().stat().st_mode & 0o777) == "0o700"
-          and oct(sessiontoken.key_folder().parent.stat().st_mode & 0o777) == "0o700",
-          f"{oct(sessiontoken.key_folder().stat().st_mode)} {oct(sessiontoken.key_folder().parent.stat().st_mode)}")
-    check("hook key: Bash is denied reading it", folder in settings["sandbox"]["filesystem"]["denyRead"],
+    folder = str(sessiontoken.hidden_folders()[0])
+    check("founder key: the folder exists once a launch has been built", sessiontoken.hidden_folders()[0].is_dir())
+    check("founder key: made private, with the store's root, as a first put makes them",
+          oct(sessiontoken.hidden_folders()[0].stat().st_mode & 0o777) == "0o700"
+          and oct(sessiontoken.hidden_folders()[0].parent.stat().st_mode & 0o777) == "0o700",
+          f"{oct(sessiontoken.hidden_folders()[0].stat().st_mode)} {oct(sessiontoken.hidden_folders()[0].parent.stat().st_mode)}")
+    check("founder key: Bash is denied reading it", folder in settings["sandbox"]["filesystem"]["denyRead"],
           str(settings["sandbox"]))
-    check("hook key: and so is the Read tool", f"Read(/{folder.rstrip('/')}/**)" in settings["permissions"]["deny"],
+    check("founder key: and so is the Read tool", f"Read(/{folder.rstrip('/')}/**)" in settings["permissions"]["deny"],
           str(settings["permissions"]))
 
 
@@ -2447,7 +2447,7 @@ def main() -> int:
         run(lambda: test_an_agent_is_never_launched_on_another_vendors_account(Path(td) / 'vendorlaunch'))
         run(lambda: test_a_session_may_not_write_the_files_that_move_main(Path(td) / 'mainrefs'))
         run(lambda: test_a_session_may_not_write_the_roster_files(Path(td) / 'rosterdeny'))
-        run(lambda: test_launch_hides_the_hook_key_folder_and_makes_it_first(Path(td) / 'keyhide'))
+        run(lambda: test_launch_hides_the_founder_key_folder_and_makes_it_first(Path(td) / 'keyhide'))
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
         run(lambda: test_a_claude_account_with_a_coding_plan_key_launches_on_glm(Path(td) / 'glmkey'))
         run(lambda: test_doctor_names_a_repo_whose_mcp_json_claude_would_ask_about(Path(td) / 'mcpjson'))

@@ -38,6 +38,16 @@ What makes this work:
 - A FAIL comes back to the builder with a reason, so the loop closes without you.
 - You read the finished results in `hl inbox`, not each step.
 
+The tool does not merge and enforces none of this. Who merges, and how, is a rule the team writes
+in the merger's `ROLE.md`. A sample to copy and change:
+
+```text
+Merge only a sha the auditor answered PASS for, never your own change.
+In main's checkout: git merge --no-ff <sha>, then run the tests.
+Green: close the merge task with the merge commit.
+Red or a conflict: undo the merge and close the task saying why.
+```
+
 ## Unattended overnight work
 
 Several accounts and a daemon let work continue when one account runs out.

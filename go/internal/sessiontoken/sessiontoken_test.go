@@ -68,25 +68,25 @@ func TestAnAgentSessionRecordsNothing(t *testing.T) {
 	tk := tokens(t, map[int]peer.Proc{300: P(2, "5.0")})
 	t.Setenv("OCP_AGENT", "worker")
 	t.Setenv("HANDLINE_AGENT", "worker")
-	if tk.Record("a", 300) || tk.MintKey("a") || tk.EnsureFounderKey() {
+	if tk.Record("a", 300) || tk.EnsureFounderKey() {
 		t.Fatal("a session wrote to the founder's store")
 	}
 }
 
-func TestKeys(t *testing.T) {
+func TestTheFounderKey(t *testing.T) {
 	tk := tokens(t, nil)
-	if tk.KeyOK("a", "") || tk.FounderKeyOK("x") {
+	if tk.FounderKeyOK("x") {
 		t.Fatal("no key kept is no proof")
 	}
-	if !tk.MintKey("a") || !tk.EnsureFounderKey() {
+	if !tk.EnsureFounderKey() {
 		t.Fatal("not minted")
 	}
-	k, f := tk.KeyHeld("a"), tk.FounderKeyHeld()
-	if len(k) < 40 || len(f) < 40 || k == f {
-		t.Fatalf("%q %q", k, f)
+	f := tk.FounderKeyHeld()
+	if len(f) < 40 {
+		t.Fatalf("%q", f)
 	}
-	if !tk.KeyOK("a", k) || tk.KeyOK("b", k) || tk.KeyOK("a", k[:len(k)-1]) || !tk.FounderKeyOK(f) || tk.FounderKeyOK(k) {
-		t.Fatal("keys are compared whole and by owner")
+	if !tk.FounderKeyOK(f) || tk.FounderKeyOK(f[:len(f)-1]) {
+		t.Fatal("the key is compared whole")
 	}
 	if !tk.EnsureFounderKey() || tk.FounderKeyHeld() != f {
 		t.Fatal("an existing founder key is kept")
