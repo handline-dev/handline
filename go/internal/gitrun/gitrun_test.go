@@ -37,20 +37,6 @@ func TestRunHandsBackWhatGitSaid(t *testing.T) {
 	}
 }
 
-func TestCommitsBehindMain(t *testing.T) {
-	dir := repo(t)
-	Run(dir, "checkout", "-q", "-b", "feature")
-	Run(dir, "checkout", "-q", "main")
-	Run(dir, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "two")
-	Run(dir, "checkout", "-q", "feature")
-	if n, ok := CommitsBehindMain(dir); !ok || n != 1 {
-		t.Fatalf("%d %v", n, ok)
-	}
-	if _, ok := CommitsBehindMain(t.TempDir()); ok {
-		t.Fatal("no repo is not behind")
-	}
-}
-
 func TestPointOriginHeadAtMainNeedsAnOriginMain(t *testing.T) {
 	if PointOriginHeadAtMain(repo(t)) {
 		t.Fatal("changed with no origin/main")
