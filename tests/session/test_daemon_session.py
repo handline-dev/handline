@@ -1689,6 +1689,13 @@ def test_service_launchctl_gated(home: Path) -> None:
         calls.clear()
         service.run_launchctl = fake_ok
         ok, msg = service.uninstall()
+        check("service: uninstall() on a home that is not the live one is refused: nothing booted out, the plist kept",
+              not ok and "is not the live home" in msg and calls == [] and plist_file.exists(), f"{msg} {calls}")
+        os.environ["OCP_SERVICE_LABEL"] = "dev.orcapipe.rehearsal"
+        try:
+            ok, msg = service.uninstall()
+        finally:
+            del os.environ["OCP_SERVICE_LABEL"]
         check("service: uninstall() reports success", ok, msg)
         check("service: uninstall() removes the plist", not plist_file.exists())
         check("service: uninstall() boots the job out", calls[0][0] == "bootout")

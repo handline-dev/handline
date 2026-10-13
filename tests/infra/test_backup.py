@@ -224,10 +224,14 @@ def test_install_boots_out_then_bootstraps_and_reports_a_refusal(home: Path) -> 
     service.run_launchctl = fake
     try:
         ok, msg = backupmod.install(home)
+        check("backup install: a home that is not the live one is refused, and launchd is asked nothing",
+              not ok and "is not the live home" in msg and calls == [] and not backupmod.plist_path().exists(), f"{msg} {calls}")
+        os.environ["OCP_SERVICE_LABEL"] = "dev.handline.test"      # a test home has jobs only under a label of its own
+        ok, msg = backupmod.install(home)
         check("backup install: succeeds when launchctl does", ok, msg)
-        check("backup install: boots any old job out, then bootstraps the plist",
+        check("backup install: boots any old job out, then bootstraps the plist, under its own label",
               [c[0] for c in calls] == ["bootout", "bootstrap"]
-              and calls[0][1].endswith("/" + backupmod.LABEL)
+              and calls[0][1].endswith("/dev.handline.test.backup")
               and calls[1][1:] == [service.domain_target(), str(backupmod.plist_path())],
               str(calls))
         import plistlib
@@ -251,6 +255,7 @@ def test_install_boots_out_then_bootstraps_and_reports_a_refusal(home: Path) -> 
               not ok and msg, msg)
     finally:
         service.run_launchctl = real
+        os.environ.pop("OCP_SERVICE_LABEL", None)
 
 
 def _snapshots(dest: Path, now: float, ages_s: list[int]) -> dict[int, Path]:

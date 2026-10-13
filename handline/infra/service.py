@@ -33,9 +33,9 @@ def label() -> str:
     return names.getenv("OCP_SERVICE_LABEL") or LABEL
 
 
-def serves_this_home() -> bool:
+def serves_this_home(home: Path | None = None) -> bool:
     """Whether label() can be this home's service. LABEL is the live home's alone, so a scratch or test home never addresses it."""
-    return label() != LABEL or paths.home().resolve() in paths.live_homes()
+    return label() != LABEL or (home or paths.home()).resolve() in paths.live_homes()
 
 # launchd restarts a crashing job as fast as it can fail, unless told
 # otherwise (scout, request #14: colima's bare KeepAlive=true leaked
@@ -264,6 +264,8 @@ def load() -> tuple[bool, str]:
 
 
 def uninstall() -> tuple[bool, str]:
+    if not serves_this_home():
+        return False, f"{paths.home()} is not the live home, so the live service is not its to remove; nothing was done"
     path = plist_path()
     run_launchctl(["bootout", service_target()])
     existed = path.exists()
