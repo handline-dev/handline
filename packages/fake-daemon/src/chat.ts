@@ -32,11 +32,17 @@ export function chatMethod(
 ): unknown {
   switch (method) {
     case 'chat.messages':
+      checkRead(p, true);
       checkAgent();
       return chat.messagesOf(p);
     case 'chat.transcript':
+      checkRead(p, false);
       checkAgent();
       return chat.transcriptOf(p);
+    case 'chat.requests':
+      checkRead(p, true);
+      checkAgent();
+      throw refused('unsupported', `the fake daemon does not serve ${method}`);
     case 'chat.send':
       checkAgent();
       return chatCall(() => ok('Sent.', chat.send(p, person, attachments.take)));
@@ -56,6 +62,19 @@ export function chatMethod(
     default:
       throw refused('unsupported', `the fake daemon does not serve ${method}`);
   }
+}
+
+/** The limit of a page: a whole number from 1 to `max`, else bad_request naming `limit`. Absent is fine. */
+function checkLimit(limit: unknown, max: number): void {
+  if (limit !== undefined && !(Number.isInteger(limit) && (limit as number) >= 1 && (limit as number) <= max))
+    throw invalidParams(`limit is a whole number from 1 to ${max}`, 'limit');
+}
+
+/** The params a chat read checks before it looks for the agent, in the daemon's order: scope, since with before, limit. */
+function checkRead(p: Record<string, unknown>, scoped: boolean): void {
+  if (scoped && p.scope !== 'mine' && p.scope !== 'all') throw invalidParams('scope is mine or all', 'scope');
+  if (p.before !== undefined && p.since !== undefined) throw invalidParams('before and since are one or the other', 'since');
+  checkLimit(p.limit, 200);
 }
 
 export class ChatFailure extends Error {
