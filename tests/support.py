@@ -1295,43 +1295,19 @@ def _entries(n: int, sep: str = "\n") -> str:
 
 
 # The PreToolUse hook's verdict on one tool call, as the Go hook must give it too (go/internal/session/pretooluse_test.go).
-# A case is the agent's world - its memory index and files, its tasks and which it holds, the edit gate - and the call.
+# A case is the agent's world - its memory index, its tasks and which it holds, the edit gate - and the call.
 # In a path {memory} is the agent's memory folder, {tmp} $TMPDIR, {plans} $CLAUDE_CONFIG_DIR/plans, {note} its handoff
 # note and {repo} a folder that is none of them. Unless it says otherwise the agent holds a current task.
 HOOK_GUARD_CASES = [
     {"name": "memory.write_small", "tool": "Write", "input": {"file_path": "{memory}/MEMORY.md", "content": _entries(3)}},
-    {"name": "memory.write_over_bytes", "tool": "Write", "input": {"file_path": "{memory}/MEMORY.md", "content": "x" * 2049}},
-    {"name": "memory.write_at_bytes", "tool": "Write", "input": {"file_path": "{memory}/MEMORY.md", "content": "x" * 2048}},
-    {"name": "memory.write_over_entries", "tool": "Write", "input": {"file_path": "{memory}/MEMORY.md", "content": _entries(21)}},
-    {"name": "memory.entries_split_by_cr", "tool": "Write", "input": {"file_path": "{memory}/MEMORY.md", "content": _entries(21, "\r")}},
-    {"name": "memory.entries_split_by_u2028", "tool": "Write",
-     "input": {"file_path": "{memory}/MEMORY.md", "content": _entries(21, " ")}},
-    {"name": "memory.shrinking_while_over", "tool": "Edit", "index": _entries(25),
-     "input": {"file_path": "{memory}/MEMORY.md", "old_string": "- [Note 3](n3.md) - why 3\n", "new_string": ""}},
-    {"name": "memory.growing_past_entries", "tool": "Edit", "index": _entries(20),
+    {"name": "memory.write_far_over_bytes", "tool": "Write", "input": {"file_path": "{memory}/MEMORY.md", "content": "x" * 9000}},
+    {"name": "memory.write_far_over_entries", "tool": "Write", "input": {"file_path": "{memory}/MEMORY.md", "content": _entries(40)}},
+    {"name": "memory.edit_growing_an_index_already_over", "tool": "Edit", "index": _entries(25),
      "input": {"file_path": "{memory}/MEMORY.md", "old_string": "- [Note 3](n3.md) - why 3\n",
-               "new_string": "- [Note 3](n3.md) - why 3\n- [Extra](x.md) - more\n"}},
-    {"name": "memory.old_string_not_there", "tool": "Edit", "index": _entries(25),
-     "input": {"file_path": "{memory}/MEMORY.md", "old_string": "nowhere", "new_string": _entries(5)}},
-    {"name": "memory.replace_all_grows", "tool": "Edit", "index": "ab " * 600,
-     "input": {"file_path": "{memory}/MEMORY.md", "old_string": "ab", "new_string": "abcd", "replace_all": True}},
-    {"name": "memory.replace_one_stays_under", "tool": "Edit", "index": "ab " * 600,
-     "input": {"file_path": "{memory}/MEMORY.md", "old_string": "ab", "new_string": "abcd"}},
-    {"name": "memory.multiedit_grows", "tool": "MultiEdit", "index": _entries(19),
-     "input": {"file_path": "{memory}/MEMORY.md", "edits": [
-         {"old_string": "why 1\n", "new_string": "why 1\n- [A](a.md) - a\n"},
-         {"old_string": "why 2\n", "new_string": "why 2\n- [B](b.md) - b\n"}]}},
-    {"name": "memory.multiedit_one_misses", "tool": "MultiEdit", "index": _entries(19),
-     "input": {"file_path": "{memory}/MEMORY.md", "edits": [
-         {"old_string": "why 1\n", "new_string": "why 1\n- [A](a.md) - a\n- [B](b.md) - b\n"},
-         {"old_string": "missing", "new_string": "x"}]}},
-    {"name": "memory.multiedit_no_edits", "tool": "MultiEdit", "index": _entries(25),
-     "input": {"file_path": "{memory}/MEMORY.md", "edits": []}},
-    {"name": "memory.names_the_stale_files", "tool": "Write", "stale": ["old.md", "sub/older.md"], "fresh": ["new.md"],
-     "input": {"file_path": "{memory}/MEMORY.md", "content": _entries(22)}},
-    {"name": "memory.through_dotdot", "tool": "Write", "input": {"file_path": "{memory}/sub/../MEMORY.md", "content": "x" * 3000}},
+               "new_string": _entries(5)}},
+    {"name": "memory.large_write_with_no_task_held", "tool": "Write", "current": None,
+     "input": {"file_path": "{memory}/MEMORY.md", "content": "x" * 9000}},
     {"name": "memory.a_topic_file_is_not_the_index", "tool": "Write", "input": {"file_path": "{memory}/topic.md", "content": "x" * 3000}},
-    {"name": "memory.read_is_not_looked_at", "tool": "Read", "index": _entries(25), "input": {"file_path": "{memory}/MEMORY.md"}},
     {"name": "shell.substitution", "tool": "Bash", "input": {"command": 'hl say worker "`whoami`"'}},
     {"name": "shell.single_quoted", "tool": "Bash", "input": {"command": "hl say worker 'a $(b)'"}},
     {"name": "edit.no_task_owned", "tool": "Write", "current": None, "input": {"file_path": "{repo}/f.py", "content": "x"}},
@@ -1355,8 +1331,6 @@ HOOK_GUARD_CASES = [
     {"name": "edit.read_is_not_looked_at", "tool": "Read", "current": None, "input": {"file_path": "{repo}/f.py"}},
     {"name": "edit.the_founder_is_exempt", "agent": "human", "tool": "Write", "current": None,
      "input": {"file_path": "{repo}/f.py", "content": "x"}},
-    {"name": "both.memory_speaks_first", "tool": "Write", "current": None,
-     "input": {"file_path": "{memory}/MEMORY.md", "content": "x" * 3000}},
 ]
 
 
@@ -1381,11 +1355,6 @@ def hook_guard_verdicts(root: Path) -> list[dict]:
         mem.mkdir(parents=True)
         if "index" in case:
             (mem / memorymod.INDEX).write_text(case["index"])
-        for rel, age in [(r, 40) for r in case.get("stale", [])] + [(r, 0) for r in case.get("fresh", [])]:
-            (mem / rel).parent.mkdir(parents=True, exist_ok=True)
-            (mem / rel).write_text("x")
-            then = time.time() - age * 86400
-            os.utime(mem / rel, (then, then))
         if case.get("note_link"):
             (home / "elsewhere.md").write_text("x")
             note.symlink_to(home / "elsewhere.md")

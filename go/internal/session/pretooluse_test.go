@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/protected"
@@ -21,8 +20,6 @@ type guardCase struct {
 	Tool     string          `json:"tool"`
 	Input    json.RawMessage `json:"input"`
 	Index    *string         `json:"index"`
-	Stale    []string        `json:"stale"`
-	Fresh    []string        `json:"fresh"`
 	NoteLink bool            `json:"note_link"`
 	GateOff  bool            `json:"gate_off"`
 	Current  json.RawMessage `json:"current"`
@@ -44,7 +41,7 @@ func TestPreToolUseDecidesWhatThePythonHookDecided(t *testing.T) {
 	if err := json.Unmarshal(b, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	if len(fixture.Cases) < 30 {
+	if len(fixture.Cases) < 20 {
 		t.Fatalf("only %d cases", len(fixture.Cases))
 	}
 	root := t.TempDir()
@@ -88,15 +85,6 @@ func decide(t *testing.T, root string, c guardCase) string {
 	}
 	if c.Index != nil {
 		write(filepath.Join(mem, memoryIndex), *c.Index)
-	}
-	for _, rel := range append(c.Stale, c.Fresh...) {
-		write(filepath.Join(mem, rel), "x")
-	}
-	for _, rel := range c.Stale {
-		then := time.Now().Add(-40 * 24 * time.Hour)
-		if err := os.Chtimes(filepath.Join(mem, rel), then, then); err != nil {
-			t.Fatal(err)
-		}
 	}
 	if c.NoteLink {
 		write(filepath.Join(home, "elsewhere.md"), "x")

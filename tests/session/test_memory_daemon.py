@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
-from handline.session import handoff as handoffmod, launch as launchmod, memoryguard  # noqa: E402
+from handline.session import handoff as handoffmod, launch as launchmod, memoryuse  # noqa: E402
 from handline.team import memory as memorymod  # noqa: E402
 from handline.vendors import claude_hooks  # noqa: E402
 from handline.vendors.claude import Claude  # noqa: E402
@@ -93,76 +93,20 @@ def test_launch_hides_every_other_agents_memory_and_creates_its_own(home: Path) 
           str(launchmod.hidden_memories("backend")))
 
 
-def test_a_write_that_pushes_the_index_over_budget_is_refused_and_says_why(home: Path) -> None:
+def test_a_large_memory_index_write_is_accepted(home: Path) -> None:
     _daemon_home(home, 20)
     mem = memorymod.memory_dir("backend")
     mem.mkdir(parents=True, exist_ok=True)
     index = mem / "MEMORY.md"
-    _topic("backend", "old.md", age_days=40)
-    _topic("backend", "older.md", age_days=90)
-    _topic("backend", "fresh.md")
     index.write_text(_index(3))
-    target = {"file_path": str(index)}
-    bytes_over = _index(3, pad=800)
-    why = memoryguard.guard("backend", "Write", {**target, "content": bytes_over})
-    check("guard: a Write that grows the index past its bytes is refused, with the numbers",
-          why and "over its budget" in why and "/2048 bytes" in why, str(why))
-    check("guard: ...and names what has not been used for 28 days",
-          why and "28+ days: old.md, older.md" in why, str(why))
-    check("guard: more than 20 entries is refused too",
-          memoryguard.guard("backend", "Write", {**target, "content": _index(21)}) is not None)
-    check("guard: within the budget passes",
-          memoryguard.guard("backend", "Write", {**target, "content": _index(5)}) is None)
-
-    index.write_text(_index(25))
-    check("guard: an index already over budget can still shrink",
-          memoryguard.guard("backend", "Write", {**target, "content": _index(22)}) is None)
-    check("guard: ...but not grow",
-          memoryguard.guard("backend", "Write", {**target, "content": _index(26)}) is not None)
-    index.write_text(_index(3, pad=900))
-    check("guard: the same holds for bytes: shrinking while over passes, growing is refused",
-          memoryguard.guard("backend", "Write", {**target, "content": _index(3, pad=800)}) is None
-          and memoryguard.guard("backend", "Write", {**target, "content": _index(3, pad=1000)}) is not None)
-    index.write_text(_index(25))
+    for name, content in {"bytes": _index(3, pad=2000), "entries": _index(40), "both": _index(40, pad=2000)}.items():
+        check(f"hook: a Write that leaves the index far over the old budget in {name} is not refused",
+              _hook("PreToolUse", tool_name="Write", tool_input={"file_path": str(index), "content": content}) == "{}")
     line = "- [Entry 0](e0.md) - \n"
-    check("guard: an Edit is judged on the index it would leave",
-          memoryguard.guard("backend", "Edit", {**target, "old_string": line, "new_string": line + line}) is not None
-          and memoryguard.guard("backend", "Edit", {**target, "old_string": line, "new_string": ""}) is None)
-    check("guard: a MultiEdit is applied in order",
-          memoryguard.guard("backend", "MultiEdit", {**target, "edits": [
-              {"old_string": line, "new_string": ""}, {"old_string": "- [Entry 1]", "new_string": "- [One]"}]}) is None
-          and memoryguard.guard("backend", "MultiEdit", {**target, "edits": [
-              {"old_string": line, "new_string": line * 3}]}) is not None)
-    check("guard: an edit that does not apply is left to the tool to fail",
-          memoryguard.guard("backend", "Edit", {**target, "old_string": "nope", "new_string": "x" * 5000}) is None)
-
-    check("guard: a topic file is not the index",
-          memoryguard.guard("backend", "Write", {"file_path": str(mem / "topic.md"), "content": "x" * 9000}) is None)
-    check("guard: nor is a path outside the folder, however it climbs out of it",
-          memoryguard.guard("backend", "Write", {"file_path": str(mem / ".." / "MEMORY.md"),
-                                                "content": _index(30)}) is None)
-    check("guard: nor another tool", memoryguard.guard("backend", "Read", {**target}) is None
-          and memoryguard.guard("backend", "Bash", {"command": "echo hi >> MEMORY.md"}) is None)
-
-
-def test_the_pre_tool_hook_denies_through_claudes_own_format_and_never_breaks_a_session(home: Path) -> None:
-    _daemon_home(home, 20)
-    mem = memorymod.memory_dir("backend")
-    mem.mkdir(parents=True, exist_ok=True)
-    (mem / "MEMORY.md").write_text(_index(3))
-    call = {"tool_name": "Write", "tool_input": {"file_path": str(mem / "MEMORY.md"), "content": _index(25)}}
-    out = json.loads(_hook("PreToolUse", **call))
-    deny = out["hookSpecificOutput"]
-    check("hook: over budget prints a deny decision with the reason",
-          deny["hookEventName"] == "PreToolUse" and deny["permissionDecision"] == "deny"
-          and "over its budget" in deny["permissionDecisionReason"], str(out))
-    check("hook: a call that fits prints nothing to act on",
-          _hook("PreToolUse", tool_name="Write", tool_input={
-              "file_path": str(mem / "MEMORY.md"), "content": _index(4)}) == "{}")
-    with _Status():
-        check("hook: a memory that cannot be read lets the call through", _hook("PreToolUse", **call) == "{}")
-    check("hook: an event outside an agent's session is ignored",
-          _hook("PreToolUse", agent="", **call) == "{}")
+    index.write_text(_index(25))
+    check("hook: nor is an Edit that grows an index already over",
+          _hook("PreToolUse", tool_name="Edit", tool_input={
+              "file_path": str(index), "old_string": line, "new_string": line + line}) == "{}")
 
 
 def test_the_pre_tool_hook_refuses_an_ocp_message_the_shell_would_run(home: Path) -> None:
@@ -195,18 +139,18 @@ def test_reading_or_writing_a_memory_file_is_noted_for_the_month_check(home: Pat
     side = paths.agent_dir("backend") / "memory-use.json"
     topic = str(mem / "feedback" / "testing.md")
 
-    memoryguard.note_use("backend", "Read", {"file_path": topic}, now=1000)
+    memoryuse.note_use("backend", "Read", {"file_path": topic}, now=1000)
     check("use: a Read of a memory file is recorded under its path relative to the folder",
           json.loads(side.read_text()) == {"feedback/testing.md": 1000}, side.read_text())
-    memoryguard.note_use("backend", "Read", {"file_path": topic}, now=1000 + 60)
+    memoryuse.note_use("backend", "Read", {"file_path": topic}, now=1000 + 60)
     check("use: noted again within the day changes nothing",
           json.loads(side.read_text()) == {"feedback/testing.md": 1000})
-    memoryguard.note_use("backend", "Edit", {"file_path": topic}, now=1000 + memoryguard.RENOTE_S)
+    memoryuse.note_use("backend", "Edit", {"file_path": topic}, now=1000 + memoryuse.RENOTE_S)
     check("use: later it is updated, by an Edit as well",
-          json.loads(side.read_text()) == {"feedback/testing.md": 1000 + memoryguard.RENOTE_S})
-    memoryguard.note_use("backend", "Read", {"file_path": str(mem / "MEMORY.md")}, now=5000)
-    memoryguard.note_use("backend", "Read", {"file_path": str(home / "elsewhere.md")}, now=5000)
-    memoryguard.note_use("backend", "Bash", {"file_path": topic}, now=9_000_000)
+          json.loads(side.read_text()) == {"feedback/testing.md": 1000 + memoryuse.RENOTE_S})
+    memoryuse.note_use("backend", "Read", {"file_path": str(mem / "MEMORY.md")}, now=5000)
+    memoryuse.note_use("backend", "Read", {"file_path": str(home / "elsewhere.md")}, now=5000)
+    memoryuse.note_use("backend", "Bash", {"file_path": topic}, now=9_000_000)
     check("use: the index itself, a file elsewhere and another tool are not a use",
           list(json.loads(side.read_text())) == ["feedback/testing.md"], side.read_text())
 
@@ -232,20 +176,20 @@ def test_two_concurrent_hook_calls_do_not_drop_one_anothers_use(home: Path) -> N
 
     a_writing = threading.Event()
     let_a_finish = threading.Event()
-    real_write = memoryguard.atomic.write_text
+    real_write = memoryuse.atomic.write_text
 
     def slow_write(path, text):
         a_writing.set()
         let_a_finish.wait(timeout=5)
         real_write(path, text)
 
-    memoryguard.atomic.write_text = slow_write
+    memoryuse.atomic.write_text = slow_write
     try:
-        ta = threading.Thread(target=lambda: memoryguard.note_use(
+        ta = threading.Thread(target=lambda: memoryuse.note_use(
             "backend", "Read", {"file_path": a}, now=1000))
         ta.start()
         assert a_writing.wait(timeout=5)
-        tb = threading.Thread(target=lambda: memoryguard.note_use(
+        tb = threading.Thread(target=lambda: memoryuse.note_use(
             "backend", "Read", {"file_path": b}, now=2000))
         tb.start()
         tb.join(timeout=0.2)
@@ -254,7 +198,7 @@ def test_two_concurrent_hook_calls_do_not_drop_one_anothers_use(home: Path) -> N
         ta.join(timeout=5)
         tb.join(timeout=5)
     finally:
-        memoryguard.atomic.write_text = real_write
+        memoryuse.atomic.write_text = real_write
 
     check("lock: b's note is not dropped by a's concurrent write",
           json.loads(side.read_text()) == {"a.md": 1000, "b.md": 2000}, side.read_text())
