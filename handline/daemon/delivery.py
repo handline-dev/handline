@@ -21,7 +21,8 @@ from ..usage import status
 from ..infra import textsafe
 
 from . import handoff, inputhold, screensamples, termchannel
-from .states import HANDOFF, IDLE, PARKED, PROMPT_CACHE_S, QUEUED, RUNNING, STALLED, STUCK_RUNNING_S
+from .states import PROMPT_CACHE_S, STUCK_RUNNING_S
+from ..session.states import HANDOFF, IDLE, PARKED, QUEUED, RUNNING, STALLED
 
 
 # ---------------------------------------------------------------- sending

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// The schedules as the writes need them (handline/daemon/schedules.py): read, validated and numbered the way schedules.list shows them.
+// The schedules as the writes need them (handline/team/schedules.py): read, validated and numbered the way schedules.list shows them.
 
 // Schedule is one {cron, message}, as it is kept.
 type Schedule struct{ Cron, Message string }

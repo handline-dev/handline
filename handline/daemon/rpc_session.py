@@ -21,7 +21,8 @@ from ..actions import control
 from ..infra import lock, paths
 from ..session import observe as obs
 from ..session import term
-from . import delivery, inputhold, lifecycle, rpc, rpc_gates, states, termchannel
+from . import delivery, inputhold, lifecycle, rpc, rpc_gates, termchannel
+from ..session import states
 
 
 def _noop(_m: str) -> None:

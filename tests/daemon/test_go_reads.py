@@ -21,7 +21,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.daemon import agentview, locks, schedules, stream  # noqa: E402
+from handline.daemon import agentview, stream  # noqa: E402
+from handline.infra import daemonlock
+from handline.team import schedules
 from handline.infra import protected, sessiontoken  # noqa: E402
 from handline.session import term as termmod  # noqa: E402
 
@@ -406,13 +408,13 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
         ("manager", "daemon.status", {}),
         ("manager", "agent.timeline", {"agent": "worker"}),
     ]
-    real, real_live = locks.running_elsewhere, termmod.live_terminals
-    locks.running_elsewhere = lambda: True      # the Go daemon is the one running
+    real, real_live = daemonlock.running_elsewhere, termmod.live_terminals
+    daemonlock.running_elsewhere = lambda: True      # the Go daemon is the one running
     termmod.live_terminals = lambda: set()
     try:
         want = {(who, m, json.dumps(p, sort_keys=True)): _normal(m, _python(m, p, who)) for who, m, p in cases}
     finally:
-        locks.running_elsewhere, termmod.live_terminals = real, real_live
+        daemonlock.running_elsewhere, termmod.live_terminals = real, real_live
     worker = want[(None, "agent.get", json.dumps({"agent": "worker"}, sort_keys=True))]["result"]
     manager = want[(None, "agent.get", json.dumps({"agent": "manager"}, sort_keys=True))]["result"]
     views = {v["name"]: v for v in want[(None, "agents.list", "{}")]["result"]["agents"]}

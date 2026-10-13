@@ -1,5 +1,5 @@
 """Tests: cli/ reaches state only through the daemon's client library (docs/daemon-plan.md, "Moving the
-callers"). A direct import of `db` or of a daemon module other than `daemon.client` is refused unless it is
+callers"), `infra.daemonclient`. A direct import of `db` or of a daemon module is refused unless it is
 listed below. MOVING is today's list and shrinks as each command moves onto the client; KEPT names the few
 that must work while the daemon is down, each with its reason. An entry nothing imports any more fails too,
 so the lists only ever shrink.
@@ -16,32 +16,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
-CLIENT = "handline.daemon.client"
-
 # (file under handline/cli, module it imports) still to move onto the client library.
 MOVING = {
     ("account.py", "handline.db"),
     ("agent.py", "handline.daemon.handoff"),
     ("agent.py", "handline.daemon.lifecycle"),
-    ("agent.py", "handline.daemon.states"),
     ("agent.py", "handline.db"),
     ("ask.py", "handline.daemon.delivery"),
     ("ask.py", "handline.db"),
-    ("bridge.py", "handline.daemon.devmode"),
-    ("daemon.py", "handline.daemon.devmode"),
     ("daemon.py", "handline.daemon.lifecycle"),
     ("daemon.py", "handline.daemon.locks"),
     ("daemon.py", "handline.daemon.loop"),
     ("daemon.py", "handline.db"),
     ("health.py", "handline.daemon.devmode"),
     ("health.py", "handline.daemon.lifecycle"),
-    ("health.py", "handline.daemon.locks"),
     ("health.py", "handline.db"),
     ("health.py", "handline.db.schema"),
     ("hr.py", "handline.db"),
     ("land.py", "handline.db"),
-    ("schedule.py", "handline.daemon.schedules"),
-    ("service.py", "handline.daemon.locks"),
     ("task.py", "handline.db"),
     ("team.py", "handline.daemon.lifecycle"),
     ("team.py", "handline.daemon.taskholds"),
@@ -67,8 +59,6 @@ def imported(path: Path, root: Path) -> set[str]:
 
 
 def internal(module: str) -> bool:
-    if module == CLIENT or module.startswith(CLIENT + "."):
-        return False
     return any(module == p or module.startswith(p + ".") for p in ("handline.db", "handline.daemon"))
 
 
@@ -82,7 +72,7 @@ def test_the_scan_sees_every_spelling_of_an_import(td: Path) -> None:
     pkg = td / "handline" / "cli"
     pkg.mkdir(parents=True)
     (pkg / "x.py").write_text(
-        "from .. import db\nfrom ..db import schema\nfrom ..daemon import client, locks as dmn_locks\n"
+        "from .. import db\nfrom ..db import schema\nfrom ..daemon import locks as dmn_locks\n"
         "import handline.daemon.loop\nfrom handline import daemon\n"
         "def f():\n    from ..daemon import states\n")
     got = {m for _, m in found(td)}
@@ -94,7 +84,7 @@ def test_the_scan_sees_every_spelling_of_an_import(td: Path) -> None:
 def test_cli_imports_only_what_is_listed() -> None:
     now = found(ROOT)
     listed = MOVING | set(KEPT)
-    check("cli: no import of db or a daemon internal that is not listed (call the daemon through daemon.client)",
+    check("cli: no import of db or a daemon internal that is not listed (call the daemon through infra.daemonclient)",
           now <= listed, str(sorted(now - listed)))
     check("cli: every listed import is still made (strike an entry once its command has moved)",
           listed <= now, str(sorted(listed - now)))

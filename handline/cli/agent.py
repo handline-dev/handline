@@ -7,7 +7,9 @@ from pathlib import Path
 
 from .. import actions
 from ..team import agent_settings, agents, ask as askmod, hr
-from ..daemon import client as dmn_client, handoff as dmn_handoff, lifecycle as dmn_lifecycle, states as dmn_states
+from ..daemon import handoff as dmn_handoff, lifecycle as dmn_lifecycle
+from ..infra import daemonclient as dmn_client
+from ..session import states as dmn_states
 from .. import db
 from ..session import launch, term
 from ..infra import names, paths, protected

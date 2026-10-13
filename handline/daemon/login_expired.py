@@ -17,7 +17,7 @@ from .. import db
 from ..session import term
 from ..session import triggers
 from . import handoff
-from .states import QUEUED, RUNNING, IDLE, STALLED
+from ..session.states import QUEUED, RUNNING, IDLE, STALLED
 
 LINE = "Login expired · Please run /login"
 # Only the rows nearest the prompt count, and only a row that is nothing but the

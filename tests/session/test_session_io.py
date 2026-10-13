@@ -789,7 +789,7 @@ def test_a_failed_close_says_why_and_records_the_dialog(home: Path) -> None:
         write_status_json(agent_dir, {
             "account": "alpha", "collected_at": now, "session_id": "sess-1", "pct_5h": 20, "ctx_pct": 8})
         db.add_event(con, "backend", "Stop", {})
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_states.IDLE_CLOSE_S - 60,))
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_timing.IDLE_CLOSE_S - 60,))
         for _ in range(3):
             dmn_evaluate.supervise(con, "backend", lines.append, int(time.time()), {}, [])
         check("close failed: the daemon says why, once per attempt",
@@ -816,7 +816,7 @@ def test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(home: Path) -> 
         write_status_json(agent_dir, {
             "account": "alpha", "collected_at": now, "session_id": "sess-1", "pct_5h": 20, "ctx_pct": 8})
         db.add_event(con, "backend", "Stop", {})
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_states.IDLE_CLOSE_S - 60,))
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_timing.IDLE_CLOSE_S - 60,))
         for _ in range(4):
             dmn_evaluate.supervise(con, "backend", lines.append, int(time.time()), {}, [])
         said = [m for m in lines if "idle but not closed" in m]
@@ -1871,7 +1871,7 @@ def test_idle_session_is_closed_and_resumed(home: Path) -> None:
               not dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, now, st))
 
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn_states.IDLE_CLOSE_S - 60,))
+                    (now - dmn_timing.IDLE_CLOSE_S - 60,))
         row = db.get_agent_state(con, "backend")
         check("close: an agent idle past the threshold is closed",
               dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, now, st))
@@ -2065,7 +2065,7 @@ def test_a_close_that_will_not_take_is_not_tried_again_every_tick(home: Path) ->
             "pct_5h": 20, "ctx_pct": 8})
         db.add_event(con, "backend", "Stop", {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn_states.IDLE_CLOSE_S - 60,))
+                    (now - dmn_timing.IDLE_CLOSE_S - 60,))
         st = status.read_for_agent("backend", "alpha")
         check("close: the idle session is due to be closed",
               dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, db.get_agent_state(con, "backend"), now, st))
@@ -2080,11 +2080,11 @@ def test_a_close_that_will_not_take_is_not_tried_again_every_tick(home: Path) ->
         row = db.get_agent_state(con, "backend")
         check("close: and the row is not marked closed", row["closed_at"] is None)
         check("close: a failed close is not activity - it does not restart the idle clock",
-              db.last_activity(con, "backend") == now - dmn_states.IDLE_CLOSE_S - 60)
+              db.last_activity(con, "backend") == now - dmn_timing.IDLE_CLOSE_S - 60)
 
         # One idle window after the failure it is tried again. The failure is
         # stamped by the real clock, which a loaded run moves well past `now`.
-        later = failed + dmn_states.IDLE_CLOSE_S
+        later = failed + dmn_timing.IDLE_CLOSE_S
         check("close: after a full idle window it is due again",
               dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, later, st))
     finally:
@@ -2783,7 +2783,7 @@ def test_a_close_that_stamps_sessionend_does_not_unexpire_a_stale_cache(home: Pa
         con.execute("DELETE FROM events WHERE agent = 'backend'")
         db.add_event(con, "backend", "Stop", {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn_states.RESUME_WARM_S - 3600,))
+                    (now - dmn_timing.RESUME_WARM_S - 3600,))
         for kind in ("close", "SessionEnd"):
             db.add_event(con, "backend", kind, {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend' AND kind IN "
@@ -3275,7 +3275,7 @@ def test_an_answer_for_a_cold_session_closes_it_instead_of_being_typed(home: Pat
         now = int(time.time())
         db.add_event(con, "backend", "Stop", {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn_states.RESUME_WARM_S - 60,))
+                    (now - dmn_timing.RESUME_WARM_S - 60,))
         row = db.get_agent_state(con, "backend")
         log = lambda _m: None
 
@@ -3286,12 +3286,12 @@ def test_an_answer_for_a_cold_session_closes_it_instead_of_being_typed(home: Pat
                              "peer", "async", None, 0, None)
         support._set_request_state(con, rid, "landed", "yes")
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn_states.RESUME_WARM_S + 600,))
+                    (now - dmn_timing.RESUME_WARM_S + 600,))
         check("cold typing: a warm session with an answer waiting is left to be typed into",
               dmn_lifecycle._cold_before_typing(con, "backend", row, now, st, log) is None
               and not sent)
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn_states.RESUME_WARM_S - 60,))
+                    (now - dmn_timing.RESUME_WARM_S - 60,))
         dmn_evaluate.supervise(con, "backend", log, now, {}, [])
         check("cold typing: a cold session with an answer waiting is closed by the tick",
               db.get_agent_state(con, "backend")["closed_at"], str(sent))
@@ -3316,7 +3316,7 @@ def _cold_backend(home: Path, con, sent: list) -> tuple:
     now = int(time.time())
     db.add_event(con, "backend", "Stop", {})
     con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                (now - dmn_states.RESUME_WARM_S - 60,))
+                (now - dmn_timing.RESUME_WARM_S - 60,))
     return status.read_for_agent("backend", "alpha"), now
 
 
@@ -3461,7 +3461,7 @@ def test_a_request_already_told_still_closes_a_cold_idle_session(home: Path) -> 
         db.set_cursor(con, "nudge:backend", rid)   # already reminded, cap reached, T337
         db.set_cursor(con, "nudge_count:backend", len(dmn_delivery.NUDGE_SCHEDULE_S))
         con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
-                    (now - dmn_states.RESUME_WARM_S - 60, rid))
+                    (now - dmn_timing.RESUME_WARM_S - 60, rid))
         row = db.get_agent_state(con, "backend")
 
         check("cold queue close: the cold path alone has nothing to close it for",
@@ -3845,15 +3845,15 @@ def test_repeated_failed_clears_reach_the_throttle_cap(home: Path) -> None:
         sessions_are("backend")
 
         t = triggers.Trigger(True, "context", "context 700,000 >= 120,000")
-        for _ in range(dmn_states.MAX_THROTTLE_STREAK):
+        for _ in range(dmn_timing.MAX_THROTTLE_STREAK):
             # Hours apart in reality; backdate so the too-soon guard does not
             # skip a handoff that just fired (same as test_daemon_stall_decision).
             con.execute("UPDATE handoff SET updated = updated - ? WHERE agent = 'backend'",
-                        (dmn_states.MIN_HANDOFF_INTERVAL_S * 2,))
+                        (dmn_timing.MIN_HANDOFF_INTERVAL_S * 2,))
             dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("repeated failed clears: the streak reaches the cap, not pinned at 1",
-              row["throttle_count"] == dmn_states.MAX_THROTTLE_STREAK, str(dict(row)))
+              row["throttle_count"] == dmn_timing.MAX_THROTTLE_STREAK, str(dict(row)))
     finally:
         termmod.clear_context, termmod.alive, termmod.idle_now = real
         con.close()
@@ -3932,14 +3932,14 @@ def test_a_parked_agent_with_queued_work_is_still_closed_while_idle(home: Path) 
                        "peer", "async", None, 0, None)
         row = db.get_agent_state(con, "backend")
         st = status_of("alpha", exists=True, session_id="sess-1")
-        warm = int(time.time()) + dmn_states.IDLE_CLOSE_S + 100
+        warm = int(time.time()) + dmn_timing.IDLE_CLOSE_S + 100
         check("parked+queued close: an IDLE agent with queued work and a warm cache is not closed - "
               "it is about to be delivered to instead",
               not dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, warm, st))
         check("parked+queued close: a PARKED agent with the same queued work is - "
               "it already had its one shot at delivery this tick",
               dmn_lifecycle.should_close(con, "backend", dmn_states.PARKED, row, warm, st))
-        cold = int(time.time()) + dmn_states.RESUME_WARM_S + 100
+        cold = int(time.time()) + dmn_timing.RESUME_WARM_S + 100
         check("parked+queued close: an IDLE agent is closed too once its cache has expired - "
               "the wake redelivers what is still queued",
               dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, cold, st))
@@ -4297,7 +4297,7 @@ def test_hooks_report_activity(home: Path) -> None:
         # Being stuck in RUNNING is silent by nature, so doctor says it out loud.
         db.set_agent_state(con, "hooky", dmn_states.RUNNING, detail="working")
         con.execute("UPDATE events SET ts = ? WHERE agent = 'hooky'",
-                    (int(time.time()) - dmn_states.STUCK_RUNNING_S - 60,))
+                    (int(time.time()) - dmn_timing.STUCK_RUNNING_S - 60,))
         con.commit()
     finally:
         con.close()
@@ -4488,7 +4488,7 @@ def _note_world(home: Path):
     dmn_delivery.type_notice = lambda c, a, text: (asks.append(text), True)[1]
     db.add_event(con, "backend", "Stop", {})
     con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                (int(time.time()) - dmn_states.IDLE_CLOSE_S - 60,))
+                (int(time.time()) - dmn_timing.IDLE_CLOSE_S - 60,))
     return con, asks, real
 
 
@@ -4606,7 +4606,7 @@ def test_no_ask_is_made_when_a_turn_would_not_pay(home: Path) -> None:
     try:
         now = int(time.time())
         check("no ask: a session whose cache is gone is closed as it is",
-              not handoff_note.hold(con, "backend", now + dmn_states.RESUME_WARM_S, lambda _m: None) and not asks)
+              not handoff_note.hold(con, "backend", now + dmn_timing.RESUME_WARM_S, lambda _m: None) and not asks)
         db.set_cursor(con, "bgwork:backend", 1)
         check("no ask: nor one with background work", not handoff_note.hold(
             con, "backend", now, lambda _m: None) and not asks)
@@ -4716,7 +4716,7 @@ def test_an_ask_left_by_a_move_does_not_close_the_next_session_early(home: Path)
                                                  db.get_agent_state(con, "backend"), int(time.time()), st))
         n = len(asks)
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (int(time.time()) - dmn_states.IDLE_CLOSE_S - 60,))
+                    (int(time.time()) - dmn_timing.IDLE_CLOSE_S - 60,))
         check("left ask: and at its own idle close it is asked for its own note",
               handoff_note.hold(con, "backend", int(time.time()), lambda _m: None) and len(asks) == n + 1)
     finally:
@@ -4737,7 +4737,7 @@ def test_a_session_at_the_usage_wall_is_not_asked_for_a_note(home: Path) -> None
         sessions_are("backend")
         db.add_event(con, "backend", "StopFailure", {"limit": "5-hour"})
         con.execute("UPDATE events SET ts = ? WHERE kind = 'StopFailure'",
-                    (int(time.time()) - dmn_states.LIMIT_SETTLE_S - 10,))
+                    (int(time.time()) - dmn_timing.LIMIT_SETTLE_S - 10,))
         t = triggers.evaluate(100, 10)
         dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
         check("wall: a settled limit stop is moved without an ask", not asks, str(asks))

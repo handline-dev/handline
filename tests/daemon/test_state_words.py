@@ -15,7 +15,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.daemon import agentview, screenstate, socket_server, states as dmn_states, stream  # noqa: E402
+from handline.daemon import agentview, screenstate, socket_server, stream  # noqa: E402
+from handline.session import states as dmn_states
 from handline.infra import sessiontoken  # noqa: E402
 from handline.session import term as termmod  # noqa: E402
 from handline.team import agents  # noqa: E402

@@ -443,7 +443,7 @@ def _hand_off(verb: str, **payload) -> str | None:
     """What the daemon said, once it took `verb`; None when this is the daemon or it did not answer."""
     if IN_DAEMON:
         return None
-    from ..daemon import client
+    from ..infra import daemonclient as client
 
     reply = client.send({"verb": verb, **payload}, timeout=_HAND_OFF_TIMEOUT_S)
     if reply and reply.get("ok"):

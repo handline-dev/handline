@@ -32,7 +32,8 @@ from ..team import agents
 from ..infra import paths, textsafe
 from ..session import cachettl, events, idle_close
 from . import delivery
-from .states import IDLE, PROMPT_CACHE_S, RESUME_WARM_S
+from .states import PROMPT_CACHE_S, RESUME_WARM_S
+from ..session.states import IDLE
 
 # The share of its cache's life an open idle session is asked at, and how close to the end the ask
 # is still worth making (the turn has to reach its first request before the cache is gone).

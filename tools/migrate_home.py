@@ -182,8 +182,8 @@ def _daemon_running_for(home: Path) -> Callable[[], bool]:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
         os.environ["OCP_HOME"] = str(home)
         os.environ.pop("HANDLINE_HOME", None)
-        from handline.daemon import locks
-        return locks.running_elsewhere() is not None
+        from handline.infra import daemonlock
+        return daemonlock.running_elsewhere() is not None
     return check
 
 

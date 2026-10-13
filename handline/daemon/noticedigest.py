@@ -21,7 +21,8 @@ import time
 from .. import db
 from ..infra import paths, textsafe
 from ..session import blocked, idle_close
-from . import delivery, messaging, states
+from . import delivery, messaging
+from ..session import states
 
 DIGEST_MAX_LINES = 20
 RESULT_SHOWN = 80

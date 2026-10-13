@@ -3181,7 +3181,8 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
     agents.register("other", repo=str(home))
     _daemon_home(home, 20)
     hand_edit_team("agents:\n  worker: {}\n  other: {}\nedges:\n  - { from: \"*\", to: \"human\", kind: task }\n")
-    from handline.daemon import client as dmn_client, socket_server
+    from handline.daemon import socket_server
+    from handline.infra import daemonclient as dmn_client
     from handline.team import agent_settings
 
     def daemon_send(payload):       # the daemon is not an agent's session: no OCP_AGENT there
@@ -4303,7 +4304,8 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
     """What only the founder's terminal may do (agent.yaml, config.yaml) is, from an agent's session, a
     proposal the founder approves - one change, or several as one diff - and nothing changes before."""
     from handline.actions import schedule as schedmod
-    from handline.daemon import devmode, schedules
+    from handline.infra import devmode
+    from handline.team import schedules
     from handline.session import autoaccept
     os.environ["OCP_HOME"] = str(home)
     os.environ.pop("OCP_AGENT", None)

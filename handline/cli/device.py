@@ -9,8 +9,7 @@ import sys
 import uuid
 from urllib.parse import parse_qs, urlparse
 
-from ..daemon import client
-from ..infra import paths, sessiontoken, textsafe
+from ..infra import daemonclient as client, paths, sessiontoken, textsafe
 
 
 def _gateway() -> socket.socket | None:

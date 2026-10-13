@@ -250,8 +250,7 @@ def test_personal_data_or_a_local_id_stops_a_check(home: Path) -> None:
 
 def test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(home: Path) -> None:
     from handline.session import landgate
-    from handline.daemon import client as dmn_client
-    from handline.infra import sessiontoken
+    from handline.infra import daemonclient as dmn_client, sessiontoken
     tree, sha = "a" * 40, "abc1234"
     ok = {
         f"hl land --pass {sha}": ("land_pass", sha),
@@ -426,8 +425,7 @@ def test_a_pass_is_not_recorded_for_a_sha_the_merger_s_check_would_refuse(home: 
 def test_the_pretooluse_hook_vouches_for_the_session_s_own_land_command(home: Path) -> None:
     import contextlib
     import io
-    from handline.daemon import client as dmn_client
-    from handline.infra import sessiontoken
+    from handline.infra import daemonclient as dmn_client, sessiontoken
     from handline.session import events
     sessiontoken.mint_key("backend")
     sent, real, was, was_in = [], dmn_client.send, os.environ.get("OCP_AGENT"), sys.stdin

@@ -294,7 +294,7 @@ def test_a_closed_session_resumes_while_its_real_cache_lives_and_starts_fresh_wi
         _write(tr, _response(t - 4000, None))
         check("expiry: with no ttl in the transcript the old clock decides, from the hook events",
               (db.add_event(con, "backend", "Stop", {}) or True) and not expired())
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (int(t) - dmn_states.RESUME_WARM_S - 5,))
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (int(t) - dmn_timing.RESUME_WARM_S - 5,))
         check("expiry: and calls it cold when that clock is over the fixed margin", expired())
 
         # The note: written at the edge, carried into the fresh session's record, and only while nothing happened after.

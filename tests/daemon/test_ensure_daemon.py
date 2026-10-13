@@ -20,7 +20,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.daemon import client, rpc, spool  # noqa: E402
+from handline.daemon import rpc, spool  # noqa: E402
+from handline.infra import daemonclient as client
 from handline.infra import paths, service, sessiontoken  # noqa: E402
 from handline.session import waiting  # noqa: E402
 

@@ -597,6 +597,7 @@ def _check_one_daemon(r: Report) -> None:
     holding it, so a duplicate that predates it shows up only here.
     """
     from ..daemon import locks as dmn_locks
+    from . import daemonlock
 
     live = dmn_locks.processes()
     if len(live) > 1:
@@ -604,7 +605,7 @@ def _check_one_daemon(r: Report) -> None:
                     f"{', '.join(str(x) for x in live)}",
               "end all but one - the others supervise unrecorded")
     else:
-        pid = dmn_locks.running_elsewhere()
+        pid = daemonlock.running_elsewhere()
         if pid:
             r.add(OK, f"daemon running (pid {pid})")
         elif live:
@@ -618,14 +619,14 @@ def _check_service(r: Report) -> None:
     """The daemon surviving overnight is the point of `hl service` - a
     plist on disk that launchd never loaded, or a job stuck respawning, is
     the same as no supervisor at all."""
-    from ..daemon import locks as dmn_locks
+    from . import daemonlock
 
     st = service.status()
     if not st["installed"]:
         # A human deliberately running it by hand in a terminal is a real,
         # working setup, not a defect - only flag the case that is actually
         # silent: nothing installed and nothing running either.
-        if dmn_locks.running_elsewhere():
+        if daemonlock.running_elsewhere():
             r.add(OK, "no launchd service installed", "a daemon is running by hand")
         else:
             r.add(WARN, "no launchd service installed, no daemon running",

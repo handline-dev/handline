@@ -761,11 +761,12 @@ def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Pa
     import argparse, io, contextlib
     from handline.cli import health
     from handline.db import schema as dbschema
-    from handline.daemon import devmode, locks as dmn_locks
+    from handline.daemon import devmode
+    from handline.infra import daemonlock
     _daemon_home(home, 20)
     code = max(f.stat().st_mtime for f in devmode._watched_files(paths.repo_root()) if f.exists())
-    real_daemon = dmn_locks.running_elsewhere
-    dmn_locks.running_elsewhere = lambda: 4242
+    real_daemon = daemonlock.running_elsewhere
+    daemonlock.running_elsewhere = lambda: 4242
     try:
         check("stale: a daemon that started before the newest code is named",
               health.stale_long_lived(lambda pid, rec: code - 60) == ["daemon (pid 4242)"])
@@ -818,7 +819,7 @@ def test_the_dead_columns_are_not_dropped_under_a_process_on_older_code(home: Pa
         check("stale: the drop refuses naming the process and drops nothing",
               rc == 1 and "daemon (pid 4242)" in err.getvalue() and set(dead) <= left, err.getvalue())
     finally:
-        dmn_locks.running_elsewhere = real_daemon
+        daemonlock.running_elsewhere = real_daemon
 
 
 def test_a_trust_proposal_for_a_root_already_declared_is_moot(home: Path) -> None:

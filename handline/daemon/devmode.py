@@ -9,27 +9,7 @@ import time
 from pathlib import Path
 
 from .. import STARTED
-from ..usage import load
-from ..infra import paths
-from ..infra import service
-
-
-# ---------------------------------------------------------------- dev mode
-# Task #64 (founder #2120, #2121): the daemon restarting itself, in place,
-# once it notices its own code changed - so a merge no longer needs a human
-# to kill and relaunch it by hand. Off by default; `hl dev-mode on` turns it
-# on (config.yaml, next to `active_cap`).
-DEV_MODE_KEY = "dev_mode"
-
-
-def dev_mode_enabled() -> bool:
-    return bool(load._config().get(DEV_MODE_KEY))
-
-
-def set_dev_mode(on: bool) -> None:
-    cfg = load.config_for_write()
-    cfg[DEV_MODE_KEY] = bool(on)
-    load.write_config(cfg)
+from ..infra import paths, devmode as setting, service
 
 
 def _watched_files(root: Path) -> list[Path]:
@@ -121,7 +101,7 @@ def _dev_mode_should_restart(state: dict, log) -> bool:
     with, `warned` is one that already failed the import check, so a version
     still broken is not re-checked and re-logged every tick until it is. `seen` is the
     fingerprint of the change last reported."""
-    if not dev_mode_enabled():
+    if not setting.dev_mode_enabled():
         state["fp"] = None
         state["warned"] = None
         state["seen"] = None

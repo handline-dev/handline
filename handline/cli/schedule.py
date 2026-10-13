@@ -4,7 +4,7 @@ session they are raised as an HR proposal instead."""
 from __future__ import annotations
 
 from .. import actions
-from ..daemon import schedules
+from ..team import schedules
 from ..infra import protected
 from .hr import propose_for_session
 

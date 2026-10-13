@@ -691,7 +691,7 @@ def test_a_push_from_outside_the_daemon_is_handed_to_it_to_start_the_agent_now(h
     """T408: `ocp task new`, `resolve` and the rest push in their own process, which in an agent's
     sandbox cannot start a session - the work waited for the next tick. Outside the daemon the push
     goes over its socket; the daemon (and a caller it cannot reach) does the start itself."""
-    from handline.daemon import client
+    from handline.infra import daemonclient as client
     from handline.team import ask as askmod
     _world(home)
     con = db.connect()
@@ -730,7 +730,7 @@ def test_a_push_from_outside_the_daemon_is_handed_to_it_to_start_the_agent_now(h
 def test_the_daemons_push_verbs_never_hand_the_push_back_to_the_daemon(home: Path) -> None:
     """T408 (auditor #5913): the verb runs the push in this process, so it starts the agent
     whatever `IN_DAEMON` says - forwarding to itself would loop over the socket on thread after thread."""
-    from handline.daemon import client
+    from handline.infra import daemonclient as client
     from handline.team import ask as askmod
     _world(home)
     con = db.connect()

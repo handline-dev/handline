@@ -17,8 +17,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.daemon import agentview, delivery, handoff_note, lifecycle, rpc  # noqa: E402
 from handline.infra import sessiontoken  # noqa: E402
-from handline.daemon import states as dmn_states  # noqa: E402
-from handline.session import idle_close, observe as obs, term  # noqa: E402
+from handline.session import states as dmn_states, idle_close, observe as obs, term  # noqa: E402
 from handline.team import ask as askmod  # noqa: E402
 from handline.ui.components import agent_rows  # noqa: E402
 from handline.view import viewdata  # noqa: E402

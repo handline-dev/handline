@@ -365,30 +365,30 @@ def test_dev_mode_config_round_trips(home: Path) -> None:
     (the same file `account cap` writes to), and a plain `hl dev-mode`
     reads it back without changing it."""
     use_home(home)
-    check("dev-mode: off by default", dmn_devmode.dev_mode_enabled() is False,
-          str(dmn_devmode.dev_mode_enabled()))
+    check("dev-mode: off by default", devsetting.dev_mode_enabled() is False,
+          str(devsetting.dev_mode_enabled()))
     out = _capture(lambda: climod.main(["dev-mode"]))
     check("cli dev-mode: prints the current state with no argument",
           out.strip() == "off", out)
     out = _capture(lambda: climod.main(["dev-mode", "on"]))
     check("cli dev-mode on: confirms the flip", "on" in out, out)
     check("dev-mode: on reaches daemon.py's own reader",
-          dmn_devmode.dev_mode_enabled() is True, str(dmn_devmode.dev_mode_enabled()))
+          devsetting.dev_mode_enabled() is True, str(devsetting.dev_mode_enabled()))
     out = _capture(lambda: climod.main(["dev-mode"]))
     check("cli dev-mode: reads back on without an argument", out.strip() == "on", out)
     climod.main(["dev-mode", "off"])
     check("dev-mode: off turns it back off, not just adds a second key",
-          dmn_devmode.dev_mode_enabled() is False, str(dmn_devmode.dev_mode_enabled()))
+          devsetting.dev_mode_enabled() is False, str(devsetting.dev_mode_enabled()))
 
 
 def test_bridge_dev_mode_flag_turns_it_on_and_its_absence_leaves_it(home: Path) -> None:
     use_home(home)
     _capture(lambda: climod.main(["bridge", "--once"]))
-    check("bridge without --dev-mode leaves it off", dmn_devmode.dev_mode_enabled() is False, "")
+    check("bridge without --dev-mode leaves it off", devsetting.dev_mode_enabled() is False, "")
     _capture(lambda: climod.main(["bridge", "--once", "--dev-mode"]))
-    check("bridge --dev-mode turns it on", dmn_devmode.dev_mode_enabled() is True, "")
+    check("bridge --dev-mode turns it on", devsetting.dev_mode_enabled() is True, "")
     _capture(lambda: climod.main(["bridge", "--once"]))
-    check("bridge without --dev-mode does not turn it off", dmn_devmode.dev_mode_enabled() is True, "")
+    check("bridge without --dev-mode does not turn it off", devsetting.dev_mode_enabled() is True, "")
     climod.main(["dev-mode", "off"])
 
 
@@ -400,14 +400,14 @@ def test_dev_mode_checks_a_new_fingerprint_once_and_a_declined_one_is_not_asked_
     real_quiet = (dmn_devmode.QUIET_S, dmn_devmode._changed_since_start)
     dmn_devmode.QUIET_S, dmn_devmode._changed_since_start = 0, lambda root: False       # these tests are about the decision, not the wait
     code, checks, on = {"fp": "v1", "ok": True}, [], {"on": True}
-    real = (dmn_devmode._code_fingerprint, dmn_devmode._dev_import_check, dmn_devmode.dev_mode_enabled)
+    real = (dmn_devmode._code_fingerprint, dmn_devmode._dev_import_check, devsetting.dev_mode_enabled)
     dmn_devmode._code_fingerprint = lambda root: code["fp"]
 
     def import_check(log_):
         checks.append(code["fp"])
         return code["ok"]
     dmn_devmode._dev_import_check = import_check
-    dmn_devmode.dev_mode_enabled = lambda: on["on"]
+    devsetting.dev_mode_enabled = lambda: on["on"]
     state = {"fp": None, "warned": None, "seen": None}
     log = lambda m: None  # noqa: E731
     try:
@@ -434,7 +434,7 @@ def test_dev_mode_checks_a_new_fingerprint_once_and_a_declined_one_is_not_asked_
         dmn_devmode._dev_mode_should_restart(state, log)
         check("dev-mode seen: turning it off forgets it", state == {"fp": None, "warned": None, "seen": None}, str(state))
     finally:
-        dmn_devmode._code_fingerprint, dmn_devmode._dev_import_check, dmn_devmode.dev_mode_enabled = real
+        dmn_devmode._code_fingerprint, dmn_devmode._dev_import_check, devsetting.dev_mode_enabled = real
         dmn_devmode.QUIET_S, dmn_devmode._changed_since_start = real_quiet
 
 
@@ -463,7 +463,7 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
               dmn_devmode._dev_mode_should_restart(state, log) is False and state["fp"] is None,
               str(state))
 
-        dmn_devmode.set_dev_mode(True)
+        devsetting.set_dev_mode(True)
         check("dev-mode: turning on captures a baseline, not a restart",
               dmn_devmode._dev_mode_should_restart(state, log) is False and state["fp"] is not None,
               str(state))
@@ -501,7 +501,7 @@ def test_dev_mode_fingerprint_and_restart_decision(tmp_path: Path, home: Path) -
             dmn_devmode._dev_import_check = real_check
     finally:
         paths.repo_root = real_repo_root
-        dmn_devmode.set_dev_mode(False)
+        devsetting.set_dev_mode(False)
         dmn_devmode.QUIET_S, dmn_devmode._changed_since_start = real_quiet
 
 
@@ -580,7 +580,7 @@ def test_dev_mode_restart_execs_after_the_lock_and_db_are_released(home: Path) -
         return True
 
     def fake_restart(*_tree):
-        calls.append(lock.holder(dmn_locks.DAEMON_LOCK) is not None)
+        calls.append(lock.holder(daemonlock.DAEMON_LOCK) is not None)
 
     dmn_devmode._dev_mode_should_restart, dmn_devmode._dev_mode_restart = fake_should, fake_restart
     try:
@@ -771,7 +771,7 @@ def test_daemon_stall_decision(home: Path) -> None:
         # so every handoff here is degraded for the facts it could not read.
         seen = []
         try:
-            for _ in range(dmn_states.MAX_THROTTLE_STREAK + 3):
+            for _ in range(dmn_timing.MAX_THROTTLE_STREAK + 3):
                 row = db.get_agent_state(con, "backend")
                 if row and row["state"] == dmn_states.STALLED:
                     break
@@ -782,7 +782,7 @@ def test_daemon_stall_decision(home: Path) -> None:
                 # These cycles are hours apart in reality; backdate so the
                 # handoff rate limiter does not read them as one runaway.
                 con.execute("UPDATE handoff SET updated = updated - ? WHERE agent = 'backend'",
-                            (dmn_states.MIN_HANDOFF_INTERVAL_S * 2,))
+                            (dmn_timing.MIN_HANDOFF_INTERVAL_S * 2,))
                 dmn_evaluate.tick(con, lambda _m: None)
                 cur = db.get_agent_state(con, "backend")
                 seen.append((cur["state"], cur["throttle_count"]))
@@ -1102,7 +1102,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
         db.set_cursor(con, "notify:backend", head)
         db.add_event(con, "backend", "Stop", {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn_states.IDLE_CLOSE_S - 60,))
+                    (now - dmn_timing.IDLE_CLOSE_S - 60,))
         con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
                     (now - dmn_delivery.NUDGE_AFTER_S - 60, head))
 
@@ -1110,7 +1110,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
             db.clear_cursor(con, "bgwork:backend")
             db.clear_cursor(con, "nudge:backend")
             db.clear_cursor(con, "nudge_try:backend")
-            con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_states.IDLE_CLOSE_S - 60,))
+            con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_timing.IDLE_CLOSE_S - 60,))
             db.set_agent_state(con, "backend", state, detail=detail)
             del sent[:]
             bg[0] = "3 monitors"
@@ -1143,7 +1143,7 @@ def test_an_agent_with_background_work_is_not_idle_until_it_ends(home: Path) -> 
         # Nothing queued for it now, so only the work itself can keep it open.
         con.execute("UPDATE requests SET state = 'landed'")
         db.add_event(con, "backend", "Stop", {})
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_states.IDLE_CLOSE_S - 60,))
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_timing.IDLE_CLOSE_S - 60,))
         row = db.get_agent_state(con, "backend")
         check("background: it is idle-closable with no work running",
               dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, now, st))
@@ -1188,7 +1188,7 @@ def test_a_config_that_will_not_parse_is_never_overwritten_by_a_setting(home: Pa
         "park timeout": lambda: idle_close.set_close_timeout(120),
         "cache expiry": lambda: idle_close.set_ignore_cache_expiry(True),
         "flag": lambda: idle_close.set_config_flag("some_flag", True),
-        "dev mode": lambda: dmn_devmode.set_dev_mode(True),
+        "dev mode": lambda: devsetting.set_dev_mode(True),
     }
     for broken in ("keep: [unclosed\nother: 1\n", "- a\n- b\n"):
         cfg.write_text(broken)
@@ -1355,7 +1355,7 @@ def test_t52_idle_timeout_and_cache_expiry_overrides(home: Path) -> None:
         st = types.SimpleNamespace(session_id="s")
 
         check("idle timeout: today's behaviour is IDLE_CLOSE_S with nothing set",
-              idle_close.close_timeout_s("backend") == dmn_states.IDLE_CLOSE_S)
+              idle_close.close_timeout_s("backend") == dmn_timing.IDLE_CLOSE_S)
         idle_close.set_close_timeout(120)
         check("idle timeout: the global default is read back",
               idle_close.default_close_timeout_s() == 120
@@ -1383,7 +1383,7 @@ def test_t52_idle_timeout_and_cache_expiry_overrides(home: Path) -> None:
             except ValueError:
                 check("idle timeout: a negative value is refused", True)
 
-        later = now + dmn_states.RESUME_WARM_S + 60
+        later = now + dmn_timing.RESUME_WARM_S + 60
         check("cache expiry: today's behaviour expires it past RESUME_WARM_S",
               dmn_lifecycle.cache_expired(con, "backend", "sess", later))
         idle_close.set_ignore_cache_expiry(True)
@@ -1439,14 +1439,14 @@ def test_a_running_daemon_is_reported_whatever_daemon_pid_says(home: Path) -> No
     (home / "daemon.pid").write_text(json.dumps({"pid": 999999, "boot": 1}))
 
     check("daemon: nobody holding the lock reads as not running, whatever any file says",
-          dmn_locks.running_elsewhere() is None)
+          daemonlock.running_elsewhere() is None)
     holder, pid = _hold_daemon_lock_in_another_process(env)
     try:
         check("daemon: the process holding the lock is the one reported",
-              dmn_locks.running_elsewhere() == pid, str(dmn_locks.running_elsewhere()))
+              daemonlock.running_elsewhere() == pid, str(daemonlock.running_elsewhere()))
         check("daemon: a probe leaves the hold with its holder",
-              lock.holder(dmn_locks.DAEMON_LOCK) == pid)
-        with lock.singleton(dmn_locks.DAEMON_LOCK) as free:
+              lock.holder(daemonlock.DAEMON_LOCK) == pid)
+        with lock.singleton(daemonlock.DAEMON_LOCK) as free:
             check("daemon: and a second daemon is refused, by the same fact", not free)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
@@ -1463,8 +1463,8 @@ def test_a_running_daemon_is_reported_whatever_daemon_pid_says(home: Path) -> No
         holder.wait(timeout=30)
 
     check("daemon: the name a dead holder left behind is not a running daemon",
-          dmn_locks.running_elsewhere() is None, str(dmn_locks.running_elsewhere()))
-    check("daemon: ...and needs no clearing by anything", lock.holder(dmn_locks.DAEMON_LOCK) is None)
+          daemonlock.running_elsewhere() is None, str(daemonlock.running_elsewhere()))
+    check("daemon: ...and needs no clearing by anything", lock.holder(daemonlock.DAEMON_LOCK) is None)
 
 
 def test_a_daemon_that_never_wrote_its_name_is_still_reported(home: Path) -> None:
@@ -1477,9 +1477,9 @@ def test_a_daemon_that_never_wrote_its_name_is_still_reported(home: Path) -> Non
     orig = dmn_locks.processes
     try:
         check("lock: held without a name reads as held, not as free",
-              lock.holder(dmn_locks.DAEMON_LOCK) == 0)
+              lock.holder(daemonlock.DAEMON_LOCK) == 0)
         dmn_locks.processes = lambda: [pid]
-        check("daemon: named from the process table", dmn_locks.running_elsewhere() == pid)
+        check("daemon: named from the process table", daemonlock.running_elsewhere() == pid)
     finally:
         dmn_locks.processes = orig
         holder.kill()
@@ -1502,9 +1502,9 @@ def test_a_holder_this_process_cannot_signal_is_still_reported(home: Path) -> No
             return orig_kill(p, sig)
         os.kill = fake_kill
         check("lock: EPERM on kill(0) still names the real holder, not 0",
-              lock.holder(dmn_locks.DAEMON_LOCK) == pid)
+              lock.holder(daemonlock.DAEMON_LOCK) == pid)
         check("daemon: still reported running from inside the sandbox",
-              dmn_locks.running_elsewhere() == pid)
+              daemonlock.running_elsewhere() == pid)
     finally:
         os.kill = orig_kill
         holder.kill()
@@ -1513,13 +1513,13 @@ def test_a_holder_this_process_cannot_signal_is_still_reported(home: Path) -> No
 
 def test_the_lock_names_only_its_current_holder(home: Path) -> None:
     use_home(home)
-    check("lock: no file yet, no holder", lock.holder(dmn_locks.DAEMON_LOCK) is None)
-    with lock.singleton(dmn_locks.DAEMON_LOCK) as mine:
+    check("lock: no file yet, no holder", lock.holder(daemonlock.DAEMON_LOCK) is None)
+    with lock.singleton(daemonlock.DAEMON_LOCK) as mine:
         check("lock: taken", mine)
-        check("lock: the holder writes its own pid", lock.holder(dmn_locks.DAEMON_LOCK) == os.getpid())
-        with lock.singleton(dmn_locks.DAEMON_LOCK) as second:
+        check("lock: the holder writes its own pid", lock.holder(daemonlock.DAEMON_LOCK) == os.getpid())
+        with lock.singleton(daemonlock.DAEMON_LOCK) as second:
             check("lock: a refused second taker does not overwrite the name", not second)
-        check("lock: ...the holder is still named", lock.holder(dmn_locks.DAEMON_LOCK) == os.getpid())
+        check("lock: ...the holder is still named", lock.holder(daemonlock.DAEMON_LOCK) == os.getpid())
 
         # T153: a held lock whose file still names the previous holder, dead,
         # reads as held-but-nameless (0), never as that dead pid - in a sandbox
@@ -1527,11 +1527,11 @@ def test_the_lock_names_only_its_current_holder(home: Path) -> None:
         # holder is named, above) but one to a dead pid still fails ESRCH.
         gone = subprocess.Popen([sys.executable, "-c", "pass"])
         gone.wait(timeout=30)
-        path = home / "locks" / f"{dmn_locks.DAEMON_LOCK}.{lock.SINGLETON}"
+        path = home / "locks" / f"{daemonlock.DAEMON_LOCK}.{lock.SINGLETON}"
         fd = os.open(path, os.O_WRONLY)
         os.pwrite(fd, str(gone.pid).ljust(lock._PID_WIDTH).encode(), 0)
         os.close(fd)
-        check("lock: a dead pid left in the file is read as nameless", lock.holder(dmn_locks.DAEMON_LOCK) == 0)
+        check("lock: a dead pid left in the file is read as nameless", lock.holder(daemonlock.DAEMON_LOCK) == 0)
         real_kill = os.kill
 
         def refused(pid, sig):
@@ -1541,17 +1541,17 @@ def test_the_lock_names_only_its_current_holder(home: Path) -> None:
         os.kill = refused
         try:
             check("lock: a sandbox refusing the signal never turns the name into a pid",
-                  lock.holder(dmn_locks.DAEMON_LOCK) == 0)
+                  lock.holder(daemonlock.DAEMON_LOCK) == 0)
         finally:
             os.kill = real_kill
         fd = os.open(path, os.O_WRONLY)
         os.pwrite(fd, str(os.getpid()).ljust(lock._PID_WIDTH).encode(), 0)
         os.close(fd)
     check("lock: released, nobody is named although the file still holds the pid",
-          lock.holder(dmn_locks.DAEMON_LOCK) is None)
+          lock.holder(daemonlock.DAEMON_LOCK) is None)
     with lock.terminal("agent-x") as t:
         check("lock: a terminal hold takes no pid", t)
-    check("lock: and is not a daemon", lock.holder(dmn_locks.DAEMON_LOCK) is None)
+    check("lock: and is not a daemon", lock.holder(daemonlock.DAEMON_LOCK) is None)
 
 
 def test_a_daemon_process_that_does_not_hold_the_lock_is_not_called_absent(home: Path) -> None:
@@ -1751,10 +1751,10 @@ def test_service_install_names_only_a_daemon_launchd_does_not_run_as_hand_starte
     import contextlib
     import io
     from handline.cli import service as cli_service
-    orig = cli_service.dmn_locks.running_elsewhere, service.status, service.install
+    orig = cli_service.daemonlock.running_elsewhere, service.status, service.install
     try:
         service.install = lambda allow_live_home=False: (True, "installed")
-        cli_service.dmn_locks.running_elsewhere = lambda: 4242
+        cli_service.daemonlock.running_elsewhere = lambda: 4242
         for launchd_pid, noted in ((4242, False), (None, True), (77, True)):
             service.status = lambda p=launchd_pid: {"installed": True, "loaded": p is not None,
                                                     "pid": p, "last_exit_code": None}
@@ -1764,7 +1764,7 @@ def test_service_install_names_only_a_daemon_launchd_does_not_run_as_hand_starte
             check(f"service install: the 'running by hand' note {'shows' if noted else 'is quiet'} "
                   f"when launchd's pid is {launchd_pid}", ("by hand" in out.getvalue()) == noted, out.getvalue())
     finally:
-        cli_service.dmn_locks.running_elsewhere, service.status, service.install = orig
+        cli_service.daemonlock.running_elsewhere, service.status, service.install = orig
 
 
 def test_service_status_when_not_installed(home: Path) -> None:
@@ -2014,7 +2014,7 @@ def test_daemon_refusal_logs_through_the_same_path(home: Path) -> None:
 
     use_home(home)
     buf = io.StringIO()
-    with lock.singleton(dmn_locks.DAEMON_LOCK) as held:
+    with lock.singleton(daemonlock.DAEMON_LOCK) as held:
         check("daemon: the lock is free to take in a fresh home", held)
         with contextlib.redirect_stdout(buf):
             rc = dmn_loop.run(once=True)
@@ -2682,7 +2682,7 @@ def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home
             return list(sent), list(seen)
 
         # Still inside the cache's life: resumed, as before.
-        warm_sent, _ = wake_after(dmn_states.RESUME_WARM_S - 120)
+        warm_sent, _ = wake_after(dmn_timing.RESUME_WARM_S - 120)
         check("cache: an agent idle inside the cache's life is resumed",
               any("--resume sess-7" in t for t in warm_sent), str(warm_sent))
 
@@ -2690,7 +2690,7 @@ def test_an_agent_idle_past_its_prompt_cache_comes_back_fresh_with_its_work(home
         db.set_closed(con, "backend", "sess-7")
         support.something_waiting(con, "backend")
         table.clear()
-        cold_sent, cold_ctx = wake_after(dmn_states.RESUME_WARM_S + 60)
+        cold_sent, cold_ctx = wake_after(dmn_timing.RESUME_WARM_S + 60)
         check("cache: an agent idle past the cache's life is not resumed",
               cold_sent and not any("--resume" in t for t in cold_sent), str(cold_sent))
         check("cache: it is told why, and where its handoff is",
@@ -2720,7 +2720,7 @@ def test_the_cache_clock_decides_a_resume_not_whether_a_handoff_exists(home: Pat
         db.add_event(con, "backend", "Stop", {})
         for handoff in (None, "# handoff"):
             db.set_handoff(con, "backend", handoff)
-            for idle, cold in ((dmn_states.RESUME_WARM_S + 60, True), (dmn_states.RESUME_WARM_S - 120, False)):
+            for idle, cold in ((dmn_timing.RESUME_WARM_S + 60, True), (dmn_timing.RESUME_WARM_S - 120, False)):
                 con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - idle,))
                 check(f"cache: handoff={handoff!r}, idle {idle}s is {'cold' if cold else 'warm'}",
                       dmn_lifecycle.cache_expired(con, "backend", "sess-7", now) == cold)
@@ -3003,7 +3003,7 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
         db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
         db.add_event(con, "backend", "Stop", {})
         con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (int(time.time()) - dmn_states.STUCK_RUNNING_S - 60,))
+                    (int(time.time()) - dmn_timing.STUCK_RUNNING_S - 60,))
         real_idle = termmod.idle_now
         try:
             # One witness is not enough: the probe is the one we have twice
@@ -3026,7 +3026,7 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
             db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="working")
             db.add_event(con, "backend", "Stop", {})
             con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                        (int(time.time()) - dmn_states.STUCK_RUNNING_S - 60,))
+                        (int(time.time()) - dmn_timing.STUCK_RUNNING_S - 60,))
             termmod.screen_blocker = lambda h: termmod.Blocker(termmod.MODAL, "Bash command")
             dmn_reconciler.sweep(con, lambda _m: None, [])
             check("sweep: a screen_blocker (a live prompt) is not unstuck even when idle_now says yes",
@@ -3054,7 +3054,7 @@ def test_the_sweep_corrects_what_it_can_see(home: Path) -> None:
             agents.register("stucktwo")
             probed: list[str] = []
             termmod.idle_now = lambda h: (probed.append(h), True)[1]
-            old_ts = int(time.time()) - dmn_states.STUCK_RUNNING_S - 60
+            old_ts = int(time.time()) - dmn_timing.STUCK_RUNNING_S - 60
             for name, handle in (("backend", "term_x"), ("stucktwo", "term_y")):
                 db.set_terminal(con, name, handle, "wt")
                 db.set_agent_state(con, name, dmn_states.RUNNING, detail="working")
@@ -3260,7 +3260,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         table.clear()
         obsmod.live_sessions = lambda: dict(table)
         termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
+        for _ in range(dmn_timing.MAX_FAILED_ATTEMPTS):
             dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("wake: a launch that never works ends in STALLED, not in a loop",
@@ -3271,7 +3271,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         # Its own count: the tick's exception handler and the handoff both stall
         # on failed_attempts, and a wake streak is not theirs to read.
         check("wake: failed wakes are counted apart from failed ticks",
-              row["failed_attempts"] == 0 and row["wake_failures"] >= dmn_states.MAX_FAILED_ATTEMPTS,
+              row["failed_attempts"] == 0 and row["wake_failures"] >= dmn_timing.MAX_FAILED_ATTEMPTS,
               str(dict(row)))
 
         # A human starts it again in its terminal. The sweep sees the session
@@ -3289,7 +3289,7 @@ def test_a_wake_is_believed_only_when_a_session_appears(home: Path) -> None:
         # clear this count as well: left at the cap, the sweep would later read
         # someone else's stall as one of its own and lift it.
         db.set_agent_state(con, "backend", dmn_states.STALLED, detail="stalled by wakes")
-        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
+        for _ in range(dmn_timing.MAX_FAILED_ATTEMPTS):
             db.bump_counter(con, "backend", "wake_failures")
         con.close()
         rc = climod.main(["unstall", "backend"])
@@ -4172,7 +4172,7 @@ def test_a_context_handoff_does_not_thrash_within_min_handoff_interval_s(home: P
         # Past the interval: the same still-fired trigger is allowed through again -
         # a state that only happened to block it would not let this one through.
         con.execute("UPDATE handoff SET updated = ? WHERE agent = 'keeper'",
-                    (int(time.time()) - dmn_states.MIN_HANDOFF_INTERVAL_S - 1,))
+                    (int(time.time()) - dmn_timing.MIN_HANDOFF_INTERVAL_S - 1,))
         # The first clear also started the single writer's 15s settle window
         # (#2064) - real here, not backdated with it, so it is cleared the same
         # way the interval above was, or this "later" call reads as "moments
@@ -4507,7 +4507,7 @@ def test_an_agent_can_put_another_one_to_work(home: Path) -> None:
         # it is a human's problem, said out loud.
         db.set_terminal(con, "marina", None, None)
         spawnmod.spawn = lambda agent, repo, base="main": (False, "orca refused")
-        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS):
+        for _ in range(dmn_timing.MAX_FAILED_ATTEMPTS):
             dmn_lifecycle._start_for_work(con, "marina", lambda _m: None)
         said = dmn_lifecycle._start_for_work(con, "marina", lambda _m: None)
         check("dispatch: a start that keeps failing is not retried forever",
@@ -4793,7 +4793,7 @@ def test_a_clear_held_by_background_work_is_owed_not_failed(home: Path) -> None:
         # (a) the cache has lapsed: nothing live to lose, cleared at once.
         fresh()
         db.add_event(con, "backend", "ask", {})
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_states.PROMPT_CACHE_S - 60,))
+        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_timing.PROMPT_CACHE_S - 60,))
         dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
         row = db.get_agent_state(con, "backend")
         check("owed (a): with its cache lapsed the clear is typed over the background work",
@@ -5021,7 +5021,7 @@ def test_a_passed_window_is_asked_about_rather_than_guessed(home: Path) -> None:
               dmn_usage_poll.usage_due(con, "beta", status.read("beta"), now)
               == "its 5h window has ended")
         write_status(home, "beta", pct_5h=95, pct_7d=34, reset_5h=now + 1800,
-                     reset_7d=now + 86400 * 2, rl_at=now - dmn_states.USAGE_MAX_AGE_S - 1,
+                     reset_7d=now + 86400 * 2, rl_at=now - dmn_timing.USAGE_MAX_AGE_S - 1,
                      collected_at=now)
         check("window: and so is a figure older than the cadence, whatever its window",
               (dmn_usage_poll.usage_due(con, "beta", status.read("beta"), now) or "").startswith(
@@ -5583,7 +5583,7 @@ def test_a_second_daemon_is_refused_by_the_lock_alone(home: Path) -> None:
 
     use_home(home)
     buf = io.StringIO()
-    with lock.singleton(dmn_locks.DAEMON_LOCK):
+    with lock.singleton(daemonlock.DAEMON_LOCK):
         with contextlib.redirect_stdout(buf):
             rc = dmn_loop.run(once=True)
     check("daemon: a second one is refused", rc == 1)
@@ -5591,7 +5591,7 @@ def test_a_second_daemon_is_refused_by_the_lock_alone(home: Path) -> None:
           f"already running (pid {os.getpid()})" in buf.getvalue(), buf.getvalue())
 
     # And the lock is not left behind by the process that held it.
-    with lock.singleton(dmn_locks.DAEMON_LOCK) as held:
+    with lock.singleton(daemonlock.DAEMON_LOCK) as held:
         check("daemon: the lock is released when its holder is done", held)
 
 
@@ -5605,7 +5605,7 @@ def test_an_exiting_daemon_leaves_the_live_ones_name(home: Path) -> None:
             rc = dmn_loop.run(once=True)
         check("daemon: the second one is refused", rc == 1)
         check("daemon: and the live one is still the one named",
-              dmn_locks.running_elsewhere() == pid, str(dmn_locks.running_elsewhere()))
+              daemonlock.running_elsewhere() == pid, str(daemonlock.running_elsewhere()))
     finally:
         holder.kill()
         holder.wait(timeout=30)
@@ -5782,7 +5782,7 @@ def test_two_processes_cannot_both_supervise_one_home(home: Path) -> None:
 
     # The kernel takes the lock back from a process that dies holding it, so
     # there is no stale hold to reclaim the way a pidfile has to be.
-    with lock.singleton(dmn_locks.DAEMON_LOCK) as free:
+    with lock.singleton(daemonlock.DAEMON_LOCK) as free:
         check("daemon: a killed holder leaves the lock free", free)
 
 

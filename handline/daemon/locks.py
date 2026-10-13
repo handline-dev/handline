@@ -1,33 +1,11 @@
-"""The single-instance hold on this OCP_HOME, and finding another daemon in the process table."""
+"""Finding another Python daemon of this OCP_HOME in the process table."""
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-from ..infra import lock
 from ..session import observe as obs
 from ..infra import paths
-
-
-# ---------------------------------------------------------------- the lock
-# The name of the hold that makes this a single-instance program. One per
-# OCP_HOME, so two installations on one machine still supervise their own.
-DAEMON_LOCK = "daemon"
-
-
-def running_elsewhere() -> int | None:
-    """PID of the daemon supervising this OCP_HOME, or None when none is.
-
-    Asked of the lock that refuses a second daemon (`lock.holder`), so a daemon
-    is reported exactly when it is the one holding it. One that holds the lock
-    without having written its pid - started before the lock recorded it - is
-    named from the process table instead; only one that is in neither reads as
-    None.
-    """
-    pid = lock.holder(DAEMON_LOCK)
-    if pid is None:
-        return None
-    return pid or next(iter(processes()), None)
 
 
 def _supervises_this_home(pid: int) -> bool:

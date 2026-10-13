@@ -1932,8 +1932,8 @@ def test_the_usage_poll_reads_the_oldest_reading_first(home: Path) -> None:
     _daemon_home(home, 40)
     accounts.register("beta")
     now = int(time.time())
-    write_status(home, "alpha", pct_5h=3, pct_7d=4, rl_at=now - dmn_states.USAGE_MAX_AGE_S - 5)
-    write_status(home, "beta", pct_5h=3, pct_7d=4, rl_at=now - dmn_states.USAGE_MAX_AGE_S - 3600)
+    write_status(home, "alpha", pct_5h=3, pct_7d=4, rl_at=now - dmn_timing.USAGE_MAX_AGE_S - 5)
+    write_status(home, "beta", pct_5h=3, pct_7d=4, rl_at=now - dmn_timing.USAGE_MAX_AGE_S - 3600)
     asked: list[str] = []
 
     def fake_read(acct, refresh=True):
@@ -2017,7 +2017,7 @@ def test_the_usage_poll_asks_one_account_per_tick_and_renews_only_on_failure(hom
             # reading is aged past the cadence with no event of any kind.
             asked.clear()
             write_status(home, "beta", pct_5h=3, pct_7d=4,
-                         rl_at=int(time.time()) - dmn_states.USAGE_MAX_AGE_S - 1)
+                         rl_at=int(time.time()) - dmn_timing.USAGE_MAX_AGE_S - 1)
             db.set_cursor(con, "usage-poll:beta", 0)
             dmn_usage_poll.poll_usage(con, lambda _m: None)
             check("poll: a reading older than the cadence is asked about anyway",
@@ -2190,7 +2190,7 @@ def test_poll_usage_calls_recover_on_a_dead_token_and_at_the_5h_boundary(home: P
                   db.get_meta(con, "usage-fail:alpha") is None,
                   db.get_meta(con, "usage-fail:alpha"))
             check("poll+recover: the poll cursor moved on to the ordinary cadence",
-                  db.get_cursor(con, "usage-poll:alpha") >= int(time.time()) + dmn_states.USAGE_POLL_S - 1,
+                  db.get_cursor(con, "usage-poll:alpha") >= int(time.time()) + dmn_timing.USAGE_POLL_S - 1,
                   db.get_cursor(con, "usage-poll:alpha"))
             check("poll+recover: recover() records itself - daemon does not double-record",
                   recorded == [], recorded)
@@ -3036,7 +3036,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     # can parse - a call it cannot read left an unsorted kind passing at
     # 11/11 until this count was added.
     found, calls = [], 0
-    for f in Path(dmn_states.__file__).parent.parent.rglob("*.py"):
+    for f in Path(dmn_timing.__file__).parent.parent.rglob("*.py"):
         text = f.read_text()
         found += re.findall(r'add_event\s*\([^,()]+,[^,()]+,\s*"([a-zA-Z_]+)"', text)
         calls += len(re.findall(r'add_event\s*\(', text))
@@ -3356,7 +3356,7 @@ def test_a_usage_park_stays_parked_while_the_reading_is_at_the_wall(home: Path) 
         # Past MIN_HANDOFF_INTERVAL_S, so that guard cannot be what keeps a
         # re-fold from happening in the ticks below.
         con.execute("UPDATE handoff SET updated = ? WHERE agent = 'backend'",
-                    (int(time.time()) - 2 * dmn_states.MIN_HANDOFF_INTERVAL_S,))
+                    (int(time.time()) - 2 * dmn_timing.MIN_HANDOFF_INTERVAL_S,))
         db.set_agent_state(con, "backend", dmn_states.PARKED,
                            wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
         db.add_request(con, "reviewer", "backend", "look at this", None,
@@ -3404,7 +3404,7 @@ def test_a_weekly_park_stays_parked_while_the_week_is_full(home: Path) -> None:
         # Past MIN_HANDOFF_INTERVAL_S, so that guard cannot be what keeps a
         # re-fold from happening in the ticks below.
         con.execute("UPDATE handoff SET updated = ? WHERE agent = 'backend'",
-                    (int(time.time()) - 2 * dmn_states.MIN_HANDOFF_INTERVAL_S,))
+                    (int(time.time()) - 2 * dmn_timing.MIN_HANDOFF_INTERVAL_S,))
         db.set_agent_state(con, "backend", dmn_states.PARKED,
                            wake_at=int(time.time()) + 3600, detail="usage; wakes at 23:00")
         db.add_request(con, "reviewer", "backend", "look at this", None,
@@ -3596,7 +3596,7 @@ def test_a_park_against_an_assumed_account_gets_a_short_recheck(home: Path) -> N
               "4h-out rollover",
               row["state"] == dmn_states.PARKED
               and row["wake_at"] is not None
-              and row["wake_at"] < before + dmn_states.ASSUMED_ACCOUNT_RECHECK_S + 5,
+              and row["wake_at"] < before + dmn_timing.ASSUMED_ACCOUNT_RECHECK_S + 5,
               dict(row))
     finally:
         con.close()
@@ -3625,7 +3625,7 @@ def test_a_resumed_handoff_also_fails_closed_on_an_assumed_account(home: Path) -
               "not alpha's own 4h-out rollover",
               fresh["state"] == dmn_states.PARKED
               and fresh["wake_at"] is not None
-              and fresh["wake_at"] < before + dmn_states.ASSUMED_ACCOUNT_RECHECK_S + 5,
+              and fresh["wake_at"] < before + dmn_timing.ASSUMED_ACCOUNT_RECHECK_S + 5,
               dict(fresh))
     finally:
         con.close()
@@ -3673,11 +3673,11 @@ def test_starts_for_waiting_work_that_keep_failing_stall_the_agent(home: Path) -
         agents.register("marina", repo=str(home / "checkout"))
         db.add_request(con, "reviewer", "marina", "look at this", None, "peer", "async", None, 0, None)
 
-        for _ in range(dmn_states.MAX_FAILED_ATTEMPTS - 1):
+        for _ in range(dmn_timing.MAX_FAILED_ATTEMPTS - 1):
             dmn_lifecycle._start_for_work(con, "marina", lambda _m: None)
         row = db.get_agent_state(con, "marina")
         check("start stall: short of the limit it is still tried again",
-              row["state"] != dmn_states.STALLED and row["wake_failures"] == dmn_states.MAX_FAILED_ATTEMPTS - 1, dict(row))
+              row["state"] != dmn_states.STALLED and row["wake_failures"] == dmn_timing.MAX_FAILED_ATTEMPTS - 1, dict(row))
 
         dmn_lifecycle._start_for_work(con, "marina", lambda _m: None)
         row = db.get_agent_state(con, "marina")
@@ -3706,7 +3706,7 @@ def test_an_agent_latched_idle_before_the_stall_existed_stalls_with_its_reason(h
         spawnmod.spawn = lambda *a, **k: (calls.append(1), (False, "worktree create failed: invalid reference: main"))[1]
         agents.register("marina", repo=str(home / "checkout"))
         db.add_request(con, "reviewer", "marina", "look at this", None, "peer", "async", None, 0, None)
-        db.bump_counter(con, "marina", "wake_failures", dmn_states.MAX_FAILED_ATTEMPTS)
+        db.bump_counter(con, "marina", "wake_failures", dmn_timing.MAX_FAILED_ATTEMPTS)
 
         dmn_lifecycle._start_for_work(con, "marina", lambda _m: None)
         row = db.get_agent_state(con, "marina")
@@ -3720,7 +3720,7 @@ def test_an_agent_latched_idle_before_the_stall_existed_stalls_with_its_reason(h
         # An old latch whose cause is gone starts instead of stalling.
         agents.register("second", repo=str(home / "checkout"))
         db.add_request(con, "reviewer", "second", "look", None, "peer", "async", None, 0, None)
-        db.bump_counter(con, "second", "wake_failures", dmn_states.MAX_FAILED_ATTEMPTS)
+        db.bump_counter(con, "second", "wake_failures", dmn_timing.MAX_FAILED_ATTEMPTS)
         spawnmod.spawn = lambda agent, *a, **k: (db.set_terminal(con, agent, "term_new", None), (True, "spawned"))[1]
         dmn_lifecycle._start_for_work(con, "second", lambda _m: None)
         row = db.get_agent_state(con, "second")
@@ -4017,7 +4017,7 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         check("forced: a launch that fails on the destination is not a move", not ok, msg)
         check("forced: and it is parked for a short look, not until a 5h reset",
               row["wake_at"] is not None
-              and row["wake_at"] <= int(time.time()) + dmn_states.ASSUMED_ACCOUNT_RECHECK_S + 5,
+              and row["wake_at"] <= int(time.time()) + dmn_timing.ASSUMED_ACCOUNT_RECHECK_S + 5,
               str(dict(row)))
     finally:
         (termmod.available, termmod.alive, termmod.close_session, termmod.relaunch,
@@ -4239,7 +4239,7 @@ def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(ho
     # not this earlier probe.
     db.add_event(con, "keeper", "StopFailure", {"limit": "5h"})
     con.execute("UPDATE events SET ts = ? WHERE agent = 'keeper' AND kind = 'StopFailure'",
-                (int(time.time()) - dmn_states.LIMIT_SETTLE_S - 60,))
+                (int(time.time()) - dmn_timing.LIMIT_SETTLE_S - 60,))
     real = (termmod.available, termmod.alive, termmod.close_session, termmod.clear_context,
             termmod.idle_now, termmod.screen_blocker)
     try:
@@ -4260,7 +4260,7 @@ def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(ho
         check("dialog move: not moved - the account is still the one it started on",
               agents.current_account("keeper", con) == "alpha", agents.current_account("keeper", con))
         check("dialog move: but the recheck is short, not the walled account's own 3h reset",
-              row["wake_at"] < before + dmn_states.ASSUMED_ACCOUNT_RECHECK_S + 30,
+              row["wake_at"] < before + dmn_timing.ASSUMED_ACCOUNT_RECHECK_S + 30,
               f"wake_at={row['wake_at']} before={before}")
         check("dialog move: the dialog itself is tracked, for #996 to press",
               db.block_get(con, "keeper") is not None and
@@ -4277,7 +4277,7 @@ def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(ho
         dmn_handoff.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lambda _m: None)
         row2 = db.get_agent_state(con, "keeper")
         check("dialog move: with nowhere to go, still the long wait - the two are not confused",
-              row2["wake_at"] > before2 + dmn_states.ASSUMED_ACCOUNT_RECHECK_S + 30,
+              row2["wake_at"] > before2 + dmn_timing.ASSUMED_ACCOUNT_RECHECK_S + 30,
               f"wake_at={row2['wake_at']} before={before2}")
 
         # Contrast again: a destination exists, but Orca itself is down - that
@@ -4293,7 +4293,7 @@ def test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(ho
         dmn_handoff.perform_handoff(con, "keeper", triggers.evaluate(100, 10), lambda _m: None)
         row3 = db.get_agent_state(con, "keeper")
         check("dialog move: orca itself down is not 'about this terminal' either",
-              row3["wake_at"] > before3 + dmn_states.ASSUMED_ACCOUNT_RECHECK_S + 30,
+              row3["wake_at"] > before3 + dmn_timing.ASSUMED_ACCOUNT_RECHECK_S + 30,
               f"wake_at={row3['wake_at']} before={before3}")
     finally:
         (termmod.available, termmod.alive, termmod.close_session, termmod.clear_context,
@@ -5694,7 +5694,8 @@ def test_account_list_is_the_present_state_and_status_is_the_pick(home: Path) ->
     marks, the roster in the bridge's own words, no record of earlier turns.
     `status` is why the pick chose what it chose, and it carries the price of
     an agent that pick rests on."""
-    from handline.daemon import states as dmn_states
+    from handline.daemon import states as dmn_timing
+    from handline.session import states as dmn_states
     _daemon_home(home, 20)
     _with_accounts("alpha", "beta")
     agents.register("frontend", model="opus", effort="high")

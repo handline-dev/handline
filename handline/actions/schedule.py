@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import time
 
-from ..daemon import schedules
+from ..team import schedules
 from ..infra import cron
 from ..team import agents
 

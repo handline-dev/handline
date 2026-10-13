@@ -115,7 +115,8 @@ def _record(agent: str, event: str, raw: dict) -> None:
     """Hand the event to the daemon, which writes it down and decides what it means for the agent's state. With
     the daemon down it goes to the spool, which only records. A hook never fails its session over this."""
     try:
-        from ..daemon import client, spool
+        from ..daemon import spool
+        from ..infra import daemonclient as client
         request_id = uuid.uuid4().hex
         at = int(time.time())
         try:

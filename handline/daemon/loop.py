@@ -15,7 +15,8 @@ from ..infra import textsafe
 from ..session import observe as obs, triggers
 from ..team import ask as askmod
 
-from . import devmode, evaluate, fds, locks, messaging, prompts, reconciler, socket_server, spool
+from . import devmode, evaluate, fds, messaging, prompts, reconciler, socket_server, spool
+from ..infra import daemonlock
 
 
 # ---------------------------------------------------------------- loop
@@ -57,9 +58,9 @@ def run(once: bool = False, verbose: bool = True, max_ticks: int | None = None) 
     # The lock decides who supervises, and records who: a daemon started by
     # hand, or orphaned when launchd reloaded the job under it, is still a
     # second supervisor.
-    with lock.singleton(locks.DAEMON_LOCK) as only:
+    with lock.singleton(daemonlock.DAEMON_LOCK) as only:
         if not only:
-            other = locks.running_elsewhere()
+            other = daemonlock.running_elsewhere()
             named = f" (pid {other})" if other else ""
             # Through the same logger as every other startup line, and sharing
             # its "daemon starting" wording, so a launchd job that respawns

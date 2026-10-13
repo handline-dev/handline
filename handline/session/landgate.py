@@ -98,7 +98,7 @@ def authorize(agent: str, tool_name: object, tool_input: object) -> bool:
     key = sessiontoken.key_held(agent)
     if asked is None or key is None:
         return False
-    from ..daemon import client as dmn_client
+    from ..infra import daemonclient as dmn_client
     reply = dmn_client.send({"verb": "land_authorize", "agent": agent, "land_verb": asked[0], "sha": asked[1],
                              "key": key}, timeout=5)
     return bool(reply and reply.get("ok"))

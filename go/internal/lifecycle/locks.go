@@ -1,4 +1,4 @@
-// Package lifecycle is the Python daemon's session lifecycle: the single-instance hold (daemon/locks.py), the idle-close settings
+// Package lifecycle is the Python daemon's session lifecycle: the single-instance hold (infra/daemonlock.py), the idle-close settings
 // (session/idle_close.py), and starting, parking, waking and recovering sessions (daemon/lifecycle.py, reconciler.py, session/launch.py,
 // team/spawn.py, usage/recover.py). What it does not own it reaches through the small interfaces in ports.go; tests use fakes.
 package lifecycle

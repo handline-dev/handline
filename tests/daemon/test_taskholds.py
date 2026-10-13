@@ -13,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline import actions  # noqa: E402
-from handline.daemon import delivery, evaluate, lifecycle, locks, taskholds, taskqueue  # noqa: E402
+from handline.daemon import delivery, evaluate, lifecycle, taskholds, taskqueue  # noqa: E402
+from handline.infra import daemonlock
 
 
 REAL_PUSH = askmod.push
@@ -31,7 +32,7 @@ def _world(home: Path) -> None:
     termmod.live_terminals = lambda: {"term_w"}
     termmod.screen_blocker = lambda h: None
     termmod.typeable_now = lambda h: True
-    locks.running_elsewhere = lambda: 4242
+    daemonlock.running_elsewhere = lambda: 4242
     # task_new would type the task at once; these tests are about the ones not yet typed.
     askmod.push = lambda _con, agent, rid=None: ""
     con = db.connect()
@@ -309,7 +310,7 @@ def test_a_queued_task_never_reads_without_a_reason(home: Path) -> None:
         db.clear_meta(con, taskholds.PREFIX + str(t))
         line = taskholds.wait_line(con, row, "queued")
         check("unseen: before the daemon has looked, it says so", line is not None and "not looked at it yet" in line, str(line))
-        locks.running_elsewhere = lambda: None
+        daemonlock.running_elsewhere = lambda: None
         line = taskholds.wait_line(con, row, "queued")
         check("daemon down: nothing retries, and the line says so",
               line is not None and "daemon is not running" in line, str(line))

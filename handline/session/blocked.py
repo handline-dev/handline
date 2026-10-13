@@ -177,7 +177,8 @@ def classify(con, agent: str, row) -> tuple[str, str, str] | None:
     failures end in STALLED; and a permission prompt, which the hooks already
     put on the founder's list.
     """
-    from ..daemon import delivery as dmn_delivery, states as dmn_states
+    from ..daemon import delivery as dmn_delivery
+    from . import states as dmn_states
 
     if not row or row["closed_at"] or waiting.of(con, row):
         return None
@@ -425,7 +426,7 @@ def sweep(con, log, now: int | None = None) -> None:
 
 
 def _track(con, agent: str, row, now: int, log):
-    from ..daemon import states as dmn_states
+    from . import states as dmn_states
 
     rec = db.block_get(con, agent)
     work = work_waiting(con, agent, row, now)

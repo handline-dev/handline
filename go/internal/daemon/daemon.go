@@ -41,7 +41,7 @@ import (
 	"github.com/handline/handline/go/internal/weblogin"
 )
 
-// daemonLock is the name of the singleton the Python daemon also holds (handline/daemon/locks.py DAEMON_LOCK).
+// daemonLock is the name of the singleton the Python daemon also holds (handline/infra/daemonlock.py DAEMON_LOCK).
 const daemonLock = "daemon"
 
 // structuredLock is the singleton of the process that runs the structured sessions of a home. The agent lock that keeps a session to one
