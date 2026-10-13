@@ -106,6 +106,37 @@ func TestAReplyToTheFoundersRequestMustSayWhatItBecomes(t *testing.T) {
 	}
 }
 
+func TestAReplyWithATaskLandsInItsThreadNotAsAMemo(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("alice")
+	said := r.say(SayVerbIn{Requester: "human", Target: "alice", Body: "why a memo?"}) // the founder in chat
+	if !said.OK {
+		t.Fatalf("%+v", said)
+	}
+	r.DB.Exec("UPDATE requests SET state = 'landed' WHERE id = 1") // read, as a chat message is
+	tid := r.newTask("human", "bob", "decide")                         // the founder's, opened by someone else
+	out := r.say(SayVerbIn{Requester: "alice", Target: "human", Body: "here is why", Parent: 1, Task: tid})
+	if !out.OK || strings.Contains(out.Msg, "memo") {
+		t.Fatalf("%+v", out)
+	}
+	if m, _ := db.GetMemo(r.DB, 1); m != nil {
+		t.Fatalf("the reply became a memo: %+v", m)
+	}
+	var rid int64
+	r.DB.QueryRow("SELECT id FROM requests WHERE requester = 'alice' AND target = 'human' AND parent_id = 1").Scan(&rid)
+	if rid == 0 {
+		t.Fatal("no reply in the thread of #1")
+	}
+	links, _ := db.TaskRequests(r.DB, tid)
+	found := false
+	for _, l := range links {
+		found = found || l.ID == rid
+	}
+	if !found {
+		t.Fatalf("the reply #%d is not linked to T%d: %+v", rid, tid, links)
+	}
+}
+
 func TestANoTaskReplyRecordsWhy(t *testing.T) {
 	r := newRig(t)
 	ask := r.ask("human", "alice", "what is 2+2?", "")

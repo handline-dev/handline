@@ -370,6 +370,28 @@ def test_a_reply_to_a_say_is_a_say_in_its_own_thread(home: Path) -> None:
         con.close()
 
 
+def test_a_reply_naming_a_task_lands_in_its_thread_not_as_a_memo(home: Path) -> None:
+    """A say with --parent is a reply, also when --task names a task held by the one it answers: it goes
+    to that thread, linked to the task, and is no memo."""
+    _say_world(home)
+    rc, out = _plain_say_to_worker("why a memo?")
+    rid = int(out.split("queued as #", 1)[1].split()[0])
+    ok, msg, tid = actions.task_new("worker", "manager", "decide", "the manager's choice")
+    check("reply+task: setup", rc == 0 and ok, f"{out} {msg}")
+    if not ok:
+        return
+    rc, out = _cli(["say", "manager", "here is why", "--parent", str(rid), "--task", f"T{tid}"], as_agent="worker")
+    check("reply+task: queued as a message, not a memo", rc == 0 and "queued as #" in out and "memo" not in out, out)
+    con = db.connect()
+    try:
+        reply_rid = int(out.split("queued as #", 1)[1].split()[0])
+        check("reply+task: in the thread it answers", db.get_request(con, reply_rid)["parent_id"] == rid)
+        check("reply+task: linked to the task", any(r["id"] == reply_rid for r in db.task_requests(con, tid)))
+        check("reply+task: no memo", not db.task_memos(con, tid))
+    finally:
+        con.close()
+
+
 def test_only_the_says_own_target_can_close_it_by_replying(home: Path) -> None:
     """Only the say's own target's reply closes it - naming its id as --parent from anywhere else must not."""
     _say_world(home)
@@ -732,6 +754,7 @@ def main() -> int:
         run(lambda: test_a_reply_to_the_founder_says_what_it_becomes_and_the_tail_says_how(Path(td) / 'sayfounder'))
         run(lambda: test_a_reply_never_settles_a_task_and_the_founder_guard_follows_the_target(Path(td) / 'saytask'))
         run(lambda: test_a_reply_to_a_say_is_a_say_in_its_own_thread(Path(td) / 'sayreply'))
+        run(lambda: test_a_reply_naming_a_task_lands_in_its_thread_not_as_a_memo(Path(td) / 'sayreplytask'))
         run(lambda: test_a_reply_that_answers_is_told_once_and_still_typed(Path(td) / 'told'))
         run(lambda: test_only_the_says_own_target_can_close_it_by_replying(
             Path(td) / 'sayclosetarget'))

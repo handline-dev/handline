@@ -231,8 +231,9 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 		if row == nil {
 			return fail(fmt.Sprintf("no task T%d. Try:\n  %s", task, e.workingSay(q, me, target, body, in.Parent, 0)))
 		}
-		if target == db.Human && row.OpenedBy == me {
-			// A reply to the founder naming the task it became: it is theirs to read, not a memo, and the task is named whoever holds it now.
+		if in.Parent != 0 || (target == db.Human && row.OpenedBy == me) {
+			// A reply lands in the thread it answers, and a say to the founder naming the task it became is theirs to read: a message linked
+			// to the task, not a memo, whoever holds the task now.
 			within := func(c db.Q, note string, rid int64) error {
 				if err := db.LinkRequest(c, task, rid); err != nil {
 					return err
