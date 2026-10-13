@@ -210,4 +210,4 @@ Read on main `887d63d4`; §4.1 is the status. All of §8 and §9.3 is built. Eac
 
 Order: the three are independent (Z1 touches chat, Z3 the terminal tab and agent menu, Z2 the phone), so they run in parallel. Z1's phone half (Reply on the phone) follows once the fake has it; it is not proposed here so mobile-build does not wait.
 
-Not proposed, and why: **image attach on the phone** (needs a new native package, a rebuilt dev client: the founder's call); **the Go `parent_item`** and **`go/conformance-missing.txt`** (daemon team; raised with the lead); **session causes** `context_full`, `crash_recovery` and `idle_close` (the Go daemon does not write them yet; T3539).
+Not proposed, and why: **image attach on the phone** (needs a new native package, a rebuilt dev client: the founder's call); **the Go `parent_item`** and **`go/conformance-missing.txt`** (daemon team; raised with the lead); **session causes** `context_full`, `crash_recovery` and `idle_close` (the Go daemon does not write them yet).
