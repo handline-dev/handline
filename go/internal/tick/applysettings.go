@@ -119,7 +119,7 @@ func (a *ApplySettings) apply(t *Tick, agent string) {
 	if st.SessionID == "" {
 		return
 	}
-	ok, said := t.Lifecycle.RestartAgent(t.Q, agent, st, SettingsWho, names, "settings")
+	ok, said := t.Lifecycle.RestartAgent(t.Q, agent, st, SettingsWho, names, "settings_applied")
 	if ok {
 		check(db.SetMeta(t.Q, SettingsApplied+agent, text))
 		t.logf("  %s: restarted to apply changed settings (%s)", agent, strings.Join(names, ", "))

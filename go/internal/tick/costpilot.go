@@ -23,7 +23,7 @@ import (
 // renewal count is read back from the events.
 const (
 	RenewalKey = "cache_renewal"
-	FoldKey    = "idle_fold"
+	FoldKey    = states.FoldKind
 	// FreshKey (fresh_after_task: true) starts a new session after each finished task: the context handoff, once the agent holds no
 	// other task. Off until an agent's own agent.yaml turns it on; the auditors, whose every review is a fresh look, are who it is for.
 	FreshKey = "fresh_after_task"

@@ -15,13 +15,15 @@ const (
 	chatTouched = "stream:chat_touched"
 	chatEvents  = "stream:chat_events"
 	chatPrompts = "stream:chat_prompts"
+	chatStarts  = "stream:chat_sessions" // Go's alone: the Python watcher does not tell session items
 )
 
 const chatTouchedNewest = "SELECT COALESCE(MAX(m), 0) FROM (SELECT MAX(COALESCE(state_at, ts)) AS m FROM requests WHERE settles IS NULL " +
 	"UNION ALL SELECT MAX(ts) FROM requests WHERE settles IS NOT NULL)"
 
 // Chat is the chat topic: a request of a chat that appeared or changed (chat.message, with the replies its chat shows as chat.transcript),
-// a prompt an agent opened or closed and a task event of a task it owns (chat.transcript), and an agent's working state (chat.working).
+// a prompt an agent opened or closed, a task event of a task it owns and a conversation it began (chat.transcript), and an agent's working
+// state (chat.working).
 // Each is said once, to the chat of every agent it belongs to, and its data is what the chat reads return (reads.ChatRequest and the
 // other builders). The first look says nothing, and neither does a restart: the requests touched in the second the cursor is at are
 // taken as seen.
@@ -30,6 +32,7 @@ type Chat struct {
 	done    map[int64]string // request -> the message as last said, for the ones touched in the second the cursor is at
 	open    map[int64]bool   // the prompts told open and not yet told closed
 	working map[string]string
+	unbound map[int64]bool // the fresh session starts whose session id was not known at the last look
 }
 
 func (*Chat) Name() string { return "chat" }
@@ -54,6 +57,9 @@ func (c *Chat) Scan(q *sql.DB, emit Emit) error {
 		return err
 	}
 	if err := c.prompts(q, emit); err != nil {
+		return err
+	}
+	if err := c.sessions(q, emit); err != nil {
 		return err
 	}
 	return c.workingStates(q, emit)
@@ -207,6 +213,59 @@ func (c *Chat) prompts(q *sql.DB, emit Emit) error {
 		}
 	}
 	return nil
+}
+
+// sessions tells a session start once its session id is known: a structured start has it when it is written, a terminal launch when its
+// first SessionStart hook binds it, within the bind window.
+func (c *Chat) sessions(q *sql.DB, emit Emit) error {
+	shown, err := Prime(q, chatStarts, "SELECT COALESCE(MAX(id), 0) FROM session_starts")
+	if err != nil {
+		return err
+	}
+	waiting, err := ids(q, "SELECT id FROM session_starts WHERE resumed = 0 AND session_id IS NULL AND ts >= ?", db.Now()-db.BindWindowS)
+	if err != nil {
+		return err
+	}
+	now := map[int64]bool{}
+	for _, id := range waiting {
+		now[id] = true
+	}
+	var bound []int64
+	for id := range c.unbound {
+		if !now[id] {
+			bound = append(bound, id)
+		}
+	}
+	slices.Sort(bound)
+	for _, id := range bound {
+		if err := c.sayStart(emit, id); err != nil {
+			return err
+		}
+	}
+	c.unbound = now
+	fresh, err := ids(q, "SELECT id FROM session_starts WHERE id > ? ORDER BY id", shown)
+	if err != nil {
+		return err
+	}
+	for _, id := range fresh {
+		if !now[id] { // one still unbound is told when it leaves c.unbound
+			if err := c.sayStart(emit, id); err != nil {
+				return err
+			}
+		}
+		if err := db.SetCursor(q, chatStarts, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Chat) sayStart(emit Emit, id int64) error {
+	item, agent, ok, err := c.Reads.SessionItem(id)
+	if err != nil || !ok {
+		return err
+	}
+	return c.say(emit, "chat.transcript", agent, item)
 }
 
 func (c *Chat) workingStates(q *sql.DB, emit Emit) error {

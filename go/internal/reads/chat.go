@@ -2,6 +2,7 @@ package reads
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -573,21 +574,39 @@ func (c *chat) sessions(agent string, rs []row) ([]map[string]any, error) {
 			since = w
 		}
 	}
-	starts, err := query(c.e.DB, "SELECT ts, cause, resumed, text FROM session_starts WHERE agent = ? ORDER BY id", agent)
+	starts, err := freshStarts(c.e.DB, "agent = ?", agent)
 	if err != nil {
 		return nil, err
 	}
 	var out []map[string]any
 	for _, s := range starts {
-		if s.i("ts") >= since && s.i("resumed") == 0 {
-			var handoff any
-			if t := s.str("text"); t != "" {
-				handoff = t
-			}
-			out = append(out, map[string]any{"type": "session", "at": ts(s["ts"]), "cause": s.str("cause"), "handoff": handoff, "_ts": s.i("ts")})
+		if s.i("ts") >= since {
+			out = append(out, map[string]any{"type": "session", "at": ts(s["ts"]), "cause": s.str("cause"), "handoff": handoffOf(s), "_ts": s.i("ts")})
 		}
 	}
 	return out, nil
+}
+
+// freshStarts are the session starts that began a conversation (not a resume) of the session_starts rows where says, oldest first.
+func freshStarts(db *sql.DB, where string, args ...any) ([]row, error) {
+	return query(db, "SELECT id, agent, ts, session_id, cause, text FROM session_starts WHERE resumed = 0 AND "+where+" ORDER BY id", args...)
+}
+
+// handoffOf is the text a session start was given, null for none.
+func handoffOf(s row) any {
+	if t := s.str("text"); t != "" {
+		return t
+	}
+	return nil
+}
+
+// sessionItemOf is a session start as a transcript item; false until its session id is known.
+func sessionItemOf(s row) (map[string]any, bool) {
+	if !s.set("session_id") {
+		return nil, false
+	}
+	return map[string]any{"id": itemID(s.i("ts"), transcript.ItemSession, s.i("id")), "at": ts(s["ts"]), "kind": "session",
+		"session": map[string]any{"id": s.str("session_id"), "started": ts(s["ts"]), "handoff": handoffOf(s), "cause": s.str("cause")}}, true
 }
 
 // chatVersion is one string that changes whenever something in the chat does.
@@ -1014,6 +1033,15 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	for _, b := range blocks {
 		items = append(items, promptItemOf(agent, b))
+	}
+	starts, err := freshStarts(e.DB, "agent = ?", agent)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range starts {
+		if item, ok := sessionItemOf(s); ok {
+			items = append(items, item)
+		}
 	}
 	kinds := make([]string, 0, len(transcriptEvents))
 	for k := range transcriptEvents {

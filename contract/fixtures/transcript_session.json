@@ -1,0 +1,59 @@
+{
+ "fixtures": [
+  {
+   "name": "chat.transcript.a_session_start_is_an_item_with_its_cause",
+   "spec": "chat.transcript",
+   "about": "NOT_YET_IN_PYTHON A session that began a conversation is a kind session item with cause and handoff (needs --var session_agent: an agent that has been started at least once with no resume).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.transcript",
+      "params": {
+       "agent": "{{session_agent}}"
+      }
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "kind": "session",
+        "id": {
+         "$type": "integer"
+        },
+        "session": {
+         "id": {
+          "$type": "string"
+         },
+         "started": {
+          "$type": "timestamp"
+         },
+         "handoff": {
+          "$any": true
+         },
+         "cause": {
+          "$type": "string"
+         }
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

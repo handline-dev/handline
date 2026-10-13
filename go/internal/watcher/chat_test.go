@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/stream"
@@ -157,6 +158,31 @@ func TestAPromptIsToldWhenItOpensAndOnceMoreWhenItCloses(t *testing.T) {
 	}
 	if open[0] != true || open[1] != false || open[2] != false {
 		t.Fatalf("%v", open)
+	}
+}
+
+func TestAConversationIsToldOnceWhenItsSessionIdIsKnown(t *testing.T) {
+	r := newChatRig(t)
+	now := time.Now().Unix()
+	ins := "INSERT INTO session_starts(agent, ts, session_id, cause, resumed, text, prompt) VALUES(?, ?, ?, ?, ?, '', '')"
+	exec(t, r.d, ins, "amy", now, nil, "launch", 0) // written before the daemon, bound after it: told when it is bound
+	c := r.chat()
+	r.scan(c)
+	exec(t, r.d, ins, "bob", now, "s1", "wake", 0)      // a structured start knows its session at once
+	exec(t, r.d, ins, "bob", now, "s1", "wake", 1)      // a resume begins nothing
+	exec(t, r.d, ins, "cat", now, nil, "start", 0)      // a terminal launch waits for its hook
+	exec(t, r.d, ins, "dan", now-3600, nil, "start", 0) // past the bind window: never bound
+	r.scan(c)
+	wantTypes(t, r.types(), "chat.transcript:bob")
+	exec(t, r.d, "UPDATE session_starts SET session_id = 's2' WHERE agent = 'cat'")
+	exec(t, r.d, "UPDATE session_starts SET session_id = 's3' WHERE agent = 'amy'")
+	r.scan(c)
+	r.scan(c)
+	wantTypes(t, r.types(), "chat.transcript:bob", "chat.transcript:amy", "chat.transcript:cat")
+	var it map[string]any
+	json.Unmarshal(r.rows()[2].Data, &it)
+	if it["kind"] != "session" || it["session"].(map[string]any)["id"] != "s2" || it["session"].(map[string]any)["cause"] != "start" {
+		t.Fatalf("%v", it)
 	}
 }
 
