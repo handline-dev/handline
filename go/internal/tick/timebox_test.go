@@ -173,6 +173,52 @@ func TestATaskThatStopsBeingDoneHasItsClockPausedAndANoticeThatCannotBeSentIsRet
 	}
 }
 
+func TestAWaitingTaskStopsItsClockAndResumesWithTheTimeItHadLeft(t *testing.T) {
+	tk, _, b, p := timebox(t)
+	tid := newTask(t, tk, "a", "boss", 100)
+	blocker := newTask(t, tk, "c", "boss", 0)
+	p.doing[tid] = true
+	b.SweepTaskTimeouts(tk, 1000)
+	if err := db.AddBlock(tk.Q, tid, blocker); err != nil {
+		t.Fatal(err)
+	}
+	b.SweepTaskTimeouts(tk, 1040)
+	b.SweepTaskTimeouts(tk, 1500) // past the first deadline, 1100
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Valid || len(p.sent) != 0 {
+		t.Fatalf("a blocked task's clock ran: %+v %v", task, p.sent)
+	}
+	if _, err := db.RemoveBlock(tk.Q, tid, blocker); err != nil {
+		t.Fatal(err)
+	}
+	b.SweepTaskTimeouts(tk, 1500)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 1100+460 {
+		t.Fatalf("the deadline did not move by the 460s blocked: %+v", task)
+	}
+	b.SweepTaskTimeouts(tk, 1559)
+	if len(p.sent) != 0 {
+		t.Fatalf("told before the moved deadline: %v", p.sent)
+	}
+	b.SweepTaskTimeouts(tk, 1560)
+	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "boss: T") {
+		t.Fatalf("the opener is told at the moved deadline: %v", p.sent)
+	}
+
+	// an open child of its own stops it the same way, and a full stretch is re-armed after the notice
+	child, err := db.NewTask(tk.Q, "part", "c", "a", tid, db.DefaultPriority, "report", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.SweepTaskTimeouts(tk, 1600) // re-armed to 1660 at 1560: 60 left
+	b.SweepTaskTimeouts(tk, 9000)
+	if _, err := tk.Q.Exec("UPDATE tasks SET done_evidence = 'x' WHERE id = ?", child); err != nil {
+		t.Fatal(err)
+	}
+	b.SweepTaskTimeouts(tk, 9000)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 9060 || len(p.sent) != 1 {
+		t.Fatalf("a task waiting on its child resumes with what it had left: %+v %v", task, p.sent)
+	}
+}
+
 func TestATaskOpenedByTheFounderIsToldAsAnEventAndNothingIsSent(t *testing.T) {
 	tk, _, b, p := timebox(t)
 	tid := newTask(t, tk, "a", db.Human, 100)

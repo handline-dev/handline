@@ -90,9 +90,6 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if err != nil {
 			return nil, err
 		}
-		if secs == 0 {
-			return nil, badParam("time_box is required", "time_box")
-		}
 		if owner != human && !contains(paths.ListAgents(home), owner) {
 			return nil, agentNotFound(owner)
 		}
