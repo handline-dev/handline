@@ -1,9 +1,10 @@
 // One line of the conversation: the person's and the agent's messages with how far each got, and the transcript's tool, prompt, task and
 // session lines as small cards. What a line is and where it stands is an icon with its words as the tooltip; a click on a message picks it
 // to reply to (the reference the composer shows).
-import { useState, type MouseEvent } from 'react';
+import { useState, type MouseEvent, type ReactNode } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
-import { landingLabel, openTask, sendNote, sessionLine, sideOf, taskRow } from '@handline/app-core';
+import { landingLabel, openTask, sendNote, sessionLine, sideOf, taskRow, tickLevel } from '@handline/app-core';
 import { useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
@@ -65,6 +66,51 @@ const receiptOf = (state: string) => RECEIPT[state] ?? RECEIPT.sent!;
 
 const snippet = (body: string) => (body.length > 80 ? `${body.slice(0, 80)}…` : body);
 
+const tickLabel = (m: ChatMessage) =>
+  m.receipt
+    ? receiptOf(m.receipt.state).label
+    : m.sending_reason
+      ? `${landingLabel(m.landing)}: ${m.sending_reason}`
+      : landingLabel(m.landing);
+
+/** Two ticks: both grey while unsent, one coloured once sent, both coloured once read. */
+function Ticks({ level, label, receipt }: { level: 0 | 1 | 2; label: string; receipt?: string }) {
+  return (
+    <span
+      className="landing receipt inline-flex items-center"
+      data-ticks={level}
+      data-receipt={receipt}
+      title={label}
+      role="img"
+      aria-label={label}
+    >
+      <Icon name="delivered" size={13} className={level >= 1 ? 'text-ok' : 'text-ink-3'} aria-hidden />
+      <Icon name="delivered" size={13} className={`-ml-[7px] ${level >= 2 ? 'text-ok' : 'text-ink-3'}`} aria-hidden />
+    </span>
+  );
+}
+
+/** Folds its children away, height auto to 0, when `show` turns false (at once under reduced motion). */
+function Fold({ show, children }: { show: boolean; children: ReactNode }) {
+  const reduced = useReducedMotion();
+  if (reduced) return show ? <>{children}</> : null;
+  return (
+    <AnimatePresence initial={false}>
+      {show ? (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: 'auto', opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
+          style={{ overflow: 'clip' }}
+        >
+          {children}
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
 export function Message(props: {
   m: ChatMessage;
   agent: string;
@@ -116,7 +162,6 @@ export function Message(props: {
             onClick={() => jumpTo(m.parent!)}
           >
             <Icon name="reference" size={12} label={`Reply to #${m.parent}`} className="shrink-0" />
-            <span className="mono shrink-0">#{m.parent}</span>
             {parent ? <span className="min-w-0 truncate">{parent.body.replace(/\s+/g, ' ')}</span> : null}
           </button>
         ) : null}
@@ -135,11 +180,11 @@ export function Message(props: {
           </div>
         ) : null}
         {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
-        {note ? (
+        <Fold show={!!note}>
           <div className={`${MSG_META} state-note`} role="status">
             {note}
           </div>
-        ) : null}
+        </Fold>
         {m.receipt?.state === 'unknown' ? (
           <div className={MSG_FAILED} role="note">
             <Icon name="maybeRan" size={13} /> This message may or may not have run. It is not sent again; send it again yourself if it
@@ -175,19 +220,10 @@ export function Message(props: {
       </div>
       {/* The stamp hangs in the gutter beside the bubble, out of the flow: an agent's to its right, the person's to its left — the bubble never resizes for it. */}
       <div
-        className={`${MSG_META} absolute bottom-0 hidden items-center whitespace-nowrap gap-1.5 text-ink-3 peer-hover:flex peer-aria-current:flex ${
+        className={`${MSG_META} absolute bottom-0 hidden items-center justify-end whitespace-nowrap gap-1.5 text-ink-3 peer-hover:flex peer-aria-current:flex ${
           side === 'agent' ? 'left-full ml-1.5' : 'right-full mr-1.5'
         }`}
       >
-        {side === 'person' && !failed && m.receipt ? (
-          <span className="landing receipt" data-receipt={m.receipt.state} title={receiptOf(m.receipt.state).label}>
-            <Icon name={receiptOf(m.receipt.state).icon} size={13} label={receiptOf(m.receipt.state).label} />
-          </span>
-        ) : side === 'person' && !failed ? (
-          <span className="landing" title={m.sending_reason ? `${landingLabel(m.landing)}: ${m.sending_reason}` : landingLabel(m.landing)}>
-            <Icon name={landingIcon(m.landing)} size={13} label={landingLabel(m.landing)} />
-          </span>
-        ) : null}
         {m.tasks.map((t) => (
           <a
             key={t.id}
@@ -199,8 +235,8 @@ export function Message(props: {
             <Icon name="tasks" size={12} label={`Task ${t.id}: ${t.title}`} />T{t.id}
           </a>
         ))}
-        {!unnumbered ? <span className="mono">#{m.id}</span> : null}
         <span>{clock(m.at)}</span>
+        {side === 'person' && !failed ? <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} /> : null}
       </div>
     </>
   );
@@ -313,19 +349,41 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
 }
 
 /** A transcript line that is not a message: a reply, tool, prompt, session or task line. */
-export function Item({ i, titles, onReply }: { i: TranscriptItem; titles?: Map<number, string>; onReply?: (i: TranscriptItem) => void }) {
+export function Item({
+  i,
+  titles,
+  onReply,
+  picked,
+}: {
+  i: TranscriptItem;
+  titles?: Map<number, string>;
+  onReply?: (i: TranscriptItem) => void;
+  /** The reply is being written to this item. */
+  picked?: boolean;
+}) {
   if (i.kind === 'reply')
     return (
-      <div className={bubbleClass('agent')} data-kind="reply" data-id={i.id} title={full(i.at)}>
-        <div className={MSG_BODY}>
-          <RichText text={i.text ?? ''} />
+      <>
+        <div
+          className={bubbleClass('agent', { picked, pickable: !!onReply })}
+          data-kind="reply"
+          data-id={i.id}
+          title={full(i.at)}
+          aria-current={picked ? 'true' : undefined}
+          onClick={(e) => {
+            if (onReply && !(e.target as HTMLElement).closest('button, a, input, textarea, form')) onReply(i);
+          }}
+        >
+          <div className={MSG_BODY}>
+            <RichText text={i.text ?? ''} />
+          </div>
         </div>
-        {onReply ? (
-          <button className="icon mt-1" aria-label="Reply to this" title="Reply to this" onClick={() => onReply(i)}>
-            <Icon name="reference" size={14} label="Reply to this" />
-          </button>
-        ) : null}
-      </div>
+        <div
+          className={`${MSG_META} absolute bottom-0 left-full ml-1.5 hidden items-center justify-end whitespace-nowrap gap-1.5 text-ink-3 peer-hover:flex peer-aria-current:flex`}
+        >
+          <span>{clock(i.at)}</span>
+        </div>
+      </>
     );
   if (i.kind === 'tool') return <ToolLine i={i} />;
   if (i.kind === 'prompt') {

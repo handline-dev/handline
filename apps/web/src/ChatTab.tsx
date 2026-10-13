@@ -1,6 +1,7 @@
 // Chat tab: the conversation with the agent. The person's messages show how far they got (sending, delivered, not answered...), the agent's
 // replies, tool lines and task events follow in time, and a question from the agent can be answered or dismissed here.
 // A daemon that does not serve chat gets an empty state; the permission card shows either way.
+import { motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
@@ -25,7 +26,7 @@ import { Compose } from './ChatCompose.tsx';
 import { Item, Message, TaskNote, jumpTo } from './ChatMessages.tsx';
 import { ChatBanner, ChatStrip, HrCards } from './ChatCards.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
-import { Button, Empty, Icon, Segmented, State, Textarea, ComposeRow } from './ui/index.ts';
+import { Button, Empty, Icon, Segmented, Textarea, ComposeRow } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import { useWorkspace } from './Workspace.tsx';
 
@@ -67,6 +68,26 @@ function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
 }
 
 const CHAT = 'chat relative flex min-h-0 min-w-0 flex-col border-r border-line [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]';
+
+/** The agent is writing: three dots that rise in turn, with what it is doing beside them. */
+function Typing({ line }: { line: string }) {
+  const reduced = useReducedMotion();
+  return (
+    <div className="line working flex items-center gap-2 text-[12px] text-working" role="status" title={line}>
+      <span className="inline-flex items-center gap-[3px]" aria-hidden="true">
+        {[0, 1, 2].map((n) => (
+          <motion.span
+            key={n}
+            className="block size-[5px] rounded-full bg-current"
+            animate={reduced ? undefined : { y: [0, -3, 0], opacity: [0.4, 1, 0.4] }}
+            transition={{ duration: 0.9, repeat: Infinity, delay: n * 0.15, ease: 'easeInOut' }}
+          />
+        ))}
+      </span>
+      <span>{line}</span>
+    </div>
+  );
+}
 
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const { storage } = useWorkspace();
@@ -241,7 +262,12 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 ) : e.kind === 'note' ? (
                   <TaskNote m={e.message} task={e.task} titles={titles} />
                 ) : (
-                  <Item i={e.item} titles={titles} onReply={canSend && canReplyItem ? pickItem : undefined} />
+                  <Item
+                    i={e.item}
+                    titles={titles}
+                    onReply={canSend && canReplyItem ? pickItem : undefined}
+                    picked={pickedItem?.id === e.item.id}
+                  />
                 )}
               </AnimatedItem>
             );
@@ -261,16 +287,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           })}
         </AnimatedList>
         <HrCards agent={agent} />
-        {chat.working.turn_running ? (
-          <div
-            className="line working flex items-center gap-1.5 self-start text-[12px] text-working"
-            role="status"
-            title={chat.working.line ?? 'Working'}
-          >
-            <State kind="working" size={14} label={chat.working.line ?? 'Working'} />
-            <span>{chat.working.line ?? 'Working'}…</span>
-          </div>
-        ) : null}
+        {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
+        <div className="working-slot flex h-6 flex-none items-center self-start">
+          {chat.working.turn_running ? <Typing line={chat.working.line ?? 'Working'} /> : null}
+        </div>
       </div>
       {newer ? (
         <button

@@ -61,7 +61,14 @@ export function sendNote(m: ChatMessage, behind: number): string | null {
   if (m.id < 0) return 'Sending…';
   if (waiting(m)) return behind ? `Waiting behind ${behind}` : 'Queued';
   if (m.receipt) return m.receipt.state === 'sent' ? 'Sent, not confirmed yet' : null;
-  return m.landing === 'typed' ? 'Typed, not read yet' : null;
+  return null;
+}
+
+/** How far the person's own message got, for the two ticks: 0 not sent yet, 1 sent and not read, 2 read. */
+export function tickLevel(m: ChatMessage): 0 | 1 | 2 {
+  if (m.id < 0 || waiting(m)) return 0;
+  if (m.receipt) return m.receipt.state === 'confirmed' ? 2 : 1;
+  return m.landing === 'typed' ? 1 : 2;
 }
 
 const LABELS: Record<string, string> = {

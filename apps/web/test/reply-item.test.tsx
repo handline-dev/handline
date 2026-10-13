@@ -65,18 +65,15 @@ const stored = (t: ReturnType<typeof setup>, body: string) =>
   (
     t.daemon.chat as unknown as { messages: { body: string; parent: number | null; parent_item?: { id: number; text: string } }[] }
   ).messages.find((m) => m.body === body);
-const replyButton = () =>
-  $$('[data-kind="reply"]')
-    .find((r) => text(r).includes('I would cut the third gap.'))
-    ?.querySelector<HTMLElement>('button[aria-label="Reply to this"]');
+const replyBubble = () => $$('[data-kind="reply"]').find((r) => text(r).includes('I would cut the third gap.'));
 
 describe('replying to an agent reply', () => {
   it('Reply sets the quote chip, Enter sends the item id once, and the sent bubble draws the quote', async () => {
     const t = setup();
     ask(t);
     await mount(ARCH, t);
-    await until(() => replyButton(), 'the reply control');
-    await click(replyButton()!);
+    await until(() => replyBubble(), 'the reply bubble');
+    await click(replyBubble()!);
     expect(text($('.compose-ref'))).toContain('I would cut the third gap.');
     await typeInto(compose(), 'why that one');
     await press(compose(), 'Enter');
@@ -93,11 +90,11 @@ describe('replying to an agent reply', () => {
     const t = setup();
     ask(t);
     await mount(ARCH, t);
-    await until(() => replyButton(), 'the reply control');
-    await click(replyButton()!);
+    await until(() => replyBubble(), 'the reply bubble');
+    await click(replyBubble()!);
     await press(compose(), 'Escape');
     expect($('.compose-ref')).toBeNull();
-    await click(replyButton()!);
+    await click(replyBubble()!);
     await click(msg('Which gap list')!);
     expect(text($('.compose-ref'))).toContain('Replying to #');
     await typeInto(compose(), 'both?');
@@ -106,11 +103,12 @@ describe('replying to an agent reply', () => {
     expect(stored(t, 'both?')!.parent_item).toBeUndefined();
   });
 
-  it('has no Reply control when the daemon serves no transcript', async () => {
+  it('cannot pick a reply to the agent text when the daemon serves no transcript', async () => {
     const t = setup({ daemon: { transcript: false } });
     ask(t);
     await mount(ARCH, t);
     await until(() => msg('Which gap list'), 'history');
-    expect(replyButton()).toBeFalsy();
+    await click(replyBubble()!);
+    expect($('.compose-ref')).toBeNull();
   });
 });
