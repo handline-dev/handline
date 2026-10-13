@@ -95,19 +95,28 @@ export function useChatActions(agent: string) {
       .flatMap(([, d]) => d?.pages.flatMap((p) => p.messages) ?? [])
       .find((m) => m.id === id && m.state === 'failed');
   /** One operation id per message; a retry of a failed row sends the row's own. */
-  const post = (to: string, body: string, parent: number | null, op = newOperationId(), delivery?: Delivery, attachments: string[] = []) =>
+  const post = (
+    to: string,
+    body: string,
+    parent: number | null,
+    op = newOperationId(),
+    delivery?: Delivery,
+    attachments: string[] = [],
+    parentItem?: number,
+  ) =>
     send.mutate({
       agent: to,
       body,
       ...(parent != null ? { parent } : {}),
+      ...(parentItem != null ? { parent_item: parentItem } : {}),
       ...(attachments.length ? { attachments } : {}),
       ...(delivery ? { delivery } : {}),
       request_id: op,
     });
   return {
-    /** `parent` makes it a reply to that message; `to` is the agent it goes to when that is not this chat's (a reply in the All tab). */
-    send: (body: string, opts?: { parent?: number; to?: string; delivery?: Delivery; attachments?: string[] }) =>
-      post(opts?.to ?? agent, body, opts?.parent ?? null, undefined, opts?.delivery, opts?.attachments),
+    /** `parent` replies to a message, `parent_item` to one of the agent's own replies; `to` is another agent's chat. */
+    send: (body: string, opts?: { parent?: number; parent_item?: number; to?: string; delivery?: Delivery; attachments?: string[] }) =>
+      post(opts?.to ?? agent, body, opts?.parent ?? null, undefined, opts?.delivery, opts?.attachments, opts?.parent_item),
     retry: (id: number) => {
       const m = failed(id);
       if (!m) return;
@@ -121,6 +130,7 @@ export function useChatActions(agent: string) {
         was?.op,
         was?.delivery,
         m.attachments?.map((a) => a.id),
+        m.parent_item?.id,
       );
     },
     discard: (id: number) => {
