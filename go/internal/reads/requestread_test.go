@@ -121,6 +121,29 @@ func TestOnlyTheFounderReadingARequestOpensIt(t *testing.T) {
 	}
 }
 
+func TestAWaitThatEndsUnsettledOpensNothing(t *testing.T) {
+	e := testEnv(t)
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(1, 1, 'bob', 'human', 'which one?', 'queued', 'ask', 1)")
+	isRead := func() bool {
+		r, err := queryOne(e.DB, "SELECT read_at FROM requests WHERE id = 1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.set("read_at")
+	}
+	got, err := e.requestRead(asFounder, map[string]any{"id": num64(1), "wait_s": num64(1)})
+	if err != nil || got.(map[string]any)["state"] != "queued" || isRead() {
+		t.Fatalf("the wait ran out on a queued request, and it was opened: %v %v", got, err)
+	}
+	if read(t, e, asFounder, 1); !isRead() {
+		t.Fatal("read with no wait, the queued request is shown and so opened")
+	}
+	run(t, e, "UPDATE requests SET read_at = NULL, state = 'landed' WHERE id = 1")
+	if _, err := e.requestRead(asFounder, map[string]any{"id": num64(1), "wait_s": num64(1)}); err != nil || !isRead() {
+		t.Fatalf("a wait that ends settled is shown and so opened: %v", err)
+	}
+}
+
 func TestRequestReadRefusesWhatTheReaderMayNotSeeAndBadParams(t *testing.T) {
 	e := testEnv(t)
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(1, 1, 'amy', 'bob', 'unchecked', 'queued', 'ask', 0)")
