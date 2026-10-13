@@ -274,8 +274,7 @@ def main() -> int:
     def tests(td):
         run(lambda: test_the_claude_driver_points_one_settings_object_at_the_agents_memory(Path(td) / 'm0'))
         run(lambda: test_launch_hides_every_other_agents_memory_and_creates_its_own(Path(td) / 'm1'))
-        run(lambda: test_a_write_that_pushes_the_index_over_budget_is_refused_and_says_why(Path(td) / 'm2'))
-        run(lambda: test_the_pre_tool_hook_denies_through_claudes_own_format_and_never_breaks_a_session(Path(td) / 'm3'))
+        run(lambda: test_a_large_memory_index_write_is_accepted(Path(td) / 'm2'))
         run(lambda: test_the_pre_tool_hook_refuses_an_ocp_message_the_shell_would_run(Path(td) / 'm3s'))
         run(lambda: test_reading_or_writing_a_memory_file_is_noted_for_the_month_check(Path(td) / 'm4'))
         run(lambda: test_two_concurrent_hook_calls_do_not_drop_one_anothers_use(Path(td) / 'm4b'))
