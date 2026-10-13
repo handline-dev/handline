@@ -145,7 +145,7 @@ func releaseMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 				}
 				outcome = fmt.Sprintf("but it is still doing through its child T%d - release it there too; its own timeout keeps running until then", child)
 			} else {
-				if _, err := tx.Exec("UPDATE tasks SET timeout_at = NULL WHERE id = ? AND timeout_at IS NOT NULL", tid); err != nil {
+				if _, err := tx.Exec("UPDATE tasks SET timeout_at = NULL, timeout_left = NULL WHERE id = ?", tid); err != nil {
 					return nil, err
 				}
 				back := "draft"

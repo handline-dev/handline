@@ -176,7 +176,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- was given (done_via's words). NULL while none waits (`task_report`).
   reported_at  INTEGER,
   report       TEXT,
-  report_via   TEXT
+  report_via   TEXT,
+  -- the seconds its clock had left when it paused (the task stopped doing, or waits on a blocker or
+  -- a child); the clock resumes from it. NULL while the clock runs or never ran (`task_timeout_left`).
+  timeout_left INTEGER
 );
 CREATE TABLE IF NOT EXISTS task_requests (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
@@ -811,6 +814,13 @@ def _task_report(con) -> None:
             con.execute(f"ALTER TABLE tasks ADD COLUMN {col} {kind}")
 
 
+def _task_timeout_left(con) -> None:
+    """What a paused task clock had left, so working time is all it counts. Step 1 adds it to a new database
+    only. Additive: NULL resumes a full timeout_s, as before."""
+    if "timeout_left" not in _cols(con, "tasks"):
+        con.execute("ALTER TABLE tasks ADD COLUMN timeout_left INTEGER")
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
@@ -828,6 +838,7 @@ MIGRATIONS = [
     (14, "agent_terminals", _agent_terminals, True),
     (15, "drop_lands", _drop_lands, True),
     (16, "task_report", _task_report, True),
+    (17, "task_timeout_left", _task_timeout_left, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

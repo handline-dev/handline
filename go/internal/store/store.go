@@ -153,6 +153,7 @@ var byHand = map[int]func(*sql.Tx) error{
 	10: addExtraWorktrees, // agent_extra_worktrees
 	13: addTaskReporter,   // task_reporter
 	16: addTaskReport,     // task_report
+	17: addTimeoutLeft,    // task_timeout_left
 }
 
 // addExtraWorktrees is _agent_extra_worktrees in schema.py: a database made before the column has none.
@@ -189,6 +190,16 @@ func addTaskReport(tx *sql.Tx) error {
 		}
 	}
 	return nil
+}
+
+// addTimeoutLeft is _task_timeout_left in schema.py: a database made before the column has none.
+func addTimeoutLeft(tx *sql.Tx) error {
+	var n int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'timeout_left'").Scan(&n); err != nil || n > 0 {
+		return err
+	}
+	_, err := tx.Exec("ALTER TABLE tasks ADD COLUMN timeout_left INTEGER")
+	return err
 }
 
 func bringUp(db *sql.DB, path string) error {

@@ -53,11 +53,11 @@ func reopenMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any
 			if err != nil {
 				return nil, err
 			}
-			q := "UPDATE tasks SET done_evidence = NULL, done_at = NULL, done_via = NULL, timeout_at = NULL WHERE id = ? AND done_evidence IS NOT NULL"
+			q := "UPDATE tasks SET done_evidence = NULL, done_at = NULL, done_via = NULL, timeout_at = NULL, timeout_left = NULL WHERE id = ? AND done_evidence IS NOT NULL"
 			args := []any{tid}
 			if doing { // a doing task's clock restarts from now
 				q = "UPDATE tasks SET done_evidence = NULL, done_at = NULL, done_via = NULL, " +
-					"timeout_at = CASE WHEN timeout_s IS NOT NULL THEN ? + timeout_s ELSE NULL END WHERE id = ? AND done_evidence IS NOT NULL"
+					"timeout_left = NULL, timeout_at = CASE WHEN timeout_s IS NOT NULL THEN ? + timeout_s ELSE NULL END WHERE id = ? AND done_evidence IS NOT NULL"
 				args = []any{time.Now().Unix(), tid}
 			}
 			res, err := tx.Exec(q, args...)
