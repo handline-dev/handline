@@ -84,7 +84,7 @@ E1 can start once unit 4a lands; E2 needs U9 and U10; E3 needs U8 and U10; E4 an
 
 ### 4.1 Status on 2026-10-13
 
-Read on main `887d63d4`; the cells that changed since `74162cb9` are marked *(10-13)*. "Built" means the code is there and a test names it; the unit's *done when* was not rerun. The phone has no unit numbers in §4: its column says which web unit it matches. Web files are in `apps/web/src`, phone files in `apps/mobile/src/screens`, desktop files in `apps/electron/src`.
+Read on main `21d6b059`; the cells that changed since `74162cb9` are marked *(10-13)*. "Built" means the code is there and a test names it; the unit's *done when* was not rerun. The phone has no unit numbers in §4: its column says which web unit it matches. Web files are in `apps/web/src`, phone files in `apps/mobile/src/screens`, desktop files in `apps/electron/src`.
 
 | Unit | Web | Phone |
 |---|---|---|
@@ -111,11 +111,11 @@ Read on main `887d63d4`; the cells that changed since `74162cb9` are marked *(10
 
 **What is left**
 
-- Everything in §4, §8 and §9.3 is built on web and PC; the phone matches except the rows below. The units to start next are in §10.
-- Web: `chat.send` `parent_item` is in the contract (`a6f0faf0`) and no app, nor the fake, sends it. `Account.login.reason` (N22) and a daemon that serves `account.add` for real are the daemon team's.
-- Phone: no Agent Tasks tab; no image attach or view in Chat (attaching needs an image-picker package, which `apps/mobile/package.json` does not have; viewing does not).
-- Terminal: neither app calls `terminal.open` or `terminal.close` (G3: Close terminal, the one button that opens an agent's terminal); the fake does not serve them (`contract/fixtures/session.json` has the `terminal.close` cases, `needs_you.json` the `terminal.open` ones).
-- Daemon side, not a unit: `go/conformance-missing.txt` lists `terminal.close` although Go registers it (`sessionrpc.go:115`); `trust.*` is absent from Go. The Go task owns the file.
+- Everything in §4, §8, §9.3 and §10 is built on web and PC; the phone matches except the rows below. The units to start next are in §11.
+- Z1 reply to an agent's own reply: web built (`088dadfe`, `dc2992d4`); the phone half is with mobile-build. Z2 phone Agent Tasks (`b3e2f896`, `fea218c8`) and Z3 web Close terminal and Open terminal (`3bc1d273`) are built.
+- Phone: no image view in Chat; attaching needs an image-picker package, which `apps/mobile/package.json` does not have.
+- Member reads no app calls yet: `agent.timeline`, `chat.search`, `agent.strip`.
+- Daemon side, not a unit: `Account.login.reason` (N22) and a Go `chat.send` `parent_item`. `go/conformance-missing.txt` lists `terminal.close` although Go registers it (`sessionrpc.go:115`); the Go task owns the file.
 - Not gaps: the phone's own "Disconnected" banner stands in for `DaemonDown.tsx`, because a phone never starts a daemon.
 
 ## 5. Requests to the daemon team: missing from the contract and their list, or pending a decision
@@ -211,3 +211,15 @@ Read on main `887d63d4`; §4.1 is the status. All of §8 and §9.3 is built. Eac
 Order: the three are independent (Z1 touches chat, Z3 the terminal tab and agent menu, Z2 the phone), so they run in parallel. Z1's phone half (Reply on the phone) follows once the fake has it; it is not proposed here so mobile-build does not wait.
 
 Not proposed, and why: **image attach on the phone** (needs a new native package, a rebuilt dev client: the founder's call); **the Go `parent_item`** and **`go/conformance-missing.txt`** (daemon team; raised with the lead); **session causes** `context_full`, `crash_recovery` and `idle_close` (the Go daemon does not write them yet).
+
+## 11. Next units, 2026-10-13 (after §10)
+
+Read on main `21d6b059`. Z1 (web), Z2 and Z3 are on main. The contract has three member reads that no app calls and that the fake daemon does not serve: `agent.timeline`, `chat.search`, `agent.strip` (each has fixtures). Devices (`devices.list`, `device.revoke`) and task screenshots (`task.shot`) are not here: devices are founder-only methods a paired app is refused, and `Task` carries no screenshot numbers. Each unit below runs against the fake and the fixtures, needs nothing from the founder or the daemon team, and ends with the root gate green and the auditor. They touch different files, so they run in parallel; each adds its own fake file or section.
+
+| # | Unit | Files | Done when | App |
+|---|---|---|---|---|
+| W1 | **Chat search (web).** A search box in the Chat tab head: `chat.search` with the *mine* / *all* scope, hits as lines with agent, time and a snippet, a click jumps with the `chat.locate` path the Chat tab already has; the fake serves `chat.search` | `packages/fake-daemon/src/chat.ts`, `apps/web/src/ChatSearch.tsx`, `ChatTab.tsx`, `apps/web/test/chat-search.test.tsx` | the `chat.search` cases of `contract/fixtures/chat.json` pass on the fake, a hit lands the Chat tab on its message, and an empty result says so | web (pc-build) |
+| W2 | **Timeline tab (web).** A `timeline` tab kind showing `agent.timeline` newest first with *Older* paging (kind, time, actor, text); the stalled or blocked badge opens it (`terminal-pane.md` §6); the fake serves `agent.timeline` | `packages/fake-daemon/src/timeline.ts`, `packages/app-core/src/workspace.ts`, `apps/web/src/TimelineTab.tsx`, `Pane.tsx`, `apps/web/test/timeline.test.tsx` | the `agent.timeline` cases of `contract/fixtures/agents.json` pass on the fake, *Older* pages with `before` until `more` is false, and the stalled badge click opens the tab | web (term-build) |
+| W3 | **Phone: the strip under the agent page's header.** Model, account, context percent and the prompt-cache time left from `agent.strip`, redrawn when the cache runs out; the fake serves `agent.strip` | `packages/fake-daemon/src/strip.ts`, `apps/mobile/src/screens/AgentStrip.tsx`, `AgentPage.tsx`, `apps/mobile/test/agent-strip.test.tsx` | the `agent.strip` cases of `contract/fixtures/ui_reads.json` pass on the fake and the strip shows `null` fields as a dash | phone (mobile-build, after its Reply half) |
+
+Not proposed, and why: **chat search on the phone** (follows W1 once the fake serves it); **the strip on the web** (the chat head already shows the gauges from the agent view); **`agent.triggers`, `memory.status`, `status.pick`** (agent-role methods, not for a paired person).
