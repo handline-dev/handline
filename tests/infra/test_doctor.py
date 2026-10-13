@@ -4,6 +4,7 @@ Run on its own: tools/test.sh tests/infra/test_doctor.py   (all areas: tools/sui
 """
 from __future__ import annotations
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -40,9 +41,26 @@ def test_doctor_names_an_agent_left_running_with_nothing_heard(home: Path) -> No
           not any(a in s for s in said for a in ("busy", "idle", "new")), str(said))
 
 
+def test_hl_doctor_says_when_rejected_hook_lines_are_piling_up(home: Path) -> None:
+    support.use_home(home)
+    rejected = home / "hook-spool-rejected.jsonl"
+    row = lambda: next((r for r in doctor.run().rows if "hook line" in r[1]), None)  # noqa: E731
+    check("doctor: no rejected file, no note", row() is None)
+    rejected.write_text("")
+    check("doctor: an empty one, no note", row() is None)
+    rejected.write_text(json.dumps({"rejected_at": 1760000000, "error": "KeyError", "message": "'kind'", "line": "{}"}) + "\n"
+                        + json.dumps({"rejected_at": 1760000500, "error": "ValueError", "message": "x", "line": "y"}) + "\n")
+    got = row()
+    check("doctor: a warning with the count, the size and the oldest",
+          got and got[0] == doctor.WARN and got[1].startswith("2 hook line(s)") and f"{rejected.stat().st_size} bytes" in got[1]
+          and "oldest set aside" in got[1], got)
+    check("doctor: and says what to do with them", got and "delete the file" in got[2] and str(rejected) in got[2], got)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_doctor_names_an_agent_left_running_with_nothing_heard(Path(td) / "stuck"))
+        run(lambda: test_hl_doctor_says_when_rejected_hook_lines_are_piling_up(Path(td) / "rejected"))
     return run_area(tests)
 
 

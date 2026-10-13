@@ -32,6 +32,11 @@ def label() -> str:
     """The launchd label: LABEL, or OCP_SERVICE_LABEL, which a rehearsal on a scratch home sets so its job and plist are not the live service's."""
     return names.getenv("OCP_SERVICE_LABEL") or LABEL
 
+
+def serves_this_home() -> bool:
+    """Whether label() can be this home's service. LABEL is the live home's alone, so a scratch or test home never addresses it."""
+    return label() != LABEL or paths.home().resolve() in paths.live_homes()
+
 # launchd restarts a crashing job as fast as it can fail, unless told
 # otherwise (scout, request #14: colima's bare KeepAlive=true leaked
 # thousands of children this way). ThrottleInterval bounds that rate. It is
