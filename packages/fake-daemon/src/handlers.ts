@@ -3,6 +3,7 @@ import type { Actor, Caller, Notifications, Timestamp } from '@handline/contract
 import { badRequest, Failure, invalidParams, refused } from './errors.ts';
 import type { Script } from './script.ts';
 import { coded, snapshotOf } from './bytes.ts';
+import { Timeline } from './timeline.ts';
 import { SETTINGS_HANDLERS } from './settings.ts';
 import { withStructured } from './structured-controls.ts';
 import type { FakeTranscript } from './transcript.ts';
@@ -171,6 +172,10 @@ const BASE: Record<string, (h: Call) => unknown> = {
       history: { first, lines: s.lines.slice(first, off).map(rowOf), more: first > 0 },
       holder: s.holder,
     };
+  },
+  'agent.timeline': ({ p, script, agent }) => {
+    Timeline.check(p);
+    return script.timeline.page(agent().fx.name, p);
   },
   'terminal.open': ({ p, agent }) => {
     if (typeof p.agent !== 'string') throw invalidParams('agent is required', 'agent');
