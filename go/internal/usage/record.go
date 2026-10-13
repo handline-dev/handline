@@ -16,8 +16,9 @@ import (
 const recordSkewS = 60
 
 // Record leaves a reading where every reader already looks (usage_api.record): the account's status file, merged into what is there,
-// so a session's id, transcript pointer and context figures survive. Inside one window usage only rises, so a figure is never lowered
-// while its own window is open; across a rollover it is replaced outright. It reports whether the file was written.
+// so a session's id, transcript pointer and context figures survive. A first-hand reading is the authority for its window, so it
+// replaces the held figure even when lower with the same reset (the vendor can reset a limit early and keep the reset time); only a
+// figure observed after this reading is kept. It reports whether the file was written.
 func Record(home string, r Reading) bool {
 	return RecordFile(paths.StatusFile(home, r.Account), r)
 }
@@ -56,8 +57,10 @@ func RecordFile(path string, r Reading) bool {
 			before := old[w.Minutes]
 			oldPct, hasPct := isInt(before["used_percent"])
 			oldReset, hasReset := isInt(before["resets_at"])
+			oldAt, hasAt := isInt(before["observed_at"])
 			same := hasReset && int64(oldReset) == w.Reset && int64(oldReset) > r.At-recordSkewS
-			if hasPct && same && oldPct > value {
+			// A reading that arrives after a newer one of the same window must not undo it.
+			if hasPct && same && hasAt && int64(oldAt) > r.At && oldPct > value {
 				value = oldPct
 			}
 			pct = value

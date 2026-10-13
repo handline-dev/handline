@@ -86,8 +86,8 @@ def test_a_record_is_written_as_windows_only_and_nothing_old_is_removed(home: Pa
     e = {w["minutes"]: w for w in got["windows"]}
     check("windows: the new shape carries every window the vendor reported",
           sorted(e) == [300, 10080] and e[10080]["used_percent"] == 61, json.dumps(got))
-    check("windows: the high-water mark is read off the old record's own figure",
-          e[300]["used_percent"] == 80, json.dumps(e[300]))
+    check("windows: a fresh reading replaces the old record's higher figure in the same window",
+          e[300]["used_percent"] == 70, json.dumps(e[300]))
     check("windows: a new write puts no old key on a record that had none",
           "rl_source" in got and got["session_id"] == "sess-1", json.dumps(got))
     check("windows: what an old record held is left on disk, not deleted",

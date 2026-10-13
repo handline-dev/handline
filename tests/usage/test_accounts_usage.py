@@ -1457,12 +1457,19 @@ def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
           got["collected_at"] == now, json.dumps(got))
     check("record: the source is named", got.get("rl_source") == "api", json.dumps(got))
 
-    # Lower, same window: the collector's rule says usage only rises.
+    # Lower, same reset: the vendor reset the limit early. The fresh figure wins.
     usage_api.record(reading_of(
         account="alpha", pct_5h=70, reset_5h=now + 600,
         pct_7d=51, reset_7d=now + 99999, at=now), path=p_)
-    check("record: a lower figure inside the same window is refused",
-          _win(json.loads(p_.read_text()))["used_percent"] == 90, p_.read_text())
+    check("record: a lower figure with the same reset is taken (early reset)",
+          _win(json.loads(p_.read_text()))["used_percent"] == 70, p_.read_text())
+
+    # A reading older than the held one must not undo it.
+    usage_api.record(reading_of(
+        account="alpha", pct_5h=60, reset_5h=now + 600,
+        pct_7d=51, reset_7d=now + 99999, at=now - 10), path=p_)
+    check("record: a late, older reading does not lower a newer one",
+          _win(json.loads(p_.read_text()))["used_percent"] == 70, p_.read_text())
 
     # Lower, new window: alpha's case. The high-water must not survive it.
     usage_api.record(reading_of(
