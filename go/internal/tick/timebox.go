@@ -181,9 +181,14 @@ func shortTitle(title string) string {
 }
 
 // remindReported is the clock of a task whose done waits on acceptance: it runs on from where the doing left it, and past it whoever the task
-// answers to is reminded, again every stretch until they accept or reject it.
+// answers to is reminded, again every stretch until they accept or reject it. A task reported with its clock not running (before its
+// first tick, or paused on a wait) has it started here, so it is reminded too.
 func (b *Timebox) remindReported(t *Tick, row *db.Task, now int64) {
-	if !row.TimeoutAt.Valid || row.TimeoutAt.Int64 > now {
+	if !row.TimeoutAt.Valid {
+		check(db.AdvanceTaskTimeout(t.Q, row.ID, now, db.DefaultTaskTimeoutS))
+		return
+	}
+	if row.TimeoutAt.Int64 > now {
 		return
 	}
 	to := row.AnswersTo()

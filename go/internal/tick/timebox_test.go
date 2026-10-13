@@ -105,9 +105,7 @@ func TestAReportedTasksClockRunsOnAndRemindsWhoeverItAnswersTo(t *testing.T) {
 	tid := newTask(t, tk, "a", "boss", 100)
 	p.doing[tid] = true
 	b.SweepTaskTimeouts(tk, 1000)
-	if _, err := tk.Q.Exec("UPDATE tasks SET reporter = 'mgr', reported_at = 1010, report = 'shipped', report_via = 'reason' WHERE id = ?", tid); err != nil {
-		t.Fatal(err)
-	}
+	report(t, tk, tid)
 	p.doing[tid] = false
 	b.SweepTaskTimeouts(tk, 1050)
 	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 1100 || len(p.sent) != 0 {
@@ -120,6 +118,48 @@ func TestAReportedTasksClockRunsOnAndRemindsWhoeverItAnswersTo(t *testing.T) {
 	}
 	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 1300 || countEvents(t, tk, "mgr", "task_timeout_exceeded") != 1 {
 		t.Fatalf("the reminder re-arms the clock and is chained like an overrun notice: %+v", task)
+	}
+}
+
+func report(t *testing.T, tk *Tick, tid int64) {
+	t.Helper()
+	if _, err := tk.Q.Exec("UPDATE tasks SET reporter = 'mgr', reported_at = 1010, report = 'shipped', report_via = 'reason' WHERE id = ?", tid); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestATaskReportedBeforeItsClockStartedIsStillReminded(t *testing.T) {
+	tk, _, b, p := timebox(t)
+	tid := newTask(t, tk, "a", "boss", 100)
+	report(t, tk, tid)
+	b.SweepTaskTimeouts(tk, 1000)
+	if task, _ := db.GetTask(tk.Q, tid); !task.TimeoutAt.Valid || task.TimeoutAt.Int64 != 1100 || len(p.sent) != 0 {
+		t.Fatalf("the clock starts where it is first seen reported: %+v %v", task, p.sent)
+	}
+	b.SweepTaskTimeouts(tk, 1200)
+	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "mgr: T") || !strings.Contains(p.sent[0], "reported done by a") {
+		t.Fatalf("%v", p.sent)
+	}
+}
+
+func TestATaskReportedWhileItsClockIsPausedResumesAndIsReminded(t *testing.T) {
+	tk, _, b, p := timebox(t)
+	tid := newTask(t, tk, "a", "boss", 100)
+	p.doing[tid] = true
+	b.SweepTaskTimeouts(tk, 1000)
+	p.doing[tid] = false
+	b.SweepTaskTimeouts(tk, 1040)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Valid {
+		t.Fatalf("not paused: %+v", task)
+	}
+	report(t, tk, tid)
+	b.SweepTaskTimeouts(tk, 2000)
+	if task, _ := db.GetTask(tk.Q, tid); !task.TimeoutAt.Valid || task.TimeoutAt.Int64 != 2060 || len(p.sent) != 0 {
+		t.Fatalf("the clock resumes with what it had left: %+v %v", task, p.sent)
+	}
+	b.SweepTaskTimeouts(tk, 2060)
+	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "mgr: T") {
+		t.Fatalf("%v", p.sent)
 	}
 }
 
