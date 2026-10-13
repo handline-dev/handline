@@ -145,3 +145,22 @@ func TestTheTriggerIsWhatTheTickWouldHandTheAgentOffFor(t *testing.T) {
 		t.Fatalf("a parked agent is past its wall: %q", got)
 	}
 }
+
+func TestTheTriggerOfAClosedAgentWhoseWakeIsWalledIsTheWaitTheDaemonPrints(t *testing.T) {
+	p, lc, _, _ := wired(t) // alice is closed, with one request from the person that nothing has delivered
+	d, home := p.Sink.DB, p.home
+	if err := dbpkg.SetAccount(d, "alice", "a1", "test"); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	status, _ := json.Marshal(map[string]any{"collected_at": now, "windows": []any{
+		map[string]any{"minutes": 300, "observed_at": now, "resets_at": now + 3600, "used_percent": 100},
+		map[string]any{"minutes": 10080, "observed_at": now, "resets_at": now + 86400, "used_percent": 10}}})
+	os.WriteFile(filepath.Join(home, "accounts", "a1", "status.json"), status, 0o644)
+	row, _ := dbpkg.GetAgentState(d, "alice")
+	want := lc.Launch.WakeWaitReason(d, "alice", row)
+	got, err := p.Delivery().Trigger(d, "alice", row, "a1")
+	if err != nil || want == "" || got != (reads.Trigger{Reason: want}) {
+		t.Fatalf("%+v %v, want the reason %q", got, err, want)
+	}
+}
