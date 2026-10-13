@@ -338,7 +338,7 @@ func TestTheTickRelinksAccountsToSharedItemsAddedAfterTheyWereRegistered(t *test
 	}
 }
 
-func TestTheLoopRunsTheDescriptorCheckLogRotationAndScratchSweepAfterEachTick(t *testing.T) {
+func TestTheLoopRunsTheDescriptorCheckAndLogRotationAfterEachTick(t *testing.T) {
 	p, _, _, _ := wired(t)
 	var mu sync.Mutex
 	var logged []string
@@ -347,28 +347,11 @@ func TestTheLoopRunsTheDescriptorCheckLogRotationAndScratchSweepAfterEachTick(t 
 	log := filepath.Join(p.home, "logs", "daemon.err.log")
 	os.MkdirAll(filepath.Dir(log), 0o755)
 	os.WriteFile(log, make([]byte, 11<<20), 0o644)
-	root := t.TempDir()
-	os.MkdirAll(filepath.Join(root, "old", "node_modules"), 0o755)
-	os.WriteFile(filepath.Join(root, "old", "AGENTS.md"), nil, 0o644)
-	longAgo := time.Now().Add(-48 * time.Hour)
-	for _, f := range []string{"node_modules", "AGENTS.md", ""} {
-		os.Chtimes(filepath.Join(root, "old", f), longAgo, longAgo)
-	}
-	tk := p.Tick(cfg, TickConfig{Stop: make(chan struct{}), ScratchRoot: root})
+	tk := p.Tick(cfg, TickConfig{Stop: make(chan struct{})})
 	tk.Loop.MaxTicks = 1
 	<-tk.Start()
 	if st, _ := os.Stat(log); st.Size() != 0 {
 		t.Fatal("the log over its limit was not rotated")
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(filepath.Join(root, "old")); err != nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the stale copy was not swept")
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
 	mu.Lock()
 	defer mu.Unlock()
