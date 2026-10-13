@@ -13,7 +13,6 @@ import (
 	"github.com/handline/handline/go/internal/hlclient"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/textsafe"
-	"github.com/handline/handline/go/internal/timefmt"
 )
 
 // taskCmd is one `hl task` subcommand (cli/task.py): it reads its parsed arguments, and ok false hands the argv to Python.
@@ -180,11 +179,6 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 			return 1, true
 		}
 	}
-	if !hasTimeout {
-		fmt.Printf("a task needs -t/--timeout (90m, 2h; at most %s). Try:\n  %s\n",
-			timefmt.Span(maxTaskTimeout, false), typed(p.pos[0]))
-		return 1, true
-	}
 	title := textsafe.Strip(textsafe.Oneline(p.pos[0]))
 	if title == "" {
 		fmt.Printf("a task needs a title. Try:\n  %s\n", typed("<title>"))
@@ -202,7 +196,10 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 		}
 		inline = text
 	}
-	params := map[string]any{"owner": assignee, "title": title, "time_box": fmt.Sprintf("%ds", timeout)}
+	params := map[string]any{"owner": assignee, "title": title}
+	if hasTimeout {
+		params["time_box"] = fmt.Sprintf("%ds", timeout)
+	}
 	if b := textsafe.Strip(textsafe.Text(inline)); b != "" {
 		params["body"] = b
 	}

@@ -362,7 +362,7 @@ func EditTask(q Q, tid int64, by string, ed TaskEdit) error {
 		if ed.IsDoing {
 			at = now + *ed.TimeoutS
 		}
-		sets = append(sets, "timeout_s = ?", "timeout_at = ?")
+		sets = append(sets, "timeout_s = ?", "timeout_at = ?", "timeout_left = NULL")
 		args = append(args, *ed.TimeoutS, at)
 	}
 	args = append(args, tid)
@@ -429,16 +429,27 @@ const (
 	DefaultTaskTimeoutS = MaxTaskTimeoutS
 )
 
-// AdvanceTaskTimeout is db.advance_task_timeout: starts or re-arms a task's clock, timeout_s from now, defaultS for a task never given one.
+// AdvanceTaskTimeout is db.advance_task_timeout: starts, resumes or re-arms a task's clock: what a pause left, else timeout_s, from now;
+// defaultS for a task never given one.
 func AdvanceTaskTimeout(q Q, tid, now, defaultS int64) error {
-	_, err := q.Exec("UPDATE tasks SET timeout_s = COALESCE(timeout_s, ?), timeout_at = ? + COALESCE(timeout_s, ?) WHERE id = ?", defaultS, now, defaultS, tid)
+	_, err := q.Exec("UPDATE tasks SET timeout_s = COALESCE(timeout_s, ?), timeout_at = ? + COALESCE(timeout_left, timeout_s, ?), timeout_left = NULL WHERE id = ?",
+		defaultS, now, defaultS, tid)
 	return err
 }
 
-// PauseTaskTimeout is db.pause_task_timeout: no deadline runs while a task is not doing.
-func PauseTaskTimeout(q Q, tid int64) error {
-	_, err := q.Exec("UPDATE tasks SET timeout_at = NULL WHERE id = ? AND timeout_at IS NOT NULL", tid)
+// PauseTaskTimeout is db.pause_task_timeout: no deadline runs while a task is not doing or waits; what was left is kept for the resume.
+func PauseTaskTimeout(q Q, tid, now int64) error {
+	_, err := q.Exec("UPDATE tasks SET timeout_left = MAX(timeout_at - ?, 0), timeout_at = NULL WHERE id = ? AND timeout_at IS NOT NULL", now, tid)
 	return err
+}
+
+// TaskWaits is whether a task waits on something open: a task it is blocked by, or a child of its own.
+func TaskWaits(q Q, tid int64) (bool, error) {
+	if bs, err := TaskBlockers(q, tid); err != nil || len(bs) > 0 {
+		return len(bs) > 0, err
+	}
+	kids, err := OpenChildTasks(q, tid)
+	return len(kids) > 0, err
 }
 
 // AllTasks is db.all_tasks.

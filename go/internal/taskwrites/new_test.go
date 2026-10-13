@@ -25,7 +25,7 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 		line(2, base+`"priority":"p1","expects":"sha","parent":1,"blocked_by":2,`, "n1"),
 		line(3, base+`"priority":"p1","expects":"sha","parent":1,"blocked_by":2,`, "n1"),
 		line(4, `"owner":"worker","title":"t","time_box":"2h",`, "n2"),
-		line(5, `"owner":"worker","title":"t","body":"b",`, "n3"),
+		line(5, `"owner":"worker","title":"t","body":"b","time_box":"soon",`, "n3"),
 		line(6, `"owner":"worker","title":"t","body":"b","time_box":"9h",`, "n4"),
 		line(7, `"owner":"nobody","title":"t","body":"b","time_box":"1h",`, "n5"),
 		line(8, base+`"blocked_by":3,`, "n6"),
@@ -74,6 +74,10 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	r = call(t, mk("manager", f), line(2, base, "d1"))
 	if code(r[0]) != "refused" || count(t, db, "SELECT COUNT(*) FROM tasks") != 6 || count(t, db, "SELECT COUNT(*) FROM requests WHERE state = 'denied'") != 1 {
 		t.Fatalf("a refused owner leaves no task behind, only the denial: %v", r[0])
+	}
+	r = call(t, mk("manager", &fakeTeller{}), line(2, `"owner":"worker","title":"no box","body":"b",`, "t1"))
+	if r[0]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM tasks WHERE title = 'no box' AND timeout_s IS NULL") != 1 {
+		t.Fatalf("a task needs no time box: its clock takes the default when it starts: %v", r[0])
 	}
 }
 

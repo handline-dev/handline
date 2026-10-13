@@ -59,7 +59,8 @@ CREATE TABLE tasks (
   timeout_at   INTEGER,
   delivered_at INTEGER,
   sent_at      INTEGER,
-  reporter     TEXT
+  reporter     TEXT,
+  timeout_left INTEGER
 , expects TEXT);
 CREATE TABLE task_requests (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
