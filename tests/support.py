@@ -129,19 +129,19 @@ def _serve_cli(start: bool = True, timeout: float = 0) -> _socket.socket:
     return a
 
 
-def _request_read(ctx, params) -> dict:
-    """request.read as the Go daemon serves it (go/internal/reads/inboxget.go), which the Python daemon never did: the tests that
-    look at a request through `hl read` run against this."""
+def _request_read(params: dict) -> dict:
+    """request.read as the Go daemon serves it (go/internal/reads/inboxget.go). The Python test server never had it, so `hl read`'s
+    call is answered here and the tests that look at a request through `hl read` still run."""
     from handline.daemon import delivery, rpc_inbox_get
-    rid = params["id"]
-    viewer = ctx.caller.info["name"] if ctx.caller.role == "agent" else db.HUMAN
+    from handline.infra import daemonclient
+    rid, viewer = params["id"], askmod.current_agent() or db.HUMAN
     until = time.time() + (params.get("wait_s") or 0)
     while True:
         con = db.connect()
         try:
             row = db.get_request(con, rid)
             if row is None or (viewer == row["target"] and viewer != db.HUMAN and not row["edge_ok"]):
-                raise _dmn_rpc.RpcError(_dmn_rpc.NOT_FOUND, "not_found", f"no request {rid}", what="request", name=str(rid))
+                raise daemonclient.RpcError({"message": f"no request {rid}", "data": {"code": "not_found"}})
             if row["state"] in rpc_inbox_get.SETTLED or time.time() >= until:
                 if viewer == db.HUMAN:
                     actions.opened_by_human(con, rid)
@@ -159,8 +159,9 @@ def _request_read(ctx, params) -> dict:
         time.sleep(rpc_inbox_get.POLL_S)
 
 
-_dmn_rpc.METHODS["request.read"] = _dmn_rpc.Method(_request_read, "agent", waits=True)
-
+_served_call = _cli_client.call
+_cli_client.call = lambda method, params=None, **kw: (_request_read(params) if method == "request.read"
+                                                      else _served_call(method, params, **kw))
 
 REAL_CLI_CONNECT = _cli_client.connect  # for a test that puts its own socket under the real call
 _cli_client.connect = _serve_cli
