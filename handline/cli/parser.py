@@ -26,7 +26,7 @@ from .idle import cmd_auto_accept, cmd_notice_digest, cmd_idle_background, cmd_i
 from .service import cmd_service_install, cmd_service_logs, cmd_service_use, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
 from .say import cmd_say
 from .setup import cmd_guide, cmd_init, cmd_login
-from .task import _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_restart, cmd_progress, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_memo, cmd_task_note, cmd_task_show, cmd_task_queue, cmd_task_release, cmd_task_reopen, cmd_task_start
+from .task import _expects_arg, _priority_arg, _task_arg, _timeout_arg, cmd_close, cmd_restart, cmd_progress, cmd_task_accept, cmd_task_board, cmd_task_discard, cmd_task_done, cmd_task_edit, cmd_task_list, cmd_task_merge, cmd_task_draft, cmd_task_begin, cmd_task_handoff, cmd_task_new, cmd_task_memo, cmd_task_note, cmd_task_show, cmd_task_queue, cmd_task_reject, cmd_task_release, cmd_task_reopen, cmd_task_start
 from .team import cmd_team, cmd_team_init, cmd_team_seal
 
 
@@ -596,9 +596,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="cannot be worked until this task closes")
     p.add_argument("--priority", type=_priority_arg, default=None, metavar="P",
                    help="P1 (high), P2 (default) or P3 (low)")
-    p.add_argument("--expects", type=_expects_arg, default=None, metavar="K",
-                   help="what `task done` must give back: sha, verdict, decision or "
-                        "report (default; decision when the owner is human)")
+    p.add_argument("--expects", default=None, help=argparse.SUPPRESS)       # accepted and ignored: a done is a report its owner accepts
     p.add_argument("-t", "--timeout", type=_timeout_arg, default=None, metavar="DURATION",
                    help="required: notify the opener each time this long passes with the task "
                    f"still open (90m, 2h; at most {timefmt.span(actions.MAX_TASK_TIMEOUT_S)})")
@@ -657,7 +655,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--everyone", action="store_true",
                    help="every team's tasks, not just yours and your reports'")
     p.add_argument("--state", default=None,
-                   choices=("draft", "queued", "doing", "done", "discarded"),
+                   choices=("draft", "queued", "doing", "reported", "done", "discarded"),
                    help="only tasks in this state; a done or discarded one shows even without --all")
     p.set_defaults(fn=cmd_task_list)
     p = tk.add_parser("queue", help="approve draft tasks to run - the founder or the owner's manager")
@@ -708,6 +706,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--shot", action="append", default=None, metavar="FILE.png",
                    help="a screenshot of the result, kept with the task; repeat for more")
     p.set_defaults(fn=cmd_task_done)
+    p = tk.add_parser("accept", help="close a reported task: its owner's done is the evidence - whoever "
+                                     "it answers to, its opener or the founder")
+    p.add_argument("task", type=_task_arg, metavar="T")
+    p.set_defaults(fn=cmd_task_accept)
+    p = tk.add_parser("reject", help="send a reported task back to its owner's queue - whoever it "
+                                     "answers to, its opener or the founder; needs a one-line note")
+    p.add_argument("task", type=_task_arg, metavar="T")
+    p.add_argument("note", help="what is missing; told to the owner")
+    p.set_defaults(fn=cmd_task_reject)
     p = tk.add_parser("reopen", help="send a done task back to doing (#71) - the asker "
                                      "or the founder; needs a one-line reason")
     p.add_argument("task", type=_task_arg, metavar="T")

@@ -1,0 +1,471 @@
+{
+ "fixtures": [
+  {
+   "name": "task.accept.unknown_task_is_not_found",
+   "spec": "task.accept",
+   "about": "NOT_YET_IN_PYTHON No such task: not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.accept",
+      "params": {
+       "task": 999999,
+       "request_id": "conf-accept-0"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.reject.note_is_required",
+   "spec": "task.reject",
+   "about": "NOT_YET_IN_PYTHON A reject with an empty note: bad_request naming note.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.reject",
+      "params": {
+       "task": 999999,
+       "note": " ",
+       "request_id": "conf-reject-0"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "note"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.accept.closes_a_report",
+   "spec": "task.accept",
+   "as": "agent",
+   "with": {
+    "boss": "founder"
+   },
+   "about": "NOT_YET_IN_PYTHON A done by an owner the task does not answer to leaves it reported, the done its report; the opener's accept closes it with that evidence.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "caller": {
+       "name": {
+        "$save": "me"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "{{me}}",
+       "title": "a reported task",
+       "body": "build it; done is it built and tested",
+       "time_box": "1h",
+       "request_id": "conf-accept-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.done",
+      "params": {
+       "task": "{{tid}}",
+       "evidence": "built and tested",
+       "request_id": "conf-accept-2"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$regex": "reported done"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.get",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "state": "reported",
+      "evidence": {
+       "$type": "null"
+      },
+      "report": {
+       "by": "{{me}}",
+       "evidence": "built and tested",
+       "at": {
+        "$type": "timestamp"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.done",
+      "params": {
+       "task": "{{tid}}",
+       "evidence": "again",
+       "request_id": "conf-accept-3"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.accept",
+      "params": {
+       "task": "{{tid}}",
+       "request_id": "conf-accept-4"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "task.get",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "state": "done",
+      "evidence": "built and tested",
+      "report": {
+       "$type": "null"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.reject.sends_it_back_to_its_owner",
+   "spec": "task.reject",
+   "as": "agent",
+   "with": {
+    "boss": "founder"
+   },
+   "about": "NOT_YET_IN_PYTHON A rejected report is dropped and the task is queued again for its owner.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "caller": {
+       "name": {
+        "$save": "me"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "{{me}}",
+       "title": "a reported task",
+       "body": "build it; done is it built and tested",
+       "time_box": "1h",
+       "request_id": "conf-reject-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.done",
+      "params": {
+       "task": "{{tid}}",
+       "evidence": "built and tested",
+       "request_id": "conf-reject-2"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$regex": "reported done"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.reject",
+      "params": {
+       "task": "{{tid}}",
+       "note": "the tests are missing",
+       "request_id": "conf-reject-3"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.get",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "state": "queued",
+      "to": "{{me}}",
+      "evidence": {
+       "$type": "null"
+      },
+      "report": {
+       "$type": "null"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.accept",
+      "params": {
+       "task": "{{tid}}",
+       "request_id": "conf-reject-4"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused"
+      }
+     },
+     "on": "boss"
+    }
+   ]
+  },
+  {
+   "name": "task.accept.nothing_to_accept_when_the_opener_closed_it",
+   "spec": "task.accept",
+   "as": "agent",
+   "about": "NOT_YET_IN_PYTHON A task its owner opened for itself answers to that owner: its done closes it at once, and there is no report to accept.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "caller": {
+       "name": {
+        "$save": "me"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "{{me}}",
+       "title": "my own task",
+       "body": "build it; done is it built and tested",
+       "time_box": "1h",
+       "request_id": "conf-own-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.done",
+      "params": {
+       "task": "{{tid}}",
+       "evidence": "built and tested",
+       "request_id": "conf-own-2"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$regex": "^task T[0-9]+ done"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.get",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "state": "done",
+      "evidence": "built and tested",
+      "report": {
+       "$type": "null"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.accept",
+      "params": {
+       "task": "{{tid}}",
+       "request_id": "conf-own-3"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

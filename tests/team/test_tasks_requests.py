@@ -4374,14 +4374,14 @@ limits:
 
     rc, out = _cli(["task", "new", "-t", "90m", "--assign", "worker", "do the thing", "the body of it",
                     "--expects", "sha"])
-    check("task new: opens and delivers in one call, naming the kind and the sha it expects",
-          rc == 0 and "task T1" in out and "expects sha" in out, out)
+    check("task new: opens and delivers in one call; --expects is accepted and ignored",
+          rc == 0 and "task T1" in out and "expects sha" not in out, out)
     tid = int(out.split("task T", 1)[1].split()[0])
     con = db.connect()
     try:
-        row = db.get_task(con, tid)
+        con.execute("UPDATE tasks SET expects = 'sha' WHERE id = ?", (tid,))    # the Python daemon still checks it: the done checks below
+        con.commit()
         reqs = db.task_requests(con, tid)
-        check("task new: expects is stored on the row", row["expects"] == "sha")
         check("task new: the delivering request is linked, carries the body, and is kind 'task'",
               len(reqs) == 1 and reqs[0]["body"] == "the body of it" and reqs[0]["kind"] == "task",
               str([dict(r) for r in reqs]))
@@ -9484,6 +9484,23 @@ def test_a_task_has_a_reporter_apart_from_its_owner(home: Path) -> None:
         con.close()
 
 
+def test_a_reported_task_reads_as_awaiting_who_it_answers_to() -> None:
+    from handline.cli import parser as cli_parser, task as clitask
+    t = {"id": 7, "title": "fix it", "state": "reported", "from": "a.one", "to": "b.two", "asker": "c", "priority": 2, "parent": None,
+         "created": None, "time": None, "evidence": None, "body": "", "memos": [],
+         "report": {"by": "b.two", "evidence": "built", "at": "2026-10-02T11:30:00Z"}}
+    lines = clitask._detail_lines(t, 0)
+    check("task show: a reported task names whom it awaits, and its report",
+          lines[1].startswith("state reported, awaiting c   assignee b.two") and lines[2].startswith("reported ") and lines[2].endswith(": built"),
+          str(lines))
+    check("task show: an older daemon's Task without an asker awaits its opener",
+          clitask._state({**t, "asker": None}) == "reported, awaiting a.one")
+    p = cli_parser.build_parser()
+    check("task accept and reject parse, reject with its note",
+          p.parse_args(["task", "accept", "T7"]).task == 7 and p.parse_args(["task", "reject", "T7", "no tests"]).note == "no tests")
+
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -9673,6 +9690,7 @@ def main() -> int:
         run(lambda: test_a_queued_task_for_an_agent_with_no_terminal_starts_it(Path(td) / 'taskstart'))
         run(lambda: test_moving_a_task_to_another_owner_sends_it_there(Path(td) / 'taskmove'))
         run(lambda: test_connect_to_a_migrated_database_takes_no_write_lock(Path(td) / 'nolock'))
+        run(lambda: test_a_reported_task_reads_as_awaiting_who_it_answers_to())
     return run_area(tests)
 
 

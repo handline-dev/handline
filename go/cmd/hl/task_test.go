@@ -46,7 +46,7 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 	}{
 		{"", []string{"task", "new", "--assign", "b.two", "-t", "90m", "  A  title ", "  the body  ", "--parent", "T5",
 			"--blocked-by=t6", "--priority", "p1", "--expects", "SHA"},
-			[]string{`task.new {"blocked_by":6,"body":"the body","expects":"sha","owner":"b.two","parent":5,"priority":1,"time_box":"5400s","title":"A  title"}`}},
+			[]string{`task.new {"blocked_by":6,"body":"the body","owner":"b.two","parent":5,"priority":1,"time_box":"5400s","title":"A  title"}`}},
 		{"from stdin\n", []string{"task", "new", "--assign", "human", "-t", "2h", "x", "--file", "-"},
 			[]string{`task.new {"body":"from stdin","owner":"human","time_box":"7200s","title":"x"}`}},
 		{"", []string{"task", "new", "--assign", "b.two", "-t", "1h", "x", "--owner", "human"},
@@ -80,6 +80,8 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "reopen", "T3", "why"}, []string{`task.reopen {"note":"why","task":3}`}},
 		{"", []string{"task", "discard", "T3", "why"}, []string{`task.discard {"reason":"why","task":3}`}},
 		{"", []string{"task", "release", "T3"}, []string{`task.release {"task":3}`}},
+		{"", []string{"task", "accept", "T3"}, []string{`task.accept {"task":3}`}},
+		{"", []string{"task", "reject", "T3", "no tests"}, []string{`task.reject {"note":"no tests","task":3}`}},
 	}
 	seen := 0
 	for _, c := range cases {
@@ -165,6 +167,28 @@ func TestWhatTheTaskPortDoesNotParseIsPythons(t *testing.T) {
 	}
 	if got := calls(); len(got) != 0 {
 		t.Fatalf("calls %v", got)
+	}
+}
+
+func TestAReportedTaskReadsAsAwaitingWhoItAnswersTo(t *testing.T) {
+	r := agentsRig(t)
+	task := `"id":7,"title":"Fix it","state":"reported","to":"b.two","from":"a.one","asker":"c","priority":2,"parent":null,"hold_reason":"","mismatch":""`
+	r.daemon(map[string]string{
+		"task.get": `{` + task + `,"created":"2026-10-01T10:00:00Z","time":null,"evidence":null,"done":null,"discarded":null,"body":"",
+			"report":{"by":"b.two","evidence":"built","at":"2026-10-02T11:30:00Z"},"memos":[]}`,
+		"tasks.list": `{"items":[{` + task + `,"evidence":null,"block_reason":"","last_activity":"2026-10-01T10:00:00Z","requests":[]}],"more":false}`,
+		"task.board": `{"mine":[{"task":{` + task + `},"now":{"kind":"none","tasks":[],"agents":[]}}],"reports":[]}`,
+	})
+	show := "T7  Fix it\nstate reported, awaiting c   assignee b.two   owner c   opened by a.one   P2   created 2026-10-01 10:00\n" +
+		"reported 2026-10-02 11:30: built\n\nbrief\n(none)\n"
+	if out, _, code := r.run(asAgent, "task", "show", "T7"); code != 0 || out != show {
+		t.Errorf("show: %d\n%q", code, out)
+	}
+	if out, _, _ := r.run(asAgent, "task", "list"); !strings.HasPrefix(out, "T7    Fix it  [b.two] reported, awaiting c  P2") {
+		t.Errorf("list: %q", out)
+	}
+	if out, _, _ := r.run(asAgent, "task", "board"); out != "T7    Fix it\n      assignee b.two  owner c  now: reported, awaiting c\n" {
+		t.Errorf("board: %q", out)
 	}
 }
 

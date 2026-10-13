@@ -23,7 +23,7 @@ var taskCmds = map[string]taskCmd{
 	"new": taskNew, "begin": taskBegin, "handoff": taskHandoff, "start": taskStart, "note": taskNote,
 	"memo": taskMemo, "show": taskShow, "list": taskList, "queue": taskQueue(true), "draft": taskQueue(false),
 	"edit": taskEdit, "merge": taskMerge, "done": taskDone, "reopen": taskReopen, "release": taskRelease,
-	"discard": taskDiscard, "board": taskBoard,
+	"discard": taskDiscard, "board": taskBoard, "accept": taskAccept, "reject": taskReject,
 }
 
 // taskReads are the subcommands that change nothing, so no verb_chain is recorded for them (parser._TASK_READS).
@@ -115,13 +115,7 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	blocked, hasBlocked, ok2 := optTask(p, "--blocked-by")
 	prio, hasPrio, ok3 := optPriority(p, "--priority")
 	timeout, hasTimeout, ok4 := optTimeout(p, "--timeout")
-	exp, hasExp := p.opt("--expects")
-	if hasExp {
-		if exp, ok = expects(exp); !ok {
-			return 0, false
-		}
-	}
-	if !ok1 || !ok2 || !ok3 || !ok4 {
+	if !ok1 || !ok2 || !ok3 || !ok4 { // --expects is accepted and ignored: a done is a report its owner accepts
 		return 0, false
 	}
 	mutating(c, "new")
@@ -159,9 +153,6 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 		}
 		if hasPrio {
 			parts = append(parts, fmt.Sprintf("--priority P%d", prio))
-		}
-		if hasExp {
-			parts = append(parts, "--expects "+exp)
 		}
 		return strings.Join(parts, " ")
 	}
@@ -214,9 +205,6 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if hasPrio {
 		params["priority"] = prio
-	}
-	if hasExp {
-		params["expects"] = exp
 	}
 	if hasOwner {
 		params["reporter"] = accountable
@@ -607,6 +595,22 @@ func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key st
 		return 1, true
 	}
 	return said(c.Write(method, map[string]any{"task": tid, key: p.pos[1]})), true
+}
+
+func taskAccept(c *hlclient.Client, args []string) (int, bool) {
+	tid, ok := oneTask(args)
+	if !ok {
+		return 0, false
+	}
+	mutating(c, "accept")
+	if !asking(c, "accept a task") {
+		return 1, true
+	}
+	return said(c.Write("task.accept", map[string]any{"task": tid})), true
+}
+
+func taskReject(c *hlclient.Client, args []string) (int, bool) {
+	return taskWithReason(c, args, "reject", "reject a task", "task.reject", "note")
 }
 
 func taskRelease(c *hlclient.Client, args []string) (int, bool) {

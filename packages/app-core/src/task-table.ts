@@ -2,7 +2,7 @@
 // idle and timeout words of a row. The columns and the default states follow the bridge's tasks_view.py (`HEADS`, `LISTED`).
 import type { Task } from '@handline/client';
 
-export const TASK_STATES = ['pending', 'draft', 'queued', 'doing', 'blocked', 'done', 'discarded'] as const;
+export const TASK_STATES = ['pending', 'draft', 'queued', 'doing', 'blocked', 'reported', 'done', 'discarded'] as const;
 /** What a list shows when it opens: done and discarded are out of the way until asked for. */
 export const LISTED: readonly string[] = TASK_STATES.filter((s) => s !== 'done' && s !== 'discarded');
 export const CLOSED: readonly string[] = ['done', 'discarded'];
