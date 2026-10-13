@@ -29,7 +29,7 @@ func (c controls) status(agent string) lifecycle.SessionStatus {
 	return m.Status.ReadForAgent(agent, m.Agents.CurrentAccount(m.Q, agent))
 }
 
-// Start is control.start_result: an agent with a worktree is started in it. Making a worktree is Orca's, which this daemon does not drive.
+// Start is control.start_result: an agent with a worktree is started in it. It makes no worktree.
 func (c controls) Start(call sessionrpc.Call, agent, repo, base string) (bool, string, error) {
 	m := c.lc.Manager
 	if c.p.Run.Alive(agent) {

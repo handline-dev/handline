@@ -865,7 +865,7 @@ export type Capabilities = {
   review: boolean;
   /** Formats the daemon serves on at least one host. */
   terminal_format: ("text" | "bytes" | "styled")[];
-  /** Each terminal host the daemon has and the formats it serves there, e.g. {tmux: [text, bytes], orca: [text]}. Absent: text on the one host it has. */
+  /** Each terminal host the daemon has and the formats it serves there, e.g. {tmux: [text, bytes]}. Absent: text on the one host it has. */
   terminal_hosts?: { [key: string]: string[] };
   /** The daemon serves the transcript topic and transcript.events. Absent means false: a client then watches the terminal. */
   transcript?: boolean;
@@ -1238,7 +1238,7 @@ export type TerminalOpening = {
   agent: AgentName;
   /** The terminal handle, as terminal.attach takes it. */
   terminal: string;
-  /** tmux or orca; open set. */
+  /** tmux; open set. */
   host: string;
   attach: {
     argv: string[];

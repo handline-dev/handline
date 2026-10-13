@@ -233,7 +233,7 @@ func (e *Env) Classify(agent string, row *AgentRow) *Found {
 	}
 	if !e.Term.Available() {
 		// The sibling of Unreadable below: silently skipping this starves every agent with queued work the same way, with
-		// nobody told, for as long as Orca stays off PATH.
+		// nobody told, for as long as the terminal host stays off PATH.
 		return &Found{HostDown, "", ""}
 	}
 	if !e.Term.Alive(handle) {

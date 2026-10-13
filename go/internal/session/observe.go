@@ -26,8 +26,8 @@ import (
 // team: does its terminal still exist (one terminal listing), and is a session running in it (one pass over the process table).
 
 // Observed is one agent as the outside world reports it. A nil pointer means we could not look, which is not the same as no: acting
-// on "I could not ask Orca" as though it were "the terminal is gone" would tear down a healthy team the first time Orca was slow to
-// start.
+// on "I could not ask the terminal host" as though it were "the terminal is gone" would tear down a healthy team the first time it
+// was slow to start.
 type Observed struct {
 	TerminalAlive *bool
 	SessionPID    *int
