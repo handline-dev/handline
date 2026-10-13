@@ -10,6 +10,7 @@ import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
 import { AssignSheet, ReplyBox } from './TaskPeople.tsx';
 import { CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
+import { RichText } from './RichText.tsx';
 import { View } from './View.tsx';
 
 type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'edit' | 'release' | 'assign';
@@ -219,7 +220,11 @@ function Body({ t }: { t: Detail }) {
       {ask === 'assign' ? <AssignSheet t={t} me={me} onClose={() => setAsk(null)} /> : null}
       {ask === 'edit' ? <EditForm t={t} onClose={() => setAsk(null)} /> : null}
 
-      {t.body ? <p className="tbody-text m-0 whitespace-pre-wrap">{t.body}</p> : null}
+      {t.body ? (
+        <p className="tbody-text m-0 whitespace-pre-wrap">
+          <RichText text={t.body} />
+        </p>
+      ) : null}
 
       {t.blockers.length ? <TaskLinks icon="waiting" label="Waits on" items={t.blockers} /> : null}
       {t.children.length ? <TaskLinks icon="tasks" label="Sub-tasks" items={t.children.map((c) => ({ task: c }))} /> : null}
@@ -236,10 +241,41 @@ function Body({ t }: { t: Detail }) {
       {t.evidence ? (
         <>
           <h3 className={H3}>Evidence</h3>
-          <p className="tbody-text mono m-0 whitespace-pre-wrap">{t.evidence}</p>
+          <p className="tbody-text mono m-0 whitespace-pre-wrap">
+            <RichText text={t.evidence} />
+          </p>
         </>
       ) : null}
-      {t.hold_reason || t.block_reason ? <p className="muted">{t.hold_reason ?? t.block_reason}</p> : null}
+      {t.hold_reason || t.block_reason ? (
+        <p className="muted">
+          <RichText text={(t.hold_reason ?? t.block_reason)!} />
+        </p>
+      ) : null}
+
+      {t.handoffs.length ? (
+        <>
+          <h3 className={H3}>Handoffs</h3>
+          <ul className="thandoffs m-0 list-none p-0">
+            {t.handoffs.map((h) => (
+              <li key={h.at} className="whitespace-pre-wrap">
+                {h.from} to {h.to}: <RichText text={h.note} />
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {t.memos.length ? (
+        <>
+          <h3 className={H3}>Memos</h3>
+          <ul className="tmemos m-0 list-none p-0">
+            {t.memos.map((m) => (
+              <li key={m.id} className="whitespace-pre-wrap">
+                <span className="muted">{m.author}:</span> <RichText text={m.text} />
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
 
       <ReplyBox t={t} me={me} box={replyBox} />
     </div>

@@ -1,5 +1,5 @@
 // The read hooks: `useRead` is the one place a read becomes a query, and every named hook is a line over it.
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
 import type { CallParams, InboxItem, Methods } from '@handline/client';
@@ -7,6 +7,8 @@ import { useData, useFeed, useServes } from './provider.ts';
 import { keyOf, reads, type ReadMethod, type ReadSpec } from './reads.ts';
 
 export const SNAPSHOT_STALE_MS = 30_000;
+
+type TimelineEntry = Methods['agent.timeline']['result']['items'][number];
 
 export type ReadResult<M extends ReadMethod> = UseQueryResult<Methods[M]['result']>;
 
@@ -63,6 +65,41 @@ export function useUnreached(): Map<string, number> {
 }
 export const useAgentDetail = (agent: string) => useRead('agent.get', { agent });
 export const useAgentTimeline = (agent: string) => useRead('agent.timeline', { agent });
+
+/**
+ * An agent's timeline, newest first. The first page is the read the agents feed keeps current; *Older* pages are fetched with `before` and kept
+ * until the agent changes, and `more` is the daemon's answer for the oldest page fetched. Older pages hold the ids below `base`, the oldest the first
+ * page had when the first of them was fetched; once the first page has moved on past `base` (many new events), what lay between would be missing, so
+ * they are dropped and Older fetches them again.
+ */
+export function useTimeline(agent: string) {
+  const first = useAgentTimeline(agent);
+  const store = useStore();
+  const [paged, setPaged] = useState<{ agent: string; base: number; items: TimelineEntry[]; more: boolean } | null>(null);
+  const [state, setState] = useState<{ busy: boolean; error: unknown }>({ busy: false, error: null });
+  const top = first.data ? Math.min(...first.data.items.map((e) => e.id)) : 0;
+  const older = paged?.agent === agent && (!first.data?.more || top <= paged.base) ? paged : null;
+  const items = useMemo(() => {
+    const seen = new Set<number>();
+    return [...(first.data?.items ?? []), ...(older?.items ?? [])]
+      .filter((e) => !seen.has(e.id) && seen.add(e.id))
+      .sort((a, b) => b.id - a.id);
+  }, [first.data, older]);
+  const more = older ? older.more : (first.data?.more ?? false);
+  const loadOlder = useCallback(async () => {
+    const before = items.at(-1)?.id;
+    if (before === undefined) return;
+    setState({ busy: true, error: null });
+    try {
+      const r = await store.client.call('agent.timeline', { agent, before });
+      setPaged({ agent, base: older?.base ?? before, items: [...(older?.items ?? []), ...r.items], more: r.more });
+      setState({ busy: false, error: null });
+    } catch (error) {
+      setState({ busy: false, error });
+    }
+  }, [store, agent, items, older]);
+  return { query: first, items, more, loadOlder, loadingOlder: state.busy, olderError: state.error };
+}
 export const useAgentOptions = () => useRead('agent.options', {});
 export const useTriggers = (agent?: string) => useRead('agent.triggers', { agent });
 export const usePrompts = (agent: string) => useRead('prompt.list', { agent });

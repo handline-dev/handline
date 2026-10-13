@@ -6,8 +6,19 @@ import { detach, group, groupOf, groupsOf, replaceGroup } from './layout-tree.ts
 
 export { groupOf, groupsOf };
 
-export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review';
-export const TAB_KINDS: readonly TabKind[] = ['chat', 'tasks', 'terminal', 'transcript', 'shell', 'emulator', 'web', 'markdown', 'review'];
+export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review' | 'timeline';
+export const TAB_KINDS: readonly TabKind[] = [
+  'chat',
+  'tasks',
+  'terminal',
+  'transcript',
+  'shell',
+  'emulator',
+  'web',
+  'markdown',
+  'review',
+  'timeline',
+];
 export type TabParams = Record<string, string | number>;
 export interface Tab {
   id: string;
@@ -43,6 +54,7 @@ export type Path = ('a' | 'b')[];
 export const CHAT = 'chat';
 export const TASKS = 'tasks';
 export const TRANSCRIPT = 'transcript';
+export const TIMELINE = 'timeline';
 export const MAX_GROUPS = 4;
 export const MIN_AT = 0.15;
 export const MAX_AT = 0.85;
@@ -54,8 +66,9 @@ const clampAt = (at: number) => Math.min(MAX_AT, Math.max(MIN_AT, at));
 /** Tab ids name what a tab shows, so opening the same thing twice finds the first. Kinds with nothing to name get a counter. */
 export function tabId(ws: Workspace | null, kind: TabKind, params: TabParams): string {
   if (kind === 'chat') return CHAT;
-  if (kind === 'tasks') return TASKS;
+  if (kind === 'tasks') return params.pinned ? `tasks:${params.task}` : TASKS;
   if (kind === 'transcript') return TRANSCRIPT;
+  if (kind === 'timeline') return TIMELINE;
   const named = params.handle ?? params.path ?? params.port ?? params.url ?? params.device ?? params.id;
   if (named !== undefined) return `${kind}:${named}`;
   let n = 1;
@@ -114,6 +127,11 @@ export function openTab(ws: Workspace, kind: TabKind, params: TabParams = {}, in
 export function openTask(ws: Workspace, task: number | null, into: string = ws.active): Workspace {
   const opened = openTab(ws, 'tasks', {}, into);
   return { ...opened, tabs: { ...opened.tabs, [TASKS]: { ...opened.tabs[TASKS]!, params: task === null ? {} : { task } } } };
+}
+
+/** Opens one task in a tab of its own, beside the Tasks tab; the same task twice finds the first. */
+export function openTaskTab(ws: Workspace, task: number, into: string = ws.active): Workspace {
+  return openTab(ws, 'tasks', { task, pinned: 1 }, into);
 }
 
 /** Closing only detaches: it never stops what the tab shows. Chat has no close. */

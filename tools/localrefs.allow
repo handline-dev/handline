@@ -1,3 +1,5 @@
 # Paths tools/localrefs.py does not read (fnmatch globs, one per line). Keep this short.
 tests/infra/test_local_refs.py   # spells every pattern to prove the check catches it
 tests/fixtures/hook_guards.json  # what the Python hook says, its task ids included
+packages/app-core/test/refs.test.ts   # T-number strings are the feature under test
+apps/web/test/task-links.test.tsx   # same

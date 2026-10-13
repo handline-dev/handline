@@ -11,6 +11,7 @@ import {
   moveTab,
   moveTabBy,
   openTab,
+  taskRef,
   type Group,
   type Preset,
   type Tab,
@@ -19,6 +20,7 @@ import { useStore } from '@handline/app-react';
 import { ChatTab } from './ChatTab.tsx';
 import { Button, Icon, Popup, PopupRow, type IconName } from './ui/index.ts';
 import { TasksTab } from './TasksTab.tsx';
+import { TimelineTab } from './TimelineTab.tsx';
 import { Badges } from './Badges.tsx';
 import { DropZones } from './DropZones.tsx';
 import { BytesTab } from './BytesTab.tsx';
@@ -32,13 +34,17 @@ const label = (t: Tab, structured = false): string =>
   t.kind === 'chat'
     ? 'Chat'
     : t.kind === 'tasks'
-      ? 'Tasks'
-      : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
-        ? 'Transcript'
-        : t.kind === 'terminal'
-          ? 'Claude Code'
-          : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
-const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal' };
+      ? t.params.pinned
+        ? taskRef(Number(t.params.task))
+        : 'Tasks'
+      : t.kind === 'timeline'
+        ? 'Timeline'
+        : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
+          ? 'Transcript'
+          : t.kind === 'terminal'
+            ? 'Claude Code'
+            : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
+const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history' };
 const PRESETS: [Preset, string][] = [
   ['single', 'One pane'],
   ['cols', 'Two columns'],
@@ -121,7 +127,13 @@ export function Pane({ group }: { group: Group }) {
               <span className="tab-label overflow-hidden text-ellipsis">{label(t, structured)}</span>
               {t.kind === 'terminal' || t.kind === 'transcript' ? (
                 <>
-                  <Badges badges={badges} onClick={{ dialog: () => apply((w) => activate(w, CHAT)) }} />
+                  <Badges
+                    badges={badges}
+                    onClick={{
+                      dialog: () => apply((w) => activate(w, CHAT)),
+                      stalled: () => apply((w) => openTab(w, 'timeline', {}, group.id)),
+                    }}
+                  />
                   {unread && id !== group.activeTab ? <span className="unread-dot ml-1 inline-block h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" /> : null}
                 </>
               ) : null}
@@ -159,6 +171,7 @@ export function Pane({ group }: { group: Group }) {
           />
           <Popup open={menu === 'tab'} onClose={() => setMenu(null)} title="Add a tab" align="right">
             <PopupRow icon="tasks" label="Tasks" onClick={() => (setMenu(null), apply((w) => openTab(w, 'tasks', {}, group.id)))} />
+            <PopupRow icon="history" label="Timeline" onClick={() => (setMenu(null), apply((w) => openTab(w, 'timeline', {}, group.id)))} />
             {structured ? (
               <PopupRow icon="terminal" label="Transcript" onClick={() => (setMenu(null), apply((w) => openTab(w, 'transcript', {}, group.id)))} />
             ) : detail.terminal ? (
@@ -193,6 +206,8 @@ export function Pane({ group }: { group: Group }) {
           <ChatTab agent={agent} detail={detail} />
         ) : tab.kind === 'tasks' ? (
           <TasksTab agent={agent} task={typeof tab.params.task === 'number' ? tab.params.task : null} />
+        ) : tab.kind === 'timeline' ? (
+          <TimelineTab agent={agent} />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (
           <Watch
             agent={agent}

@@ -2,6 +2,7 @@
 // the connections and the event log; this class reaches them through `Host`.
 import type { Actor, Caller, Notifications, Prompt, Schedule, Timestamp, Topic } from '@handline/contract';
 import { FakeHr } from './hr.ts';
+import { Timeline } from './timeline.ts';
 import { BANNER, PROMPT_LINES } from './fixtures.ts';
 import { badRequest, refused } from './errors.ts';
 import { outputFor, snapshotOf, typedParts } from './bytes.ts';
@@ -22,7 +23,7 @@ type Who = { caller: Caller };
 const KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
 
 export class Script {
-  private timelineId = 0;
+  readonly timeline = new Timeline();
   readonly schedules: Schedule[] = [];
   scheduleId = 0;
   readonly hr: FakeHr;
@@ -78,11 +79,8 @@ export class Script {
     this.pushTerminal(s, 'holder', (seq) => ({ terminal: tid(s), seq, holders: [s.holder] }));
   }
   control(s: Session, actor: Actor, kind: string, text: string) {
-    this.host.emit('agents', 'agent.control', {
-      agent: s.fx.name,
-      actor,
-      data: { id: ++this.timelineId, at: this.host.iso(), kind, actor, text },
-    });
+    const entry = this.timeline.record(s.fx.name, { at: this.host.iso(), kind, actor, text });
+    this.host.emit('agents', 'agent.control', { agent: s.fx.name, actor, data: { ...entry } });
   }
 
   write(s: Session, line: string) {
