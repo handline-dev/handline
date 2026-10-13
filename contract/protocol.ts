@@ -1837,6 +1837,30 @@ export interface Methods {
       reason: string | null;
     } | null;
   } };
+  "request.withdraw": { params: {
+  id: number;
+  /** Why, kept with the withdrawal. Not empty when given. */
+  reason?: string;
+  request_id: RequestId;
+}; result: {
+    /** Whether the request was withdrawn. */
+    ok: boolean;
+    /** What was withdrawn, or why nothing was. */
+    said: string;
+  } };
+  "request.cancel": { params: {
+  id: number;
+  /** Change nothing: answer `plan`. */
+  dry_run?: boolean;
+  request_id: RequestId;
+}; result: {
+    /** Dry run: whether the request can be cancelled. Otherwise: whether it was. */
+    ok: boolean;
+    /** Dry run only: what cancelling would do and who is told, or why it cannot be cancelled. */
+    plan?: string;
+    /** Without dry_run: what was cancelled and who was told, or `not cancelled - ` and the reason. */
+    said?: string;
+  } };
   "inbox.mark_read": { params: {
   ids: number[];
   request_id: RequestId;
@@ -2420,6 +2444,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "inbox.queue": { role: "agent", callers: null, write: false, since: 1 },
   "inbox.get": { role: "agent", callers: null, write: false, since: 1 },
   "request.read": { role: "agent", callers: null, write: false, since: 1 },
+  "request.withdraw": { role: "agent", callers: null, write: true, since: 1 },
+  "request.cancel": { role: "founder", callers: null, write: true, since: 1 },
   "inbox.mark_read": { role: "agent", callers: null, write: true, since: 1 },
   "inbox.answer": { role: "member", callers: null, write: true, since: 1 },
   "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },

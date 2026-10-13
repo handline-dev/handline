@@ -120,6 +120,8 @@ A method marked write takes a required `request_id`.
 | `inbox.queue` | agent |  | `whose?`, `all?`, `since?`, `wait_s?` | `{whose, newest, head, history, waiting, lines, dealt}` | `refused`, `bad_request` | listing |
 | `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem` | `not_found`, `bad_request` |  |
 | `request.read` | agent |  | `id`, `wait_s?` | `{id, requester, target, kind, state, created, relation, response, chain_depth, parent, body, answer, dismissal}` | `not_found`, `bad_request` |  |
+| `request.withdraw` | agent | yes | `id`, `reason?`, `request_id` | `{ok, said}` | `bad_request` |  |
+| `request.cancel` | founder | yes | `id`, `dry_run?`, `request_id` | `{ok, plan, said}` | `refused`, `bad_request` |  |
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found`, `refused`, `bad_request` |  |
 | `inbox.answer` | member | yes | `id`, `option?`, `text?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -415,6 +417,14 @@ One item.
 ### `request.read`
 
 One request whole, as hl read prints it. Any caller may read any request, with both of its ends named; a request to an agent that the routing table has not passed yet is not_found to that agent. The founder reading one opens it: it is marked read, and when it is one the founder asked, its answer is marked told. A member's device reading it opens nothing. With `wait_s` the call holds while the request is queued; `state` says whether it settled, and a wait that ends with it still queued opens nothing.
+
+### `request.withdraw`
+
+Take back a request of your own before it is delivered, as hl withdraw does. The caller is the requester: an agent's session withdraws that agent's request, and the founder's key withdraws the founder's own. A request that is not the caller's, one already delivered or closed, and an id that does not exist are not errors: the reply has `ok` false and `said` gives the reason.
+
+### `request.cancel`
+
+The founder takes any request out of an agent's queue, as hl cancel does; dry_run names what would happen. Unlike chat.cancel it is not limited to messages the person sent, and it asks for no confirm: the call without `dry_run` is the go-ahead. A queued request is closed as rejected, delivered or not; its agent is told to stop when it was delivered, and its requester is told unless that is the founder. The founder's own request that was never delivered is withdrawn and nobody is told. A request that is gone or already closed is not an error: `ok` is false, with the reason in `plan` (dry run) or `said`. A dry run writes nothing and records nothing, and no reply is kept under the request_id.
 
 ### `inbox.mark_read`
 

@@ -33,6 +33,7 @@ func Register(s *rpc.Server, e *supervisor.Env, tell taskwrites.Teller) {
 	s.Register("inbox.reply", rpc.Method{Role: "agent", Write: true, Handler: w.inboxReply})
 	w.registerMessages(s)
 	w.registerAnswers(s)
+	w.registerRequests(s)
 }
 
 type writes struct {

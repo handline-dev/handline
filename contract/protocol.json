@@ -4276,6 +4276,128 @@
    ]
   },
   {
+   "name": "request.withdraw",
+   "summary": "Take back a request of your own before it is delivered, as hl withdraw does.",
+   "description": "The caller is the requester: an agent's session withdraws that agent's request, and the founder's key withdraws the founder's own. A request that is not the caller's, one already delivered or closed, and an id that does not exist are not errors: the reply has `ok` false and `said` gives the reason.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "id",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "reason",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Why, kept with the withdrawal. Not empty when given."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "required": [
+      "ok",
+      "said"
+     ],
+     "properties": {
+      "ok": {
+       "type": "boolean",
+       "description": "Whether the request was withdrawn."
+      },
+      "said": {
+       "type": "string",
+       "description": "What was withdrawn, or why nothing was."
+      }
+     }
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "request.cancel",
+   "summary": "The founder takes any request out of an agent's queue, as hl cancel does; dry_run names what would happen.",
+   "description": "Unlike chat.cancel it is not limited to messages the person sent, and it asks for no confirm: the call without `dry_run` is the go-ahead. A queued request is closed as rejected, delivered or not; its agent is told to stop when it was delivered, and its requester is told unless that is the founder. The founder's own request that was never delivered is withdrawn and nobody is told. A request that is gone or already closed is not an error: `ok` is false, with the reason in `plan` (dry run) or `said`. A dry run writes nothing and records nothing, and no reply is kept under the request_id.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "id",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "dry_run",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Change nothing: answer `plan`."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "required": [
+      "ok"
+     ],
+     "properties": {
+      "ok": {
+       "type": "boolean",
+       "description": "Dry run: whether the request can be cancelled. Otherwise: whether it was."
+      },
+      "plan": {
+       "type": "string",
+       "description": "Dry run only: what cancelling would do and who is told, or why it cannot be cancelled."
+      },
+      "said": {
+       "type": "string",
+       "description": "Without dry_run: what was cancelled and who was told, or `not cancelled - ` and the reason."
+      }
+     }
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "inbox.mark_read",
    "summary": "Mark items read; an id that is not yours is not_found.",
    "paramStructure": "by-name",
