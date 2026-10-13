@@ -55,8 +55,9 @@ type HandoffPort interface {
 	// PreviousSession is the agent's previous session and its transcript's path ("" when none).
 	PreviousSession(q db.Q, agent, account string) (session, path string)
 	RequestLine(q db.Q, agent string) string
-	// MovePlan is the account a pinned agent can start fresh on, and why not when there is none; BackingOff says a move was tried too lately.
-	MovePlan(q db.Q, agent, kind string) (account, why string)
+	// MovePlan is the account a pinned agent can start fresh on, and why not when there is none (starting: a wake asks, so work is
+	// waiting); BackingOff says a move was tried too lately.
+	MovePlan(q db.Q, agent, kind string, starting bool) (account, why string)
 	BackingOff(q db.Q, agent string) bool
 	// AnsweredTurn: the agent has answered the ask for its handoff note, restarting its idle clock.
 	AnsweredTurn(q db.Q, agent string) bool
@@ -113,6 +114,8 @@ type Launch interface {
 	RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string) (account, why string)
 	// RoomOn is why acct cannot take the agent, "" when it can.
 	RoomOn(q db.Q, agent string, row *db.AgentState, acct string) string
+	// RoomNow is a person's start off skip: the account with the most headroom, no older waiter ahead of it.
+	RoomNow(q db.Q, agent string, row *db.AgentState, skip string) (account, why string)
 }
 
 // Spawner is team/spawn.py.

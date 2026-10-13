@@ -22,7 +22,7 @@ from ..session import triggers
 
 from . import delivery, handoff_note, lifecycle
 from .states import (ASSUMED_ACCOUNT_RECHECK_S, BY_HAND_MARK, HANDOFF, HANDOFF_DEADLINE_S, IDLE,
-                     LIMIT_SETTLE_S, MIN_HANDOFF_INTERVAL_S, MOVING_MARK, PARKED, QUEUED, RUNNING,
+                     LIMIT_SETTLE_S, MIN_HANDOFF_INTERVAL_S, MOVING_MARK, PARKED, PROMPT_CACHE_S, QUEUED, RUNNING,
                      STALLED, backoff_for)
 
 
@@ -284,7 +284,9 @@ def _move_plan(con, agent: str, kind: str) -> tuple[str | None, str]:
     """An agent at the wall: stay, or move and where to. (destination, why).
 
     Stay when nothing is waiting for it or its own account resets sooner than a
-    cold start would pay back (`triggers.stay_or_move`). Otherwise the pick,
+    cold start would pay back (`triggers.stay_or_move`) and within the prompt
+    cache's life, past which a resume pays for its context in full anyway.
+    Otherwise the pick,
     over every other account that can take one more agent - and never back to
     the account it just left before that account resets, so one wall is one
     move. None with a reason when it stays, including when every account is
@@ -301,7 +303,8 @@ def _move_plan(con, agent: str, kind: str) -> tuple[str | None, str]:
     if kind != LOGIN_TRIGGER:
         move, why = triggers.stay_or_move(
             work, reset_in,
-            triggers.stay_within_s(measure.cold_start_pct(con), here_st.short.minutes * 60))
+            min(triggers.stay_within_s(measure.cold_start_pct(con), here_st.short.minutes * 60),
+                PROMPT_CACHE_S))
         if not move:
             return None, why
     exclude = {here: "the account it is at the wall on"}

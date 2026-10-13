@@ -50,8 +50,8 @@ func (u *UsageAdapter) Fit(acct, agent string) bool {
 	return usage.Unfit(u.Env.Read(acct), loads[acct], agent) == ""
 }
 
-// CapOf is how many agents the account may have mid-turn at once, shrunk by its weekly pace.
-func (u *UsageAdapter) CapOf(acct string) int { return u.Env.CapNow(acct) }
+// CapOf is how many agents the account may have mid-turn at once, shrunk where it would be cut off before a reset.
+func (u *UsageAdapter) CapOf(acct string) int { return u.Env.CapNow(u.Q, acct) }
 
 // Headroom is what the account's weekly bucket still holds.
 func (u *UsageAdapter) Headroom(acct string) (float64, bool) { return u.Env.Headroom(acct) }

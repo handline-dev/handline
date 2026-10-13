@@ -30,7 +30,7 @@ func (c controls) status(agent string) lifecycle.SessionStatus {
 }
 
 // Start is control.start_result: an agent with a worktree is started in it. Making a worktree is Orca's, which this daemon does not drive.
-func (c controls) Start(_ sessionrpc.Call, agent, repo, base string) (bool, string, error) {
+func (c controls) Start(call sessionrpc.Call, agent, repo, base string) (bool, string, error) {
 	m := c.lc.Manager
 	if c.p.Run.Alive(agent) {
 		return false, agent + ": already has a running session - wake it instead", nil
@@ -40,7 +40,7 @@ func (c controls) Start(_ sessionrpc.Call, agent, repo, base string) (bool, stri
 		return false, "", err
 	}
 	if m.ResumableWithoutTerminal(row) { // closed with a session to resume: resume it, whether or not anything waits
-		ok, why, err := m.WakeAgent(agent, lifecycle.WakeOpts{Force: true})
+		ok, why, err := m.WakeAgent(agent, lifecycle.WakeOpts{Force: true, Person: call.Person})
 		return ok, agent + ": " + why, err
 	}
 	if !m.Launch.ChooseAccount(m.Q, agent) {
@@ -53,7 +53,7 @@ func (c controls) Start(_ sessionrpc.Call, agent, repo, base string) (bool, stri
 }
 
 func (c controls) Wake(call sessionrpc.Call, agent string) (bool, string, error) {
-	return c.lc.Manager.WakeAgent(agent, lifecycle.WakeOpts{Force: call.Person})
+	return c.lc.Manager.WakeAgent(agent, lifecycle.WakeOpts{Force: call.Person, Person: call.Person})
 }
 
 func (c controls) Close(call sessionrpc.Call, agent string, fresh bool) (bool, string, error) {

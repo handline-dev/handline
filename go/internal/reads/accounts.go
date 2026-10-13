@@ -157,7 +157,7 @@ func (v *accountView) of(a string) map[string]any {
 	}
 	acct := map[string]any{
 		"name": a, "login_state": loginWord(in, known), "five_hour": windowView(st.Short), "weekly": windowView(st.Long),
-		"agents": on, "moves": e.accountMoves(a), "label": cfg.LabelOf(a), "cap": cap, "cap_effective": v.ue.CapNow(a),
+		"agents": on, "moves": e.accountMoves(a), "label": cfg.LabelOf(a), "cap": cap, "cap_effective": v.ue.CapNow(e.DB, a),
 		"recover": cfg.RecoverEnabled(a),
 		"cycle":   map[string]any{"on": cfg.CycleOn(a), "end": end, "end_is_default": cfg.EndIsDefault(a)}}
 	if l := e.loginOf(a); l != nil {

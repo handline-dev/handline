@@ -1,47 +1,88 @@
 package usage
 
-import "math"
+import (
+	"math"
+
+	"github.com/handline/handline/go/internal/db"
+)
 
 // An account's weekly pace: a token bucket on the week, refilled linearly (the week's quota is spent as the week passes) with a 10% burst
-// on top. The tokens an account has are what it may still spend before it is ahead of its week; its cap shrinks with them.
+// on top. The tokens an account has order the accounts a move picks from; they do not shrink its cap, which only the risk of a cut-off
+// does (CutoffShare).
 const (
 	WeekS     = 7 * 86400
 	PaceBurst = 0.10 // the share of the week's quota that may be spent ahead of the clock
 )
 
-// An account may run ahead of the clock by up to the burst and still take an agent: it is ahead of its week only once the burst is spent.
-// Headroom is the tokens in the account's bucket, as a share of the week's quota: how far the week has run, plus the burst, less what is
-// spent. Positive is room; zero or less is ahead of the week. ok is false when the weekly figure cannot be acted on (unread, stale beyond
-// carrying, or its window already rolled over), in which case the pace says nothing and the plain cap stands.
+// Headroom is the tokens in the account's tightest bucket, the 5h and the weekly window each judged against its own fill rate: how far
+// the window has run, plus the burst, less what is spent, as a share of its quota. Positive is room; zero or less is ahead of the window.
+// ok is false when neither figure can be acted on (unread, stale beyond carrying, or rolled over), in which case the pace says nothing.
 func Headroom(st *AccountStatus, now int64) (float64, bool) {
-	used := st.LongTrusted()
-	if used == nil || st.Long.Reset == 0 {
+	most, ok := math.Inf(1), false
+	bucket := func(used *int, reset int64, length float64) {
+		if used == nil || reset == 0 || length <= 0 {
+			return
+		}
+		elapsed := 1 - math.Min(1, math.Max(0, float64(reset-now)/length))
+		most, ok = math.Min(most, elapsed+PaceBurst-float64(*used)/100), true
+	}
+	bucket(st.ShortTrusted(), st.Short.Reset, float64(st.Short.Minutes*60))
+	bucket(st.LongTrusted(), st.Long.Reset, WeekS)
+	if !ok {
 		return 0, false
 	}
-	left := float64(st.Long.Reset-now) / WeekS
-	elapsed := 1 - math.Min(1, math.Max(0, left))
-	return elapsed + PaceBurst - float64(*used)/100, true
+	return most, true
 }
 
-// PacedCap is the cap shrunk by the pace: all of it while the bucket holds the burst, none once it is empty, and in between the share the
-// bucket holds (rounded up, so a bucket with anything in it still takes one agent). The founder's cap stays the most.
-func PacedCap(base int, headroom float64) int {
+// CutoffShare is the share of its current burn (percent of the shortest window per second) the account can keep up until each window
+// resets without reaching that window's block: 1 or more is no risk of an agent being cut off mid-work. A fast pace alone is no risk.
+// longPerShort converts the burn to the longest window, ok false when it is unknown and only the shortest is judged. 1 with no burn.
+func CutoffShare(st *AccountStatus, burn, longPerShort float64, haveRatio bool, now float64) float64 {
+	share := 1.0
+	project := func(used *int, block int, rate, resetIn float64) {
+		if used == nil || rate <= 0 || resetIn <= 0 {
+			return
+		}
+		share = math.Min(share, float64(max(0, block-*used))/rate/resetIn)
+	}
+	if st.Short.Reset != 0 {
+		project(st.ShortTrusted(), ShortBlock, burn, float64(st.Short.Reset)-now)
+	}
+	if left, ok := WeekEndsIn(st, now); ok && haveRatio {
+		project(st.LongTrusted(), LongBlock, burn*longPerShort, left)
+	}
+	return share
+}
+
+// CutoffCap is the cap shrunk to the share of the burn the account can keep up: all of it with no risk, none with nothing left, and in
+// between that share of it (rounded up, so an account with anything left still takes one agent). The founder's cap stays the most.
+func CutoffCap(base int, share float64) int {
 	switch {
-	case headroom <= 0:
+	case share <= 0:
 		return 0
-	case headroom >= PaceBurst:
+	case share >= 1:
 		return base
 	}
-	return int(math.Ceil(float64(base) * headroom / PaceBurst))
+	return int(math.Ceil(float64(base) * share))
 }
 
-// CapNow is the cap in force for the account now: the configured one, shrunk by the account's weekly pace.
-func (e *Env) CapNow(acct string) int {
+// CapNow is the cap in force for the account now: the configured one, shrunk only where the account's burn would cut it off before a reset.
+func (e *Env) CapNow(q db.Q, acct string) int {
+	costs, _ := e.LoadCosts(q) // unread costs judge the shortest window alone
+	return e.capWith(acct, costs)
+}
+
+func (e *Env) capWith(acct string, costs *Costs) int {
 	base := e.config().CapOf(acct)
-	if h, ok := Headroom(e.Read(acct), int64(e.now())); ok {
-		return PacedCap(base, h)
+	burn, ok := e.ReadBurn(acct)
+	if !ok {
+		return base
 	}
-	return base
+	ratio, haveRatio := 0.0, false
+	if costs != nil {
+		ratio, haveRatio = costs.LongPerShort(acct)
+	}
+	return CutoffCap(base, CutoffShare(e.Read(acct), burn, ratio, haveRatio, e.now()))
 }
 
 // Headroom is the account's headroom now, for ordering accounts by pace: the larger, the slower-paced.
