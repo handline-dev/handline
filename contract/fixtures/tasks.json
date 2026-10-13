@@ -1,9 +1,9 @@
 {
  "fixtures": [
   {
-   "name": "task.new.not_for_the_founder_themself",
+   "name": "task.new.a_todo_for_the_founder_themself",
    "spec": "task.new",
-   "about": "The founder opens a task for an agent: one for human is refused.",
+   "about": "The founder may open a task for themself: a todo of their own, which asks no one.",
    "as": "founder",
    "steps": [
     {
@@ -29,13 +29,13 @@
        "title": "t",
        "body": "b",
        "time_box": "1h",
-       "request_id": "conf-1"
+       "request_id": "conf-founder-todo"
       }
      },
-     "error": {
-      "code": -32002,
-      "data": {
-       "code": "refused"
+     "result": {
+      "accepted": true,
+      "task": {
+       "$type": "integer"
       }
      }
     }

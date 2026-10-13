@@ -97,8 +97,6 @@ edges:
 
 def test_task_new_refuses_what_it_cannot_open(home: Path) -> None:
     support._board_world(home)
-    r = _call("task.new", {"owner": "human", "title": "t", "body": "b", "time_box": "1h", "request_id": "n2"}, as_agent=None)
-    check("task.new: the founder's task for themself is refused", _code(r) == "refused" and "for an agent" in r["error"]["message"], str(r))
     r = _new("n3", owner="nobody")
     check("task.new: an owner that is no agent is not_found", _code(r) == "not_found", str(r))
     r = _new("n4", time_box="soon")

@@ -133,13 +133,13 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if err != nil {
 			return nil, err
 		}
+		me := c.Caller.Actor()
 		if expects == "" {
 			expects = "report"
-			if owner == human { // a task of the founder's is a decision unless it says otherwise
+			if owner == human && me != human { // a task given to the founder is a decision unless it says otherwise
 				expects = "decision"
 			}
 		}
-		me := c.Caller.Actor()
 		clean := strings.TrimSpace(textsafe.Oneline(title))
 		var (
 			tid   int64
@@ -200,9 +200,6 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 	owner, body, prio, expects, secs := in.Owner, in.Body, in.Prio, in.Expects, in.Secs
 	parent, hasParent, blocker, hasBlocker := in.Parent, in.HasParent, in.Blocker, in.HasBlocker
 	clean := in.Title
-	if me == human && owner == human {
-		return 0, nil, refusal("the founder opens a task for an agent, not for themself")
-	}
 	if hasBlocker { // refused before anything is opened, as the command does
 		if why, err := blockerRefusal(tx, blocker); err != nil {
 			return 0, nil, err
@@ -224,10 +221,7 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 	if owner == human {
 		kind = ""
 	}
-	if tell == nil {
-		return 0, nil, fmt.Errorf("task.new needs the supervisor to route its ask")
-	}
-	asked, err = tell.TaskAsk(tx, AskReq{From: me, To: owner, Body: body, Kind: kind, NoCard: true, Notify: true, Within: func(rid int64) error {
+	open := func(rid int64) error {
 		var err error
 		reporter := in.Reporter
 		if reporter == me {
@@ -273,7 +267,23 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 			}
 		}
 		return nil
-	}})
+	}
+	if me == human && owner == human {
+		// A todo of the founder's own: routing has no founder-to-founder edge, so its brief is written as the request any task to the
+		// founder carries, queued on their screen, without being routed or told.
+		rid, err := db.AddRequest(tx, db.NewRequest{Requester: human, Target: human, Body: body, Response: "async", Kind: "task"})
+		if err != nil {
+			return 0, nil, err
+		}
+		if err := open(rid); err != nil {
+			return 0, nil, err
+		}
+		return tid, &Asked{OK: true, Msg: fmt.Sprintf("a todo of your own, #%d", rid), RID: rid}, nil
+	}
+	if tell == nil {
+		return 0, nil, fmt.Errorf("task.new needs the supervisor to route its ask")
+	}
+	asked, err = tell.TaskAsk(tx, AskReq{From: me, To: owner, Body: body, Kind: kind, NoCard: true, Notify: true, Within: open})
 	if err != nil {
 		return 0, nil, err
 	}
