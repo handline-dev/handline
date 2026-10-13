@@ -144,6 +144,15 @@ export function Message(props: {
             {parent ? <span className="min-w-0 truncate">{parent.body.replace(/\s+/g, ' ')}</span> : null}
           </button>
         ) : null}
+        {m.parent_item ? (
+          <blockquote
+            className="msg-quote mb-1 flex w-fit max-w-[16rem] min-w-0 items-center gap-1 text-[12px] text-ink-2"
+            data-item={m.parent_item.id}
+          >
+            <Icon name="reference" size={12} label="Reply to the agent's reply" className="shrink-0" />
+            <span className="min-w-0 truncate">{m.parent_item.text.replace(/\s+/g, ' ')}</span>
+          </blockquote>
+        ) : null}
         {m.body ? (
           <div className={MSG_BODY}>
             <RefText text={m.body} agent={agent} onRef={props.onRef} />
@@ -328,13 +337,18 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
 }
 
 /** A transcript line that is not a message: a reply, tool, prompt, session or task line. */
-export function Item({ i, titles }: { i: TranscriptItem; titles?: Map<number, string> }) {
+export function Item({ i, titles, onReply }: { i: TranscriptItem; titles?: Map<number, string>; onReply?: (i: TranscriptItem) => void }) {
   if (i.kind === 'reply')
     return (
-      <div className={bubbleClass('agent')} data-kind="reply" title={full(i.at)}>
+      <div className={bubbleClass('agent')} data-kind="reply" data-id={i.id} title={full(i.at)}>
         <div className={MSG_BODY}>
           <PathText text={i.text ?? ''} />
         </div>
+        {onReply ? (
+          <button className="icon mt-1" aria-label="Reply to this" title="Reply to this" onClick={() => onReply(i)}>
+            <Icon name="reference" size={14} label="Reply to this" />
+          </button>
+        ) : null}
       </div>
     );
   if (i.kind === 'tool') return <ToolLine i={i} />;

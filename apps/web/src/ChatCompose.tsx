@@ -2,7 +2,7 @@
 // and an unsent draft is kept per agent.
 import { useRef, useState } from 'react';
 import type { KV, Verb } from '@handline/app-core';
-import type { AgentDetail, ChatMessage } from '@handline/client';
+import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { useAgents, useChatActions } from '@handline/app-data';
 import { setting } from './daemon.ts';
 import { replyTo } from './ChatMessages.tsx';
@@ -33,11 +33,13 @@ export function Compose(props: {
   messages: ChatMessage[];
   /** The message this one answers or replies to; Escape or the close mark drops it. */
   target?: ChatMessage | null;
+  /** One of the agent's own replies the person answers (never with a target). */
+  item?: TranscriptItem | null;
   onClear?: () => void;
   /** The agent is mid-turn: a message to a structured agent is then queued behind it or joins the turn. */
   running?: boolean;
 }) {
-  const { agent, detail, storage, canSend, history, messages, target, onClear, running } = props;
+  const { agent, detail, storage, canSend, history, messages, target, item, onClear, running } = props;
   useScreenKeys('In the message box', COMPOSE_KEYS);
   const act = useChatActions(agent);
   const att = useAttachDraft();
@@ -108,6 +110,7 @@ export function Compose(props: {
     // A picked message is a reference: a linked message to whoever said it, whatever it asked.
     const attachments = att.ids;
     if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery, attachments });
+    else if (item) act.send(text, { parent_item: item.id, delivery, attachments });
     else act.send(text, { delivery, attachments });
     att.clear();
     setNow(false);
@@ -141,7 +144,7 @@ export function Compose(props: {
       send();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      if (target) onClear?.();
+      if (target || item) onClear?.();
       else if (text && !clearing)
         setClearing(true); // a draft is not lost to one Esc
       else if (text) set('');
@@ -164,6 +167,16 @@ export function Compose(props: {
             <Icon name="reference" size={14} label={`Replying to #${target.id}`} />
             <span className="mono">#{target.id}</span>
             <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>
+            <button className="icon" aria-label="Drop the reply" title="Drop the reply (Esc)" onClick={onClear}>
+              <Icon name="close" size={14} label="Drop the reply" />
+            </button>
+          </div>
+        ) : item ? (
+          <div className="compose-ref flex min-w-0 flex-1 items-center gap-1.5 rounded-chip bg-panel px-2 py-1 text-[12px]" role="status">
+            <Icon name="reference" size={14} label="Replying to the agent's reply" />
+            <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+              {(item.text ?? '').replace(/\s+/g, ' ')}
+            </span>
             <button className="icon" aria-label="Drop the reply" title="Drop the reply (Esc)" onClick={onClear}>
               <Icon name="close" size={14} label="Drop the reply" />
             </button>

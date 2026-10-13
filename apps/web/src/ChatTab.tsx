@@ -3,7 +3,7 @@
 // A daemon that does not serve chat gets an empty state; the permission card shows either way.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { AgentDetail, ChatMessage } from '@handline/client';
+import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { behindCount, timeline } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import {
@@ -70,6 +70,8 @@ const CHAT = 'chat relative flex min-h-0 min-w-0 flex-col border-r border-line [
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const { storage } = useWorkspace();
   const canSend = useSelector((s) => s.can('chat.send'));
+  // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
+  const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
   // The scope comes back next visit, as the bridge kept it.
   const keptScope = setting(storage, 'handline.chatScope', 'mine');
   const [scope, setScope] = useState<ChatScope>(keptScope.value === 'all' ? 'all' : 'mine');
@@ -93,7 +95,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const last = entries.at(-1)?.id;
   const byId = new Map(chat.messages.map((m) => [m.id, m]));
   const target = picked != null ? (byId.get(picked) ?? null) : null;
-  const pick = (m: ChatMessage) => setPicked((p) => (p === m.id ? null : m.id));
+  // A message or one of the agent's own replies is picked, never both.
+  const [pickedItem, setPickedItem] = useState<TranscriptItem | null>(null);
+  const pick = (m: ChatMessage) => (setPickedItem(null), setPicked((p) => (p === m.id ? null : m.id)));
+  const pickItem = (i: TranscriptItem) => (setPicked(null), setPickedItem((p) => (p?.id === i.id ? null : i)));
   const keyOf = (e: (typeof entries)[number]) => (e.kind === 'item' ? `i${e.id}` : `m${e.id}`);
   // Only an entry that arrives after the one that was last grows; older pages and a switch of scope appear at once.
   const seen = useRef<{ scope: ChatScope; last: string | null }>({ scope, last: null });
@@ -234,7 +239,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 ) : e.kind === 'note' ? (
                   <TaskNote m={e.message} task={e.task} titles={titles} />
                 ) : (
-                  <Item i={e.item} titles={titles} />
+                  <Item i={e.item} titles={titles} onReply={canSend && canReplyItem ? pickItem : undefined} />
                 )}
               </AnimatedItem>
             );
@@ -287,7 +292,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         history={history}
         messages={chat.messages}
         target={target}
-        onClear={() => setPicked(null)}
+        item={pickedItem}
+        onClear={() => (setPicked(null), setPickedItem(null))}
         running={chat.working.turn_running}
       />
     </section>
