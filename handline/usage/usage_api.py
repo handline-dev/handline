@@ -85,11 +85,10 @@ def record(reading: Reading, path=None) -> bool:
     lifted - `beta` sat at "nothing has run on it for 4h37m" while its 5h
     window was empty.
 
-    The one rule carried over verbatim from the collector this replaced: inside
-    one window usage only rises, so a figure is never lowered while its own
-    window is still open. Across a rollover it is replaced outright - which is the case
-    that matters, because the stale high-water is exactly what made `alpha`
-    unassignable eighteen seconds after its window reset.
+    A first-hand reading is the authority for its window: it replaces the held
+    figure even when lower with the same reset, since the vendor can reset a
+    limit early and keep reporting the old reset time. Only a figure observed
+    after this reading is kept, so a late reading cannot undo a newer one.
     """
     p = path or paths.status_file(reading.account)
     if not p.parent.is_dir():
@@ -110,9 +109,11 @@ def record(reading: Reading, path=None) -> bool:
         if w.pct is not None:
             before = old.get(w.minutes, {})
             old_pct, old_reset = before.get("used_percent"), before.get("resets_at")
+            old_at = before.get("observed_at")
             same_window = (isinstance(old_reset, int) and old_reset == w.reset
                            and old_reset > now - CLOCK_SKEW_S)
-            if isinstance(old_pct, int) and same_window and old_pct > w.pct:
+            newer = isinstance(old_at, int) and old_at > now
+            if isinstance(old_pct, int) and same_window and newer and old_pct > w.pct:
                 value = old_pct
         # Observed, now, first-hand: not carried, and not lost.
         out.append(windows.entry(w.minutes, value, w.reset, now))
