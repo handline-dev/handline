@@ -420,7 +420,8 @@ func (e *Env) chatMessages(c *rpc.Conn, params map[string]any) (any, error) {
 
 // What a task event moves a task to; doing is not stored, so the two events that put a task in its owner's hands stand for it.
 var stateAfter = map[string]string{"draft_task": "draft", "queue_task": "queued", "task_begin": "doing", "task_start": "doing",
-	"mark_task_done": "done", "close_task": "closed", "discard_task": "discarded", "reopen_task": "queued"}
+	"mark_task_done": "done", "close_task": "closed", "discard_task": "discarded", "reopen_task": "queued",
+	"task_report": "reported", "accept_task": "done", "reject_task": "queued"}
 
 var chatEventKinds = []string{"draft_task", "queue_task", "task_begin", "task_start", "mark_task_done", "close_task", "discard_task",
 	"reopen_task", "task_handoff", "edit_task"}

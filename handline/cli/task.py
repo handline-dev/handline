@@ -183,6 +183,22 @@ def cmd_task_reopen(args) -> int:
     return client.said(*client.write("task.reopen", {"task": args.task, "note": args.reason}))
 
 
+def cmd_task_accept(args) -> int:
+    """Close a reported task, its owner's done the evidence - whoever it answers to, its opener or the founder."""
+    if askmod.asking_agent() is None:
+        print(_who_refusal("accept a task"))
+        return 1
+    return client.said(*client.write("task.accept", {"task": args.task}))
+
+
+def cmd_task_reject(args) -> int:
+    """Send a reported task back to its owner's queue, the note told to the owner."""
+    if askmod.asking_agent() is None:
+        print(_who_refusal("reject a task"))
+        return 1
+    return client.said(*client.write("task.reject", {"task": args.task, "note": args.note}))
+
+
 def cmd_task_release(args) -> int:
     """Take a doing task back to queued/draft, with a reason - the answer,
     besides `task edit --timeout`, to a timeout notice."""
@@ -216,8 +232,6 @@ def _new_cmd(args, title: str) -> str:
         parts.append(f"--blocked-by T{args.blocked_by}")
     if args.priority is not None:
         parts.append(f"--priority P{args.priority}")
-    if args.expects is not None:
-        parts.append(f"--expects {args.expects}")
     if args.reply:
         parts.append("--reply " + " ".join(shlex.quote(x) for x in args.reply))
     return " ".join(parts)
@@ -258,7 +272,7 @@ def cmd_task_new(args) -> int:
     body = textsafe.text(inline).strip() if inline else None
     params = {"owner": args.owner, "title": title, "time_box": f"{args.timeout}s", "body": body or None,
               "parent": args.parent, "blocked_by": args.blocked_by, "priority": args.priority,
-              "expects": args.expects, "reporter": args.reporter}
+              "reporter": args.reporter}
     ok, msg, got = client.written("task.new", {k: v for k, v in params.items() if v is not None})
     print(msg)
     if not ok:
@@ -422,9 +436,14 @@ def cmd_task_merge(args) -> int:
     return client.said(*client.write("task.merge", {"into": args.keep, "tasks": args.tasks}))
 
 
+def _state(t: dict) -> str:
+    """A task's state as read: a reported one names who it waits on (asker, absent from an older daemon's Task, else its opener)."""
+    return f"reported, awaiting {t.get('asker') or t['from']}" if t["state"] == "reported" else t["state"]
+
+
 def _print_board(tasks: list[dict]) -> None:
     """Each task (the wire's `Task`), then the requests linked to it as they stand now: state and date are
-    the request's, never held on the task. `state` (#71) is one of draft, queued, doing, done, discarded.
+    the request's, never held on the task. `state` (#71) is one of draft, queued, doing, reported, done, discarded.
     The Go daemon's Task may leave out edited_by, discarded, mismatch, requests, last_activity and asker, so
     each is optional, as in the Go hl's printBoard."""
     if not tasks:
@@ -438,7 +457,7 @@ def _print_board(tasks: list[dict]) -> None:
         closed = f"  DISCARDED by {textsafe.oneline(gone['by'])}: {textsafe.oneline(gone['reason'])}" if gone else ""
         waits = f"  {t['block_reason']}" if t["block_reason"] else ""
         active = timefmt.stamp(client.epoch(t.get("last_activity")), timefmt.DATE_TIME)
-        print(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}  [{t['to']}] {t['state']}"
+        print(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}  [{t['to']}] {_state(t)}"
               f"{parent}{edited}{done}{closed}  "
               f"{actions.priority_ref(t['priority'])}  may reopen: {t.get('asker', '')}"
               f"{waits}  active {active}")
@@ -479,7 +498,7 @@ def _detail_lines(t: dict, now: float) -> list[str]:
     # the assignee works the task; its owner is who it answers to (the wire's asker), named apart from the opener only when they differ
     owner = t.get("asker") or t["from"]
     out = [f"T{t['id']}  {t['title']}",
-           f"state {t['state']}   assignee {t['to']}   owner {owner}"
+           f"state {_state(t)}   assignee {t['to']}   owner {owner}"
            + (f"   opened by {t['from']}" if owner != t["from"] else "")
            + f"   P{t['priority']}"
            + (f"   parent T{t['parent']}" if t["parent"] else "")
@@ -488,6 +507,8 @@ def _detail_lines(t: dict, now: float) -> list[str]:
         out += actions.timeout_lines(_clock(t["time"], now))
     if t["evidence"]:
         out.append(f"done {timefmt.stamp(client.epoch(t['done']))}: {t['evidence']}")
+    if t.get("report"):
+        out.append(f"reported {timefmt.stamp(client.epoch(t['report']['at']))}: {t['report']['evidence']}")
     if t.get("result"):
         out += _result_lines(t["result"], t["id"])
     if t.get("discarded"):
@@ -598,6 +619,8 @@ def cmd_task_board(args) -> int:
                 "sub_task": "sub-task: " + ", ".join(now["agents"]),
                 "held_as_sub_task": "held as sub-task " + ", ".join(f"T{n} ({a})" for n, a in zip(now["tasks"], now["agents"])),
                 "result_in": "you - a result is in"}.get(now["kind"], "nobody holds it")
+        if t["state"] == "reported":
+            said = _state(t)
         parent = f" (under T{t['parent']})" if t["parent"] else ""
         print(_fit100(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}{parent}"))
         print(_fit100(f"      now: {said}"))

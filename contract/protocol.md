@@ -126,6 +126,8 @@ A method marked write takes a required `request_id`.
 | `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.handoff` | agent | yes | `task`, `to`, `note`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `commit?`, `shots?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.accept` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.reject` | agent | yes | `task`, `note`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.progress` | agent (only agent) | yes | `task?`, `note`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
 | `progress.get` | agent (only agent) |  | none | `{note}` |  |  |
@@ -437,7 +439,15 @@ Hand a task to another agent.
 
 ### `task.done`
 
-Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result).
+Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner, when the task answers to someone else (its reporter, or its opener), does not close it: the task turns reported and waits for task.accept or task.reject by them. A done by the founder, or by an owner the task answers to, closes it at once.
+
+### `task.accept`
+
+Accept a task's report: it closes done. The task must be reported (an owner it does not answer to ran task.done). Only whoever it answers to, its opener or the founder may accept. It closes with the report as its evidence; the owner is told.
+
+### `task.reject`
+
+Reject a task's report: it goes back to its owner. The task must be reported. Only whoever it answers to, its opener or the founder may reject. The report and its commit and shots are dropped, the task is queued again for its owner, and the note is told to the owner.
 
 ### `task.reopen`
 
@@ -693,6 +703,8 @@ Every `hl` command an agent runs today and the method that serves it.
 | `hl task edit` | `task.edit` |
 | `hl task merge` | `task.merge` |
 | `hl task release` | `task.release` |
+| `hl task accept` | `task.accept` |
+| `hl task reject` | `task.reject` |
 | `hl task discard` | `task.discard` |
 | `hl task queue` | `task.queue` |
 | `hl task draft` | `task.draft` |

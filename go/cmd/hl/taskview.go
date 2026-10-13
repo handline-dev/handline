@@ -114,7 +114,7 @@ func detailLines(t obj, now float64, home string) []string {
 	if owner != str(t, "from") {
 		opened = "   opened by " + str(t, "from")
 	}
-	head := fmt.Sprintf("state %s   assignee %s   owner %s%s   P%d", str(t, "state"), str(t, "to"), owner, opened, num(t, "priority"))
+	head := fmt.Sprintf("state %s   assignee %s   owner %s%s   P%d", stateSaid(t), str(t, "to"), owner, opened, num(t, "priority"))
 	if given(t, "parent") {
 		head += fmt.Sprintf("   parent T%d", num(t, "parent"))
 	}
@@ -124,6 +124,9 @@ func detailLines(t obj, now float64, home string) []string {
 	}
 	if given(t, "evidence") {
 		out = append(out, fmt.Sprintf("done %s: %s", stamp(t["done"]), str(t, "evidence")))
+	}
+	if r, ok := t["report"].(obj); ok {
+		out = append(out, fmt.Sprintf("reported %s: %s", stamp(r["at"]), str(r, "evidence")))
 	}
 	if r, ok := t["result"].(obj); ok {
 		out = append(out, resultLines(r, num(t, "id"), home)...)
@@ -228,7 +231,7 @@ func taskList(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if state, given := p.opt("--state"); given {
 		switch state {
-		case "draft", "queued", "doing", "done", "discarded":
+		case "draft", "queued", "doing", "reported", "done", "discarded":
 			params["state"] = state
 		default:
 			return 0, false
@@ -283,7 +286,7 @@ func printBoard(tasks []obj) {
 	one := textsafe.Oneline
 	for _, t := range tasks {
 		var b strings.Builder
-		fmt.Fprintf(&b, "%-5s %s  [%s] %s", fmt.Sprintf("T%d", num(t, "id")), one(str(t, "title")), str(t, "to"), str(t, "state"))
+		fmt.Fprintf(&b, "%-5s %s  [%s] %s", fmt.Sprintf("T%d", num(t, "id")), one(str(t, "title")), str(t, "to"), stateSaid(t))
 		if given(t, "parent") {
 			fmt.Fprintf(&b, " (under T%d)", num(t, "parent"))
 		}
@@ -349,7 +352,11 @@ func taskBoard(c *hlclient.Client, args []string) (int, bool) {
 			parent = fmt.Sprintf(" (under T%d)", num(t, "parent"))
 		}
 		fmt.Println(fit100(fmt.Sprintf("%-5s %s%s", fmt.Sprintf("T%d", num(t, "id")), textsafe.Oneline(str(t, "title")), parent)))
-		fmt.Println(fit100(fmt.Sprintf("      assignee %s  owner %s  now: %s", str(t, "to"), str(t, "asker"), nowSaid(now))))
+		said := nowSaid(now)
+		if str(t, "state") == "reported" {
+			said = stateSaid(t)
+		}
+		fmt.Println(fit100(fmt.Sprintf("      assignee %s  owner %s  now: %s", str(t, "to"), str(t, "asker"), said)))
 		if given(t, "hold_reason") {
 			fmt.Println(fit100("      " + str(t, "hold_reason")))
 		}
@@ -358,6 +365,18 @@ func taskBoard(c *hlclient.Client, args []string) (int, bool) {
 		}
 	}
 	return 0, true
+}
+
+// stateSaid is a task's state as read: a reported one names who it waits on, its asker, else its opener (cli/task._state).
+func stateSaid(t obj) string {
+	if str(t, "state") != "reported" {
+		return str(t, "state")
+	}
+	who := str(t, "asker")
+	if who == "" {
+		who = str(t, "from")
+	}
+	return "reported, awaiting " + who
 }
 
 // nowSaid is who holds a task now, in words (cli/task.cmd_task_board).

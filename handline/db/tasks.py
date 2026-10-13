@@ -21,7 +21,7 @@ TASK_FIELDS = ("id", "title", "owner", "parent_task", "opened_by",
                "edited_by", "edited_at", "created_at", "closed_by", "closed_at",
                "discarded_by", "discard_reason", "discarded_at", "priority", "merged_into",
                "queued_by", "queued_at", "expects", "timeout_s", "timeout_at", "delivered_at", "sent_at",
-               "reporter")
+               "reporter", "reported_at", "report", "report_via")
 
 DEFAULT_PRIORITY = 2
 
