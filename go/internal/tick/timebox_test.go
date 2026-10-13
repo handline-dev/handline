@@ -103,6 +103,29 @@ func TestATaskThatIsDoingStartsItsClockThenTellsItsOpenerPastTheDeadlineAndRearm
 	}
 }
 
+func TestAReportedTasksClockRunsOnAndRemindsWhoeverItAnswersTo(t *testing.T) {
+	tk, _, b, p := timebox(t)
+	tid := newTask(t, tk, "a", "boss", 100)
+	p.doing[tid] = true
+	b.SweepTaskTimeouts(tk, 1000)
+	if _, err := tk.Q.Exec("UPDATE tasks SET reporter = 'mgr', reported_at = 1010, report = 'shipped', report_via = 'reason' WHERE id = ?", tid); err != nil {
+		t.Fatal(err)
+	}
+	p.doing[tid] = false
+	b.SweepTaskTimeouts(tk, 1050)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 1100 || len(p.sent) != 0 {
+		t.Fatalf("a reported task's clock does not pause: %+v %v", task, p.sent)
+	}
+	b.SweepTaskTimeouts(tk, 1200)
+	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "mgr: T") || !strings.Contains(p.sent[0], "reported done by a") ||
+		!strings.Contains(p.sent[0], "hl task accept T") || !strings.Contains(p.sent[0], "hl task reject T") {
+		t.Fatalf("%v", p.sent)
+	}
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 1300 || countEvents(t, tk, "mgr", "task_timeout_exceeded") != 1 {
+		t.Fatalf("the reminder re-arms the clock and is chained like an overrun notice: %+v", task)
+	}
+}
+
 func TestATerminalAgentsTaskIsClockedOnlyAtTheCutover(t *testing.T) {
 	tk, _, b, p := timebox(t)
 	mine := newTask(t, tk, "a", "boss", 100) // "a" is driven here

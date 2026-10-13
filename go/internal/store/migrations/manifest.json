@@ -63,5 +63,10 @@
   "version": 13,
   "name": "task_reporter",
   "additive": true
+ },
+ {
+  "version": 14,
+  "name": "task_report",
+  "additive": true
  }
 ]

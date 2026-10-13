@@ -171,7 +171,12 @@ CREATE TABLE IF NOT EXISTS tasks (
   sent_at      INTEGER,
   -- who the task answers to - told when it ends, and may reassign it. NULL is its opener
   -- (`task_reporter`): a process on older code opens tasks without it.
-  reporter     TEXT
+  reporter     TEXT,
+  -- its assignee's done, filed for the reporter to accept or reject: when, the evidence, and how it
+  -- was given (done_via's words). NULL while none waits (`task_report`).
+  reported_at  INTEGER,
+  report       TEXT,
+  report_via   TEXT
 );
 CREATE TABLE IF NOT EXISTS task_requests (
   task_id     INTEGER NOT NULL REFERENCES tasks(id),
@@ -773,6 +778,15 @@ def _task_reporter(con) -> None:
         con.execute("ALTER TABLE tasks ADD COLUMN reporter TEXT")
 
 
+def _task_report(con) -> None:
+    """A done its assignee filed for acceptance. Step 1 adds it to a new database only. Additive: NULL is
+    no report waiting, as before."""
+    cols = _cols(con, "tasks")
+    for col, kind in (("reported_at", "INTEGER"), ("report", "TEXT"), ("report_via", "TEXT")):
+        if col not in cols:
+            con.execute(f"ALTER TABLE tasks ADD COLUMN {col} {kind}")
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
@@ -787,6 +801,7 @@ MIGRATIONS = [
     (11, "transcript_events", _transcript_events, True),
     (12, "land_fixes", _land_fixes, True),
     (13, "task_reporter", _task_reporter, True),
+    (14, "task_report", _task_report, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

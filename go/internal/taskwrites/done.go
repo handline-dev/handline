@@ -17,7 +17,7 @@ import (
 var shaLike = regexp.MustCompile(`^[0-9a-fA-F]{4,40}$`)
 
 // doneMethod is task.done (actions.mark_task_done): the owner's or the founder's call, with exactly one of a merge sha on main, a
-// request already answered, or a one-line fact.
+// request already answered, or a one-line fact. An owner the task does not answer to files it as a report for task.accept.
 func doneMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		tid, err := taskID(p)
@@ -93,7 +93,11 @@ func doneMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 				return nil, fmt.Errorf("task T%d is done, but its screenshots could not be put in place: %w", tid, kerr)
 			}
 		}
-		if err == nil && done != nil && tell != nil {
+		switch {
+		case err != nil || done == nil || tell == nil:
+		case done.Reported:
+			tell.Reported(tid, done.Owner, done.Told, done.Forget)
+		default:
 			tell.Done(tid, by, done.Owner, done.Told, done.Forget, done.Finished)
 		}
 		return out, err
@@ -119,6 +123,8 @@ type DoneResult struct {
 	Told     []db.Notice
 	Forget   []db.InboxFile
 	Finished bool
+	// Reported is a done filed for acceptance: the task is still open.
+	Reported bool
 	// Keep puts the task's screenshots in place; the caller runs it once the end has committed. nil when there are none.
 	Keep func() error
 }
@@ -157,6 +163,9 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 	}
 	if by != t.Owner && by != human {
 		return nil, refusal(fmt.Sprintf("task T%d can only be marked done by its owner (%s) or the founder", tid, t.Owner))
+	}
+	if t.reported() && by != human {
+		return nil, refusal(fmt.Sprintf("task T%d is already reported done (%s) and waits on %s to accept or reject it", tid, t.Report.String, t.reporter()))
 	}
 	var mark, via string
 	switch {
@@ -209,6 +218,9 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 	from, err := state(tx, t)
 	if err != nil {
 		return nil, err
+	}
+	if by != human && by != t.reporter() && by != t.OpenedBy {
+		return fileReport(tx, by, t, mark, via, from, result, finalize)
 	}
 	won, err := db.MarkTaskDone(tx, tid, mark, via)
 	if err != nil {

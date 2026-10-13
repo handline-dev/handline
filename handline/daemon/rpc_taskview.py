@@ -80,6 +80,8 @@ def task_of(con, row, state: str) -> dict:
         "edited_by": row["edited_by"], "asker": actions.task_asker(con, row),
         "discarded": ({"by": row["discarded_by"], "reason": row["discard_reason"] or "", "at": agentview._ts(row["discarded_at"])}
                       if row["discarded_by"] else None),
+        "report": ({"by": row["owner"], "evidence": row["report"], "at": agentview._ts(row["reported_at"])}
+                   if state == "reported" else None),
         "mismatch": actions.task_mismatch(con, row, state),
         "requests": [{"id": r["id"], "from": r["requester"], "to": r["target"], "state": r["state"], "at": agentview._ts(r["ts"])}
                      for r in db.task_requests(con, row["id"])],
