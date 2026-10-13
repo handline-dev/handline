@@ -57,7 +57,7 @@ def cmd_team(args) -> int:
         if theirs:
             print("\nmay ask you: "
                   + ", ".join(f"{n} ({rel})" for n, rel in theirs))
-        print("\n`hl task new --owner <name> -t <time> \"<title>\" \"<body>\"` gives one work, "
+        print("\n`hl task new --assign <name> -t <time> \"<title>\" \"<body>\"` gives one work, "
               "and `hl say <name> \"...\"` sends a message. A task is the only way to give an "
               "agent work:\na subagent you spawn yourself dies with this session and "
               "nobody can see it.")
