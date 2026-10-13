@@ -130,6 +130,19 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         # `write-handoff` reads the agent's own terminal for the handoff, which
         # there is none of here: stand in for that step and print what it stored.
         handoffmod.record = lambda con, agent: []
+
+        def queue(params: dict) -> dict:
+            """inbox.queue is the Go daemon's: every string of its reply is text somebody typed, given here as it would come."""
+            if params["whose"] == "human":
+                return {"whose": "human", "newest": h, "head": None, "waiting": 1, "lines": [
+                    {"id": h, "from": "reviewer", "kind": "ask", "decision": True, "answer": False, "line": f"decision {p}", "unread": 1}],
+                    "dealt": [{"id": d, "outgoing": False, "agent": "backend", "state": "landed", "line": f"verdict {p}"}]}
+            return {"whose": params["whose"], "newest": q, "history": [
+                {"id": q, "requester": "marina", "state": "queued", "chain_depth": 0, "line": f"body {p} end"}], "head": {
+                "id": q, "requester": "marina", "chain_depth": 0, "body": f"body {p} end\n\tsecond {p}", "more_waiting": 1,
+                "more_waiting_line": f"1 more waiting {p}", "how_to_close": f"answer {p}"}}
+        says = support.daemon_says("inbox.queue", queue)
+        says.__enter__()
         try:
             run_it(["fold", "reviewer", "--account", "alpha"], key="fold reviewer (model lost a done item)")
             for leaf, runs in driven.items():
@@ -141,6 +154,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             run_it(*driven["withdraw"][0][:2], key=driven["withdraw"][0][2])
             run_it(driven["unstall"][0])
         finally:
+            says.__exit__(None, None, None)
             foldmod.run_model, handoffmod.record = real_model, real_record
         scene.driven = driven
         return out
