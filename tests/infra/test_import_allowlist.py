@@ -20,7 +20,6 @@ from support import *  # noqa: E402,F401,F403
 MOVING = {
     ("account.py", "handline.db"),
     ("agent.py", "handline.daemon.handoff"),
-    ("agent.py", "handline.daemon.lifecycle"),
     ("agent.py", "handline.db"),
     ("ask.py", "handline.daemon.delivery"),
     ("ask.py", "handline.db"),
