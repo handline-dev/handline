@@ -78,6 +78,21 @@ def set_terminal(con, agent: str, terminal: str | None, worktree: str | None) ->
         "worktree=excluded.worktree, updated=excluded.updated",
         (agent, "IDLE", int(time.time()), terminal, worktree),
     )
+    if terminal:
+        record_terminal(con, terminal, agent)
+
+
+# The same terminal named again for the same agent, still open, keeps when it was first opened: a launch names the terminal its spawn
+# has just named.
+_RECORD_TERMINAL = (
+    "INSERT INTO agent_terminals(handle, agent, opened_at) VALUES(?,?,?) ON CONFLICT(handle) DO UPDATE SET "
+    "opened_at=CASE WHEN agent IS excluded.agent AND closed_at IS NULL THEN opened_at ELSE excluded.opened_at END, "
+    "agent=excluded.agent, closed_at=NULL")
+
+
+def record_terminal(con, handle: str, agent: str | None) -> None:
+    """Remember a terminal opened for agent (None: opened with no agent), beside the ones it had before."""
+    con.execute(_RECORD_TERMINAL, (handle, agent, int(time.time())))
 
 
 def set_account(con, agent: str, account: str | None, source: str = "recorded") -> None:

@@ -132,6 +132,19 @@ func SetStateUnlessRunning(q Q, agent, state, detail string) (bool, error) {
 func SetTerminal(q Q, agent, terminal, worktree string) error {
 	_, err := q.Exec("INSERT INTO agent_state(agent, state, updated, terminal, worktree) VALUES(?,?,?,?,?) ON CONFLICT(agent) DO UPDATE SET terminal=excluded.terminal, worktree=excluded.worktree, updated=excluded.updated",
 		agent, "IDLE", Now(), nullStr(terminal), nullStr(worktree))
+	if err != nil || terminal == "" {
+		return err
+	}
+	return RecordTerminal(q, terminal, agent)
+}
+
+// RecordTerminal is db.record_terminal: it remembers a terminal opened for agent ("": opened with no agent), beside the ones it had
+// before. The same terminal named again for the same agent, still open, keeps when it was first opened: a launch names the terminal
+// its spawn has just named.
+func RecordTerminal(q Q, handle, agent string) error {
+	_, err := q.Exec("INSERT INTO agent_terminals(handle, agent, opened_at) VALUES(?,?,?) ON CONFLICT(handle) DO UPDATE SET "+
+		"opened_at=CASE WHEN agent IS excluded.agent AND closed_at IS NULL THEN opened_at ELSE excluded.opened_at END, "+
+		"agent=excluded.agent, closed_at=NULL", handle, nullStr(agent), Now())
 	return err
 }
 

@@ -773,6 +773,20 @@ def _task_reporter(con) -> None:
         con.execute("ALTER TABLE tasks ADD COLUMN reporter TEXT")
 
 
+def _agent_terminals(con) -> None:
+    """Every terminal opened for an agent, kept after a relaunch moves the agent to another, so a terminal it
+    left behind can still be found. agent is NULL for a terminal opened with no agent. Additive: a process that
+    does not know the table never reads it."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS agent_terminals (
+          handle    TEXT    PRIMARY KEY,
+          agent     TEXT,
+          opened_at INTEGER NOT NULL,
+          closed_at INTEGER
+        );
+    """)
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
@@ -787,6 +801,7 @@ MIGRATIONS = [
     (11, "transcript_events", _transcript_events, True),
     (12, "land_fixes", _land_fixes, True),
     (13, "task_reporter", _task_reporter, True),
+    (14, "agent_terminals", _agent_terminals, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 
