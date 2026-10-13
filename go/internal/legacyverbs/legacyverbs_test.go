@@ -178,7 +178,7 @@ func TestAgentSetPassesTheValuesAsTextAndTheSpeakerAsSaid(t *testing.T) {
 
 func TestAVerbNothingSendsAnyMoreIsLeftToTheServer(t *testing.T) {
 	r := newRig(t)
-	for _, v := range []string{"message", "wake", "park", "fold", "move", "start", "trust", "land", "nonsense"} {
+	for _, v := range []string{"message", "wake", "park", "fold", "move", "start", "trust", "nonsense"} {
 		if got := r.ask(`{"verb":"` + v + `"}`); got != nil {
 			t.Errorf("%s: %v", v, got)
 		}

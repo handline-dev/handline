@@ -241,12 +241,10 @@ def test_the_old_package_name_still_imports_the_same_modules() -> None:
 
 
 def test_hl_is_the_main_command_and_the_old_names_are_recognised(home: Path) -> None:
-    from handline.session import landgate, shellguard
+    from handline.session import shellguard
     from handline.vendors import claude_hooks
     check("names: hl first, the two old names after it", names.COMMANDS == ("hl", "handline", "ocp"))
     for n in names.COMMANDS:
-        check(f"names: `{n} land --pass` is read as a land verb",
-              landgate.parse("Bash", {"command": f"{n} land --pass abc1234"}) == ("land_pass", "abc1234"))
         check(f"names: a hook entry written with {n} is ours",
               claude_hooks._is_our_hook(f"/x/bin/{n} hook Stop", "Stop"))
         check(f"names: a double-quoted backtick after `{n} say` is refused",

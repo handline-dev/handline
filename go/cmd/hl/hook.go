@@ -35,7 +35,7 @@ func goSwitchOn(home, name string) bool {
 var goEvents = map[string]bool{"PreToolUse": true, "PostToolUse": true, "PostToolUseFailure": true}
 
 // hook is `hl hook <event>` (session/events.record_from_stdin) for the events that fire on every tool call, once the
-// switch is on. PreToolUse runs the guard chain, then vouches for an `hl land` call; PostToolUse and its failure take
+// switch is on. PreToolUse runs the guard chain; PostToolUse and its failure take
 // away the wait a permission prompt raised and record the event, and a PostToolUse notes a memory file used and a
 // command started in the background. It always exits 0, as a hook that fails must never take the session with it.
 func hook(c *hlclient.Client, args []string) (int, bool) {
@@ -88,10 +88,6 @@ func hook(c *hlclient.Client, args []string) (int, bool) {
 	}
 	why := session.PreToolUse(d, c.Home, agent, tool, input)
 	if why == "" {
-		why = session.Misses(sessiontoken.New(c.Home).KeyHeld, agent, tool, input)
-	}
-	if why == "" {
-		session.LandVoucher{KeyHeld: sessiontoken.New(c.Home).KeyHeld, Send: c.Legacy}.Authorize(agent, tool, input)
 		fmt.Println("{}")
 		return 0, true
 	}

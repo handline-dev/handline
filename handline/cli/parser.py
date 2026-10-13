@@ -20,7 +20,6 @@ from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
 from .health import cmd_backup, cmd_doctor, cmd_events, cmd_fold, cmd_status, cmd_triggers
 from .hooks import cmd_go, cmd_hook, cmd_hook_install, cmd_hooks_gate
 from .hr import cmd_hr, cmd_trust
-from .land import cmd_land
 from .schedule import cmd_schedule
 from .idle import cmd_auto_accept, cmd_notice_digest, cmd_idle_background, cmd_idle_timeout, cmd_ignore_cache_expiry, seconds_or_never, span_arg
 from .service import cmd_service_install, cmd_service_logs, cmd_service_use, cmd_service_status, cmd_service_uninstall, cmd_venv_install, cmd_venv_status
@@ -485,25 +484,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--why", default=None, help="from an agent's session, where this becomes a proposal "
                    "for the founder: why")
     p.set_defaults(fn=cmd_ignore_cache_expiry)
-
-    p = sub.add_parser("land", help="the merger tests a branch's merge in its own sandbox and records it "
-                       "(`land --check <sha>...`, then `land <sha> <message> --tree <tree>` for each); the auditor records a PASS (`land --pass <sha>`); the "
-                       "daemon, which runs no branch code, merges and fast-forwards main. A sha lands once")
-    p.add_argument("sha", nargs="?")
-    p.add_argument("message", nargs="?")
-    p.add_argument("--pass", dest="passed", action="store_true", help="the auditor's PASS for this sha; refused for a sha the merger's check stops on before its suite (a conflict, or personal data or a local id in the merge)")
-    p.add_argument("--list", action="store_true", help="the recent lands and where each stands")
-    p.add_argument("--check", nargs="+", default=None, metavar="SHA",
-                   help="test the merge of these shas onto main here, in order, with one suite run, and print the "
-                        "tree for each; on red, split the batch and drop the shas that break it. Records nothing")
-    p.add_argument("--tree", default=None, help="the tree `--check` printed; `land <sha> <message> --tree <tree>` records it")
-    p.add_argument("--fix", default=None, metavar="DIR",
-                   help="the merger's housekeeping for one sha, with --check and then with the land: each file under DIR, "
-                        "at its repo path, is written over the merge (a conflict it resolves, a missing doc line); "
-                        "only paths in tools/housekeeping.paths, anything else needs a PASS")
-    p.add_argument("--squash", action="store_true",
-                   help="land one commit carrying the merge message instead of the merge, so a WIP branch message never reaches main")
-    p.set_defaults(fn=cmd_land)
 
     p = sub.add_parser("schedule", help="show, add, edit or remove the messages the daemon types at an agent "
                        "on a cron schedule (T605); adding, editing and removing are the founder's")

@@ -239,8 +239,7 @@ func (l *Launcher) ExecAgent(agent string, extra []string, force bool, promptFil
 			return err
 		}
 	}
-	l.Tokens.Record(agent, os.Getpid()) // the proof this session is the agent's, for the daemon's land verbs
-	l.Tokens.MintKey(agent)             // what its hook alone can name, to vouch for its own `hl land`
+	l.Tokens.Record(agent, os.Getpid()) // the proof this session is the agent's
 	env = paths.Both(env)
 	fp, _ := l.Fingerprint(agent)
 	l.recordTerminal(agent, env["OCP_ACCOUNT"], fp)

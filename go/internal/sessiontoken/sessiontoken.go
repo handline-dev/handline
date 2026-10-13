@@ -24,8 +24,7 @@ import (
 
 const (
 	NS        = "session-tokens" // the store folder keeps its name; renaming it would orphan the records
-	KeyNS     = "hook-keys"
-	FounderNS = "founder-keys" // the daemon's key for the founder's own callers; hidden from sessions like KeyNS
+	FounderNS = "founder-keys"   // the daemon's key for the founder's own callers; hidden from sessions
 	maxDepth  = 64
 )
 
@@ -196,17 +195,13 @@ func (t *Tokens) Chain(pid int) []Ancestor {
 	return out
 }
 
-// KeyFolder is where the hooks' keys are kept.
-func (t *Tokens) KeyFolder() string { return filepath.Join(t.Store.Root, KeyNS) }
-
 // HiddenFolders are the key folders a session must not read.
 func (t *Tokens) HiddenFolders() []string {
-	return []string{t.KeyFolder(), filepath.Join(t.Store.Root, FounderNS)}
+	return []string{filepath.Join(t.Store.Root, FounderNS)}
 }
 
 // EnsureKeyFolders makes the folders exist before a launch hides them; quietly nothing when the store is unwritable.
 func (t *Tokens) EnsureKeyFolders() {
-	_ = t.Store.Ensure(KeyNS)
 	_ = t.Store.Ensure(FounderNS)
 }
 
@@ -218,22 +213,8 @@ func newKey() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// MintKey makes a new key for agent's hook, kept where the session's sandbox cannot read it. False when the store cannot be written.
-func (t *Tokens) MintKey(agent string) bool { return t.Store.Put(KeyNS, agent, newKey()) == nil }
-
-// KeyHeld is the key, for the hook, which the harness runs outside the sandbox; "" inside it.
-func (t *Tokens) KeyHeld(agent string) string {
-	v, _ := t.Store.Get(KeyNS, agent)
-	return strings.TrimSpace(v)
-}
-
 func equal(kept, given string) bool {
 	return kept != "" && given != "" && subtle.ConstantTimeCompare([]byte(kept), []byte(given)) == 1
-}
-
-// KeyOK is whether key is agent's hook key.
-func (t *Tokens) KeyOK(agent, key string) bool {
-	return agent != "" && equal(t.KeyHeld(agent), key)
 }
 
 // EnsureFounderKey makes the founder key when there is none. False when the store cannot be written.

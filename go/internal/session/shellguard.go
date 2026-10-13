@@ -1,6 +1,6 @@
 // Package session is handline/session as the daemon and the hooks use it: what is true of an agent's session right now (observe),
 // what stands in the way of typing at it (blocked, waiting), the standing answers to its dialogs (autoaccept), and the guards on
-// the commands it runs (shellguard, landgate, bgjobs).
+// the commands it runs (shellguard, bgjobs).
 package session
 
 import (

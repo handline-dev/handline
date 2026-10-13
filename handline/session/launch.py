@@ -822,8 +822,7 @@ def exec_agent(agent: str, extra: list[str] | None = None, force: bool = False,
             db.set_handoff(con, agent, None)
         finally:
             con.close()
-    sessiontoken.record(agent)             # the proof this session is the agent's, for the daemon's land verbs
-    sessiontoken.mint_key(agent)           # what its hook alone can name, to vouch for its own `hl land`
+    sessiontoken.record(agent)             # the proof this session is the agent's
     env = names.both(env)
     _record_terminal(agent, env.get("OCP_ACCOUNT"), fingerprint(agent))
     gitrun.point_origin_head_at_main(Path.cwd())        # T935: the session names its main branch from it
