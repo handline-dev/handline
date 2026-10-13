@@ -66,7 +66,13 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 			head, err := db.EffectiveHead(q, agent)
 			return err != nil || head != nil // a read that fails says something may be waiting
 		},
-		TeamRules:   func(agent string) []string { return team.Rules(home, agent, routing()) },
+		TeamRules: func(agent string) []string {
+			t := routing()
+			if err := team.SeedRules(home, t); err != nil {
+				cfg.Log("  team rules: not seeded: %v", err)
+			}
+			return team.Rules(home, agent, t)
+		},
 		Routing:     routing,
 		McpApproved: team.NewTrust(home).MCPApproved,
 	}}

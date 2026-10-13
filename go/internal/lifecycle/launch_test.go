@@ -539,7 +539,8 @@ func TestAnAgentIsToldItsTeamFromTeamYAML(t *testing.T) {
 	r := newLaunchRig(t)
 	v, err := yamlcompat.ParseOrdered(`
 teams:
-  dev: [marina, keeper]
+  dev: [manager, marina, keeper]
+  lone: [scout]
 agents:
   manager: {}
   marina: {}
@@ -557,7 +558,14 @@ edges:
 	if err != nil {
 		t.Fatal(err)
 	}
+	home := r.l.Home
 	r.l.Ports.Routing = func() *team.Team { return tm }
+	r.l.Ports.TeamRules = func(agent string) []string {
+		if err := team.SeedRules(home, tm); err != nil {
+			t.Fatal(err)
+		}
+		return team.Rules(home, agent, tm)
+	}
 	for _, n := range []string{"manager", "marina", "keeper", "scout"} {
 		os.MkdirAll(filepath.Dir(r.l.Roster.AgentFile(n)), 0o755)
 		os.WriteFile(r.l.Roster.AgentFile(n), []byte("vendor: claude\n"), 0o644)
@@ -570,12 +578,37 @@ edges:
 		}
 		return ""
 	}
-	mgr, dev, scout := r.l.yourTeam("manager"), r.l.yourTeam("marina"), r.l.yourTeam("scout")
-	if !strings.Contains(mgr, "Your reports: `keeper`, `marina`.") {
-		t.Errorf("a supervisor is not told its reports:\n%s", mgr)
+	context := func(agent string) string {
+		text, err := r.l.ContextFor(agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return text
 	}
-	if !strings.Contains(mgr, "Finding the bottleneck is your job") || strings.Contains(dev, "Your reports") || strings.Contains(dev, "bottleneck") {
-		t.Errorf("the manager rules are not the supervisor's alone:\n%s\n---\n%s", mgr, dev)
+	culture := []string{"Keep messages short", "no progress or FYI messages", "Never schedule your own wakeup", "You do not implement",
+		"Check main before you assign", "founder's own words", "Finding the bottleneck is your job"}
+	// A team that empties its rules file is not seeded again: it gets only the facts.
+	context("scout")
+	if err := os.Remove(filepath.Join(home, "shared", "team", "lone.md")); err != nil {
+		t.Fatal(err)
+	}
+	mgr, dev, scout := context("manager"), context("marina"), context("scout")
+	rules := "# Rules for team dev\n" + strings.TrimSpace(team.DefaultRules)
+	for who, text := range map[string]string{"manager": mgr, "marina": dev} {
+		if !strings.Contains(text, rules) {
+			t.Errorf("%s: the seeded team file is not in the prompt:\n%s", who, text)
+		}
+	}
+	for _, w := range culture {
+		if strings.Contains(r.l.yourTeam("manager"), w) || strings.Contains(scout, w) {
+			t.Errorf("%q is written by code, not read from the team file:\n%s", w, scout)
+		}
+	}
+	if !strings.Contains(mgr, "Your reports: `keeper`, `marina`.") || !strings.Contains(mgr, "--blocked-by T<n>") {
+		t.Errorf("a supervisor is not told its reports and how to give them work:\n%s", mgr)
+	}
+	if strings.Contains(dev, "Your reports") {
+		t.Errorf("a report is told it has reports:\n%s", dev)
 	}
 	for who, text := range map[string]string{"manager": mgr, "marina": dev, "scout": scout} {
 		line := reportLine(text)
@@ -583,11 +616,11 @@ edges:
 		if !strings.Contains(line, "`hl task done T<n>") || !strings.Contains(line, "that is your report") {
 			t.Errorf("%s: the report-to line does not say task done is the report: %s", who, line)
 		}
-		if strings.Contains(line, "no progress or FYI messages") == bossIsHuman || strings.Contains(line, "hl say") {
-			t.Errorf("%s: an agent with a boss must be told to send it only done or a blocker, and no say: %s", who, line)
+		if strings.Contains(line, "a task for it: `hl task new --assign") == bossIsHuman || strings.Contains(line, "hl say") {
+			t.Errorf("%s: an agent with a boss must be told a block is a task for it, and no say: %s", who, line)
 		}
-		if !strings.Contains(text, "a task of theirs: `hl task new --assign human") || !strings.Contains(text, "Never schedule your own wakeup") {
-			t.Errorf("%s: the founder and wakeup lines are missing:\n%s", who, text)
+		if !strings.Contains(text, "a task of theirs: `hl task new --assign human") {
+			t.Errorf("%s: the founder line is missing:\n%s", who, text)
 		}
 	}
 	if !strings.HasPrefix(reportLine(dev), "You report to `manager`") || !strings.HasPrefix(reportLine(scout), "You report to `human`") {

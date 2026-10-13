@@ -721,8 +721,9 @@ func (l *Launcher) ContextFor(agent string) (string, error) {
 	return strings.Join(out, "\n\n"), nil
 }
 
-// yourTeam is who this agent answers to and who answers to it, read from team.yaml. Generated rather than written into each ROLE.md: a
-// role that named its colleagues by hand kept naming them after they were retired and renamed.
+// yourTeam is who this agent answers to and who answers to it, read from team.yaml, and the hl commands that reach them. Generated
+// rather than written into each ROLE.md: a role that named its colleagues by hand kept naming them after they were retired and renamed.
+// How a team works together is its rules file (team.Rules), not this.
 func (l *Launcher) yourTeam(agent string) string {
 	var t *team.Team
 	if l.Ports.Routing != nil {
@@ -744,21 +745,17 @@ func (l *Launcher) yourTeam(agent string) string {
 	report := "You report to `" + boss + "`. A task you were handed ends with `hl task done T<n> \"<evidence>\"` or `hl task handoff T<n> <agent> \"<note>\"` - that is your report, even a deferral: the next task arrives only then, and an answer typed in chat reaches no one."
 	if boss != db.Human {
 		// A decision for the human is a task of theirs, so it is named once, below, for the decisions that are theirs.
-		report += " Send `" + boss + "` no progress or FYI messages: it hears from you only when a task is done or you are blocked. Being blocked, a decision only they can make, or work nobody handed you is a task for them: `hl task new --assign " + boss + " -t <time> \"<title>\" \"<body>\"`."
+		report += " Being blocked, a decision only `" + boss + "` can make, or work nobody handed you is a task for it: `hl task new --assign " + boss + " -t <time> \"<title>\" \"<body>\"`."
 	}
-	lines := []string{"# Your team", report,
-		"Talk to people only through ocp; what you write in your terminal reaches no one. Keep it short. Reply when a message asks you something or you owe a result; a message that only informs needs no reply, except the founder's."}
+	lines := []string{"# Your team", report, "Talk to people only through ocp; what you write in your terminal reaches no one."}
 	if len(reports) > 0 {
 		var quoted []string
 		for _, n := range reports {
 			quoted = append(quoted, "`"+n+"`")
 		}
-		lines = append(lines, "Your reports: "+strings.Join(quoted, ", ")+". You do not implement - give one work with `hl task new --assign <name> -t <time> \"<title>\" \"<what to do, and what done looks like>\"`, and read what it sends back. A message to a report is `hl say <name> ... --task T<n>` (a memo on that task). One task at a time; correct one with `hl task memo T<n> add \"...\"`, not a message behind it, and throw a stale one away with `hl task discard T<n> \"<why>\"`. Record a wait as `--blocked-by T<n>` on the task, not in prose. Check main before you assign, so nobody rebuilds what landed. Quote the founder's own words in the task you open for their request, and answer the founder through `hl`, never in chat.")
-		lines = append(lines, "Finding the bottleneck is your job. At each periodic check, look at each report's queued count, its oldest wait and the work blocked behind it, and compare with the last check. When a wait passes 1h or a queue grows two checks in a row, ask that agent what slows it and open the work that fixes the cause. No dead or stalled agent does not mean healthy.")
+		lines = append(lines, "Your reports: "+strings.Join(quoted, ", ")+". Give one work with `hl task new --assign <name> -t <time> \"<title>\" \"<what to do, and what done looks like>\"`. A message to a report is `hl say <name> ... --task T<n>` (a memo on that task). Correct a task with `hl task memo T<n> add \"...\"`, throw a stale one away with `hl task discard T<n> \"<why>\"`, and record a wait with `--blocked-by T<n>`.")
 	}
 	lines = append(lines, "`hl team` shows who you may reach and what each is doing now. A decision or a block only the founder can clear is a task of theirs: `hl task new --assign human -t <time> \"<title>\" \"<body>\"`.")
-	// A self-scheduled wakeup survives the park's /clear and fires into a session that is at the usage wall.
-	lines = append(lines, "Never schedule your own wakeup, /loop or poll to wait for a reply or a review: ocp types the answer into your session when it comes.")
 	return strings.Join(lines, "\n")
 }
 

@@ -206,9 +206,11 @@ edges:
     con.close()
     from handline.session import launch
     team_text = launch._your_team("worker")
-    check("your team: every agent is told, in one line, to talk to people only through ocp",
+    rules = (Path(launch.__file__).resolve().parents[2] / "go" / "internal" / "team" / "default_rules.md").read_text()
+    check("your team: every agent is told, in one line, to talk to people only through ocp, "
+          "and the house rules say only the founder's informing message wants a reply",
           "Talk to people only through ocp; what you write in your terminal reaches no one." in team_text
-          and "a message that only informs needs no reply, except the founder's" in team_text,
+          and "one that only informs needs no reply, except the founder's" in rules,
           team_text)
     rc, out = _cli(["say", "human", "fine", "--parent", str(rid)], as_agent="manager")
     check("founder reply: without --task or --no-task it is refused, saying why",

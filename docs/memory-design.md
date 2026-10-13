@@ -131,7 +131,9 @@ until each agent has confirmed its own entries once; then the links are removed.
 
 1. **Team layer: a separate file** in the appendix, `shared/team/<team>.md`,
    injected beside `base.md` for each team the agent is in. `hl doctor` warns
-   past 10 rules or 2KB.
+   past 10 rules or 2KB. The launcher seeds each new team's file once from
+   `go/internal/team/default_rules.md` (the house culture; the prompt's own
+   team part holds only hl facts) and lists it in `shared/team/.seeded`.
 2. **Pruning candidates: 28 days** (`memory.STALE_DAYS`).
 3. **Over budget, the write is denied** and the reason shown (T230's
    PreToolUse hook); it is not a warning.
