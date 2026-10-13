@@ -330,6 +330,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="the message this replies to: the reply settles it (T361)")
     p.add_argument("--task", type=_task_arg, default=None, metavar="T",
                    help="a say to your report about this task: it lands as a memo on T<n>; "
+                        "with --parent, a reply in that thread linked to T<n>; "
                         "replying to the founder's request, the task it becomes")
     p.add_argument("--no-task", default=None, metavar="REASON",
                    help="replying to the founder's request: nothing needs building, and why")

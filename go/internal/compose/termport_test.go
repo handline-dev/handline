@@ -24,6 +24,7 @@ type fakeTerminals struct {
 	respawn []string
 	closed  []string
 	screen  []string
+	panePid map[string]int // the process each pane runs; none reads as unknown
 	// started runs when a terminal is opened, as the launch line would start a session in it.
 	started func(cwd string)
 }
@@ -44,6 +45,7 @@ func (f *fakeTerminals) ListTerminals() map[string]bool {
 	}
 	return out
 }
+func (f *fakeTerminals) PanePid(handle string) int { return f.panePid[handle] }
 func (f *fakeTerminals) ReadScreen(string, int) *term.Screen {
 	return &term.Screen{Tail: f.screen, Source: "screen"}
 }

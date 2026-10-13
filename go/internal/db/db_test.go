@@ -143,3 +143,42 @@ func TestAgentStateWritesCreateIdleRowsAndKeepRunning(t *testing.T) {
 		t.Fatal(s.ExtraWorktrees.String)
 	}
 }
+
+func TestEveryTerminalNamedForAnAgentIsKeptAfterTheAgentMoves(t *testing.T) {
+	q := open(t)
+	row := func(handle string) (agent any, opened int64, closed any) {
+		t.Helper()
+		if err := q.QueryRow("SELECT agent, opened_at, closed_at FROM agent_terminals WHERE handle = ?", handle).Scan(&agent, &opened, &closed); err != nil {
+			t.Fatal(handle, err)
+		}
+		return
+	}
+	if err := SetTerminal(q, "a", "%1", "/wt"); err != nil {
+		t.Fatal(err)
+	}
+	Now = func() int64 { return 2000 }
+	SetTerminal(q, "a", "%1", "/wt") // the launch names the pane its spawn named: still the first opening
+	SetTerminal(q, "a", "%2", "/wt") // a relaunch moves the agent; %1 stays on record
+	SetTerminal(q, "a", "", "/wt")   // a close names no terminal and records none
+	if a, at, c := row("%1"); a != "a" || at != 1000 || c != nil {
+		t.Fatal(a, at, c)
+	}
+	if a, at, _ := row("%2"); a != "a" || at != 2000 {
+		t.Fatal(a, at)
+	}
+	q.Exec("UPDATE agent_terminals SET closed_at = 1500 WHERE handle = '%1'")
+	Now = func() int64 { return 3000 }
+	SetTerminal(q, "b", "%1", "/wt2") // a handle reused for another agent is a new opening
+	if a, at, c := row("%1"); a != "b" || at != 3000 || c != nil {
+		t.Fatal(a, at, c)
+	}
+	RecordTerminal(q, "%3", "") // a terminal opened with no agent
+	if a, _, _ := row("%3"); a != nil {
+		t.Fatal(a)
+	}
+	var n int
+	q.QueryRow("SELECT COUNT(*) FROM agent_terminals").Scan(&n)
+	if n != 3 {
+		t.Fatal(n)
+	}
+}
