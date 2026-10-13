@@ -205,3 +205,18 @@ func TestRejectSendsTheTaskBackToItsOwnerWithTheNote(t *testing.T) {
 		t.Fatalf("a second report: %q", got)
 	}
 }
+
+func TestADiscardedTasksReportCanBeNeitherAcceptedNorRejected(t *testing.T) {
+	sdb, f, run := reportEnv(t, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'a', 'w', 'boss', 1)")
+	said(t, run("w", "task.done", "d1", `,"task":1,"evidence":"done"`))
+	said(t, run("boss", "task.discard", "x1", `,"task":1,"reason":"not needed"`))
+	for _, verb := range []string{"accept", "reject"} {
+		if r := run("boss", "task."+verb, verb, `,"task":1,"note":"redo"`); errText(r) != "task T1 has no report waiting - nothing to "+verb {
+			t.Fatalf("%s on a discarded task: %v", verb, r)
+		}
+	}
+	if st := taskState(t, sdb, 1); st != "discarded" || len(f.rejected) != 0 ||
+		count(t, sdb, "SELECT COUNT(*) FROM events WHERE kind IN ('reject_task', 'accept_task')") != 0 {
+		t.Fatalf("the discarded task is left as it is: %s %v", st, f.rejected)
+	}
+}
