@@ -63,11 +63,12 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	if r[0]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM tasks WHERE id = 5 AND opened_by = 'human' AND queued_by = 'human'") != 1 {
 		t.Fatalf("the founder's task opens queued: %v", r[0])
 	}
-	if r[1]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM requests WHERE requester = 'human' AND target = 'human'") != 0 ||
+	todo := "SELECT COUNT(*) FROM requests r JOIN task_requests l ON l.request_id = r.id WHERE l.task_id = 6 AND r.requester = 'human' " +
+		"AND r.target = 'human' AND r.body = 'b' AND r.kind = 'task' AND r.state = 'queued'"
+	if r[1]["error"] != nil || count(t, db, todo) != 1 ||
 		count(t, db, "SELECT COUNT(*) FROM tasks WHERE id = 6 AND owner = 'human' AND opened_by = 'human' AND queued_by = 'human' AND expects = 'report'") != 1 ||
-		count(t, db, "SELECT COUNT(*) FROM task_requests WHERE task_id = 6") != 0 ||
-		count(t, db, "SELECT COUNT(*) FROM events WHERE kind = 'task_new' AND json_extract(payload, '$.task_id') = 6 AND json_extract(payload, '$.request_id') IS NULL") != 1 {
-		t.Fatalf("the founder's own todo opens queued, a report, with no request: %v", r[1])
+		count(t, db, "SELECT COUNT(*) FROM events WHERE kind = 'task_new' AND json_extract(payload, '$.task_id') = 6 AND json_extract(payload, '$.request_id') IS NOT NULL") != 1 {
+		t.Fatalf("the founder's own todo opens queued, a report, its brief on the one request it carries: %v", r[1])
 	}
 	f = &fakeTeller{deny: "no edge"}
 	r = call(t, mk("manager", f), line(2, base, "d1"))

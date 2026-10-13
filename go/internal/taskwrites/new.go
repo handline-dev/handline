@@ -221,7 +221,7 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 	if owner == human {
 		kind = ""
 	}
-	open := func(rid int64) error { // rid 0: a todo the founder opens for themself, which asks no one
+	open := func(rid int64) error {
 		var err error
 		reporter := in.Reporter
 		if reporter == me {
@@ -240,12 +240,8 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 				return err
 			}
 		}
-		var asking any
-		if rid != 0 {
-			if err := db.LinkRequest(tx, tid, rid); err != nil {
-				return err
-			}
-			asking = rid
+		if err := db.LinkRequest(tx, tid, rid); err != nil {
+			return err
 		}
 		if _, held, err := db.CurrentTask(tx, owner); err != nil {
 			return err
@@ -254,7 +250,7 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 				return err
 			}
 		}
-		if err := addEvent(tx, me, "task_new", kv{"task_id", tid}, kv{"request_id", asking}, kv{"owner", owner}, kv{"expects", expects}); err != nil {
+		if err := addEvent(tx, me, "task_new", kv{"task_id", tid}, kv{"request_id", rid}, kv{"owner", owner}, kv{"expects", expects}); err != nil {
 			return err
 		}
 		if hasParent { // a child task always blocks its parent
@@ -273,10 +269,16 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 		return nil
 	}
 	if me == human && owner == human {
-		if err := open(0); err != nil {
+		// A todo of the founder's own: routing has no founder-to-founder edge, so its brief is written as the request any task to the
+		// founder carries, queued on their screen, without being routed or told.
+		rid, err := db.AddRequest(tx, db.NewRequest{Requester: human, Target: human, Body: body, Response: "async", Kind: "task"})
+		if err != nil {
 			return 0, nil, err
 		}
-		return tid, &Asked{OK: true, Msg: "a todo of your own"}, nil
+		if err := open(rid); err != nil {
+			return 0, nil, err
+		}
+		return tid, &Asked{OK: true, Msg: fmt.Sprintf("a todo of your own, #%d", rid), RID: rid}, nil
 	}
 	if tell == nil {
 		return 0, nil, fmt.Errorf("task.new needs the supervisor to route its ask")

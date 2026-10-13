@@ -1224,33 +1224,34 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     kind = None if owner == HUMAN else "task"
     opened: list[int] = []
 
-    def together(con, rid: int | None, _note: str) -> None:
-        """In the transaction that writes the delivery: the task, its link and `effect` (the daemon's record of the write) land with it.
-        `rid` None is a todo the founder opens for themself, which asks no one."""
+    def together(con, rid: int, _note: str) -> None:
+        """In the transaction that writes the delivery: the task, its link and `effect` (the daemon's record of the write) land with it."""
         tid = db.new_task(con, title, owner, me, parent, priority, expects=expects, timeout_s=timeout_s,
                           reporter=reporter)
         if me == HUMAN:         # the founder's own task needs no one's approval
             db.set_task_queued(con, tid, HUMAN)
         opened.append(tid)
-        if rid is not None:
-            _link_delivery(con, tid, owner, rid)
+        _link_delivery(con, tid, owner, rid)
         db.add_event(con, me, "task_new", {"task_id": tid, "request_id": rid, "owner": owner, "expects": expects})
         _block_parent_on_child(con, parent, tid, me)
         if effect:
             effect(con, tid)
     if me == HUMAN and owner == HUMAN:
+        # A todo of the founder's own: routing has no founder-to-founder edge, so its brief is written as the request any task to
+        # the founder carries, queued on their screen, without being routed or told.
         con = db.connect()
         try:
             con.execute("BEGIN IMMEDIATE")
             try:
-                together(con, None, "")
+                rid = db.add_request(con, HUMAN, HUMAN, body, None, None, "async", "task", 0, None)
+                together(con, rid, "")
                 con.execute("COMMIT")
             except BaseException:
                 con.execute("ROLLBACK")
                 raise
         finally:
             con.close()
-        ok, msg = True, "a todo of your own"
+        ok, msg = True, f"a todo of your own, #{rid}"
     else:
         ok, msg, _rid = askmod.ask(owner, body, requester=me, kind=kind, card=False, within=together)
     if not ok:

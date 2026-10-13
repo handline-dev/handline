@@ -4161,12 +4161,19 @@ def test_task_new_list_and_link(home: Path) -> None:
     rc, out = _cli(["task", "new", "--assign", askmod.HUMAN, "my own", "a todo of mine", "-t", "1h"], as_agent=askmod.HUMAN)
     con = db.connect()
     own = con.execute("SELECT * FROM tasks WHERE title = 'my own'").fetchone()
-    links = con.execute("SELECT COUNT(*) FROM task_requests WHERE task_id = ?", (own["id"],)).fetchone()[0] if own else None
-    state = actions.task_state(con, own) if own else None
+    briefs = [(r["requester"], r["target"], r["kind"], r["state"]) for r in db.task_requests(con, own["id"])] if own else None
     con.close()
-    check("task new: the founder opens a todo for themself: queued, a report, asking no one",
-          rc == 0 and "a todo of your own" in out and (own["owner"], own["opened_by"], own["expects"]) == (askmod.HUMAN, askmod.HUMAN, "report")
-          and links == 0 and state == "queued", f"{out} / {state}")
+    check("task new: the founder opens a todo for themself: queued by them, a report, its brief on one unrouted request",
+          rc == 0 and "a todo of your own" in out and (own["owner"], own["opened_by"], own["expects"], own["queued_by"])
+          == (askmod.HUMAN, askmod.HUMAN, "report", askmod.HUMAN) and briefs == [(askmod.HUMAN, askmod.HUMAN, "task", "queued")], f"{out} / {briefs}")
+    rc, out = _cli(["task", "show", f"T{own['id']}"], as_agent=askmod.HUMAN)
+    check("task show: a founder todo keeps its brief", rc == 0 and "brief\na todo of mine" in out, out)
+    rc, out = _cli(["task", "edit", f"T{own['id']}", "--body", "a todo, changed"], as_agent=askmod.HUMAN)
+    rc2, shown = _cli(["task", "show", f"T{own['id']}"], as_agent=askmod.HUMAN)
+    check("task edit: and its brief can be edited", rc == 0 and "brief\na todo, changed" in shown, f"{out}\n{shown}")
+    rc, out = _cli(["task", "draft", f"T{own['id']}"], as_agent=askmod.HUMAN)
+    check("task draft: a founder todo is doing as it opens, so it is never drafted and queued again (never re-routed)",
+          rc == 1 and "is doing" in out, out)
     rc, out = _cli(["task", "new", "--assign", "worker", "part", "part", "--parent", "T9", "-t", "1h"])
     check("task new: a parent that does not exist is refused", rc == 1, out)
     rc, out = _cli(["task", "new", "--assign", "worker", "part one", "part one", "--parent", "T1", "-t", "1h"])
