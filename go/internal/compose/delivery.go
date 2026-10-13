@@ -85,6 +85,17 @@ func (d delivery) ForgottenResolve(q db.Q, agent string, row *db.AgentState, now
 	return f.Head.ID, f.IdleS, true, nil
 }
 
+// WakeWaitReason is the wording ps prints for a wake that is due and walled.
+func (d delivery) WakeWaitReason(q db.Q, agent string, row *db.AgentState) (string, error) {
+	if d.p.LC == nil {
+		return "", nil
+	}
+	if yes, err := d.p.LC.Manager.WouldWake(row); err != nil || !yes {
+		return "", err
+	}
+	return d.p.LC.Launch.WakeWaitReason(q, agent, row), nil
+}
+
 // Trigger is what the policy tick would decide: the same reading, context limit and Evaluate it judges by. For an agent whose triggers do
 // not apply, the wording ps prints for a wake that is due and walled.
 func (d delivery) Trigger(q db.Q, agent string, row *db.AgentState, account string) (reads.Trigger, error) {
@@ -92,11 +103,8 @@ func (d delivery) Trigger(q db.Q, agent string, row *db.AgentState, account stri
 		return reads.Trigger{}, nil
 	}
 	if !d.p.LC.Manager.TriggersApplyTo(agent, row) {
-		yes, err := d.p.LC.Manager.WouldWake(row)
-		if err != nil || !yes {
-			return reads.Trigger{}, err
-		}
-		return reads.Trigger{Reason: d.p.LC.Launch.WakeWaitReason(q, agent, row)}, nil
+		why, err := d.WakeWaitReason(q, agent, row)
+		return reads.Trigger{Reason: why}, err
 	}
 	tu := tickUsage{p: d.p, u: d.p.LC.usage, roster: d.p.LC.roster}
 	st := tu.ReadForAgent(agent, account)

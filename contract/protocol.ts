@@ -1369,7 +1369,7 @@ export interface Methods {
   operation: string;
 }; result: Operation };
   "agents.list": { params: {
-  /** Add the status-line fields of each agent (started, has_repo, has_terminal, screen_word, screen_detail, unreached, task_waits, wake_wait_reason), read now and not from the stored view. Default false. */
+  /** Add the status-line fields of each agent (started, has_repo, has_terminal, screen_word, screen_detail, unreached, task_waits, wake_wait_reason), read at the call; screen_word and screen_detail may be as old as the stored view. Default false. */
   status?: boolean;
 }; result: {
     agents: AgentView[];

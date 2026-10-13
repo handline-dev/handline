@@ -12,6 +12,12 @@ type fakeDelivery struct {
 	// fire is the trigger Fire says; forgotten is the idle seconds of a resolve nobody wrote (head 7), 0 for none.
 	fire      string
 	forgotten int64
+	// wakeWait is the walled-wake sentence by agent.
+	wakeWait map[string]string
+}
+
+func (f fakeDelivery) WakeWaitReason(_ db.Q, agent string, _ *db.AgentState) (string, error) {
+	return f.wakeWait[agent], nil
 }
 
 func (f fakeDelivery) WallReason(db.Q, string, *db.AgentState) (string, error) { return f.wall, nil }
