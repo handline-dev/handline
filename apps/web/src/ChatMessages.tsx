@@ -126,7 +126,6 @@ export function Message(props: {
 }) {
   const { m, agent } = props;
   const act = useChatActions(agent);
-  const { apply } = useWorkspace();
   const side = sideOf(m, agent, useStore().me);
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
@@ -224,17 +223,6 @@ export function Message(props: {
           side === 'agent' ? 'left-full ml-1.5' : 'right-full mr-1.5'
         }`}
       >
-        {m.tasks.map((t) => (
-          <a
-            key={t.id}
-            className="msg-task mono text-inherit"
-            href={`#/tasks/${t.id}`}
-            title={t.title}
-            onClick={openTaskOnClick(apply, t.id)}
-          >
-            <Icon name="tasks" size={12} label={`Task ${t.id}: ${t.title}`} />T{t.id}
-          </a>
-        ))}
         <span>{clock(m.at)}</span>
         {side === 'person' && !failed ? <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} /> : null}
       </div>
