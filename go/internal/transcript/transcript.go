@@ -19,9 +19,10 @@ const ToolResultMax = 64 << 10
 
 // Item sources of chat.transcript's ids, and the id itself: the time in seconds, a source, and a number within it.
 const (
-	ItemReply  = 0
-	ItemPrompt = 1
-	ItemTool   = 3 // 2 is the task events'; a tool item takes its tool_use event's seq
+	ItemReply   = 0
+	ItemPrompt  = 1
+	ItemTool    = 3 // 2 is the task events'; a tool item takes its tool_use event's seq
+	ItemSession = 4 // a session start; its number is the session_starts row
 )
 
 func ItemID(at, source, n int64) int64 { return at*1_000_000 + source*100_000 + n%100_000 }

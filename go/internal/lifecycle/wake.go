@@ -459,20 +459,42 @@ type closed2 struct {
 	applying           []string
 }
 
+// wakeCause is what a wake nobody gave a cause records its start as: a move, else what ended the last session - a fold of a full
+// context, a context-full handoff, an idle close, a fresh close - else "wake".
+func (m *Manager) wakeCause(agent string, row *db.AgentState, movedTo string) string {
+	if movedTo != "" {
+		return "move"
+	}
+	at := func(kind string) int64 { // the latest event of kind, if it is at or after the close; else -1
+		at, ok := must2(db.LastEventTS(m.Q, agent, kind))
+		if !ok || at < row.ClosedAt.Int64 {
+			return -1
+		}
+		return at
+	}
+	parkedFor := func() any {
+		_, p, _ := must3(db.LastEvent(m.Q, agent, "park"))
+		return p["kind"]
+	}
+	switch fresh := at("fresh_close"); {
+	case fresh >= 0 && at(states.FoldKind) >= fresh:
+		return "context_full"
+	case fresh >= 0:
+		return "fresh close"
+	case at("park") >= 0 && parkedFor() == "context":
+		return "context_full"
+	case at(IdleCloseKind) >= 0:
+		return "idle_close"
+	}
+	return "wake"
+}
+
 // launchClosed relaunches a closed agent: a launch command typed at the shell its last session left, or run in a new terminal.
 func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session string, c closed2) (bool, string) {
 	closed := true
-	fresh, haveFresh := must2(db.LastEventTS(m.Q, agent, "fresh_close"))
 	why0 := c.cause
 	if why0 == "" {
-		switch {
-		case c.movedTo != "":
-			why0 = "move"
-		case haveFresh && fresh >= row.ClosedAt.Int64:
-			why0 = "fresh close"
-		default:
-			why0 = "wake"
-		}
+		why0 = m.wakeCause(agent, row, c.movedTo)
 	}
 	base, err := m.Launch.CommandFor(agent, c.movedTo, why0, c.restartedBy)
 	check(err)

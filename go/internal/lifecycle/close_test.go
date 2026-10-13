@@ -148,3 +148,42 @@ func TestRestartAgentRefusesAWorkingAgentAndRestartsAnIdleOneInPlace(t *testing.
 		t.Fatalf("%+v", row)
 	}
 }
+
+func TestAWakeNobodyGaveACauseSaysWhatEndedTheLastSession(t *testing.T) {
+	m, _, _ := newManager(t)
+	cause := func(agent string, events ...db.KV) string {
+		t.Helper()
+		db.SetTerminal(m.Q, agent, "", "/wt")
+		db.SetClosed(m.Q, agent, "")
+		for _, e := range events {
+			if _, err := db.AddEvent(m.Q, agent, e.K, db.KV{K: "kind", V: e.V}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		row, _ := db.GetAgentState(m.Q, agent)
+		return m.wakeCause(agent, row, "")
+	}
+	for _, c := range []struct {
+		agent, want string
+		events      []db.KV
+	}{
+		{"plain", "wake", nil},
+		{"fresh", "fresh close", []db.KV{{K: "fresh_close"}}},
+		{"folded", "context_full", []db.KV{{K: "fresh_close"}, {K: states.FoldKind}}},
+		{"full", "context_full", []db.KV{{K: "park", V: "context"}}},
+		{"walled", "wake", []db.KV{{K: "park", V: "usage"}}},
+		{"idle", "idle_close", []db.KV{{K: IdleCloseKind}}},
+	} {
+		if got := cause(c.agent, c.events...); got != c.want {
+			t.Errorf("%s: %q, want %q", c.agent, got, c.want)
+		}
+	}
+	row, _ := db.GetAgentState(m.Q, "idle")
+	if got := m.wakeCause("idle", row, "acct2"); got != "move" {
+		t.Errorf("a move says so: %q", got)
+	}
+	row.ClosedAt.Int64 += 10 // the idle close was of an earlier session
+	if got := m.wakeCause("idle", row, ""); got != "wake" {
+		t.Errorf("an event before the close says nothing of it: %q", got)
+	}
+}

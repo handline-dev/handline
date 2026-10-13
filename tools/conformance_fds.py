@@ -46,12 +46,14 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
                         "parent": None}
                 con.execute("INSERT OR REPLACE INTO agent_view(agent, view, updated) VALUES(?, ?, 0)", (n, json.dumps(view)))
             seed_tool_items(con, output_agent)
+            seed_session_start(con, output_agent)
             seed_workroom(home, con)
             seed_open_question(con, ask_agent)
             write_team(home, [*names.values(), output_agent, ask_agent])
             con.commit()
             con.close()
-            return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, "ask_agent": ask_agent, **WORKROOM}
+            return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, "session_agent": output_agent,
+                    "ask_agent": ask_agent, **WORKROOM}
         except sqlite3.Error:
             if daemon.poll() is not None:
                 break
@@ -110,6 +112,12 @@ def seed_tool_items(con: sqlite3.Connection, agent: str) -> None:
             seq += 1
             con.execute("INSERT OR REPLACE INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES(?,?,?,?,?,?,?,?)",
                         (agent, seq, "seed", None, now, kind, None, json.dumps(body)))
+
+
+def seed_session_start(con: sqlite3.Connection, agent: str) -> None:
+    """A conversation the agent began, bound to its session, for transcript_session.json."""
+    con.execute("INSERT INTO session_starts(agent, ts, session_id, cause, resumed, text, prompt, actor) VALUES(?, ?, 'seed', 'launch', 0, '', '', '')",
+                (agent, int(time.time())))
 
 
 # The structured agents structured_controls.json needs, by var name. Each is started over the wire (session.start, the fake CLI)

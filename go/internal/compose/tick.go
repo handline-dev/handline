@@ -581,7 +581,7 @@ func (l tickLifecycle) ShouldClose(_ db.Q, agent, state string, row *db.AgentSta
 	return yes
 }
 func (l tickLifecycle) CloseAgent(_ db.Q, agent string, st tick.Status) (bool, string) {
-	ok, said, err := l.m.CloseAgent(agent, sessionOf(st), lifecycle.CloseOpts{})
+	ok, said, err := l.m.CloseAgent(agent, sessionOf(st), lifecycle.CloseOpts{Idle: true})
 	if err != nil {
 		return false, err.Error()
 	}
