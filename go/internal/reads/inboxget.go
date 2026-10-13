@@ -68,12 +68,12 @@ func (e *Env) settledRequest(c *rpc.Conn, params map[string]any) (row, string, e
 // requestRead is request.read (hl read): one request whole, as cmd_read in handline/cli/ask.py prints it. The founder reading it is the
 // founder opening it (actions.opened_by_human).
 func (e *Env) requestRead(c *rpc.Conn, params map[string]any) (any, error) {
-	r, viewer, err := e.settledRequest(c, params)
+	r, _, err := e.settledRequest(c, params)
 	if err != nil {
 		return nil, err
 	}
 	id := r.i("id")
-	if viewer == human {
+	if c.Caller.Role == "founder" { // not a member's device: hl read opens a request only at the founder's own shell
 		if err := db.MarkRead(e.DB, []int64{id}); err != nil {
 			return nil, err
 		}

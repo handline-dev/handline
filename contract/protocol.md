@@ -56,6 +56,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `proposal_settled` | hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now. |
 | `confirm` | chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do. |
 | `limit` | attachment.put: the file or the unsent total is over its limit, or too many uploads are open (x-attachments). |
+| `listing` | inbox.queue: the caller may not list that agent's messages. Only the agent itself, its supervisor and the founder may. |
 
 ## Methods
 
@@ -116,6 +117,7 @@ A method marked write takes a required `request_id`.
 | `terminal.detach` | member |  | `terminal`, `format?` | `object` | `not_found`, `bad_request` |  |
 | `debug.terminals` | member |  | none | `{host, now, panes}` | `refused` | role, unsupported, state |
 | `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?`, `queue?` | `{items, more, more_waiting}` |  |  |
+| `inbox.queue` | agent |  | `whose?`, `all?`, `since?`, `wait_s?` | `{whose, newest, head, history, waiting, lines, dealt}` | `refused`, `bad_request` | listing |
 | `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem` | `not_found`, `bad_request` |  |
 | `request.read` | agent |  | `id`, `wait_s?` | `{id, requester, target, kind, state, created, relation, response, chain_depth, parent, body, answer, dismissal}` | `not_found`, `bad_request` |  |
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found`, `refused`, `bad_request` |  |
@@ -402,13 +404,17 @@ Every pane of the terminal host with what the daemon knows of it, for the hidden
 
 Inbox items; an agent sees its own.
 
+### `inbox.queue`
+
+An inbox as hl inbox prints it. An agent's inbox is the one request at the head of its queue (the oldest queued one whose routing was checked; a say is never the head), and with `all` every request ever sent to it. The founder's is the mailbox folded to one line per agent, a decision or a request whose sender waits on the reply keeping its own line, and with `all` the 20 most recent requests to or from the founder that are no longer queued. An agent may list its own inbox and those of the agents it supervises; the founder any. Nothing is marked read: the caller sends inbox.mark_read for the head it showed.
+
 ### `inbox.get`
 
 One item.
 
 ### `request.read`
 
-One request whole, as hl read prints it. Any caller may read any request, with both of its ends named; a request to an agent that the routing table has not passed yet is not_found to that agent. The founder reading one opens it: it is marked read. With `wait_s` the call holds while the request is queued; `state` says whether it settled.
+One request whole, as hl read prints it. Any caller may read any request, with both of its ends named; a request to an agent that the routing table has not passed yet is not_found to that agent. The founder reading one opens it: it is marked read, and when it is one the founder asked, its answer is marked told. A member's device reading it opens nothing. With `wait_s` the call holds while the request is queued; `state` says whether it settled.
 
 ### `inbox.mark_read`
 

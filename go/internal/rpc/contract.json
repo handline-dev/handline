@@ -159,6 +159,9 @@
  "inbox.mark_read": {
   "role": "agent"
  },
+ "inbox.queue": {
+  "role": "agent"
+ },
  "inbox.reply": {
   "role": "agent"
  },
