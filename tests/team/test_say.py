@@ -621,7 +621,7 @@ edges:
           rc == 1 and f"hl say human 'it'\"'\"'s fine' --parent {frid} --no-task '<why>'" in out, out)
     rc, out = _cli(["say", "worker", "do x"], as_agent="manager")
     check("refusal: work to a report names the task command",
-          rc == 1 and "hl task new --owner worker -t 2h '<title>' 'do x'" in out, out)
+          rc == 1 and "hl task new --assign worker -t 2h '<title>' 'do x'" in out, out)
     # (1) zero open tasks: still refused. exactly one: attached, and said so
     ok, msg, tid = actions.task_new("worker", "manager", "mine", "mine")
     check("setup: manager holds one task", ok, msg)

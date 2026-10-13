@@ -212,14 +212,19 @@ func timeoutLines(box obj, now float64) []string {
 }
 
 func taskList(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--owner", "--state"}, []string{"--all", "--everyone"}, nil)
+	p, ok := parse(args, []string{"--assign", "--owner", "--state"}, []string{"--all", "--everyone"}, nil)
 	if !ok || len(p.pos) != 0 {
 		return 0, false
 	}
 	params := obj{"all": p.flags["--all"], "everyone": p.flags["--everyone"], "limit": 200}
+	// --assign narrows to who works the task (the wire's owner), --owner to who answers for it (the wire's reporter)
+	assignee, hasAssign := p.opt("--assign")
+	if hasAssign {
+		params["owner"] = assignee
+	}
 	owner, hasOwner := p.opt("--owner")
 	if hasOwner {
-		params["owner"] = owner
+		params["reporter"] = owner
 	}
 	if state, given := p.opt("--state"); given {
 		switch state {
@@ -237,7 +242,7 @@ func taskList(c *hlclient.Client, args []string) (int, bool) {
 		var refused *hlclient.RPCError
 		if errors.As(err, &refused) {
 			fmt.Println(refused.Error())
-			if hasOwner && !p.flags["--everyone"] {
+			if (hasAssign || hasOwner) && !p.flags["--everyone"] {
 				fmt.Println("`hl task list --everyone` shows every team's tasks")
 			}
 			return 1, true
@@ -291,7 +296,7 @@ func printBoard(tasks []obj) {
 		if gone, ok := t["discarded"].(obj); ok {
 			fmt.Fprintf(&b, "  DISCARDED by %s: %s", one(str(gone, "by")), one(str(gone, "reason")))
 		}
-		fmt.Fprintf(&b, "  P%d  may reopen: %s", num(t, "priority"), str(t, "asker"))
+		fmt.Fprintf(&b, "  P%d  owner %s", num(t, "priority"), str(t, "asker")) // [the assignee] above; the owner may reopen it
 		if given(t, "block_reason") {
 			b.WriteString("  " + str(t, "block_reason"))
 		}
@@ -344,7 +349,7 @@ func taskBoard(c *hlclient.Client, args []string) (int, bool) {
 			parent = fmt.Sprintf(" (under T%d)", num(t, "parent"))
 		}
 		fmt.Println(fit100(fmt.Sprintf("%-5s %s%s", fmt.Sprintf("T%d", num(t, "id")), textsafe.Oneline(str(t, "title")), parent)))
-		fmt.Println(fit100("      now: " + nowSaid(now)))
+		fmt.Println(fit100(fmt.Sprintf("      assignee %s  owner %s  now: %s", str(t, "to"), str(t, "asker"), nowSaid(now))))
 		if given(t, "hold_reason") {
 			fmt.Println(fit100("      " + str(t, "hold_reason")))
 		}

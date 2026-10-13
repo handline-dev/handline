@@ -647,7 +647,7 @@ def _your_team(agent: str) -> str:
         # below, for the decisions that are theirs.
         report += (f" Send `{boss}` no progress or FYI messages: it hears from you only when a task is "
                    f"done or you are blocked. Being blocked, a decision only they can make, or work "
-                   f"nobody handed you is a task for them: `hl task new --owner {boss} -t <time> "
+                   f"nobody handed you is a task for them: `hl task new --assign {boss} -t <time> "
                    f"\"<title>\" \"<body>\"`.")
     lines = ["# Your team", report,
              "Talk to people only through ocp; what you write in your terminal reaches no one. "
@@ -655,7 +655,7 @@ def _your_team(agent: str) -> str:
              "message that only informs needs no reply, except the founder's."]
     if reports:
         lines.append("Your reports: " + ", ".join(f"`{n}`" for n in reports) + ". "
-                     "You do not implement - give one work with `hl task new --owner <name> "
+                     "You do not implement - give one work with `hl task new --assign <name> "
                      "-t <time> \"<title>\" \"<what to do, and what done looks like>\"`, and read "
                      "what it sends back. A message to a report is `hl say <name> ... --task "
                      "T<n>` (a memo on that task). "
@@ -672,7 +672,7 @@ def _your_team(agent: str) -> str:
                      "agent does not mean healthy.")
     lines.append("`hl team` shows who you may reach and what each is doing now. "
                  "A decision or a block only the founder can clear is a task of theirs: "
-                 "`hl task new --owner human -t <time> \"<title>\" \"<body>\"`.")
+                 "`hl task new --assign human -t <time> \"<title>\" \"<body>\"`.")
     # A self-scheduled wakeup survives the park's /clear and fires into a
     # session that is at the usage wall.
     lines.append("Never schedule your own wakeup, /loop or poll to wait for a reply "

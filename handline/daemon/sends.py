@@ -86,7 +86,7 @@ def _working_say(con, me: str, target: str, body: str, parent: int | None, task:
     if row is not None and row["owner"] == target:
         return _say_cmd(target, body, parent, f"--task T{task}")
     if parent is None and _is_report_of(me, target):
-        return f"hl task new --owner {target} -t 2h '<title>' {shlex.quote(body)}"
+        return f"hl task new --assign {target} -t 2h '<title>' {shlex.quote(body)}"
     return _say_cmd(target, body, parent)
 
 
@@ -144,7 +144,7 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
     if task is None and kw.get("parent") is None and _is_report_of(me, target):
         return False, ("work cannot reach a report by message: make it a task (`hl task new`), "
                        "or say --task T<n> to memo one. Try:\n  "
-                       f"hl task new --owner {target} -t 2h '<title>' {shlex.quote(kw['body'])}")
+                       f"hl task new --assign {target} -t 2h '<title>' {shlex.quote(kw['body'])}")
     if task is not None:
         # Structural, not read from the text: a say to a report about a task is
         # that task's memo, delivered as one.
