@@ -5903,7 +5903,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     check("task new --blocked-by: opens the task blocked", rc == 0, out)
     t_dep = int(out.split("task T", 1)[1].split()[0])
 
-    rc, out = _cli(["task", "new", "--assign", "worker", "x", "x", "--blocked-by", "T999", "-t", "1h"])
+    rc, out = _cli(["task", "new", "--assign", "worker", "x", "x", "--blocked-by", "T999", "-t", "1h"])  # local-ref-ok: a task that does not exist
     check("task new --blocked-by: a blocker that does not exist is refused",
           rc == 1 and "no task" in out, out)
 
