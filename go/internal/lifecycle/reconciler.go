@@ -301,7 +301,7 @@ func (r *Reconciler) closeStall(agent string, actions *[]string, prefixes []stri
 }
 
 // Sweep asks the world what is true and corrects the record where it is not. It corrects only what it observed rather than inferred:
-// a terminal Orca does not list is gone, and a session with no process is not running. Where the only evidence is a probe it wants
+// a terminal the host does not list is gone, and a session with no process is not running. Where the only evidence is a probe it wants
 // two witnesses before it moves.
 func (r *Reconciler) Sweep(actions *[]string) error {
 	if err := r.dropUnregistered(actions); err != nil {
@@ -506,7 +506,7 @@ func SilentMinutes(q db.Q, agent string, row *db.AgentState, now int64) (int64, 
 // unstickRunning: RUNNING is the label that takes an agent out of service, so one that entered it and never left is ignored by the
 // daemon while every screen reports it working. This correction rests on a probe, not a fact, and getting it wrong closes an agent
 // that is working - so it wants two witnesses that share no source: our own events say nothing has been heard for longer than a
-// session may idle, and Orca says the terminal is not mid-turn.
+// session may idle, and the terminal host says the terminal is not mid-turn.
 func (r *Reconciler) unstickRunning(agent string, row *db.AgentState, actions *[]string) error {
 	mins, err := SilentMinutes(r.Q, agent, row, r.now())
 	if err != nil || mins < 0 {
