@@ -193,6 +193,24 @@ func TestAReportedTaskReadsAsAwaitingWhoItAnswersTo(t *testing.T) {
 	}
 }
 
+func TestTaskShowReadsAPausedClock(t *testing.T) {
+	box := obj{"length_s": float64(7200), "default": false, "left_s": float64(4800)}
+	held := obj{"blockers": []any{obj{"task": float64(9)}}, "subtasks": []any{obj{"id": float64(8), "state": "doing"}, obj{"id": float64(6), "state": "done"}}}
+	for want, t2 := range map[string]obj{
+		"paused - blocked by T9, 1h20m left": held,
+		"paused - waiting on T8, 1h20m left": {"subtasks": held["subtasks"]},
+		"paused, 1h20m left":                 {},
+	} {
+		if got := timeoutLines(box, 0, waitsOn(t2)); len(got) != 2 || got[0] != "timeout 2h00m" || got[1] != want {
+			t.Errorf("%q, want %q", got, want)
+		}
+	}
+	running := obj{"length_s": float64(7200), "default": false, "start": "2026-10-01T10:00:00Z", "end": "2026-10-01T12:00:00Z", "left_s": nil}
+	if got := timeoutLines(running, float64(epoch(running["end"])-600), ""); !strings.HasPrefix(got[1], "ends ") || !strings.HasSuffix(got[1], "   10m left") {
+		t.Errorf("a running clock: %q", got)
+	}
+}
+
 func TestTaskShowListAndBoardRead(t *testing.T) {
 	r := agentsRig(t)
 	calls := r.daemon(map[string]string{

@@ -127,14 +127,15 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 		body = &p.pos[1]
 	}
 	typed := func(title string) string {
-		t := "2h"
+		parts := []string{"hl task new", "--assign", assignee}
 		if hasTimeout {
-			t = fmt.Sprintf("%ds", timeout)
+			t := fmt.Sprintf("%ds", timeout)
 			if timeout%60 == 0 {
 				t = fmt.Sprintf("%dm", timeout/60)
 			}
+			parts = append(parts, "-t", t)
 		}
-		parts := []string{"hl task new", "--assign", assignee, "-t", t, shQuote(title)}
+		parts = append(parts, shQuote(title))
 		if hasOwner {
 			parts = append(parts, "--owner", accountable)
 		}

@@ -151,7 +151,7 @@ def test_the_list_field_fixtures_pass_against_this_daemon(home: Path) -> None:
     import conformance
     support._board_world(home)
     owners = {"tasks_blocked_owner": "a.t.blocked", "tasks_timed_owner": "a.t.timed", "tasks_overdue_owner": "a.t.overdue",
-              "tasks_done_owner": "a.t.done"}
+              "tasks_done_owner": "a.t.done", "tasks_paused_owner": "a.t.paused"}
     for o in owners.values():
         agents.register(o)
     con = db.connect()
@@ -164,6 +164,7 @@ def test_the_list_field_fixtures_pass_against_this_daemon(home: Path) -> None:
     db.new_task(con, "another of the blocked owner's", owners["tasks_blocked_owner"], "manager")      # the paging fixture needs a second
     con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (int(time.time()) - 600, made["tasks_overdue_owner"]))
     con.execute("UPDATE tasks SET done_at = ?, done_evidence = 'shipped' WHERE id = ?", (int(time.time()), made["tasks_done_owner"]))
+    con.execute("UPDATE tasks SET timeout_left = 1200 WHERE id = ?", (made["tasks_paused_owner"],))
     con.commit()
     con.close()
 

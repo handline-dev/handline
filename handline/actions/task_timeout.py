@@ -65,12 +65,14 @@ def timeout_text(t: dict) -> str:
     return timefmt.span(t["length"])
 
 
-def timeout_lines(t: dict) -> list[str]:
-    """The task page's lines: the length, when it began counting and when it ends."""
+def timeout_lines(t: dict, waits: str = "") -> list[str]:
+    """The task page's lines: the length and when it ends, or what a paused clock (`paused`, its seconds left) waits on."""
     line = f"timeout {timefmt.span(t['length'])}" + (" (the default)" if t["default"] else "")
+    if t.get("paused") is not None:
+        return [line, f"paused{waits}, {timefmt.span(t['paused'])} left"]
     if t["start"] is None:
         return [line + " - counts while the task is doing"]
-    out = [line, f"counting since {timefmt.stamp(t['start'])}   ends {timefmt.stamp(t['end'])}"]
+    out = [line, f"ends {timefmt.stamp(t['end'])}"]
     if t["state"] == "left":
         out[1] += f"   {timefmt.span(t['left'])} left"
     elif t["state"] == "over":

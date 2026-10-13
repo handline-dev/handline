@@ -83,8 +83,6 @@ def _new(ctx, params) -> dict:
     if body is not None and not body.strip():
         raise rpc.bad_request("body is text and not empty", "body", rpc.INVALID_PARAMS)
     secs = _span(params)
-    if secs is None:
-        raise rpc.bad_request("time_box is required", "time_box", rpc.INVALID_PARAMS)
     for who in (owner, reporter):
         if who is not None and who != db.HUMAN and who not in paths.list_agents():
             raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no agent named {who}", what="agent", name=who)

@@ -96,7 +96,7 @@
   {
    "name": "tasks.list.time_is_the_tasks_clock",
    "spec": "tasks.list",
-   "about": "A task that is doing carries time, the object task.get gives: its length in seconds, whether that is the default, start, end, overdue_since null while in time, and how many overrun notices were sent. Needs --var tasks_timed_owner: an agent with a doing task in time.",
+   "about": "A task that is doing carries time, the object task.get gives: its length in seconds, whether that is the default, start, end, overdue_since null while in time, left_s null while it runs, and how many overrun notices were sent. Needs --var tasks_timed_owner: an agent with a doing task in time.",
    "as": "founder",
    "steps": [
     {
@@ -154,6 +154,52 @@
          },
          "overdue_since": null,
          "told": {
+          "$type": "integer"
+         },
+         "left_s": null
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "tasks.list.a_paused_clock_says_what_it_has_left",
+   "spec": "tasks.list",
+   "about": "A doing task whose clock is paused has no start and no end, and left_s is the seconds it resumes with. Needs --var tasks_paused_owner: an agent with a doing task whose clock is paused with time left.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "tasks.list",
+      "params": {
+       "owner": "{{tasks_paused_owner}}"
+      }
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "state": "doing",
+        "time": {
+         "start": null,
+         "end": null,
+         "left_s": {
           "$type": "integer"
          }
         }

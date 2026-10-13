@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ARCH, $, mount, press, text, until } from './harness.tsx';
 
 const past = '2026-01-01T00:00:00Z';
-const clock = { length_s: 60, default: false, start: past, end: past, overdue_since: past, told: 1 };
+const clock = { length_s: 60, default: false, start: past, end: past, overdue_since: past, told: 1, left_s: null };
 
 async function openTasks(prepare: Parameters<typeof mount>[0] = () => {}) {
   const m = await mount(prepare, undefined, 'founder');

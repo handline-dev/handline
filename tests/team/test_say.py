@@ -704,13 +704,11 @@ edges:
     check("owner swap: pasted, it is accepted", rc == 0, out)
     rc, out = _cli(["task", "new", "--assign", "worker", "the title", "the body", "--priority", "P1"],
                    as_agent="manager")
-    check("task new without -t: refused", rc == 1 and "Try:" in out, out)
-    rc, out = _paste(out)
     con = db.connect()
     try:
         row = con.execute("SELECT * FROM tasks WHERE title = 'the title'").fetchone()
-        check("task new without -t: pasted, it opens the same task with its body and priority",
-              rc == 0 and row is not None and row["priority"] == 1
+        check("task new without -t: it opens the task with its body and priority, and no length of its own",
+              rc == 0 and row is not None and row["priority"] == 1 and row["timeout_s"] is None
               and "the body" in (con.execute("SELECT body FROM requests WHERE target = 'worker' "
                                              "ORDER BY id DESC LIMIT 1").fetchone()["body"] or ""), out)
     finally:
@@ -725,12 +723,9 @@ edges:
     con.close()
     rc, out = _cli(["task", "new", "--assign", "worker", "reply title", "reply body", "--reply", str(mrid),
                     "opened as {task}"], as_agent="manager")
-    check("task new without -t: the suggestion keeps --reply, both values quoted",
-          rc == 1 and f"--reply {mrid} 'opened as {{task}}'" in out, out)
-    rc, out = _paste(out)
     con = db.connect()
     try:
-        check("task new without -t: pasted, it opens the task and answers the founder",
+        check("task new without -t: with --reply it opens the task and answers the founder",
               rc == 0 and db.get_request(con, mrid)["state"] == "landed", out)
     finally:
         con.close()

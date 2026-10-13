@@ -5471,8 +5471,8 @@ def test_one_doing_migration(home: Path) -> None:
 
 
 def test_task_timeout_new_requires_it_and_edit_extends_it(home: Path) -> None:
-    """T286: `ocp task new` requires -t/--timeout (at most 4h; missing or over
-    is refused). Its clock only counts while the task is doing (founder
+    """`ocp task new` takes -t/--timeout (at most 4h; over is refused,
+    missing is the daemon's default). Its clock only counts while the task is doing (founder
     #1627's revision) - a new task is never doing, so timeout_at stays NULL
     until a request is linked; `hl task edit --timeout` sets a new length
     always, but only starts (or resumes) the deadline itself while doing."""
@@ -5491,8 +5491,6 @@ def test_task_timeout_new_requires_it_and_edit_extends_it(home: Path) -> None:
     check("timeout parsing: 90m and 4h themselves are fine",
           actions.parse_task_timeout("90m") == 5400
           and actions.parse_task_timeout("4h") == actions.MAX_TASK_TIMEOUT_S)
-    rc, out = _cli(["task", "new", "--assign", "worker", "no timeout given", "no timeout given"])
-    check("task new: -t/--timeout is required", rc != 0 and "timeout" in out.lower(), out)
     rc, out = _cli(["task", "new", "--assign", "worker", "timed", "timed", "-t", "90m"])
     check("task new: a valid timeout opens the task", rc == 0 and "task T1" in out, out)
     con = db.connect()
@@ -5550,6 +5548,9 @@ def test_task_timeout_new_requires_it_and_edit_extends_it(home: Path) -> None:
         check("edit_task: refuses a zero timeout too", not ok, msg)
         ok, msg = actions.edit_task(con, 2, "manager", timeout_s=-60)
         check("edit_task: and a negative one", not ok, msg)
+        rc, out = _cli(["task", "new", "--assign", "worker", "no timeout given", "no timeout given"])
+        made = con.execute("SELECT timeout_s FROM tasks WHERE title = 'no timeout given'").fetchone()
+        check("task new: without -t the task opens with no length of its own", rc == 0 and made is not None and made["timeout_s"] is None, out)
     finally:
         con.close()
 
@@ -9498,7 +9499,16 @@ def test_a_reported_task_reads_as_awaiting_who_it_answers_to() -> None:
           str(lines))
     check("task show: an older daemon's Task without an asker awaits its opener",
           clitask._state({**t, "asker": None}) == "reported, awaiting a.one")
+    box = {"length_s": 7200, "default": False, "start": None, "end": None, "overdue_since": None, "told": 0, "left_s": 4800}
+    held = {**t, "state": "doing", "time": box, "blockers": [{"task": 9, "owner": "c", "title": "first"}],
+            "subtasks": [{"id": 8, "owner": "d", "state": "doing", "title": "child"}, {"id": 6, "owner": "d", "state": "done", "title": "old"}]}
+    check("task show: a paused clock names the blocker and what is left",
+          clitask._detail_lines(held, 0)[2:4] == ["timeout 2h00m", "paused - blocked by T9, 1h20m left"], str(clitask._detail_lines(held, 0)[2:4]))
+    check("task show: with no blocker it names the open children, and with neither only what is left",
+          clitask._detail_lines({**held, "blockers": []}, 0)[3] == "paused - waiting on T8, 1h20m left"
+          and clitask._detail_lines({**held, "blockers": [], "subtasks": []}, 0)[3] == "paused, 1h20m left")
     p = cli_parser.build_parser()
+    check("task new parses without -t", p.parse_args(["task", "new", "--assign", "b.two", "x"]).timeout is None)
     check("task accept and reject parse, reject with its note",
           p.parse_args(["task", "accept", "T7"]).task == 7 and p.parse_args(["task", "reject", "T7", "no tests"]).note == "no tests")
 

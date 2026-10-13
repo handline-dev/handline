@@ -113,3 +113,17 @@ func TestADoingTaskGivenNoTimeoutCountsFourHoursBack(t *testing.T) {
 		t.Fatalf("%v", c)
 	}
 }
+
+func TestAPausedClockSaysWhatItHasLeftAndNoStartOrEnd(t *testing.T) {
+	e := testEnv(t)
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, timeout_s, timeout_left, sent_at) VALUES(1, 'd', 'bob', 'human', 1, 'human', 600, 240, 1)")
+	run(t, e, "INSERT INTO agent_state(agent, state, updated, current_task) VALUES('bob', 'RUNNING', 0, 1)")
+	task, c := clockOf(t, e, 1)
+	if task["state"] != "doing" || c["left_s"] != int64(240) || c["start"] != nil || c["end"] != nil {
+		t.Fatalf("%v %v", task["state"], c)
+	}
+	run(t, e, "UPDATE tasks SET timeout_left = NULL, timeout_at = ? WHERE id = 1", time.Now().Unix()+240)
+	if _, c = clockOf(t, e, 1); c["left_s"] != nil || c["end"] == nil {
+		t.Fatalf("a running clock has an end and nothing kept: %v", c)
+	}
+}

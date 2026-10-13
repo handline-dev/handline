@@ -52,7 +52,7 @@ test('agentTasks lists what the agent holds and what it opened, once each, with 
     row(3, { from: 'me', to: 'me' }),
     row(4, { from: 'x', to: 'y' }),
     row(5, { state: 'done' }),
-    row(6, { time: { length_s: 60, default: false, start: null, end: '2026-10-12T11:00:00Z', overdue_since: null, told: 0 } }),
+    row(6, { time: { length_s: 60, default: false, start: null, end: '2026-10-12T11:00:00Z', overdue_since: null, told: 0, left_s: null } }),
   ];
   const got = agentTasks([...items, items[0]!], 'me', NOW);
   assert.deepEqual(
@@ -69,7 +69,7 @@ test('agentTasks lists what the agent holds and what it opened, once each, with 
 
 test('dueOf says the time left, then how long overdue, and nothing for a task with no clock or an ended one', () => {
   const NOW = Date.parse('2026-10-12T12:00:00Z');
-  const clock = (end: string) => ({ length_s: 1, default: false, start: null, end, overdue_since: null, told: 0 });
+  const clock = (end: string) => ({ length_s: 1, default: false, start: null, end, overdue_since: null, told: 0, left_s: null });
   assert.deepEqual(dueOf(row(1, { time: clock('2026-10-12T14:30:00Z') }), NOW), { text: '2h left', over: false });
   assert.deepEqual(dueOf(row(1, { time: clock('2026-10-12T12:00:30Z') }), NOW), { text: '<1m left', over: false });
   assert.deepEqual(dueOf(row(1, { time: clock('2026-10-09T12:00:00Z') }), NOW), { text: '3d overdue', over: true });

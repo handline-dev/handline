@@ -7,7 +7,8 @@ import (
 	"github.com/handline/handline/go/internal/db"
 )
 
-// taskClock is the spec's TaskClock: the task's time box, null once it is done or discarded; it runs while doing and while reported. The overdue moment is the first deadline
+// taskClock is the spec's TaskClock: the task's time box, null once it is done or discarded; it runs while doing and while reported, and while it is
+// paused left_s is what it had left. start is end less the length, so a clock that paused and resumed reads as begun later than it was. The overdue moment is the first deadline
 // missed, found by following the overrun notices back from the deadline now in force (an edit replaces the deadline and ends the chain).
 func (e *Env) taskClock(t row, state string) (any, error) {
 	if state == "done" || state == "discarded" {
@@ -18,8 +19,14 @@ func (e *Env) taskClock(t row, state string) (any, error) {
 	if isDefault || length == 0 {
 		length = db.DefaultTaskTimeoutS
 	}
-	clock := map[string]any{"length_s": length, "default": isDefault, "start": nil, "end": nil, "overdue_since": nil, "told": 0}
-	if state != "doing" && state != "reported" || !t.set("timeout_at") {
+	clock := map[string]any{"length_s": length, "default": isDefault, "start": nil, "end": nil, "overdue_since": nil, "told": 0, "left_s": nil}
+	if !t.set("timeout_at") {
+		if t.set("timeout_left") {
+			clock["left_s"] = t.i("timeout_left")
+		}
+		return clock, nil
+	}
+	if state != "doing" && state != "reported" {
 		return clock, nil
 	}
 	now, end := time.Now().Unix(), t.i("timeout_at")

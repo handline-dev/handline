@@ -120,7 +120,7 @@ func detailLines(t obj, now float64, home string) []string {
 	}
 	out := []string{fmt.Sprintf("T%d  %s", num(t, "id"), str(t, "title")), head + "   created " + stamp(t["created"])}
 	if box, ok := t["time"].(obj); ok {
-		out = append(out, timeoutLines(box, now)...)
+		out = append(out, timeoutLines(box, now, waitsOn(t))...)
 	}
 	if given(t, "evidence") {
 		out = append(out, fmt.Sprintf("done %s: %s", stamp(t["done"]), str(t, "evidence")))
@@ -193,16 +193,39 @@ func resultLines(r obj, tid int64, home string) []string {
 	return out
 }
 
-// timeoutLines is the wire's `time` as the task page's lines (cli/task._clock, then actions.timeout_lines).
-func timeoutLines(box obj, now float64) []string {
+// waitsOn is what holds a task's clock (cli/task._waits_on): its open blockers, else its open children.
+func waitsOn(t obj) string {
+	var bs, ks []string
+	for _, b := range list(t, "blockers") {
+		bs = append(bs, fmt.Sprintf("T%d", num(b, "task")))
+	}
+	for _, k := range list(t, "subtasks") {
+		if s := str(k, "state"); s != "done" && s != "discarded" {
+			ks = append(ks, fmt.Sprintf("T%d", num(k, "id")))
+		}
+	}
+	if len(bs) > 0 {
+		return " - blocked by " + strings.Join(bs, ", ")
+	}
+	if len(ks) > 0 {
+		return " - waiting on " + strings.Join(ks, ", ")
+	}
+	return ""
+}
+
+// timeoutLines is the wire's `time` as the task page's lines (cli/task._clock, then actions.timeout_lines); waits is waitsOn.
+func timeoutLines(box obj, now float64, waits string) []string {
 	line := "timeout " + timefmt.Span(num(box, "length_s"), false)
 	if box["default"] == true {
 		line += " (the default)"
 	}
+	if given(box, "left_s") {
+		return []string{line, fmt.Sprintf("paused%s, %s left", waits, timefmt.Span(num(box, "left_s"), false))}
+	}
 	if !given(box, "start") {
 		return []string{line + " - counts while the task is doing"}
 	}
-	second := fmt.Sprintf("counting since %s   ends %s", stamp(box["start"]), stamp(box["end"]))
+	second := "ends " + stamp(box["end"])
 	if given(box, "overdue_since") {
 		second += "   over by " + timefmt.Span(int64(math.Trunc(now-float64(epoch(box["overdue_since"])))), false)
 		if told := num(box, "told"); told > 0 {

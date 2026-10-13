@@ -389,7 +389,8 @@ VIEW_VARS = {"view_ready_agent": "a.v.ready", "view_blocked_agent": "a.v.blocked
              "view_fire_agent": "a.v.fire", "view_ask_agent": "a.v.ask", "view_alert_agent": "a.v.alert",
              "view_stuck_agent": "a.v.stuck", "view_ignored_agent": "a.v.ignored", "view_broken_agent": "a.v.broken"}
 
-LIST_VARS = {"tasks_blocked_owner": "a.t.blocked", "tasks_timed_owner": "a.t.timed", "tasks_overdue_owner": "a.t.overdue", "tasks_done_owner": "a.t.done"}
+LIST_VARS = {"tasks_blocked_owner": "a.t.blocked", "tasks_timed_owner": "a.t.timed", "tasks_overdue_owner": "a.t.overdue", "tasks_done_owner": "a.t.done",
+             "tasks_paused_owner": "a.t.paused"}
 
 OUTLOOK_VARS = {"outlook_agent": "grp.one", "outlook_group": "grp"}
 
