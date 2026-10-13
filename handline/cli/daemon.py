@@ -7,7 +7,7 @@ import time
 from .. import actions
 from ..infra import timefmt
 from ..session import blocked as blockedmod
-from ..daemon import lifecycle as dmn_lifecycle, locks as dmn_locks, loop as dmn_loop
+from ..daemon import locks as dmn_locks, loop as dmn_loop
 from ..infra import daemonclient as dmn_client, devmode as dmn_devmode, daemonlock
 from .. import db
 from ..session import launch
@@ -18,6 +18,7 @@ from ..infra import textsafe
 from ..infra.yamlcompat import ConfigError
 from ..view import viewdata
 
+from . import client
 from .health import _name_col
 
 
@@ -77,6 +78,13 @@ def _code_line() -> str:
     return f"  code: {sha}" + (f" - the checkout is at {head}: restart it with `{db.schema.RESTART_COMMAND}`" if head and head != sha else "")
 
 
+def _state_of(line: dict | None) -> tuple[str, str]:
+    """An agent's STATE word and its detail from its agents.list status line; "-" when the daemon gave none."""
+    if not line or not line["screen_word"]:
+        return "-", ""
+    return line["screen_word"], textsafe.oneline(line["screen_detail"])
+
+
 def cmd_daemon_status(args) -> int:
     _print_waits()
     pid = daemonlock.running_elsewhere()
@@ -98,9 +106,12 @@ def cmd_daemon_status(args) -> int:
             print("no agent state recorded yet")
         else:
             w = _name_col([r["agent"] for r in rows], 14)
-            # `viewdata.screen_state` too - the one function - so this list and the
-            # bridge cannot show two different words for the same row.
-            words = {r["agent"]: viewdata.screen_state(con, r) for r in rows}
+            # STATE and the wall on a wake are the daemon's (agents.list); `ps` reports a daemon that is down, so it never starts one.
+            try:
+                lines = {a["name"]: a for a in client.call("agents.list", {"status": True}, start=False)["agents"]}
+            except (dmn_client.DaemonDown, dmn_client.RpcError, OSError):
+                lines = {}
+            words = {r["agent"]: _state_of(lines.get(r["agent"])) for r in rows}
             sw = max([len("state")] + [len(word) + (1 + len(extra) if extra else 0)
                                        for word, extra in words.values()]) + 1
             print(f"\n{'AGENT':<{w}}{'ACCT':<8}{'STATE':<{sw}}{'WAKE':<8}{'fail':>5}{'cont':>6}{'thr':>5}  DETAIL")
@@ -124,8 +135,7 @@ def cmd_daemon_status(args) -> int:
                     detail = textsafe.oneline(actions.block_headline(prompt))
                 elif block and block["kind"] in (term.MODAL, term.BACKGROUNDED):
                     detail = textsafe.oneline(blockedmod.headline(block["kind"], block["detail"]))
-                walled = (dmn_lifecycle.would_wake(con, r) and
-                          launch.wake_wait_reason(r["agent"], r, con))
+                walled = textsafe.oneline((lines.get(r["agent"]) or {}).get("wake_wait_reason") or "")
                 if walled:
                     # The reason is budgeted first and the agent's own detail
                     # yields room to it, not the other way around: a detail

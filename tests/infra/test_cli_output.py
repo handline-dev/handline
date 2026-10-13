@@ -350,10 +350,48 @@ def test_triggers_draws_the_daemons_verdicts(home: Path) -> None:
         cliclient.call = real
 
 
+def test_ps_and_team_draw_the_daemons_status_lines(home: Path) -> None:
+    """STATE, what waits and the wall on a wake are the daemon's (agents.list with status: true); `hl ps` never starts a daemon to ask."""
+    from handline.cli import client as cliclient, daemon as clidaemon, team as cliteam
+    _daemon_home(home, 20)
+    line = {"name": "backend", "started": True, "has_repo": True, "has_terminal": True, "screen_word": "DIALOG",
+            "screen_detail": "allow \x9b31mBash?", "unreached": 2, "wake_wait_reason": "waiting for alpha's window at 14:00",
+            "task_waits": [{"task": 7, "words": "blocked by T9 (cat)"}, {"task": 8, "words": "behind T7"}]}
+    asked = []
+    real = cliclient.call
+
+    def call(method, params=None, start=True):
+        asked.append((method, params, start))
+        return {"agents": [line]}
+    cliclient.call = call
+    try:
+        out = _capture(lambda: clidaemon.cmd_daemon_status(None))
+        check("ps: it asks the daemon that is running, and starts none", asked == [("agents.list", {"status": True}, False)], str(asked))
+        row = next(ln for ln in out.splitlines() if ln.startswith("backend"))
+        check("ps: the daemon's state word, its detail as text, and the wall on the wake",
+              "DIALOG allow" in row and "\x9b" not in row and "waiting for alpha's window at 14:00" in row, repr(row))
+        check("team: the same line in words",
+              cliteam._doing("backend", line).endswith("Bash? · 2 waiting · T7 waits: blocked by T9 (cat) (+1 more) · "
+                                                       "waiting for alpha's window at 14:00"), cliteam._doing("backend", line))
+        check("team: an agent with no repo and no terminal says why it never starts",
+              "no repo" in cliteam._doing("new", {**line, "started": False, "has_repo": False, "has_terminal": False}))
+        check("team: one the daemon said nothing of is not guessed at", cliteam._doing("backend", None) == "?")
+
+        def down(method, params=None, start=True):
+            raise dmn_client.DaemonDown("the daemon is not running")
+        cliclient.call = down
+        out = _capture(lambda: clidaemon.cmd_daemon_status(None))
+        row = next(ln for ln in out.splitlines() if ln.startswith("backend"))
+        check("ps: with no daemon the row is still drawn, with no state", row.split()[2] == "-", row)
+    finally:
+        cliclient.call = real
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_no_command_prints_what_a_terminal_would_obey(Path(td) / 'cli'))
         run(lambda: test_triggers_draws_the_daemons_verdicts(Path(td) / 'trig'))
+        run(lambda: test_ps_and_team_draw_the_daemons_status_lines(Path(td) / 'ps'))
     return run_area(tests)
 
 

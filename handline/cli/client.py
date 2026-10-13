@@ -13,13 +13,19 @@ from ..infra import daemonclient as client, sessiontoken
 CLIENT = "hl"
 
 
-def connect() -> socket.socket:
-    return client.ensure_daemon()
+def connect(start: bool = True) -> socket.socket:
+    """A socket to the daemon. `start=False` never asks launchd for one: client.DaemonDown when nothing is listening."""
+    if start:
+        return client.ensure_daemon()
+    sock = client.connect()
+    if sock is None:
+        raise client.DaemonDown("the daemon is not running")
+    return sock
 
 
-def call(method: str, params: dict | None = None) -> dict:
+def call(method: str, params: dict | None = None, start: bool = True) -> dict:
     """The result of `method`. client.DaemonDown when the daemon is not there, client.RpcError when it refuses."""
-    return client.call(connect(), method, params, CLIENT, sessiontoken.founder_key_held())
+    return client.call(connect(start), method, params, CLIENT, sessiontoken.founder_key_held())
 
 
 def write(method: str, params: dict) -> tuple[bool, str]:

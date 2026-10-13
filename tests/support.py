@@ -116,7 +116,7 @@ class _CliConnection(_dmn_rpc.Connection):
         return caller
 
 
-def _serve_cli() -> _socket.socket:
+def _serve_cli(start: bool = True) -> _socket.socket:
     _sessiontoken.ensure_founder_key()
     a, b = _socket.socketpair()
 
