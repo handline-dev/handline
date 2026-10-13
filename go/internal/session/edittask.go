@@ -93,13 +93,10 @@ func isLink(p string) bool {
 	return err == nil && st.Mode()&os.ModeSymlink != 0
 }
 
-// PreToolUse is the reason the PreToolUse hook refuses a tool call, "" to let it through (events.record_from_stdin): the
-// memory budget, then an hl command that would substitute in double quotes, then the edit gate. A guard that fails lets
+// PreToolUse is the reason the PreToolUse hook refuses a tool call, "" to let it through (events.record_from_stdin): an hl
+// command that would substitute in double quotes, then the edit gate. A guard that fails lets
 // the call through, as a hook must never break the session over itself.
 func PreToolUse(d *sql.DB, home, agent, tool string, toolInput any) string {
-	if why := MemoryGuard(home, agent, tool, toolInput); why != "" {
-		return why
-	}
 	if why := Guard(tool, toolInput); why != "" {
 		return why
 	}

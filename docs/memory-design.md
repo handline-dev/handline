@@ -61,34 +61,32 @@ index back to prove it loaded.
 
 ## Keeping it small
 
-Budget per agent: `MEMORY.md` at most **2KB and 20 entries**. Claude's own
-limit (200 lines / 25KB) is 10x looser and is never reached.
+Budget per agent: `MEMORY.md` at most **2KB and 20 entries**, reported by
+`hl memory status`; nothing refuses a write over it, and nothing warns at the
+write (the founder, #30066: rather than warn, remove it). Claude's own limit
+(200 lines / 25KB) is 10x looser.
 
-1. **Cap, enforced deterministically.** A PreToolUse hook on Write/Edit of a
-   file under the agent's memory dir denies a change that makes an over-budget
-   `MEMORY.md` bigger, with the reason "merge or delete before adding". Shrinking
-   edits pass. No model call.
-2. **Last use.** A PostToolUse hook writes `agents/<name>/memory-use.json`
+1. **Last use.** A PostToolUse hook writes `agents/<name>/memory-use.json`
    (`{file: last_ts}`) for a Read, Edit, Write or MultiEdit under the memory
    dir; outside it, or for another tool, it exits at once. The file lives
    outside the memory dir so it is never loaded or counted. The filtering is
-   `memoryguard.note_use`'s own (`USE_TOOLS`), not a Claude-side matcher on the
+   `memoryuse.note_use`'s own (`USE_TOOLS`), not a Claude-side matcher on the
    installed hook: PostToolUse fires unmatched on every tool call because it is
    also how a permission-wait clears (T247, waiting.py) once the agent's turn
    continues past *any* tool, not only Read/Edit - narrowing the matcher would
    fix nothing here and silently stop that clearing for every other tool.
-3. **Pruning candidates.** `hl doctor` and `hl memory status` list per agent:
+2. **Pruning candidates.** `hl doctor` and `hl memory status` list per agent:
    bytes and entries against budget, files not in the index, and files unused
    for 28 days. Candidates are reported, never deleted by ocp.
-4. **Consolidate at handoff.** The handoff record is built by the daemon with no
+3. **Consolidate at handoff.** The handoff record is built by the daemon with no
    model, so it cannot ask the agent anything; instead it carries one `memory:`
    line (bytes, entries, unindexed and unused files, "merge, promote or delete
    these before you finish") when the memory needs tending, and a fresh session
    with no record gets the same line in its wake prompt. Built in T230.
-5. **Promotion.** A lesson every agent needs moves to `AGENTS.md` / `ROLE.md`
+4. **Promotion.** A lesson every agent needs moves to `AGENTS.md` / `ROLE.md`
    by PR and is deleted from memory; `hl memory status` flags an entry whose
    text also appears in another agent's memory as a promotion candidate.
-6. **No automatic summarising.** ocp never rewrites an entry; rules stay verbatim.
+5. **No automatic summarising.** ocp never rewrites an entry; rules stay verbatim.
 
 Known gap: an entry the agent applies straight from its index line never
 triggers a `Read`, so its "last use" looks stale. Rule: the index line is a
@@ -133,8 +131,8 @@ until each agent has confirmed its own entries once; then the links are removed.
    injected beside `base.md` for each team the agent is in. `hl doctor` warns
    past 10 rules or 2KB.
 2. **Pruning candidates: 28 days** (`memory.STALE_DAYS`).
-3. **Over budget, the write is denied** and the reason shown (T230's
-   PreToolUse hook); it is not a warning.
+3. **Over budget, the write is not refused** (T230's PreToolUse hook is gone;
+   #30066). `hl memory status` still reports it.
 
 ## Built by core (T231)
 
