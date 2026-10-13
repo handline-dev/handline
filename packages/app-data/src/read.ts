@@ -78,6 +78,21 @@ export function useUnread(): InboxItem[] {
 }
 export const useInboxItem = (id: number) => useRead('inbox.get', { id });
 export const useTasks = (filter: CallParams<'tasks.list'> = {}) => useRead('tasks.list', filter);
+/** What an agent holds and what it opened: two reads (the daemon pages tasks.list and filters by owner or by opener), as one query. */
+export function useAgentTasks(agent: string) {
+  const held = useTasks({ all: true, owner: agent, limit: 200 });
+  const opened = useTasks({ all: true, from: agent, limit: 200 });
+  const query = {
+    isPending: held.isPending || opened.isPending,
+    isFetching: held.isFetching || opened.isFetching,
+    isError: held.isError || opened.isError,
+    data: held.data && opened.data ? [held.data, opened.data] : undefined,
+    error: held.error ?? opened.error,
+    refetch: () => Promise.all([held.refetch(), opened.refetch()]),
+  };
+  const items = useMemo(() => [...(held.data?.items ?? []), ...(opened.data?.items ?? [])], [held.data, opened.data]);
+  return { query, items, capped: !!(held.data?.more || opened.data?.more) };
+}
 export const useTask = (task: number) => useRead('task.get', { task });
 export const useMemos = (task: number) => useRead('task.memo.list', { task });
 export const useTaskBoard = () => useRead('task.board', {});
