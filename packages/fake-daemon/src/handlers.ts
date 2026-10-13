@@ -1,6 +1,6 @@
 // The methods that act on a session, its input and its terminal, one function each.
 import type { Actor, Caller, Notifications, Timestamp } from '@handline/contract';
-import { badRequest, Failure, refused } from './errors.ts';
+import { badRequest, Failure, invalidParams, refused } from './errors.ts';
 import type { Script } from './script.ts';
 import { coded, snapshotOf } from './bytes.ts';
 import { SETTINGS_HANDLERS } from './settings.ts';
@@ -173,7 +173,7 @@ const BASE: Record<string, (h: Call) => unknown> = {
     };
   },
   'terminal.open': ({ p, agent }) => {
-    if (typeof p.agent !== 'string') throw badRequest('agent is required', 'agent');
+    if (typeof p.agent !== 'string') throw invalidParams('agent is required', 'agent');
     const s = agent();
     if (!s.hasTerminal) throw new Failure('not_found', `${s.fx.name} has no terminal`, { field: 'terminal' });
     return { agent: s.fx.name, terminal: tid(s), host: 'fake', attach: { argv: ['fake-attach', tid(s)] }, focused: false, local: true };
