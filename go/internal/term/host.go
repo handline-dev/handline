@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Host is what a backend adds to start and end the terminals the daemon runs agents in. Only tmux has it: Orca is unmaintained.
+// Host is what a backend adds to start and end the terminals the daemon runs agents in.
 type Host interface {
 	// CreateTerminal opens a window in cwd, types command at its shell and answers the new pane's handle. A handle "" with why "" is a
 	// window that started whose handle could not be read.
