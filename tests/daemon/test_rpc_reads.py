@@ -304,6 +304,13 @@ def test_the_commands_the_read_methods_serve_still_work_from_an_agent_session(ho
     check("hl task list: works at role agent", rc == 0 and "listed by the command" in out, out)
     rc, out = support._cli(["task", "show", f"T{tid}"])
     check("hl task show: works at role agent", rc == 0 and "listed by the command" in out, out)
+    check("hl task show: the header names the assignee and the owner, as the Go hl does",
+          "assignee worker   owner manager   P2" in out and "opened by" not in out, out)
+    rc, edited = support._cli(["task", "edit", f"T{tid}", "--assign", "worker", "--owner", "human"])
+    rc, out = support._cli(["task", "show", f"T{tid}"])
+    check("hl task show: an owner apart from the opener names the opener, and the change is listed",
+          "assignee worker   owner human   opened by manager" in out and "assignee and owner changes" in out
+          and "owner " in out.split("assignee and owner changes", 1)[-1] and ", by manager" in out, f"{edited}\n{out}")
     rc, out = support._cli(["inbox"], as_agent="worker")
     check("hl inbox: works at role agent", rc == 0, out)
 

@@ -474,9 +474,11 @@ def _detail_lines(t: dict, now: float) -> list[str]:
     """One task (the wire's task.get) as lines to read: where it stands, its brief, memos, what it waits on, its
     children and its handoffs, each note whole. The Go daemon's task.get may leave out asker, discarded, blockers,
     subtasks and handoffs."""
+    # the assignee works the task; its owner is who it answers to (the wire's asker), named apart from the opener only when they differ
+    owner = t.get("asker") or t["from"]
     out = [f"T{t['id']}  {t['title']}",
-           f"state {t['state']}   owner {t['to']}   opened by {t['from']}"
-           + (f"   reporter {t['asker']}" if t.get("asker") not in (None, t["from"]) else "")
+           f"state {t['state']}   assignee {t['to']}   owner {owner}"
+           + (f"   opened by {t['from']}" if owner != t["from"] else "")
            + f"   P{t['priority']}"
            + (f"   parent T{t['parent']}" if t["parent"] else "")
            + f"   created {timefmt.stamp(client.epoch(t['created']))}"]
@@ -499,6 +501,9 @@ def _detail_lines(t: dict, now: float) -> list[str]:
     if t.get("handoffs"):
         out += ["", "handoffs"]
         out += [f"  {timefmt.stamp(client.epoch(h['at']))}  {h['from']} -> {h['to']}\n    {h['note']}" for h in t["handoffs"]]
+    if t.get("assignments"):
+        out += ["", "assignee and owner changes"]
+        out += [f"  {timefmt.stamp(client.epoch(a['at']))}  {a['what']} {a['from']} -> {a['to']}, by {a['by']}" for a in t["assignments"]]
     return out
 
 
