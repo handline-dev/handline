@@ -199,9 +199,21 @@ func (t termRun) PaneHolds(handle string, pid int) (bool, bool) {
 	if panePid <= 0 {
 		return false, false
 	}
+	parent := parents()
+	if parent == nil {
+		return false, false
+	}
+	if _, running := parent[pid]; !running {
+		return false, false
+	}
+	return under(parent, pid, panePid), true
+}
+
+// parents is the process table, pid to its parent's pid; nil when ps cannot be read.
+func parents() map[int]int {
 	table, err := exec.Command("ps", "-axo", "pid=,ppid=").Output()
 	if err != nil {
-		return false, false
+		return nil
 	}
 	parent := map[int]int{}
 	for _, line := range strings.Split(string(table), "\n") {
@@ -215,15 +227,17 @@ func (t termRun) PaneHolds(handle string, pid int) (bool, bool) {
 			parent[a] = b
 		}
 	}
-	if _, running := parent[pid]; !running {
-		return false, false
-	}
+	return parent
+}
+
+// under is whether pid is root or one of its descendants.
+func under(parent map[int]int, pid, root int) bool {
 	for p, n := pid, 0; p > 1 && n < 64; p, n = parent[p], n+1 {
-		if p == panePid {
-			return true, true
+		if p == root {
+			return true
 		}
 	}
-	return false, true
+	return false
 }
 
 func (t termRun) Tell(agent, _, text string) error {

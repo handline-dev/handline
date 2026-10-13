@@ -148,6 +148,36 @@ func RecordTerminal(q Q, handle, agent string) error {
 	return err
 }
 
+// OpenTerminal is a terminal opened for an agent and not yet seen closed.
+type OpenTerminal struct {
+	Handle, Agent string
+	OpenedAt      int64
+}
+
+// OpenAgentTerminals is every terminal opened for an agent and not yet closed; one opened with no agent is not among them.
+func OpenAgentTerminals(q Q) ([]OpenTerminal, error) {
+	rows, err := q.Query("SELECT handle, agent, opened_at FROM agent_terminals WHERE agent IS NOT NULL AND closed_at IS NULL ORDER BY opened_at, handle")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []OpenTerminal
+	for rows.Next() {
+		var t OpenTerminal
+		if err := rows.Scan(&t.Handle, &t.Agent, &t.OpenedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// CloseAgentTerminal records that the terminal is closed.
+func CloseAgentTerminal(q Q, handle string) error {
+	_, err := q.Exec("UPDATE agent_terminals SET closed_at = ? WHERE handle = ? AND closed_at IS NULL", Now(), handle)
+	return err
+}
+
 // SetAccount is db.set_account; source is "recorded" or "assumed".
 func SetAccount(q Q, agent, account, source string) error {
 	_, err := q.Exec("INSERT INTO agent_state(agent, state, updated, account, account_source) VALUES(?,?,?,?,?) ON CONFLICT(agent) DO UPDATE SET account=excluded.account, account_source=excluded.account_source, updated=excluded.updated",
