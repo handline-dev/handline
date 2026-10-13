@@ -5,9 +5,9 @@ cache="$(go env GOCACHE)"
 if ! mkdir -p "$cache" 2>/dev/null || ! [ -w "$cache" ]; then
     export GOCACHE="${TMPDIR:-/tmp}/handline-gocache"
 fi
-# Once a week, drop the cache files no build used for two days (go marks an entry used by its mtime): the cache otherwise grows
-# to tens of GB, and each new file is one more event for fseventsd.
+# Once a day, drop the cache files no build used for two days (go marks an entry used by its mtime; its own trim waits five): the
+# worktrees write about 24 GB a day, and each new file is one more event for fseventsd. In the background: the walk takes minutes.
 cache="$(go env GOCACHE)"
-if [ -z "$(find "$cache/handline-pruned" -mtime -7 2>/dev/null)" ] && touch "$cache/handline-pruned" 2>/dev/null; then
-    find "$cache" -type f -mtime +2 ! -name handline-pruned -delete 2>/dev/null
+if [ -z "$(find "$cache/handline-pruned" -mtime -1 2>/dev/null)" ] && touch "$cache/handline-pruned" 2>/dev/null; then
+    (find "$cache" -mindepth 2 -type f -mtime +2 -delete >/dev/null 2>&1 &)
 fi
