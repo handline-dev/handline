@@ -47,6 +47,10 @@ def cmd_dev_mode(args) -> int:
     return 0
 
 
+# How long `ps` waits on a daemon that is listening: a stuck one must not hold the table back.
+ANSWER_S = 5.0
+
+
 def _print_waits() -> None:
     """The founder's waits above everything else `ps` prints, in words: the same
     list the screen pins in red."""
@@ -67,7 +71,7 @@ def _print_waits() -> None:
 def _code_line() -> str:
     """Which code the running daemon is on, from its own hello, and whether the checkout has moved on."""
     try:
-        sock = dmn_client.connect(5.0)
+        sock = dmn_client.connect(ANSWER_S)
         sha = dmn_client.call(sock, "hello", {"client": "hl", "protocol": 1})["daemon"] if sock else None
     except (OSError, dmn_client.RpcError):
         sha = None
@@ -108,7 +112,7 @@ def cmd_daemon_status(args) -> int:
             w = _name_col([r["agent"] for r in rows], 14)
             # STATE and the wall on a wake are the daemon's (agents.list); `ps` reports a daemon that is down, so it never starts one.
             try:
-                lines = {a["name"]: a for a in client.call("agents.list", {"status": True}, start=False)["agents"]}
+                lines = {a["name"]: a for a in client.call("agents.list", {"status": True}, start=False, timeout=ANSWER_S)["agents"]}
             except (dmn_client.DaemonDown, dmn_client.RpcError, OSError):
                 lines = {}
             words = {r["agent"]: _state_of(lines.get(r["agent"])) for r in rows}

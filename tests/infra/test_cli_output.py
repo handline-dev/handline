@@ -360,13 +360,14 @@ def test_ps_and_team_draw_the_daemons_status_lines(home: Path) -> None:
     asked = []
     real = cliclient.call
 
-    def call(method, params=None, start=True):
-        asked.append((method, params, start))
+    def call(method, params=None, start=True, timeout=None):
+        asked.append((method, params, start, timeout))
         return {"agents": [line]}
     cliclient.call = call
     try:
         out = _capture(lambda: clidaemon.cmd_daemon_status(None))
-        check("ps: it asks the daemon that is running, and starts none", asked == [("agents.list", {"status": True}, False)], str(asked))
+        check("ps: it asks the daemon that is running, starts none, and waits seconds for it",
+              asked == [("agents.list", {"status": True}, False, clidaemon.ANSWER_S)] and clidaemon.ANSWER_S <= 5, str(asked))
         row = next(ln for ln in out.splitlines() if ln.startswith("backend"))
         check("ps: the daemon's state word, its detail as text, and the wall on the wake",
               "DIALOG allow" in row and "\x9b" not in row and "waiting for alpha's window at 14:00" in row, repr(row))
@@ -377,7 +378,7 @@ def test_ps_and_team_draw_the_daemons_status_lines(home: Path) -> None:
               "no repo" in cliteam._doing("new", {**line, "started": False, "has_repo": False, "has_terminal": False}))
         check("team: one the daemon said nothing of is not guessed at", cliteam._doing("backend", None) == "?")
 
-        def down(method, params=None, start=True):
+        def down(method, params=None, start=True, timeout=None):
             raise dmn_client.DaemonDown("the daemon is not running")
         cliclient.call = down
         out = _capture(lambda: clidaemon.cmd_daemon_status(None))
@@ -385,6 +386,29 @@ def test_ps_and_team_draw_the_daemons_status_lines(home: Path) -> None:
         check("ps: with no daemon the row is still drawn, with no state", row.split()[2] == "-", row)
     finally:
         cliclient.call = real
+    # A daemon that takes the connection and never answers: the real call, on a socket whose other end stays silent.
+    import socket
+    import time
+    silent = []
+
+    def held(timeout=None):
+        a, b = socket.socketpair()
+        silent.append(b)
+        a.settimeout(timeout)
+        return a
+    real_connect, real_dmn, real_s = cliclient.connect, dmn_client.connect, clidaemon.ANSWER_S
+    cliclient.connect, dmn_client.connect, clidaemon.ANSWER_S = support.REAL_CLI_CONNECT, held, 0.3
+    try:
+        t0 = time.monotonic()
+        out = _capture(lambda: clidaemon.cmd_daemon_status(None))
+        took = time.monotonic() - t0
+    finally:
+        cliclient.connect, dmn_client.connect, clidaemon.ANSWER_S = real_connect, real_dmn, real_s
+        for b in silent:
+            b.close()
+    row = next((ln for ln in out.splitlines() if ln.startswith("backend")), "")
+    check("ps: a daemon that listens and never answers costs its short wait, and the table is still drawn",
+          silent and row.split()[2:3] == ["-"] and took < 3, f"{took:.1f}s {out}")
 
 
 def main() -> int:

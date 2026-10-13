@@ -2508,7 +2508,7 @@ def test_a_task_command_is_a_call_to_the_daemon(home: Path) -> None:
     rc, out = _cli(["task", "memo", f"T{t}", "delete", "999"], as_agent="worker")
     check("daemon call: a refusal prints the daemon's words and exits 1", rc == 1 and f"T{t} has no memo 999" in out, out)
 
-    def down(start=True):
+    def down(start=True, timeout=0):
         raise dmn_client.DaemonDown("not here")
     real = cli_client.connect
     cli_client.connect = down
