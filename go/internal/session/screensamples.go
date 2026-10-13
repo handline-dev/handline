@@ -10,7 +10,7 @@ import (
 )
 
 // A sample of the screen of an agent that reports background work, kept to design against. What tells an idle agent with
-// background work from one mid-turn is on its screen, and the sandboxes agents work in cannot read Orca; the daemon can. Each time
+// background work from one mid-turn is on its screen, and the sandboxes agents work in cannot read the terminal host; the daemon can. Each time
 // it reads an agent's screen and finds background work, one sample in ten minutes goes to a file, labelled with what the db says
 // the agent is doing. No extra read: the rows are the ones BackgroundWork just took. The newest SampleKeep files stay.
 const (

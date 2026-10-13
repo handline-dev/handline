@@ -153,7 +153,7 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 		check(db.ResetCounter(m.Q, agent, "wake_failures"))
 		check(db.BumpCounter(m.Q, agent, "wake_failures", states.MaxFailedAttempts-1))
 	}
-	// Its own worktree if it still has one - a terminal can be closed by a human or lost when Orca restarts without anything happening to
+	// Its own worktree if it still has one - a terminal can be closed by a human or lost when the terminal host restarts without anything happening to
 	// the branch or to what is uncommitted in it, and a second worktree would strand the first.
 	wt := ""
 	if row != nil {
