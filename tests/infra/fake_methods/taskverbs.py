@@ -7,7 +7,7 @@ def taskverbs(role, method, params):
     if not isinstance(params.get("request_id"), str) or not params["request_id"]:
         return "fail", err(-32600, "bad_request", field="request_id")
     if method == "task.begin":
-        if not isinstance(params.get("why"), str) or not params["why"].strip():
+        if params.get("why") is not None and not isinstance(params["why"], str):
             return "fail", err(-32602, "bad_request", field="why")
         if params.get("body") is not None:
             return "fail", err(-32602, "bad_request", field="body")

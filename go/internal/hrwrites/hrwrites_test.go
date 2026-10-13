@@ -343,6 +343,16 @@ func TestContextScheduleGlobalAndSettingsAreAppliedAsProposed(t *testing.T) {
 
 func (auth) SessionsReadable() error { return nil }
 
+func TestAContextFileHasNoSizeLimit(t *testing.T) {
+	r := newRig(t)
+	role := "# alice\n\n" + strings.Repeat("x", 3072) + "\n"
+	ctx, _ := json.Marshal(role)
+	p, id := r.propose("aaaa0010", "kind", "context", "agent", "alice", "set.ROLE.md", string(ctx))
+	if res := r.decide(id, "approve", p.subject(), "g1"); r.file("agents", "alice", "ROLE.md") != role {
+		t.Fatalf("a 3KB ROLE.md was not written: %v", res)
+	}
+}
+
 func TestAgentSetTakesEveryFieldOfTheContractForTheFounder(t *testing.T) {
 	r := newRig(t)
 	for _, c := range []struct{ key, val, want string }{

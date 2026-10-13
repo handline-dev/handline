@@ -18,7 +18,7 @@ from . import rpc
 INT1, INT0, FLAG = "int>=1", "int>=0", "bool"
 KEYS = {"active_cap": INT1, "park_timeout_s": INT0, "handoff_note": FLAG, "auto_accept_dialogs": FLAG, "ignore_cache_expiry": FLAG,
         "dev_mode": FLAG, "bg_notice_s": INT1, "bg_grace_s": INT1, "bg_check_s": INT1, "notice_digest_s": INT1,
-        "unasked_running_s": INT1, "stop_wait_backstop_s": INT1, "stale_background_s": INT1, "input_hold_idle_s": INT1}
+        "stop_wait_backstop_s": INT1, "input_hold_idle_s": INT1}
 PER_AGENT = ("park_timeout_s", "ignore_cache_expiry", "bg_notice_s", "bg_grace_s", "bg_check_s", "notice_digest_s")
 
 

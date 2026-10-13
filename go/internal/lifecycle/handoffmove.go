@@ -82,9 +82,10 @@ func (v *Mover) recordHandoff(agent, hid string) bool {
 	return false
 }
 
-func (v *Mover) lastLeft(agent string) string {
+// lastLeft is the account the agent's last move took it off, "" when it never moved.
+func lastLeft(q db.Q, agent string) string {
 	var payload string
-	if err := v.M.Q.QueryRow("SELECT payload FROM events WHERE agent = ? AND kind = 'moved_account' ORDER BY id DESC LIMIT 1", agent).Scan(&payload); err != nil {
+	if err := q.QueryRow("SELECT payload FROM events WHERE agent = ? AND kind = 'moved_account' ORDER BY id DESC LIMIT 1", agent).Scan(&payload); err != nil {
 		return ""
 	}
 	var p struct {
@@ -96,10 +97,11 @@ func (v *Mover) lastLeft(agent string) string {
 	return p.From
 }
 
-// MovePlan is an agent at the wall: stay, or move and where to. (destination, why). Stay when nothing waits for it or its own account resets
-// before a cold start would pay back; otherwise the room test the closed-agent wake already uses (Launcher.full over the other accounts),
+// MovePlan is an agent at the wall: stay, or move and where to. (destination, why). Stay when nothing waits for it (a wake, starting, is
+// itself the work) or its own account resets before a cold start would pay back and within the prompt cache's life, past which a resume
+// pays for its context in full anyway; otherwise the room test the closed-agent wake already uses (Launcher.full over the other accounts),
 // never back to the account it just left before that resets, so one wall is one move.
-func (v *Mover) MovePlan(agent, kind string) (dest, why string, err error) {
+func (v *Mover) MovePlan(agent, kind string, starting bool) (dest, why string, err error) {
 	defer catch(&err)
 	m := v.M
 	here, _, ok := v.E.Reading(m.Q, agent)
@@ -117,14 +119,15 @@ func (v *Mover) MovePlan(agent, kind string) (dest, why string, err error) {
 		d := float64(max(0, reset-now))
 		resetIn = &d
 	}
-	work := len(must(db.QueuedFor(m.Q, agent))) > 0 || len(must(db.UnannouncedAnswers(m.Q, agent))) > 0
+	work := starting || len(must(db.QueuedFor(m.Q, agent))) > 0 || len(must(db.UnannouncedAnswers(m.Q, agent))) > 0
 	if kind != LoginTrigger {
-		if move, why := v.E.StayOrMove(work, resetIn, v.E.StayWithin(v.E.ColdStartPct(m.Q), w.ShortS)); !move {
+		within := min(v.E.StayWithin(v.E.ColdStartPct(m.Q), w.ShortS), states.PromptCacheS)
+		if move, why := v.E.StayOrMove(work, resetIn, within); !move {
 			return "", why, nil
 		}
 	}
 	exclude := map[string]string{here: "the account it is at the wall on"}
-	if left := v.lastLeft(agent); left != "" && left != here {
+	if left := lastLeft(m.Q, agent); left != "" && left != here {
 		if r := v.E.Windows(left).ShortReset; r > now {
 			exclude[left] = "the account it just left, until it resets"
 		}
@@ -173,7 +176,7 @@ func (v *Mover) moveToRoom(agent string, t HandoffTrigger, dest string) (moved, 
 		there, why = v.forcedPlan(agent, dest)
 	} else {
 		var err error
-		there, why, err = v.MovePlan(agent, t.Kind)
+		there, why, err = v.MovePlan(agent, t.Kind, false)
 		check(err)
 	}
 	if there == "" {

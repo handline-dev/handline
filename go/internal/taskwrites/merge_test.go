@@ -9,7 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/store"
 )
 
-func TestMergeFoldsTasksIntoOneAndRefusesWhatWouldLoopOrIsNotTheirs(t *testing.T) {
+func TestMergeFoldsTasksIntoOneAndRefusesWhatWouldLoop(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -48,11 +48,9 @@ func TestMergeFoldsTasksIntoOneAndRefusesWhatWouldLoopOrIsNotTheirs(t *testing.T
 		}
 	}
 
-	refused("not the opener", merge("else", "a1", 1, 2), "task T1 can only be edited by whoever opened it (boss) or the founder")
 	refused("itself", merge("boss", "a2", 1, 1), "task T1 cannot merge into itself")
 	refused("twice", merge("boss", "a3", 1, 2, 2), "a task is named twice")
 	refused("unknown", merge("boss", "a4", 1, 99), fmt.Sprintf("no task T%d", 99))
-	refused("not theirs", merge("boss", "a5", 1, 5), "task T5 can only be edited by whoever opened it (else) or the founder")
 	refused("a real blocker", merge("boss", "a6", 1, 7), "task T7 is waiting on T8 - it cannot be merged until they are done")
 	refused("under it", merge("boss", "a7", 6, 2), "task T6 is under T2 - folding T2 into it would loop them")
 	db.Exec("INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(1, 4, 1)") // keep waits on 4, 4 waits on 2: folding 2 into 1 would have 4 wait on 1, which waits on 4

@@ -245,7 +245,7 @@ func taskBegin(c *hlclient.Client, args []string) (int, bool) {
 			return 0, false
 		}
 	}
-	if !hasChat || !hasWhy || !ok1 || !ok2 {
+	if !hasChat || !ok1 || !ok2 {
 		return 0, false
 	}
 	mutating(c, "begin")
@@ -257,7 +257,10 @@ func taskBegin(c *hlclient.Client, args []string) (int, bool) {
 		fmt.Println("a task needs a title")
 		return 1, true
 	}
-	params := map[string]any{"title": title, "message": chat, "why": why, "expects": exp}
+	params := map[string]any{"title": title, "message": chat, "expects": exp}
+	if hasWhy {
+		params["why"] = why
+	}
 	if hasPrio {
 		params["priority"] = prio
 	}
@@ -610,13 +613,5 @@ func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key st
 }
 
 func taskRelease(c *hlclient.Client, args []string) (int, bool) {
-	tid, ok := oneTask(args)
-	if !ok {
-		return 0, false
-	}
-	mutating(c, "release")
-	if !asking(c, "release a task") {
-		return 1, true
-	}
-	return said(c.Write("task.release", map[string]any{"task": tid})), true
+	return taskWithReason(c, args, "release", "release a task", "task.release", "reason")
 }

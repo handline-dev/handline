@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { DEBUG_HASH } from './debug/paneFacts.ts';
 
 const read = () => location.hash.match(/^#\/agents\/(.+?)(\/settings)?$/);
 const readTasks = () => location.hash.match(/^#\/tasks(?:\/(\d+))?$/)?.[1] ?? (/^#\/tasks\/?$/.test(location.hash) ? '' : null);
@@ -90,3 +91,8 @@ export function useNewAgentRoute(): { open: boolean; operation: string | null } 
 export const goNew = (operation?: string): void => {
   location.hash = operation === undefined ? '#/new' : `#/new/${encodeURIComponent(operation)}`;
 };
+
+/** Whether the URL is the debug window's (`#/debug/terminals`), which Settings opens in a window of its own. */
+export function useDebugRoute(): boolean {
+  return useSyncExternalStore(subscribe, () => location.hash) === DEBUG_HASH;
+}

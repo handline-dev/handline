@@ -1,7 +1,7 @@
 // Terminal tab on the `bytes` channel: xterm.js draws the host's own escape codes, colour and cursor included. Watch-only; the
 // text-grid tab is the fallback (TerminalTab). See docs/terminal-pane.md.
 import { useEffect, useRef, useState } from 'react';
-import { type AgentDetail, type ByteListener, type ByteTerminalView, type ByteViewState } from '@handline/client';
+import { paneKey, type AgentDetail, type ByteListener, type ByteTerminalView, type ByteViewState } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useWrite } from '@handline/app-data';
 import { keep, reclaim } from './terminal/keep.ts';
@@ -44,7 +44,20 @@ function useSkeleton(loading: boolean): boolean {
 
 const reasonOf = (e: unknown) => (e as { reason?: string }).reason ?? (e as Error).message;
 
-export function BytesTab({ agent, detail, create }: { agent: string; detail: AgentDetail; create?: CreateTerm }) {
+/**
+ * `handle` attaches by terminal handle instead of by agent (the debug window). With no agent it is watch-only: no agent, no input holder.
+ */
+export function BytesTab({
+  agent,
+  detail,
+  create,
+  handle,
+}: {
+  agent: string;
+  detail: Pick<AgentDetail, 'terminal'>;
+  create?: CreateTerm;
+  handle?: string;
+}) {
   const store = useStore();
   const host = useRef<HTMLDivElement>(null);
   const takeInput = useWrite('input.take', agent);
@@ -61,6 +74,8 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
   const [heldBy, setHeldBy] = useState(''); // someone else holds the input: a click cannot take it
   const [attempt, setAttempt] = useState(0); // Retry runs the effect again
   const hasTerminal = !!detail.terminal;
+  const key = handle ? paneKey(handle) : agent; // what the view and the kept screen are filed under
+  const watchOnly = !agent;
 
   useEffect(() => {
     if (!hasTerminal) return;
@@ -70,7 +85,7 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
       const make = create ?? (await import('./terminal/xterm.ts')).createXterm;
       if (cancelled) return;
       const el = host.current!;
-      const back = reclaim(agent); // a quick switch back shows the last screen at once; the new snapshot repaints it
+      const back = reclaim(key); // a quick switch back shows the last screen at once; the new snapshot repaints it
       const stage = back?.stage ?? el.appendChild(document.createElement('div'));
       if (back) el.appendChild(stage);
       const title = back?.title ?? { to: setTitle };
@@ -104,7 +119,7 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
       });
       const grab = () => {
         const v = live.current?.view;
-        if (!v || holding || v.state !== 'live' || v.holders.some((h) => h.kind !== 'daemon')) return;
+        if (!v || watchOnly || holding || v.state !== 'live' || v.holders.some((h) => h.kind !== 'daemon')) return;
         take({ agent }); // a refusal is reported by the write
       };
       /** The one key the app keeps: the terminal lets go of the keyboard and the hold is released. */
@@ -143,7 +158,7 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
         }
       };
       try {
-        const opened = await store.client.bytes.open(agent, onEvent);
+        const opened = await (handle ? store.client.bytes.openPane(handle, onEvent) : store.client.bytes.open(agent, onEvent));
         off = opened.off;
         live.current = { view: opened.view, pane };
         setState(opened.view.state);
@@ -161,10 +176,10 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
         stage.removeEventListener('keydown', leave);
         off();
         if (live.current) {
-          void store.client.bytes.close(agent).catch(() => {});
+          void store.client.bytes.close(key).catch(() => {});
         }
         live.current = null;
-        keep(agent, { stage, pane, quiet, title });
+        keep(key, { stage, pane, quiet, title });
       };
       if (cancelled) cleanup();
     })();
@@ -172,7 +187,7 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
       cancelled = true;
       cleanup();
     };
-  }, [store, agent, hasTerminal, create, attempt, take, release]);
+  }, [store, agent, key, handle, watchOnly, hasTerminal, create, attempt, take, release]);
 
   const skeleton = useSkeleton(hasTerminal && state === 'attaching' && !everLive);
   const note = !hasTerminal ? 'No terminal. Start the agent to open one.' : state === 'failed' ? failure : NOTE[state];
@@ -208,7 +223,7 @@ export function BytesTab({ agent, detail, create }: { agent: string; detail: Age
                 <Button variant="outline" size="sm" label="Release" className="text-term-ink" onClick={() => release({ agent })} />
               </>
             ) : (
-              !heldBy && !takeInput.error && 'Click the terminal to type in it. '
+              !heldBy && !takeInput.error && (watchOnly ? 'Watch only: no agent has this pane, so it takes no keys. ' : 'Click the terminal to type in it. ')
             ))}
           {heldBy && !holds && `The input is held by ${heldBy}. `}
           {refused || (takeInput.error ? `Could not take the input: ${reasonOf(takeInput.error)}` : '')}

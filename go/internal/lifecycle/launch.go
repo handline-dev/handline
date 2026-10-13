@@ -52,8 +52,8 @@ type UsagePort interface {
 	// Fit is whether nothing says the account is a bad place to start: a stale or missing reading is the account nobody has run on
 	// lately, and the session about to start is the only thing that writes a fresh one.
 	Fit(acct, agent string) bool
-	// CapOf is how many agents the account may have mid-turn at once: the configured cap shrunk by its weekly pace (none when it is ahead
-	// of its week).
+	// CapOf is how many agents the account may have mid-turn at once: the configured cap, shrunk only where its current burn would hit a
+	// window's block before that window resets.
 	CapOf(acct string) int
 	// Headroom is what the account's weekly bucket still holds as a share of the week's quota, ok false when the pace cannot be read. The
 	// larger, the slower-paced.
@@ -228,7 +228,7 @@ type WakeWait struct {
 	Assumed bool
 	Window  string // the walled window's length as a person says it
 	IsLong  bool   // the longest window, not the shortest
-	// Slot: no wall, no slot - the account is full. Full is its cap now (0 when it is ahead of its week), Busy the others mid-turn on it,
+	// Slot: no wall, no slot - the account is full. Full is its cap now (0 when it would run out before it resets), Busy the others mid-turn on it,
 	// Older the closed agents the daemon wakes first.
 	Slot              bool
 	Full, Busy, Older int
@@ -248,12 +248,16 @@ func (l *Launcher) wall(acct string, assumed bool) *WakeWait {
 }
 
 // full is a resume's wait for a slot on its own account, where it is not moved: none is left once the others on it (agent itself left out)
-// fill the cap, or older closed agents waiting for the same account would take what is free. Oldest waiter first.
-func (l *Launcher) full(q db.Q, agent string, row *db.AgentState, acct string, assumed bool) (*WakeWait, error) {
+// fill the cap, or older closed agents waiting for the same account would take what is free. Oldest waiter first; queue false (a person's
+// start) counts no waiter.
+func (l *Launcher) full(q db.Q, agent string, row *db.AgentState, acct string, assumed, queue bool) (*WakeWait, error) {
 	cap, others := l.Ports.Usage.CapOf(acct), l.Ports.Usage.ActiveOn(q, acct, agent)
-	rows, err := db.AllAgentStates(q)
-	if err != nil {
-		return nil, err
+	var rows []*db.AgentState
+	if queue {
+		var err error
+		if rows, err = db.AllAgentStates(q); err != nil {
+			return nil, err
+		}
 	}
 	older := 0
 	for _, r := range rows {
@@ -295,6 +299,16 @@ func asWaiter(row *db.AgentState) *db.AgentState {
 // RoomElsewhere is SlowestPaced with a reason for each account passed over: exclude names the accounts left out and why. The second result
 // is why no account has room, "" when one does. A move to an account is held to this same test, so a wake and a handoff cannot disagree.
 func (l *Launcher) RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string) (string, string) {
+	return l.roomElsewhere(q, agent, row, exclude, true)
+}
+
+// RoomNow is a person's start off skip, where it does not wait its turn: the account with the most headroom on both its 5h and weekly
+// window, with no older closed agent counted ahead of it.
+func (l *Launcher) RoomNow(q db.Q, agent string, row *db.AgentState, skip string) (string, string) {
+	return l.roomElsewhere(q, agent, row, map[string]string{skip: ""}, false)
+}
+
+func (l *Launcher) roomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string, queue bool) (string, string) {
 	row = asWaiter(row)
 	vendor := l.Ports.Vendors.AgentVendor(agent)
 	best, most := "", math.Inf(-1)
@@ -307,7 +321,7 @@ func (l *Launcher) RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclu
 			passed = append(passed, a+": not a place for it")
 			continue
 		}
-		if w, err := l.full(q, agent, row, a, false); err != nil || w != nil {
+		if w, err := l.full(q, agent, row, a, false, queue); err != nil || w != nil {
 			passed = append(passed, a+": no free slot")
 			continue
 		}
@@ -335,7 +349,7 @@ func (l *Launcher) RoomOn(q db.Q, agent string, row *db.AgentState, acct string)
 		if l.Ports.Usage.NotFor(a, l.Ports.Vendors.AgentVendor(agent)) || !l.Ports.Usage.Fit(a, agent) {
 			return "is not a place for it"
 		}
-		if w, err := l.full(q, agent, row, a, false); err != nil || w != nil {
+		if w, err := l.full(q, agent, row, a, false, true); err != nil || w != nil {
 			return "has no free slot"
 		}
 		return ""
@@ -398,7 +412,7 @@ func (l *Launcher) WakeWait(q db.Q, agent string, row *db.AgentState) *WakeWait 
 		if w := l.wall(acct, source == "assumed"); w != nil {
 			return w
 		}
-		return must(l.full(q, agent, row, acct, source == "assumed"))
+		return must(l.full(q, agent, row, acct, source == "assumed", true))
 	}
 	if l.ChooseAccount(agent, false, "") != "" {
 		return nil
@@ -430,7 +444,7 @@ func WaitClock(w *WakeWait, unknown string) string {
 // DescribeWakeWait is the wording for a wait already computed, so a caller that holds one does not recompute it.
 func DescribeWakeWait(w *WakeWait) string {
 	if w.Slot && w.Full == 0 {
-		return fmt.Sprintf("waiting for %s: it is ahead of its week and takes no new agent", w.Account)
+		return fmt.Sprintf("waiting for %s: it would run out before it resets and takes no new agent", w.Account)
 	}
 	if w.Slot {
 		first := ""
@@ -721,8 +735,9 @@ func (l *Launcher) ContextFor(agent string) (string, error) {
 	return strings.Join(out, "\n\n"), nil
 }
 
-// yourTeam is who this agent answers to and who answers to it, read from team.yaml. Generated rather than written into each ROLE.md: a
-// role that named its colleagues by hand kept naming them after they were retired and renamed.
+// yourTeam is who this agent answers to and who answers to it, read from team.yaml, and the hl commands that reach them. Generated
+// rather than written into each ROLE.md: a role that named its colleagues by hand kept naming them after they were retired and renamed.
+// How a team works together is its rules file (team.Rules), not this.
 func (l *Launcher) yourTeam(agent string) string {
 	var t *team.Team
 	if l.Ports.Routing != nil {
@@ -744,21 +759,17 @@ func (l *Launcher) yourTeam(agent string) string {
 	report := "You report to `" + boss + "`. A task you were handed ends with `hl task done T<n> \"<evidence>\"` or `hl task handoff T<n> <agent> \"<note>\"` - that is your report, even a deferral: the next task arrives only then, and an answer typed in chat reaches no one."
 	if boss != db.Human {
 		// A decision for the human is a task of theirs, so it is named once, below, for the decisions that are theirs.
-		report += " Send `" + boss + "` no progress or FYI messages: it hears from you only when a task is done or you are blocked. Being blocked, a decision only they can make, or work nobody handed you is a task for them: `hl task new --assign " + boss + " -t <time> \"<title>\" \"<body>\"`."
+		report += " Being blocked, a decision only `" + boss + "` can make, or work nobody handed you is a task for it: `hl task new --assign " + boss + " -t <time> \"<title>\" \"<body>\"`."
 	}
-	lines := []string{"# Your team", report,
-		"Talk to people only through ocp; what you write in your terminal reaches no one. Keep it short. Reply when a message asks you something or you owe a result; a message that only informs needs no reply, except the founder's."}
+	lines := []string{"# Your team", report, "Talk to people only through ocp; what you write in your terminal reaches no one."}
 	if len(reports) > 0 {
 		var quoted []string
 		for _, n := range reports {
 			quoted = append(quoted, "`"+n+"`")
 		}
-		lines = append(lines, "Your reports: "+strings.Join(quoted, ", ")+". You do not implement - give one work with `hl task new --assign <name> -t <time> \"<title>\" \"<what to do, and what done looks like>\"`, and read what it sends back. A message to a report is `hl say <name> ... --task T<n>` (a memo on that task). One task at a time; correct one with `hl task memo T<n> add \"...\"`, not a message behind it, and throw a stale one away with `hl task discard T<n> \"<why>\"`. Record a wait as `--blocked-by T<n>` on the task, not in prose. Check main before you assign, so nobody rebuilds what landed. Quote the founder's own words in the task you open for their request, and answer the founder through `hl`, never in chat.")
-		lines = append(lines, "Finding the bottleneck is your job. At each periodic check, look at each report's queued count, its oldest wait and the work blocked behind it, and compare with the last check. When a wait passes 1h or a queue grows two checks in a row, ask that agent what slows it and open the work that fixes the cause. No dead or stalled agent does not mean healthy.")
+		lines = append(lines, "Your reports: "+strings.Join(quoted, ", ")+". Give one work with `hl task new --assign <name> -t <time> \"<title>\" \"<what to do, and what done looks like>\"`. A message to a report is `hl say <name> ... --task T<n>` (a memo on that task). Correct a task with `hl task memo T<n> add \"...\"`, throw a stale one away with `hl task discard T<n> \"<why>\"`, and record a wait with `--blocked-by T<n>`.")
 	}
 	lines = append(lines, "`hl team` shows who you may reach and what each is doing now. A decision or a block only the founder can clear is a task of theirs: `hl task new --assign human -t <time> \"<title>\" \"<body>\"`.")
-	// A self-scheduled wakeup survives the park's /clear and fires into a session that is at the usage wall.
-	lines = append(lines, "Never schedule your own wakeup, /loop or poll to wait for a reply or a review: ocp types the answer into your session when it comes.")
 	return strings.Join(lines, "\n")
 }
 
@@ -986,6 +997,10 @@ func (p LaunchPort) RoomElsewhere(q db.Q, agent string, row *db.AgentState, excl
 
 func (p LaunchPort) RoomOn(q db.Q, agent string, row *db.AgentState, acct string) string {
 	return p.L.RoomOn(q, agent, row, acct)
+}
+
+func (p LaunchPort) RoomNow(q db.Q, agent string, row *db.AgentState, skip string) (string, string) {
+	return p.L.RoomNow(q, agent, row, skip)
 }
 
 var _ Launch = LaunchPort{}

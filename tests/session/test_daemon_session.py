@@ -1847,11 +1847,10 @@ def test_service_plist_runs_the_go_daemon_when_asked_and_the_live_home_needs_a_w
     home.mkdir(parents=True, exist_ok=True)
     exe = home / "handlined"
     exe.write_text("")
-    real = (service.go_executable, paths.live_homes, service.shutil.which, service.names.getenv)
+    real = (service.go_executable, paths.live_homes, service.shutil.which)
     service.go_executable = lambda: exe
     paths.live_homes = lambda: [(home / "live").resolve()]
     service.shutil.which = lambda name: f"/opt/{name}"
-    service.names.getenv = lambda name, default=None: "/repo/main" if name.endswith("LAND_REPO") else real[3](name, default)
     try:
         py = service.build_plist(home=home, impl="python")
         os.environ["OCP_SERVICE_LABEL"] = "dev.orcapipe.rehearsal"
@@ -1860,9 +1859,9 @@ def test_service_plist_runs_the_go_daemon_when_asked_and_the_live_home_needs_a_w
         args = go["ProgramArguments"]
         check("service: python is the default program", py["ProgramArguments"][1:] == ["daemon"] and service.daemon_impl() == "python", str(py))
         check("service: the Go daemon runs on the scratch home with the production flags",
-              args == [str(exe), "-home", str(home), "-structured-cli", "/opt/claude", "-structured-tick", "-terminal-tick", "-cutover", "-land-repo", "/repo/main"], str(args))
-        check("service: the Go job carries OCP_LAND_REPO and a PATH that holds python3's directory",
-              go["EnvironmentVariables"]["OCP_LAND_REPO"] == "/repo/main" and "/opt" in go["EnvironmentVariables"]["PATH"].split(":"), str(go["EnvironmentVariables"]))
+              args == [str(exe), "-home", str(home), "-structured-cli", "/opt/claude", "-structured-tick", "-terminal-tick", "-cutover"], str(args))
+        check("service: the Go job carries a PATH that holds python3's directory",
+              "/opt" in go["EnvironmentVariables"]["PATH"].split(":"), str(go["EnvironmentVariables"]))
         try:
             service.build_plist(home=home, impl="go")
             unlabelled = False
@@ -1888,7 +1887,7 @@ def test_service_plist_runs_the_go_daemon_when_asked_and_the_live_home_needs_a_w
         check("service: a Go daemon that is not built is refused", missing)
     finally:
         os.environ.pop("OCP_SERVICE_LABEL", None)
-        service.go_executable, paths.live_homes, service.shutil.which, service.names.getenv = real
+        service.go_executable, paths.live_homes, service.shutil.which = real
 
 
 def test_service_use_sets_the_daemon_the_next_install_runs(home: Path) -> None:

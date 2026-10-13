@@ -8,9 +8,11 @@ import { Icon } from './ui/index.ts';
 import { AccountsPage } from './Accounts.tsx';
 import { InboxPage } from './Inbox.tsx';
 import { SettingsPage } from './Settings.tsx';
+import { DebugTerminals } from './debug/DebugTerminals.tsx';
 import { StatsPage } from './Stats.tsx';
 import {
   useAccountsRoute,
+  useDebugRoute,
   useInboxRoute,
   useNewAgentRoute,
   usePageRoute,
@@ -41,11 +43,12 @@ const RAIL_W = 280;
 const clampRail = (w: number) => Math.min(560, Math.max(200, Math.round(w)));
 
 export function App(props: { store: Store; daemon: string; storage: KV | null; connect?: boolean }) {
+  const debug = useDebugRoute(); // the debug window: its own page, no sidebar
   return (
     <DaemonProvider store={props.store} where={props.daemon} connect={props.connect}>
       <DataProvider daemonId={props.daemon} box={Box}>
         <style>{SKELETON_CSS}</style>
-        <Frame daemon={props.daemon} storage={props.storage} />
+        {debug ? <DebugTerminals /> : <Frame daemon={props.daemon} storage={props.storage} />}
       </DataProvider>
     </DaemonProvider>
   );

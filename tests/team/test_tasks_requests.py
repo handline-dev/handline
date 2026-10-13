@@ -1339,7 +1339,7 @@ def test_a_landed_task_can_be_handed_on_discarded_and_reopened(home: Path) -> No
             r3 = db.task_requests(con, t3)[0]["id"]
             db.mark_delivered(con, r3)
             db.mark_landed(con, r3)
-            ok, msg = actions.release_task(con, t3, "product")
+            ok, msg = actions.release_task(con, t3, "product", "stuck")
             check("release: a landed task is released, its agent told to stop", ok and said and said[-1][0] == "reviewer" and "stop work" in said[-1][1], f"{msg} {said}")
             check("release: and nothing is left in its agent's line", not db.queued_for(con, "reviewer"),
                   str([r["id"] for r in db.queued_for(con, "reviewer")]))
@@ -5621,7 +5621,7 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
         db.set_agent_state(con, "worker", dmn_states.IDLE)
 
         tid = db.new_task(con, "release me", "worker", "manager", timeout_s=3600)
-        rc, out = _cli(["task", "release", f"T{tid}"])
+        rc, out = _cli(["task", "release", f"T{tid}", "stuck"])
         check("release: refused - not doing yet", rc != 0 and "not doing" in out, out)
 
         rid = _human_request("worker")
@@ -5635,8 +5635,8 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
         # refusal here has to be the guard itself, not "already not doing"
         # reading the same way once the release has already gone through.
         check("release: worker (not the opener or founder) may not release",
-              not actions.release_task(con, tid, "worker")[0])
-        rc, out = _cli(["task", "release", f"T{tid}"])
+              not actions.release_task(con, tid, "worker", "stuck")[0])
+        rc, out = _cli(["task", "release", f"T{tid}", "stuck"])
         check("release: succeeds, names the request and the timeout",
               rc == 0 and f"#{rid}" in out and "paused" in out, out)
         row = db.get_task(con, tid)
@@ -5661,7 +5661,7 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
         con.execute("UPDATE tasks SET parent_task = ? WHERE id = ?", (parent, child))
         crid = _human_request()
         db.link_request(con, child, crid)
-        ok, msg = actions.release_task(con, parent, "manager")
+        ok, msg = actions.release_task(con, parent, "manager", "stuck")
         check("release: refused on the parent when doing comes from a child only, names it",
               not ok and f"T{child}" in msg, msg)
 
@@ -5673,7 +5673,7 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
         prid = _human_request()
         db.link_request(con, parent, prid)
         con.execute("UPDATE tasks SET timeout_at = ? WHERE id = ?", (int(time.time()) - 10, parent))
-        ok, msg = actions.release_task(con, parent, "manager")
+        ok, msg = actions.release_task(con, parent, "manager", "stuck")
         check("release: doing through both its own link and a child's - retires the direct "
               "one, says so, but does not claim the clock paused",
               ok and f"T{child}" in msg and "paused" not in msg, msg)
@@ -5704,7 +5704,7 @@ def test_release_takes_a_doing_task_back_to_queued(home: Path) -> None:
 
         askmod.retire_write = losing_retire
         try:
-            ok, msg = actions.release_task(con, two, "manager")
+            ok, msg = actions.release_task(con, two, "manager", "stuck")
         finally:
             askmod.retire_write = real_retire
         check("release: one request losing its own race does not stop the other "
@@ -8191,7 +8191,7 @@ limits:
                 if kind == "queued":
                     t = db.new_task(con, "the work", "worker", "manager")
                     actions.set_queued(con, t, "manager", True)
-                    ok, msg = actions.release_task(con, t, "manager")     # its old request is retired
+                    ok, msg = actions.release_task(con, t, "manager", "stuck")     # its old request is retired
                     check(f"{label}: setup: released back to queued", ok, msg)
                 else:
                     ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
@@ -8374,8 +8374,6 @@ def test_a_founder_message_lets_the_agent_begin_its_own_task(home: Path) -> None
         check("begin: nor one the founder sent someone else", not ok and "founder" in msg, msg)
         ok, msg, _ = actions.task_begin(con, "worker", "fix retry", 9999, "why")
         check("begin: nor a request that is not there", not ok and "no request" in msg, msg)
-        ok, msg, _ = actions.task_begin(con, "worker", "fix retry", chat, "  ")
-        check("begin: a reason is required", not ok and "--why" in msg, msg)
         ok, msg, tid = actions.task_begin(con, "worker", "fix retry", chat, "founder asked in chat")
         check("begin: the founder's message opens it", ok and tid, msg)
         row = db.get_task(con, tid)
@@ -8406,6 +8404,11 @@ def test_a_founder_message_lets_the_agent_begin_its_own_task(home: Path) -> None
         check("begin: the cli opens it too", rc == 0 and "begun from founder message" in out, out)
         rc, out = _cli(["task", "begin", "cli two", "--chat", str(other), "--why", "x"], as_agent="worker")
         check("begin: the cli refuses another agent's message", rc == 1 and "founder" in out, out)
+        chat3 = db.add_request(con, "human", "worker", "no reason given", None, None, "async", "ask", 0, None)
+        rc, out = _cli(["task", "begin", "cli three", "--chat", str(chat3)], as_agent="worker")
+        ev = con.execute("SELECT payload FROM events WHERE kind = 'task_begin' ORDER BY id DESC LIMIT 1").fetchone()[0]
+        check("begin: --why is optional, and none goes on the event without it",
+              rc == 0 and "begun from founder message" in out and '"why"' not in ev, f"{out} {ev}")
         chat2 = db.add_request(con, "human", "worker", "one more", None, None, "async", "ask", 0, None)
         ok, msg, t2 = actions.task_begin(con, "worker", "second", chat2, "another instruction")
         check("begin: a second task leaves the first current and says how to switch",
@@ -9067,7 +9070,7 @@ def test_a_begun_task_reads_doing_the_same_way_everywhere(home: Path) -> None:
         con.execute("UPDATE requests SET state = 'landed' WHERE id = ?", (chat,))
         check("begun: still doing after its chat request is answered, in both",
               actions.task_state(con, db.get_task(con, tid)) == "doing" and actions.reads_doing(con, tid))
-        ok, msg = actions.release_task(con, tid, askmod.HUMAN)
+        ok, msg = actions.release_task(con, tid, askmod.HUMAN, "stuck")
         check("begun: releasing it says it stays doing, without crashing",
               not ok and "begun on a founder message" in msg, msg)
         plain = db.new_task(con, "plain draft", "worker", "manager")
@@ -9100,7 +9103,7 @@ limits:
     check("release: setup, a founder-held task", ok, msg)
     con = db.connect()
     try:
-        ok, msg = actions.release_task(con, tid, askmod.HUMAN)
+        ok, msg = actions.release_task(con, tid, askmod.HUMAN, "stuck")
         row = db.get_task(con, tid)
         check("release: the founder's own task goes back to draft, not discarded",
               ok and not row["discarded_at"] and actions.task_state(con, row) == "draft", msg)

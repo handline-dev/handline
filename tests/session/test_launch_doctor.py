@@ -1137,7 +1137,8 @@ def test_an_agent_is_told_its_team_from_team_yaml(home: Path) -> None:
     use_home(home)
     hand_edit_team("""
 teams:
-  dev: [marina, keeper]
+  dev: [manager, marina, keeper]
+  lone: [scout]
 
 agents:
   manager: {}
@@ -1152,29 +1153,33 @@ edges:
 """)
     for name in ("manager", "marina", "keeper", "scout"):
         agents.register(name)
+    # The house rules are dev's team file, as the Go launcher seeds it; lone has none.
+    root = Path(launch.__file__).resolve().parent.parent.parent
+    default = (root / "go" / "internal" / "team" / "default_rules.md").read_text()
+    (home / "shared" / "team").mkdir(parents=True, exist_ok=True)
+    (home / "shared" / "team" / "dev.md").write_text(default)
     mgr, dev, scout = launch.context_for("manager"), launch.context_for("marina"), launch.context_for("scout")
-    check("team: a supervisor is told who its reports are, and that it hands them work",
-          "`marina`" in mgr and "`keeper`" in mgr and "hl task new --assign <name>" in mgr, mgr)
-    check("team: a supervisor is given the manager rules, a report is not",
-          all(w in mgr for w in ("--blocked-by T<n>", "Check main", "founder's own words"))
-          and "--blocked-by" not in dev, mgr)
-    check("team: a supervisor is told finding the bottleneck is its job, a report without reports is not",
-          "Finding the bottleneck is your job" in mgr and "bottleneck" not in dev, mgr)
-    check("team: a report is told who it reports to",
-          "You report to `manager`" in dev and "Your reports" not in dev, dev)
+    check("team: a supervisor is told who its reports are, and how it hands them work",
+          "`marina`" in mgr and "`keeper`" in mgr and "hl task new --assign <name>" in mgr
+          and "--blocked-by T<n>" in mgr and "Your reports" not in dev, mgr)
+    check("team: the team's members read the house rules from its team file",
+          all("# Rules for team dev\n" + default.strip() in c for c in (mgr, dev)), mgr)
+    culture = ("Keep messages short", "no progress or FYI messages", "Never schedule your own wakeup",
+               "You do not implement", "Check main", "founder's own words", "bottleneck")
+    check("team: a team without a rules file gets only the hl facts",
+          not any(w in launch._your_team("manager") or w in scout for w in culture), scout)
+    check("team: a report is told who it reports to", "You report to `manager`" in dev, dev)
     check("team: an agent nobody supervises reports to the founder", "You report to `human`" in scout)
-    check("team: every agent is told not to schedule its own wakeup to wait",
-          all("Never schedule your own wakeup" in c for c in (mgr, dev, scout)))
     # What to do on finishing a task is one instruction, and it is the report-to line.
     for who, ctx in (("manager", mgr), ("marina", dev), ("scout", scout)):
         line = next((ln for ln in ctx.splitlines() if ln.startswith("You report to")), "")
         check(f"team: {who}'s report-to line says a handed task ends with task done, and that it is the report",
               "`hl task done T<n>" in line and "that is your report" in line, line)
         boss_is_human = "You report to `human`" in line
-        check(f"team: and {who} sends its boss only done or a blocker, no progress notes - "
+        check(f"team: and {who} hands its boss a block as a task - "
               "and the founder is not asked to clear a status report",
               "when you finish" not in ctx
-              and ("no progress or FYI messages" in line) != boss_is_human
+              and ("a task for it: `hl task new --assign" in line) != boss_is_human
               and (not boss_is_human or "hl task new --assign human" not in line)
               and "a task of theirs: `hl task new --assign human" in ctx, line)
         check(f"team: and task done is said once, in that line, not again after it",
@@ -1182,7 +1187,6 @@ edges:
     # The texts an agent reads name the message model - a task for what needs an answer or a
     # result, a say for the rest - and neither of the old verbs.
     from handline.team import guide as guidemod
-    root = Path(launch.__file__).resolve().parent.parent.parent
     for label, text in (("the manager's prompt", mgr), ("a report's prompt", dev),
                         ("the guide's work topic", guidemod.TOPICS["work"]),
                         ("AGENTS.md", (root / "AGENTS.md").read_text()),

@@ -194,16 +194,18 @@ def test_queue_and_draft_move_every_task_named_or_none(home: Path) -> None:
 def test_release_takes_a_doing_task_back_for_its_opener(home: Path) -> None:
     support._board_world(home)
     tid = _doing()
-    r = _call("task.release", {"task": tid, "request_id": "r0"}, as_agent="worker")
+    r = _call("task.release", {"task": tid, "reason": "slow", "request_id": "r0"}, as_agent="worker")
     check("task.release: not the opener: refused, still doing", _code(r) == "refused" and _state(tid) == "doing", str(r))
-    for params, field in (({"task": tid, "to": "draft"}, "to"), ({"task": tid, "reason": "slow"}, "reason"), ({"task": "1"}, "task")):
+    for params, field in (({"task": tid, "to": "draft"}, "to"), ({"task": tid, "reason": 7}, "reason"), ({"task": "1"}, "task")):
         r = _call("task.release", {**params, "request_id": f"r-{params}"})
         check(f"task.release: {params} is bad_request naming {field}", _code(r) == "bad_request" and r["error"]["data"]["field"] == field, str(r))
-    r = _call("task.release", {"task": tid, "request_id": "r1"})
+    r = _call("task.release", {"task": tid, "request_id": "r0b"})
+    check("task.release: without a reason: refused, still doing", _code(r) == "refused" and _state(tid) == "doing", str(r))
+    r = _call("task.release", {"task": tid, "reason": "slow", "request_id": "r1"})
     check("task.release: the opener takes it back, to draft", r["result"]["accepted"] and _state(tid) == "draft", str(r))
-    again = _call("task.release", {"task": tid, "request_id": "r1"})
+    again = _call("task.release", {"task": tid, "reason": "slow", "request_id": "r1"})
     check("task.release: a retry with the reply kept is replayed", again["result"]["replayed"] is True and _state(tid) == "draft", str(again))
-    r = _call("task.release", {"task": tid, "request_id": "r2"})
+    r = _call("task.release", {"task": tid, "reason": "slow", "request_id": "r2"})
     check("task.release: a task that is not doing is refused", _code(r) == "refused", str(r))
     check("task.release: no such task is not_found", _code(_call("task.release", {"task": 999, "request_id": "r3"})) == "not_found")
 
@@ -255,7 +257,7 @@ def test_a_death_between_a_task_move_and_its_record_repeats_nothing(home: Path) 
                        after=lambda: _state(q) == "queued", unchanged=lambda: _state(q) == "draft")
     _dies_then_retries("task.draft", {"tasks": [q], "request_id": "y6"}, "manager",
                        after=lambda: _state(q) == "draft", unchanged=lambda: _state(q) == "queued")
-    _dies_then_retries("task.release", {"task": busy, "request_id": "y7"}, "manager",
+    _dies_then_retries("task.release", {"task": busy, "reason": "slow", "request_id": "y7"}, "manager",
                        after=lambda: _state(busy) == "draft", unchanged=lambda: _state(busy) == "doing")
 
 
@@ -267,7 +269,7 @@ def test_the_task_commands_still_work_from_an_agent_session(home: Path) -> None:
     rc, out = support._cli(["task", "reopen", f"T{tid}", "wrong"])
     check("hl task reopen: works at role agent", rc == 0 and "reopened" in out, out)
     sent = _doing("taken back")
-    rc, out = support._cli(["task", "release", f"T{sent}"])
+    rc, out = support._cli(["task", "release", f"T{sent}", "stuck"])
     check("hl task release: works at role agent", rc == 0 and "released" in out, out)
     first = _draft("goes out")
     rc, out = support._cli(["task", "queue", f"T{first}"])

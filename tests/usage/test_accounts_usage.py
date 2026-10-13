@@ -1457,12 +1457,19 @@ def test_usage_api_record_stands_in_for_a_probe(home: Path) -> None:
           got["collected_at"] == now, json.dumps(got))
     check("record: the source is named", got.get("rl_source") == "api", json.dumps(got))
 
-    # Lower, same window: the collector's rule says usage only rises.
+    # Lower, same reset: the vendor reset the limit early. The fresh figure wins.
     usage_api.record(reading_of(
         account="alpha", pct_5h=70, reset_5h=now + 600,
         pct_7d=51, reset_7d=now + 99999, at=now), path=p_)
-    check("record: a lower figure inside the same window is refused",
-          _win(json.loads(p_.read_text()))["used_percent"] == 90, p_.read_text())
+    check("record: a lower figure with the same reset is taken (early reset)",
+          _win(json.loads(p_.read_text()))["used_percent"] == 70, p_.read_text())
+
+    # A reading older than the held one must not undo it.
+    usage_api.record(reading_of(
+        account="alpha", pct_5h=60, reset_5h=now + 600,
+        pct_7d=51, reset_7d=now + 99999, at=now - 10), path=p_)
+    check("record: a late, older reading does not lower a newer one",
+          _win(json.loads(p_.read_text()))["used_percent"] == 70, p_.read_text())
 
     # Lower, new window: alpha's case. The high-water must not survive it.
     usage_api.record(reading_of(
@@ -4881,6 +4888,35 @@ def test_the_cold_start_is_measured_and_sets_how_long_to_wait(home: Path) -> Non
         con.close()
 
 
+def test_a_wait_at_the_wall_is_no_longer_than_the_prompt_cache_lives(home: Path) -> None:
+    """A cold start measured dearer than the cache lives does not stretch the
+    wait past it: a resume after the cache is gone pays for its context in full."""
+    _daemon_home(home, 20)
+    _with_accounts("alpha", "beta")
+    con = db.connect()
+    real = measure.cold_start_pct
+    measure.cold_start_pct = lambda _con: 40.0  # T would be two hours of a 5h window
+    try:
+        agents.register("keeper")
+        db.set_account(con, "keeper", "alpha")
+        db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
+        now = int(time.time())
+        write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=now + 3600,
+                     reset_7d=now + 86400)
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 50 * 60,
+                     reset_7d=now + 86400)
+        dest, why = dmn_handoff._move_plan(con, "keeper", "usage")
+        check("cache: a reset within the cache's life is waited for",
+              dest is None and "60m" in why, why)
+        write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 90 * 60,
+                     reset_7d=now + 86400)
+        dest, why = dmn_handoff._move_plan(con, "keeper", "usage")
+        check("cache: past it the agent moves, though T is longer", dest == "beta", f"{dest} {why}")
+    finally:
+        measure.cold_start_pct = real
+        con.close()
+
+
 def test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(home: Path) -> None:
     """The last known 5h and 7d figures are shown with their age wherever an
     account is, and a reset that has passed is said. An idle account whose
@@ -6309,6 +6345,7 @@ def main() -> int:
         run(lambda: test_the_pick_weighs_how_fast_an_account_is_filling(Path(td) / 'ar1'))
         run(lambda: test_at_the_wall_it_is_a_cost_comparison_not_a_line(Path(td) / 'ar2'))
         run(lambda: test_the_cold_start_is_measured_and_sets_how_long_to_wait(Path(td) / 'ar4'))
+        run(lambda: test_a_wait_at_the_wall_is_no_longer_than_the_prompt_cache_lives(Path(td) / 'ar4b'))
         run(lambda: test_a_stale_snapshot_shows_its_last_figures_and_still_is_offered(Path(td) / 'ar4c'))
         run(lambda: test_pick_account_judges_an_idle_account_on_its_floor_not_on_zero(Path(td) / 'idlefloor'))
         run(lambda: test_idle_floor_refuses_an_account_with_an_agent_mid_turn_on_it(Path(td) / 'idleactive'))

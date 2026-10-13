@@ -164,12 +164,12 @@ def _cmd_task_queue(args, queued: bool) -> int:
 
 
 def cmd_task_queue(args) -> int:
-    """Approve draft tasks to run - the founder or the owner's manager."""
+    """Approve draft tasks to run - anyone."""
     return _cmd_task_queue(args, True)
 
 
 def cmd_task_draft(args) -> int:
-    """Send queued tasks back to draft - the founder or the owner's manager."""
+    """Send queued tasks back to draft - anyone."""
     return _cmd_task_queue(args, False)
 
 
@@ -184,13 +184,13 @@ def cmd_task_reopen(args) -> int:
 
 
 def cmd_task_release(args) -> int:
-    """T286: take a doing task back to queued/draft - the opener's or the
-    founder's answer, besides `task edit --timeout`, to a timeout notice."""
+    """Take a doing task back to queued/draft, with a reason - the answer,
+    besides `task edit --timeout`, to a timeout notice."""
     me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("release a task"))
         return 1
-    return client.said(*client.write("task.release", {"task": args.task}))
+    return client.said(*client.write("task.release", {"task": args.task, "reason": args.reason}))
 
 
 def _task_owner_ok(name: str) -> bool:
@@ -283,7 +283,9 @@ def cmd_task_begin(args) -> int:
     if not title:
         print("a task needs a title")
         return 1
-    params = {"title": title, "message": args.chat, "why": args.why}
+    params = {"title": title, "message": args.chat}
+    if args.why is not None:
+        params["why"] = args.why
     if args.priority is not None:
         params["priority"] = args.priority
     if args.expects is not None:

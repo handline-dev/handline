@@ -271,15 +271,7 @@ func (m *Manager) wakeStructured(agent string, row *db.AgentState, o WakeOpts) (
 func (m *Manager) launchStructured(agent string, row *db.AgentState, wt, session string, c closed2) (bool, string) {
 	why0 := c.cause
 	if why0 == "" {
-		fresh, haveFresh := must2(db.LastEventTS(m.Q, agent, "fresh_close"))
-		switch {
-		case c.movedTo != "":
-			why0 = "move"
-		case haveFresh && fresh >= row.ClosedAt.Int64:
-			why0 = "fresh close"
-		default:
-			why0 = "wake"
-		}
+		why0 = m.wakeCause(agent, row, c.movedTo)
 	}
 	cold := c.movedTo == "" && !c.warm && m.cacheExpiredAt(agent, session, m.now())
 	if c.movedTo == "" && (cold || session == "") && !m.Launch.ChooseAccount(m.Q, agent) {

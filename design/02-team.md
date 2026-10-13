@@ -282,8 +282,8 @@ If the review round trips on the same file pass 3, it is **escalated automatical
 ```
 ~/.orcapipe/agents/<name>/
   agent.yaml           # model, weight, account affinity
-  ROLE.md              # ≤1KB
-  base.md              # ≤2KB  ← new
+  ROLE.md
+  base.md              # ← new
   journal/
     2026-09-15.md        # git keeps the generations (~/.orcapipe is a git repo)
   state.json
@@ -306,7 +306,7 @@ Seven agents cannot be carried on 2 or 3 accounts. v1 is a **fixed agent-per-acc
 ## 9. Open decisions
 
 1. **Is `product` a supervisor or a peer?** The `team.yaml` above has it as a peer. If it were a supervisor, product could preempt eng's work
-2. **Whether to split the reviewer by team later.** Start with one, and split when base.md's 2KB can hardly hold three teams' criteria. That point is itself the signal to split
+2. **Whether to split the reviewer by team later.** Start with one, and split when base.md can hardly hold three teams' criteria. That point is itself the signal to split
 3. **`analytics` data access.** Depending on the metric source an MCP connector may be needed. Discussed separately
 
 ---

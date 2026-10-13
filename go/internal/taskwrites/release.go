@@ -7,9 +7,11 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/textsafe"
 )
 
-// Retired is a request a release ended: held ones (the owner's landed delivery) are typed a stop, queued ones are closed as rejected.
+// Retired is a request a release ended: held ones (the owner's landed delivery, or with RID 0 a task started bare) are
+// typed a stop, queued ones are closed as rejected.
 type Retired struct {
 	RID               int64
 	Requester, Target string
@@ -17,26 +19,30 @@ type Retired struct {
 	Notify            bool // the requester is told of the close
 }
 
-// releaseMethod is task.release (actions.release_task): the opener's or the founder's call to take a doing task back to queued or draft.
-func releaseMethod(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
+// releaseMethod is task.release (actions.release_task): anyone's call, with a one-line reason, to take a doing task back to queued or
+// draft. Its opener and assignee are told, and the founder too when the task was begun on their message.
+func releaseMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
-		for _, k := range []string{"to", "reason"} {
-			if p[k] != nil {
-				return nil, badParam(k+" is not served yet", k)
-			}
+		if p["to"] != nil {
+			return nil, badParam("to is not served yet", "to")
 		}
 		tid, err := taskID(p)
 		if err != nil {
 			return nil, err
 		}
+		reason, ok := p["reason"].(string)
+		if p["reason"] != nil && !ok {
+			return nil, badParam("reason is text", "reason")
+		}
 		by := c.Caller.Actor()
-		why := fmt.Sprintf("T%d released by %s", tid, by)
 		var (
 			retired       []Retired
+			notes         []told
+			why           string
 			outcome, tail string
 		)
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-			retired, outcome, tail = nil, "", ""
+			retired, notes, outcome, tail = nil, nil, "", ""
 			t, err := getTask(tx, tid)
 			if err != nil {
 				return nil, err
@@ -44,9 +50,11 @@ func releaseMethod(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 			if t == nil {
 				return nil, refusal(fmt.Sprintf("no task T%d", tid))
 			}
-			if g := editGuard(guardRow(t), by); g != "" {
-				return nil, refusal(g)
+			said := strings.TrimSpace(textsafe.Oneline(reason))
+			if said == "" {
+				return nil, refusal("releasing needs a one-line reason")
 			}
+			why = fmt.Sprintf("T%d released by %s: %s", tid, by, said)
 			st, err := state(tx, t)
 			if err != nil {
 				return nil, err
@@ -64,13 +72,20 @@ func releaseMethod(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 					direct = append(direct, r)
 				}
 			}
-			if len(direct) == 0 {
+			bare, err := startedBare(tx, tid)
+			if err != nil {
+				return nil, err
+			}
+			begun, err := db.Begun(tx, tid)
+			if err != nil {
+				return nil, err
+			}
+			if len(direct) == 0 && !bare {
 				if child, err := childAsking(tx, tid); err != nil {
 					return nil, err
 				} else if child != 0 {
 					return nil, refusal(fmt.Sprintf("task T%d is doing through its child T%d - release it there", tid, child))
 				}
-				return nil, refusal(fmt.Sprintf("task T%d was begun on a founder message: it is doing until it is done", tid))
 			}
 			// Best effort: one request losing a race to another close must not throw away what the others did.
 			var ids []any
@@ -102,10 +117,12 @@ func releaseMethod(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 				ids = append(ids, r.ID)
 				retired = append(retired, Retired{RID: r.ID, Requester: r.Requester, Target: r.Target, Delivered: r.DeliveredAt.Valid, Notify: notify})
 			}
-			if len(ids) == 0 {
+			if bare { // its owner holds it on the founder's word or its own: the release ends that, and the owner is told to stop
+				retired = append(retired, Retired{Target: t.Owner, Held: true})
+			} else if len(ids) == 0 {
 				return nil, refusal(fmt.Sprintf("task T%d released nothing: %s", tid, strings.Join(failed, "; ")))
 			}
-			payload := []kv{{"task_id", tid}, {"retired", ids}}
+			payload := []kv{{"task_id", tid}, {"retired", ids}, {"reason", said}}
 			if len(failed) > 0 {
 				payload = append(payload, kv{"failed", failed})
 				tail = " - not retired: " + strings.Join(failed, "; ")
@@ -121,16 +138,12 @@ func releaseMethod(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			if still { // every direct request just closed: what is left is a child's, or a founder-begun task
+			if still { // every direct request just closed: what is left is a child's
 				child, err := childAsking(tx, tid)
 				if err != nil {
 					return nil, err
 				}
-				outcome = "but it is still doing because it was begun on a founder message"
-				if child != 0 {
-					outcome = fmt.Sprintf("but it is still doing through its child T%d - release it there too", child)
-				}
-				outcome += "; its own timeout keeps running until then"
+				outcome = fmt.Sprintf("but it is still doing through its child T%d - release it there too; its own timeout keeps running until then", child)
 			} else {
 				if _, err := tx.Exec("UPDATE tasks SET timeout_at = NULL WHERE id = ? AND timeout_at IS NOT NULL", tid); err != nil {
 					return nil, err
@@ -141,13 +154,29 @@ func releaseMethod(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 				}
 				outcome = "back to " + back + ", its timeout paused"
 			}
-			return accepted(fmt.Sprintf("task T%d released by %s: %s%s", tid, by, outcome, tail), nil), nil
+			stopped := map[string]bool{} // typed a stop by the Teller, which says the same
+			for _, r := range retired {
+				if r.Held {
+					stopped[r.Target] = true
+				}
+			}
+			var to []string
+			for _, who := range []string{t.OpenedBy, t.Owner, human} {
+				if !stopped[who] && (who != human || begun) {
+					to = append(to, who)
+				}
+			}
+			if notes, err = tellTask(tx, home, by, "task "+why, to...); err != nil {
+				return nil, err
+			}
+			return accepted(fmt.Sprintf("task %s - %s%s", why, outcome, tail), nil), nil
 		})
-		if err == nil && tell != nil && len(retired) > 0 {
+		if err == nil && tell != nil {
 			// The stops typed, the requesters told and the queues moved up are the Teller's; it answers what it did, each in a phrase.
 			if said := tell.Released(tid, why, retired); len(said) > 0 {
-				out["said"] = fmt.Sprintf("task T%d released by %s: %s, %s%s", tid, by, strings.Join(said, "; "), outcome, tail)
+				out["said"] = fmt.Sprintf("task %s - %s, %s%s", why, strings.Join(said, "; "), outcome, tail)
 			}
+			tell.Notified(notes)
 		}
 		return out, err
 	}

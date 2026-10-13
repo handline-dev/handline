@@ -6,6 +6,7 @@ import { INVALID, minutesOf, parseCap, parseMinutes } from '@handline/app-core';
 import type { SettingsChanges } from '@handline/client';
 import { classify, sentence, useServes, useSettings, useWrite } from '@handline/app-data';
 import { Answers } from './Answers.tsx';
+import { DebugEntry } from './debug/DebugEntry.tsx';
 import { Field, Icon, RowControl, RowHint, RowText, RowTitle, SectionHead, SettingsCard, SettingsRow, Switch, type IconName, NOTE } from './ui/index.ts';
 import { useOff } from './useOff.ts';
 import { View } from './View.tsx';
@@ -252,6 +253,7 @@ export function SettingsPage() {
           )}
         </div>
       </div>
+      <DebugEntry />
     </section>
   );
 }

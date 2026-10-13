@@ -581,7 +581,7 @@ func (l tickLifecycle) ShouldClose(_ db.Q, agent, state string, row *db.AgentSta
 	return yes
 }
 func (l tickLifecycle) CloseAgent(_ db.Q, agent string, st tick.Status) (bool, string) {
-	ok, said, err := l.m.CloseAgent(agent, sessionOf(st), lifecycle.CloseOpts{})
+	ok, said, err := l.m.CloseAgent(agent, sessionOf(st), lifecycle.CloseOpts{Idle: true})
 	if err != nil {
 		return false, err.Error()
 	}
@@ -617,7 +617,7 @@ func (h tickHandoff) SettleOwedClear(_ db.Q, agent string) bool {
 }
 func (h tickHandoff) Movable(kind string) bool { return lifecycle.MovableTrigger(kind) }
 func (h tickHandoff) MovePlan(_ db.Q, agent, kind string) (string, string) {
-	dest, why, err := h.mv.MovePlan(agent, kind)
+	dest, why, err := h.mv.MovePlan(agent, kind, false)
 	if err != nil {
 		return "", err.Error()
 	}

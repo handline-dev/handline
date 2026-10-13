@@ -394,9 +394,8 @@ singleton it takes becomes unconditional (startup row above).
 The service runs the daemon the `daemon_impl` setting names (`python`, the default, or `go`). `hl service use go` sets it,
 `hl service install` rewrites the plist from it and reloads the job, and `hl service status` prints which one is chosen.
 The Go job is `go/handlined` (built by `tools/build-go.sh`) with `-structured-cli <claude>`, `-structured-tick`,
-`-terminal-tick`, `-cutover`, `-land-repo <the checkout, or OCP_LAND_REPO>`, and `-allow-real-home` on the live home or `-home <home>` on any
-other; the job's PATH holds python3's directory (the land verbs run `tools/localrefs.py`) and its environment carries
-`OCP_LAND_REPO`. The service runs one daemon at a time, so `-terminal-tick` never has the Python tick beside it on the home.
+`-terminal-tick`, `-cutover`, and `-allow-real-home` on the live home or `-home <home>` on any other; the job's PATH holds
+python3's directory. The service runs one daemon at a time, so `-terminal-tick` never has the Python tick beside it on the home.
 `hl service install` reads the setting once, so a change takes effect at the next install and not before.
 
 Rehearsal, on a scratch home and never the live service. The label keeps the rehearsal's job and plist apart from the live ones; the

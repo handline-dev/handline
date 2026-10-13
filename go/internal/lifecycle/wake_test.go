@@ -182,18 +182,123 @@ func TestARecentlyActiveResumeOntoAFullAccountMovesToWhereAnotherHasRoom(t *test
 	}
 }
 
-func TestARestartAskedToKeepTheConversationWaitsOnAFullAccountEvenWhereAnotherHasRoom(t *testing.T) {
+func TestARestartAskedToKeepTheConversationMovesOffAFullAccountWhereAnotherHasRoom(t *testing.T) {
 	m, d, tm := newManager(t)
 	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
 	m.Launch = slowLaunch{}
 	db.SetTerminal(m.Q, "a", "t1", "/wt")
 	db.SetClosed(m.Q, "a", "sess-1")
 	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true, Warm: true})
-	if err != nil || ok || said != "waiting for a slot on a (2 of 2 mid-turn)" || len(tm.relaunched) != 0 {
+	if err != nil || !ok {
 		t.Fatalf("%v %q %v", ok, said, err)
 	}
+	if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); !moved || p["to"] != "slow" {
+		t.Fatalf("when a slot frees cannot be told, so it is not waited for past the cache: %v %v", moved, p)
+	}
+}
+
+// wallLaunch: the agent's own account "a" is at its 5h wall; RoomNow answers dest (why when none).
+type wallLaunch struct {
+	fakeLaunch
+	dest, why string
+}
+
+func (wallLaunch) WakeWait(db.Q, string, *db.AgentState) *WakeWait {
+	return &WakeWait{Account: "a", Pct: 99, Window: "5h"}
+}
+func (wallLaunch) DescribeWakeWait(w *WakeWait) string { return DescribeWakeWait(w) }
+func (l wallLaunch) RoomNow(_ db.Q, _ string, _ *db.AgentState, _ string) (string, string) {
+	return l.dest, l.why
+}
+
+// planHandoff answers MovePlan and keeps whether the wake asked it as a start.
+type planHandoff struct {
+	fakeHandoff
+	dest, why string
+	starting  *bool
+	backoff   bool
+}
+
+func (h planHandoff) MovePlan(_ db.Q, _, _ string, starting bool) (string, string) {
+	*h.starting = starting
+	return h.dest, h.why
+}
+func (h planHandoff) BackingOff(db.Q, string) bool { return h.backoff }
+
+func TestAPersonsStartOnAWalledPinnedAccountStartsFreshWhereThereIsRoom(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	m.Launch = wallLaunch{dest: "b"}
+	var asked bool
+	m.Handoff = planHandoff{starting: &asked, backoff: true} // the daemon's own wake would not move; a person's does not ask
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.AddEvent(m.Q, "a", "moved_account", db.KV{K: "from", V: "b"}, db.KV{K: "to", V: "a"})
+	db.SetClosed(m.Q, "a", "sess-1")
+	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true, Person: true})
+	if err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); !moved || p["from"] != "a" || p["to"] != "b" {
+		t.Fatalf("%v %v", moved, p)
+	}
+	if last := tm.relaunched[len(tm.relaunched)-1]; strings.Contains(last, "--resume") {
+		t.Fatalf("fresh, since the session cannot follow: %v", tm.relaunched)
+	}
+}
+
+func TestAPersonsStartWithNowhereToGoKeepsTheWallAndSaysWhyItDidNotMove(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	m.Launch = wallLaunch{why: "no account can take one more agent (b: no free slot)"}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true, Person: true})
+	want := DescribeWakeWait(&WakeWait{Account: "a", Pct: 99, Window: "5h"}) + "; not moved: no account can take one more agent (b: no free slot)"
+	if err != nil || ok || said != want || len(tm.relaunched) != 0 {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+}
+
+// olderLaunch: the agent's own account has a free slot that only an older closed agent holds.
+type olderLaunch struct{ fakeLaunch }
+
+func (olderLaunch) WakeWait(db.Q, string, *db.AgentState) *WakeWait {
+	return &WakeWait{Account: "a", Window: "slot", Slot: true, Full: 2, Busy: 1, Older: 1}
+}
+func (olderLaunch) DescribeWakeWait(w *WakeWait) string                      { return DescribeWakeWait(w) }
+func (olderLaunch) SlowestPaced(db.Q, string, *db.AgentState, string) string { return "" }
+
+func TestAPersonsStartDoesNotQueueBehindOlderClosedAgents(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	m.Launch = olderLaunch{}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	if ok, _, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || ok {
+		t.Fatalf("the daemon's wake waits its turn: %v %v", ok, err)
+	}
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true, Person: true}); err != nil || !ok {
+		t.Fatalf("a person's start does not: %v %q %v", ok, said, err)
+	}
 	if _, _, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); moved {
-		t.Fatal("a same-conversation restart is not moved")
+		t.Fatal("it starts on its own account")
+	}
+}
+
+func TestADaemonWakeOnAWalledAccountAsksThePlanAsAStart(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	var starting bool
+	m.Launch = wallLaunch{}
+	m.Handoff = planHandoff{dest: "b", starting: &starting}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true, Warm: true})
+	if err != nil || !ok || !starting {
+		t.Fatalf("a warm restart asks the plan as a start, and follows it: %v %q %v %v", ok, said, err, starting)
+	}
+	if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); !moved || p["to"] != "b" {
+		t.Fatalf("%v %v", moved, p)
 	}
 }
 

@@ -52,7 +52,6 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `attempt_limit` | Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes. |
 | `unpaired` | A network connection with no valid device token called anything but device.redeem. The reply is always message "refused" and reason "not paired": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed. |
 | `pairing_code` | device.redeem: the code is wrong, expired or already used. The reply does not say which. |
-| `session_token` | Session token and peer-pid check, unchanged. |
 | `proposal_changed` | hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again. |
 | `proposal_settled` | hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now. |
 | `confirm` | chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do. |
@@ -115,6 +114,7 @@ A method marked write takes a required `request_id`.
 | `terminal.close` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role, terminal_lock, input_holder, state |
 | `terminal.open` | member |  | `agent` | `TerminalOpening` | `not_found`, `bad_request`, `refused` | role, unsupported |
 | `terminal.detach` | member |  | `terminal`, `format?` | `object` | `not_found`, `bad_request` |  |
+| `debug.terminals` | member |  | none | `{host, now, panes}` | `refused` | role, unsupported, state |
 | `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?`, `queue?` | `{items, more, more_waiting}` |  |  |
 | `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem` | `not_found`, `bad_request` |  |
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found`, `refused`, `bad_request` |  |
@@ -129,7 +129,7 @@ A method marked write takes a required `request_id`.
 | `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.progress` | agent (only agent) | yes | `task?`, `note`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
 | `progress.get` | agent (only agent) |  | none | `{note}` |  |  |
-| `task.begin` | agent | yes | `title`, `body?`, `message`, `priority?`, `expects?`, `why`, `request_id` | `Accepted & {task}` | `refused` |  |
+| `task.begin` | agent | yes | `title`, `body?`, `message`, `priority?`, `expects?`, `why?`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.start` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.memo.list` | agent |  | `task` | `{memos}` | `not_found` |  |
 | `task.memo.add` | agent | yes | `task`, `text`, `request_id` | `Accepted & {memo}` | `refused`, `not_found`, `bad_request` |  |
@@ -138,7 +138,7 @@ A method marked write takes a required `request_id`.
 | `task.queue` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.draft` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `task.release` | agent | yes | `task`, `to?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.release` | agent | yes | `task`, `to?`, `reason`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.discard` | agent | yes | `task`, `reason`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.board` | agent |  | `everyone?` | `{mine, reports}` |  |  |
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -146,9 +146,6 @@ A method marked write takes a required `request_id`.
 | `task.edit` | agent | yes | `task`, `owner?`, `reporter?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `blocked_by?`, `unblock?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.ask` | member | yes | `task`, `to`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
-| `land` | agent (only agent) | yes | `sha`, `message`, `tree?`, `fix?`, `squash?`, `request_id` | `Accepted` | `refused` | not_self, session_token |
-| `land.pass` | agent (only agent) | yes | `sha`, `request_id` | `Accepted` | `refused` | not_self, session_token |
-| `land.authorize` | agent (only agent) | yes | `agent`, `land_verb`, `sha`, `key`, `request_id` | `Accepted` | `refused` | not_self, session_token |
 | `hook.record` | agent (only agent) | yes | `agent`, `kind`, `at`, `data`, `request_id` | `Accepted` | `refused` | not_self |
 | `hr.propose` | agent | yes | `kind`, `args`, `why?`, `request_id` | `Accepted & {proposal}` | `refused`, `bad_request` |  |
 | `hr.withdraw` | agent | yes | `proposal`, `request_id` | `Accepted` | `refused`, `not_found` | proposal_settled |
@@ -316,7 +313,7 @@ A chat's threads for the screen that draws them: the requests of an agent's chat
 
 ### `chat.transcript`
 
-The agent's replies, tool activity, prompt cards and task events as ordered items, plus its working state. Oldest first, in pages: `before` reads the page just older than an item id, `since` reads the items from the second that id is in. Items are the agent's replies, its tool calls, the prompts it opened and the events of the tasks it owns. A tool item's id is the second of the call and its `output` is what the store held when the page was read: a result that lands in a later second than its call is not sent again by `since`, so a client that needs it reads the page again (without `since`). A page carries at most 2 MiB of tool output between its items; the newest items keep their output and an older one is cut to fit, with `dropped_lines` counting what was left out.
+The agent's replies, tool activity, prompt cards and task events as ordered items, plus its working state. Oldest first, in pages: `before` reads the page just older than an item id, `since` reads the items from the second that id is in. Items are the agent's replies, its tool calls, the prompts it opened and the events of the tasks it owns. A tool item's id is the second of the call and its `output` is what the store held when the page was read: a result that lands in a later second than its call is not sent again by `since`, so a client that needs it reads the page again (without `since`). A page carries at most 2 MiB of tool output between its items; the newest items keep their output and an older one is cut to fit, with `dropped_lines` counting what was left out. Session items (kind session) are part of the list: each carries session.cause and session.handoff, and sorts among the others by its second.
 
 ### `transcript.events`
 
@@ -368,7 +365,7 @@ Read an attached image, or a small copy of it, for drawing. See x-attachments. A
 
 ### `terminal.attach`
 
-Subscribe to one terminal; replies with a snapshot, then pushes notices. `format` chooses text rows (frame notices), text rows with style runs (frame notices, `styled`) or bytes (output notices). A connection has at most one attach per terminal and format: attaching a terminal and format the connection already watches replaces that attach, accepted and never refused (no notice of the old one follows the reply; the reply is a fresh snapshot, and the new attach's counter starts at its seq). An attach in the other format is independent, with its own counter. A client that wants more than one view of one terminal and format shares one attach. With agent, an agent that has no terminal, a structured agent among them, is not_found (terminal).
+Subscribe to one terminal; replies with a snapshot, then pushes notices. `format` chooses text rows (frame notices), text rows with style runs (frame notices, `styled`) or bytes (output notices). A connection has at most one attach per terminal and format: attaching a terminal and format the connection already watches replaces that attach, accepted and never refused (no notice of the old one follows the reply; the reply is a fresh snapshot, and the new attach's counter starts at its seq). An attach in the other format is independent, with its own counter. A client that wants more than one view of one terminal and format shares one attach. With agent, an agent that has no terminal, a structured agent among them, is not_found (terminal). With terminal, a handle no agent has is watched while the host lists it (it has no input holder, so terminal.input and terminal.resize refuse it); one the host does not list is not_found.
 
 ### `terminal.history`
 
@@ -393,6 +390,10 @@ Where an agent's terminal is and how to attach to it, for the one button that op
 ### `terminal.detach`
 
 Stop receiving this terminal, in one format or in all. Never stops the agent. not_found is for a terminal handle that does not exist. Closing the connection ends every attach.
+
+### `debug.terminals`
+
+Every pane of the terminal host with what the daemon knows of it, for the hidden debug window. Lists every pane of the daemon's terminal server (tmux), whichever agent has it or none, to find panes kept open past their prompt cache and shells left behind after an agent's session exited. Reads only: the host's pane list, the process table and the daemon's own rows; of the agent's view only cache_until. A host that cannot list its panes (Orca) is refused, gate unsupported; one that cannot be reached, gate state. Watching a listed pane is terminal.attach by its handle; a pane no agent has takes no input. Callers: the founder and a paired device (member); below that is refused, gate role.
 
 ### `inbox.list`
 
@@ -440,7 +441,7 @@ Finish a task with evidence. Exactly one of evidence, request or reason-with-evi
 
 ### `task.reopen`
 
-Reopen a task.
+Reopen a done task: anyone may, with a reason the opener and assignee are told.
 
 ### `task.progress`
 
@@ -476,23 +477,23 @@ Delete a memo: its author or the founder.
 
 ### `task.queue`
 
-Approve draft tasks to run: the founder or the owner's manager.
+Approve draft tasks to run: anyone may; each task's opener and assignee are told.
 
 ### `task.draft`
 
-Send queued tasks back to draft: the founder or the owner's manager.
+Send queued tasks back to draft: anyone may; each task's opener and assignee are told.
 
 ### `task.merge`
 
-Fold tasks into one: the kept task takes their titles, requests and sub-tasks; opener or founder only.
+Fold tasks into one: the kept task takes their titles, requests and sub-tasks; anyone may, and the opener and assignee of each are told.
 
 ### `task.release`
 
-Take a doing task back to queued or draft: the opener or the founder.
+Take a doing task back to queued or draft: anyone may, with a reason the opener and assignee are told (and the founder, for a task begun on their message).
 
 ### `task.discard`
 
-Throw away a task that is not done: the asker or the founder, with a reason.
+Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told.
 
 ### `task.board`
 
@@ -500,7 +501,7 @@ The caller's open tasks and its reports', and who holds each now. The founder's 
 
 ### `task.withdraw`
 
-Withdraw a task the caller made.
+Withdraw a task the caller asked for; anyone else discards it with a reason.
 
 ### `task.cancel`
 
@@ -508,7 +509,7 @@ Cancel a task.
 
 ### `task.edit`
 
-Change a task: owner, reporter, title and priority by its opener, its reporter or the founder; the owner also by the owner's manager (its owner may record what it waits on), body and time box until it is delivered. Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the holder is told.
+Change a task: owner, reporter, title, priority, body and time box, by anyone (body and time box until it is delivered). Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the opener and assignee are told, and the edit is kept with who made it.
 
 ### `task.ask`
 
@@ -517,18 +518,6 @@ The founder asks an agent a question about a task: a message linked to the task,
 ### `say`
 
 A message typed at once; needs no answer, starts no work.
-
-### `land`
-
-Request a land; accepted only from the session's own hl land (session token and peer pid, as today). Queue a land: the merger's alone (`caller` is the session, never a name in the request), and only for a sha an auditor recorded a PASS for (land.pass), with the tree the merger's test saw; the daemon merges it itself and fast-forwards main only when the result is that tree. A sha lands once. Accepted only for the vouch of land.authorize: exactly this agent, verb and sha as typed, once, within 60 seconds.
-
-### `land.pass`
-
-Record a land pass. Record an auditor's PASS for a sha: any agent named `<team>.auditor` (numbered when a team has more), from its own session, and only for the vouch of land.authorize: exactly this agent, verb and sha as typed, once, within 60 seconds.
-
-### `land.authorize`
-
-The session's hl land vouches for the next land verb (legacy land_authorize). The session's own PreToolUse hook vouches for the one `hl land` command it is about to run. It names the agent, the verb (land or land_pass) and the sha exactly as typed, and holds the per-session key `hl launch` kept in a folder the sandbox hides. The daemon keeps the vouch for 60 seconds and spends it on the first matching land or land.pass, so code the session runs (a test run, a script) cannot send one. The legacy verb land_authorize takes the same arguments and answers {ok, said}.
 
 ### `hook.record`
 
@@ -684,10 +673,10 @@ Cancel a device and close its connections at once. Cancels the device's token. I
 
 ## Who the caller is
 
-x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress, land, land.pass, land.authorize) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).
+x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).
 
 - **Sender:** say and task.new carry no sender parameter: the daemon sets it. An agent's calls carry its own name; a member device's and the founder's carry `human`.
-- **Ownership:** Methods that act on a request or task by id (withdraw, edit, release, discard, merge, memo.edit, memo.delete, queue, draft) keep today's checks on who may: the opener, the owner, the owner's manager or the founder; a refusal is `refused` with the reason.
+- **Ownership:** Methods that act on a task by id (edit, merge, discard, reopen, queue, draft) are anyone's: the task's opener and assignee are told, and its history keeps who did it. withdraw, release, memo.edit and memo.delete keep their checks on who may; a refusal is `refused` with the reason.
 
 ## Agent commands
 
@@ -718,8 +707,6 @@ Every `hl` command an agent runs today and the method that serves it.
 | `hl inbox` | `inbox.list` |
 | `hl read` | `inbox.get` |
 | `hl say` | `say` |
-| `hl land` | `land` |
-| `hl land --pass` | `land.pass` |
 | `hl hook` | `hook.record` |
 | `hl agent set` | `agent.set` |
 | `hl agent move` | `agent.move` |
@@ -749,7 +736,7 @@ Agent commands the spec does not keep at agent role, for the founder to decide. 
 
 - **Founder only today:** `hl cancel`; `hl unstall`; `hl team seal`; `hl hr approve|reject|apply|relabel|rehome|links`; `hl trust remove|apply|mcp`; `hl schedule add|edit|remove`; `hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)`; `hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)`; `hl dev-mode`; `hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)`; `hl service ...`
 - **Needs a decision:** `hl spawn (a founder's act; agent.create serves it to the founder's apps, and no agent-role method serves it)`; `hl agent register (a roster change, founder)`
-- **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl go`; `hl install-hooks`; `hl daemon`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl withdraw`; `hl memory migrate`; `hl task note (suppressed)`
+- **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl go`; `hl install-hooks`; `hl daemon`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl withdraw`; `hl memory migrate`; `hl task note (suppressed)`; `hl land (no daemon method serves it any more; the CLI goes next)`
 
 The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.
 
@@ -870,9 +857,6 @@ Format `text` sends plain text rows (frame notices). Format `styled` sends the s
 
 | Legacy verb | Method |
 |---|---|
-| `land` | `land` |
-| `land_pass` | `land.pass` |
-| `land_authorize` | `land.authorize` |
 | `agent_set` | `agent.set` |
 | `message` | none |
 | `say` | `say` |

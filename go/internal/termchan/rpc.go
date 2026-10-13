@@ -206,7 +206,9 @@ func (e *Env) handleOf(params map[string]any) (handle, agent string, err error) 
 	e.mu.Lock()
 	login := e.login[handle]
 	e.mu.Unlock()
-	if login {
+	// A pane no agent has (a login terminal, or one left behind after its agent moved on) can be watched while the host lists it;
+	// with no agent there is no input holder, so nothing can be typed into it.
+	if login || e.Backend().ListTerminals()[handle] {
 		return handle, "", nil
 	}
 	return "", "", notFound("no terminal "+handle, "terminal", handle)

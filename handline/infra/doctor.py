@@ -351,10 +351,6 @@ def _check_agents(r: Report) -> None:
                       f"`hl agent register {n} --skip-permissions on`, and off with `off`")
         except (FileNotFoundError, agents.ConfigError):
             pass  # reported above as an agent.yaml error
-        for fn, size, budget, over in agents.budget_report(n):
-            if over:
-                r.add(WARN, f"agent {n}: {fn} over budget",
-                      f"{size}B > {budget}B, and this is per-session overhead")
 
 
 def _check_team(r: Report) -> None:

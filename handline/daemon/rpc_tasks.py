@@ -9,7 +9,7 @@ task.memo.add, edit and delete serve `hl task memo add`, `edit` and `delete`: th
 holder of a doing task is told after it commits (a crash between loses the telling, never the memo or its answer).
 task.done, reopen, discard, merge, queue, draft and release serve the `hl task` commands of those names, and the UI's mark done,
 reopen, discard, merge and queue buttons. Each action takes the record of the write and makes it in the transaction of the write; the telling follows the commit. queue and draft change all their tasks or none, where the command goes on past a refusal.
-`relation`, `response`, `reply` (task.new), `waits_on` (task.edit) and `to`, `reason` (task.release) have no action behind them yet and are refused."""
+`relation`, `response`, `reply` (task.new), `waits_on` (task.edit) and `to` (task.release) have no action behind them yet and are refused."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -21,7 +21,7 @@ from ..team import ask as askmod
 from . import rpc
 
 _NOT_SERVED = ("relation", "response", "reply", "waits_on")
-_NOT_SERVED_RELEASE = ("to", "reason")
+_NOT_SERVED_RELEASE = ("to",)
 
 
 def _task_id(params, key: str = "task") -> int:
@@ -348,8 +348,8 @@ def _queue(queued: bool, name: str):
 
 def _release(ctx, params) -> dict:
     _unserved(params, _NOT_SERVED_RELEASE)
-    tid = _task_id(params)
-    return _run(ctx, params, lambda con, me: actions.release_task(con, tid, me, effect=_recorded(ctx, params, "task.release")))
+    tid, reason = _task_id(params), _text(params, "reason", required=False) or ""
+    return _run(ctx, params, lambda con, me: actions.release_task(con, tid, me, reason, effect=_recorded(ctx, params, "task.release")))
 
 
 rpc.METHODS["task.new"] = rpc.Method(_new, "agent", write=True)

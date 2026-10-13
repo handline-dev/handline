@@ -458,12 +458,12 @@ func TestAResumeWaitsForASlotOnItsOwnAccountWhenTheOthersAndOlderWaitersFillIt(t
 	if wait(3, 1) != nil {
 		t.Fatal("room for the agent and the older waiter")
 	}
-	// An account ahead of its week has a cap of none: nothing is free however quiet it is, and the wait says why.
+	// An account that would run out before it resets has a cap of none: nothing is free however quiet it is, and the wait says why.
 	w = wait(0, 0)
 	if w == nil || !w.Slot || w.Full != 0 {
 		t.Fatalf("a cap of none is a full account: %+v", w)
 	}
-	if got := DescribeWakeWait(w); got != "waiting for a: it is ahead of its week and takes no new agent" {
+	if got := DescribeWakeWait(w); got != "waiting for a: it would run out before it resets and takes no new agent" {
 		t.Fatal(got)
 	}
 }
@@ -507,6 +507,40 @@ func TestAColdWakeMovesToTheSlowestPacedAccountWithRoomNotItsOwnNorOneWithOlderW
 	}
 }
 
+func TestAPersonsStartGoesToTheAccountItWasLastOnElseTheMostHeadroomAndQueuesBehindNobody(t *testing.T) {
+	r := newLaunchRig(t)
+	pct := 10
+	hot := AccountStatus{Exists: true, ShortTrusted: func() *int { n := 99; return &n }()}
+	r.l.Ports.Accounts = fakeAccounts{true}
+	r.l.Ports.CurrentAccount = func(_ db.Q, agent string) string {
+		if agent == "waiting-on-b" {
+			return "b"
+		}
+		return "a"
+	}
+	r.l.Ports.WaitingFor = func(db.Q, string) bool { return true }
+	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true, ShortTrusted: &pct}, cap: 1, by: map[string]AccountStatus{"walled": hot},
+		head: map[string]float64{"a": 0.99, "b": 0.9, "c": 0.5, "walled": 0.95}}
+	home, q := r.l.Home, r.l.Q
+	for _, a := range []string{"a", "b", "c", "walled"} {
+		os.MkdirAll(filepath.Join(paths.AccountsDir(home), a), 0o755)
+	}
+	db.SetAgentState(q, "ann", states.Idle, 0, "")
+	db.SetClosed(q, "ann", "s-ann")
+	db.SetAgentState(q, "waiting-on-b", states.Idle, 0, "")
+	db.SetClosed(q, "waiting-on-b", "s-b")
+	q.Exec("UPDATE agent_state SET closed_at = 10 WHERE agent = 'ann'")
+	q.Exec("UPDATE agent_state SET closed_at = 1 WHERE agent = 'waiting-on-b'")
+	row, _ := db.GetAgentState(q, "ann")
+	if got, why := r.l.RoomNow(q, "ann", row, "a"); got != "b" {
+		t.Fatalf("the most headroom, the older waiter on b not ahead of a person: %q %s", got, why)
+	}
+	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true, ShortTrusted: &pct}, cap: 0}
+	if got, why := r.l.RoomNow(q, "ann", row, "a"); got != "" || !strings.HasPrefix(why, "no account can take one more agent") {
+		t.Fatalf("nowhere has room: %q %s", got, why)
+	}
+}
+
 func TestAnOpenAgentsMoveDoesNotTakeTheSlotAnOlderClosedWaiterHolds(t *testing.T) {
 	r := newLaunchRig(t)
 	pct := 10
@@ -539,7 +573,8 @@ func TestAnAgentIsToldItsTeamFromTeamYAML(t *testing.T) {
 	r := newLaunchRig(t)
 	v, err := yamlcompat.ParseOrdered(`
 teams:
-  dev: [marina, keeper]
+  dev: [manager, marina, keeper]
+  lone: [scout]
 agents:
   manager: {}
   marina: {}
@@ -557,7 +592,14 @@ edges:
 	if err != nil {
 		t.Fatal(err)
 	}
+	home := r.l.Home
 	r.l.Ports.Routing = func() *team.Team { return tm }
+	r.l.Ports.TeamRules = func(agent string) []string {
+		if err := team.SeedRules(home, tm); err != nil {
+			t.Fatal(err)
+		}
+		return team.Rules(home, agent, tm)
+	}
 	for _, n := range []string{"manager", "marina", "keeper", "scout"} {
 		os.MkdirAll(filepath.Dir(r.l.Roster.AgentFile(n)), 0o755)
 		os.WriteFile(r.l.Roster.AgentFile(n), []byte("vendor: claude\n"), 0o644)
@@ -570,12 +612,37 @@ edges:
 		}
 		return ""
 	}
-	mgr, dev, scout := r.l.yourTeam("manager"), r.l.yourTeam("marina"), r.l.yourTeam("scout")
-	if !strings.Contains(mgr, "Your reports: `keeper`, `marina`.") {
-		t.Errorf("a supervisor is not told its reports:\n%s", mgr)
+	context := func(agent string) string {
+		text, err := r.l.ContextFor(agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return text
 	}
-	if !strings.Contains(mgr, "Finding the bottleneck is your job") || strings.Contains(dev, "Your reports") || strings.Contains(dev, "bottleneck") {
-		t.Errorf("the manager rules are not the supervisor's alone:\n%s\n---\n%s", mgr, dev)
+	culture := []string{"Keep messages short", "no progress or FYI messages", "Never schedule your own wakeup", "You do not implement",
+		"Check main before you assign", "founder's own words", "Finding the bottleneck is your job"}
+	// A team that empties its rules file is not seeded again: it gets only the facts.
+	context("scout")
+	if err := os.Remove(filepath.Join(home, "shared", "team", "lone.md")); err != nil {
+		t.Fatal(err)
+	}
+	mgr, dev, scout := context("manager"), context("marina"), context("scout")
+	rules := "# Rules for team dev\n" + strings.TrimSpace(team.DefaultRules)
+	for who, text := range map[string]string{"manager": mgr, "marina": dev} {
+		if !strings.Contains(text, rules) {
+			t.Errorf("%s: the seeded team file is not in the prompt:\n%s", who, text)
+		}
+	}
+	for _, w := range culture {
+		if strings.Contains(r.l.yourTeam("manager"), w) || strings.Contains(scout, w) {
+			t.Errorf("%q is written by code, not read from the team file:\n%s", w, scout)
+		}
+	}
+	if !strings.Contains(mgr, "Your reports: `keeper`, `marina`.") || !strings.Contains(mgr, "--blocked-by T<n>") {
+		t.Errorf("a supervisor is not told its reports and how to give them work:\n%s", mgr)
+	}
+	if strings.Contains(dev, "Your reports") {
+		t.Errorf("a report is told it has reports:\n%s", dev)
 	}
 	for who, text := range map[string]string{"manager": mgr, "marina": dev, "scout": scout} {
 		line := reportLine(text)
@@ -583,11 +650,11 @@ edges:
 		if !strings.Contains(line, "`hl task done T<n>") || !strings.Contains(line, "that is your report") {
 			t.Errorf("%s: the report-to line does not say task done is the report: %s", who, line)
 		}
-		if strings.Contains(line, "no progress or FYI messages") == bossIsHuman || strings.Contains(line, "hl say") {
-			t.Errorf("%s: an agent with a boss must be told to send it only done or a blocker, and no say: %s", who, line)
+		if strings.Contains(line, "a task for it: `hl task new --assign") == bossIsHuman || strings.Contains(line, "hl say") {
+			t.Errorf("%s: an agent with a boss must be told a block is a task for it, and no say: %s", who, line)
 		}
-		if !strings.Contains(text, "a task of theirs: `hl task new --assign human") || !strings.Contains(text, "Never schedule your own wakeup") {
-			t.Errorf("%s: the founder and wakeup lines are missing:\n%s", who, text)
+		if !strings.Contains(text, "a task of theirs: `hl task new --assign human") {
+			t.Errorf("%s: the founder line is missing:\n%s", who, text)
 		}
 	}
 	if !strings.HasPrefix(reportLine(dev), "You report to `manager`") || !strings.HasPrefix(reportLine(scout), "You report to `human`") {

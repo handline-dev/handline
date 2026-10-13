@@ -31,7 +31,7 @@ func settled(t *testing.T) (*Tick, *world, *ApplySettings) {
 func TestAChangedSettingRestartsTheIdleSessionOnceAndRemembersWhatItWasFor(t *testing.T) {
 	tk, w, a := settled(t)
 	a.Sweep(tk, 10_000)
-	if !w.did("restart a by the daemon for model (settings)") || !w.logged("restarted to apply changed settings (model)") {
+	if !w.did("restart a by the daemon for model (settings_applied)") || !w.logged("restarted to apply changed settings (model)") {
 		t.Fatalf("%v %v", w.calls, w.logs)
 	}
 	if v, _, _ := db.Meta(tk.Q, SettingsApplied+"a"); !strings.Contains(v, `"model"`) || !strings.Contains(v, "opus") {
@@ -46,7 +46,7 @@ func TestAChangedSettingRestartsTheIdleSessionOnceAndRemembersWhatItWasFor(t *te
 	// A different change is restarted for.
 	a.Ports = settingsPorts{parts: []Part{{"model", "opus"}, {"effort", float64(2)}}, account: "acct"}
 	a.Sweep(tk, 10_060)
-	if !w.did("restart a by the daemon for model,effort (settings)") && !w.did("restart a by the daemon for effort (settings)") {
+	if !w.did("restart a by the daemon for model,effort (settings_applied)") && !w.did("restart a by the daemon for effort (settings_applied)") {
 		t.Fatalf("%v", w.calls)
 	}
 }

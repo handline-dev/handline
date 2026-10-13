@@ -590,16 +590,20 @@ def reopen_task(con, tid: int, by: str, reason: str, effect=None) -> tuple[bool,
     return True, msg
 
 
-def release_task(con, tid: int, by: str, effect=None) -> tuple[bool, str]:
+def release_task(con, tid: int, by: str, reason: str, effect=None) -> tuple[bool, str]:
     """Answer to a timeout notice besides extending it: retire the task's own open
     requests (so whoever is mid-way is told to stop) and take it back to queued or
-    draft. Opener or founder only; a task doing through a child is released there.
+    draft, with a one-line reason. Opener or founder only; a task doing through a
+    child is released there.
 
     The writes are one transaction, and `effect(con, message)`, the daemon's record of them, is made in it. The
     telling (the agent told to stop, the requesters, whatever queued behind) follows the commit."""
     row = db.get_task(con, tid)
     if row is None:
         return False, f"no task T{tid}"
+    said = textsafe.oneline(reason).strip()
+    if not said:
+        return False, "releasing needs a one-line reason"
     guard = _task_edit_guard(row, tid, by)
     if guard:
         return False, guard
@@ -616,7 +620,7 @@ def release_task(con, tid: int, by: str, effect=None) -> tuple[bool, str]:
     # Best-effort, not all-or-nothing: one request losing a race to some other close (an agent
     # resolving it at the same instant) must not throw away what the others already did - the
     # task and its clock still have to end up matching whatever did get retired.
-    why = f"T{tid} released by {by}"
+    why = f"T{tid} released by {by}: {said}"
     con.execute("BEGIN IMMEDIATE")
     try:
         retired, told, failed = [], [], []
@@ -637,7 +641,7 @@ def release_task(con, tid: int, by: str, effect=None) -> tuple[bool, str]:
             con.execute("ROLLBACK")
             return False, f"task T{tid} released nothing: {'; '.join(failed)}"
         db.add_event(con, by, "release_task",
-                    {"task_id": tid, "retired": retired, **({"failed": failed} if failed else {})})
+                    {"task_id": tid, "retired": retired, "reason": said, **({"failed": failed} if failed else {})})
         tail = f" - not retired: {'; '.join(failed)}" if failed else ""
         if is_doing(con, tid):
             # Every direct request just closed: what is left is a child's, or a founder-begun task.
@@ -650,20 +654,20 @@ def release_task(con, tid: int, by: str, effect=None) -> tuple[bool, str]:
             db.pause_task_timeout(con, tid)
             outcome = f"back to {'queued' if row['queued_by'] else 'draft'}, its timeout paused"
         if effect:
-            effect(con, f"task T{tid} released by {by}: {outcome}{tail}")
+            effect(con, f"task {why} - {outcome}{tail}")
         con.execute("COMMIT")
     except BaseException:
         if con.in_transaction:
             con.execute("ROLLBACK")
         raise
-    said = []
+    phrases = []
     for kind, what in told:
         if kind == "held":
             _type_say(con, what["target"], f"{why} - stop work on it", "task released")
-            said.append(f"#{what['id']} ended; {what['target']} told to stop")
+            phrases.append(f"#{what['id']} ended; {what['target']} told to stop")
         else:
-            said.append(askmod.retire_tell(con, what).split("\n", 1)[0])
-    return True, f"task T{tid} released by {by}: {'; '.join(said)}, {outcome}{tail}"
+            phrases.append(askmod.retire_tell(con, what).split("\n", 1)[0])
+    return True, f"task {why} - {'; '.join(phrases)}, {outcome}{tail}"
 
 
 def _notify_unblocked(con, dep_tid: int, owner: str, closer: str, closed_tid: int,
@@ -1262,19 +1266,16 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
                   f"expects {expects}{limit}): {msg}"), tid
 
 
-def task_begin(con, me: str, title: str, chat: int, why: str, priority: int | None = None,
+def task_begin(con, me: str, title: str, chat: int, why: str | None = None, priority: int | None = None,
                expects: str = "report") -> tuple[bool, str, int | None]:
     """T297 (T291, founder #1648 (a)): the founder's own message to `me` is
     approval enough - `me` opens a task for itself and starts it, with no
-    manager to queue it. What stands in for the approval is the record: `why`
-    (what led to it) on the event, and request #`chat` linked to the task, so
-    the board shows the founder's words behind it. Each message opens one task:
+    manager to queue it. What stands in for the approval is request #`chat`
+    linked to the task, so the board shows the founder's words behind it; `why`
+    (what led to it), when given, goes on the event. Each message opens one task:
     a message already linked to a task cannot open another."""
     if me == HUMAN:
         return False, "a task is begun by an agent, never in the founder's name", None
-    said = textsafe.oneline(why).strip()
-    if not said:
-        return False, "say what led to this (--why): the record is the approval", None
     row = db.get_request(con, chat)
     if row is None:
         return False, f"no request #{chat}", None
@@ -1291,7 +1292,8 @@ def task_begin(con, me: str, title: str, chat: int, why: str, priority: int | No
     held = db.current_task(con, me)
     if held is None:
         db.set_current_task(con, me, tid)
-    db.add_event(con, me, "task_begin", {"task_id": tid, "chat_request": chat, "why": said})
+    said = textsafe.oneline(why or "").strip()
+    db.add_event(con, me, "task_begin", {"task_id": tid, "chat_request": chat, **({"why": said} if said else {})})
     return True, (f"task T{tid} begun from founder message #{chat}" +
                   (f" and is now your current task" if held is None else
                    f"; T{held} is still current - `hl task start T{tid}` when you switch")), tid

@@ -1,9 +1,9 @@
 {
  "fixtures": [
   {
-   "name": "task.begin.needs_a_why",
+   "name": "task.begin.why_is_text_when_given",
    "spec": "task.begin",
-   "about": "Starting a task without saying what led to it is bad_request naming why.",
+   "about": "why is optional, but when given it is text: a number is bad_request naming why.",
    "as": "agent",
    "steps": [
     {
@@ -26,6 +26,7 @@
       "params": {
        "title": "t",
        "message": 1,
+       "why": 7,
        "request_id": "conf-1"
       }
      },
@@ -42,7 +43,7 @@
   {
    "name": "task.begin.the_founder_is_refused",
    "spec": "task.begin",
-   "about": "A task is begun by an agent, never in the founder's name: the founder's call is refused.",
+   "about": "A task is begun by an agent, never in the founder's name: the founder's call is refused, with or without a why.",
    "as": "founder",
    "steps": [
     {
@@ -66,7 +67,6 @@
       "params": {
        "title": "t",
        "message": 1,
-       "why": "w",
        "request_id": "conf-1"
       }
      },

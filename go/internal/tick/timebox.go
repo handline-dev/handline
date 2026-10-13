@@ -9,20 +9,18 @@ import (
 	"github.com/handline/handline/go/internal/timefmt"
 )
 
-// Five notices about work that has run long, all read from the db every tick.
+// Four notices about work that has run long, all read from the db every tick.
 //
 // A task's own timeout (`ocp task new -t/--timeout`) only counts while it is doing; past it, its opener is told, and again every
 // further timeout_s stretch, until the task answers with one of `hl task edit --timeout` (continue) or `hl task release` (back to queued) -
-// or is simply done. An agent that shows RUNNING - working, or with background work behind its prompt - while nothing is asked of it tells
-// its supervisor once, so the manager can ask what it is doing. Background work with the agent silent for STALE_BG_S tells its supervisor it
-// may be stopped after a veto window. An agent IDLE with its current task's own wait never recorded tells the founder once, the Stop-hook
-// gate's own backstop. An agent nudged to resolve a forgotten head as many times as the schedule allows, still open, tells its
-// supervisor once - nothing more is sent to the agent about it past that. The first three act on nothing.
+// or is simply done. Background work about to outlive the agent's prompt cache tells its supervisor it may be stopped after a veto window.
+// An agent IDLE with its current task's own wait never recorded, the Stop-hook gate's own backstop, and an agent nudged to resolve a
+// forgotten head as many times as the schedule allows, still open, each tell the task's opener once (else the agent's supervisor) - nothing
+// more is sent to the agent about it past that.
 //
 // A notice to an agent is a line sent to its open session, so one that cannot be sent now is tried again; a notice to the human has no
 // session to type at and is an event.
 const (
-	UnaskedRunningS   = 900
 	TitleShown        = 60
 	StopWaitBackstopS = 900
 	// NoticeRetryS: a notice that could not be sent (mid-turn, awaiting a permission, no session) is not tried again for this long, per agent.
@@ -45,13 +43,11 @@ type BgJob struct{ Line string }
 
 // TimeboxPorts are the foreign calls the notices make: the board's actions, delivery's background bookkeeping, and the idle-close settings.
 type TimeboxPorts interface {
-	// TaskDoing is actions.task_state(row) == "doing"; TaskBegun is actions._begun.
+	// TaskDoing is actions.task_state(row) == "doing".
 	TaskDoing(q db.Q, t *db.Task) bool
-	TaskBegun(q db.Q, tid int64) bool
 	// SupervisorOf is actions.supervisor_of(routing(), agent), "" when it has none.
 	SupervisorOf(agent string) string
-	// ChildWait is actions.child_wait; StopWaitReason actions.stop_wait_reason ("" for none).
-	ChildWait(q db.Q, agent string) bool
+	// StopWaitReason is actions.stop_wait_reason ("" for none).
 	StopWaitReason(q db.Q, agent string) string
 	// SendNotice is delivery.type_notice, sent through the session: true when the line was sent.
 	SendNotice(q db.Q, agent, text string) bool
@@ -72,7 +68,7 @@ type TimeboxPorts interface {
 	BgJobs(q db.Q, agent string, count int, now int64) []string
 }
 
-// Timebox is the five notices.
+// Timebox is the four notices.
 type Timebox struct {
 	Ports TimeboxPorts
 	// Cutover: the Python daemon no longer ticks, so the task clock covers every owner; before it, only the owners this daemon drives (the
@@ -115,6 +111,17 @@ func (b *Timebox) boss(agent string) string {
 	return db.Human
 }
 
+// answerer is who hears about an agent stuck on task tid: the task's opener, else the agent's supervisor - never the agent itself, and
+// the founder only when neither is an agent.
+func (b *Timebox) answerer(t *Tick, agent string, tid int64) string {
+	if tid != 0 {
+		if task := must(db.GetTask(t.Q, tid)); task != nil && task.OpenedBy != agent && task.OpenedBy != db.Human && task.OpenedBy != "" {
+			return task.OpenedBy
+		}
+	}
+	return b.boss(agent)
+}
+
 // SweepTaskTimeouts is a task's timeout clock, read each tick: it runs only while the task is doing; past it the opener is told, and again
 // every stretch until it is done, extended or released. A task with no timeout_s takes the default where it becomes doing.
 func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
@@ -145,13 +152,8 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 		if r := []rune(title); len(r) > TitleShown {
 			title = strings.TrimRight(string(r[:TitleShown]), " \t\n") + "…"
 		}
-		// A task begun on a founder's message has no queue to go back to: release refuses it.
-		stop := ""
-		if !b.Ports.TaskBegun(t.Q, tid) {
-			stop = fmt.Sprintf(" Stop it: `hl task release T%d` sends it back to queued.", tid)
-		}
-		text := fmt.Sprintf("T%d (%s), held by %s, has been doing past its %s timeout. Keep it going: `hl task edit T%d --timeout <duration>`.%s",
-			tid, title, row.Owner, timefmt.Ago(box), tid, stop)
+		text := fmt.Sprintf("T%d (%s), held by %s, has been doing past its %s timeout. Keep it going: `hl task edit T%d --timeout <duration>`. "+
+			"Stop it: `hl task release T%d \"<reason>\"` takes it back.", tid, title, row.Owner, timefmt.Ago(box), tid, tid)
 		if b.tell(t, row.OpenedBy, text, now) {
 			check(db.AdvanceTaskTimeout(t.Q, tid, now, db.DefaultTaskTimeoutS))
 			// the deadline missed and the one that replaced it: a screen chains notices by them
@@ -163,47 +165,6 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 			must(db.AddEvent(t.Q, row.OpenedBy, "task_timeout_exceeded", db.KV{K: "task_id", V: tid}, db.KV{K: "timeout_s", V: box},
 				db.KV{K: "text", V: text}, db.KV{K: "deadline", V: row.TimeoutAt.Int64}, db.KV{K: "next", V: nextAt}))
 			t.logf("  T%d: doing, past its %s timeout - %s told", tid, timefmt.Ago(box), row.OpenedBy)
-		}
-	}
-}
-
-func (b *Timebox) unaskedRunning(t *Tick, agent string, row *db.AgentState) bool {
-	if row == nil || closedAt(row) || !t.Host.SessionAlive(agent) || len(must(db.QueuedFor(t.Q, agent))) > 0 {
-		return false
-	}
-	// Background work does not exempt a RUNNING agent: the sweeps that settle it leave an agent mid-turn alone, so this is its
-	// one report.
-	if row.State != states.Running {
-		return false
-	}
-	return !b.Ports.ChildWait(t.Q, agent) // waiting on a child of its own is a reason
-}
-
-// SweepUnaskedRunning tells an agent's supervisor once that it has shown RUNNING for long with nothing asked of it.
-func (b *Timebox) SweepUnaskedRunning(t *Tick, now int64) {
-	limit := t.Config.Seconds("unasked_running_s", UnaskedRunningS)
-	for _, agent := range t.Host.Agents() {
-		sinceKey, toldKey := "unasked_since:"+agent, "unasked_told:"+agent
-		if !b.unaskedRunning(t, agent, must(db.GetAgentState(t.Q, agent))) {
-			check(db.ClearCursor(t.Q, sinceKey))
-			check(db.ClearCursor(t.Q, toldKey))
-			continue
-		}
-		since := must(db.Cursor(t.Q, sinceKey))
-		if since == 0 {
-			check(db.SetCursor(t.Q, sinceKey, now))
-			continue
-		}
-		if now-since < limit || must(db.Cursor(t.Q, toldKey)) != 0 {
-			continue
-		}
-		boss := b.boss(agent)
-		text := fmt.Sprintf("%s has shown RUNNING (%s) for %s with no request open. Ask it what it is doing: `hl say %s \"...\"`.",
-			agent, b.stateOf(t, agent), timefmt.Ago(now-since), agent)
-		if b.tell(t, boss, text, now) {
-			check(db.SetCursor(t.Q, toldKey, 1))
-			must(db.AddEvent(t.Q, agent, "unasked_running", db.KV{K: "told", V: boss}, db.KV{K: "for_s", V: now - since}))
-			t.logf("  %s: RUNNING %s with no request open - %s told", agent, timefmt.Ago(now-since), boss)
 		}
 	}
 }
@@ -368,15 +329,20 @@ func (b *Timebox) SweepStopWaitBackstop(t *Tick, now int64) {
 		if row.State != states.Idle || now-since < limit || must(db.Cursor(t.Q, toldKey)) != 0 {
 			continue
 		}
-		check(db.SetCursor(t.Q, toldKey, 1))
-		must(db.AddEvent(t.Q, agent, "stop_wait_stuck", db.KV{K: "why", V: why}, db.KV{K: "for_s", V: now - since}))
-		t.logf("  %s: %s, idle %s with nothing recorded - founder told", agent, why, timefmt.Ago(now-since))
+		who := b.answerer(t, agent, tid)
+		text := fmt.Sprintf("%s has been idle %s on T%d: %s. Ask it what it waits on: `hl say %s \"...\" --task T%d`.",
+			agent, timefmt.Ago(now-since), tid, why, agent, tid)
+		if b.tell(t, who, text, now) {
+			check(db.SetCursor(t.Q, toldKey, 1))
+			must(db.AddEvent(t.Q, agent, "stop_wait_stuck", db.KV{K: "why", V: why}, db.KV{K: "for_s", V: now - since}, db.KV{K: "told", V: who}))
+			t.logf("  %s: %s, idle %s with nothing recorded - %s told", agent, why, timefmt.Ago(now-since), who)
+		}
 	}
 }
 
 // SweepForgottenResolveCapped: the nudge about a forgotten head stops once its schedule is used up rather than
-// nudging the agent forever - an agent that turns out to be genuinely stuck, not forgetful, still needs someone to look, so its
-// supervisor is told once instead. Cleared as soon as it no longer applies, so a later head that is also forgotten and also runs out the
+// nudging the agent forever - an agent that turns out to be genuinely stuck, not forgetful, still needs someone to look, so the head's
+// task opener (else its supervisor) is told once instead. Cleared as soon as it no longer applies, so a later head that is also forgotten and also runs out the
 // schedule is told again.
 func (b *Timebox) SweepForgottenResolveCapped(t *Tick, now int64) {
 	for _, agent := range t.Host.Agents() {
@@ -389,7 +355,11 @@ func (b *Timebox) SweepForgottenResolveCapped(t *Tick, now int64) {
 		if must(db.Cursor(t.Q, toldKey)) == found.HeadID {
 			continue
 		}
-		boss := b.boss(agent)
+		var tid int64
+		if found.Task != nil {
+			tid = found.Task.ID
+		}
+		who := b.answerer(t, agent, tid)
 		on := fmt.Sprintf("#%d", found.HeadID)
 		if found.Task != nil {
 			on = fmt.Sprintf("T%d (#%d)", found.Task.ID, found.HeadID)
@@ -401,20 +371,16 @@ func (b *Timebox) SweepForgottenResolveCapped(t *Tick, now int64) {
 		}
 		var look string
 		if found.Task != nil {
-			// A task begun on a founder's message has no queue to go back to: release refuses it.
-			back := ""
-			if !b.Ports.TaskBegun(t.Q, found.Task.ID) {
-				back = fmt.Sprintf("; take it back with `hl task release T%d`", found.Task.ID)
-			}
-			look = fmt.Sprintf("Look at it: `hl read %d`%s, or ask %s by message (`hl say %s \"...\"`).", found.HeadID, back, agent, agent)
+			look = fmt.Sprintf("Look at it: `hl read %d`; take it back with `hl task release T%d \"<reason>\"`, or ask %s by message (`hl say %s \"...\"`).",
+				found.HeadID, found.Task.ID, agent, agent)
 		} else {
 			look = fmt.Sprintf("Look at it: `hl read %d`, or message %s (`hl say %s \"...\"`).", found.HeadID, agent, agent)
 		}
 		text := fmt.Sprintf("%s has been idle %s on %s %s%s. %s", agent, timefmt.Ago(found.IdleS), on, after, more, look)
-		if b.tell(t, boss, text, now) {
+		if b.tell(t, who, text, now) {
 			check(db.SetCursor(t.Q, toldKey, found.HeadID))
-			must(db.AddEvent(t.Q, agent, "forgotten_resolve_capped", db.KV{K: "request_id", V: found.HeadID}, db.KV{K: "idle_s", V: found.IdleS}, db.KV{K: "told", V: boss}))
-			t.logf("  %s: idle %s on #%d, nudge cap reached - %s told", agent, timefmt.Ago(found.IdleS), found.HeadID, boss)
+			must(db.AddEvent(t.Q, agent, "forgotten_resolve_capped", db.KV{K: "request_id", V: found.HeadID}, db.KV{K: "idle_s", V: found.IdleS}, db.KV{K: "told", V: who}))
+			t.logf("  %s: idle %s on #%d, nudge cap reached - %s told", agent, timefmt.Ago(found.IdleS), found.HeadID, who)
 		}
 	}
 }
@@ -423,7 +389,6 @@ func (b *Timebox) SweepForgottenResolveCapped(t *Tick, now int64) {
 func (b *Timebox) Sweep(t *Tick, now int64) error {
 	return guard(func() {
 		b.SweepTaskTimeouts(t, now)
-		b.SweepUnaskedRunning(t, now)
 		b.SweepStaleBackground(t, now)
 		b.SweepForgottenBackground(t, now)
 		b.SweepBackgroundCheck(t, now)

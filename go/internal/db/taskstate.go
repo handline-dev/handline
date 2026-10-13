@@ -17,10 +17,16 @@ func Asks(r *Request) bool {
 	return r.State == "queued" || (r.State == Landed && r.Kind.String == "task" && r.QueueOrder.Valid)
 }
 
-// Begun is actions._begun: the task was begun on a founder's message (task_begin).
+// SinceRelease keeps the events of task (an SQL expression) newer than its last release: a release takes back a begun task.
+func SinceRelease(task string) string {
+	return " AND id > COALESCE((SELECT MAX(r.id) FROM events r WHERE r.kind = 'release_task' AND json_valid(r.payload) AND " +
+		"json_extract(r.payload, '$.task_id') = " + task + "), 0)"
+}
+
+// Begun is actions._begun: the task was begun on a founder's message (task_begin) and not released since.
 func Begun(q Q, tid int64) (bool, error) {
 	var one int
-	err := q.QueryRow("SELECT 1 FROM events WHERE kind = 'task_begin' AND "+eventTask+" = ? LIMIT 1", tid).Scan(&one)
+	err := q.QueryRow("SELECT 1 FROM events WHERE kind = 'task_begin' AND "+eventTask+" = ?"+SinceRelease("?")+" LIMIT 1", tid, tid).Scan(&one)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}

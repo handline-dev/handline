@@ -27,7 +27,7 @@ func (e *Env) WithdrawWrite(q db.Q, after *After, rid int64, requester, reason s
 	release := ""
 	if row.Kind.String == "task" {
 		if linked := must(db.TasksForRequest(q, rid)); len(linked) > 0 {
-			release = fmt.Sprintf(", or `hl task release T%d`", linked[0].ID)
+			release = fmt.Sprintf(", or `hl task release T%d \"<reason>\"`", linked[0].ID)
 		}
 	}
 	tooLate := fmt.Sprintf("#%d was already delivered to %s - too late to withdraw; tell %s with a message (`hl say %s \"...\" --parent %d`)%s",

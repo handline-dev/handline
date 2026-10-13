@@ -8,11 +8,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/sealed"
 	"github.com/handline/handline/go/internal/store"
 )
 
 func testEnv(t *testing.T) *Env {
 	t.Helper()
+	// Run as the founder, whatever session runs the suite, with the protected store (the seals) under a stand-in user home.
+	t.Setenv("HANDLINE_AGENT", "")
+	t.Setenv("OCP_AGENT", "")
+	t.Setenv("HANDLINE_TEST_ROOT", t.TempDir())
 	home := t.TempDir()
 	db, err := store.Open(filepath.Join(home, "db.sqlite"))
 	if err != nil {
@@ -25,6 +30,17 @@ func testEnv(t *testing.T) *Env {
 		return err == nil, true
 	}
 	return &Env{DB: db, Home: home, Started: time.Now(), LoginState: login}
+}
+
+// writeAgentYAML is the founder's edit of an agent's file: written and sealed, so the roster trusts it.
+func writeAgentYAML(t *testing.T, e *Env, name, text string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(e.Home, "agents", name, "agent.yaml"), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sealed.New(e.Home).Seal(sealed.AgentKey(name), text); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func addAgent(t *testing.T, e *Env, name, role string) {
@@ -122,8 +138,9 @@ func TestTheTaskLadderMatchesTheBoard(t *testing.T) {
 func TestABoardReadsATaskStartedAsItsOwnersOwnAsBegun(t *testing.T) {
 	e := testEnv(t)
 	for _, q := range []string{
-		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'self', 'w', 'w', 1), (2, 'founder', 'w', 'w', 1), (3, 'plain', 'w', 'w', 1)",
-		`INSERT INTO events(ts, agent, kind, payload) VALUES(1, 'w', 'task_self_start', '{"task_id": 1}'), (1, 'w', 'task_begin', '{"task_id": 2}')`,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'self', 'w', 'w', 1), (2, 'founder', 'w', 'w', 1), (3, 'plain', 'w', 'w', 1), (4, 'released', 'w', 'w', 1)",
+		`INSERT INTO events(ts, agent, kind, payload) VALUES(1, 'w', 'task_self_start', '{"task_id": 1}'), (1, 'w', 'task_begin', '{"task_id": 2}'), ` +
+			`(1, 'w', 'task_begin', '{"task_id": 4}'), (2, 'x', 'release_task', '{"task_id": 4, "retired": []}')`,
 	} {
 		if _, err := e.DB.Exec(q); err != nil {
 			t.Fatal(err)
@@ -133,8 +150,8 @@ func TestABoardReadsATaskStartedAsItsOwnersOwnAsBegun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !b.begun[1] || !b.begun[2] || b.begun[3] {
-		t.Fatalf("begun is a task_self_start or a task_begin, nothing else: %v", b.begun)
+	if !b.begun[1] || !b.begun[2] || b.begun[3] || b.begun[4] {
+		t.Fatalf("begun is a task_self_start or a task_begin not released since, nothing else: %v", b.begun)
 	}
 	if got := b.state(row{"id": int64(1), "owner": "w", "queued_by": "w"}); got != "doing" {
 		t.Errorf("a self-started task reads %s, not doing", got)

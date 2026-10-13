@@ -18,7 +18,7 @@ from ..usage import collect
 from .. import db
 from ..infra import names, sessiontoken
 from ..team import agents
-from . import bgjobs, memoryguard, shellguard, waiting
+from . import bgjobs, memoryuse, shellguard, waiting
 
 # Which hook events we record. PostToolUse is deliberately absent.
 CAPTURED = {
@@ -40,9 +40,9 @@ CAPTURED = {
 # background command (`bgjobs.note`).
 ANSWERS = {"PostToolUse", "PostToolUseFailure"}
 
-# Hooks that can refuse a tool call: the memory budget (`memoryguard.guard`)
-# and an ocp command that would substitute in double quotes (`shellguard.guard`),
-# matched to the tools they look at rather than firing on every call.
+# Hooks that can refuse a tool call: an ocp command that would substitute in
+# double quotes (`shellguard.guard`) and the edit and land gates, matched to the
+# tools they look at rather than firing on every call.
 GUARDS = {"PreToolUse"}
 
 # The events after which no prompt can still be pending: a new prompt, or the
@@ -228,8 +228,7 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
         return 0
     if agent and event in GUARDS:
         try:
-            why = (memoryguard.guard(agent, raw.get("tool_name"), raw.get("tool_input"))
-                   or shellguard.guard(raw.get("tool_name"), raw.get("tool_input")))
+            why = shellguard.guard(raw.get("tool_name"), raw.get("tool_input"))
             if why is None:
                 from . import edittask
                 why = edittask.guard(agent, raw.get("tool_name"), raw.get("tool_input"))
@@ -252,7 +251,7 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
         _record(agent, event, raw)
         if event == "PostToolUse":
             try:
-                memoryguard.note_use(agent, raw.get("tool_name"), raw.get("tool_input"))
+                memoryuse.note_use(agent, raw.get("tool_name"), raw.get("tool_input"))
             except Exception:  # noqa: BLE001 - same
                 pass
             try:

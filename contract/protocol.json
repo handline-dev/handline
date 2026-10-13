@@ -44,7 +44,6 @@
   "attempt_limit": "Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes.",
   "unpaired": "A network connection with no valid device token called anything but device.redeem. The reply is always message \"refused\" and reason \"not paired\": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed.",
   "pairing_code": "device.redeem: the code is wrong, expired or already used. The reply does not say which.",
-  "session_token": "Session token and peer-pid check, unchanged.",
   "proposal_changed": "hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again.",
   "proposal_settled": "hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now.",
   "confirm": "chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do.",
@@ -52,9 +51,6 @@
  },
  "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
  "x-legacy": {
-  "land": "land",
-  "land_pass": "land.pass",
-  "land_authorize": "land.authorize",
   "agent_set": "agent.set",
   "message": null,
   "say": "say",
@@ -72,9 +68,9 @@
   "trust": null
  },
  "x-identity": {
-  "rule": "x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress, land, land.pass, land.authorize) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).",
+  "rule": "x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).",
   "sender": "say and task.new carry no sender parameter: the daemon sets it. An agent's calls carry its own name; a member device's and the founder's carry `human`.",
-  "ownership": "Methods that act on a request or task by id (withdraw, edit, release, discard, merge, memo.edit, memo.delete, queue, draft) keep today's checks on who may: the opener, the owner, the owner's manager or the founder; a refusal is `refused` with the reason."
+  "ownership": "Methods that act on a task by id (edit, merge, discard, reopen, queue, draft) are anyone's: the task's opener and assignee are told, and its history keeps who did it. withdraw, release, memo.edit and memo.delete keep their checks on who may; a refusal is `refused` with the reason."
  },
  "x-agent-commands": {
   "hl task new": "task.new",
@@ -100,8 +96,6 @@
   "hl inbox": "inbox.list",
   "hl read": "inbox.get",
   "hl say": "say",
-  "hl land": "land",
-  "hl land --pass": "land.pass",
   "hl hook": "hook.record",
   "hl agent set": "agent.set",
   "hl agent move": "agent.move",
@@ -161,7 +155,8 @@
    "hl guide",
    "hl withdraw",
    "hl memory migrate",
-   "hl task note (suppressed)"
+   "hl task note (suppressed)",
+   "hl land (no daemon method serves it any more; the CLI goes next)"
   ]
  },
  "x-topics": {
@@ -2364,7 +2359,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "Oldest first, in pages: `before` reads the page just older than an item id, `since` reads the items from the second that id is in. Items are the agent's replies, its tool calls, the prompts it opened and the events of the tasks it owns. A tool item's id is the second of the call and its `output` is what the store held when the page was read: a result that lands in a later second than its call is not sent again by `since`, so a client that needs it reads the page again (without `since`). A page carries at most 2 MiB of tool output between its items; the newest items keep their output and an older one is cut to fit, with `dropped_lines` counting what was left out."
+   "description": "Oldest first, in pages: `before` reads the page just older than an item id, `since` reads the items from the second that id is in. Items are the agent's replies, its tool calls, the prompts it opened and the events of the tasks it owns. A tool item's id is the second of the call and its `output` is what the store held when the page was read: a result that lands in a later second than its call is not sent again by `since`, so a client that needs it reads the page again (without `since`). A page carries at most 2 MiB of tool output between its items; the newest items keep their output and an older one is cut to fit, with `dropped_lines` counting what was left out. Session items (kind session) are part of the list: each carries session.cause and session.handoff, and sorts among the others by its second."
   },
   {
    "name": "transcript.events",
@@ -3385,7 +3380,7 @@
    "x-gates": [
     "unsupported"
    ],
-   "description": "A connection has at most one attach per terminal and format: attaching a terminal and format the connection already watches replaces that attach, accepted and never refused (no notice of the old one follows the reply; the reply is a fresh snapshot, and the new attach's counter starts at its seq). An attach in the other format is independent, with its own counter. A client that wants more than one view of one terminal and format shares one attach. With agent, an agent that has no terminal, a structured agent among them, is not_found (terminal)."
+   "description": "A connection has at most one attach per terminal and format: attaching a terminal and format the connection already watches replaces that attach, accepted and never refused (no notice of the old one follows the reply; the reply is a fresh snapshot, and the new attach's counter starts at its seq). An attach in the other format is independent, with its own counter. A client that wants more than one view of one terminal and format shares one attach. With agent, an agent that has no terminal, a structured agent among them, is not_found (terminal). With terminal, a handle no agent has is watched while the host lists it (it has no input holder, so terminal.input and terminal.resize refuse it); one the host does not list is not_found."
   },
   {
    "name": "terminal.history",
@@ -3698,6 +3693,51 @@
     }
    ],
    "description": "not_found is for a terminal handle that does not exist. Closing the connection ends every attach."
+  },
+  {
+   "name": "debug.terminals",
+   "summary": "Every pane of the terminal host with what the daemon knows of it, for the hidden debug window.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "host": {
+       "type": "string"
+      },
+      "now": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "panes": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/DebugTerminalPane"
+       }
+      }
+     },
+     "required": [
+      "host",
+      "now",
+      "panes"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "unsupported",
+    "state"
+   ],
+   "description": "Lists every pane of the daemon's terminal server (tmux), whichever agent has it or none, to find panes kept open past their prompt cache and shells left behind after an agent's session exited. Reads only: the host's pane list, the process table and the daemon's own rows; of the agent's view only cache_until. A host that cannot list its panes (Orca) is refused, gate unsupported; one that cannot be reached, gate state. Watching a listed pane is terminal.attach by its handle; a pane no agent has takes no input. Callers: the founder and a paired device (member); below that is refused, gate role."
   },
   {
    "name": "inbox.list",
@@ -4522,7 +4562,7 @@
   },
   {
    "name": "task.reopen",
-   "summary": "Reopen a task.",
+   "summary": "Reopen a done task: anyone may, with a reason the opener and assignee are told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -4701,10 +4741,10 @@
     },
     {
      "name": "why",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string",
-      "description": "What led to this, in a line."
+      "description": "What led to this, in a line; optional, since the linked message is the reason."
      }
     },
     {
@@ -4990,7 +5030,7 @@
   },
   {
    "name": "task.queue",
-   "summary": "Approve draft tasks to run: the founder or the owner's manager.",
+   "summary": "Approve draft tasks to run: anyone may; each task's opener and assignee are told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5034,7 +5074,7 @@
   },
   {
    "name": "task.draft",
-   "summary": "Send queued tasks back to draft: the founder or the owner's manager.",
+   "summary": "Send queued tasks back to draft: anyone may; each task's opener and assignee are told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5078,7 +5118,7 @@
   },
   {
    "name": "task.merge",
-   "summary": "Fold tasks into one: the kept task takes their titles, requests and sub-tasks; opener or founder only.",
+   "summary": "Fold tasks into one: the kept task takes their titles, requests and sub-tasks; anyone may, and the opener and assignee of each are told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5129,7 +5169,7 @@
   },
   {
    "name": "task.release",
-   "summary": "Take a doing task back to queued or draft: the opener or the founder.",
+   "summary": "Take a doing task back to queued or draft: anyone may, with a reason the opener and assignee are told (and the founder, for a task begun on their message).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5152,7 +5192,7 @@
     },
     {
      "name": "reason",
-     "required": false,
+     "required": true,
      "schema": {
       "type": "string"
      }
@@ -5188,7 +5228,7 @@
   },
   {
    "name": "task.discard",
-   "summary": "Throw away a task that is not done: the asker or the founder, with a reason.",
+   "summary": "Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5278,7 +5318,7 @@
   },
   {
    "name": "task.withdraw",
-   "summary": "Withdraw a task the caller made.",
+   "summary": "Withdraw a task the caller asked for; anyone else discards it with a reason.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5361,7 +5401,7 @@
   },
   {
    "name": "task.edit",
-   "summary": "Change a task: owner, reporter, title and priority by its opener, its reporter or the founder; the owner also by the owner's manager (its owner may record what it waits on), body and time box until it is delivered. Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the holder is told.",
+   "summary": "Change a task: owner, reporter, title, priority, body and time box, by anyone (body and time box until it is delivered). Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the opener and assignee are told, and the edit is kept with who made it.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5592,193 +5632,6 @@
      "$ref": "#/components/errors/bad_request"
     }
    ]
-  },
-  {
-   "name": "land",
-   "summary": "Request a land; accepted only from the session's own hl land (session token and peer pid, as today).",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "sha",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "message",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "tree",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "fix",
-     "required": false,
-     "schema": {
-      "type": "object",
-      "additionalProperties": {
-       "type": "string"
-      },
-      "description": "The merger's housekeeping: whole files by path, written over the merge. Each path must be on main's tools/housekeeping.paths and no file agents read as instructions; at most 1 MiB in all. Anything else needs a PASS."
-     }
-    },
-    {
-     "name": "squash",
-     "required": false,
-     "schema": {
-      "type": "boolean",
-      "description": "Main gets one commit carrying `message`, not the merge."
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "agent",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    }
-   ],
-   "x-gates": [
-    "not_self",
-    "session_token"
-   ],
-   "x-callers": [
-    "agent"
-   ],
-   "description": "Queue a land: the merger's alone (`caller` is the session, never a name in the request), and only for a sha an auditor recorded a PASS for (land.pass), with the tree the merger's test saw; the daemon merges it itself and fast-forwards main only when the result is that tree. A sha lands once. Accepted only for the vouch of land.authorize: exactly this agent, verb and sha as typed, once, within 60 seconds."
-  },
-  {
-   "name": "land.pass",
-   "summary": "Record a land pass.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "sha",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "agent",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    }
-   ],
-   "x-gates": [
-    "not_self",
-    "session_token"
-   ],
-   "x-callers": [
-    "agent"
-   ],
-   "description": "Record an auditor's PASS for a sha: any agent named `<team>.auditor` (numbered when a team has more), from its own session, and only for the vouch of land.authorize: exactly this agent, verb and sha as typed, once, within 60 seconds."
-  },
-  {
-   "name": "land.authorize",
-   "summary": "The session's hl land vouches for the next land verb (legacy land_authorize).",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "agent",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/AgentName"
-     }
-    },
-    {
-     "name": "land_verb",
-     "required": true,
-     "schema": {
-      "type": "string",
-      "enum": [
-       "land",
-       "land_pass"
-      ]
-     }
-    },
-    {
-     "name": "sha",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "key",
-     "required": true,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "agent",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    }
-   ],
-   "x-gates": [
-    "not_self",
-    "session_token"
-   ],
-   "x-callers": [
-    "agent"
-   ],
-   "description": "The session's own PreToolUse hook vouches for the one `hl land` command it is about to run. It names the agent, the verb (land or land_pass) and the sha exactly as typed, and holds the per-session key `hl launch` kept in a folder the sandbox hides. The daemon keeps the vouch for 60 seconds and spends it on the first matching land or land.pass, so code the session runs (a test run, a script) cannot send one. The legacy verb land_authorize takes the same arguments and answers {ok, said}."
   },
   {
    "name": "hook.record",
@@ -11354,7 +11207,7 @@
     "properties": {
      "id": {
       "type": "integer",
-      "description": "Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. For kind reply it is also what chat.send takes as parent_item. A reply has one of two sources, told apart by the last digit of its number within the second: a structured session's text block (even; the same id on every read and in the live event's `item`) and the answer to a request (odd); each is the same on every read, and chat.transcript lists both."
+      "description": "Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. For kind reply it is also what chat.send takes as parent_item. A reply has one of two sources, told apart by the last digit of its number within the second: a structured session's text block (even; the same id on every read and in the live event's `item`) and the answer to a request (odd); each is the same on every read, and chat.transcript lists both. Source numbers within the second: 0 reply, 1 prompt, 2 task event, 3 tool call, 4 session start (its number is the session_starts row)."
      },
      "at": {
       "$ref": "#/components/schemas/Timestamp"
@@ -11439,7 +11292,7 @@
      },
      "session": {
       "type": "object",
-      "description": "For kind session: a session of this agent began here.",
+      "description": "For kind session: a conversation of this agent began here. Listed for every session start that did not resume the old conversation, once its session id is known (a fresh launch has none for its first seconds). When one begins the daemon publishes the item as chat.transcript, as it does a reply.",
       "properties": {
        "id": {
         "type": "string"
@@ -11460,7 +11313,7 @@
        },
        "cause": {
         "type": "string",
-        "description": "Why the session began (restart, wake, fresh close, move, handoff, launch, start). An open set: a client draws a word it does not know as text. Absent from a daemon that does not serve it."
+        "description": "Why the conversation began. Words the daemon writes: `launch` (first start of a spawned agent), `start` (work arrived for a closed agent), `wake` (a closed agent woken), `restart`, `fresh close` (the old conversation was closed and not resumed; the one word with a space), `move` (to another account), `handoff` (folded into a handoff), and, where the daemon knows it, `context_full`, `settings_applied`, `crash_recovery`, `idle_close`. Open set: a client draws a word it does not know as text. Absent from a daemon that does not serve it."
        }
       },
       "required": [
@@ -11683,7 +11536,7 @@
       "additionalProperties": {
        "type": "string"
       },
-      "description": "settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` (at most 1024 bytes) or `base.md` (at most 2048 bytes); empty text, control characters other than tab and newline, or a file over its budget is bad_request."
+      "description": "settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` or `base.md`; empty text or control characters other than tab and newline is bad_request."
      }
     }
    },
@@ -11861,23 +11714,11 @@
       "default": 900,
       "description": "Seconds after the first waiting result before the agent is woken once with a digest. Per agent."
      },
-     "unasked_running_s": {
-      "type": "integer",
-      "minimum": 1,
-      "default": 900,
-      "description": "Seconds an unasked running agent may go before it is asked."
-     },
      "stop_wait_backstop_s": {
       "type": "integer",
       "minimum": 1,
       "default": 900,
       "description": "Backstop for a stop-wait."
-     },
-     "stale_background_s": {
-      "type": "integer",
-      "minimum": 1,
-      "default": 3000,
-      "description": "Seconds of silence after which background work counts as stale."
      },
      "token_prices": {
       "type": "object",
@@ -12017,18 +11858,6 @@
       ],
       "description": "Seconds after the first waiting result before the agent is woken once with a digest. Per agent. null removes the key (back to the default)."
      },
-     "unasked_running_s": {
-      "oneOf": [
-       {
-        "type": "integer",
-        "minimum": 1
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "description": "Seconds an unasked running agent may go before it is asked. null removes the key (back to the default)."
-     },
      "stop_wait_backstop_s": {
       "oneOf": [
        {
@@ -12040,18 +11869,6 @@
        }
       ],
       "description": "Backstop for a stop-wait. null removes the key (back to the default)."
-     },
-     "stale_background_s": {
-      "oneOf": [
-       {
-        "type": "integer",
-        "minimum": 1
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "description": "Seconds of silence after which background work counts as stale. null removes the key (back to the default)."
      },
      "token_prices": {
       "oneOf": [
@@ -13079,6 +12896,216 @@
      "name",
      "mime",
      "bytes"
+    ]
+   },
+   "DebugTerminalPane": {
+    "type": "object",
+    "description": "One pane of the terminal host, with what the daemon knows of it. A field the daemon does not know is null.",
+    "properties": {
+     "session": {
+      "type": "string"
+     },
+     "window": {
+      "type": "string",
+      "description": "The window's index in its session."
+     },
+     "window_name": {
+      "type": "string"
+     },
+     "terminal": {
+      "type": "string",
+      "description": "The pane's handle, as terminal.attach takes it."
+     },
+     "pid": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The pane's own process (its shell)."
+     },
+     "command": {
+      "type": "string",
+      "description": "What the host says runs in the pane now."
+     },
+     "path": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "dead": {
+      "type": "boolean"
+     },
+     "last_activity": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "idle_s": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Seconds since the pane's window last drew output."
+     },
+     "process": {
+      "type": "string",
+      "enum": [
+       "agent",
+       "shell",
+       "other",
+       "unknown"
+      ],
+      "description": "agent: an agent CLI (claude, codex, opencode) runs at or under the pane's process; shell: none does and the pane shows a shell; unknown: the process table could not be read and the pane's command says neither."
+     },
+     "agent_process": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "pid": {
+          "type": "integer"
+         },
+         "name": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "pid",
+         "name"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "agent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The agent whose current terminal this pane is."
+     },
+     "orphan": {
+      "type": "boolean",
+      "description": "No agent has this pane as its terminal."
+     },
+     "closed": {
+      "type": "boolean",
+      "description": "The agent is closed; it keeps the handle of the pane it had."
+     },
+     "recorded_agent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "For an orphan: the agent the daemon opened the pane for."
+     },
+     "state": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "account": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "session_id": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "worktree": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "cache_until": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "When the agent's prompt cache lapses, from its view."
+     },
+     "orca_terminal": {
+      "type": "null",
+      "description": "Always null: the daemon keeps no link from a tmux pane to an Orca terminal."
+     }
+    },
+    "required": [
+     "session",
+     "window",
+     "window_name",
+     "terminal",
+     "pid",
+     "command",
+     "path",
+     "dead",
+     "last_activity",
+     "idle_s",
+     "process",
+     "agent_process",
+     "agent",
+     "orphan",
+     "closed",
+     "recorded_agent",
+     "state",
+     "account",
+     "session_id",
+     "worktree",
+     "cache_until",
+     "orca_terminal"
     ]
    }
   },

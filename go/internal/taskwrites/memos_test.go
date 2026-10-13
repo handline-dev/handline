@@ -103,7 +103,7 @@ func TestMemosAreAddedEditedAndDeletedByTheirAuthorOrTheFounder(t *testing.T) {
 	}
 }
 
-func TestReopenSendsADoneTaskBackOnTheAskersWordAndAReason(t *testing.T) {
+func TestReopenSendsADoneTaskBackWithAReason(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -120,10 +120,6 @@ func TestReopenSendsADoneTaskBackOnTheAskersWordAndAReason(t *testing.T) {
 	}
 	line := func(id int, task int, note, rid string) string {
 		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.reopen","params":{"task":%d,"note":%q,"request_id":%q}}`, id, task, note, rid)
-	}
-	other := call(t, mk("worker"), line(2, 1, "wrong", "w1"))
-	if e := other[0]["error"].(map[string]any)["data"].(map[string]any); e["code"] != "refused" {
-		t.Fatalf("only the asker or the founder reopens: %v", other[0])
 	}
 	r := call(t, mk("manager"), line(2, 1, "  ", "m0"), line(3, 9, "x", "m1"), line(4, 1, "the result was wrong", "m2"), line(5, 1, "again", "m3"))
 	if r[0]["error"] == nil || r[1]["error"] == nil {

@@ -159,8 +159,8 @@ func TestTheGoTickAtTheCutoverLeavesTheUsageTracesThePythonTickLeaves(t *testing
 	h := int64(3600)
 	for _, c := range []usageCase{
 		{name: "windows without a reset", stored: [2]struct{ pct, reset int64 }{{55, h}, {5, 2 * h}}},
-		// 55% stored and 40% read inside the one open window: the figure is never lowered.
-		{name: "a lower reading in the same open window", stored: [2]struct{ pct, reset int64 }{{55, h}, {12, 2 * h}}, answerReset5: h, answerReset7: 2 * h, want5: 55},
+		// 55% stored and 40% read inside the one open window: an early reset, so the fresh figure wins.
+		{name: "a lower reading in the same open window", stored: [2]struct{ pct, reset int64 }{{55, h}, {12, 2 * h}}, answerReset5: h, answerReset7: 2 * h, want5: 40},
 		// The stored 5h window ended 10 minutes ago; the reading names the next one.
 		{name: "a reading after the window ended", stored: [2]struct{ pct, reset int64 }{{55, -600}, {12, 2 * h}}, storedPing: true, answerReset5: h, answerReset7: 2 * h, want5: 40},
 	} {

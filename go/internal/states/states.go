@@ -41,6 +41,8 @@ const (
 	MovingMark = "moving"
 	// ByHandMark starts the detail of a park a person started by hand.
 	ByHandMark = "by hand"
+	// FoldKind is the event the tick writes when it closes an idle session fresh for its full context, and the cost-pilot switch for it.
+	FoldKind = "idle_fold"
 )
 
 // ParkWakeable is park_wakeable: whether w does anything on this PARKED, THROTTLED or DEGRADED row, and why not.

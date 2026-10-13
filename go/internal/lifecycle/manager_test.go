@@ -189,6 +189,16 @@ func TestClosingRecordsTheResumeAndClosesThePane(t *testing.T) {
 	if h, _ := db.GetHandoff(m.Q, "a"); h != "record" {
 		t.Fatalf("handoff %q", h)
 	}
+	if _, idle, _ := db.LastEventID(m.Q, "a", IdleCloseKind); idle {
+		t.Fatal("only the tick's idle close is recorded as one")
+	}
+	db.SetTerminal(m.Q, "b", "t2", "/wt")
+	if ok, _, _ := m.CloseAgent("b", SessionStatus{SessionID: "sess-2"}, CloseOpts{Idle: true}); !ok {
+		t.Fatal("not closed")
+	}
+	if _, idle, _ := db.LastEventID(m.Q, "b", IdleCloseKind); !idle {
+		t.Fatal("an idle close is recorded, for the start after it")
+	}
 }
 
 func TestACloseWithNoSessionIdIsRefusedUnlessItDiscardsOnPurpose(t *testing.T) {

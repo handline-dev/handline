@@ -2,6 +2,9 @@ import { ByteTerminalView, toBase64, type ByteListener } from './byte-terminal-v
 import type { CallParams } from './client.ts';
 import type { MethodName, Methods, Notifications, TerminalBytesSnapshot } from './protocol.ts';
 
+/** The key a pane watched by handle is kept under; no agent name holds a NUL. */
+export const paneKey = (handle: string): string => `\0pane:${handle}`;
+
 type Call = <M extends MethodName>(method: M, params: CallParams<M>) => Promise<Methods[M]['result']>;
 
 /** The terminal channel in format `bytes`: one view per agent, kept current through reconnects (each reconnect attaches again and repaints). */
@@ -22,8 +25,15 @@ export class BytesChannel {
    * Attaches, or joins the view another screen already holds; `on` hears the first repaint and everything after. Joining attaches
    * again, so every screen starts from a snapshot. Rejects when the daemon refuses (`unsupported`, `not_found`).
    */
-  async open(agent: string, on: ByteListener): Promise<{ view: ByteTerminalView; off: () => void }> {
-    const v = this.views.get(agent) ?? new ByteTerminalView(agent);
+  open(agent: string, on: ByteListener): Promise<{ view: ByteTerminalView; off: () => void }> {
+    return this.join(agent, this.views.get(agent) ?? new ByteTerminalView(agent), on);
+  }
+  /** The same by terminal handle, for a pane no agent may have (the debug window); close it with `close(paneKey(handle))`. */
+  openPane(handle: string, on: ByteListener): Promise<{ view: ByteTerminalView; off: () => void }> {
+    const key = paneKey(handle);
+    return this.join(key, this.views.get(key) ?? new ByteTerminalView(key, handle), on);
+  }
+  private async join(agent: string, v: ByteTerminalView, on: ByteListener): Promise<{ view: ByteTerminalView; off: () => void }> {
     this.views.set(agent, v);
     this.holds.set(agent, (this.holds.get(agent) ?? 0) + 1);
     const off = v.subscribe(on);
@@ -59,7 +69,10 @@ export class BytesChannel {
   }
 
   private async attach(v: ByteTerminalView, connecting = false): Promise<void> {
-    const snap = await (connecting ? this.callNow : this.call)('terminal.attach', { agent: v.agent, format: 'bytes', history: 2000 });
+    const snap = await (connecting ? this.callNow : this.call)(
+      'terminal.attach',
+      v.pane ? { terminal: v.pane, format: 'bytes', history: 2000 } : { agent: v.agent, format: 'bytes', history: 2000 },
+    );
     if (snap.format !== 'bytes') throw new Error('the daemon answered a bytes attach with text');
     v.setSnapshot(snap as TerminalBytesSnapshot);
   }

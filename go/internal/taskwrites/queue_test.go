@@ -11,7 +11,7 @@ import (
 	"github.com/handline/handline/go/internal/store"
 )
 
-func TestQueueAndDraftAreTheFoundersOrTheManagersAndAllOrNone(t *testing.T) {
+func TestQueueAndDraftAreAllOrNone(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -46,9 +46,6 @@ func TestQueueAndDraftAreTheFoundersOrTheManagersAndAllOrNone(t *testing.T) {
 		var q *string
 		db.QueryRow("SELECT queued_by FROM tasks WHERE id = ?", id).Scan(&q)
 		return q != nil
-	}
-	if r := call(t, mk("other"), line(2, "task.queue", "o1", 1)); r[0]["error"] == nil || state(1) {
-		t.Fatalf("only the founder or the owner's manager queues: %v", r[0])
 	}
 	if r := call(t, mk("manager"), line(2, "task.queue", "m0", 1, 3)); r[0]["error"] == nil || state(1) {
 		t.Fatalf("one task that cannot be queued stops all of them: %v", r[0])

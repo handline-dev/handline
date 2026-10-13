@@ -112,6 +112,7 @@ func (fakeIdle) FooterCount(string) int                  { return 1 }
 type fakeSessions struct {
 	live        string
 	transcripts map[string]string
+	cacheLeft   map[string]int64
 }
 
 func (s *fakeSessions) LiveSession(db.Q, string) string         { return s.live }
@@ -119,6 +120,10 @@ func (s *fakeSessions) ContextUse(db.Q, string) (int64, int64)  { return 5000, 2
 func (s *fakeSessions) KeepsTranscripts(string) bool            { return len(s.transcripts) > 0 }
 func (s *fakeSessions) FindTranscript(session, _ string) string { return s.transcripts[session] }
 func (s *fakeSessions) MovableTrigger(kind string) bool         { return kind == "usage" }
+func (s *fakeSessions) CacheLeft(agent string, _ int64) (int64, bool) {
+	left, ok := s.cacheLeft[agent]
+	return left, ok
+}
 
 type fakeLife struct{ started, woke []string }
 

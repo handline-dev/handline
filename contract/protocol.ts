@@ -814,7 +814,7 @@ export type ChatMessage = {
 };
 
 export type TranscriptItem = {
-  /** Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. For kind reply it is also what chat.send takes as parent_item. A reply has one of two sources, told apart by the last digit of its number within the second: a structured session's text block (even; the same id on every read and in the live event's `item`) and the answer to a request (odd); each is the same on every read, and chat.transcript lists both. */
+  /** Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. For kind reply it is also what chat.send takes as parent_item. A reply has one of two sources, told apart by the last digit of its number within the second: a structured session's text block (even; the same id on every read and in the live event's `item`) and the answer to a request (odd); each is the same on every read, and chat.transcript lists both. Source numbers within the second: 0 reply, 1 prompt, 2 task event, 3 tool call, 4 session start (its number is the session_starts row). */
   id: number;
   at: Timestamp;
   kind: "reply" | "tool" | "prompt" | "task_event" | "session";
@@ -835,12 +835,12 @@ export type TranscriptItem = {
     /** What a `changed` event changed, as chat.requests words it: `assigned to X, priority 2 -> 1`, `title changed`, `handed to X`. Absent when the event word says it all. An open set: a client draws a word it does not know as text. */
     change?: string;
   };
-  /** For kind session: a session of this agent began here. */
+  /** For kind session: a conversation of this agent began here. Listed for every session start that did not resume the old conversation, once its session id is known (a fresh launch has none for its first seconds). When one begins the daemon publishes the item as chat.transcript, as it does a reply. */
   session?: {
     id: string;
     started: Timestamp;
     handoff: string | null;
-    /** Why the session began (restart, wake, fresh close, move, handoff, launch, start). An open set: a client draws a word it does not know as text. Absent from a daemon that does not serve it. */
+    /** Why the conversation began. Words the daemon writes: `launch` (first start of a spawned agent), `start` (work arrived for a closed agent), `wake` (a closed agent woken), `restart`, `fresh close` (the old conversation was closed and not resumed; the one word with a space), `move` (to another account), `handoff` (folded into a handoff), and, where the daemon knows it, `context_full`, `settings_applied`, `crash_recovery`, `idle_close`. Open set: a client draws a word it does not know as text. Absent from a daemon that does not serve it. */
     cause?: string;
   };
 };
@@ -901,7 +901,7 @@ export type HrArgs = {
   members?: string[];
   /** team: repo by member. */
   repos?: { [key: string]: string };
-  /** settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` (at most 1024 bytes) or `base.md` (at most 2048 bytes); empty text, control characters other than tab and newline, or a file over its budget is bad_request. */
+  /** settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` or `base.md`; empty text or control characters other than tab and newline is bad_request. */
   sets?: { [key: string]: string };
 };
 
@@ -958,12 +958,8 @@ export type SettingsValues = {
   bg_check_s?: number;
   /** Seconds after the first waiting result before the agent is woken once with a digest. Per agent. */
   notice_digest_s?: number;
-  /** Seconds an unasked running agent may go before it is asked. */
-  unasked_running_s?: number;
   /** Backstop for a stop-wait. */
   stop_wait_backstop_s?: number;
-  /** Seconds of silence after which background work counts as stale. */
-  stale_background_s?: number;
   /** Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored. */
   token_prices?: { [key: string]: number };
   /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). */
@@ -992,12 +988,8 @@ export type SettingsChanges = {
   bg_check_s?: number | null;
   /** Seconds after the first waiting result before the agent is woken once with a digest. Per agent. null removes the key (back to the default). */
   notice_digest_s?: number | null;
-  /** Seconds an unasked running agent may go before it is asked. null removes the key (back to the default). */
-  unasked_running_s?: number | null;
   /** Backstop for a stop-wait. null removes the key (back to the default). */
   stop_wait_backstop_s?: number | null;
-  /** Seconds of silence after which background work counts as stale. null removes the key (back to the default). */
-  stale_background_s?: number | null;
   /** Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored. null removes the key (back to the default). */
   token_prices?: { [key: string]: number } | null;
   /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). null removes the key (back to the default). */
@@ -1267,6 +1259,47 @@ export type Attachment = {
   name: string;
   mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
   bytes: number;
+};
+
+/** One pane of the terminal host, with what the daemon knows of it. A field the daemon does not know is null. */
+export type DebugTerminalPane = {
+  session: string;
+  /** The window's index in its session. */
+  window: string;
+  window_name: string;
+  /** The pane's handle, as terminal.attach takes it. */
+  terminal: string;
+  /** The pane's own process (its shell). */
+  pid: number | null;
+  /** What the host says runs in the pane now. */
+  command: string;
+  path: string | null;
+  dead: boolean;
+  last_activity: Timestamp | null;
+  /** Seconds since the pane's window last drew output. */
+  idle_s: number | null;
+  /** agent: an agent CLI (claude, codex, opencode) runs at or under the pane's process; shell: none does and the pane shows a shell; unknown: the process table could not be read and the pane's command says neither. */
+  process: "agent" | "shell" | "other" | "unknown";
+  agent_process: {
+    pid: number;
+    name: string;
+  } | null;
+  /** The agent whose current terminal this pane is. */
+  agent: AgentName | null;
+  /** No agent has this pane as its terminal. */
+  orphan: boolean;
+  /** The agent is closed; it keeps the handle of the pane it had. */
+  closed: boolean;
+  /** For an orphan: the agent the daemon opened the pane for. */
+  recorded_agent: AgentName | null;
+  state: string | null;
+  account: string | null;
+  session_id: string | null;
+  worktree: string | null;
+  /** When the agent's prompt cache lapses, from its view. */
+  cache_until: Timestamp | null;
+  /** Always null: the daemon keeps no link from a tmux pane to an Orca terminal. */
+  orca_terminal: null;
 };
 
 export interface Methods {
@@ -1681,6 +1714,11 @@ export interface Methods {
   /** With it, ends only that format's attach of the terminal on this connection; without it, every attach of that terminal on the connection. Neither is an error when there is nothing to end; any other word is bad_request naming `format`. */
   format?: "text" | "bytes" | "styled";
 }; result: { [key: string]: unknown } };
+  "debug.terminals": { params: { [key: string]: unknown }; result: {
+    host: string;
+    now: Timestamp;
+    panes: DebugTerminalPane[];
+  } };
   "inbox.list": { params: {
   unread?: boolean;
   kind?: string;
@@ -1833,8 +1871,8 @@ export interface Methods {
   message: number;
   priority?: 1 | 2 | 3;
   expects?: Expects;
-  /** What led to this, in a line. */
-  why: string;
+  /** What led to this, in a line; optional, since the linked message is the reason. */
+  why?: string;
   request_id: RequestId;
 }; result: Accepted & {
     task: number;
@@ -1882,7 +1920,7 @@ export interface Methods {
   "task.release": { params: {
   task: number;
   to?: "queued" | "draft";
-  reason?: string;
+  reason: string;
   request_id: RequestId;
 }; result: Accepted };
   "task.discard": { params: {
@@ -1938,27 +1976,6 @@ export interface Methods {
   /** Why this carries no task. */
   no_task?: string;
   parent?: number;
-  request_id: RequestId;
-}; result: Accepted };
-  "land": { params: {
-  sha: string;
-  message: string;
-  tree?: string;
-  /** The merger's housekeeping: whole files by path, written over the merge. Each path must be on main's tools/housekeeping.paths and no file agents read as instructions; at most 1 MiB in all. Anything else needs a PASS. */
-  fix?: { [key: string]: string };
-  /** Main gets one commit carrying `message`, not the merge. */
-  squash?: boolean;
-  request_id: RequestId;
-}; result: Accepted };
-  "land.pass": { params: {
-  sha: string;
-  request_id: RequestId;
-}; result: Accepted };
-  "land.authorize": { params: {
-  agent: AgentName;
-  land_verb: "land" | "land_pass";
-  sha: string;
-  key: string;
   request_id: RequestId;
 }; result: Accepted };
   "hook.record": { params: {
@@ -2293,6 +2310,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "terminal.close": { role: "member", callers: null, write: true, since: 1 },
   "terminal.open": { role: "member", callers: null, write: false, since: 1 },
   "terminal.detach": { role: "member", callers: null, write: false, since: 1 },
+  "debug.terminals": { role: "member", callers: null, write: false, since: 1 },
   "inbox.list": { role: "agent", callers: null, write: false, since: 1 },
   "inbox.get": { role: "agent", callers: null, write: false, since: 1 },
   "inbox.mark_read": { role: "agent", callers: null, write: true, since: 1 },
@@ -2324,9 +2342,6 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.edit": { role: "agent", callers: null, write: true, since: 1 },
   "task.ask": { role: "member", callers: null, write: true, since: 1 },
   "say": { role: "agent", callers: null, write: true, since: 1 },
-  "land": { role: "agent", callers: ["agent"], write: true, since: 1 },
-  "land.pass": { role: "agent", callers: ["agent"], write: true, since: 1 },
-  "land.authorize": { role: "agent", callers: ["agent"], write: true, since: 1 },
   "hook.record": { role: "agent", callers: ["agent"], write: true, since: 1 },
   "hr.propose": { role: "agent", callers: null, write: true, since: 1 },
   "hr.withdraw": { role: "agent", callers: null, write: true, since: 1 },

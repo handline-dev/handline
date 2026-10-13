@@ -297,6 +297,13 @@
     "applied_at": 1760000000,
     "name": "agent_terminals",
     "version": 14
+   },
+   {
+    "__rowid": 15,
+    "additive": 1,
+    "applied_at": 1760000000,
+    "name": "drop_lands",
+    "version": 15
    }
   ]
  },
@@ -310,9 +317,9 @@
  ],
  "files": {
   "accounts/alpha/status.json": "{\"account\": \"alpha\", \"collected_at\": 1760000000, \"session_id\": \"s\", \"windows\": [{\"minutes\": 300, \"used_percent\": 20, \"resets_at\": null, \"observed_at\": null, \"carried\": false, \"lost\": false}, {\"minutes\": 10080, \"used_percent\": null, \"resets_at\": null, \"observed_at\": null, \"carried\": false, \"lost\": false, \"readable\": false}]}",
-  "agents/backend/ROLE.md": "# backend\n\n(describe the role, under 1KB)\n",
+  "agents/backend/ROLE.md": "# backend\n\n(describe the role)\n",
   "agents/backend/agent.yaml": "name: backend\nmodel: sonnet\neffort: medium\nweight: light\nenabled: true\n",
-  "agents/backend/base.md": "# base - backend\n\n(injected into every session, so it is fixed overhead. Keep it under 2KB.)\n",
+  "agents/backend/base.md": "# base - backend\n\n(injected into every session, so it is fixed overhead.)\n",
   "config.yaml": "handoff_note: false\n",
   "team.yaml": "\nteams:\n  product: [product]\n  eng:     [backend, frontend]\n  growth:  [marketing, analytics]\n  ops:     [archivist]\n\nagents:\n  product:    { model: mid,   weight: light }\n  backend:    { model: high,  weight: heavy }\n  frontend:   { model: high,  weight: heavy }\n  marketing:  { model: mid,   weight: light }\n  analytics:  { model: mid,   weight: light }\n  archivist:  { model: cheap, weight: light }\n  reviewer:   { model: mid,   weight: light, reviews: [eng, growth, product] }\n\nedges:\n  - { from: \"*\",         to: \"reviewer\",     relation: peer,  response: async }\n  - { from: \"reviewer\",  to: \"*\",            kind: verdict,   response: async }\n  - { from: \"product\",   to: \"eng.*\",        relation: peer,  response: async }\n  - { from: \"product\",   to: \"growth.*\",     relation: peer,  response: async }\n  - { from: \"analytics\", to: \"product\",      relation: peer,  response: async }\n  - { from: \"*\",         to: \"archivist\",    relation: peer,  response: fire_and_forget }\n  - { from: \"*\",         to: \"human\", kind: task }\n\ndeny:\n  - { from: \"eng.*\",    to: \"growth.*\",  reason: \"go through product\" }\n  - { from: \"growth.*\", to: \"eng.*\",     reason: \"same\" }\n\nlimits:\n  max_chain_depth: 4\n"
  },

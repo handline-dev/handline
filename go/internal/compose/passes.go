@@ -109,17 +109,12 @@ func (t timeboxPorts) TaskDoing(q db.Q, task *db.Task) bool {
 	state, err := db.TaskState(q, task)
 	return err == nil && state == "doing"
 }
-func (t timeboxPorts) TaskBegun(q db.Q, tid int64) bool { ok, _ := db.Begun(q, tid); return ok }
 func (t timeboxPorts) SupervisorOf(agent string) string {
 	tm, err := team.LoadTeam(t.home)
 	if err != nil || tm == nil {
 		return ""
 	}
 	return tm.SupervisorOf(agent)
-}
-func (t timeboxPorts) ChildWait(q db.Q, agent string) bool {
-	w, err := db.ChildWait(q, agent)
-	return err == nil && w != ""
 }
 
 // StopWaitReason is actions.stop_wait_reason: why the agent should not stop now - it holds a current task with no recorded wait.

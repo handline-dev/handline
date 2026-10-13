@@ -50,15 +50,17 @@ const (
 	TypingElsewhere = "someone else is typing at this agent"
 	RestartOwedKind = "restart_owed"
 	MoveOwedKind    = "move_owed"
+	IdleCloseKind   = "idle_close"
 	Unconfirmed     = "the process table could not be confirmed just now"
 	PaneMark        = "its terminal was closed with it"
 	NothingWaiting  = "nothing is waiting for it; it is woken when something is sent to it"
 )
 
 // CloseOpts are the ways a close can differ: a restart keeps the pane and may force a working agent; a fresh start discards the
-// conversation on purpose; a restart asked for by name may close a terminal whose screen cannot be read.
+// conversation on purpose; a restart asked for by name may close a terminal whose screen cannot be read; the tick's idle close is
+// recorded (IdleCloseKind), so the start after it says why.
 type CloseOpts struct {
-	KeepPane, Force, Discard, PaneMayClose bool
+	KeepPane, Force, Discard, PaneMayClose, Idle bool
 }
 
 func (m *Manager) cacheExpiredAt(agent, session string, now int64) bool {
@@ -548,6 +550,9 @@ func (m *Manager) closeAgent(agent string, st SessionStatus, o CloseOpts) (bool,
 	}
 	if ok {
 		m.Handoff.ClearNote(m.Q, agent)
+		if o.Idle {
+			must(db.AddEvent(m.Q, agent, IdleCloseKind))
+		}
 	}
 	return ok, why
 }

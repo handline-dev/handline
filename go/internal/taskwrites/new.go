@@ -111,12 +111,6 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 				return nil, err
 			}
 		}
-		expects := ""
-		if p["expects"] != nil {
-			if expects, err = parseExpects(p["expects"]); err != nil {
-				return nil, err
-			}
-		}
 		ui := false
 		if v := p["ui"]; v != nil {
 			b, isBool := v.(bool)
@@ -134,11 +128,9 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			return nil, err
 		}
 		me := c.Caller.Actor()
-		if expects == "" {
-			expects = "report"
-			if owner == human && me != human { // a task given to the founder is a decision unless it says otherwise
-				expects = "decision"
-			}
+		expects := "report"
+		if owner == human && me != human { // a task given to the founder is a decision
+			expects = "decision"
 		}
 		clean := strings.TrimSpace(textsafe.Oneline(title))
 		var (
@@ -176,7 +168,7 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			// after may forget the inbox file before this writes it; an orphan file for a closed request is left, as it is low impact.
 			go asked.After()
 		}
-		out["said"] = fmt.Sprintf("task T%d opened for %s (P%d, expects %s%s): %s", tid, owner, prio, expects, limit, msg)
+		out["said"] = fmt.Sprintf("task T%d opened for %s (P%d%s): %s", tid, owner, prio, limit, msg)
 		return out, nil
 	}
 }

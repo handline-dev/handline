@@ -3,13 +3,12 @@ package taskwrites
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/store"
 )
 
-func TestATasksReporterEditsItAndAnyoneMayReassignIt(t *testing.T) {
+func TestAnyoneMayEditOrReassignATask(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -56,14 +55,11 @@ func TestATasksReporterEditsItAndAnyoneMayReassignIt(t *testing.T) {
 	if why := edit("shop", nil, s("shop"), nil); why != "" {
 		t.Fatalf("anyone may change who answers for it: %s", why)
 	}
-	if why := edit("shop.a", s("shop.b"), nil, s("both")); why == "" {
-		t.Fatal("but reshaping it stays its opener's, its reporter's or the founder's")
+	if why := edit("shop.a", s("shop.b"), nil, s("both")); why != "" {
+		t.Fatalf("anyone may reshape it too: %s", why)
 	}
-	if owner, reporter, _ := read(); owner != "shop.a" || reporter != "shop" {
+	if owner, reporter, _ := read(); owner != "shop.b" || reporter != "shop" {
 		t.Fatalf("owner %q reporter %q", owner, reporter)
-	}
-	if why := edit("other", nil, nil, s("again")); !strings.Contains(why, "whoever opened it (other.c), its reporter (shop) or the founder") {
-		t.Fatalf("the old reporter may no longer reshape it: %q", why)
 	}
 	if n := count(t, db, "SELECT COUNT(*) FROM events WHERE kind = 'edit_task' AND agent = 'shop' AND json_extract(payload, '$.reporter.new') = 'shop'"); n != 1 {
 		t.Fatalf("each change is kept with who made it: %d", n)

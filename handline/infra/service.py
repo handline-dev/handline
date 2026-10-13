@@ -99,11 +99,6 @@ def go_executable() -> Path:
     return paths.repo_root() / "go" / "handlined"
 
 
-def land_repo() -> str:
-    """The checkout `hl land` merges into: OCP_LAND_REPO, else the checkout the daemon runs from (what lands.py reads)."""
-    return names.getenv("OCP_LAND_REPO") or str(paths.repo_root())
-
-
 def go_arguments(home: Path, allow_live_home: bool = False) -> list[str]:
     """The Go daemon's command line with the production flags. A home that is a live one (`paths.live_homes`) is the real
     install's: refused unless the caller said so, so a rehearsal can never land on it by a stray setting."""
@@ -119,11 +114,11 @@ def go_arguments(home: Path, allow_live_home: bool = False) -> list[str]:
     if live and not allow_live_home:
         raise ServiceError(f"{home} is the live home: the Go daemon is installed there only with --allow-live-home")
     return [str(exe), "-allow-real-home" if live else "-home", *([] if live else [str(home)]),
-            "-structured-cli", claude, "-structured-tick", "-terminal-tick", "-cutover", "-land-repo", land_repo()]
+            "-structured-cli", claude, "-structured-tick", "-terminal-tick", "-cutover"]
 
 
 def _path_with_python3() -> str:
-    """PATH for the job, with the directory of python3 in it: the land verbs run tools/localrefs.py."""
+    """PATH for the job, with the directory of python3 in it, so the Python `hl` finds it in what the job starts."""
     path = os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
     py = shutil.which("python3")
     if py and str(Path(py).parent) not in path.split(":"):
@@ -158,7 +153,6 @@ def build_plist(home: Path | None = None, impl: str | None = None, allow_live_ho
             "PATH": _path_with_python3() if impl == "go" else os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
             "HOME": os.environ.get("HOME", str(Path.home())),
             "OCP_HOME": str(home),
-            **({"OCP_LAND_REPO": land_repo()} if impl == "go" else {}),
         },
     }
 

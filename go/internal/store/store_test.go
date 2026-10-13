@@ -73,7 +73,7 @@ func TestPreVersionDatabaseIsLeftToThePythonDaemon(t *testing.T) {
 func TestOldDatabaseMigratesOnceUnderConcurrentOpens(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "db.sqlite")
 	db, _ := Open(p)
-	db.Exec("DROP TABLE agent_terminals") // the latest step, not run, has not made its table
+	db.Exec("CREATE TABLE lands (id INTEGER)") // the latest step, not run, has not dropped its table
 	db.Exec("DELETE FROM schema_version WHERE version = ?", LatestVersion())
 	db.Close()
 	var wg sync.WaitGroup
@@ -205,6 +205,20 @@ func marks(t *testing.T, db *sql.DB) map[int]int {
 	return out
 }
 
+// wantMarks is each step's additive mark as the manifest says it.
+func wantMarks() map[int]int {
+	ms, _ := migrations()
+	want := map[int]int{}
+	for _, m := range ms {
+		if m.additive {
+			want[m.version] = 1
+		} else {
+			want[m.version] = 0
+		}
+	}
+	return want
+}
+
 // stampFuture is what code one step ahead leaves behind: a step this code does not know, with its mark.
 func stampFuture(t *testing.T, p string, additive int) {
 	t.Helper()
@@ -225,16 +239,7 @@ func TestAStepIsStampedWithWhetherItIsAdditive(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	ms, _ := migrations()
-	want := map[int]int{}
-	for _, m := range ms {
-		if m.additive {
-			want[m.version] = 1
-		} else {
-			want[m.version] = 0
-		}
-	}
-	got := marks(t, db)
+	want, got := wantMarks(), marks(t, db)
 	for v, a := range want {
 		if got[v] != a {
 			t.Fatalf("marks %v, want %v", got, want)
@@ -297,7 +302,6 @@ func TestAnOlderStampIsFilledInByTheNextStepRun(t *testing.T) {
 		}
 	}
 	raw, _ = sql.Open("sqlite", "file:"+p)
-	raw.Exec("DROP TABLE agent_terminals") // the latest step, not run, has not made its table
 	raw.Exec("DELETE FROM schema_version WHERE version = ?", LatestVersion())
 	raw.Close()
 	db, err := Open(p)
@@ -305,8 +309,9 @@ func TestAnOlderStampIsFilledInByTheNextStepRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	want := wantMarks()
 	for v, a := range marks(t, db) {
-		if a != 1 {
+		if a != want[v] {
 			t.Fatalf("version %d has mark %d: %v", v, a, marks(t, db))
 		}
 	}
@@ -319,7 +324,7 @@ func TestADatabaseAtStepNineGetsTheExtraWorktreesColumn(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Back to step 9: a step that was not run has not made its column or its tables.
-	for _, q := range []string{"ALTER TABLE agent_state DROP COLUMN extra_worktrees", "DROP TABLE land_fixes", "DROP TABLE transcript_events",
+	for _, q := range []string{"ALTER TABLE agent_state DROP COLUMN extra_worktrees", "DROP TABLE transcript_events",
 		"DROP TABLE agent_terminals",
 		"DELETE FROM schema_version WHERE version > 9"} {
 		if _, err := db.Exec(q); err != nil {
@@ -336,5 +341,29 @@ func TestADatabaseAtStepNineGetsTheExtraWorktreesColumn(t *testing.T) {
 	db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('agent_state') WHERE name = 'extra_worktrees'").Scan(&n)
 	if v, _ := version(db); n != 1 || v != LatestVersion() {
 		t.Fatalf("column %d, version %d", n, v)
+	}
+}
+
+func TestADatabaseAtStepFourteenLosesTheLandTables(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "db.sqlite")
+	db, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{"CREATE TABLE lands (id INTEGER)", "INSERT INTO lands VALUES (1)", "CREATE TABLE land_passes (sha TEXT)",
+		"CREATE TABLE land_fixes (land_id INTEGER)", "DELETE FROM schema_version WHERE version > 14"} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	if db, err = Open(p); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n int
+	db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('lands', 'land_passes', 'land_fixes')").Scan(&n)
+	if v, _ := version(db); n != 0 || v != LatestVersion() {
+		t.Fatalf("land tables %d, version %d", n, v)
 	}
 }

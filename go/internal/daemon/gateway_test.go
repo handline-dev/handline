@@ -285,7 +285,7 @@ func TestAGatewayRelaysWhatItDoesNotServeToTheRelayAsTheDevice(t *testing.T) {
 func TestACallAboveAMemberOrOutsideTheContractNeverReachesTheRelay(t *testing.T) {
 	d, f, _ := startGateway(t, "")
 	c := helloAs(t, d, mustPair(t, d))
-	for _, call := range []string{"account.remove", "account.login", "settings.set", "hook.record", "land", "task.progress"} {
+	for _, call := range []string{"account.remove", "account.login", "settings.set", "hook.record", "task.progress"} {
 		r := c.ask(`{"jsonrpc":"2.0","id":1,"method":"` + call + `","params":{"request_id":"x"}}`)
 		if gate(r) != "role" {
 			t.Fatalf("%s: %v", call, r)

@@ -94,6 +94,54 @@ func TestChatTranscriptServesAToolCallWithItsOutput(t *testing.T) {
 	}
 }
 
+func TestChatTranscriptListsTheConversationsAnAgentBeganAmongItsItems(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for _, q := range []string{
+		`INSERT INTO session_starts(id, agent, ts, session_id, cause, resumed, text, prompt) VALUES(1, 'bob', 1000, 's1', 'launch', 0, '', '')`,
+		`INSERT INTO session_starts(id, agent, ts, session_id, cause, resumed, text, prompt) VALUES(2, 'bob', 1001, 's1', 'wake', 1, 'kept', '')`,
+		`INSERT INTO session_starts(id, agent, ts, session_id, cause, resumed, text, prompt) VALUES(3, 'bob', 1003, 's2', 'context_full', 0, 'the handoff', '')`,
+		`INSERT INTO session_starts(id, agent, ts, session_id, cause, resumed, text, prompt) VALUES(4, 'bob', 1004, NULL, 'start', 0, '', '')`,
+		`INSERT INTO session_starts(id, agent, ts, session_id, cause, resumed, text, prompt) VALUES(5, 'ann', 1000, 's9', 'launch', 0, '', '')`,
+		`INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('bob', 1, 's1', NULL, 1002, 'tool_use', NULL, '{"tool_use":{"id":"u1","tool":"Bash","input":{"command":"true"}}}')`,
+	} {
+		if _, err := e.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := e.chatTranscript(nil, map[string]any{"agent": "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	var sessions []map[string]any
+	for _, it := range got.(map[string]any)["items"].([]any) {
+		m := it.(map[string]any)
+		kinds = append(kinds, m["kind"].(string))
+		if m["kind"] == "session" {
+			sessions = append(sessions, m)
+		}
+	}
+	// A resume is not a new conversation, and one whose session id is not known yet is not listed.
+	if strings.Join(kinds, " ") != "session tool session" {
+		t.Fatalf("%v", kinds)
+	}
+	first, second := sessions[0]["session"].(map[string]any), sessions[1]["session"].(map[string]any)
+	if sessions[0]["id"] != int64(1000_400_001) || first["id"] != "s1" || first["cause"] != "launch" || first["handoff"] != nil || first["started"] != "1970-01-01T00:16:40Z" {
+		t.Fatalf("%v", sessions[0])
+	}
+	if sessions[1]["id"] != int64(1003_400_003) || second["cause"] != "context_full" || second["handoff"] != "the handoff" {
+		t.Fatalf("%v", sessions[1])
+	}
+	before, err := e.chatTranscript(nil, map[string]any{"agent": "bob", "before": json.Number(strconv.FormatInt(sessions[1]["id"].(int64), 10))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(before.(map[string]any)["items"].([]any)); n != 2 {
+		t.Fatalf("the page before a session item holds what is older: %d", n)
+	}
+}
+
 func TestAPageCarriesAtMostTheOutputBudgetAndSaysWhatItCut(t *testing.T) {
 	big := strings.Repeat("x", 800<<10) + "\n"
 	items := []map[string]any{

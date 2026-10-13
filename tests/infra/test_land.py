@@ -17,7 +17,6 @@ from support import *  # noqa: E402,F401,F403
 
 LAND = ROOT / "tools" / "land.sh"
 AUDITOR = "alpha.auditor"
-MERGER = "alpha.merger"
 ENV = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@x", GIT_COMMITTER_NAME="t",
            GIT_COMMITTER_EMAIL="t@x", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
 
@@ -211,330 +210,6 @@ def test_a_check_runs_the_python_suite_only_when_the_merge_changes_more_than_go_
         check(f"check: a red {name} alone stops a go/-only merge", r.returncode == 1, r.stdout + r.stderr)
 
 
-def test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(home: Path) -> None:
-    """The merger tests in its own sandbox (`land.sh --check`) and records the tree it saw; the auditor
-    records a PASS; both only from the process of that agent's session. The daemon merges with git alone
-    and fast-forwards only to the tree that was tested."""
-    from handline.daemon import lands, socket_server
-    from handline import vendors
-    from handline.infra import protected, sessiontoken
-    main = _repo(home / "repo")
-    sent = []
-    keep = {k: os.environ.get(k) for k in ("OCP_LAND_REPO", *ENV)}
-    real = lands._tell
-    os.environ["OCP_LAND_REPO"] = str(main)
-    os.environ.update({k: v for k, v in ENV.items() if k.startswith("GIT_")})
-    lands._tell = lambda con, to, body, log: sent.append((to, body))
-    con = db.connect()
-    try:
-        # A suite.sh on the branch that would leave a mark if anything ran it.
-        feat = _branch(main, "feat", "b.py", "z = 3\n")
-        _git(main, "checkout", "-q", "feat")
-        (main / "tools" / "suite.sh").write_text('#!/usr/bin/env bash\ntouch "$(dirname "$0")/../RAN"\n')
-        _git(main, "commit", "-q", "-am", "suite leaves a mark")
-        feat = _git(main, "rev-parse", "HEAD")
-        _git(main, "checkout", "-q", "main")
-        tree = _check(main, feat)
-        (main / "RAN").unlink(missing_ok=True)
-        check("check: the merger's test names the tree of the merge it tested", len(tree) == 40, tree)
-
-        import subprocess
-        quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
-        sleepers = [subprocess.Popen(["sleep", "300"], **quiet) for _ in range(3)]   # stand-ins for three sessions
-        p_merger, p_auditor, p_core = (s.pid for s in sleepers)
-        check("session: recorded in the protected store, one process per agent",
-              all(sessiontoken.record(a, p) for a, p in ((MERGER, p_merger), (AUDITOR, p_auditor),
-                                                         ("backend", p_core)))
-              and sessiontoken.verify(MERGER, p_merger))
-        was = os.environ.get("OCP_AGENT")
-        os.environ["OCP_AGENT"] = "backend"
-        try:
-            check("session: an agent's session cannot record one, so it cannot replace another agent's",
-                  not sessiontoken.record(MERGER, p_core) and sessiontoken.verify(MERGER, p_merger))
-        finally:
-            os.environ.pop("OCP_AGENT") if was is None else os.environ.__setitem__("OCP_AGENT", was)
-        agents.register("backend")
-        launch_src = (ROOT / "handline" / "session" / "launch.py").read_text()
-        check("session: no secret goes into the session's environment",
-              "OCP_SESSION_TOKEN" not in launch_src and not hasattr(sessiontoken, "mint"))
-        check("session: an unrelated process, pid 1 and another agent's session are not the merger's session",
-              sessiontoken.verify(MERGER, os.getpid()) is False
-              and sessiontoken.verify(MERGER, 1) is False
-              and sessiontoken.verify(MERGER, p_auditor) is False
-              and sessiontoken.verify(MERGER, None) is False)
-        child = subprocess.Popen(["sh", "-c", "sleep 300 >/dev/null 2>&1 & echo $!; wait"],
-                                 stdout=subprocess.PIPE, text=True)
-        grand = child.stdout.readline().strip()
-        sessiontoken.record("backend.parent", child.pid)
-        check("session: a grandchild of the recorded process counts",
-              grand.isdigit() and sessiontoken.verify("backend.parent", int(grand)))
-        child.kill()
-        child.stdout.close()
-        os.kill(int(grand), 9)
-        check("session: a recorded pid with another start time (a reused pid) is refused",
-              (protected.put(sessiontoken.NS, "backend.stale", f"{p_core} Thu Jan  1 00:00:00 1970"),
-               not sessiontoken.verify("backend.stale", p_core))[1])
-
-        from handline.daemon import landauth
-
-        def ask_daemon(verb, agent, peer, vouched=True, **kw):
-            if vouched:
-                landauth.grant(agent, verb, feat)
-            return socket_server._handle_request({"verb": verb, "sha": feat, "message": "m", "tree": tree,
-                                                  "agent": agent, **kw}, lambda m: None, peer)
-        said = ask_daemon("land", MERGER, os.getpid())
-        check("land: a process that only names itself the merger (any cmdline, any OCP_AGENT) is refused",
-              not said["ok"] and "not this request's session" in said["said"], str(said))
-        said = ask_daemon("land", MERGER, p_core)
-        check("land: another agent's session cannot land as the merger", not said["ok"], str(said))
-        said = ask_daemon("land_pass", AUDITOR, p_merger)
-        check("land: the merger's session cannot record the auditor's PASS", not said["ok"], str(said))
-        import socket
-        a, b = socket.socketpair()
-        check("peer: the kernel names the process on the other end of a unix socket",
-              sessiontoken.peer_pid(a) == os.getpid(), str(sessiontoken.peer_pid(a)))
-        a.close(); b.close()
-
-        def over_the_wire(agent):
-            """One request through the daemon's own connection handler; the peer is this process."""
-            landauth.grant(agent, "land", feat)
-            client, server = socket.socketpair()
-            client.sendall(json.dumps({"verb": "land", "sha": feat, "message": "m", "tree": tree,
-                                       "agent": agent}).encode() + b"\n")
-            socket_server._serve_one(server, lambda m: None)
-            return json.loads(client.recv(65536).decode())
-        sessiontoken.record("backend", os.getpid())
-        said = over_the_wire("backend")
-        check("peer: a request is judged by the process that sent it (this one is backend's session)",
-              "may not land" in said["said"], str(said))
-        said = over_the_wire(MERGER)
-        check("peer: the same process naming itself the merger is refused",
-              "not this request's session" in said["said"], str(said))
-        import time
-        landauth._grants.clear()            # grants an earlier refusal left unspent
-        said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
-        check("vouch: the auditor's own session, but nothing vouched for the command, is refused",
-              not said["ok"] and "own `hl land` command" in said["said"], str(said))
-        landauth.grant(AUDITOR, "land_pass", feat)
-        first = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
-        again = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
-        check("vouch: a vouched request is accepted once", first["ok"] and not again["ok"], f"{first} {again}")
-        racer = subprocess.Popen(["sleep", "300"])
-        sessiontoken.record(AUDITOR, racer.pid)
-        racer.kill()
-        racer.wait()
-        landauth.grant(AUDITOR, "land_pass", feat)
-        said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
-        check("session: a second launch of the auditor that records after it and dies leaves it its PASS",
-              said["ok"] and not sessiontoken.verify(AUDITOR, racer.pid), str(said))
-        landauth.grant(AUDITOR, "land_pass", "0" * 40)
-        said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
-        check("vouch: it covers the sha in the command and no other", not said["ok"], str(said))
-        landauth.grant(AUDITOR, "land_pass", feat, now=time.time() - 3600)
-        said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
-        check("vouch: it expires", not said["ok"], str(said))
-        landauth.grant(AUDITOR, "land", feat)
-        said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
-        check("vouch: and covers the verb in the command, not the other land verb", not said["ok"], str(said))
-        landauth.take(AUDITOR, "land", feat)
-
-        # A branch's test run is a child of the session; only the hook, which holds the key, can vouch.
-        test_run = subprocess.Popen(["sleep", "300"], **quiet)
-        sleepers.append(test_run)
-        key_set = sessiontoken.mint_key(AUDITOR)
-        key = sessiontoken.key_held(AUDITOR)
-        check("vouch: the hook's key is minted into the protected store", key_set and key and len(key) > 20)
-        authorize = {"verb": "land_authorize", "agent": AUDITOR, "land_verb": "land_pass", "sha": feat}
-        for label, extra in (("no key", {}), ("a wrong key", {"key": "x" * 43}), ("a key of another agent",
-                              {"key": sessiontoken.key_held("backend") or "y"})):
-            said = socket_server._handle_request({**authorize, **extra}, lambda m: None)
-            check(f"vouch: land_authorize with {label} vouches for nothing", not said["ok"], str(said))
-        said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
-        check("vouch: so a land_pass from the session's own process is still refused", not said["ok"], str(said))
-        logged: list[str] = []
-        said = socket_server._handle_request({**authorize, "key": key}, logged.append)
-        check("vouch: the right key vouches", said["ok"], str(said))
-        check("vouch: and the daemon's log says who was vouched for, so a refusal later can be told from a vouch never sent",
-              any(AUDITOR in m and "vouched for land_pass" in m for m in logged), str(logged))
-        said = ask_daemon("land_pass", AUDITOR, p_auditor, vouched=False)
-        check("vouch: and then the session's land_pass is accepted", said["ok"], str(said))
-
-        said = ask_daemon("land", "backend", p_core)
-        check("land: an agent with its own valid session that is not the merger is refused",
-              not said["ok"] and "may not land" in said["said"], str(said))
-        said = ask_daemon("land_pass", AUDITOR, p_auditor)
-        check("land: the auditor's own session records a PASS", said["ok"], str(said))
-        other = subprocess.Popen(["sleep", "300"], **quiet)
-        sleepers.append(other)
-        sessiontoken.record("beta.auditor", other.pid)
-        said = ask_daemon("land_pass", "beta.auditor", other.pid)
-        check("land: another team's auditor, in its own session, records a PASS too", said["ok"], str(said))
-        said = ask_daemon("land_pass", "beta.auditor", p_core)
-        check("land: and only from its own session", not said["ok"], str(said))
-        con.execute("DELETE FROM land_passes")
-
-        ok, said = lands.request(con, feat, "Merge feat", tree, MERGER)
-        check("land: no PASS, no land", not ok and "no auditor PASS" in said, said)
-        other = _branch(main, "other", "o.py", "o = 1\n")
-        lands.record_pass(con, other, AUDITOR)
-        ok, said = lands.request(con, feat, "Merge feat", tree, MERGER)
-        check("land: a PASS for another sha does not count", not ok and "no auditor PASS" in said, said)
-        ok, said = lands.record_pass(con, feat, AUDITOR)
-        ok, said = lands.request(con, feat, "Merge feat", tree, MERGER)
-        check("land: a passed, tested sha is queued", ok and "queued" in said, said)
-        ok, said = lands.request(con, feat, "again", tree, MERGER)
-        check("land: the same sha while queued is refused", not ok and "already queued" in said, said)
-        lands.sweep(con, lambda m: None)
-        lands._worker["thread"].join(60)
-        row = con.execute("SELECT * FROM lands WHERE sha = ?", (feat,)).fetchone()
-        check("land: the daemon fast-forwards main to the tested tree",
-              row["state"] == "landed" and row["merged"] == _git(main, "rev-parse", "HEAD")
-              and _git(main, "rev-parse", "HEAD^{tree}") == tree, str(dict(row)))
-        check("land: the daemon ran nothing the branch carries", not (main / "RAN").exists())
-        check("land: the merger is told", sent and sent[-1][0] == MERGER and "is on main" in sent[-1][1], str(sent))
-        ok, said = lands.request(con, feat, "again", tree, MERGER)
-        check("land: a landed sha is refused", not ok and "landed as" in said, said)
-
-        # Main moves after the merger's test: the daemon's merge is a different tree, so nothing lands.
-        late = _branch(main, "late", "l.py", "l = 1\n")
-        lands.record_pass(con, late, AUDITOR)
-        stale = _check(main, late)
-        mover = _branch(main, "mover", "m.py", "m = 1\n")
-        _git(main, "merge", "-q", "--ff-only", mover)
-        head = _git(main, "rev-parse", "HEAD")
-        lands.request(con, late, "Merge late", stale, MERGER)
-        lands.sweep(con, lambda m: None)
-        lands._worker["thread"].join(60)
-        row = con.execute("SELECT state, output FROM lands WHERE sha = ?", (late,)).fetchone()
-        check("land: a merge that is not the tree tested lands nothing, main untouched",
-              row["state"] == "failed" and "test again" in row["output"] and _git(main, "rev-parse", "HEAD") == head,
-              str(dict(row)))
-        ok, said = lands.request(con, late, "retry", _check(main, late), MERGER)
-        check("land: a failed sha may be recorded again", ok, said)
-    finally:
-        con.close()
-        lands._tell = real
-        for sl in locals().get("sleepers", []):
-            sl.kill()
-        for k, v in keep.items():
-            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
-
-
-def test_the_merger_fixes_housekeeping_at_land_time_and_nothing_else(home: Path) -> None:
-    """What is not the auditor's to judge, the merger fixes when it lands, with no new review: `--fix <dir>` writes
-    whole files on main's tools/housekeeping.paths over the merge (resolving a list-file conflict), anything else is
-    refused as needing a PASS, and `--squash` lands one commit carrying the merger's message instead of a WIP one."""
-    import shutil
-    from handline.daemon import lands
-    main = _repo(home / "repo")
-    shutil.copy(ROOT / "tools" / "housekeeping.paths", main / "tools" / "housekeeping.paths")
-    (main / "handline" / "infra").mkdir(parents=True)
-    shutil.copy(ROOT / "handline" / "infra" / "housekeeping.py", main / "handline" / "infra" / "housekeeping.py")
-    (main / "go").mkdir()
-    (main / "go" / "conformance-missing.txt").write_text("a\nb\n")
-    _git(main, "add", "-A")
-    _git(main, "commit", "-q", "-m", "lists")
-    keep = {k: os.environ.get(k) for k in ("OCP_LAND_REPO", *ENV)}
-    os.environ["OCP_LAND_REPO"] = str(main)
-    os.environ.update({k: v for k, v in ENV.items() if k.startswith("GIT_")})
-    real_tell, told = lands._tell, []
-    lands._tell = lambda con, to, body, log: told.append(body)
-
-    def check_fix(sha: str, fixdir: Path) -> subprocess.CompletedProcess:
-        return subprocess.run([str(LAND), "--check", "--fix", str(fixdir), sha], cwd=main, capture_output=True,
-                              text=True, env=ENV, timeout=60)
-
-    def land(sha: str, message: str, tree: str, fix=None, squash=False) -> tuple[bool, str, dict]:
-        ok, said = lands.request(con, sha, message, tree, MERGER, fix, squash)
-        row = None
-        for _ in range(20 if ok else 0):      # lands queued before this one run first, one per sweep
-            lands.sweep(con, lambda m: None)
-            lands._worker["thread"].join(60)
-            row = con.execute("SELECT * FROM lands WHERE sha = ? ORDER BY id DESC LIMIT 1", (sha,)).fetchone()
-            if row["state"] not in ("queued", "running"):
-                break
-        return ok, said, dict(row) if row else {}
-    con = db.connect()
-    try:
-        # Both sides add a line at the end of a list file: a conflict only the merger's resolution can land.
-        listed = _branch(main, "listed", "go/conformance-missing.txt", "a\nb\nc\n")
-        _git(main, "commit", "-q", "--allow-empty", "-m", "noop")
-        moved = _branch(main, "moved", "go/conformance-missing.txt", "a\nb\nd\n")
-        _git(main, "merge", "-q", "--ff-only", moved)
-        lands.record_pass(con, listed, AUDITOR)
-        r = subprocess.run([str(LAND), "--check", listed], cwd=main, capture_output=True, text=True, env=ENV, timeout=60)
-        check("fix: without a fix the list-file conflict stops the check", r.returncode == 1 and "conflicts" in r.stderr,
-              r.stderr)
-        fixdir = home / "fix"
-        (fixdir / "go").mkdir(parents=True)
-        (fixdir / "go" / "conformance-missing.txt").write_text("a\nb\nc\nd\n")
-        r = check_fix(listed, fixdir)
-        tree = r.stdout.strip().splitlines()[-1] if r.returncode == 0 and r.stdout.strip() else ""
-        check("fix: with the resolved list file the check passes and names the tree", len(tree) == 40, r.stderr)
-        ok, said, row = land(listed, "Merge listed", tree, {"go/conformance-missing.txt": "a\nb\nc\nd\n"})
-        check("fix: the daemon lands the resolved merge, main at the tree the merger tested",
-              ok and row.get("state") == "landed" and _git(main, "rev-parse", "HEAD^{tree}") == tree
-              and (main / "go" / "conformance-missing.txt").read_text() == "a\nb\nc\nd\n", said + str(row))
-        check("fix: as a merge of the passed sha", _git(main, "rev-parse", "HEAD^2") == listed)
-
-        # A code hunk is not housekeeping: both the check and the daemon refuse it as needing a PASS.
-        code = _branch(main, "code", "c.py", "c = 1\n")
-        lands.record_pass(con, code, AUDITOR)
-        codefix = home / "codefix"
-        codefix.mkdir()
-        (codefix / "a.py").write_text("x = 2\n")
-        r = check_fix(code, codefix)
-        check("fix: a code path in --fix fails the check as needing a PASS", r.returncode == 1 and "needs a PASS" in r.stderr,
-              r.stderr)
-        before = _git(main, "rev-parse", "HEAD")
-        for fix in ({"a.py": "x = 2\n"}, {"../out.md": "x\n"}, {".git/config.md": "x\n"}):
-            ok, said = lands.request(con, code, "Merge code", _check(main, code), MERGER, fix)
-            check(f"fix: the daemon refuses {next(iter(fix))!r} and queues nothing", not ok and "--fix" in said, said)
-        check("fix: main untouched by a refused fix", _git(main, "rev-parse", "HEAD") == before)
-
-        # A symlink in the merged tree is not written through, to a file or to a directory outside the worktree.
-        outside = home / "outside"
-        (outside / "dir").mkdir(parents=True)
-        (outside / "CLAUDE.md").write_text("theirs\n")
-        _git(main, "checkout", "-q", "-b", "links", "main")
-        (main / "docs").mkdir(exist_ok=True)
-        os.symlink(outside / "CLAUDE.md", main / "docs" / "notes.md")
-        os.symlink(outside / "dir", main / "docs" / "linked")
-        _git(main, "add", "-A")
-        _git(main, "commit", "-q", "-m", "links")
-        links = _git(main, "rev-parse", "HEAD")
-        _git(main, "checkout", "-q", "main")
-        lands.record_pass(con, links, AUDITOR)
-        for path in ("docs/notes.md", "docs/linked/x.md"):
-            linkfix = home / ("linkfix-" + path.replace("/", "-"))
-            (linkfix / path).parent.mkdir(parents=True)
-            (linkfix / path).write_text("mine\n")
-            r = check_fix(links, linkfix)
-            check(f"fix: the check does not write through the symlink on {path}",
-                  r.returncode == 1 and "symlink" in r.stderr, r.stderr)
-            ok, said, row = land(links, "Merge links", _check(main, links), {path: "mine\n"})
-            check(f"fix: nor does the daemon, and {path} does not land",
-                  row.get("state") != "landed" and "symlink" in str(row.get("detail") or row), said + str(row))
-        check("fix: the files outside are untouched",
-              (outside / "CLAUDE.md").read_text() == "theirs\n" and not (outside / "dir" / "x.md").exists())
-
-        # A WIP commit message never reaches main: --squash lands one commit with the merger's message.
-        wip = _branch(main, "WIP", "docs/x.md", "# x\n")
-        lands.record_pass(con, wip, AUDITOR)
-        parent = _git(main, "rev-parse", "HEAD")
-        ok, said, row = land(wip, "Docs: say how x works", _check(main, wip), squash=True)
-        check("squash: lands one commit on main with the merger's message",
-              ok and row.get("state") == "landed" and _git(main, "log", "-1", "--format=%P %s") == f"{parent} Docs: say how x works",
-              said + str(row) + _git(main, "log", "-2", "--format=%P %s"))
-        check("squash: the branch's WIP message is not in main's history",
-              "WIP" not in _git(main, "log", "--format=%s", f"{parent}..HEAD"))
-    finally:
-        con.close()
-        lands._tell = real_tell
-        for k, v in keep.items():
-            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
-
-
 def test_a_housekeeping_fix_never_reaches_agent_instructions(home: Path) -> None:
     """A fix lands with no review, so it may not touch what every agent session reads as instructions, whatever
     the list says, and a glob's `*` stays inside one path component."""
@@ -558,11 +233,9 @@ def test_a_housekeeping_fix_never_reaches_agent_instructions(home: Path) -> None
           and not housekeeping.matches("a/xREADME.md", "**/README.md"))
 
 
-def test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(home: Path) -> None:
-    """A branch whose diff adds an email fails the merger's `--check`, and the daemon refuses a merge
-    message carrying a task id, though the branch itself is clean."""
+def test_personal_data_or_a_local_id_stops_a_check(home: Path) -> None:
+    """A branch whose diff adds an email fails the merger's `--check`."""
     import shutil
-    from handline.daemon import lands
     main = _repo(home / "repo")
     shutil.copy(ROOT / "tools" / "localrefs.py", main / "tools" / "localrefs.py")
     _git(main, "add", "-A")
@@ -573,32 +246,6 @@ def test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(home: Pat
     check("check: a diff that adds an email fails the merger's test and prints no tree",
           r.returncode == 1 and "email" in r.stderr and not r.stdout.strip(), r.stdout + r.stderr)
     check("check: a clean branch still passes it", len(_check(main, clean)) == 40, _check(main, clean))
-
-    keep = os.environ.get("OCP_LAND_REPO")
-    os.environ["OCP_LAND_REPO"] = str(main)
-    con = db.connect()
-    try:
-        lands.record_pass(con, clean, AUDITOR)
-        tree = _check(main, clean)
-        for bad in ("Merge clean for T" + "1234", "#" + "1234 is why", "mail me at someone@" + "gmail.com"):
-            ok, said = lands.request(con, clean, bad, tree, MERGER)
-            check(f"land: the merge message {bad[:24]!r} is refused", not ok and "personal data or a local id" in said, said)
-        real_run = lands.subprocess.run
-
-        def hung(*a, **kw):
-            raise subprocess.TimeoutExpired("localrefs", 30)
-        lands.subprocess.run = hung
-        try:
-            ok, said = lands.request(con, clean, "Merge clean: states what changed", tree, MERGER)
-        finally:
-            lands.subprocess.run = real_run
-        check("land: a checker that hangs is a refusal to try again, not an exception",
-              not ok and "could not be checked" in said, said)
-        ok, said = lands.request(con, clean, "Merge clean: states what changed", tree, MERGER)
-        check("land: a message in words is queued", ok and "queued" in said, said)
-    finally:
-        con.close()
-        os.environ.pop("OCP_LAND_REPO") if keep is None else os.environ.__setitem__("OCP_LAND_REPO", keep)
 
 
 def test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(home: Path) -> None:
@@ -799,41 +446,6 @@ def test_the_pretooluse_hook_vouches_for_the_session_s_own_land_command(home: Pa
         os.environ.pop("OCP_AGENT") if was is None else os.environ.__setitem__("OCP_AGENT", was)
 
 
-def test_a_pass_comes_from_the_auditor_of_any_team_and_from_no_one_else(home: Path) -> None:
-    from handline.daemon import lands
-    main = _repo(home / "repo")
-    keep = os.environ.get("OCP_LAND_REPO")
-    os.environ["OCP_LAND_REPO"] = str(main)
-    con = db.connect()
-    try:
-        sha = _git(main, "rev-parse", "HEAD")
-        for who in ("alpha.auditor", "alpha.auditor2", "beta.auditor12", "beta.auditor", "gamma.sea.auditor"):
-            ok, said = lands.record_pass(con, sha, who)
-            check(f"pass: {who} records one", ok, said)
-        for who in ("alpha.merger", "alpha.core", "auditor", "auditor2", "alpha.auditors", "alpha.auditor.helper",
-                    "alpha.Auditor", "alpha.auditor2x", "alpha.auditor_2", "alpha.coauditor", "", None, "human"):
-            ok, said = lands.record_pass(con, sha, who)
-            check(f"pass: {who!r} may not", not ok and "may not record a PASS" in said, said)
-        check("pass: the one who recorded it is kept",
-              con.execute("SELECT by FROM land_passes WHERE sha = ?", (sha,)).fetchone()["by"] == "gamma.sea.auditor")
-    finally:
-        con.close()
-        os.environ.pop("OCP_LAND_REPO") if keep is None else os.environ.__setitem__("OCP_LAND_REPO", keep)
-
-
-def test_a_land_comes_from_the_merger_of_any_team_and_from_no_one_else(home: Path) -> None:
-    from handline.daemon import lands
-    for who in ("alpha.merger", "beta.merger", "gamma.sea.merger"):
-        check(f"land: {who} is a merger", lands.is_merger(who))
-    con = db.connect()
-    try:
-        for who in ("merger", ".merger", "alpha.core", "alpha.auditor", "alpha.merger2", "alpha.merger.helper", "", None, "human"):
-            ok, said = lands.request(con, "0" * 40, "m", "t", who)
-            check(f"land: {who!r} may not", not ok and "may not land a branch" in said, said)
-    finally:
-        con.close()
-
-
 def _checked(main: Path, shas: list[str], runs: Path) -> list[str] | None:
     """`land.sh --check` on `shas`, counting suite runs in `runs`: the trees it printed, or None."""
     r = subprocess.run([str(LAND), "--check", *shas], cwd=main, capture_output=True, text=True,
@@ -868,66 +480,6 @@ def test_a_documentation_only_merge_runs_no_suite(home: Path) -> None:
           _checked(main, [red_doc], runs) is None and _runs(runs) == 1)
 
 
-def _land_in_order(con, main: Path, kept: list[tuple[str, str]]) -> list:
-    """What the merger does with a train's output: one `hl land` per sha, in order; the daemon lands them."""
-    from handline.daemon import lands
-    rows = []
-    for sha, tree in kept:
-        lands.record_pass(con, sha, AUDITOR)
-        ok, said = lands.request(con, sha, f"Merge {sha[:8]}", tree, MERGER)
-        check(f"train: {sha[:8]} is queued", ok, said)
-    for sha, _tree in kept:
-        lands.sweep(con, lambda m: None)
-        lands._worker["thread"].join(60)
-        rows.append(con.execute("SELECT state FROM lands WHERE sha = ?", (sha,)).fetchone()["state"])
-    return rows
-
-
-def test_a_train_is_tested_once_and_lands_in_order_and_a_bad_branch_is_dropped(home: Path) -> None:
-    from handline.cli import land as cli_land
-    from handline.daemon import lands
-    main = _repo(home / "repo")
-    runs = home / "runs"
-    keep = {k: os.environ.get(k) for k in ("OCP_LAND_REPO", *ENV)}
-    real_tell = lands._tell
-    os.environ["OCP_LAND_REPO"] = str(main)
-    os.environ.update({k: v for k, v in ENV.items() if k.startswith("GIT_")})
-    lands._tell = lambda con, to, body, log: None
-    con = db.connect()
-    con.execute("DELETE FROM lands")        # rows earlier tests queued for their own repos
-    try:
-        a, b, c = (_branch(main, n, f"{n}.py", f"{n} = 1\n") for n in ("a", "b", "c"))
-        kept, dropped = cli_land.train([a, b, c], check=lambda shas: _checked(main, shas, runs))
-        check("train: three green branches are tested together with one suite run",
-              [s for s, _ in kept] == [a, b, c] and not dropped and _runs(runs) == 1, f"{kept} {dropped}")
-        states = _land_in_order(con, main, kept)
-        check("train: the daemon lands all three, each to the tree the one check saw",
-              states == ["landed"] * 3 and _git(main, "rev-parse", "HEAD^{tree}") == kept[-1][1], str(states))
-
-        d, bad, e = (_branch(main, n, f"{n}.py", f"{n} = 1\n") for n in ("d", "bad", "e"))
-        _git(main, "checkout", "-q", "bad")
-        (main / "RED").write_text("")
-        _git(main, "add", "-A")
-        _git(main, "commit", "-q", "-m", "turns the suite red")
-        bad = _git(main, "rev-parse", "HEAD")
-        _git(main, "checkout", "-q", "main")
-        kept, dropped = cli_land.train([d, bad, e], check=lambda shas: _checked(main, shas, runs))
-        check("train: a red batch is split, the branch that breaks it is dropped and the others kept in order",
-              [s for s, _ in kept] == [d, e] and dropped == [bad], f"{kept} {dropped}")
-        states = _land_in_order(con, main, kept)
-        check("train: the two land and the dropped one never reaches main",
-              states == ["landed"] * 2 and not (main / "RED").exists()
-              and _git(main, "rev-parse", "HEAD^{tree}") == kept[-1][1], str(states))
-        rc = subprocess.run(["git", "merge-base", "--is-ancestor", bad, "main"], cwd=main, env=ENV).returncode
-        check("train: and no land of it was asked for", rc == 1
-              and con.execute("SELECT 1 FROM lands WHERE sha = ?", (bad,)).fetchone() is None)
-    finally:
-        con.close()
-        lands._tell = real_tell
-        for k, v in keep.items():
-            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
-
-
 def main() -> int:
     def tests(td):
         run(lambda: test_a_branch_lands_by_fast_forward_and_a_conflict_never_touches_the_checkout(Path(td) / "l1"))
@@ -935,18 +487,13 @@ def main() -> int:
         run(lambda: test_a_check_with_a_pass_skips_the_suite_only_for_the_tree_the_auditor_passed(Path(td) / "l2b"))
         run(lambda: test_a_pass_skips_the_suite_for_one_sha_and_never_for_a_train(Path(td) / "l2c"))
         run(lambda: test_a_check_runs_the_python_suite_only_when_the_merge_changes_more_than_go_and_the_apps(Path(td) / "l2d"))
-        run(lambda: test_the_daemon_lands_a_tested_and_passed_sha_once_and_runs_no_branch_code(Path(td) / "l3"))
-        run(lambda: test_a_pass_comes_from_the_auditor_of_any_team_and_from_no_one_else(Path(td) / "l3a"))
-        run(lambda: test_a_land_comes_from_the_merger_of_any_team_and_from_no_one_else(Path(td) / "l3b"))
-        run(lambda: test_personal_data_or_a_local_id_stops_a_check_and_a_merge_message(Path(td) / "l4"))
-        run(lambda: test_the_merger_fixes_housekeeping_at_land_time_and_nothing_else(Path(td) / "l4b"))
+        run(lambda: test_personal_data_or_a_local_id_stops_a_check(Path(td) / "l4"))
         run(lambda: test_a_housekeeping_fix_never_reaches_agent_instructions(Path(td) / "l4c"))
         run(lambda: test_the_hook_vouches_only_for_a_command_that_is_nothing_but_one_land_send(Path(td) / "l4"))
         run(lambda: test_a_land_with_more_around_it_is_stopped_before_it_runs_with_how_to_retype_it(Path(td) / "l4b"))
         run(lambda: test_ocp_land_checks_and_sends_in_two_steps(Path(td) / "l5"))
         run(lambda: test_a_pass_is_not_recorded_for_a_sha_the_merger_s_check_would_refuse(Path(td) / "l5b"))
         run(lambda: test_a_documentation_only_merge_runs_no_suite(Path(td) / "l7"))
-        run(lambda: test_a_train_is_tested_once_and_lands_in_order_and_a_bad_branch_is_dropped(Path(td) / "l8"))
         run(lambda: test_the_pretooluse_hook_vouches_for_the_session_s_own_land_command(Path(td) / "l6"))
     return run_area(tests)
 
