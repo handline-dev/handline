@@ -146,7 +146,7 @@ function Row(props: { t: Task; onPress: () => void }) {
   );
 }
 
-function Detail(props: { id: number; onBack: () => void }) {
+export function Detail(props: { id: number; onBack: () => void }) {
   const c = usePalette();
   const query = useTask(props.id);
   const { served } = useServes('task.get');

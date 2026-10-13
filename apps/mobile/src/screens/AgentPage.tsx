@@ -10,6 +10,7 @@ import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
 import { StateMark } from './StateMark.tsx';
 import { AgentSettings } from './AgentSettings.tsx';
+import { AgentTasks } from './AgentTasks.tsx';
 import { AgentVerbs } from './AgentVerbs.tsx';
 import { Chat } from './Chat.tsx';
 import { Loadable } from './Loadable.tsx';
@@ -83,6 +84,8 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const { detail, agent: row, tab: current } = props;
   const name = detail.name;
   const ctl = controlsOf(detail, me);
+  const [tasks, setTasks] = useState(false); // the Tasks tab sits beside the store's two tabs
+  const hasTasks = useServes('tasks.list').served;
   const verbMark = useVerbMark(name, ['close']);
   const mark = useAgentMark(name) ?? verbMark;
   const start = useWrite('session.start', name);
@@ -107,19 +110,23 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
     <Pressable
       testID={`tab-${t}`}
       accessibilityRole="tab"
-      accessibilityState={{ selected: current === t }}
-      onPress={() => store.setTab(t)}
+      accessibilityState={{ selected: !showTasks && current === t }}
+      onPress={() => {
+        setTasks(false);
+        store.setTab(t);
+      }}
       style={{
         flex: 1,
         alignItems: 'center',
         padding: space.md,
         borderBottomWidth: 2,
-        borderBottomColor: current === t ? c.accent : 'transparent',
+        borderBottomColor: !showTasks && current === t ? c.accent : 'transparent',
       }}
     >
-      <Text style={{ color: current === t ? c.accent : c.muted, fontWeight: '600' }}>{label}</Text>
+      <Text style={{ color: !showTasks && current === t ? c.accent : c.muted, fontWeight: '600' }}>{label}</Text>
     </Pressable>
   );
+  const showTasks = tasks && hasTasks;
   const busy = mark !== null;
   // A structured session is watched as a transcript in place of its terminal; its permission cards are in the transcript.
   // The daemon says which agents it runs as a structured session: those are watched as a transcript, the rest keep the terminal.
@@ -145,9 +152,32 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }}>
         {tab('chat', 'Chat')}
         {tab('terminal', structured ? 'Transcript' : 'Terminal')}
+        {hasTasks && (
+          <Pressable
+            testID="tab-tasks"
+            accessibilityRole="tab"
+            accessibilityState={{ selected: showTasks }}
+            onPress={() => setTasks(true)}
+            style={{
+              flex: 1,
+              alignItems: 'center',
+              padding: space.md,
+              borderBottomWidth: 2,
+              borderBottomColor: showTasks ? c.accent : 'transparent',
+            }}
+          >
+            <Text style={{ color: showTasks ? c.accent : c.muted, fontWeight: '600' }}>Tasks</Text>
+          </Pressable>
+        )}
       </Row>
-      {!(structured && current === 'terminal') && <PromptSlot agent={name} prompt={detail.prompt ?? null} />}
-      {current === 'chat' ? <Chat detail={detail} /> : structured ? <TranscriptTab detail={detail} /> : <Terminal detail={detail} />}
+      {showTasks ? (
+        <AgentTasks agent={name} />
+      ) : (
+        <>
+          {!(structured && current === 'terminal') && <PromptSlot agent={name} prompt={detail.prompt ?? null} />}
+          {current === 'chat' ? <Chat detail={detail} /> : structured ? <TranscriptTab detail={detail} /> : <Terminal detail={detail} />}
+        </>
+      )}
     </View>
   );
 }
