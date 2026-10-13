@@ -164,7 +164,7 @@ func main() {
 			parts.SettlePeerSends()
 			if *structuredTick || *terminalTick {
 				startTick = func(stop <-chan struct{}) <-chan struct{} {
-					tk = parts.Tick(ccfg, compose.TickConfig{Stop: stop, Cutover: *cutover, Terminals: *terminalTick, ScratchRoot: housekeeping.ScratchRoot()})
+					tk = parts.Tick(ccfg, compose.TickConfig{Stop: stop, Cutover: *cutover, Terminals: *terminalTick})
 					return tk.Start()
 				}
 			}

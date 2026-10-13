@@ -411,10 +411,41 @@ def test_ps_and_team_draw_the_daemons_status_lines(home: Path) -> None:
           silent and row.split()[2:3] == ["-"] and took < 3, f"{took:.1f}s {out}")
 
 
+def test_status_prints_the_daemons_pick(home: Path) -> None:
+    """Each candidate's own reason beside its account, and an exit code that says whether anything was picked."""
+    from handline.cli import client as cliclient
+    _daemon_home(home, 20)
+    got = {"picked": "beta", "agent_costs": ["opus 0.4% (measured)"],
+           "candidates": [{"account": "alpha", "reason": "5h window at 96%"}, {"account": "beta", "reason": "most room"}]}
+    real = cliclient.call
+    cliclient.call = lambda method, params=None: got
+    try:
+        rc, out = _run_main(["status"])
+        lines = [ln.split(None, 1) for ln in out.splitlines() if ln.startswith("  ")]
+        check("status: each account with its own reason, the costs, and the pick",
+              rc == 0 and lines[:2] == [["alpha", "5h window at 96%"], ["beta", "most room"]] and "opus 0.4% (measured)" in out
+              and out.rstrip().endswith("picked: beta"), out)
+        got["picked"] = None
+        rc, out = _run_main(["status"])
+        check("status: nothing picked is said, and is exit 1", rc == 1 and "picked: none" in out, out)
+        rc, out = _run_main(["status", "--json"])
+        check("status --json: the reply as it came, and the same exit code", rc == 1 and json.loads(out) == got, out)
+    finally:
+        cliclient.call = real
+
+
+def _run_main(argv: list[str]) -> tuple[int, str]:
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = climod.main(argv)
+    return rc, buf.getvalue()
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_no_command_prints_what_a_terminal_would_obey(Path(td) / 'cli'))
         run(lambda: test_triggers_draws_the_daemons_verdicts(Path(td) / 'trig'))
+        run(lambda: test_status_prints_the_daemons_pick(Path(td) / 'status'))
         run(lambda: test_ps_and_team_draw_the_daemons_status_lines(Path(td) / 'ps'))
     return run_area(tests)
 
