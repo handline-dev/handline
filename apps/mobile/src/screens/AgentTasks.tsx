@@ -1,6 +1,6 @@
 // The Tasks tab of an agent's page: what the agent holds or opened, overdue first, then open, then closed; a tap opens the task page.
 import { useState } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
+import { FlatList, Pressable, Text } from 'react-native';
 import { agentTasks, CLOSED, dueOf, taskRef } from '@handline/app-core';
 import { useAgentTasks, useServes } from '@handline/app-data';
 import { space } from '@handline/tokens';
