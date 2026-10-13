@@ -86,6 +86,7 @@ func Register(s *rpc.Server, env Env) {
 	s.Register("agent.triggers", rpc.Method{Role: "agent", Handler: e.agentTriggers})
 	s.Register("schedules.list", rpc.Method{Role: "agent", Handler: e.schedulesList})
 	s.Register("inbox.list", rpc.Method{Role: "agent", Handler: e.inboxList, Waits: true})
+	s.Register("inbox.queue", rpc.Method{Role: "agent", Handler: e.inboxQueue, Waits: true})
 }
 
 // row is one result row by column name, the way sqlite3.Row reads in the Python daemon.

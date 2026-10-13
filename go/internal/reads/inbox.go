@@ -62,6 +62,7 @@ type mailbox struct {
 	body      string
 	seq       int64
 	gate, ans bool
+	waiting   bool // its sender asked for a reply and parked on it
 }
 
 func (e *Env) mailboxRows() ([]mailbox, error) {
@@ -75,7 +76,7 @@ func (e *Env) mailboxRows() ([]mailbox, error) {
 	for _, g := range gateRows {
 		gates[g.i("id")] = true
 	}
-	rows, err := query(e.DB, "SELECT id, ts, requester, kind, body FROM requests WHERE target = ? AND (state = 'queued' OR "+
+	rows, err := query(e.DB, "SELECT id, ts, requester, kind, response, body FROM requests WHERE target = ? AND (state = 'queued' OR "+
 		"(kind = 'say' AND state = 'landed' AND landed_at IS NOT NULL AND read_at IS NULL AND settles IS NULL)) ORDER BY id", human)
 	if err != nil {
 		return nil, err
@@ -83,7 +84,7 @@ func (e *Env) mailboxRows() ([]mailbox, error) {
 	var out []mailbox
 	for _, r := range rows {
 		out = append(out, mailbox{id: r.i("id"), ts: r.i("ts"), from: r.str("requester"), kind: r.str("kind"),
-			body: r.str("body"), seq: r.i("id"), gate: gates[r.i("id")]})
+			body: r.str("body"), seq: r.i("id"), gate: gates[r.i("id")], waiting: r.str("response") == "async" && r.str("kind") != "say"})
 	}
 	answers, err := query(e.DB, "SELECT id, ts, state_at, target, kind, state, body, parent_id, chain_id, "+dismissedSQL+", "+answerSQL+
 		" FROM requests WHERE requester = ? AND state IN ('landed', 'withdrawn') AND EXISTS (SELECT 1 FROM requests a "+

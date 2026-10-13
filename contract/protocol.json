@@ -47,7 +47,8 @@
   "proposal_changed": "hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again.",
   "proposal_settled": "hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now.",
   "confirm": "chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do.",
-  "limit": "attachment.put: the file or the unsent total is over its limit, or too many uploads are open (x-attachments)."
+  "limit": "attachment.put: the file or the unsent total is over its limit, or too many uploads are open (x-attachments).",
+  "listing": "inbox.queue: the caller may not list that agent's messages. Only the agent itself, its supervisor and the founder may."
  },
  "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
  "x-legacy": {
@@ -3834,6 +3835,244 @@
    "x-note": "hl inbox --wait is this call with wait_s; hl read --wait is inbox.get with wait_s."
   },
   {
+   "name": "inbox.queue",
+   "summary": "An inbox as hl inbox prints it.",
+   "description": "An agent's inbox is the one request at the head of its queue (the oldest queued one whose routing was checked; a say is never the head), and with `all` every request ever sent to it. The founder's is the mailbox folded to one line per agent, a decision or a request whose sender waits on the reply keeping its own line, and with `all` the 20 most recent requests to or from the founder that are no longer queued. An agent may list its own inbox and those of the agents it supervises; the founder any. Nothing is marked read: the caller sends inbox.mark_read for the head it showed.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "whose",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "An agent's name, or `human` for the founder's mailbox. Default: the caller's own."
+     }
+    },
+    {
+     "name": "all",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Add `history` (an agent's inbox) or `dealt` (the founder's). Default false."
+     }
+    },
+    {
+     "name": "since",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "With `wait_s`: a `newest` from an earlier reply. The call holds until something newer waits. Default 0: it holds while nothing waits."
+     }
+    },
+    {
+     "name": "wait_s",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 600,
+      "description": "Hold the call up to this many seconds while `newest` is not above `since`. On timeout the reply is the inbox as it is, `newest` unchanged. Default 0, at most 600."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "whose": {
+       "type": "string"
+      },
+      "newest": {
+       "type": "integer",
+       "description": "The number of the newest thing waiting in this inbox, 0 for nothing: for an agent a request no state has settled, for the founder a mailbox row (an answer counts by its own number)."
+      },
+      "head": {
+       "oneOf": [
+        {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "integer"
+          },
+          "requester": {
+           "type": "string"
+          },
+          "chain_depth": {
+           "type": "integer"
+          },
+          "body": {
+           "type": "string"
+          },
+          "more_waiting": {
+           "type": "integer",
+           "minimum": 0,
+           "description": "How many requests wait in the queue behind this one."
+          },
+          "more_waiting_line": {
+           "type": "string",
+           "description": "The sentence that says so and when the next one comes; empty when none wait."
+          },
+          "how_to_close": {
+           "type": "string",
+           "description": "What the agent does to close it: the reply that answers it, or for a task the hand-on and done commands."
+          }
+         },
+         "required": [
+          "id",
+          "requester",
+          "chain_depth",
+          "body",
+          "more_waiting",
+          "more_waiting_line",
+          "how_to_close"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The head of an agent's queue; null when the queue is empty and for the founder's mailbox."
+      },
+      "history": {
+       "type": "array",
+       "description": "An agent's inbox with `all`: every request sent to it, oldest first.",
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "integer"
+         },
+         "requester": {
+          "type": "string"
+         },
+         "state": {
+          "type": "string"
+         },
+         "chain_depth": {
+          "type": "integer"
+         },
+         "line": {
+          "type": "string",
+          "description": "The body as one line, cut to 60 characters."
+         }
+        },
+        "required": [
+         "id",
+         "requester",
+         "state",
+         "chain_depth",
+         "line"
+        ]
+       }
+      },
+      "waiting": {
+       "type": "integer",
+       "minimum": 0,
+       "description": "The founder's mailbox: how many requests and answers wait, before folding."
+      },
+      "lines": {
+       "type": "array",
+       "description": "The founder's mailbox: decisions first, then requests whose sender waits on the reply, then the rest, oldest first in each.",
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "integer",
+          "description": "The newest request the line stands for."
+         },
+         "from": {
+          "type": "string"
+         },
+         "kind": {
+          "type": "string"
+         },
+         "decision": {
+          "type": "boolean",
+          "description": "Only the founder can decide it."
+         },
+         "answer": {
+          "type": "boolean",
+          "description": "It is an answer to something the founder asked; `id` is the founder's request."
+         },
+         "line": {
+          "type": "string",
+          "description": "Its first line, cut to 60 characters."
+         },
+         "unread": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many unseen messages of that agent the line stands for."
+         }
+        },
+        "required": [
+         "id",
+         "from",
+         "kind",
+         "decision",
+         "answer",
+         "line",
+         "unread"
+        ]
+       }
+      },
+      "dealt": {
+       "type": "array",
+       "description": "The founder's mailbox with `all`: newest first, without what `lines` still lists.",
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "integer"
+         },
+         "outgoing": {
+          "type": "boolean",
+          "description": "The founder sent it; `agent` is whom it went to."
+         },
+         "agent": {
+          "type": "string"
+         },
+         "state": {
+          "type": "string"
+         },
+         "line": {
+          "type": "string",
+          "description": "The first line of what closed it, else of its body, cut to 60 characters."
+         }
+        },
+        "required": [
+         "id",
+         "outgoing",
+         "agent",
+         "state",
+         "line"
+        ]
+       }
+      }
+     },
+     "required": [
+      "whose",
+      "newest",
+      "head"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "x-gates": [
+    "listing"
+   ],
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "inbox.get",
    "summary": "One item (hl read).",
    "paramStructure": "by-name",
@@ -3877,7 +4116,7 @@
   {
    "name": "request.read",
    "summary": "One request whole, as hl read prints it.",
-   "description": "Any caller may read any request, with both of its ends named; a request to an agent that the routing table has not passed yet is not_found to that agent. The founder reading one opens it: it is marked read. With `wait_s` the call holds while the request is queued; `state` says whether it settled.",
+   "description": "Any caller may read any request, with both of its ends named; a request to an agent that the routing table has not passed yet is not_found to that agent. The founder reading one opens it: it is marked read, and when it is one the founder asked, its answer is marked told. A member's device reading it opens nothing. With `wait_s` the call holds while the request is queued; `state` says whether it settled.",
    "paramStructure": "by-name",
    "params": [
     {
