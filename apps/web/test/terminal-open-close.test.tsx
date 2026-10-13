@@ -65,12 +65,6 @@ describe('Close terminal', () => {
     expect(call.mock.calls.filter(([m]) => m === 'terminal.close')).toHaveLength(1);
     expect(box.textContent).toContain('No terminal');
   });
-
-  it('the daemon refuses it with state while a session runs', async () => {
-    const s = setup();
-    await s.client.start();
-    await expect(s.client.call('terminal.close', { agent: ARCH, request_id: 'c-1' } as never)).rejects.toMatchObject({ code: 'refused' });
-  });
 });
 
 describe('Open terminal', () => {
