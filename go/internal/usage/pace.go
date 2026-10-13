@@ -14,17 +14,24 @@ const (
 	PaceBurst = 0.10 // the share of the week's quota that may be spent ahead of the clock
 )
 
-// Headroom is the tokens in the account's bucket, as a share of the week's quota: how far the week has run, plus the burst, less what is
-// spent. Positive is room; zero or less is ahead of the week. ok is false when the weekly figure cannot be acted on (unread, stale beyond
-// carrying, or its window already rolled over), in which case the pace says nothing.
+// Headroom is the tokens in the account's tightest bucket, the 5h and the weekly window each judged against its own fill rate: how far
+// the window has run, plus the burst, less what is spent, as a share of its quota. Positive is room; zero or less is ahead of the window.
+// ok is false when neither figure can be acted on (unread, stale beyond carrying, or rolled over), in which case the pace says nothing.
 func Headroom(st *AccountStatus, now int64) (float64, bool) {
-	used := st.LongTrusted()
-	if used == nil || st.Long.Reset == 0 {
+	most, ok := math.Inf(1), false
+	bucket := func(used *int, reset int64, length float64) {
+		if used == nil || reset == 0 || length <= 0 {
+			return
+		}
+		elapsed := 1 - math.Min(1, math.Max(0, float64(reset-now)/length))
+		most, ok = math.Min(most, elapsed+PaceBurst-float64(*used)/100), true
+	}
+	bucket(st.ShortTrusted(), st.Short.Reset, float64(st.Short.Minutes*60))
+	bucket(st.LongTrusted(), st.Long.Reset, WeekS)
+	if !ok {
 		return 0, false
 	}
-	left := float64(st.Long.Reset-now) / WeekS
-	elapsed := 1 - math.Min(1, math.Max(0, left))
-	return elapsed + PaceBurst - float64(*used)/100, true
+	return most, true
 }
 
 // CutoffShare is the share of its current burn (percent of the shortest window per second) the account can keep up until each window

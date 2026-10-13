@@ -299,16 +299,16 @@ func asWaiter(row *db.AgentState) *db.AgentState {
 // RoomElsewhere is SlowestPaced with a reason for each account passed over: exclude names the accounts left out and why. The second result
 // is why no account has room, "" when one does. A move to an account is held to this same test, so a wake and a handoff cannot disagree.
 func (l *Launcher) RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string) (string, string) {
-	return l.roomElsewhere(q, agent, row, exclude, "", true)
+	return l.roomElsewhere(q, agent, row, exclude, true)
 }
 
-// RoomNow is a person's start off skip, where it does not wait its turn: prefer (the account it was last on) when that has a free slot,
-// else the account with the most headroom, with no older closed agent counted ahead of it.
-func (l *Launcher) RoomNow(q db.Q, agent string, row *db.AgentState, skip, prefer string) (string, string) {
-	return l.roomElsewhere(q, agent, row, map[string]string{skip: ""}, prefer, false)
+// RoomNow is a person's start off skip, where it does not wait its turn: the account with the most headroom on both its 5h and weekly
+// window, with no older closed agent counted ahead of it.
+func (l *Launcher) RoomNow(q db.Q, agent string, row *db.AgentState, skip string) (string, string) {
+	return l.roomElsewhere(q, agent, row, map[string]string{skip: ""}, false)
 }
 
-func (l *Launcher) roomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string, prefer string, queue bool) (string, string) {
+func (l *Launcher) roomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string, queue bool) (string, string) {
 	row = asWaiter(row)
 	vendor := l.Ports.Vendors.AgentVendor(agent)
 	best, most := "", math.Inf(-1)
@@ -328,9 +328,6 @@ func (l *Launcher) roomElsewhere(q db.Q, agent string, row *db.AgentState, exclu
 		h, ok := l.Ports.Usage.Headroom(a)
 		if !ok {
 			h = 0 // a pace nobody can read is not evidence of room beyond the burst
-		}
-		if a == prefer {
-			h = math.Inf(1)
 		}
 		if h > most {
 			best, most = a, h
@@ -1002,8 +999,8 @@ func (p LaunchPort) RoomOn(q db.Q, agent string, row *db.AgentState, acct string
 	return p.L.RoomOn(q, agent, row, acct)
 }
 
-func (p LaunchPort) RoomNow(q db.Q, agent string, row *db.AgentState, skip, prefer string) (string, string) {
-	return p.L.RoomNow(q, agent, row, skip, prefer)
+func (p LaunchPort) RoomNow(q db.Q, agent string, row *db.AgentState, skip string) (string, string) {
+	return p.L.RoomNow(q, agent, row, skip)
 }
 
 var _ Launch = LaunchPort{}

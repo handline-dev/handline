@@ -373,11 +373,11 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	wait := m.Launch.WakeWait(m.Q, agent, row)
 	if o.Person && wait != nil && movedTo == "" {
 		// A person's start queues behind no older closed agent, and a full or walled account sends it where there is room now: the account
-		// it was last on first (its input cache may still be warm there), else the one with the most headroom.
+		// with the most headroom against both its 5h and weekly fill rate.
 		if wait.Slot && wait.Busy < wait.Full {
 			wait = nil
 		} else if session != "" {
-			to, why := m.Launch.RoomNow(m.Q, agent, row, wait.Account, lastLeft(m.Q, agent))
+			to, why := m.Launch.RoomNow(m.Q, agent, row, wait.Account)
 			if to != "" && !m.startFreshElsewhere(agent, session, wait.Account, to, "started by a person, "+wait.Account+" has no room") {
 				to, why = "", "its handoff could not be read whole"
 			}

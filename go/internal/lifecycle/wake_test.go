@@ -197,19 +197,17 @@ func TestARestartAskedToKeepTheConversationMovesOffAFullAccountWhereAnotherHasRo
 	}
 }
 
-// wallLaunch: the agent's own account "a" is at its 5h wall; RoomNow answers dest (why when none) and keeps the account preferred.
+// wallLaunch: the agent's own account "a" is at its 5h wall; RoomNow answers dest (why when none).
 type wallLaunch struct {
 	fakeLaunch
 	dest, why string
-	prefer    *string
 }
 
 func (wallLaunch) WakeWait(db.Q, string, *db.AgentState) *WakeWait {
 	return &WakeWait{Account: "a", Pct: 99, Window: "5h"}
 }
 func (wallLaunch) DescribeWakeWait(w *WakeWait) string { return DescribeWakeWait(w) }
-func (l wallLaunch) RoomNow(_ db.Q, _ string, _ *db.AgentState, skip, prefer string) (string, string) {
-	*l.prefer = prefer
+func (l wallLaunch) RoomNow(_ db.Q, _ string, _ *db.AgentState, _ string) (string, string) {
 	return l.dest, l.why
 }
 
@@ -227,11 +225,10 @@ func (h planHandoff) MovePlan(_ db.Q, _, _ string, starting bool) (string, strin
 }
 func (h planHandoff) BackingOff(db.Q, string) bool { return h.backoff }
 
-func TestAPersonsStartOnAWalledPinnedAccountStartsFreshOnTheAccountItWasLastOn(t *testing.T) {
+func TestAPersonsStartOnAWalledPinnedAccountStartsFreshWhereThereIsRoom(t *testing.T) {
 	m, d, tm := newManager(t)
 	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
-	var prefer string
-	m.Launch = wallLaunch{dest: "b", prefer: &prefer}
+	m.Launch = wallLaunch{dest: "b"}
 	var asked bool
 	m.Handoff = planHandoff{starting: &asked, backoff: true} // the daemon's own wake would not move; a person's does not ask
 	db.SetTerminal(m.Q, "a", "t1", "/wt")
@@ -240,9 +237,6 @@ func TestAPersonsStartOnAWalledPinnedAccountStartsFreshOnTheAccountItWasLastOn(t
 	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true, Person: true})
 	if err != nil || !ok {
 		t.Fatalf("%v %q %v", ok, said, err)
-	}
-	if prefer != "b" {
-		t.Fatalf("the account it was last on is preferred: %q", prefer)
 	}
 	if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); !moved || p["from"] != "a" || p["to"] != "b" {
 		t.Fatalf("%v %v", moved, p)
@@ -255,8 +249,7 @@ func TestAPersonsStartOnAWalledPinnedAccountStartsFreshOnTheAccountItWasLastOn(t
 func TestAPersonsStartWithNowhereToGoKeepsTheWallAndSaysWhyItDidNotMove(t *testing.T) {
 	m, d, tm := newManager(t)
 	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
-	var prefer string
-	m.Launch = wallLaunch{why: "no account can take one more agent (b: no free slot)", prefer: &prefer}
+	m.Launch = wallLaunch{why: "no account can take one more agent (b: no free slot)"}
 	db.SetTerminal(m.Q, "a", "t1", "/wt")
 	db.SetClosed(m.Q, "a", "sess-1")
 	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true, Person: true})
@@ -295,9 +288,8 @@ func TestAPersonsStartDoesNotQueueBehindOlderClosedAgents(t *testing.T) {
 func TestADaemonWakeOnAWalledAccountAsksThePlanAsAStart(t *testing.T) {
 	m, d, tm := newManager(t)
 	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
-	var prefer string
 	var starting bool
-	m.Launch = wallLaunch{prefer: &prefer}
+	m.Launch = wallLaunch{}
 	m.Handoff = planHandoff{dest: "b", starting: &starting}
 	db.SetTerminal(m.Q, "a", "t1", "/wt")
 	db.SetClosed(m.Q, "a", "sess-1")

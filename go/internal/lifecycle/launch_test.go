@@ -532,14 +532,11 @@ func TestAPersonsStartGoesToTheAccountItWasLastOnElseTheMostHeadroomAndQueuesBeh
 	q.Exec("UPDATE agent_state SET closed_at = 10 WHERE agent = 'ann'")
 	q.Exec("UPDATE agent_state SET closed_at = 1 WHERE agent = 'waiting-on-b'")
 	row, _ := db.GetAgentState(q, "ann")
-	if got, why := r.l.RoomNow(q, "ann", row, "a", "c"); got != "c" {
-		t.Fatalf("the account it was last on, while it has room: %q %s", got, why)
-	}
-	if got, why := r.l.RoomNow(q, "ann", row, "a", "walled"); got != "b" {
-		t.Fatalf("that one full: the most headroom, the older waiter on b not ahead of a person: %q %s", got, why)
+	if got, why := r.l.RoomNow(q, "ann", row, "a"); got != "b" {
+		t.Fatalf("the most headroom, the older waiter on b not ahead of a person: %q %s", got, why)
 	}
 	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true, ShortTrusted: &pct}, cap: 0}
-	if got, why := r.l.RoomNow(q, "ann", row, "a", "c"); got != "" || !strings.HasPrefix(why, "no account can take one more agent") {
+	if got, why := r.l.RoomNow(q, "ann", row, "a"); got != "" || !strings.HasPrefix(why, "no account can take one more agent") {
 		t.Fatalf("nowhere has room: %q %s", got, why)
 	}
 }

@@ -113,3 +113,15 @@ func TestCutoffCapRoundsUpSoAnyShareLeftKeepsOneSlot(t *testing.T) {
 		}
 	}
 }
+
+func TestHeadroomIsTheTighterOfThe5hAndTheWeeklyBucket(t *testing.T) {
+	home := t.TempDir()
+	e := testEnv(home, clock)
+	// The week is half over with 20% spent (0.4 of room); the 5h window is a fifth over with 30% spent (0.0 of room).
+	writeStatus(t, home, "a", map[string]any{"collected_at": clock - 5, "windows": []any{
+		map[string]any{"minutes": 300, "used_percent": 30, "resets_at": clock + 4*3600, "observed_at": clock - 5},
+		map[string]any{"minutes": 10080, "used_percent": 20, "resets_at": clock + WeekS/2, "observed_at": clock - 5}}})
+	if h, ok := e.Headroom("a"); !ok || h < -0.0001 || h > 0.0001 {
+		t.Fatalf("the 5h bucket is the tighter one: %v %v", h, ok)
+	}
+}

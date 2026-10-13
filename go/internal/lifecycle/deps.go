@@ -114,8 +114,8 @@ type Launch interface {
 	RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string) (account, why string)
 	// RoomOn is why acct cannot take the agent, "" when it can.
 	RoomOn(q db.Q, agent string, row *db.AgentState, acct string) string
-	// RoomNow is a person's start off skip: prefer when it has room, else the account with the most headroom, no older waiter ahead of it.
-	RoomNow(q db.Q, agent string, row *db.AgentState, skip, prefer string) (account, why string)
+	// RoomNow is a person's start off skip: the account with the most headroom, no older waiter ahead of it.
+	RoomNow(q db.Q, agent string, row *db.AgentState, skip string) (account, why string)
 }
 
 // Spawner is team/spawn.py.
