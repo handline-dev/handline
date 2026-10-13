@@ -13,7 +13,7 @@ export const clock = (at: string) => {
 };
 
 /** A transcript line that is not a message. */
-export function Line({ i }: { i: TranscriptItem }) {
+export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: TranscriptItem) => void }) {
   const c = usePalette();
   const small = { color: c.muted, fontSize: 12 } as const;
   if (i.kind === 'reply')
@@ -21,6 +21,17 @@ export function Line({ i }: { i: TranscriptItem }) {
       <View testID={`reply-${i.id}`} style={{ alignSelf: 'flex-start', maxWidth: '88%', padding: space.md }}>
         <Text style={{ color: c.ink }}>{i.text}</Text>
         <Text style={small}>{clock(i.at)}</Text>
+        {onReply && (
+          <Pressable
+            testID={`reply-to-${i.id}`}
+            accessibilityRole="button"
+            accessibilityLabel="Reply to this"
+            hitSlop={8}
+            onPress={() => onReply(i)}
+          >
+            <Text style={{ color: c.accent, fontSize: 12, fontWeight: '600' }}>↩ Reply</Text>
+          </Pressable>
+        )}
       </View>
     );
   if (i.kind === 'tool') return <ToolLine i={i} />;

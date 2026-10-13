@@ -7,7 +7,7 @@ import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-nativ
 import { isOpenAsk, landingLabel, sideOf, timeline } from '@handline/app-core';
 import { classify, sentence, useAgents, useChat, useChatActions, useInbox, useWrite, type ChatScope } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
-import type { AgentDetail, ChatMessage, Landing } from '@handline/client';
+import type { AgentDetail, ChatMessage, Landing, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
@@ -59,6 +59,9 @@ export function Chat(props: { detail: AgentDetail }) {
   const chat = useChat(agent, scope);
   const act = useChatActions(agent);
   const [picked, setPicked] = useState<ChatMessage | null>(null);
+  const [item, setItem] = useState<TranscriptItem | null>(null); // one of the agent's replies; never together with a picked message
+  // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
+  const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
   const [text, setTextState] = useState(drafts.get(agent) ?? '');
   const scroll = useRef<ScrollView>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
@@ -101,8 +104,10 @@ export function Chat(props: { detail: AgentDetail }) {
     if (!text.trim()) return;
     // A picked message is a reference: a linked message to whoever said it, whatever it asked.
     if (picked) act.send(text, { parent: picked.id, to: names.has(picked.from) ? picked.from : picked.to, delivery });
+    else if (item) act.send(text, { parent_item: item.id, delivery });
     else act.send(text, { delivery });
     setPicked(null);
+    setItem(null);
     setText('');
     pinned.current = true;
   };
@@ -120,6 +125,7 @@ export function Chat(props: { detail: AgentDetail }) {
             onPress={() => {
               setScope(s);
               setPicked(null);
+              setItem(null);
             }}
             style={{
               paddingVertical: space.xs,
@@ -171,11 +177,25 @@ export function Chat(props: { detail: AgentDetail }) {
               agent={agent}
               picked={picked?.id === e.id}
               working={working}
-              onPick={(m) => setPicked((p) => (p?.id === m.id ? null : m))}
+              onPick={(m) => {
+                setItem(null);
+                setPicked((p) => (p?.id === m.id ? null : m));
+              }}
               onRestore={(t) => setText(text.trim() ? `${t}\n${text}` : t)}
             />
           ) : (
-            <Line key={`i${e.id}`} i={e.item} />
+            <Line
+              key={`i${e.id}`}
+              i={e.item}
+              onReply={
+                canSend && canReplyItem
+                  ? (i) => {
+                      setPicked(null);
+                      setItem((p) => (p?.id === i.id ? null : i));
+                    }
+                  : undefined
+              }
+            />
           ),
         )}
         {working && (
@@ -190,6 +210,16 @@ export function Chat(props: { detail: AgentDetail }) {
             ↩ #{picked.id} {snippet(picked.body)}
           </Text>
           <Pressable testID="drop-reply" accessibilityLabel="Drop the reply" hitSlop={12} onPress={() => setPicked(null)}>
+            <Text style={{ color: c.muted, fontSize: 16 }}>✕</Text>
+          </Pressable>
+        </Row>
+      )}
+      {item && (
+        <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
+          <Text testID="replying-item" numberOfLines={1} style={{ color: c.muted, fontSize: 12, flex: 1 }}>
+            ↩ {snippet((item.text ?? '').replace(/\s+/g, ' '))}
+          </Text>
+          <Pressable testID="drop-reply-item" accessibilityLabel="Drop the reply" hitSlop={12} onPress={() => setItem(null)}>
             <Text style={{ color: c.muted, fontSize: 16 }}>✕</Text>
           </Pressable>
         </Row>
@@ -281,6 +311,11 @@ function Bubble(props: {
         </Text>
       )}
       {m.parent != null && <Text style={{ color: c.muted, fontSize: 11 }}>↩ #{m.parent}</Text>}
+      {m.parent_item && (
+        <Text testID={`quote-${m.id}`} numberOfLines={2} style={{ color: c.muted, fontSize: 11 }}>
+          ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
+        </Text>
+      )}
       <Text testID={`body-${m.id}`} style={{ color: c.ink }}>
         {m.body}
       </Text>
