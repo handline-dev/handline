@@ -72,7 +72,7 @@ func TestAPaneIsDescribedByTheHostTheProcessesAndTheAgentItIs(t *testing.T) {
 		{Session: "ocp", Window: "1", WindowName: "bob", Handle: "%2", PID: 20, Command: "zsh", Path: "/w/bob", Activity: 990},
 		{Session: "ocp", Window: "2", Handle: "%3", PID: 30, Command: "vim"},
 	}}
-	procs := map[int]Proc{10: {1, "-zsh"}, 11: {10, "/home/x/.local/bin/claude"}, 20: {1, "-zsh"}, 30: {1, "vim"}}
+	procs := map[int]Proc{10: {1, "-zsh"}, 11: {10, "/opt/bin/claude"}, 20: {1, "-zsh"}, 30: {1, "vim"}}
 	ps := panes(t, rig(t, h, procs))
 	if len(ps) != 3 {
 		t.Fatalf("%v", ps)
