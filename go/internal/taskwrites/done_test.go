@@ -79,7 +79,7 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 	refused("an open blocker", done("w", "a8", 4, `,"evidence":"x"`), "task T4 is waiting on T5 - it is done only once they are")
 	refused("a sha off main", done("w", "a9", 1, fmt.Sprintf(`,"evidence":%q,"repo":%q`, offMain, repo)), offMain+" is not an ancestor of main")
 	refused("a sha needs a repo", done("w", "b1", 1, `,"evidence":"abcd1234"`), "a sha is checked against a repo: name one")
-	refused("a sha task closed by words", done("w", "b2", 6, `,"evidence":"it never merged"`), "task T6 expects a sha - `hl task done T6 <sha>`, or its opener (boss) or the founder may close it another way")
+	refused("the opener is not the owner", done("boss", "b2", 6, `,"evidence":"it never merged"`), "task T6 can only be marked done by its owner (w) or the founder")
 
 	r := done("w", "ok", 1, `,"evidence":"  all\n  done  "`)
 	if r["error"] != nil || r["result"].(map[string]any)["said"] != "task T1 done (  all\n  done  )" {
@@ -96,9 +96,9 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 		t.Fatalf("the opener is told once, typed, and the teller follows: %v", f.done)
 	}
 
-	r = done("boss", "c2", 6, `,"evidence":"it never merged"`)
+	r = done("w", "c2", 6, `,"evidence":"it never merged"`)
 	if r["error"] != nil {
-		t.Fatalf("the opener closes a sha task another way: %v", r)
+		t.Fatalf("a task once expecting a sha closes on words: %v", r)
 	}
 	r = done("w", "c3", 7, fmt.Sprintf(`,"evidence":%q,"repo":%q`, onMain, repo))
 	if r["error"] != nil || r["result"].(map[string]any)["said"] != "task T7 done ("+onMain+")" {

@@ -30,17 +30,6 @@ func parsePriority(v any) (int64, error) {
 	return 0, badParam(fmt.Sprintf("'%s' is not a priority - write P1 (high), P2 (default) or P3 (low)", raw), "")
 }
 
-// parseExpects is actions.parse_expects: what task.done must be given to close the task.
-func parseExpects(v any) (string, error) {
-	raw := fmt.Sprint(v)
-	t := strings.ToLower(strings.TrimSpace(raw))
-	switch t {
-	case "sha", "verdict", "decision", "report":
-		return t, nil
-	}
-	return "", badParam(fmt.Sprintf("--expects must be one of sha, verdict, decision, report, not '%s'", raw), "")
-}
-
 // begin is task.begin (actions.task_begin): the founder's own message to the caller is approval enough, so the caller opens a task for
 // itself and starts it. What stands in for the approval is the record: why on the event, and the message linked to the task.
 func begin(c *rpc.Conn, p map[string]any) (any, error) {
@@ -62,12 +51,6 @@ func begin(c *rpc.Conn, p map[string]any) (any, error) {
 	prio := int64(db.DefaultPriority)
 	if p["priority"] != nil {
 		if prio, err = parsePriority(p["priority"]); err != nil {
-			return nil, err
-		}
-	}
-	expects := "report"
-	if p["expects"] != nil {
-		if expects, err = parseExpects(p["expects"]); err != nil {
 			return nil, err
 		}
 	}
@@ -101,7 +84,7 @@ func begin(c *rpc.Conn, p map[string]any) (any, error) {
 		if len(used) > 0 {
 			return nil, refusal(fmt.Sprintf("request #%d already opened T%d", chat, used[0].ID))
 		}
-		tid, err := db.NewTask(tx, clean, me, me, 0, prio, expects, 0, "")
+		tid, err := db.NewTask(tx, clean, me, me, 0, prio, "report", 0, "")
 		if err != nil {
 			return nil, err
 		}
