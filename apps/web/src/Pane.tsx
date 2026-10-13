@@ -1,5 +1,6 @@
 // One pane: its own tab strip, the active tab, and while a tab is dragged, the edges it can be dropped on.
 import { useEffect, useRef, useState } from 'react';
+import { useScreenKeys, type KeyRows } from './screenKeys.ts';
 import {
   activate,
   applyPreset,
@@ -44,7 +45,13 @@ const PRESETS: [Preset, string][] = [
   ['grid', '2 x 2'],
 ];
 
+const TAB_KEYS: KeyRows = [
+  ['Alt+Left Alt+Right', 'move the focused tab along the strip'],
+  ['Enter Space', 'show the focused tab'],
+];
+
 export function Pane({ group }: { group: Group }) {
+  useScreenKeys('On the tabs', TAB_KEYS);
   const { ws, detail, agent, storage, apply, dragging, setDragging } = useWorkspace();
   const store = useStore();
   const strip = useRef<HTMLDivElement>(null);
