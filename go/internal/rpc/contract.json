@@ -189,6 +189,9 @@
  "repos.list": {
   "role": "member"
  },
+ "request.read": {
+  "role": "agent"
+ },
  "say": {
   "role": "agent"
  },
