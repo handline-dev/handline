@@ -36,7 +36,9 @@ const rules: Record<string, Rule> = {
   },
   // The store keeps the notes; the detail is read again, since a control changes what it shows.
   'agent.control': ({ qc, d }, e) => {
-    if (e.agent) void qc.invalidateQueries({ queryKey: qk.agent(d, e.agent) });
+    if (!e.agent) return;
+    void qc.invalidateQueries({ queryKey: qk.agent(d, e.agent) });
+    void qc.invalidateQueries({ queryKey: qk.resource(d, 'agent.timeline') });
   },
   // A filter makes a patch of a list unsafe, so the lists are read again.
   'task.changed': ({ qc, d }, e) => {

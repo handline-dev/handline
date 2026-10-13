@@ -6,8 +6,19 @@ import { detach, group, groupOf, groupsOf, replaceGroup } from './layout-tree.ts
 
 export { groupOf, groupsOf };
 
-export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review';
-export const TAB_KINDS: readonly TabKind[] = ['chat', 'tasks', 'terminal', 'transcript', 'shell', 'emulator', 'web', 'markdown', 'review'];
+export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review' | 'timeline';
+export const TAB_KINDS: readonly TabKind[] = [
+  'chat',
+  'tasks',
+  'terminal',
+  'transcript',
+  'shell',
+  'emulator',
+  'web',
+  'markdown',
+  'review',
+  'timeline',
+];
 export type TabParams = Record<string, string | number>;
 export interface Tab {
   id: string;
@@ -43,6 +54,7 @@ export type Path = ('a' | 'b')[];
 export const CHAT = 'chat';
 export const TASKS = 'tasks';
 export const TRANSCRIPT = 'transcript';
+export const TIMELINE = 'timeline';
 export const MAX_GROUPS = 4;
 export const MIN_AT = 0.15;
 export const MAX_AT = 0.85;
@@ -56,6 +68,7 @@ export function tabId(ws: Workspace | null, kind: TabKind, params: TabParams): s
   if (kind === 'chat') return CHAT;
   if (kind === 'tasks') return TASKS;
   if (kind === 'transcript') return TRANSCRIPT;
+  if (kind === 'timeline') return TIMELINE;
   const named = params.handle ?? params.path ?? params.port ?? params.url ?? params.device ?? params.id;
   if (named !== undefined) return `${kind}:${named}`;
   let n = 1;
