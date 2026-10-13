@@ -116,7 +116,7 @@ A method marked write takes a required `request_id`.
 | `terminal.open` | member |  | `agent` | `TerminalOpening` | `not_found`, `bad_request`, `refused` | role, unsupported |
 | `terminal.detach` | member |  | `terminal`, `format?` | `object` | `not_found`, `bad_request` |  |
 | `debug.terminals` | member |  | none | `{host, now, panes}` | `refused` | role, unsupported, state |
-| `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?`, `queue?` | `{items, more, more_waiting}` |  |  |
+| `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?` | `{items, more}` |  |  |
 | `inbox.queue` | agent |  | `whose?`, `all?`, `since?`, `wait_s?` | `{whose, newest, head, history, waiting, lines, dealt}` | `refused`, `bad_request` | listing |
 | `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem` | `not_found`, `bad_request` |  |
 | `request.read` | agent |  | `id`, `wait_s?` | `{id, requester, target, kind, state, created, relation, response, chain_depth, parent, body, answer, dismissal}` | `not_found`, `bad_request` |  |
