@@ -6,7 +6,7 @@ import time
 from ..team import agents
 from ..infra import lock, timefmt
 from ..session import blocked
-from ..daemon import delivery as dmn_delivery, landing as dmn_landing, lifecycle as dmn_lifecycle, states as dmn_timing
+from ..daemon import delivery as dmn_delivery, landing as dmn_landing, lifecycle as dmn_lifecycle
 from ..infra import daemonlock
 from ..session import states as dmn_states
 from .. import db
@@ -23,7 +23,7 @@ from .routing import HUMAN
 # closed agent is woken on the next tick, and a long turn is what this system
 # is for - the daemon calls an agent healthy up to STUCK_RUNNING_S with nothing
 # heard. A reason that does not resolve itself counts at once.
-STUCK_AFTER_S = dmn_timing.STUCK_RUNNING_S
+STUCK_AFTER_S = dmn_states.STUCK_RUNNING_S
 
 # States that need no one to act, so they are not shown: a closed agent with nothing to wake it for, and
 # an agent mid-turn, whose queue is told when the turn ends. One the daemon is about to wake is shown

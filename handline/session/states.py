@@ -43,6 +43,27 @@ MOVING_MARK = "moving"
 BY_HAND_MARK = "by hand"
 
 
+# An agent that has done nothing for this long is holding memory and nothing
+# else: a resident session costs 250-500MB and no tokens at all. Closing it
+# gives the machine that back, and resuming costs nothing extra - measured, a
+# resumed session read its whole 68k prefix from cache exactly as a resident
+# one did, because the cache lives on the server and expires on time, not on
+# whether our process stayed alive.
+# The round trip is small: across the recorded deliveries, a request that
+# woke a closed session was told a median 13.5s after it arrived (p25 11s, p75
+# 31s), against 4s for a live one, so a request every ten minutes pays about
+# ten seconds each time. Raising this past PROMPT_CACHE_S would turn every
+# resume into a cache miss (see RESUME_WARM_S), which is a cost change, not a
+# tuning one.
+IDLE_CLOSE_S = 600
+
+# How long an agent may read as RUNNING with nothing heard from it before the
+# label is stuck rather than the turn being long. A turn can be quiet for many
+# minutes inside one tool call, so this is not tied to how soon idle sessions
+# are closed.
+STUCK_RUNNING_S = 1800
+
+
 def park_wakeable(row) -> tuple[bool, str]:
     """Whether `w` on this PARKED, THROTTLED or DEGRADED row does anything,
     and why not when it does not (only a park a

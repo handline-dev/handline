@@ -12,8 +12,8 @@ import time
 
 from ..infra import paths
 
-NAME = "hook-spool.jsonl"
-REJECTED = "hook-spool-rejected.jsonl"
+NAME = paths.HOOK_SPOOL
+REJECTED = paths.HOOK_SPOOL_REJECTED
 
 
 def path():
