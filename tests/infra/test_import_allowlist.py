@@ -24,7 +24,6 @@ MOVING = {
     ("daemon.py", "handline.daemon.locks"),
     ("daemon.py", "handline.daemon.loop"),
     ("daemon.py", "handline.db"),
-    ("health.py", "handline.daemon.devmode"),
     ("health.py", "handline.db"),
     ("health.py", "handline.db.schema"),
     ("hr.py", "handline.db"),
