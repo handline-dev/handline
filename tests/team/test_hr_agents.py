@@ -43,9 +43,6 @@ def test_agents(home: Path) -> None:
     check("re-register preserves other fields", cfg.get("model") == "sonnet", str(cfg))
     d = home / "agents" / "backend"
     check("agent dirs created", all((d / s).is_dir() for s in ("inbox", "journal")))
-    (d / "base.md").write_text("x" * 5000)
-    over = [fn for fn, _, _, o in agents.budget_report("backend") if o]
-    check("base.md budget is enforced", "base.md" in over)
 
 
 def test_team_routing() -> None:
@@ -3137,16 +3134,16 @@ def test_an_agents_role_and_base_change_only_by_a_proposal_the_founder_approves(
     agents.register("worker", repo=str(home), role="the old role")
     agents.register("other", repo=str(home))
     hand_edit_team("agents:\n  worker: {}\n  other: {}\nedges:\n  - { from: \"*\", to: \"human\", kind: task }\n")
-    role_file, base_file = home / "new-role.md", home / "new-base.md"
+    role_file = home / "new-role.md"
     role_file.write_text("# worker\n\nThe new role.\nSecond line: a \"quote\" and a colon.\n")
-    base_file.write_text("x" * (agents.BASE_BUDGET_BYTES + 1))
+    big_role = home / "big-role.md"
+    big_role.write_text("# worker\n\n" + "x" * 3072 + "\n")
     before = (paths.agent_dir("worker") / "ROLE.md").read_text()
-    rc, out = _cli(["hr", "context", "worker", "--role-file", str(role_file), "--base-file", str(base_file),
-                    "--why", "tighten"], as_agent="other")
-    check("context: a file over its budget is refused, and nothing is raised",
-          rc == 1 and "budget" in out and not hr.listing(), out)
+    rc, out = _cli(["hr", "context", "worker", "--role-file", str(big_role), "--why", "a long role"], as_agent="other")
+    big = next((x["id"] for x in hr.listing() if x["kind"] == "context"), None)
+    check("context: a 3KB ROLE.md is raised as a proposal", rc == 0 and big and hr.withdraw(big, "other")[0], out)
     rc, out = _cli(["hr", "context", "worker", "--role-file", str(role_file), "--why", "tighten"], as_agent="other")
-    pid = next((x["id"] for x in hr.listing() if x["kind"] == "context"), None)
+    pid = next((x["id"] for x in hr.listing() if x["kind"] == "context" and x["id"] != big), None)
     check("context: an agent's proposal is raised, and nothing is written",
           rc == 0 and pid and (paths.agent_dir("worker") / "ROLE.md").read_text() == before, out)
     prop = hr.load_proposal(pid)
@@ -3175,8 +3172,6 @@ def test_an_agents_role_and_base_change_only_by_a_proposal_the_founder_approves(
           and "base.md" not in said, said)
     check("context: the file still loads as the agent's standing context",
           role_file.read_text().strip() in launch.context_for("worker"))
-    rc, out = _cli(["hr", "context", "worker", "--base-file", str(base_file), "--why", "x"], as_agent="human")
-    check("context: the founder's own change over budget is refused too", rc == 1 and "budget" in out, out)
 
 
 def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_founder_approves(home: Path) -> None:

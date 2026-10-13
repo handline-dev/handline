@@ -45,8 +45,8 @@ KINDS = ITEM_KINDS + (BUNDLE,)
 # The order a team diff is applied in: agents exist before anything names them, links come before
 # an agent is retired, and the standing context of what is left is last.
 STEP_ORDER = ("team", "add", "rename", "settings", "schedule", "link", "unlink", "retire", "context", "global")
-# What a `context` proposal may replace: the files injected into every session, and their budgets.
-CONTEXT_FILES = {"ROLE.md": agents.ROLE_BUDGET_BYTES, "base.md": agents.BASE_BUDGET_BYTES}
+# What a `context` proposal may replace: the files injected into every session.
+CONTEXT_FILES = ("ROLE.md", "base.md")
 EDGE_KINDS = ("link", "unlink")
 SCHEDULE_ACTIONS = ("add", "edit", "remove")
 
@@ -319,9 +319,6 @@ def _context_problem(texts: dict[str, str] | None) -> str | None:
             return f"{fn} cannot be empty"
         if (textsafe.UNSAFE_IN_VALUE - {"\t", "\n"}) & set(str(text)):
             return f"{fn} carries a control character"
-        size = len(str(text).encode())
-        if size > CONTEXT_FILES[fn]:
-            return f"{fn} is {size} bytes, over its {CONTEXT_FILES[fn]}-byte budget: it is paid for in every session"
     return None
 
 

@@ -901,7 +901,7 @@ export type HrArgs = {
   members?: string[];
   /** team: repo by member. */
   repos?: { [key: string]: string };
-  /** settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` (at most 1024 bytes) or `base.md` (at most 2048 bytes); empty text, control characters other than tab and newline, or a file over its budget is bad_request. */
+  /** settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` or `base.md`; empty text or control characters other than tab and newline is bad_request. */
   sets?: { [key: string]: string };
 };
 

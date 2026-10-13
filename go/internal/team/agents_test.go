@@ -194,14 +194,3 @@ func TestConfigReaders(t *testing.T) {
 		t.Error("a value that is not a config adds nothing")
 	}
 }
-
-func TestBudgetReport(t *testing.T) {
-	home := newHome(t)
-	r := NewRoster(home)
-	d, _ := r.Register("worker", RegisterOpts{})
-	os.WriteFile(filepath.Join(d, "ROLE.md"), []byte(strings.Repeat("x", 1025)), 0o644)
-	got := BudgetReport(home, "worker")
-	if len(got) != 2 || got[0].File != "base.md" || got[0].Over || got[1].File != "ROLE.md" || !got[1].Over || got[1].Bytes != 1025 {
-		t.Fatalf("%+v", got)
-	}
-}
