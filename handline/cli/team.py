@@ -1,17 +1,13 @@
 """`hl team`."""
 from __future__ import annotations
 
+import sys
 
-from ..team import agents
 from ..team import ask as askmod
-from ..daemon import lifecycle as dmn_lifecycle, taskholds
-from .. import db
-from ..session import launch
-from ..infra import paths, sealed
+from ..infra import daemonclient as dmn_client, paths, sealed, textsafe
 from ..team import team
-from ..view import viewdata
-from ..session import waiting
 
+from . import client
 from .ask import _who_refusal
 from .health import _name_col
 
@@ -34,36 +30,37 @@ def cmd_team(args) -> int:
     except Exception as e:  # noqa: BLE001
         print(f"team.yaml is invalid: {e}")
         return 1
-    con = db.connect()
     try:
-        mine, theirs = [], []
-        for other in paths.list_agents():
-            if other == me:
-                continue
-            out = t.route(me, other)
-            back = t.route(other, me)
-            if out.allowed:
-                mine.append((other, _in_your_words(out.relation), _doing(con, other)))
-            if back.allowed:
-                theirs.append((other, _in_your_words(back.relation, sending=False)))
-        w = _name_col([n for n, _r, _d in mine] + [n for n, _r in theirs])
-        print(f"you are {me}")
-        if mine:
-            print("\nyou may ask:")
-            for name, rel, doing in mine:
-                print(f"  {name:<{w}}{rel:<12}{doing}")
-        else:
-            print("\nthere is nobody you may ask.")
-        if theirs:
-            print("\nmay ask you: "
-                  + ", ".join(f"{n} ({rel})" for n, rel in theirs))
-        print("\n`hl task new --assign <name> -t <time> \"<title>\" \"<body>\"` gives one work, "
-              "and `hl say <name> \"...\"` sends a message. A task is the only way to give an "
-              "agent work:\na subagent you spawn yourself dies with this session and "
-              "nobody can see it.")
-        return 0
-    finally:
-        con.close()
+        lines = {a["name"]: a for a in client.call("agents.list", {"status": True})["agents"]}
+    except (dmn_client.DaemonDown, dmn_client.RpcError, OSError) as e:
+        print(f"could not read what they are doing: {e}", file=sys.stderr)
+        lines = {}
+    mine, theirs = [], []
+    for other in paths.list_agents():
+        if other == me:
+            continue
+        out = t.route(me, other)
+        back = t.route(other, me)
+        if out.allowed:
+            mine.append((other, _in_your_words(out.relation), _doing(other, lines.get(other))))
+        if back.allowed:
+            theirs.append((other, _in_your_words(back.relation, sending=False)))
+    w = _name_col([n for n, _r, _d in mine] + [n for n, _r in theirs])
+    print(f"you are {me}")
+    if mine:
+        print("\nyou may ask:")
+        for name, rel, doing in mine:
+            print(f"  {name:<{w}}{rel:<12}{doing}")
+    else:
+        print("\nthere is nobody you may ask.")
+    if theirs:
+        print("\nmay ask you: "
+              + ", ".join(f"{n} ({rel})" for n, rel in theirs))
+    print("\n`hl task new --assign <name> -t <time> \"<title>\" \"<body>\"` gives one work, "
+          "and `hl say <name> \"...\"` sends a message. A task is the only way to give an "
+          "agent work:\na subagent you spawn yourself dies with this session and "
+          "nobody can see it.")
+    return 0
 
 
 def _in_your_words(relation: str | None, sending: bool = True) -> str:
@@ -80,30 +77,24 @@ def _in_your_words(relation: str | None, sending: bool = True) -> str:
     return "peer"
 
 
-def _doing(con, agent: str) -> str:
-    """One line on what an agent is doing, for the team list."""
-    row = db.get_agent_state(con, agent)
-    try:
-        no_repo = not agents.read(agent).get("repo")
-    except Exception:  # noqa: BLE001 - an unreadable agent.yaml is doctor's to report
-        no_repo = False
-    if no_repo and not (row and row["terminal"]):
+def _doing(agent: str, line: dict | None) -> str:
+    """One line on what an agent is doing, for the team list, from its agents.list status line (None when the daemon gave none)."""
+    if line is None:
+        return "?"
+    if not line["has_repo"] and not line["has_terminal"]:
         return f"never started - no repo (`hl agent register {agent} --repo <path>`)"
-    if not row:
+    if not line["started"]:
         return "never started"
-    word, extra = viewdata.screen_state(con, row)
-    state = word + (f" {extra}" if extra else "")
-    waiting = db.unreached_count(con, agent)
-    if waiting:
-        state += f" · {waiting} waiting"
-    waits = taskholds.agent_waits(con, agent)
+    state = line["screen_word"] + (f" {textsafe.oneline(line['screen_detail'])}" if line["screen_detail"] else "")
+    if line["unreached"]:
+        state += f" · {line['unreached']} waiting"
+    waits = line["task_waits"]
     if waits:
-        state += f" · T{waits[0][0]} waits: {waits[0][1]}" + (f" (+{len(waits) - 1} more)" if len(waits) > 1 else "")
-    if dmn_lifecycle.would_wake(con, row):
-        walled = launch.wake_wait_reason(agent, row, con)
-        if walled:
-            state += f" · {walled}"
-    if not row["terminal"]:
+        state += (f" · T{waits[0]['task']} waits: {textsafe.oneline(waits[0]['words'])}"
+                  + (f" (+{len(waits) - 1} more)" if len(waits) > 1 else ""))
+    if line["wake_wait_reason"]:
+        state += f" · {textsafe.oneline(line['wake_wait_reason'])}"
+    if not line["has_terminal"]:
         state += " · no terminal yet"
     return state
 

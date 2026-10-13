@@ -24,7 +24,6 @@ MOVING = {
     ("agent.py", "handline.db"),
     ("ask.py", "handline.daemon.delivery"),
     ("ask.py", "handline.db"),
-    ("daemon.py", "handline.daemon.lifecycle"),
     ("daemon.py", "handline.daemon.locks"),
     ("daemon.py", "handline.daemon.loop"),
     ("daemon.py", "handline.db"),
@@ -34,9 +33,6 @@ MOVING = {
     ("hr.py", "handline.db"),
     ("land.py", "handline.db"),
     ("task.py", "handline.db"),
-    ("team.py", "handline.daemon.lifecycle"),
-    ("team.py", "handline.daemon.taskholds"),
-    ("team.py", "handline.db"),
 }
 
 # (file, module): why it stays. Only what has to run with the daemon down belongs here.

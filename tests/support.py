@@ -116,7 +116,7 @@ class _CliConnection(_dmn_rpc.Connection):
         return caller
 
 
-def _serve_cli() -> _socket.socket:
+def _serve_cli(start: bool = True, timeout: float = 0) -> _socket.socket:
     _sessiontoken.ensure_founder_key()
     a, b = _socket.socketpair()
 
@@ -129,6 +129,7 @@ def _serve_cli() -> _socket.socket:
     return a
 
 
+REAL_CLI_CONNECT = _cli_client.connect  # for a test that puts its own socket under the real call
 _cli_client.connect = _serve_cli
 
 def _ask_row(payload: dict, log=None) -> dict:

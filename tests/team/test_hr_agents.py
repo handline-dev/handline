@@ -3111,15 +3111,11 @@ def test_a_repo_is_required_to_add_an_agent(home: Path) -> None:
     rc, out = _cli(["agent", "register", "boss", "--effort", "high"], as_agent=askmod.HUMAN)
     check("agent register: one that has a repo keeps it on re-registration", rc == 0
           and agents.read("boss").get("repo") == "/w/boss", out)
-    from handline.cli import team as teamcli
-    con = db.connect()
-    try:
-        check("hl team: an agent with no repo says why it never starts",
-              "no repo" in teamcli._doing(con, "legacy") and "--repo <path>" in teamcli._doing(con, "legacy"),
-              teamcli._doing(con, "legacy"))
-        check("hl team: one with a repo does not", "no repo" not in teamcli._doing(con, "boss"))
-    finally:
-        con.close()
+    from handline.cli import client as cli_client, team as teamcli
+    doing = {a["name"]: teamcli._doing(a["name"], a) for a in cli_client.call("agents.list", {"status": True})["agents"]}
+    check("hl team: an agent with no repo says why it never starts",
+          "no repo" in doing["legacy"] and "--repo <path>" in doing["legacy"], doing["legacy"])
+    check("hl team: one with a repo does not", "no repo" not in doing["boss"])
     from handline.infra import doctor
     r = doctor.Report()
     doctor._check_agents(r)
