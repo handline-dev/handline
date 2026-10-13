@@ -68,14 +68,17 @@ export const useAgentTimeline = (agent: string) => useRead('agent.timeline', { a
 
 /**
  * An agent's timeline, newest first. The first page is the read the agents feed keeps current; *Older* pages are fetched with `before` and kept
- * until the agent changes, and `more` is the daemon's answer for the oldest page fetched.
+ * until the agent changes, and `more` is the daemon's answer for the oldest page fetched. Older pages hold the ids below `base`, the oldest the first
+ * page had when the first of them was fetched; once the first page has moved on past `base` (many new events), what lay between would be missing, so
+ * they are dropped and Older fetches them again.
  */
 export function useTimeline(agent: string) {
   const first = useAgentTimeline(agent);
   const store = useStore();
-  const [paged, setPaged] = useState<{ agent: string; items: TimelineEntry[]; more: boolean } | null>(null);
+  const [paged, setPaged] = useState<{ agent: string; base: number; items: TimelineEntry[]; more: boolean } | null>(null);
   const [state, setState] = useState<{ busy: boolean; error: unknown }>({ busy: false, error: null });
-  const older = paged?.agent === agent ? paged : null;
+  const top = first.data ? Math.min(...first.data.items.map((e) => e.id)) : 0;
+  const older = paged?.agent === agent && (!first.data?.more || top <= paged.base) ? paged : null;
   const items = useMemo(() => {
     const seen = new Set<number>();
     return [...(first.data?.items ?? []), ...(older?.items ?? [])]
@@ -89,7 +92,7 @@ export function useTimeline(agent: string) {
     setState({ busy: true, error: null });
     try {
       const r = await store.client.call('agent.timeline', { agent, before });
-      setPaged({ agent, items: [...(older?.items ?? []), ...r.items], more: r.more });
+      setPaged({ agent, base: older?.base ?? before, items: [...(older?.items ?? []), ...r.items], more: r.more });
       setState({ busy: false, error: null });
     } catch (error) {
       setState({ busy: false, error });

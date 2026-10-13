@@ -40,12 +40,14 @@ async function mount(s = setup()) {
   return s;
 }
 /** Each take or release of the input is one recorded event of the agent. */
+let sent = 0;
 const record = async (s: ReturnType<typeof setup>, n: number) => {
   await s.client.start();
-  for (let i = 1; i <= n; i++) await s.client.call(i % 2 ? 'input.take' : 'input.release', { agent: ARCH, request_id: `r${i}` });
+  for (let i = 0; i < n; i++) await s.client.call(++sent % 2 ? 'input.take' : 'input.release', { agent: ARCH, request_id: `r${sent}` });
 };
 
 afterEach(async () => {
+  sent = 0;
   await act(async () => root?.unmount());
   root = null;
   box?.remove();
@@ -65,6 +67,23 @@ describe('Timeline tab', () => {
     await until(() => entries().length === 60, 'the older page');
     expect(entries()).toEqual(Array.from({ length: 60 }, (_, i) => 60 - i));
     expect(older()).toBeUndefined();
+  });
+
+  it('drops the older pages when new events have moved the first page past them, so no event is skipped', async () => {
+    const s = setup();
+    await record(s, 60);
+    await mount(s);
+    await click(box.querySelector('[aria-label="Add a tab"]')!);
+    await click([...box.querySelectorAll('[role=menuitem], button')].find((b) => b.textContent === 'Timeline')!);
+    await until(() => entries().length === 50, 'the first page');
+    await click(older()!);
+    await until(() => entries().length === 60, 'the older page');
+    await record(s, 60); // more than a page, so the first page no longer touches what was fetched
+    await until(() => entries()[0] === 120, 'the new events');
+    expect(entries()).toEqual(Array.from({ length: 50 }, (_, i) => 120 - i));
+    await click(older()!);
+    await until(() => entries().length === 100, 'the page between');
+    expect(entries()).toEqual(Array.from({ length: 100 }, (_, i) => 120 - i));
   });
 
   it('a stalled agent’s badge opens it', async () => {

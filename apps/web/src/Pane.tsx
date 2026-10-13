@@ -41,13 +41,7 @@ const label = (t: Tab, structured = false): string =>
           : t.kind === 'terminal'
             ? 'Claude Code'
             : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
-const TAB_ICON: Record<string, IconName> = {
-  chat: 'chat',
-  tasks: 'tasks',
-  terminal: 'terminal',
-  transcript: 'terminal',
-  timeline: 'history',
-};
+const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history' };
 const PRESETS: [Preset, string][] = [
   ['single', 'One pane'],
   ['cols', 'Two columns'],
@@ -101,13 +95,7 @@ export function Pane({ group }: { group: Group }) {
       data-group={group.id}
       onPointerDownCapture={() => ws.active !== group.id && apply((w) => ({ ...w, active: group.id }))}
     >
-      <div
-        className="strip flex h-[var(--h-tabs)] items-stretch border-b border-line bg-surface px-2"
-        role="tablist"
-        ref={strip}
-        onDragOver={(e) => dragging && e.preventDefault()}
-        onDrop={dropOnStrip}
-      >
+      <div className="strip flex h-[var(--h-tabs)] items-stretch border-b border-line bg-surface px-2" role="tablist" ref={strip} onDragOver={(e) => dragging && e.preventDefault()} onDrop={dropOnStrip}>
         {group.tabs.map((id) => {
           const t = ws.tabs[id]!;
           return (
@@ -143,9 +131,7 @@ export function Pane({ group }: { group: Group }) {
                       stalled: () => apply((w) => openTab(w, 'timeline', {}, group.id)),
                     }}
                   />
-                  {unread && id !== group.activeTab ? (
-                    <span className="unread-dot ml-1 inline-block h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" />
-                  ) : null}
+                  {unread && id !== group.activeTab ? <span className="unread-dot ml-1 inline-block h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" /> : null}
                 </>
               ) : null}
               {id === CHAT ? null : (
@@ -184,11 +170,7 @@ export function Pane({ group }: { group: Group }) {
             <PopupRow icon="tasks" label="Tasks" onClick={() => (setMenu(null), apply((w) => openTab(w, 'tasks', {}, group.id)))} />
             <PopupRow icon="history" label="Timeline" onClick={() => (setMenu(null), apply((w) => openTab(w, 'timeline', {}, group.id)))} />
             {structured ? (
-              <PopupRow
-                icon="terminal"
-                label="Transcript"
-                onClick={() => (setMenu(null), apply((w) => openTab(w, 'transcript', {}, group.id)))}
-              />
+              <PopupRow icon="terminal" label="Transcript" onClick={() => (setMenu(null), apply((w) => openTab(w, 'transcript', {}, group.id)))} />
             ) : detail.terminal ? (
               <PopupRow
                 icon="terminal"
