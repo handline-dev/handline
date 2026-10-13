@@ -36,7 +36,9 @@ func getTask(tx *sql.Tx, tid int64) (*task, error) {
 func (t *task) done() bool { return t.DoneEvidence.Valid && t.DoneEvidence.String != "" }
 
 // reported is whether its assignee's done waits on the reporter's accept or reject.
-func (t *task) reported() bool { return t.ReportedAt.Valid && !t.done() }
+func (t *task) reported() bool {
+	return t.ReportedAt.Valid && !t.done() && !(t.DiscardedBy.Valid && t.DiscardedBy.String != "")
+}
 
 // reporter is db.task_reporter: who the task answers to, its opener when none was set.
 func (t *task) reporter() string {
