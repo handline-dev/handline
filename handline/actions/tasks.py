@@ -1194,7 +1194,7 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     The owner's current task (bullet 1) is set to this one only if it holds
     none yet - never for a human owner, who holds no current task at all.
 
-    The founder may open one for an agent; it is queued by them as it opens.
+    The founder may open one for an agent, queued by them as it opens, or for themself (a todo of their own).
 
     T294: a child task always blocks its parent (orcapipe's #1910: every
     `--parent` adds the block, no --expects gate, even when the parent's own
@@ -1203,10 +1203,8 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     the board's "waiting on" line, and the notice `_clear_blocks_on` sends
     once the child is discarded.
     """
-    if me == HUMAN and owner == HUMAN:
-        return False, "the founder opens a task for an agent, not for themself", None
-    # A task of the founder's is a decision unless it says otherwise.
-    expects = expects or ("decision" if owner == HUMAN else "report")
+    # A task given to the founder is a decision unless it says otherwise.
+    expects = expects or ("decision" if owner == HUMAN and me != HUMAN else "report")
     if not (body or "").strip():
         return False, ("a task needs a body: the work itself, what done looks like - "
                        "the title alone is not a brief"), None
@@ -1238,7 +1236,24 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
         _block_parent_on_child(con, parent, tid, me)
         if effect:
             effect(con, tid)
-    ok, msg, rid = askmod.ask(owner, body, requester=me, kind=kind, card=False, within=together)
+    if me == HUMAN and owner == HUMAN:
+        # A todo of the founder's own: routing has no founder-to-founder edge, so its brief is written as the request any task to
+        # the founder carries, queued on their screen, without being routed or told.
+        con = db.connect()
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            try:
+                rid = db.add_request(con, HUMAN, HUMAN, body, None, None, "async", "task", 0, None)
+                together(con, rid, "")
+                con.execute("COMMIT")
+            except BaseException:
+                con.execute("ROLLBACK")
+                raise
+        finally:
+            con.close()
+        ok, msg = True, f"a todo of your own, #{rid}"
+    else:
+        ok, msg, _rid = askmod.ask(owner, body, requester=me, kind=kind, card=False, within=together)
     if not ok:
         return False, msg, None
     tid = opened[0]
