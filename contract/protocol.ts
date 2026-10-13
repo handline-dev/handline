@@ -410,8 +410,6 @@ export type InboxItem = {
   answered: boolean;
   options: DecisionOption[];
   prompt: Prompt | null;
-  /** Only with inbox.list `queue: true`, for an agent's own item: the line `hl inbox` ends it with, what the agent does to close it (delivery.answer_verb for a task). */
-  how_to_close?: string;
 };
 
 export type Event = {
@@ -1737,13 +1735,9 @@ export interface Methods {
   limit?: number;
   /** Hold the call up to this many seconds while no item matches the other params (unread, kind, agent, before; read items count unless unread is true), and return when one arrives (an empty list on timeout). Default 0, at most 600; the call is in flight and the connection is not idle. */
   wait_s?: number;
-  /** An agent caller: add each item's how_to_close and the result's more_waiting, as `hl inbox` prints them. Default false; ignored for the founder. */
-  queue?: boolean;
 }; result: {
     items: InboxItem[];
     more: boolean;
-    /** Only with `queue: true`, for an agent caller: how many requests wait in its queue behind the one `hl inbox` shows (the queue depth less one). */
-    more_waiting?: number;
   } };
   "inbox.queue": { params: {
   /** An agent's name, or `human` for the founder's mailbox. Default: the caller's own. */

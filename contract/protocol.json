@@ -3793,14 +3793,6 @@
       "maximum": 600,
       "description": "Hold the call up to this many seconds while no item matches the other params (unread, kind, agent, before; read items count unless unread is true), and return when one arrives (an empty list on timeout). Default 0, at most 600; the call is in flight and the connection is not idle."
      }
-    },
-    {
-     "name": "queue",
-     "required": false,
-     "schema": {
-      "type": "boolean",
-      "description": "An agent caller: add each item's how_to_close and the result's more_waiting, as `hl inbox` prints them. Default false; ignored for the founder."
-     }
     }
    ],
    "result": {
@@ -3816,11 +3808,6 @@
       },
       "more": {
        "type": "boolean"
-      },
-      "more_waiting": {
-       "type": "integer",
-       "minimum": 0,
-       "description": "Only with `queue: true`, for an agent caller: how many requests wait in its queue behind the one `hl inbox` shows (the queue depth less one)."
       }
      },
      "required": [
@@ -9952,10 +9939,6 @@
         "type": "null"
        }
       ]
-     },
-     "how_to_close": {
-      "type": "string",
-      "description": "Only with inbox.list `queue: true`, for an agent's own item: the line `hl inbox` ends it with, what the agent does to close it (delivery.answer_verb for a task)."
      }
     },
     "required": [
