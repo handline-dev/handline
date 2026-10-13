@@ -259,6 +259,10 @@ def _normal(method: str, reply: dict) -> dict:
     res = r.get("result")
     if method == "daemon.status" and res:
         r["result"] = {k: res[k] for k in ("alive", "protocol", "schema", "agents", "inbox")}
+    if method == "agents.list" and res:
+        for a in res["agents"]:
+            if "wake_wait_reason" in a:
+                a["wake_wait_reason"] = None       # the lifecycle's: this Go daemon runs without one
     if method == "agent.get" and res:
         res.pop("account_pick", None)
         res.pop("cwd", None)        # the chat page's fields: the Go daemon does not send them yet
@@ -289,6 +293,8 @@ def test_go_reads_equal_python_reads_on_one_database(home: Path) -> None:
     cases: list[tuple[str | None, str, dict]] = [
         (None, "daemon.status", {}),
         (None, "agents.list", {}),
+        (None, "agents.list", {"status": True}),
+        (None, "agents.list", {"status": 1}),
         (None, "agent.get", {"agent": "manager"}),
         (None, "agent.get", {"agent": "worker"}),
         (None, "agent.get", {"agent": "nobody.here"}),
