@@ -91,7 +91,7 @@ func (e *Env) input(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, err
 	}
 	if agent == "" {
-		return nil, rpc.Refused("a login terminal has no input holder to take its keystrokes", "input_holder", "")
+		return nil, rpc.Refused("no agent has this terminal, so it has no input holder to take its keystrokes", "input_holder", "")
 	}
 	hold := lock.TakeTerminal(e.Home, agent)
 	if hold == nil {
@@ -138,7 +138,7 @@ func (e *Env) resize(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, err
 	}
 	if agent == "" {
-		return nil, rpc.Refused("a login terminal has no input holder to resize it", "input_holder", "")
+		return nil, rpc.Refused("no agent has this terminal, so it has no input holder to resize it", "input_holder", "")
 	}
 	if err := e.holderOf(c, agent, "resize it"); err != nil {
 		return nil, err

@@ -1261,6 +1261,47 @@ export type Attachment = {
   bytes: number;
 };
 
+/** One pane of the terminal host, with what the daemon knows of it. A field the daemon does not know is null. */
+export type DebugTerminalPane = {
+  session: string;
+  /** The window's index in its session. */
+  window: string;
+  window_name: string;
+  /** The pane's handle, as terminal.attach takes it. */
+  terminal: string;
+  /** The pane's own process (its shell). */
+  pid: number | null;
+  /** What the host says runs in the pane now. */
+  command: string;
+  path: string | null;
+  dead: boolean;
+  last_activity: Timestamp | null;
+  /** Seconds since the pane's window last drew output. */
+  idle_s: number | null;
+  /** agent: an agent CLI (claude, codex, opencode) runs at or under the pane's process; shell: none does and the pane shows a shell; unknown: the process table could not be read and the pane's command says neither. */
+  process: "agent" | "shell" | "other" | "unknown";
+  agent_process: {
+    pid: number;
+    name: string;
+  } | null;
+  /** The agent whose current terminal this pane is. */
+  agent: AgentName | null;
+  /** No agent has this pane as its terminal. */
+  orphan: boolean;
+  /** The agent is closed; it keeps the handle of the pane it had. */
+  closed: boolean;
+  /** For an orphan: the agent the daemon opened the pane for. */
+  recorded_agent: AgentName | null;
+  state: string | null;
+  account: string | null;
+  session_id: string | null;
+  worktree: string | null;
+  /** When the agent's prompt cache lapses, from its view. */
+  cache_until: Timestamp | null;
+  /** Always null: the daemon keeps no link from a tmux pane to an Orca terminal. */
+  orca_terminal: null;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -1673,6 +1714,11 @@ export interface Methods {
   /** With it, ends only that format's attach of the terminal on this connection; without it, every attach of that terminal on the connection. Neither is an error when there is nothing to end; any other word is bad_request naming `format`. */
   format?: "text" | "bytes" | "styled";
 }; result: { [key: string]: unknown } };
+  "debug.terminals": { params: { [key: string]: unknown }; result: {
+    host: string;
+    now: Timestamp;
+    panes: DebugTerminalPane[];
+  } };
   "inbox.list": { params: {
   unread?: boolean;
   kind?: string;
@@ -2264,6 +2310,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "terminal.close": { role: "member", callers: null, write: true, since: 1 },
   "terminal.open": { role: "member", callers: null, write: false, since: 1 },
   "terminal.detach": { role: "member", callers: null, write: false, since: 1 },
+  "debug.terminals": { role: "member", callers: null, write: false, since: 1 },
   "inbox.list": { role: "agent", callers: null, write: false, since: 1 },
   "inbox.get": { role: "agent", callers: null, write: false, since: 1 },
   "inbox.mark_read": { role: "agent", callers: null, write: true, since: 1 },

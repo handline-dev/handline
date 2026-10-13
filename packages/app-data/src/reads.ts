@@ -50,6 +50,7 @@ export const reads = {
   'settings.get': { resource: 'settings' },
   'answers.list': { resource: 'answers' },
   'devices.list': { resource: 'devices', feed: 'devices' },
+  'debug.terminals': { resource: 'debug-terminals' },
   'operation.get': { resource: 'operation', id: by('operation'), feed: 'operations' },
 } as const satisfies Partial<Record<MethodName, ReadSpec>>;
 

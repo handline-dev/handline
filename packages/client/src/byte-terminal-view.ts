@@ -21,6 +21,8 @@ export const toBase64 = (b: Uint8Array): string => {
 /** A terminal watched as bytes: the stream in order, with the attach's one seq counter. The pane owns the screen. */
 export class ByteTerminalView {
   readonly agent: string;
+  /** The terminal handle when the view is attached by handle, not by agent. */
+  readonly pane: string;
   terminal = '';
   seq = 0;
   cols = 0;
@@ -33,8 +35,9 @@ export class ByteTerminalView {
   historyFirst = 0;
   historyMore = false;
   private listeners = new Set<ByteListener>();
-  constructor(agent: string) {
+  constructor(agent: string, pane = '') {
     this.agent = agent;
+    this.pane = pane;
   }
 
   subscribe(fn: ByteListener): () => void {

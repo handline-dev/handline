@@ -108,6 +108,9 @@
  "daemon.status": {
   "role": "agent"
  },
+ "debug.terminals": {
+  "role": "member"
+ },
  "device.pair": {
   "role": "founder"
  },

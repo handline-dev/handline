@@ -2,9 +2,10 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell, type WebContents } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
+import { isDebugWindow } from './debug-window.ts';
 import { Desk } from './desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
 import { Opener } from './open.ts';
@@ -122,15 +123,25 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
     },
   });
   w.once('ready-to-show', onReady);
-  // The window shows the app and nothing else: a link goes to the browser (http/https only), and the window never leaves the loopback origin.
-  w.webContents.setWindowOpenHandler(({ url }) => {
+  confine(w.webContents, origin);
+  return w;
+}
+
+/**
+ * The window shows the app and nothing else: a link goes to the browser (http/https only), and the window never leaves the loopback
+ * origin. The one window the page may open is the debug window (Settings' bottom button), on the same origin and with the same
+ * preferences, and it is confined the same way.
+ */
+function confine(contents: WebContents, origin: string): void {
+  contents.setWindowOpenHandler(({ url }) => {
+    if (isDebugWindow(url, origin)) return { action: 'allow', overrideBrowserWindowOptions: { width: 1280, height: 820, title: 'Terminals (debug)' } };
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
-  w.webContents.on('will-navigate', (e, url) => {
+  contents.on('did-create-window', (child) => confine(child.webContents, origin));
+  contents.on('will-navigate', (e, url) => {
     if (new URL(url).origin !== origin) e.preventDefault();
   });
-  return w;
 }
 
 // A port for DevTools protocol checks of a run (HANDLINE_DEBUG_PORT=9333).

@@ -114,6 +114,7 @@ A method marked write takes a required `request_id`.
 | `terminal.close` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role, terminal_lock, input_holder, state |
 | `terminal.open` | member |  | `agent` | `TerminalOpening` | `not_found`, `bad_request`, `refused` | role, unsupported |
 | `terminal.detach` | member |  | `terminal`, `format?` | `object` | `not_found`, `bad_request` |  |
+| `debug.terminals` | member |  | none | `{host, now, panes}` | `refused` | role, unsupported, state |
 | `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?`, `queue?` | `{items, more, more_waiting}` |  |  |
 | `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem` | `not_found`, `bad_request` |  |
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found`, `refused`, `bad_request` |  |
@@ -364,7 +365,7 @@ Read an attached image, or a small copy of it, for drawing. See x-attachments. A
 
 ### `terminal.attach`
 
-Subscribe to one terminal; replies with a snapshot, then pushes notices. `format` chooses text rows (frame notices), text rows with style runs (frame notices, `styled`) or bytes (output notices). A connection has at most one attach per terminal and format: attaching a terminal and format the connection already watches replaces that attach, accepted and never refused (no notice of the old one follows the reply; the reply is a fresh snapshot, and the new attach's counter starts at its seq). An attach in the other format is independent, with its own counter. A client that wants more than one view of one terminal and format shares one attach. With agent, an agent that has no terminal, a structured agent among them, is not_found (terminal).
+Subscribe to one terminal; replies with a snapshot, then pushes notices. `format` chooses text rows (frame notices), text rows with style runs (frame notices, `styled`) or bytes (output notices). A connection has at most one attach per terminal and format: attaching a terminal and format the connection already watches replaces that attach, accepted and never refused (no notice of the old one follows the reply; the reply is a fresh snapshot, and the new attach's counter starts at its seq). An attach in the other format is independent, with its own counter. A client that wants more than one view of one terminal and format shares one attach. With agent, an agent that has no terminal, a structured agent among them, is not_found (terminal). With terminal, a handle no agent has is watched while the host lists it (it has no input holder, so terminal.input and terminal.resize refuse it); one the host does not list is not_found.
 
 ### `terminal.history`
 
@@ -389,6 +390,10 @@ Where an agent's terminal is and how to attach to it, for the one button that op
 ### `terminal.detach`
 
 Stop receiving this terminal, in one format or in all. Never stops the agent. not_found is for a terminal handle that does not exist. Closing the connection ends every attach.
+
+### `debug.terminals`
+
+Every pane of the terminal host with what the daemon knows of it, for the hidden debug window. Lists every pane of the daemon's terminal server (tmux), whichever agent has it or none, to find panes kept open past their prompt cache and shells left behind after an agent's session exited. Reads only: the host's pane list, the process table and the daemon's own rows; of the agent's view only cache_until. A host that cannot list its panes (Orca) is refused, gate unsupported; one that cannot be reached, gate state. Watching a listed pane is terminal.attach by its handle; a pane no agent has takes no input. Callers: the founder and a paired device (member); below that is refused, gate role.
 
 ### `inbox.list`
 

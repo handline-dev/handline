@@ -15,6 +15,7 @@ import (
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/authority"
 	"github.com/handline/handline/go/internal/chatwrites"
+	"github.com/handline/handline/go/internal/debugterm"
 	"github.com/handline/handline/go/internal/devices"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/hrwrites"
@@ -397,6 +398,9 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 		},
 		func(s *rpc.Server) { attachments.Register(s, attachments.New(d.cfg.Home)) },
 		func(s *rpc.Server) { chatwrites.Register(s, d.env(), d.teller()) },
+		func(s *rpc.Server) {
+			debugterm.Register(s, &debugterm.Env{DB: d.db, Backend: d.tchan.Backend, Procs: debugterm.ReadProcs, Now: time.Now})
+		},
 		func(s *rpc.Server) { d.hooks.Register(s) },
 		func(s *rpc.Server) { hrwrites.Register(s, d.hrEnv()) },
 		func(s *rpc.Server) { prompts.Register(s, d.prompts) },

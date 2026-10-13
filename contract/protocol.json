@@ -3380,7 +3380,7 @@
    "x-gates": [
     "unsupported"
    ],
-   "description": "A connection has at most one attach per terminal and format: attaching a terminal and format the connection already watches replaces that attach, accepted and never refused (no notice of the old one follows the reply; the reply is a fresh snapshot, and the new attach's counter starts at its seq). An attach in the other format is independent, with its own counter. A client that wants more than one view of one terminal and format shares one attach. With agent, an agent that has no terminal, a structured agent among them, is not_found (terminal)."
+   "description": "A connection has at most one attach per terminal and format: attaching a terminal and format the connection already watches replaces that attach, accepted and never refused (no notice of the old one follows the reply; the reply is a fresh snapshot, and the new attach's counter starts at its seq). An attach in the other format is independent, with its own counter. A client that wants more than one view of one terminal and format shares one attach. With agent, an agent that has no terminal, a structured agent among them, is not_found (terminal). With terminal, a handle no agent has is watched while the host lists it (it has no input holder, so terminal.input and terminal.resize refuse it); one the host does not list is not_found."
   },
   {
    "name": "terminal.history",
@@ -3693,6 +3693,51 @@
     }
    ],
    "description": "not_found is for a terminal handle that does not exist. Closing the connection ends every attach."
+  },
+  {
+   "name": "debug.terminals",
+   "summary": "Every pane of the terminal host with what the daemon knows of it, for the hidden debug window.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "host": {
+       "type": "string"
+      },
+      "now": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "panes": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/DebugTerminalPane"
+       }
+      }
+     },
+     "required": [
+      "host",
+      "now",
+      "panes"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "unsupported",
+    "state"
+   ],
+   "description": "Lists every pane of the daemon's terminal server (tmux), whichever agent has it or none, to find panes kept open past their prompt cache and shells left behind after an agent's session exited. Reads only: the host's pane list, the process table and the daemon's own rows; of the agent's view only cache_until. A host that cannot list its panes (Orca) is refused, gate unsupported; one that cannot be reached, gate state. Watching a listed pane is terminal.attach by its handle; a pane no agent has takes no input. Callers: the founder and a paired device (member); below that is refused, gate role."
   },
   {
    "name": "inbox.list",
@@ -12851,6 +12896,216 @@
      "name",
      "mime",
      "bytes"
+    ]
+   },
+   "DebugTerminalPane": {
+    "type": "object",
+    "description": "One pane of the terminal host, with what the daemon knows of it. A field the daemon does not know is null.",
+    "properties": {
+     "session": {
+      "type": "string"
+     },
+     "window": {
+      "type": "string",
+      "description": "The window's index in its session."
+     },
+     "window_name": {
+      "type": "string"
+     },
+     "terminal": {
+      "type": "string",
+      "description": "The pane's handle, as terminal.attach takes it."
+     },
+     "pid": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The pane's own process (its shell)."
+     },
+     "command": {
+      "type": "string",
+      "description": "What the host says runs in the pane now."
+     },
+     "path": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "dead": {
+      "type": "boolean"
+     },
+     "last_activity": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "idle_s": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Seconds since the pane's window last drew output."
+     },
+     "process": {
+      "type": "string",
+      "enum": [
+       "agent",
+       "shell",
+       "other",
+       "unknown"
+      ],
+      "description": "agent: an agent CLI (claude, codex, opencode) runs at or under the pane's process; shell: none does and the pane shows a shell; unknown: the process table could not be read and the pane's command says neither."
+     },
+     "agent_process": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "pid": {
+          "type": "integer"
+         },
+         "name": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "pid",
+         "name"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "agent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The agent whose current terminal this pane is."
+     },
+     "orphan": {
+      "type": "boolean",
+      "description": "No agent has this pane as its terminal."
+     },
+     "closed": {
+      "type": "boolean",
+      "description": "The agent is closed; it keeps the handle of the pane it had."
+     },
+     "recorded_agent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "For an orphan: the agent the daemon opened the pane for."
+     },
+     "state": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "account": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "session_id": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "worktree": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "cache_until": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "When the agent's prompt cache lapses, from its view."
+     },
+     "orca_terminal": {
+      "type": "null",
+      "description": "Always null: the daemon keeps no link from a tmux pane to an Orca terminal."
+     }
+    },
+    "required": [
+     "session",
+     "window",
+     "window_name",
+     "terminal",
+     "pid",
+     "command",
+     "path",
+     "dead",
+     "last_activity",
+     "idle_s",
+     "process",
+     "agent_process",
+     "agent",
+     "orphan",
+     "closed",
+     "recorded_agent",
+     "state",
+     "account",
+     "session_id",
+     "worktree",
+     "cache_until",
+     "orca_terminal"
     ]
    }
   },

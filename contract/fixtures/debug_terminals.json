@@ -1,0 +1,42 @@
+{
+ "fixtures": [
+  {
+   "name": "debug.terminals.refused_below_member",
+   "spec": "debug.terminals",
+   "about": "NOT_YET_IN_PYTHON The pane list is a member's read: an anonymous caller is refused, gate role.",
+   "as": "anonymous",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "debug.terminals",
+      "params": {}
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
