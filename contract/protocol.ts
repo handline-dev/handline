@@ -1745,6 +1745,69 @@ export interface Methods {
     /** Only with `queue: true`, for an agent caller: how many requests wait in its queue behind the one `hl inbox` shows (the queue depth less one). */
     more_waiting?: number;
   } };
+  "inbox.queue": { params: {
+  /** An agent's name, or `human` for the founder's mailbox. Default: the caller's own. */
+  whose?: string;
+  /** Add `history` (an agent's inbox) or `dealt` (the founder's). Default false. */
+  all?: boolean;
+  /** With `wait_s`: a `newest` from an earlier reply. The call holds until something newer waits. Default 0: it holds while nothing waits. */
+  since?: number;
+  /** Hold the call up to this many seconds while `newest` is not above `since`. On timeout the reply is the inbox as it is, `newest` unchanged. Default 0, at most 600. */
+  wait_s?: number;
+}; result: {
+    whose: string;
+    /** The number of the newest thing waiting in this inbox, 0 for nothing: for an agent a request no state has settled, for the founder a mailbox row (an answer counts by its own number). */
+    newest: number;
+    /** The head of an agent's queue; null when the queue is empty and for the founder's mailbox. */
+    head: {
+      id: number;
+      requester: string;
+      chain_depth: number;
+      body: string;
+      /** How many requests wait in the queue behind this one. */
+      more_waiting: number;
+      /** The sentence that says so and when the next one comes; empty when none wait. */
+      more_waiting_line: string;
+      /** What the agent does to close it: the reply that answers it, or for a task the hand-on and done commands. */
+      how_to_close: string;
+    } | null;
+    /** An agent's inbox with `all`: every request sent to it, oldest first. */
+    history?: {
+      id: number;
+      requester: string;
+      state: string;
+      chain_depth: number;
+      /** The body as one line, cut to 60 characters. */
+      line: string;
+    }[];
+    /** The founder's mailbox: how many requests and answers wait, before folding. */
+    waiting?: number;
+    /** The founder's mailbox: decisions first, then requests whose sender waits on the reply, then the rest, oldest first in each. */
+    lines?: {
+      /** The newest request the line stands for. */
+      id: number;
+      from: string;
+      kind: string;
+      /** Only the founder can decide it. */
+      decision: boolean;
+      /** It is an answer to something the founder asked; `id` is the founder's request. */
+      answer: boolean;
+      /** Its first line, cut to 60 characters. */
+      line: string;
+      /** How many unseen messages of that agent the line stands for. */
+      unread: number;
+    }[];
+    /** The founder's mailbox with `all`: newest first, without what `lines` still lists. */
+    dealt?: {
+      id: number;
+      /** The founder sent it; `agent` is whom it went to. */
+      outgoing: boolean;
+      agent: string;
+      state: string;
+      /** The first line of what closed it, else of its body, cut to 60 characters. */
+      line: string;
+    }[];
+  } };
   "inbox.get": { params: {
   id: number;
   /** Hold the call up to this many seconds until the request has been answered. Default 0, at most 600. */
@@ -2360,6 +2423,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "terminal.detach": { role: "member", callers: null, write: false, since: 1 },
   "debug.terminals": { role: "member", callers: null, write: false, since: 1 },
   "inbox.list": { role: "agent", callers: null, write: false, since: 1 },
+  "inbox.queue": { role: "agent", callers: null, write: false, since: 1 },
   "inbox.get": { role: "agent", callers: null, write: false, since: 1 },
   "request.read": { role: "agent", callers: null, write: false, since: 1 },
   "inbox.mark_read": { role: "agent", callers: null, write: true, since: 1 },

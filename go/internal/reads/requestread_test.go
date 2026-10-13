@@ -97,10 +97,13 @@ func TestOnlyTheFounderReadingARequestOpensIt(t *testing.T) {
 		}
 		return report.set("read_at"), answer.set("delivered_at")
 	}
-	read(t, e, asBob, 1)
-	read(t, e, asBob, 2)
-	if r, told := opened(); r || told {
-		t.Fatalf("an agent reading them opened them: %v %v", r, told)
+	asMember := &rpc.Conn{Caller: rpc.Caller{Role: "member", Info: map[string]any{"kind": "person"}}}
+	for _, c := range []*rpc.Conn{asBob, asMember} {
+		read(t, e, c, 1)
+		read(t, e, c, 2)
+		if r, told := opened(); r || told {
+			t.Fatalf("a %s reading them opened them: %v %v", c.Caller.Role, r, told)
+		}
 	}
 	read(t, e, asFounder, 1)
 	if r, told := opened(); !r || told {
@@ -109,6 +112,12 @@ func TestOnlyTheFounderReadingARequestOpensIt(t *testing.T) {
 	read(t, e, asFounder, 2)
 	if _, told := opened(); !told {
 		t.Fatal("the founder read the question they asked, so its answer is told")
+	}
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, settles) VALUES"+
+		"(4, 4, 'bob', 'amy', 'between agents', 'landed', 'ask', 1, NULL), (5, 5, 'amy', 'bob', 'its answer', 'landed', 'say', 1, 4)")
+	read(t, e, asFounder, 4)
+	if told, err := queryOne(e.DB, "SELECT delivered_at FROM requests WHERE id = 5"); err != nil || told.set("delivered_at") {
+		t.Fatalf("the founder read a question they did not ask, and its answer was marked told: %v %v", told, err)
 	}
 }
 

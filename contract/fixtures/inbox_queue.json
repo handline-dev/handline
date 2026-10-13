@@ -1,0 +1,214 @@
+{
+ "fixtures": [
+  {
+   "name": "inbox.queue.the_founders_is_the_mailbox",
+   "spec": "inbox.queue",
+   "about": "NOT_YET_IN_PYTHON The founder's own inbox is the mailbox: no head, how many wait and a line per agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.queue",
+      "params": {}
+     },
+     "result": {
+      "whose": "human",
+      "newest": {
+       "$type": "integer"
+      },
+      "head": null,
+      "waiting": {
+       "$type": "integer"
+      },
+      "lines": {
+       "$type": "array"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.queue.all_adds_what_was_dealt_with",
+   "spec": "inbox.queue",
+   "about": "NOT_YET_IN_PYTHON With all the founder's inbox also lists what was already dealt with.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.queue",
+      "params": {
+       "all": true
+      }
+     },
+     "result": {
+      "whose": "human",
+      "dealt": {
+       "$type": "array"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.queue.an_agents_has_a_head_or_none",
+   "spec": "inbox.queue",
+   "about": "NOT_YET_IN_PYTHON An agent's inbox, read by the founder: the head of its queue or null, and with all its history (needs --var ask_agent).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.queue",
+      "params": {
+       "whose": "{{ask_agent}}",
+       "all": true
+      }
+     },
+     "result": {
+      "whose": "{{ask_agent}}",
+      "newest": {
+       "$type": "integer"
+      },
+      "head": {
+       "$oneOf": [
+        {
+         "$type": "object"
+        },
+        null
+       ]
+      },
+      "history": {
+       "$type": "array"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.queue.wait_is_bounded",
+   "spec": "inbox.queue",
+   "about": "NOT_YET_IN_PYTHON wait_s over 600 is invalid params naming wait_s.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.queue",
+      "params": {
+       "wait_s": 601
+      }
+     },
+     "error": {
+      "code": -32602,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "bad_request",
+       "field": "wait_s"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.queue.since_is_a_number",
+   "spec": "inbox.queue",
+   "about": "NOT_YET_IN_PYTHON A since that is not a number is invalid params naming since.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.queue",
+      "params": {
+       "since": "seven"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "bad_request",
+       "field": "since"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
