@@ -162,9 +162,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--settle-leftovers", action="store_true",
                    help="close, quietly, the task deliveries still queued on a task that has ended")
     p.add_argument("--drop-dead-columns", action="store_true",
-                   help="drop the request columns nothing uses any more - only after the screen and every "
-                        "long-lived session have been restarted on current code, and with a backup from the "
-                        "last 5 minutes (`hl backup`)")
+                   help="drop the request columns nothing uses any more - only with a backup from the last "
+                        "5 minutes (`hl backup`)")
     p.add_argument("--dry-run", action="store_true",
                    help="with --drop-dead-columns: print what would be dropped and the newest backup, change "
                         "nothing; exit 1 if the real run would be refused")
