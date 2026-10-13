@@ -94,6 +94,7 @@ func (wiredPorts) ContextUse(db.Q, string) (int64, int64)                       
 func (wiredPorts) KeepsTranscripts(string) bool                                      { return false }
 func (wiredPorts) FindTranscript(string, string) string                              { return "" }
 func (wiredPorts) MovableTrigger(string) bool                                        { return false }
+func (wiredPorts) CacheLeft(string, int64) (int64, bool)                             { return 0, false }
 func (wiredPorts) StartForWork(db.Q, string) string                                  { return "" }
 func (wiredPorts) WakeAgent(db.Q, string) (bool, string)                             { return false, "" }
 func (wiredPorts) QueuedOrIdle(db.Q, string, string) error                           { return nil }

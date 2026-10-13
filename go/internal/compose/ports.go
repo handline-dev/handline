@@ -100,6 +100,15 @@ func (s sessions) FindTranscript(session, account string) string {
 	return s.ho.FindTranscript(session, account)
 }
 
+func (s sessions) CacheLeft(agent string, now int64) (int64, bool) {
+	clock, err := s.ho.CacheClock(agent, "")
+	if err != nil || clock == nil || clock.TTL == 0 {
+		return 0, false
+	}
+	left, ok := clock.Left(float64(now))
+	return int64(left), ok
+}
+
 // MovableTrigger is daemon/handoff.MOVABLE_TRIGGERS.
 func (sessions) MovableTrigger(kind string) bool {
 	switch kind {

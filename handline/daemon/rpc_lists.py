@@ -19,7 +19,7 @@ from ..infra import cron, paths
 from ..session import events as evmod, idle_close, term
 from ..team import accounts, agents, team as teammod
 from ..usage import cycle, load as loadmod, status
-from . import agentview, devmode, delivery, inputhold, rpc, rpc_schedules, rpc_settings, rpc_status, timebox
+from . import agentview, devmode, inputhold, rpc, rpc_schedules, rpc_settings, rpc_status, timebox
 
 _TS = agentview._ts
 MOVES_SHOWN = 20
@@ -204,9 +204,8 @@ def _values() -> dict:
             "auto_accept_dialogs": sw["auto_accept"], "ignore_cache_expiry": sw["ignore_cache_expiry"], "dev_mode": devmode.dev_mode_enabled(),
             "bg_notice_s": sec("bg_notice_s", park or 1), "bg_grace_s": sec("bg_grace_s", idle_close.BG_GRACE_S),
             "bg_check_s": sec("bg_check_s", idle_close.BG_CHECK_S), "notice_digest_s": sec("notice_digest_s", idle_close.NOTICE_DIGEST_S),
-            "unasked_running_s": sec("unasked_running_s", timebox.UNASKED_RUNNING_S),
             "stop_wait_backstop_s": sec("stop_wait_backstop_s", timebox.STOP_WAIT_BACKSTOP_S),
-            "stale_background_s": sec("stale_background_s", delivery.STALE_BG_S), "token_prices": dict(cfg.get("token_prices") or {}),
+            "token_prices": dict(cfg.get("token_prices") or {}),
             "input_hold_idle_s": inputhold.idle_s()}
 
 

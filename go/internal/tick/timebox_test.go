@@ -1,6 +1,7 @@
 package tick
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -14,7 +15,6 @@ type tbPorts struct {
 	doing      map[int64]bool
 	begun      bool
 	boss       string
-	childWait  bool
 	stopWait   string
 	sendOK     bool
 	sent       []string // "who: text"
@@ -36,7 +36,6 @@ type tbPorts struct {
 func (p *tbPorts) TaskDoing(_ db.Q, t *db.Task) bool           { return p.doing[t.ID] }
 func (p *tbPorts) TaskBegun(db.Q, int64) bool                  { return p.begun }
 func (p *tbPorts) SupervisorOf(string) string                  { return p.boss }
-func (p *tbPorts) ChildWait(db.Q, string) bool                 { return p.childWait }
 func (p *tbPorts) StopWaitReason(db.Q, string) string          { return p.stopWait }
 func (p *tbPorts) BgStale(db.Q, string, int64) bool            { return p.bgStale }
 func (p *tbPorts) BgOwesNothing(db.Q, string) bool             { return p.bgOwes }
@@ -164,31 +163,6 @@ func TestATaskOpenedByTheFounderIsToldAsAnEventAndNothingIsSent(t *testing.T) {
 	}
 }
 
-func TestAnAgentShowingRunningWithNothingAskedTellsItsSupervisorOnceAfterTheLimit(t *testing.T) {
-	tk, w, b, p := timebox(t)
-	p.boss = "lead"
-	setState(t, tk, "a", states.Running, 0)
-	b.SweepUnaskedRunning(tk, 1000) // the clock starts
-	b.SweepUnaskedRunning(tk, 1000+UnaskedRunningS-1)
-	if len(p.sent) != 0 {
-		t.Fatalf("%v", p.sent)
-	}
-	b.SweepUnaskedRunning(tk, 1000+UnaskedRunningS)
-	b.SweepUnaskedRunning(tk, 1000+UnaskedRunningS+500)
-	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "lead: a has shown RUNNING") || !w.logged("lead told") {
-		t.Fatalf("told once, to its supervisor: %v %v", p.sent, w.logs)
-	}
-	// It stops being unasked (waiting on a child): the marks clear, and a later stretch is told again.
-	p.childWait = true
-	b.SweepUnaskedRunning(tk, 5000)
-	p.childWait = false
-	b.SweepUnaskedRunning(tk, 5010+NoticeRetryS)
-	b.SweepUnaskedRunning(tk, 5010+NoticeRetryS+UnaskedRunningS)
-	if len(p.sent) != 2 {
-		t.Fatalf("%v", p.sent)
-	}
-}
-
 func TestStaleBackgroundWorkTellsTheSupervisorOnceAndClearsWhenItIsNoLongerStale(t *testing.T) {
 	tk, _, b, p := timebox(t)
 	p.boss, p.bgStale, p.silent, p.since, p.haveSince = "lead", true, 700, 100, true
@@ -263,37 +237,67 @@ func TestTheBackgroundCheckAsksAnIdleAgentWhichJobsToStopEveryCheckInterval(t *t
 	}
 }
 
-func TestTheStopWaitBackstopTellsTheFounderOnceWhenAnIdleAgentHasNoRecordedWait(t *testing.T) {
+func TestTheStopWaitBackstopTellsTheTasksOpenerOnceWhenAnIdleAgentHasNoRecordedWait(t *testing.T) {
 	tk, w, b, p := timebox(t)
+	p.boss = "lead"
+	tid := newTask(t, tk, "a", "asker", 0)
 	setState(t, tk, "a", states.Idle, 0)
+	db.SetCurrentTask(tk.Q, "a", tid, true)
 	p.stopWait = "its task has no wait recorded"
 	b.SweepStopWaitBackstop(tk, 1000)
 	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS-1)
-	if countEvents(t, tk, "a", "stop_wait_stuck") != 0 {
-		t.Fatal("told before the limit")
+	if len(p.sent) != 0 {
+		t.Fatalf("told before the limit: %v", p.sent)
 	}
 	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS)
 	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS+100)
-	if countEvents(t, tk, "a", "stop_wait_stuck") != 1 || !w.logged("founder told") {
-		t.Fatalf("told once: %v", w.logs)
+	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "asker: a has been idle") || countEvents(t, tk, "a", "stop_wait_stuck") != 1 || !w.logged("asker told") {
+		t.Fatalf("told once, to the opener: %v %v", p.sent, w.logs)
 	}
 }
 
-func TestAHeadNobodyResolvedTellsTheSupervisorOnceItsNudgeScheduleIsUsedUp(t *testing.T) {
+func TestTheStopWaitBackstopTellsTheSupervisorWhenTheFounderOrTheAgentOpenedTheTask(t *testing.T) {
+	for _, opener := range []string{db.Human, "a"} {
+		tk, _, b, p := timebox(t)
+		p.boss = "lead"
+		setState(t, tk, "a", states.Idle, 0)
+		db.SetCurrentTask(tk.Q, "a", newTask(t, tk, "a", opener, 0), true)
+		p.stopWait = "its task has no wait recorded"
+		b.SweepStopWaitBackstop(tk, 1000)
+		b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS)
+		if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "lead: ") {
+			t.Fatalf("opened by %s: %v", opener, p.sent)
+		}
+	}
+	// No supervisor either: the founder, as an event.
+	tk, w, b, p := timebox(t)
+	setState(t, tk, "a", states.Idle, 0)
+	db.SetCurrentTask(tk.Q, "a", newTask(t, tk, "a", db.Human, 0), true)
+	p.stopWait = "its task has no wait recorded"
+	b.SweepStopWaitBackstop(tk, 1000)
+	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS)
+	if len(p.sent) != 0 || countEvents(t, tk, "a", "stop_wait_stuck") != 1 || !w.logged("human told") {
+		t.Fatalf("%v %v", p.sent, w.logs)
+	}
+}
+
+func TestAHeadNobodyResolvedTellsItsTasksOpenerOnceItsNudgeScheduleIsUsedUp(t *testing.T) {
 	tk, _, b, p := timebox(t)
 	p.boss = "lead"
-	p.forgotten = &Forgotten{HeadID: 7, IdleS: 3600, Behind: 2, Exhausted: true, Task: &db.Task{ID: 4}}
+	tid := newTask(t, tk, "a", "asker", 0)
+	p.forgotten = &Forgotten{HeadID: 7, IdleS: 3600, Behind: 2, Exhausted: true, Task: &db.Task{ID: tid}}
 	b.SweepForgottenResolveCapped(tk, 1000)
 	b.SweepForgottenResolveCapped(tk, 1100)
-	if len(p.sent) != 1 || !strings.Contains(p.sent[0], "T4 (#7)") || !strings.Contains(p.sent[0], "after 3 reminders") || !strings.Contains(p.sent[0], "2 more waiting") {
+	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "asker: ") || !strings.Contains(p.sent[0], fmt.Sprintf("T%d (#7)", tid)) || !strings.Contains(p.sent[0], "after 3 reminders") || !strings.Contains(p.sent[0], "2 more waiting") {
 		t.Fatalf("%v", p.sent)
 	}
 	// Blocked on record, or not yet exhausted: nothing, and the mark clears so a later head is told.
 	p.forgotten = &Forgotten{HeadID: 7, Exhausted: false}
 	b.SweepForgottenResolveCapped(tk, 1200)
+	// A head that is no task goes to the supervisor.
 	p.forgotten = &Forgotten{HeadID: 8, IdleS: 100, Exhausted: true}
 	b.SweepForgottenResolveCapped(tk, 1300+NoticeRetryS)
-	if len(p.sent) != 2 || !strings.Contains(p.sent[1], "#8") {
+	if len(p.sent) != 2 || !strings.HasPrefix(p.sent[1], "lead: ") || !strings.Contains(p.sent[1], "#8") {
 		t.Fatalf("%v", p.sent)
 	}
 }
