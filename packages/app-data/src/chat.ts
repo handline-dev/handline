@@ -114,7 +114,7 @@ export function useChatActions(agent: string) {
       request_id: op,
     });
   return {
-    /** `parent` makes it a reply to that message, `parent_item` to one of the agent's own replies (never both); `to` is the agent it goes to when that is not this chat's (a reply in the All tab). */
+    /** `parent` replies to a message, `parent_item` to one of the agent's own replies; `to` is another agent's chat. */
     send: (body: string, opts?: { parent?: number; parent_item?: number; to?: string; delivery?: Delivery; attachments?: string[] }) =>
       post(opts?.to ?? agent, body, opts?.parent ?? null, undefined, opts?.delivery, opts?.attachments, opts?.parent_item),
     retry: (id: number) => {

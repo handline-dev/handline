@@ -8,8 +8,9 @@ import { mount, probe, unmount, until } from './harness.tsx';
 afterEach(unmount);
 const AUD = 'handline.auditor'; // a structured session in the fake daemon
 
-async function connected() {
+async function connected(seed?: (s: ReturnType<typeof setup>) => void) {
   const s = setup();
+  seed?.(s);
   const store = new Store(s.client);
   await store.start();
   const v = probe(() => ({ chat: useChat(AUD, 'mine'), act: useChatActions(AUD) }));
@@ -36,6 +37,23 @@ describe('send as one operation with a receipt', () => {
     const [first, retry, other] = sends(spy);
     expect(retry).toBe(first);
     expect(other).not.toBe(first);
+  });
+
+  it('a reply to an agent reply shows its quote at once, and a retry keeps parent_item', async () => {
+    const { store, daemon, v, rows } = await connected((s) =>
+      s.daemon.chat.seedItem(AUD, { kind: 'reply', text: 'I would cut the third gap.' }),
+    );
+    const item = v.get().chat.items.find((i) => i.kind === 'reply')!;
+    const spy = vi.spyOn(store.client, 'call');
+    daemon.knobs.refuse('chat.send', 'state', 'no', undefined, 1);
+    act(() => v.get().act.send('why', { parent_item: item.id }));
+    await until(() => rows('why')[0]?.state === 'failed', 'the failed row');
+    expect(rows('why')[0]!.parent_item).toEqual({ id: item.id, text: item.text });
+    act(() => v.get().act.retry(rows('why')[0]!.id));
+    await until(() => (rows('why')[0]?.id ?? 0) > 0, 'sent');
+    const calls = spy.mock.calls.filter((c) => c[0] === 'chat.send').map((c) => c[1] as { parent_item?: number });
+    expect(calls.map((c) => c.parent_item)).toEqual([item.id, item.id]);
+    expect(rows('why')[0]!.parent_item?.text).toBe(item.text);
   });
 
   it('delivery goes into chat.send, and a retry repeats it under the same id', async () => {
