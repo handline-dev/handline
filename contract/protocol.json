@@ -158,8 +158,7 @@
    "hl guide",
    "hl withdraw",
    "hl memory migrate",
-   "hl task note (suppressed)",
-   "hl land (no daemon method serves it any more; the CLI goes next)"
+   "hl task note (suppressed)"
   ]
  },
  "x-topics": {

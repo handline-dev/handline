@@ -20,11 +20,10 @@
 # --passed says the auditor recorded a PASS for a single <sha>: when the merge's tree is then <sha>'s own
 # tree (main has not moved past it), the suite the auditor ran is the suite of this merge and is not
 # rerun. A train's last merge is never one sha's tree, so --passed changes nothing there.
-# --refs stops after the merges and their localrefs check, with no suite and nothing printed: what
-# `hl land --pass` asks before it records a PASS, so a PASS is never given to a sha this check refuses.
+# --refs stops after the merges and their localrefs check, with no suite and nothing printed.
 # --fix <dir> is the merger's housekeeping for one sha: each file under <dir> (at its repo path, on a path
 # main's tools/housekeeping.paths allows) is written over the merge and made part of it, and a conflict
-# stops the check only where <dir> has no file for it. `hl land --fix <dir>` sends the daemon the same files.
+# stops the check only where <dir> has no file for it.
 #
 # --test runs tools/check.sh on the merge result first, Go with -race; red lands nothing.
 # The merge result is also read by tools/localrefs.py: a diff or a message (this one

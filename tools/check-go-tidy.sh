@@ -3,8 +3,8 @@
 # `tools/check-go-tidy.sh [module dir]` (default go/). Tidy has to read the modules, so when the network is
 # the only thing wrong (no route, a proxy that refuses, GOPROXY=off with a short cache) it says SKIPPED and
 # exits 0 rather than fail a check it could not run. A missing module or version (404, 410, "cannot find
-# module") is a real failure and exits 1. There are no CI workflows: the gate is `hl land --check`, which the
-# daemon runs outside a sandbox, so only that run proves tidiness; a sandboxed run that SKIPs proves nothing.
+# module") is a real failure and exits 1. There are no CI workflows: the gate is `tools/check.sh`, and
+# only a run of it outside a sandbox proves tidiness; a sandboxed run that SKIPs proves nothing.
 # `--classify` reads go's output on stdin and prints `skip` or `fail` (the tests feed it canned output).
 here="$(cd "$(dirname "$0")" && pwd)"
 

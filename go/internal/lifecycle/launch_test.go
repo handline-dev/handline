@@ -369,15 +369,15 @@ func TestALaunchWithoutTheTokenStoreIsRefusedNotRunBare(t *testing.T) {
 	}
 }
 
-func TestTheSessionIsGivenItsProofAndKeyAndTheKeyFolderIsHiddenFromIt(t *testing.T) {
+func TestTheFounderKeyFolderIsHiddenFromTheSession(t *testing.T) {
 	r := newLaunchRig(t)
 	hide := ""
 	r.l.Ports.Vendors = hidingVendors{&hide}
 	if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(hide, r.l.Tokens.KeyFolder()) || r.l.Tokens.KeyHeld("ann") == "" {
-		t.Fatalf("hidden %q, key %q", hide, r.l.Tokens.KeyHeld("ann"))
+	if !strings.Contains(hide, r.l.Tokens.HiddenFolders()[0]) {
+		t.Fatalf("hidden %q", hide)
 	}
 }
 

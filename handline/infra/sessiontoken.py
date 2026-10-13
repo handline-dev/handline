@@ -23,8 +23,7 @@ import sys
 from . import protected
 
 NS = "session-tokens"      # the store folder keeps its name; renaming it would orphan the records
-KEY_NS = "hook-keys"
-FOUNDER_NS = "founder-keys"     # the daemon's key for the founder's own callers; hidden from sessions like KEY_NS
+FOUNDER_NS = "founder-keys"     # the daemon's key for the founder's own callers; hidden from sessions
 _MAX_DEPTH = 64
 
 
@@ -190,46 +189,18 @@ def agent_of(pid: int | None) -> str | None:
     return next((n for n in names if verify(n, pid)), None)
 
 
-def key_folder():
-    return protected.root() / KEY_NS
-
-
 def hidden_folders() -> list:
     """The key folders a session must not read."""
-    return [key_folder(), protected.root() / FOUNDER_NS]
+    return [protected.root() / FOUNDER_NS]
 
 
 def ensure_key_folder() -> None:
     """The folder exists before a launch hides it: the first launch on a machine would otherwise name a
     path the sandbox rule then does not cover once it appears. Quietly nothing when the store is unwritable."""
     try:
-        protected.ensure(KEY_NS)
         protected.ensure(FOUNDER_NS)
     except OSError:
         pass
-
-
-def mint_key(agent: str) -> bool:
-    """A new key for `agent`'s hook (see session/landgate.py), kept where the session's sandbox cannot read
-    it. False when the store cannot be written, which is what an agent's session gets."""
-    try:
-        protected.put(KEY_NS, agent, secrets.token_urlsafe(32))
-    except (OSError, ValueError):
-        return False
-    return True
-
-
-def key_held(agent: str) -> str | None:
-    """The key, for the hook, which the harness runs outside the sandbox. None inside it."""
-    try:
-        return (protected.get(KEY_NS, agent) or "").strip() or None
-    except ValueError:
-        return None
-
-
-def key_ok(agent: str | None, key: str | None) -> bool:
-    kept = key_held(agent) if agent else None
-    return bool(kept and key) and hmac.compare_digest(kept, str(key))
 
 
 def ensure_founder_key() -> bool:

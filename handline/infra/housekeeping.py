@@ -1,7 +1,5 @@
-"""Which files the merger may write over a merge at land time without a PASS (`hl land --fix`), and writing them.
-
-The daemon and `tools/land.sh --check --fix` both use this, so the two cannot disagree. It needs nothing but the
-standard library: land.sh runs it as a script from main's checkout.
+"""Which files the merger may write over a merge at land time without a PASS (`tools/land.sh --check --fix`), and
+writing them. It needs nothing but the standard library: land.sh runs it as a script from main's checkout.
 
     python3 handline/infra/housekeeping.py apply <housekeeping.paths> <fix dir> <worktree>
 

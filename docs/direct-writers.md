@@ -21,7 +21,6 @@ are listed first, then every writer found.
 | `hl inbox` | inbox.list (+ inbox.mark_read for the head of the queue) | served; mark_read in slice b |
 | `hl read` | inbox.get | gap: standing answers and inbox.get task |
 | `hl say`, `hl ask`, `hl withdraw` | say, ask, chat.withdraw | gap: agent-surface task and chat slice 2 |
-| `hl land`, `hl land --pass` | land, land.pass | gap: agent-surface task |
 | `hl hook` | hook.record | served; no agent-role test of the command yet |
 | `hl agent set\|move`, `hl fold` | agent.set, agent.move, agent.fold | gap: agent-surface task |
 | `hl close`, `hl restart` | session.stop, session.restart | served, agent-role test |
