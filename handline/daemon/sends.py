@@ -152,9 +152,9 @@ def say_verb(con, log, **kw) -> tuple[bool, str]:
         if row is None:
             return False, (f"no task T{task}. Try:\n  "
                            + _working_say(con, me, target, kw["body"], kw.get("parent"), None))
-        if target == actions.HUMAN and row["opened_by"] == me:
-            # A reply to the founder naming the task it became: it is theirs to read, not a memo,
-            # and the task is named whoever holds it now.
+        if kw.get("parent") is not None or (target == actions.HUMAN and row["opened_by"] == me):
+            # A reply lands in the thread it answers, and a say to the founder naming the task it became is
+            # theirs to read: a message linked to the task, not a memo, whoever holds the task now.
             def within(c, note, rid):
                 db.link_request(c, task, rid)
                 if effect:
