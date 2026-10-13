@@ -120,6 +120,7 @@ func TestTheRelayRefusesWhenTheRecordedSessionsCannotBeRead(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads any directory")
 	}
+	t.Setenv("HANDLINE_TEST_ROOT", t.TempDir())
 	home := t.TempDir()
 	store := authority.New(home)
 	sessions := filepath.Join(store.Root, sessiontoken.NS)
