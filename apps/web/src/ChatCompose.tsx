@@ -8,9 +8,20 @@ import { setting } from './daemon.ts';
 import { replyTo } from './ChatMessages.tsx';
 import { menuOf, useEntries, useOpenTerminal, type Entry, type MenuKind } from './ChatMenus.tsx';
 import { VerbSheet } from './AgentVerbs.tsx';
+import { useScreenKeys, type KeyRows } from './screenKeys.ts';
 import { useCan } from './taskui.tsx';
 import { AttachChips, attachHandlers, PickButton, useAttachDraft } from './ChatAttach.tsx';
 import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow } from './ui/index.ts';
+
+const COMPOSE_KEYS: KeyRows = [
+  ['Enter', 'send the message'],
+  ['Shift+Enter', 'a new line in the message'],
+  ['Up Down', 'walk through what you sent before'],
+  ['Ctrl+R', 'search what you sent'],
+  ['/ Tab', 'the verbs of this agent'],
+  ['#', 'refer to a task or a message'],
+  ['Esc Esc', 'clear the box (the draft is kept)'],
+];
 
 export function Compose(props: {
   agent: string;
@@ -27,6 +38,7 @@ export function Compose(props: {
   running?: boolean;
 }) {
   const { agent, detail, storage, canSend, history, messages, target, onClear, running } = props;
+  useScreenKeys('In the message box', COMPOSE_KEYS);
   const act = useChatActions(agent);
   const att = useAttachDraft();
   const canAttach = useCan('attachment.put');

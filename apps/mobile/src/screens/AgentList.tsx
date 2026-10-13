@@ -2,7 +2,8 @@ import { FlatList, Pressable, Text, View } from 'react-native';
 import { useAgents, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { rowHeight, space } from '@handline/tokens';
-import { dotColor, usePalette } from '../theme.ts';
+import { usePalette } from '../theme.ts';
+import { StateMark } from './StateMark.tsx';
 import { Button } from './parts.tsx';
 import { Loadable } from './Loadable.tsx';
 
@@ -50,7 +51,7 @@ export function AgentList(props: { onUnpair: () => void; onPage: (page: 'worktre
                   borderTopColor: c.line,
                 }}
               >
-                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: dotColor(c, a.state) }} />
+                <StateMark agent={a} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: c.ink, fontWeight: '600' }}>{a.name}</Text>
                   <Text style={{ color: c.muted, fontSize: 12 }}>
