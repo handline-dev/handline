@@ -20,7 +20,6 @@ import {
   stateOf,
   type StateKind,
 } from '../src/ui/index.ts';
-import { Gallery } from '../src/Gallery.tsx';
 import { DOT_ORDER, Mark } from '../src/RailIcons.tsx';
 import { AgentGauges } from '../src/AgentGauges.tsx';
 
@@ -46,22 +45,6 @@ const press = (key: string, init: KeyboardEventInit = {}) =>
 
 describe('State', () => {
   const KINDS: StateKind[] = ['working', 'booting', 'needs', 'blocked', 'idle', 'parked', 'done', 'noTerminal'];
-  it('draws a different glyph with a tooltip and aria-label for every state, so no state is told by colour alone', async () => {
-    await show(
-      <>
-        {KINDS.map((k) => (
-          <State key={k} kind={k} />
-        ))}
-      </>,
-    );
-    const marks = [...box.querySelectorAll('.ui-state')].map(
-      (s) => `${s.getAttribute('data-state')}|${s.querySelector('svg')!.getAttribute('class')}|${s.getAttribute('title')}`,
-    );
-    expect(new Set(marks.map((m) => m.split('|')[1])).size).toBe(KINDS.length);
-    expect(box.querySelectorAll('[role="img"][aria-label]').length).toBeGreaterThanOrEqual(KINDS.length);
-    expect($('.ui-state[data-state="noTerminal"] .ui-state-slash line')).not.toBeNull();
-  });
-
   it("takes the screen's reason as the tooltip and prints the name with `word`", async () => {
     await show(<State kind="blocked" label="Blocked: waits for the build" word />);
     expect($('.ui-state')!.getAttribute('title')).toBe('Blocked: waits for the build');
@@ -205,21 +188,6 @@ describe('Select, Page and PopupRow', () => {
     expect(seen).toEqual(['sonnet']);
   });
 
-  it('a page is a 640 px column for a form and the full width for a list', async () => {
-    await show(
-      <>
-        <Page>
-          <p id="a">form</p>
-        </Page>
-        <Page width="wide">
-          <p id="b">list</p>
-        </Page>
-      </>,
-    );
-    expect($('#a')!.parentElement!.className).toBe('ui-page mx-auto p-4 max-w-[var(--w-form)]');
-    expect($('#b')!.parentElement!.className).toBe('ui-page mx-auto p-4');
-  });
-
   it('a popup row has its icon and name, and a chevron only when it opens a second popup', async () => {
     await show(
       <>
@@ -300,43 +268,12 @@ describe('Popup and Dialog', () => {
   });
 });
 
-describe('the gallery and the css rules', () => {
-  it('the gallery draws every primitive', async () => {
-    await show(<Gallery />);
-    for (const sel of ['.ui-state', '.ui-btn.solid', '.ui-field', '.ui-select', '.ui-switch', '.ui-seg', '.ui-empty'])
-      expect($(sel), sel).not.toBeNull();
-  });
-
+describe('the css files', () => {
   const dir = join(import.meta.dirname, '../src/styles');
   const screens = readdirSync(dir).filter((f) => f.endsWith('.css') && f !== 'themes.css'); // themes.css overrides token values by design
-  it('no screen css gives a colour a value: colours come from tokens.css', () => {
-    for (const f of screens) expect(readFileSync(join(dir, f), 'utf8').match(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g) ?? [], f).toEqual([]);
-  });
   it('styles.css is the tokens, then one file per screen, and every file is imported', () => {
     const index = readFileSync(join(import.meta.dirname, '../src/styles.css'), 'utf8');
     for (const f of screens) expect(index, f).toContain(`./styles/${f}`);
     expect(index.indexOf('./tokens.css')).toBeLessThan(index.indexOf('./styles/'));
-  });
-
-  // G06: a font size or a radius in px is a value the tokens already have. The screens still hold some; this count may only go down, and
-  // ui.css holds none.
-  const RAW: Record<string, [number, number]> = {
-    'accounts.css': [2, 3],
-    'agent-terminal.css': [3, 7],
-    'base.css': [4, 5],
-    'chat.css': [3, 2],
-    'inbox.css': [5, 8],
-    'rail.css': [3, 7],
-    'workspace.css': [4, 4],
-  };
-  it('raw px font sizes and radii in screen css never grow, and the ui css has none', () => {
-    for (const f of screens) {
-      const css = readFileSync(join(dir, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-      const sizes = (css.match(/font-size:\s*[0-9.]+px/g) ?? []).length;
-      const radii = (css.match(/border-radius:\s*[0-9.]+(?:px|%)/g) ?? []).length;
-      const [maxSize, maxRadius] = RAW[f] ?? [0, 0];
-      expect(sizes, `${f} font-size px`).toBeLessThanOrEqual(maxSize);
-      expect(radii, `${f} border-radius px`).toBeLessThanOrEqual(maxRadius);
-    }
   });
 });

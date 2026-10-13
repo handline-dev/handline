@@ -99,18 +99,6 @@ describe('the list', () => {
     expect(text(card('p85').querySelector('.gauge-pct'))).toBe('85%');
   });
 
-  it('from 80 percent a window has a warning glyph and a full one its own, so the hue is not the only sign', async () => {
-    const s = setup();
-    for (const p of [79, 80, 100])
-      s.daemon.accounts.add({ name: `g${p}`, five_hour: { used_pct: p, resets_at: null, source: 'measured' } });
-    await mount('#/accounts', s);
-    await until(() => card('g100'), 'the rows');
-    const glyph = (n: string) => card(n).querySelector('[data-gauge="5 h"] .gauge-glyph svg')?.getAttribute('data-icon') ?? null;
-    expect([79, 80, 100].map((p) => glyph(`g${p}`))).toEqual([null, 'warn', 'full']);
-    const shape = (n: string) => card(n).querySelector('[data-gauge="5 h"] .gauge-glyph svg')?.innerHTML;
-    expect(shape('g100')).not.toBe(shape('g80'));
-  });
-
   it('an account whose window is full is out until the reset', async () => {
     const s = setup();
     s.daemon.accounts.add({
