@@ -96,7 +96,7 @@
   "hl task memo edit": "task.memo.edit",
   "hl task memo delete": "task.memo.delete",
   "hl progress": "task.progress",
-  "hl inbox": "inbox.list",
+  "hl inbox": "inbox.queue",
   "hl read": "request.read",
   "hl say": "say",
   "hl hook": "hook.record",
@@ -3832,7 +3832,7 @@
    "x-role": "agent",
    "x-write": false,
    "x-since": 1,
-   "x-note": "hl inbox --wait is this call with wait_s; hl read --wait is request.read with wait_s."
+   "x-note": "hl inbox --wait is inbox.queue with wait_s; hl read --wait is request.read with wait_s."
   },
   {
    "name": "inbox.queue",

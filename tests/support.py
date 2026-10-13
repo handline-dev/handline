@@ -130,8 +130,8 @@ def _serve_cli(start: bool = True, timeout: float = 0) -> _socket.socket:
 
 
 def _request_read(params: dict) -> dict:
-    """request.read as the Go daemon serves it (go/internal/reads/inboxget.go). The Python test server never had it, so `hl read`'s
-    call is answered here and the tests that look at a request through `hl read` still run."""
+    """request.read as the Go daemon serves it (go/internal/reads/inboxget.go). The Python test server never had it or inbox.queue, so
+    the commands' calls of those two are answered here and the tests that look through `hl read` and `hl inbox` still run."""
     from handline.daemon import delivery, rpc_inbox_get
     from handline.infra import daemonclient
     rid, viewer = params["id"], askmod.current_agent() or db.HUMAN
@@ -159,8 +159,59 @@ def _request_read(params: dict) -> dict:
         time.sleep(rpc_inbox_get.POLL_S)
 
 
+def _inbox_queue(params: dict) -> dict:
+    """inbox.queue as the Go daemon serves it (go/internal/reads/inboxqueue.go), for the tests that look at an inbox through `hl inbox`."""
+    from handline.daemon import delivery, rpc_inbox_get
+    from handline.infra import daemonclient, textsafe
+    caller = askmod.current_agent() or db.HUMAN
+    whose = params.get("whose") or caller
+    why = actions.listing_refusal(caller, whose)
+    if why:
+        raise daemonclient.RpcError({"message": why, "data": {"code": "refused", "gate": "listing"}})
+    line = lambda text: textsafe.oneline(text)[:60]  # noqa: E731
+    until = time.time() + (params.get("wait_s") or 0)
+    while True:
+        con = db.connect()
+        try:
+            history = askmod.inbox(whose, unread_only=False)
+            waiting = ([r.get("seq", r["id"]) for r in actions.mailbox_rows(con)] if whose == db.HUMAN
+                       else [r["id"] for r in history if r["state"] not in rpc_inbox_get.SETTLED])
+            out = {"whose": whose, "newest": max(waiting, default=0), "head": None}
+            if out["newest"] <= params.get("since", 0) and time.time() < until:
+                continue
+            if whose == db.HUMAN:
+                rows = actions.messages(con)
+                out.update(waiting=len(waiting), lines=[
+                    {"id": m["id"], "from": m["from"], "kind": m["kind"] or "ask", "decision": bool(m["gate"]), "answer": bool(m["answer"]),
+                     "line": line(actions.first_line(m["body"])), "unread": m["unread"]} for m in rows])
+                if params.get("all"):
+                    done = con.execute(f"SELECT id, requester, target, state, body, {db.DISMISSED_SQL}, {db.ANSWER_SQL} FROM requests "
+                                       "WHERE (target = ? OR requester = ?) AND state != 'queued' ORDER BY id DESC LIMIT 20",
+                                       (db.HUMAN, db.HUMAN)).fetchall()
+                    out["dealt"] = [{"id": r["id"], "outgoing": r["requester"] == db.HUMAN, "state": r["state"],
+                                     "agent": r["target"] if r["requester"] == db.HUMAN else r["requester"],
+                                     "line": line(actions.first_line(db.shown_verdict(r) or r["body"]))}
+                                    for r in done if r["id"] not in {m["id"] for m in rows}]
+                return out
+            head = db.head_of_queue(con, whose)
+            if head:
+                more = db.queue_depth(con, whose) - 1
+                out["head"] = {"id": head["id"], "requester": head["requester"], "chain_depth": head["chain_depth"], "body": head["body"],
+                               "more_waiting": more, "more_waiting_line": delivery.more_waiting(head["kind"], more),
+                               "how_to_close": delivery.answer_verb(con, head) if head["kind"] == "task"
+                               else f"`hl say {head['requester']} --parent <id> \"<answer>\"` answers it"}
+            if params.get("all"):
+                out["history"] = [{"id": r["id"], "requester": r["requester"], "state": r["state"], "chain_depth": r["chain_depth"],
+                                   "line": line(r["body"])} for r in history]
+            return out
+        finally:
+            con.close()
+            time.sleep(0.05)
+
+
+_STAND_INS = {"request.read": _request_read, "inbox.queue": _inbox_queue}
 _served_call = _cli_client.call
-_cli_client.call = lambda method, params=None, **kw: (_request_read(params) if method == "request.read"
+_cli_client.call = lambda method, params=None, **kw: (_STAND_INS[method](params or {}) if method in _STAND_INS
                                                       else _served_call(method, params, **kw))
 
 REAL_CLI_CONNECT = _cli_client.connect  # for a test that puts its own socket under the real call

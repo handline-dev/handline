@@ -727,7 +727,7 @@ Every `hl` command an agent runs today and the method that serves it.
 | `hl task memo edit` | `task.memo.edit` |
 | `hl task memo delete` | `task.memo.delete` |
 | `hl progress` | `task.progress` |
-| `hl inbox` | `inbox.list` |
+| `hl inbox` | `inbox.queue` |
 | `hl read` | `request.read` |
 | `hl say` | `say` |
 | `hl hook` | `hook.record` |

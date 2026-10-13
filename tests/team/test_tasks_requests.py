@@ -3262,13 +3262,6 @@ def test_a_wait_returns_when_the_answer_lands_not_when_it_gives_up(home: Path) -
 
     check("wait: --wait sits next to the positional instead of swallowing it",
           parser.parse_args(["inbox", "reviewer", "--wait"]).agent == "reviewer")
-    con = db.connect()
-    try:
-        seen = cliask._waiting_ids(con, "reviewer")
-    finally:
-        con.close()
-    check("wait: what is already on the list is not what a wait is waiting for",
-          rid2 in seen and rid not in seen, str(seen))
 
 
 def test_an_answer_to_the_human_is_in_the_human_mailbox(home: Path) -> None:
