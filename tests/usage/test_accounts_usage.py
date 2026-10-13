@@ -4066,6 +4066,24 @@ def test_a_forced_move_is_the_daemons(home: Path) -> None:
           and "already" not in out.getvalue(), f"{codes} {out.getvalue()!r} {err.getvalue()!r}")
 
 
+def test_a_resume_is_the_daemons(home: Path) -> None:
+    """`hl resume` asks the daemon (session.wake); a wake it refuses is exit 1 with its words."""
+    from handline.cli import client as cliclient
+    _daemon_home(home, 20)
+    sent, real = [], cliclient.write
+    replies = [(True, "keeper: woken"), (False, "keeper: not woken - nothing waiting")]
+    cliclient.write = lambda method, params: (sent.append((method, params)), replies.pop(0))[1]
+    try:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            codes = [climod.main(["resume", "keeper"]) for _ in range(2)]
+    finally:
+        cliclient.write = real
+    check("resume: the wake is sent to the daemon, and a refusal is exit 1 with what it said",
+          sent == [("session.wake", {"agent": "keeper"})] * 2 and codes == [0, 1] and "keeper: woken" in out.getvalue()
+          and "not woken - nothing waiting" in out.getvalue(), f"{sent} {codes} {out.getvalue()!r}")
+
+
 def test_an_agent_at_the_wall_moves_to_an_account_with_room(home: Path) -> None:
     """Total throughput is accounts x window, and moving a session does not change
     it. What it changes is whether an agent sits out its own five hours while
@@ -6349,6 +6367,7 @@ def main() -> int:
         run(lambda: test_a_forced_move_goes_through_the_verified_move_or_not_at_all(Path(td) / 'forced'))
         run(lambda: test_an_agent_cannot_force_a_move(Path(td) / 'forcedagent'))
         run(lambda: test_a_forced_move_is_the_daemons(Path(td) / 'forcedcli'))
+        run(lambda: test_a_resume_is_the_daemons(Path(td) / 'resumecli'))
         run(lambda: test_an_agent_at_the_wall_moves_to_an_account_with_room(Path(td) / 'moveacct'))
         run(lambda: test_a_move_blocked_by_a_dialog_retries_soon_not_at_the_old_accounts_wall(
             Path(td) / 'movedialog'))
