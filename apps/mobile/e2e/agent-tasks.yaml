@@ -1,0 +1,17 @@
+# After pair-and-page.yaml (the phone is paired): the Tasks tab of an agent page against `pnpm fake-listener`.  maestro test e2e/agent-tasks.yaml
+appId: dev.handline.mobile
+---
+- tapOn:
+    id: agent-.*
+- tapOn:
+    id: tab-tasks
+- assertVisible:
+    id: agent-task-.*
+- tapOn:
+    id: agent-task-.*
+- assertVisible:
+    id: task-detail
+- tapOn:
+    id: task-back
+- assertVisible:
+    id: agent-task-.*
