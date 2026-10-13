@@ -2,8 +2,10 @@ package compose
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/team"
 )
 
 // sendingReasons is the sending_reason of each message chat.messages shows for alice, through the real composition.
@@ -143,6 +146,41 @@ func TestTheTriggerIsWhatTheTickWouldHandTheAgentOffFor(t *testing.T) {
 	}
 	if got := fire(); got != "" {
 		t.Fatalf("a parked agent is past its wall: %q", got)
+	}
+}
+
+func TestTheTriggerJudgesContextByTheAgentsOwnLimit(t *testing.T) {
+	p, lc, _, _ := wired(t)
+	d := p.Sink.DB
+	os.WriteFile(filepath.Join(p.home, "agents", "alice", "agent.yaml"), []byte("vendor: claude\nstructured: true\ncontext_tokens: 50000\n"), 0o644)
+	t.Cleanup(func() { p.Run.WaitIdle("alice", 10*time.Second) })
+	if ok, said, err := lc.Manager.WakeAgent("alice", lifecycle.WakeOpts{}); err != nil || !ok {
+		t.Fatalf("wake: %v %q %v", ok, said, err)
+	}
+	if !p.Run.WaitIdle("alice", 10*time.Second) {
+		t.Fatal("her turn ends")
+	}
+	row, _ := dbpkg.GetAgentState(d, "alice")
+	acct := p.Run.parts.OpenedOn("alice")
+	dir, _ := team.AccountConfigDir(p.home, acct)
+	os.MkdirAll(filepath.Join(dir, "projects", "x"), 0o755)
+	// trigger is what the delivery says once the newest reply of her session holds used tokens
+	trigger := func(used int) reads.Trigger {
+		t.Helper()
+		reply := fmt.Sprintf(`{"type":"assistant","message":{"model":"claude-opus-5","usage":{"input_tokens":%d}}}`+"\n", used)
+		os.WriteFile(filepath.Join(dir, "projects", "x", row.ResumeSession.String+".jsonl"), []byte(reply), 0o644)
+		got, err := p.Delivery().Trigger(d, "alice", row, acct)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := trigger(40000); !got.Applies || got.Fired || !strings.HasSuffix(got.Reason, "context 40,000 < 50,000") {
+		t.Fatalf("under her own limit: %+v", got)
+	}
+	// 60,000 is far under the 150,000 every agent has
+	if got, want := trigger(60000), (reads.Trigger{Applies: true, Fired: true, Kind: "context", Reason: "context 60,000 >= 50,000"}); got != want {
+		t.Fatalf("over her own limit: %+v", got)
 	}
 }
 
