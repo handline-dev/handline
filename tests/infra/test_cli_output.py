@@ -79,7 +79,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         # is noticed: it is driven here, or it is skipped with a reason.
         driven = {
             "status": [["status"], ["status", "--json"]], "doctor": [["doctor", "--no-color"]],
-            "team seal": [["team", "seal"]], "ps": [["ps"]], "triggers": [["triggers"]],
+            "team seal": [["team", "seal"]], "ps": [["ps"]],
             "events": [["events", "--limit", "50", "--all"], ["events", "--agent", "reviewer"]],
             "inbox": [["inbox", "reviewer"], ["inbox", "reviewer", "--all"],
                       ["inbox", "human", "--all"]],
@@ -234,6 +234,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "task merge": "writes rows; driven in test_merging_tasks_moves_titles_and_requests_and_closes_the_rest, not this scene",
         "task reopen": "writes a row; driven in test_reopening_a_done_task_needs_a_reason_and_only_the_asker, not this scene",
         "task release": "writes a row; driven in test_release_takes_a_doing_task_back_to_queued, not this scene",
+        "triggers": "agent.triggers, which only the Go daemon serves; pinned by contract/fixtures/agent_triggers.json, and the "
+                    "table is driven in test_triggers_draws_the_daemons_verdicts, not this scene",
         "task accept": "task.accept, which only the Go daemon serves; pinned by contract/fixtures/task_report.json, not this scene",
         "task reject": "task.reject, which only the Go daemon serves; pinned by contract/fixtures/task_report.json, not this scene",
         "task edit": "writes a row; driven in "
@@ -305,9 +307,53 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
           json.loads(said) == odd and not re.search(r"[\x7f-\x9f]", said), said)
 
 
+def test_triggers_draws_the_daemons_verdicts(home: Path) -> None:
+    """The verdict and its reason are the daemon's (agent.triggers, served by the Go daemon only), so the reply is
+    given here; the account and the figures beside it are read by the command."""
+    from handline.cli import client as cliclient
+    _daemon_home(home, 20)
+    agents.register("reviewer")
+    con = db.connect()
+    try:
+        db.set_account(con, "backend", "alpha")
+    finally:
+        con.close()
+    asked = []
+    real = cliclient.call
+
+    def call(method, params=None):
+        asked.append((method, params))
+        return {"agents": [{"agent": "backend", "fired": True, "reason": "5h window at 96% \x9b31m(block 95%)"},
+                           {"agent": "reviewer", "fired": False, "reason": "session closed; nothing to hand off"}]}
+    cliclient.call = call
+    try:
+        out = _capture(lambda: climod.main(["triggers"]))
+        check("triggers: it asks the daemon once, for every agent", asked == [("agent.triggers", None)], str(asked))
+        backend = next(ln for ln in out.splitlines() if ln.startswith("backend"))
+        check("triggers: the daemon's verdict and reason beside the account and its 5h figure",
+              backend.split()[:3] == ["backend", "alpha", "20"] and "YES" in backend and "5h window at 96%" in backend, backend)
+        check("triggers: a reason is printed as text, never as codes", "\x9b" not in out, repr(out))
+        reviewer = next(ln for ln in out.splitlines() if ln.startswith("reviewer"))
+        check("triggers: an agent with no account shows -, and what the daemon says of it",
+              reviewer.split()[1] == "-" and "YES" not in reviewer and reviewer.endswith("session closed; nothing to hand off"),
+              reviewer)
+
+        def down(method, params=None):
+            raise dmn_client.DaemonDown("no service is installed to start it")
+        cliclient.call = down
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = clihealth.cmd_triggers(None)
+        check("triggers: with no daemon it says so and decides nothing itself",
+              rc == 1 and "could not read the triggers" in err.getvalue(), err.getvalue())
+    finally:
+        cliclient.call = real
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_no_command_prints_what_a_terminal_would_obey(Path(td) / 'cli'))
+        run(lambda: test_triggers_draws_the_daemons_verdicts(Path(td) / 'trig'))
     return run_area(tests)
 
 

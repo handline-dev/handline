@@ -8,8 +8,7 @@ import (
 	"github.com/handline/handline/go/internal/team"
 )
 
-// agentTriggers is agent.triggers (hl triggers): what the next tick would decide for each agent, or for the one named. The reasons are
-// cmd_triggers' in handline/cli/health.py.
+// agentTriggers is agent.triggers (hl triggers): what the next tick would decide for each agent, or for the one named.
 func (e *Env) agentTriggers(c *rpc.Conn, params map[string]any) (any, error) {
 	names := e.listAgents()
 	if params["agent"] != nil {

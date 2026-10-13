@@ -3658,14 +3658,12 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
               not ok and (why == reason or why.startswith(reason + "; not moved: ")), f"{why!r} != {reason!r}")
 
         ps_out = _capture(lambda: climod.main(["ps"]))
-        trig_out = _capture(lambda: climod.main(["triggers"]))
         # `hl team` is asked from somewhere - `reviewer` is a peer of every
         # agent in DESIGN_TEAM, so backend is on its list.
         os.environ["OCP_AGENT"] = "reviewer"
         team_out = _capture(lambda: climod.main(["team"]))
         del os.environ["OCP_AGENT"]
         check("walled: `hl ps` says it", reason in ps_out, ps_out)
-        check("walled: `hl triggers` says it", reason in trig_out, trig_out)
         check("walled: `hl team` says it too - the fourth surface",
               "alpha" in team_out and when in team_out, team_out)
         # It is computed, not stored: once the account has room the sentence
@@ -3676,13 +3674,12 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
         check("walled: and clears the moment the account has room",
               launch.wake_wait_reason("backend", row, con) is None)
         ps_out = _capture(lambda: climod.main(["ps"]))
-        trig_out = _capture(lambda: climod.main(["triggers"]))
         os.environ["OCP_AGENT"] = "reviewer"
         team_out = _capture(lambda: climod.main(["team"]))
         del os.environ["OCP_AGENT"]
         wide = viewdata._ANSI.sub("", _snap(200, 40))
         check("walled: and every screen falls silent with it",
-              "rolls over" not in ps_out and "rolls over" not in trig_out
+              "rolls over" not in ps_out
               and when not in team_out and when not in wide,
               "still walled somewhere after the window rolled over")
     finally:
@@ -3718,15 +3715,12 @@ def test_a_walled_wake_is_not_shown_with_nothing_waiting(home: Path) -> None:
               not dmn_lifecycle.would_wake(con, row), dict(row))
 
         ps_out = _capture(lambda: climod.main(["ps"]))
-        trig_out = _capture(lambda: climod.main(["triggers"]))
         os.environ["OCP_AGENT"] = "reviewer"
         team_out = _capture(lambda: climod.main(["team"]))
         del os.environ["OCP_AGENT"]
         frame = viewdata._ANSI.sub("", _snap(200, 40))
         check("walled: `hl ps` stays quiet with nothing waiting",
               "rolls over" not in ps_out, ps_out)
-        check("walled: `hl triggers` stays quiet too",
-              "rolls over" not in trig_out, trig_out)
         check("walled: `hl team` stays quiet too", "rolls over" not in team_out, team_out)
         check("walled: and the bridge",
               "rolls over" not in frame and "⏳" not in frame,
@@ -4270,11 +4264,11 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
     """should-fix 1 (#1762): the thrash test above proves triggers.evaluate
     honours a ctx_limit it is handed - its control builds that trigger by
     calling evaluate() directly, so supervise() is never actually reached for
-    the overridden agent. Nothing there proves the daemon, the bridge row or
-    `hl triggers` resolve and pass a per-agent limit rather than the flat
+    the overridden agent. Nothing there proves the daemon and the bridge row
+    resolve and pass a per-agent limit rather than the flat
     default. Two agents, same account, same 200,000-token reading: only each
     call site's own status.effective_context_limit(agents.read(agent), ...)
-    can tell them apart, so all three are driven through their real code
+    can tell them apart, so both are driven through their real code
     path, not a stand-in for it."""
     _daemon_home(home, 20)
     agents.register("ctxreal")
@@ -4318,16 +4312,7 @@ def test_every_call_site_actually_hands_supervise_the_per_agent_context_limit(
         for name in ("ctxreal", "ctxctl"):
             db.set_agent_state(con, name, dmn_states.IDLE)
 
-        # 2. cli.health.cmd_triggers.
-        trig_out = _capture(lambda: climod.main(["triggers"]))
-        real_line = next(ln for ln in trig_out.splitlines() if "ctxreal" in ln)
-        ctl_line = next(ln for ln in trig_out.splitlines() if "ctxctl" in ln)
-        check("hl triggers: fires for the default-limit agent",
-              "YES" in real_line, real_line)
-        check("hl triggers: does not fire for the overridden agent, same reading",
-              "YES" not in ctl_line, ctl_line)
-
-        # 3. tui's bridge row.
+        # 2. tui's bridge row.
         wide = viewdata._ANSI.sub("", _snap(200, 40))
         real_row = next(ln for ln in wide.splitlines() if "ctxreal" in ln)
         ctl_row = next(ln for ln in wide.splitlines() if "ctxctl" in ln)
