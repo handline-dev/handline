@@ -52,17 +52,6 @@ export function takeBack(m: ChatMessage): { confirm: boolean } | null {
 
 /** Queued behind a running turn: the agent has not been given it. */
 export const waiting = (m: ChatMessage) => (m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued');
-/** How many of the person's earlier messages to this agent are still queued ahead of this one. */
-export const behindCount = (messages: ChatMessage[], m: ChatMessage): number =>
-  messages.filter((o) => o.id > 0 && o.id < m.id && o.to === m.to && o.from === m.from && waiting(o)).length;
-/** The short line under the person's own message while it has not reached the agent; null once it has (and for a failed one, which says so itself). */
-export function sendNote(m: ChatMessage, behind: number): string | null {
-  if (m.state === 'failed') return null;
-  if (m.id < 0) return 'Sending…';
-  if (waiting(m)) return behind ? `Waiting behind ${behind}` : 'Queued';
-  if (m.receipt) return m.receipt.state === 'sent' ? 'Sent, not confirmed yet' : null;
-  return null;
-}
 
 /** How far the person's own message got, for the two ticks: 0 not sent yet, 1 sent and not read, 2 read. */
 export function tickLevel(m: ChatMessage): 0 | 1 | 2 {

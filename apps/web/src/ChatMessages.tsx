@@ -1,8 +1,8 @@
 // One line of the conversation: the person's and the agent's messages with how far each got, and the transcript's tool, prompt, task and
 // session lines as small cards. What a line is and where it stands is an icon with its words as the tooltip; a click on a message picks it
 // to reply to (the reference the composer shows).
-import { useState, type MouseEvent } from 'react';
-import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
+import { useState, type MouseEvent, type ReactNode } from 'react';
+import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { landingLabel, openTask, sessionLine, sideOf, taskRow, tickLevel } from '@handline/app-core';
 import { useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
@@ -24,18 +24,6 @@ const clock = (at: string) => {
   return Number.isNaN(+d) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-const LANDING_ICON: Record<string, IconName> = {
-  queued: 'queued',
-  typed: 'typed',
-  delivered: 'delivered',
-  // Delivered but unanswered draws as delivered — the waiting is said in the tooltip, not drawn.
-  delivered_unanswered: 'delivered',
-  answered: 'answered',
-  dismissed: 'dismissed',
-  withdrawn: 'withdrawn',
-};
-export const landingIcon = (l: Landing): IconName => LANDING_ICON[l] ?? 'delivered';
-
 /** Scrolls the message with this number into view and flashes it; false when it is not drawn (another page, another tab). */
 export function jumpTo(id: number): boolean {
   const el = document.querySelector<HTMLElement>(`.msg[data-id="${id}"]`);
@@ -55,19 +43,35 @@ const full = (at: string) => {
 };
 
 // A message to a structured agent says how far into the CLI it is; `unknown` is never resent, so the person is told it may have run.
-const RECEIPT: Record<string, { icon: IconName; label: string }> = {
-  queued: { icon: 'queued', label: 'Queued: sent when the running turn ends' },
-  sent: { icon: 'typed', label: 'Sent to the agent, not confirmed yet' },
-  confirmed: { icon: 'delivered', label: 'Confirmed by the agent' },
-  unknown: { icon: 'maybeRan', label: 'May or may not have run' },
+const RECEIPT: Record<string, string> = {
+  queued: 'Queued: sent when the running turn ends',
+  sent: 'Sent to the agent, not confirmed yet',
+  confirmed: 'Confirmed by the agent',
+  unknown: 'May or may not have run',
 };
-const receiptOf = (state: string) => RECEIPT[state] ?? RECEIPT.sent!;
+const receiptLabel = (state: string) => RECEIPT[state] ?? RECEIPT.sent!;
+
+/** A click on a control inside a bubble is that control's, not a pick of the bubble. */
+const onControl = (e: MouseEvent) => !!(e.target as HTMLElement).closest('button, a, input, textarea, form');
+
+/** The stamp hangs in the gutter beside the bubble, out of the flow: an agent's to its right, the person's to its left — the bubble never resizes for it. */
+function Stamp({ left, children }: { left?: boolean; children: ReactNode }) {
+  return (
+    <div
+      className={`${MSG_META} absolute bottom-0 hidden items-center justify-end whitespace-nowrap gap-1.5 text-ink-3 peer-hover:flex peer-aria-current:flex ${
+        left ? 'right-full mr-1.5' : 'left-full ml-1.5'
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
 
 const snippet = (body: string) => (body.length > 80 ? `${body.slice(0, 80)}…` : body);
 
 const tickLabel = (m: ChatMessage) =>
   m.receipt
-    ? receiptOf(m.receipt.state).label
+    ? receiptLabel(m.receipt.state)
     : m.sending_reason
       ? `${landingLabel(m.landing)}: ${m.sending_reason}`
       : landingLabel(m.landing);
@@ -108,7 +112,7 @@ export function Message(props: {
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
   // A click on the message, not on a control in it, picks it to reply to.
   const pick = (e: MouseEvent) => {
-    if (unnumbered || failed || !props.onPick || (e.target as HTMLElement).closest('button, a, input, textarea, form')) return;
+    if (unnumbered || failed || !props.onPick || onControl(e)) return;
     props.onPick(m);
   };
   return (
@@ -187,15 +191,10 @@ export function Message(props: {
           </div>
         ) : null}
       </div>
-      {/* The stamp hangs in the gutter beside the bubble, out of the flow: an agent's to its right, the person's to its left — the bubble never resizes for it. */}
-      <div
-        className={`${MSG_META} absolute bottom-0 hidden items-center justify-end whitespace-nowrap gap-1.5 text-ink-3 peer-hover:flex peer-aria-current:flex ${
-          side === 'agent' ? 'left-full ml-1.5' : 'right-full mr-1.5'
-        }`}
-      >
+      <Stamp left={side !== 'agent'}>
         <span>{clock(m.at)}</span>
         {side === 'person' && !failed ? <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} /> : null}
-      </div>
+      </Stamp>
     </>
   );
 }
@@ -329,18 +328,16 @@ export function Item({
           title={full(i.at)}
           aria-current={picked ? 'true' : undefined}
           onClick={(e) => {
-            if (onReply && !(e.target as HTMLElement).closest('button, a, input, textarea, form')) onReply(i);
+            if (onReply && !onControl(e)) onReply(i);
           }}
         >
           <div className={MSG_BODY}>
             <RichText text={i.text ?? ''} />
           </div>
         </div>
-        <div
-          className={`${MSG_META} absolute bottom-0 left-full ml-1.5 hidden items-center justify-end whitespace-nowrap gap-1.5 text-ink-3 peer-hover:flex peer-aria-current:flex`}
-        >
+        <Stamp>
           <span>{clock(i.at)}</span>
-        </div>
+        </Stamp>
       </>
     );
   if (i.kind === 'tool') return <ToolLine i={i} />;
