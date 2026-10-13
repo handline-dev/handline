@@ -566,6 +566,20 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
+  it('a picked open question is a reference: it is sent as a linked message, not an answer', async () => {
+    const m = await mount(() => {}, undefined, 'founder');
+    await openChat();
+    const q = 'Which gap list should come first?';
+    await until(() => msgOf(q), 'the question');
+    await press(msgOf(q)!);
+    await type('chat-input', 'web first');
+    await press($('chat-send'));
+    await until(() => msgOf('web first'), 'the reply');
+    expect(msgOf('web first')!.textContent).toContain('↩ #');
+    expect(msgOf(q)!.textContent).not.toContain('You: web first');
+    m.store.stop();
+  });
+
   it('leaves answering a question to the Inbox: no answer box in the chat, Dismiss stays', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
