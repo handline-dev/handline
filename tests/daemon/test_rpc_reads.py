@@ -146,7 +146,7 @@ def test_tasks_list_scopes_an_agent_as_the_command_does(home: Path) -> None:
     con.close()
     check("tasks.list: and not one the manager works for someone else", mgr_alone not in ids(_call("tasks.list", as_agent="worker")))
     r = _call("tasks.list", {"owner": "manager"}, as_agent="worker")
-    rc, out = support._cli(["task", "list", "--owner", "manager"], as_agent="worker")
+    rc, out = support._cli(["task", "list", "--assign", "manager"], as_agent="worker")
     check("tasks.list: an owner outside the reach is refused, as the command refuses it",
           _code(r) == "refused" and rc == 1 and "is not you or one of your reports" in out
           and "is not you or one of your reports" in r["error"]["message"], f"{r} / {out}")

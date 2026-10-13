@@ -805,10 +805,16 @@ export type ChatMessage = {
   receipt?: Receipt;
   /** The images sent with the message, in order. Absent when it has none. */
   attachments?: Attachment[];
+  parent_item?: {
+    /** The transcript item id. chat.transcript with since=id reads the page that shows it. */
+    id: number;
+    /** The reply's first 300 characters (Unicode code points, no ellipsis) when the message was sent. */
+    text: string;
+  } | null;
 };
 
 export type TranscriptItem = {
-  /** Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. */
+  /** Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. For kind reply it is also what chat.send takes as parent_item. A reply has one of two sources, told apart by the last digit of its number within the second: a structured session's text block (even; the same id on every read and in the live event's `item`) and the answer to a request (odd); each is the same on every read, and chat.transcript lists both. */
   id: number;
   at: Timestamp;
   kind: "reply" | "tool" | "prompt" | "task_event" | "session";
@@ -1566,6 +1572,8 @@ export interface Methods {
   parent?: number;
   /** Images from attachment.put to send with this message, drawn in this order. Then body may be empty. An id that is unknown, expired or already sent is bad_request, field attachments. Not with task (bad_request). */
   attachments?: AttachmentId[];
+  /** A reply of the agent's own that this message answers: the `id` of an item of kind reply that chat.transcript lists for this agent (a structured session's text block, whose live event carries the same id as `item`, or the answer to a request). The agent's turn text has no message number, so it cannot be `parent`; the two do not go together, nor does this with task (bad_request, field parent_item). It may go with attachments. An id that is no item of this agent's transcript, or one of another agent's, is not_found (what: item); one that is not a reply (a tool call, a prompt, a task event, a session) is bad_request. */
+  parent_item?: number;
   /** For a structured agent whose turn is running: now joins the running turn, queue (the default) is held by the daemon and written when the turn ends, one message per turn. With no turn running they are the same. A terminal agent accepts the field and ignores it. Another word is bad_request. */
   delivery?: "now" | "queue";
   request_id: RequestId;

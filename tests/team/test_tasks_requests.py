@@ -2555,8 +2555,8 @@ def test_a_task_is_written_T_and_a_bare_number_is_never_a_task(home: Path) -> No
         "task edit": ["task", "edit", n, "--title", "x"],
         "task edit --blocked-by": ["task", "edit", f"T{other}", "--blocked-by", n],
         "task edit --unblock": ["task", "edit", f"T{other}", "--unblock", n],
-        "task new --parent": ["task", "new", "--owner", "worker", "y", "y", "--parent", n, "-t", "1h"],
-        "task new --blocked-by": ["task", "new", "--owner", "worker", "y", "y", "--blocked-by", n,
+        "task new --parent": ["task", "new", "--assign", "worker", "y", "y", "--parent", n, "-t", "1h"],
+        "task new --blocked-by": ["task", "new", "--assign", "worker", "y", "y", "--blocked-by", n,
                                   "-t", "1h"],
     }
     for label, argv in calls.items():
@@ -4036,7 +4036,7 @@ def test_task_list_and_show_read_the_go_daemons_task(home: Path) -> None:
     try:
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            listed = clitask.cmd_task_list(argparse.Namespace(owner=None, state=None, all=False, everyone=False))
+            listed = clitask.cmd_task_list(argparse.Namespace(owner=None, reporter=None, state=None, all=False, everyone=False))
             shown = clitask.cmd_task_show(argparse.Namespace(task=tid))
     finally:
         clitask.client.call = real
@@ -4154,11 +4154,11 @@ def test_the_done_close_migration_upgrades_an_old_tasks_table(home: Path) -> Non
 
 def test_task_new_list_and_link(home: Path) -> None:
     _board_world(home)
-    rc, out = _cli(["task", "new", "--owner", "worker", "build the board", "build the board", "-t", "1h"])
+    rc, out = _cli(["task", "new", "--assign", "worker", "build the board", "build the board", "-t", "1h"])
     check("task new: opens a task", rc == 0 and "task T1" in out, out)
-    rc, out = _cli(["task", "new", "--owner", "nobody", "x", "x", "-t", "1h"])
+    rc, out = _cli(["task", "new", "--assign", "nobody", "x", "x", "-t", "1h"])
     check("task new: an owner that is not an agent is refused", rc == 1, out)
-    rc, out = _cli(["task", "new", "--owner", askmod.HUMAN, "my own", "a todo of mine", "-t", "1h"], as_agent=askmod.HUMAN)
+    rc, out = _cli(["task", "new", "--assign", askmod.HUMAN, "my own", "a todo of mine", "-t", "1h"], as_agent=askmod.HUMAN)
     con = db.connect()
     own = con.execute("SELECT * FROM tasks WHERE title = 'my own'").fetchone()
     links = con.execute("SELECT COUNT(*) FROM task_requests WHERE task_id = ?", (own["id"],)).fetchone()[0] if own else None
@@ -4167,10 +4167,29 @@ def test_task_new_list_and_link(home: Path) -> None:
     check("task new: the founder opens a todo for themself: queued, a report, asking no one",
           rc == 0 and "a todo of your own" in out and (own["owner"], own["opened_by"], own["expects"]) == (askmod.HUMAN, askmod.HUMAN, "report")
           and links == 0 and state == "queued", f"{out} / {state}")
-    rc, out = _cli(["task", "new", "--owner", "worker", "part", "part", "--parent", "T9", "-t", "1h"])
+    rc, out = _cli(["task", "new", "--assign", "worker", "part", "part", "--parent", "T9", "-t", "1h"])
     check("task new: a parent that does not exist is refused", rc == 1, out)
-    rc, out = _cli(["task", "new", "--owner", "worker", "part one", "part one", "--parent", "T1", "-t", "1h"])
+    rc, out = _cli(["task", "new", "--assign", "worker", "part one", "part one", "--parent", "T1", "-t", "1h"])
     check("task new: a child task", rc == 0, out)
+    rc, out = _cli(["task", "new", "--owner", "worker", "old style", "old style", "-t", "1h"])
+    check("task new: --owner alone (who answers for it) is refused, naming the --assign command",
+          rc == 1 and "hl task new --assign worker -t 60m 'old style'" in out, out)
+    rc, out = _cli(["task", "new", "--assign", "worker", "--owner", "nobody", "x", "x", "-t", "1h"])
+    check("task new: an owner that is not an agent is refused too", rc == 1 and "no agent named nobody" in out, out)
+    rc, out = _cli(["task", "edit", "T1", "--owner", "worker"])
+    check("task edit: --owner alone is refused, naming both commands",
+          rc == 1 and "hl task edit T1 --assign worker" in out and "--owner worker --assign <its assignee>" in out, out)
+    from handline.cli import parser as cliparser
+
+    def helped(verb: str) -> str:
+        try:
+            cliparser.build_parser().parse_args(["task", verb, "--help"])
+        except SystemExit:
+            pass
+        return ""
+    out = _capture(lambda: helped("new")) + _capture(lambda: helped("edit"))
+    check("task new/edit --help: --assign is who works it, --owner who answers for it",
+          "who works it" in out and "who answers for it" in out and "old name" not in out, out)
     rid = _human_request()
     con = db.connect()
     try:
@@ -4191,11 +4210,11 @@ def test_task_new_parent_auto_blocks(home: Path) -> None:
     A re-check reopens the same child rather than opening a new one, and the
     parent stays blocked the whole time it is done but not yet closed."""
     _board_world(home)
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "parent work", "parent work"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--assign", "worker", "parent work", "parent work"])
     check("task new: opens the parent", rc == 0, out)
     t_parent = int(out.split("task T", 1)[1].split()[0])
 
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "manager", "review it", "review it",
+    rc, out = _cli(["task", "new", "-t", "90m", "--assign", "manager", "review it", "review it",
                     "--parent", f"T{t_parent}", "--expects", "verdict"], as_agent="worker")
     check("task new --parent: opens the child", rc == 0, out)
     t_child = int(out.split("task T", 1)[1].split()[0])
@@ -4276,13 +4295,13 @@ def test_task_new_parent_auto_block_does_not_stop_a_merge(home: Path) -> None:
     visible must not make merge see a reason to refuse where none was there
     before. An unrelated, explicit `--blocked-by` still refuses as always."""
     _board_world(home)
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "parent work", "parent work"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--assign", "worker", "parent work", "parent work"])
     t_parent = int(out.split("task T", 1)[1].split()[0])
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "manager", "review it", "review it",
+    rc, out = _cli(["task", "new", "-t", "90m", "--assign", "manager", "review it", "review it",
                     "--parent", f"T{t_parent}"], as_agent="worker")
     check("task new --parent: opens the open child", rc == 0, out)
     t_child = int(out.split("task T", 1)[1].split()[0])
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "other work", "other work"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--assign", "worker", "other work", "other work"])
     t_other = int(out.split("task T", 1)[1].split()[0])
 
     rc, out = _cli(["task", "merge", f"T{t_other}", f"T{t_parent}"])
@@ -4336,7 +4355,7 @@ limits:
         before = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
     finally:
         con.close()
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "outsider", "not my line", "not my line"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--assign", "outsider", "not my line", "not my line"])
     check("task new: refused by the routing table, the same as `ocp ask` (C2)",
           rc == 1 and "denied" in out, out)
     con = db.connect()
@@ -4346,7 +4365,7 @@ limits:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "do the thing", "the body of it",
+    rc, out = _cli(["task", "new", "-t", "90m", "--assign", "worker", "do the thing", "the body of it",
                     "--expects", "sha"])
     check("task new: opens and delivers in one call, naming the kind and the sha it expects",
           rc == 0 and "task T1" in out and "expects sha" in out, out)
@@ -4367,7 +4386,7 @@ limits:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "second one", "second one"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--assign", "worker", "second one", "second one"])
     check("task new: a second task for an owner who already holds one still opens and "
           "delivers", rc == 0, out)
     tid2 = int(out.split("task T", 1)[1].split()[0])
@@ -4437,7 +4456,7 @@ limits:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", askmod.HUMAN, "founder decision needed",
+    rc, out = _cli(["task", "new", "-t", "90m", "--assign", askmod.HUMAN, "founder decision needed",
                     "founder decision needed"])
     check("task new: the founder is a valid owner - a decision task (C3)",
           rc == 0 and "task T" in out, out)
@@ -4465,7 +4484,7 @@ limits:
     # review finding): its live request was retired some other way (the
     # founder's own `cancel`), which clears nothing on the task side, so
     # discard is reachable while current_task still points at it.
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "will be discarded", "will be discarded", "--expects", "report"])
+    rc, out = _cli(["task", "new", "-t", "90m", "--assign", "worker", "will be discarded", "will be discarded", "--expects", "report"])
     check("setup: a third task for worker", rc == 0, out)
     tid3 = int(out.split("task T", 1)[1].split()[0])
     _cli(["task", "start", f"T{tid3}"], as_agent="worker")
@@ -4494,7 +4513,7 @@ def test_the_next_waiting_task_becomes_current_by_priority_then_age(home: Path) 
     _board_world(home)
 
     def _new(title: str, priority: str | None = None, blocked_by: int | None = None) -> int:
-        argv = ["task", "new", "-t", "90m", "--owner", "worker", title, title]
+        argv = ["task", "new", "-t", "90m", "--assign", "worker", title, title]
         if priority is not None:
             argv += ["--priority", priority]
         if blocked_by is not None:
@@ -5465,9 +5484,9 @@ def test_task_timeout_new_requires_it_and_edit_extends_it(home: Path) -> None:
     check("timeout parsing: 90m and 4h themselves are fine",
           actions.parse_task_timeout("90m") == 5400
           and actions.parse_task_timeout("4h") == actions.MAX_TASK_TIMEOUT_S)
-    rc, out = _cli(["task", "new", "--owner", "worker", "no timeout given", "no timeout given"])
+    rc, out = _cli(["task", "new", "--assign", "worker", "no timeout given", "no timeout given"])
     check("task new: -t/--timeout is required", rc != 0 and "timeout" in out.lower(), out)
-    rc, out = _cli(["task", "new", "--owner", "worker", "timed", "timed", "-t", "90m"])
+    rc, out = _cli(["task", "new", "--assign", "worker", "timed", "timed", "-t", "90m"])
     check("task new: a valid timeout opens the task", rc == 0 and "task T1" in out, out)
     con = db.connect()
     try:
@@ -5734,7 +5753,7 @@ def test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(home
     finally:
         con.close()
 
-    rc, out = _cli(["task", "edit", f"T{tid}", "--owner", "manager"], as_agent=askmod.HUMAN)
+    rc, out = _cli(["task", "edit", f"T{tid}", "--assign", "manager"], as_agent=askmod.HUMAN)
     check("edit: the founder may edit a task it did not open", rc == 0 and "owner" in out, out)
     con = db.connect()
     try:
@@ -5744,11 +5763,11 @@ def test_editing_a_task_needs_the_opener_or_the_founder_and_is_never_silent(home
     finally:
         con.close()
 
-    rc, out = _cli(["task", "edit", f"T{tid}", "--owner", "nobody"], as_agent="manager")
+    rc, out = _cli(["task", "edit", f"T{tid}", "--assign", "nobody"], as_agent="manager")
     check("edit: an owner that is not an agent is refused", rc == 1 and "no agent" in out, out)
     rc, out = _cli(["task", "edit", f"T{tid}"], as_agent="manager")
     check("edit: needs at least one field to change", rc == 1, out)
-    rc, out = _cli(["task", "edit", f"T{tid}", "--owner", "manager"], as_agent="manager")
+    rc, out = _cli(["task", "edit", f"T{tid}", "--assign", "manager"], as_agent="manager")
     check("edit: a no-op edit (same value) is refused, not written as an event",
           rc == 1 and "nothing to edit" in out, out)
     rc, out = _cli(["task", "edit", "T99", "--title", "x"], as_agent="manager")
@@ -5886,12 +5905,12 @@ def test_task_blocked_by_another_task(home: Path) -> None:
     finally:
         con.close()
 
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "dependent", "dependent",
+    rc, out = _cli(["task", "new", "-t", "90m", "--assign", "worker", "dependent", "dependent",
                     "--blocked-by", f"T{t_blocker}", "-t", "1h"])
     check("task new --blocked-by: opens the task blocked", rc == 0, out)
     t_dep = int(out.split("task T", 1)[1].split()[0])
 
-    rc, out = _cli(["task", "new", "--owner", "worker", "x", "x", "--blocked-by", "T999", "-t", "1h"])
+    rc, out = _cli(["task", "new", "--assign", "worker", "x", "x", "--blocked-by", "T999", "-t", "1h"])  # local-ref-ok: a task that does not exist
     check("task new --blocked-by: a blocker that does not exist is refused",
           rc == 1 and "no task" in out, out)
 
@@ -5932,7 +5951,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
         before_count = con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"]
     finally:
         con.close()
-    rc, out = _cli(["task", "new", "-t", "90m", "--owner", "worker", "late", "--blocked-by", f"T{t_third}",
+    rc, out = _cli(["task", "new", "-t", "90m", "--assign", "worker", "late", "--blocked-by", f"T{t_third}",
                     "-t", "1h"])
     check("task new --blocked-by: refused for an already-done blocker too",
           rc == 1 and "done" in out, out)
@@ -5955,7 +5974,7 @@ def test_task_blocked_by_another_task(home: Path) -> None:
         before_owner = db.get_task(con, t_dep)["owner"]
     finally:
         con.close()
-    rc, out = _cli(["task", "edit", f"T{t_dep}", "--owner", "manager",
+    rc, out = _cli(["task", "edit", f"T{t_dep}", "--assign", "manager",
                     "--blocked-by", f"T{t_dep}"])
     check("edit: a combined --owner and a refused --blocked-by is refused "
           "as a whole", rc == 1, out)
@@ -6933,9 +6952,9 @@ def test_task_ids_are_checked_before_any_answer_and_short_shas_are_resolved(home
     git("add", ".")
     git("commit", "-q", "-m", "on main")
     full = git("rev-parse", "HEAD")
-    _cli(["task", "new", "--owner", "worker", "one", "one", "-t", "1h"])
-    _cli(["task", "new", "--owner", "worker", "two", "two", "-t", "1h"])
-    _cli(["task", "new", "--owner", "worker", "three", "three", "-t", "1h"])
+    _cli(["task", "new", "--assign", "worker", "one", "one", "-t", "1h"])
+    _cli(["task", "new", "--assign", "worker", "two", "two", "-t", "1h"])
+    _cli(["task", "new", "--assign", "worker", "three", "three", "-t", "1h"])
     rc, out = _cli(["task", "done", "T1", "abc123", "--repo", str(repo)], as_agent="worker")
     check("sha: hex that names no commit is refused, not recorded as a reason",
           rc == 1 and "not an ancestor of main" in out, out)
@@ -7361,10 +7380,10 @@ def test_task_priority_sorts_and_numbers_compare_as_numbers(home: Path) -> None:
         ids = [db.new_task(con, f"filler {i}", "worker", "manager") for i in range(11)]
     finally:
         con.close()
-    rc, out = _cli(["task", "new", "urgent", "--owner", "worker", "urgent", "--priority", "P1", "-t", "1h"],
+    rc, out = _cli(["task", "new", "urgent", "--assign", "worker", "urgent", "--priority", "P1", "-t", "1h"],
                    as_agent="manager")
     check("priority: new takes --priority", rc == 0 and "P1" in out, out)
-    rc, out = _cli(["task", "new", "later", "--owner", "worker", "later", "--priority", "p3", "-t", "1h"],
+    rc, out = _cli(["task", "new", "later", "--assign", "worker", "later", "--priority", "p3", "-t", "1h"],
                    as_agent="manager")
     try:
         actions.parse_priority("P4")
@@ -7436,7 +7455,7 @@ def test_task_rows_carry_who_closes_what_blocks_and_last_activity(home: Path) ->
               [r["id"] for r in actions.task_rows(con, state="discarded")] == [c])
     finally:
         con.close()
-    rc, out = _cli(["task", "list", "--owner", "manager"], as_agent="manager")
+    rc, out = _cli(["task", "list", "--assign", "manager"], as_agent="manager")
     check("list: --owner narrows, and a row says who may reopen it",
           rc == 0 and f"T{b}" in out
           and not any(l.startswith(f"T{a} ") for l in out.splitlines()) and "may reopen: manager" in out
@@ -8095,7 +8114,7 @@ limits:
               old["target"] == "worker" and old["state"] == "queued")
         started.clear()
 
-        rc, msg = _cli(["task", "edit", f"T{t}", "--owner", "other"])
+        rc, msg = _cli(["task", "edit", f"T{t}", "--assign", "other"])
         ok = rc == 0
         old = db.get_request(con, old["id"])
         sent = [r for r in db.task_requests(con, t) if r["target"] == "other" and r["state"] == "queued"]
@@ -8110,7 +8129,7 @@ limits:
         check("edit: the new owner gets the whole brief, not the title", sent and sent[0]["body"] == "the moved one: full brief",
               str([r["body"] for r in sent]))
 
-        rc, msg = _cli(["task", "edit", f"T{first}", "--owner", "other"])
+        rc, msg = _cli(["task", "edit", f"T{first}", "--assign", "other"])
         told = [r["body"] for r in con.execute("SELECT body FROM requests WHERE target = 'worker' AND kind = 'say'")]
         check("edit: an old owner that held the task is told to stop, and no longer holds it",
               rc == 0 and told == [f"T{first} moved to other by manager - stop work on it"]
@@ -9182,10 +9201,10 @@ limits:
     check("scope: the founder sees all", shows(out, "boss", "mid", "leaf", "other"), out)
     rc, out = _cli(["task", "list", "--everyone"], as_agent="leaf")
     check("scope: --everyone shows all", shows(out, "boss", "mid", "leaf", "other"), out)
-    rc, out = _cli(["task", "list", "--owner", "leaf"], as_agent="mid")
+    rc, out = _cli(["task", "list", "--assign", "leaf"], as_agent="mid")
     check("scope: --owner works within what may be seen", rc == 0 and shows(out, "leaf")
           and hides(out, "mid"), out)
-    rc, out = _cli(["task", "list", "--owner", "other"], as_agent="mid")
+    rc, out = _cli(["task", "list", "--assign", "other"], as_agent="mid")
     check("scope: --owner outside it is refused, pointing at --everyone",
           rc == 1 and "--everyone" in out and hides(out, "other"), out)
     rc, out = _cli(["task", "board"], as_agent="mid")
