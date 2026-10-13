@@ -79,6 +79,11 @@ def _legacy_reply(line: bytes):
     return no(f"not a socket verb: {verb!r}")
 
 
+# agents.list's status line for an agent with no state row.
+NEVER_STARTED = {"started": False, "has_repo": False, "has_terminal": False, "screen_word": None, "screen_detail": "", "unreached": 0,
+                 "task_waits": [], "wake_wait_reason": None}
+
+
 class FakeDaemon:
     """Just enough of the protocol to satisfy the first fixtures: hello, whoami, agents.list, agent.get."""
 
@@ -242,8 +247,11 @@ class FakeDaemon:
                            "can": {v: {"ok": True, "why": None} for v in ("terminal", "wake", "close", "restart", "park", "fold", "move")}}), said_hello
             return fail({"code": -32001, "message": "not_found", "data": params["agent"]}), said_hello
         if method == "agents.list":
-            return ok({"agents": [{"name": "a.one", "role": "x" * 160, "state": self.state_word("idle"), "state_detail": "3m"},
-                                  *(self._view(f"a.s.{w}") for w in STATE_WORDS), *(self._view(n) for n in VIEW_FIELDS)]}), said_hello
+            if not isinstance(params.get("status", False), bool):
+                return fail(_err(-32602, "bad_request", field="status")), said_hello
+            line = NEVER_STARTED if params.get("status") else {}
+            return ok({"agents": [{**a, **line} for a in ({"name": "a.one", "role": "x" * 160, "state": self.state_word("idle"), "state_detail": "3m"},
+                                  *(self._view(f"a.s.{w}") for w in STATE_WORDS), *(self._view(n) for n in VIEW_FIELDS))]}), said_hello
         if method == "agent.timeline":
             limit = params.get("limit", 50)
             if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:

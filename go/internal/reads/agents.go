@@ -12,8 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/team"
 )
 
 // roleLine is the first line of the agent's ROLE.md that is not blank and not a heading, as one line.
@@ -37,6 +39,14 @@ const noView = "no_terminal"
 // stored view yet gets what can be read without the tick's judgement of its screen: no terminal is known for it, so its
 // state is the spec's word for that.
 func (e *Env) viewOf(name string, stored map[string]json.RawMessage, x *viewCtx) (json.RawMessage, error) {
+	view, err := e.viewMap(name, stored, x)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(view)
+}
+
+func (e *Env) viewMap(name string, stored map[string]json.RawMessage, x *viewCtx) (map[string]any, error) {
 	v, err := e.baseViewOf(name, stored)
 	if err != nil {
 		return nil, err
@@ -56,7 +66,7 @@ func (e *Env) viewOf(name string, stored map[string]json.RawMessage, x *viewCtx)
 			return nil, err
 		}
 	}
-	return json.Marshal(view)
+	return view, nil
 }
 
 func (e *Env) baseViewOf(name string, stored map[string]json.RawMessage) (json.RawMessage, error) {
@@ -91,6 +101,10 @@ func (e *Env) storedViews() (map[string]json.RawMessage, error) {
 }
 
 func (e *Env) agentsList(c *rpc.Conn, params map[string]any) (any, error) {
+	status, ok := params["status"].(bool)
+	if _, has := params["status"]; has && !ok {
+		return nil, badParam("status is true or false", "status")
+	}
 	stored, err := e.storedViews()
 	if err != nil {
 		return nil, err
@@ -99,15 +113,69 @@ func (e *Env) agentsList(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	agents := []json.RawMessage{}
+	roster := team.NewRoster(e.Home)
+	agents := []map[string]any{}
 	for _, n := range e.listAgents() {
-		v, err := e.viewOf(n, stored, x)
+		v, err := e.viewMap(n, stored, x)
 		if err != nil {
 			return nil, err
+		}
+		if status {
+			if err := e.addStatusLine(roster, n, v); err != nil {
+				return nil, err
+			}
 		}
 		agents = append(agents, v)
 	}
 	return map[string]any{"agents": agents}, nil
+}
+
+// addStatusLine adds what hl team draws of an agent beyond its view (rpc_agents._status_line). The screen word is read back from the
+// view's state, as agent.strip reads it.
+func (e *Env) addStatusLine(roster *team.Roster, name string, view map[string]any) error {
+	row, err := db.GetAgentState(e.DB, name)
+	if err != nil {
+		return err
+	}
+	cfg, _ := roster.Read(name) // an unreadable agent.yaml is doctor's to report
+	view["started"], view["has_repo"], view["has_terminal"] = row != nil, truthy(cfg["repo"]), row != nil && row.Terminal.String != ""
+	view["screen_word"], view["screen_detail"], view["unreached"], view["task_waits"], view["wake_wait_reason"] = nil, "", 0, []any{}, nil
+	if row == nil {
+		return nil
+	}
+	state, _ := view["state"].(string)
+	detail, _ := view["state_detail"].(string)
+	view["screen_word"], view["screen_detail"] = screenWord(state, detail)
+	if view["unreached"], err = db.UnreachedCount(e.DB, name); err != nil {
+		return err
+	}
+	if view["task_waits"], err = e.taskWaits(name); err != nil {
+		return err
+	}
+	if e.Delivery == nil {
+		return nil
+	}
+	t, err := e.Delivery.Trigger(e.DB, name, row, row.Account.String)
+	if err == nil && !t.Applies && t.Reason != "" {
+		view["wake_wait_reason"] = t.Reason
+	}
+	return err
+}
+
+// taskWaits is the reason the tick recorded for each open task the agent owns that waits, oldest first (taskholds.agent_waits).
+func (e *Env) taskWaits(name string) ([]any, error) {
+	rows, err := query(e.DB, "SELECT t.id, m.value FROM tasks t JOIN meta m ON m.name = 'taskhold:' || t.id WHERE t.owner = ? AND "+
+		db.OpenSQL+" ORDER BY t.id", name)
+	if err != nil {
+		return nil, err
+	}
+	out := []any{}
+	for _, r := range rows {
+		if why, ok := decodeObject(r.str("value"))["why"].(string); ok {
+			out = append(out, map[string]any{"task": r.i("id"), "words": why})
+		}
+	}
+	return out, nil
 }
 
 func (e *Env) named(params map[string]any) (string, error) {
