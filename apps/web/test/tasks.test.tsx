@@ -618,7 +618,11 @@ describe('actions on one task or many', () => {
     await mount('#/tasks', s);
     await loaded();
     await menu(row(1684)!, 'Actions', 'Release');
-    await click(button('Release', sheet('Release 1 task?')!));
+    const ask = sheet('Release 1 task?')!;
+    await click(button('Release', ask));
+    expect(text(ask)).toContain('This is required.');
+    await typeInto(ask.querySelector('input')!, 'slow');
+    await click(button('Release', ask));
     await until(() => s.daemon.tasks.get({ task: 1684 }).state === 'queued', 'released');
   });
 

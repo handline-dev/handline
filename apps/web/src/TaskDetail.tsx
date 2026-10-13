@@ -208,14 +208,12 @@ function Body({ t }: { t: Detail }) {
         />
       ) : null}
       {ask === 'release' ? (
-        <Sheet
-          label={`release ${taskRef(t.id)}?`}
+        <ReasonSheet
+          label={`release ${taskRef(t.id)} - why:`}
           submit="Release"
           onCancel={() => setAsk(null)}
-          onSubmit={() => (setAsk(null), release.mutate({ task: t.id }))}
-        >
-          <span className="muted">Takes the task back to queued so another run can pick it up.</span>
-        </Sheet>
+          onSubmit={(reason) => (setAsk(null), release.mutate({ task: t.id, reason }))}
+        />
       ) : null}
       {ask === 'assign' ? <AssignSheet t={t} me={me} onClose={() => setAsk(null)} /> : null}
       {ask === 'edit' ? <EditForm t={t} onClose={() => setAsk(null)} /> : null}

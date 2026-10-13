@@ -367,9 +367,6 @@ export const PAIRING = ['device.redeem'] as const;
 export const NOT_FROM_UI = [
   'session.wake', // a message to a closed agent starts it; no screen wakes one by hand
   'say',
-  'land',
-  'land.authorize',
-  'land.pass',
   'hook.record',
   'hr.propose',
   'trust.propose',
