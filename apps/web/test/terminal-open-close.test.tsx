@@ -78,4 +78,10 @@ describe('Open terminal', () => {
     await click(button('Copy')!);
     expect(write).toHaveBeenCalledWith(`fake-attach term:${ARCH}`);
   });
+
+  it('the fake asks for the agent: bad_request naming it', async () => {
+    const s = setup();
+    await s.client.start();
+    await expect(s.client.call('terminal.open', {} as never)).rejects.toMatchObject({ code: 'bad_request' });
+  });
 });

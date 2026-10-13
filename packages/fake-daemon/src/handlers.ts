@@ -172,7 +172,8 @@ const BASE: Record<string, (h: Call) => unknown> = {
       holder: s.holder,
     };
   },
-  'terminal.open': ({ agent }) => {
+  'terminal.open': ({ p, agent }) => {
+    if (typeof p.agent !== 'string') throw badRequest('agent is required', 'agent');
     const s = agent();
     if (!s.hasTerminal) throw new Failure('not_found', `${s.fx.name} has no terminal`, { field: 'terminal' });
     return { agent: s.fx.name, terminal: tid(s), host: 'fake', attach: { argv: ['fake-attach', tid(s)] }, focused: false, local: true };
