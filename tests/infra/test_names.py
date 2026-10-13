@@ -259,7 +259,6 @@ def test_hl_is_the_main_command_and_the_old_names_are_recognised(home: Path) -> 
     env = {k: v for k, v in os.environ.items() if not k.startswith(("OCP_", "HANDLINE_"))}
     env["OCP_TMUX_SOCKET"] = SUITE_TMUX_SOCKET      # the suite's tmux, never the live one
     env["HANDLINE_HOME"] = str(home)
-    env["OCP_SERVICE_LABEL"] = "dev.handline.none"  # no such service: the status is the daemon's, and none may be started here
     r = subprocess.run([str(ROOT / "bin" / "hl")], capture_output=True, text=True, env=env, timeout=60)
     check("command: hl alone asks for the status, not a usage error",
           r.returncode == 0 and "usage:" not in r.stderr and "could not read the pick" in r.stderr, r.stdout[-200:] + r.stderr[-200:])

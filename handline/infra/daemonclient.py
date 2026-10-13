@@ -76,6 +76,8 @@ def ensure_daemon(timeout: float = TIMEOUT_S, wait_s: float = START_WAIT_S) -> s
     sock = connect(timeout)
     if sock:
         return sock
+    if not service.serves_this_home():
+        raise DaemonDown(f"{paths.home()} is not the live home, so the live service is not its daemon; nothing was started")
     if service._plist_installed() is not True:
         raise DaemonDown("no service is installed to start it (`hl service install`)")
     res = service.run_launchctl(["kickstart", service.service_target()])

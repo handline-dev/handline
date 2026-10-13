@@ -15,7 +15,9 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,7 +34,7 @@ const (
 	Timeout   = 480 * time.Second
 	startWait = 15 * time.Second
 	startPoll = 200 * time.Millisecond
-	label     = "dev.orcapipe.daemon"
+	liveLabel = "dev.orcapipe.daemon"
 	founderNS = "founder-keys"
 )
 
@@ -77,7 +79,7 @@ func New() *Client {
 		Home: home,
 		Key:  strings.TrimSpace(key),
 		Dial: Dialer(home, 5*time.Second),
-		Kick: kickstart,
+		Kick: func() error { return kickstart(home) },
 		Wait: startWait,
 	}
 }
@@ -119,10 +121,35 @@ var launchctl = func(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// kickstart asks launchd to start the installed service; this never starts a daemon itself, so there is never a second one.
+// liveHomes is the real user's homes, whatever HANDLINE_HOME or the test root says (handline/infra/paths.live_homes).
+var liveHomes = func() []string {
+	u, err := user.Current()
+	if err != nil {
+		return nil
+	}
+	return []string{paths.Realpath(filepath.Join(u.HomeDir, ".orcapipe")), paths.Realpath(filepath.Join(u.HomeDir, ".handline"))}
+}
+
+// serviceLabel is the launchd label that can be home's service: SERVICE_LABEL when a rehearsal set it, the live label for a
+// live home, and none for any other, so a scratch or test home never addresses the live service.
+func serviceLabel(home string) string {
+	if l, ok := paths.Getenv("SERVICE_LABEL"); ok && l != "" {
+		return l
+	}
+	if slices.Contains(liveHomes(), paths.Realpath(home)) {
+		return liveLabel
+	}
+	return ""
+}
+
+// kickstart asks launchd to start home's installed service; this never starts a daemon itself, so there is never a second one.
 // A plist this process cannot see, a sandboxed agent's case, is not taken as installed. One installed and not loaded (after a
 // bootout, or a login that did not load it) is loaded as it is, never rewritten, and started (handline/infra/daemonclient.ensure_daemon).
-func kickstart() error {
+func kickstart(home string) error {
+	label := serviceLabel(home)
+	if label == "" {
+		return fmt.Errorf("%s is not the live home, so the live service is not its daemon; nothing was started", home)
+	}
 	plist := filepath.Join(paths.UserHome(), "Library", "LaunchAgents", label+".plist")
 	if _, err := os.Stat(plist); err != nil {
 		return errors.New("no service is installed to start it (`hl service install`)")
