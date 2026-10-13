@@ -11,19 +11,16 @@ from .. import actions
 from ..infra import timefmt
 from ..team import agents
 from ..team import ask as askmod
-from ..infra import backup as backupmod
-from ..daemon import lifecycle as dmn_lifecycle
+from ..infra import backup as backupmod, daemonclient as dmn_client
 from .. import db
 from ..infra import doctor
 from ..session import events
 from ..session import fold as foldmod
-from ..session import launch
-from ..usage import load
 from ..infra import paths
 from ..usage import status
 from ..infra import textsafe
-from ..session import triggers
 
+from . import client
 from .ask import _refused_listing
 
 
@@ -128,19 +125,21 @@ def cmd_doctor(args) -> int:
 
 
 def cmd_status(args) -> int:
-    picked, reasons = status.pick_account()
+    try:
+        got = client.call("status.pick")
+    except (dmn_client.DaemonDown, dmn_client.RpcError, OSError) as e:
+        print(f"could not read the pick: {e}", file=sys.stderr)
+        return 1
+    picked = got["picked"]
+    if args.json:
+        print(textsafe.json_dumps(got, indent=2))
+        return 0 if picked else 1
+    for c in got["candidates"]:
+        print(f"  {c['account']:<14} {c['reason']}")
     # What the pick's "one more agent lasts" rests on: each kind's price and
     # whether it was measured or is still the starting value.
-    priced = load.costs().by_kind(paths.list_agents())
-    if args.json:
-        print(textsafe.json_dumps({"picked": picked,
-                                  "candidates": [{"account": a, "reason": w} for a, w in reasons],
-                                  "agent_costs": priced}, indent=2))
-        return 0 if picked else 1
-    for a, why in reasons:
-        print(f"  {a:<14} {why}")
-    if priced:
-        print("  one more agent costs, per minute of the 5h window: " + "; ".join(priced))
+    if got["agent_costs"]:
+        print("  one more agent costs, per minute of the 5h window: " + "; ".join(got["agent_costs"]))
     print()
     print(f"picked: {picked}" if picked
           else "picked: none - no account may take work (fail-closed)")
@@ -155,40 +154,31 @@ def _name_col(names, least: int = 12) -> int:
 
 def cmd_triggers(args) -> int:
     """Show what the daemon would decide right now, without acting."""
-    w = _name_col(paths.list_agents(), 14)
+    try:
+        verdicts = client.call("agent.triggers")["agents"]
+    except (dmn_client.DaemonDown, dmn_client.RpcError, OSError) as e:
+        print(f"could not read the triggers: {e}", file=sys.stderr)
+        return 1
+    w = _name_col([v["agent"] for v in verdicts], 14)
     print(f"{'AGENT':<{w}}{'ACCT':<10}{'5h':>5}{'ctx':>5}  FIRES  REASON")
     con = db.connect()
     try:
-        for a in paths.list_agents():
-            try:
-                # The account the daemon is watching, which is where the
-                # session went. Read anywhere else, it prints another
-                # account's figure and FIRES YES while the daemon, reading
-                # the right one, does nothing: the dashboard arguing with the
-                # daemon.
-                acct = agents.current_account(a, con)
-                cfg = agents.read(a)
-            except Exception as e:  # noqa: BLE001
-                print(f"{a:<{w}} config error: {e}")
-                continue
+        for v in verdicts:
+            a = v["agent"]
+            # The account the daemon is watching, which is where the
+            # session went. Read anywhere else, it prints another
+            # account's figure and FIRES YES while the daemon, reading
+            # the right one, does nothing: the dashboard arguing with the
+            # daemon.
+            acct = agents.current_account(a, con)
             st = status.read_for_agent(a, acct)
-            ctx_limit = status.effective_context_limit(cfg, st.model_id)
-            t = triggers.evaluate(st.short_trusted, st.trusted_ctx_used, ctx_limit=ctx_limit)
-            cell = lambda v: "  -" if v is None else f"{v:>3}"  # noqa: E731
+            cell = lambda n: "  -" if n is None else f"{n:>3}"  # noqa: E731
             # The figure the trigger used, not the raw one: a column saying "-"
             # beside a reason saying "0%" is the dashboard arguing with the daemon.
             shown, src = st.shown_short()
             five = f"{cell(shown)}{src}"
-            row = db.get_agent_state(con, a)
-            if dmn_lifecycle.triggers_apply(row):
-                fires, reason = "YES" if t.fired else "no ", t.reason
-            else:
-                fires = "no "
-                walled = dmn_lifecycle.would_wake(con, row) and launch.wake_wait_reason(a, row, con)
-                reason = walled or (f"{row['state'].lower()}; judged again at its wake" if row and row["terminal"]
-                                    and not row["closed_at"] else "session closed; nothing to hand off")
             print(f"{a:<{w}}{acct or '-':<10}{five:>5}{cell(st.ctx_pct):>5}  "
-                  f"{fires:<6} {reason}")
+                  f"{'YES' if v['fired'] else 'no ':<6} {textsafe.oneline(v['reason'])}")
     finally:
         con.close()
     print("  " + status.SOURCE_LEGEND)
