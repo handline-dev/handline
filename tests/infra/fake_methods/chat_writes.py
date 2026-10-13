@@ -29,6 +29,9 @@ def chat_writes(role, method, params):
             return "fail", err(-32602, "bad_request", field="agent")
         if "parent" in params and (not _is_int(params["parent"]) or params.get("task") is not None):
             return "fail", err(-32602, "bad_request", field="parent")
+        if "parent_item" in params and (not _is_int(params["parent_item"]) or "parent" in params
+                                        or params.get("task") is not None):
+            return "fail", err(-32602, "bad_request", field="parent_item")
         if "delivery" in params and params["delivery"] not in ("now", "queue"):
             return "fail", err(-32602, "bad_request", field="delivery")
         return delivery.send(params) or _nf("agent")
