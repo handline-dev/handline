@@ -324,8 +324,15 @@ def test_the_commands_the_read_methods_serve_still_work_from_an_agent_session(ho
     cli_client.write = lambda method, params: (sent.append((method, params)), (False, "daemon not running, nothing done: down"))[1]
     err = io.StringIO()
     try:
+        rc, out = support._cli(["inbox", "worker"], as_agent="manager")
+        check("hl inbox <name>: a look at another agent's queue shows its head and sends no mark",
+              rc == 0 and f"#{first['id']} from" in out and sent == [] and not head()["landed_at"], f"{sent} {out}")
+        printed = []
+        cli_client.write = lambda method, params: (printed.append(sys.stdout.getvalue()), sent.append((method, params)),
+                                                   (False, "daemon not running, nothing done: down"))[2]
         with contextlib.redirect_stderr(err):
             rc, out = support._cli(["inbox"], as_agent="worker")
+        check("hl inbox: the item is out before the mark is sent", printed and f"#{first['id']} from" in printed[0], str(printed))
     finally:
         cli_client.write = real
     check("hl inbox: the read mark is the daemon's write, and without it the item is shown and says it is not marked",

@@ -129,6 +129,39 @@ def _serve_cli(start: bool = True, timeout: float = 0) -> _socket.socket:
     return a
 
 
+def _request_read(ctx, params) -> dict:
+    """request.read as the Go daemon serves it (go/internal/reads/inboxget.go), which the Python daemon never did: the tests that
+    look at a request through `hl read` run against this."""
+    from handline.daemon import delivery, rpc_inbox_get
+    rid = params["id"]
+    viewer = ctx.caller.info["name"] if ctx.caller.role == "agent" else db.HUMAN
+    until = time.time() + (params.get("wait_s") or 0)
+    while True:
+        con = db.connect()
+        try:
+            row = db.get_request(con, rid)
+            if row is None or (viewer == row["target"] and viewer != db.HUMAN and not row["edge_ok"]):
+                raise _dmn_rpc.RpcError(_dmn_rpc.NOT_FOUND, "not_found", f"no request {rid}", what="request", name=str(rid))
+            if row["state"] in rpc_inbox_get.SETTLED or time.time() >= until:
+                if viewer == db.HUMAN:
+                    actions.opened_by_human(con, rid)
+                full = con.execute(f"SELECT *, {db.ANSWER_SQL}, {db.DISMISSED_SQL} FROM requests WHERE id = ?", (rid,)).fetchone()
+                dismissed, by, reason = db.dismissal(full)
+                said = delivery.in_reply_to(con, row)
+                return {"id": rid, "requester": row["requester"], "target": row["target"], "kind": row["kind"] or "ask",
+                        "state": row["state"], "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(row["ts"])),
+                        "relation": row["relation"], "response": row["response"], "chain_depth": row["chain_depth"],
+                        "parent": {"id": row["parent_id"], "line": said.partition(": ")[2]} if said else None, "body": row["body"] or "",
+                        "answer": None if dismissed else (full["answer"] or None),
+                        "dismissal": {"by": by, "reason": reason} if dismissed else None}
+        finally:
+            con.close()
+        time.sleep(rpc_inbox_get.POLL_S)
+
+
+_dmn_rpc.METHODS["request.read"] = _dmn_rpc.Method(_request_read, "agent", waits=True)
+
+
 REAL_CLI_CONNECT = _cli_client.connect  # for a test that puts its own socket under the real call
 _cli_client.connect = _serve_cli
 

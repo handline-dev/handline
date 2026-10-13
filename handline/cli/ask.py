@@ -12,8 +12,8 @@ from .. import db
 from ..infra import textsafe
 from ..session import waiting
 
-from ..daemon import delivery as dmn_delivery
 from ..infra import daemonclient as dmn_client
+from ..infra.daemonclient import TIMEOUT_S, DaemonDown, RpcError
 
 from . import client
 
@@ -132,6 +132,7 @@ def cmd_cancel(args) -> int:
 # is usually one to go and look at.
 WAIT_POLL_S = 3
 WAIT_DEFAULT_S = 600
+WAIT_MAX_S = 600
 
 
 def _wait_for(check, timeout: int, what: str) -> bool:
@@ -196,12 +197,6 @@ def cmd_inbox(args) -> int:
         more = db.queue_depth(con, agent) - 1
     finally:
         con.close()
-    # Only a look at your own queue counts as being told - a foreign
-    # `hl inbox <name>` must not spend the requester's withdraw/replace.
-    if agent == askmod.asking_agent():
-        ok, why = client.write("inbox.mark_read", {"ids": [int(head["id"])]})
-        if not ok:
-            print(f"#{head['id']} is shown but not marked read: {why}", file=sys.stderr)
     print(f"#{head['id']} from {head['requester']}  depth={head['chain_depth']}")
     print()
     print(textsafe.text(head["body"] or "(empty)"))
@@ -218,6 +213,13 @@ def cmd_inbox(args) -> int:
     else:
         closes = f"`hl say {head['requester']} --parent <id> \"<answer>\"` answers it"
     print(f"\n{closes}. `hl inbox --all` shows the whole queue and its history.")
+    # Only a look at your own queue counts as being told - a foreign `hl inbox <name>` must not spend the
+    # requester's withdraw/replace. Sent after the item is out, so a daemon slow to answer does not hold it back.
+    if agent == askmod.asking_agent():
+        sys.stdout.flush()
+        ok, why = client.write("inbox.mark_read", {"ids": [int(head["id"])]})
+        if not ok:
+            print(f"#{head['id']} is shown but not marked read: {why}", file=sys.stderr)
     return 0
 
 
@@ -316,76 +318,52 @@ def _waiting_ids(con, agent: str) -> set:
             if r["state"] not in SETTLED}
 
 
-def _answered(con, request_id: int) -> bool:
-    """Is there anything more to wait for on this row?
-
-    A row that does not exist is answered in the only sense that matters here:
-    waiting ten minutes for a typo'd id helps nobody, and the caller says so.
-    Delivery is not an answer - it is a column, not a state, and it only means
-    the target was told the row exists.
-    """
-    row = db.get_request(con, request_id)
-    return row is None or row["state"] in SETTLED
-
-
 def cmd_read(args) -> int:
-    """Print one request whole - what was asked, and what came back.
+    """Print one request whole - what was asked, and what came back (the daemon's request.read).
 
     `hl inbox` shows a line each - one per agent on the human's own, cut to
-    fit - and the only way to see the rest was to know where the raw JSON
-    lives. An agent that cannot read the whole of what it was asked answers
-    the half it could see.
-
-    Any agent can read any request, which was already true of the database and
-    of `hl inbox` - this makes it convenient
-    rather than new. Nothing typed into a request is private to two agents.
+    fit. An agent that cannot read the whole of what it was asked answers
+    the half it could see. Any agent can read any request: nothing typed into
+    a request is private to two agents.
     """
-    if args.wait and not _wait_for(
-            lambda c: _answered(c, args.id), args.timeout,
-            f"#{args.id} has no answer yet"):
+    left = args.timeout if args.wait else 0
+    while True:
+        hold = min(left, WAIT_MAX_S)        # the method holds a call that long at most: a longer wait asks again
+        try:
+            row = client.call("request.read", {"id": args.id, "wait_s": hold}, timeout=hold + TIMEOUT_S)
+        except RpcError as e:
+            if e.code == "not_found":
+                print(f"no request #{args.id}")
+            else:
+                print(f"could not read #{args.id}: {e}", file=sys.stderr)
+            return 1
+        except (DaemonDown, OSError) as e:
+            print(f"could not read #{args.id}: {e}", file=sys.stderr)
+            return 1
+        left -= hold
+        if row["state"] in SETTLED or left <= 0:
+            break
+    if args.wait and row["state"] not in SETTLED:
+        print(f"nothing after {args.timeout}s: #{args.id} has no answer yet", file=sys.stderr)
         return 1
-    con = db.connect()
-    try:
-        row = db.get_request(con, args.id)
-        if row is None:
-            print(f"no request #{args.id}")
-            return 1
-        viewer = askmod.asking_agent()
-        if viewer == row["target"] and viewer != actions.HUMAN and not row["edge_ok"]:
-            # Not yet checked against the routing table: not the target's to read.
-            print(f"no request #{args.id}")
-            return 1
-        if viewer == actions.HUMAN:
-            actions.opened_by_human(con, args.id)
-        when = timefmt.stamp(row["ts"], timefmt.DATE_TIME)
-        print(f"#{row['id']}  {row['requester']} → {row['target']}  "
-              f"{row['kind'] or 'ask'}  {row['state']}  {when}")
-        reply = dmn_delivery.in_reply_to(con, row)
-        if reply:
-            print(reply)
-        print(f"relation {row['relation']}   response {row['response']}   "
-              f"depth {row['chain_depth']}")
+    when = timefmt.stamp(client.epoch(row["created"]), timefmt.DATE_TIME)
+    print(f"#{row['id']}  {row['requester']} → {row['target']}  {row['kind']}  {row['state']}  {when}")
+    parent = row["parent"]
+    if parent:
+        print(f"in reply to #{parent['id']}" + (f": {textsafe.oneline(parent['line'])}" if parent["line"] else ""))
+    print(f"relation {row['relation']}   response {row['response']}   depth {row['chain_depth']}")
+    print()
+    print(textsafe.text(row["body"] or "(empty)"))
+    if row["dismissal"]:
+        by, reason = row["dismissal"]["by"], row["dismissal"]["reason"]
         print()
-        print(textsafe.text(row["body"] or "(empty)"))
-        dismissed, by, reason = db.dismissal(row)
-        if dismissed:
-            print()
-            print("--- dismissed" + (f" by {textsafe.oneline(by)}" if by else "") + " ---")
-            if reason:
-                print(textsafe.text(reason))
-        elif db.shown_verdict(row):
-            print()
-            # db.NEVER_REACHED_TARGET (denied, withdrawn, replaced) never
-            # reached the target, so none of them came back as an answer -
-            # "answered by {target}" over a withdrawn row's own label was
-            # wrong the same way for all three, not just the one state that
-            # already had its own header (auditor's #1565, the residual left
-            # from #1348: the label carries the correction, the header did
-            # not).
-            print(f"--- {_NEVER_ANSWERED_HEADERS[row['state']]} ---"
-                  if row["state"] in _NEVER_ANSWERED_HEADERS
-                  else f"--- answered by {row['target']} ---")
-            print(textsafe.text(db.shown_verdict(row)))
-        return 0
-    finally:
-        con.close()
+        print("--- dismissed" + (f" by {textsafe.oneline(by)}" if by else "") + " ---")
+        if reason:
+            print(textsafe.text(reason))
+    elif row["answer"]:
+        print()
+        # A state that never reached the target did not come back as an answer, so it is not headed "answered by".
+        print(f"--- {_NEVER_ANSWERED_HEADERS[row['state']]} ---" if row["state"] in _NEVER_ANSWERED_HEADERS
+              else f"--- answered by {row['target']} ---")
+        print(textsafe.text(row["answer"]))
+    return 0
