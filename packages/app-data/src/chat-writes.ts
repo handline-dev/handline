@@ -6,7 +6,7 @@ import { classify, sentence } from './errors.ts';
 import { edit, mapPages, provisionalId, type Ctx, type Pages } from './cache.ts';
 import { qk } from './reads.ts';
 import { forgetOperation, laterReceipt, rememberOperation } from './send-ops.ts';
-import { patchMessage, type MsgPage } from './chat-events.ts';
+import { patchMessage, type MsgPage, type TrPage } from './chat-events.ts';
 import type { WriteSpec } from './write-spec.ts';
 
 const allChats = (d: string) => [['d', d, 'chat-messages'] as const];
@@ -18,6 +18,7 @@ export function waitingMessage(
   now: string,
   parent: number | null = null,
   attachments: string[] = [],
+  parentItem: ChatMessage['parent_item'] = null,
 ): ChatMessage {
   return {
     id: provisionalId(),
@@ -35,6 +36,7 @@ export function waitingMessage(
     typed_at: null,
     landed_at: null,
     parent,
+    ...(parentItem ? { parent_item: parentItem } : {}),
     ...(attachments.length ? { attachments: knownAttachments(attachments) } : {}),
     kind: 'message',
     tasks: [],
@@ -47,7 +49,21 @@ const setRow = (c: Ctx, id: number, patch: Partial<ChatMessage>) => editAll(c, (
 
 /** The row a send shows is told apart from the daemon's by its negative id; keyed by the send's own text and agent. */
 const sendParams = (p: never) =>
-  p as { agent: string; body: string; parent?: number; attachments?: string[]; delivery?: 'now' | 'queue'; request_id?: string };
+  p as {
+    agent: string;
+    body: string;
+    parent?: number;
+    parent_item?: number;
+    attachments?: string[];
+    delivery?: 'now' | 'queue';
+    request_id?: string;
+  };
+
+const quoted = (c: Ctx, agent: string, id: number) =>
+  c.qc
+    .getQueriesData<Pages<TrPage>>({ queryKey: qk.transcript(c.d, agent) })
+    .flatMap(([, d]) => d?.pages.flatMap((page) => page.items) ?? [])
+    .find((i) => i.id === id)?.text;
 
 const findRow = (d: Pages<MsgPage>, id: number) => d.pages.flatMap((page) => page.messages).find((m) => m.id === id);
 const setReceipt = (c: Ctx, id: number, receipt: Receipt | undefined) =>
@@ -65,8 +81,18 @@ export const chatWrites: Record<string, WriteSpec> = {
     label: 'send',
     touches: allChats,
     patch: (c, p) => {
-      const { agent, body, parent, attachments, delivery, request_id } = sendParams(p);
-      const row = waitingMessage(c.me, agent, body, c.now, parent ?? null, attachments);
+      const { agent, body, parent, parent_item, attachments, delivery, request_id } = sendParams(p);
+      // The quote is the reply's first 300 code points, as the daemon cuts it, read from the transcript the person replied in.
+      const text = parent_item == null ? undefined : quoted(c, agent, parent_item);
+      const row = waitingMessage(
+        c.me,
+        agent,
+        body,
+        c.now,
+        parent ?? null,
+        attachments,
+        text == null ? null : { id: parent_item!, text: [...text].slice(0, 300).join('') },
+      );
       if (request_id) rememberOperation(row.id, request_id, delivery);
       editAll(c, (d) => mapPages(d, (page, i) => (i === 0 ? { ...page, messages: [row, ...page.messages] } : page)));
     },

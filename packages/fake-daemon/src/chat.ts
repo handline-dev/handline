@@ -1,6 +1,6 @@
 // The fake daemon's chat: messages with landing state, the transcript and the working line, on the chat topic.
 // A sent message lands one tick at a time (typed, delivered, working, answered) so a UI sees every state; `tick` is driven by the daemon's own.
-import { refused, storeFailure } from './errors.ts';
+import { Failure, invalidParams, refused, storeFailure } from './errors.ts';
 import type { Attachment, ChatMessage, Landing, TranscriptItem, Working } from '@handline/contract';
 import { deliveryOf, receiptPatch, uuidFor, type Msg } from './delivery.ts';
 
@@ -69,7 +69,6 @@ export class ChatFailure extends Error {
 interface Thread {
   items: TranscriptItem[];
   working: Working;
-  nextItem: number;
 }
 const IDLE: Working = { turn_running: false, line: null, since: null };
 
@@ -78,6 +77,8 @@ export class FakeChat {
   private threads = new Map<string, Thread>();
   private steps: (() => void)[] = [];
   private nextId = 100;
+  /** Item ids are one run across agents, so an id of another agent's transcript is no item of this one. */
+  private nextItem = 1;
 
   private emit: Emit;
   private now: () => string;
@@ -91,7 +92,7 @@ export class FakeChat {
 
   private thread(agent: string): Thread {
     let t = this.threads.get(agent);
-    if (!t) this.threads.set(agent, (t = { items: [], working: { ...IDLE }, nextItem: 1 }));
+    if (!t) this.threads.set(agent, (t = { items: [], working: { ...IDLE } }));
     return t;
   }
   find(id: unknown): ChatMessage & { agent: string } {
@@ -136,7 +137,7 @@ export class FakeChat {
   }
   seedItem(agent: string, item: Omit<TranscriptItem, 'id' | 'at'> & { at?: string }) {
     const t = this.thread(agent);
-    t.items.push({ id: t.nextItem++, at: item.at ?? this.now(), ...item });
+    t.items.push({ id: this.nextItem++, at: item.at ?? this.now(), ...item });
   }
   /** A question from the agent to the person, waiting for the person. */
   ask(agent: string, body: string, person: string): number {
@@ -182,6 +183,7 @@ export class FakeChat {
   send(p: Record<string, unknown>, person: string, takeAttachments: (ids: unknown) => Attachment[] = () => []) {
     const agent = String(p.agent),
       body = p.body;
+    const parentItem = this.replyItem(p);
     const attachments = takeAttachments(p.attachments);
     if (typeof body !== 'string' || (!body.trim() && !attachments.length)) throw new ChatFailure('bad_request', 'a message needs a body');
     const open = this.sessions.get(agent)?.state !== 'parked';
@@ -200,6 +202,7 @@ export class FakeChat {
       to: agent,
       at,
       parent: typeof p.parent === 'number' ? p.parent : null,
+      ...(parentItem ? { parent_item: parentItem } : {}),
       ...(attachments.length ? { attachments } : {}),
       landing: 'queued',
       delivered_at: null,
@@ -218,6 +221,17 @@ export class FakeChat {
         () => this.reply(id),
       );
     return { request: id, ...(receipt && { receipt: this.find(id).receipt }) };
+  }
+  /** chat.send's parent_item: a reply of this agent's transcript; the stored quote is its first 300 code points. */
+  private replyItem(p: Record<string, unknown>): { id: number; text: string } | null {
+    if (p.parent_item === undefined) return null;
+    const id = p.parent_item;
+    if (typeof id !== 'number' || !Number.isInteger(id)) throw invalidParams('parent_item must be an item id', 'parent_item');
+    if (p.parent !== undefined || p.task !== undefined) throw invalidParams('parent_item goes with neither parent nor task', 'parent_item');
+    const item = this.thread(String(p.agent)).items.find((i) => i.id === id);
+    if (!item) throw new Failure('not_found', `no item ${id}`, { what: 'item' });
+    if (item.kind !== 'reply') throw invalidParams('parent_item must be a reply', 'parent_item');
+    return { id, text: [...(item.text ?? '')].slice(0, 300).join('') };
   }
   private live(id: number) {
     const m = this.messages.find((x) => x.id === id);
@@ -252,7 +266,7 @@ export class FakeChat {
   }
   private item(agent: string, item: Omit<TranscriptItem, 'id' | 'at'>) {
     const t = this.thread(agent);
-    const full: TranscriptItem = { id: t.nextItem++, at: this.now(), ...item };
+    const full: TranscriptItem = { id: this.nextItem++, at: this.now(), ...item };
     t.items.push(full);
     this.emit('chat.transcript', agent, full);
   }
