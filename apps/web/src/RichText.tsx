@@ -1,4 +1,4 @@
-// The one renderer of free text: paths the shell can open, task numbers (T3610) as links to the task, and, where the caller has messages, #N as a link
+// The one renderer of free text: paths the shell can open, task numbers (T<N>) as links to the task, and, where the caller has messages, #N as a link
 // to that message. A plain click opens the task in this pane's Tasks tab, a ctrl, cmd or middle click in a tab of its own; on a page with no panes
 // it goes to the Tasks page. A number the daemon has no task for stays text.
 import type { MouseEvent, ReactNode } from 'react';

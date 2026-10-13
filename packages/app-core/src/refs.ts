@@ -1,4 +1,4 @@
-// The task numbers (`T3610`) and message numbers (`#42`) in a text, for the one renderer that makes them links. A task is T<N>, a message #N.
+// The task numbers (`T<N>`) and message numbers (`#42`) in a text, for the one renderer that makes them links. A task is T<N>, a message #N.
 
 export interface RefSpan {
   start: number;
