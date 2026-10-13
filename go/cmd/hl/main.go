@@ -20,6 +20,7 @@ var commands = map[string]command{
 	"account":             account,
 	"auto-accept":         autoAccept,
 	"close":               closeCmd,
+	"dev":                 dev,
 	"dev-mode":            devMode,
 	"hook":                hook,
 	"idle-background":     idleBackground,
