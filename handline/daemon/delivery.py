@@ -10,9 +10,8 @@ from pathlib import Path
 from ..team import agents, ask as askmod, team as teammod
 from ..infra.yamlcompat import ConfigError
 from ..infra import paths, protected, sealed, timefmt
-from ..session import bgjobs, blocked, idle_close
+from ..session import bgjobs, blocked, idle_close, stopgate
 from .. import db
-from ..session import events
 from ..infra import lock
 from ..infra.waits import END_WAIT_S, WAKE_SESSION_TIMEOUT_S  # noqa: F401  (tests patch them here)
 from ..session import observe as obs
@@ -20,9 +19,9 @@ from ..session import term
 from ..usage import status
 from ..infra import textsafe
 
-from . import handoff, inputhold, screensamples, termchannel
+from . import inputhold, screensamples, termchannel
 from .states import PROMPT_CACHE_S, STUCK_RUNNING_S
-from ..session.states import HANDOFF, IDLE, PARKED, QUEUED, RUNNING, STALLED
+from ..session.states import HANDOFF, IDLE, QUEUED, RUNNING, STALLED
 
 
 # ---------------------------------------------------------------- sending
@@ -265,7 +264,7 @@ def clear_hold(con, agent: str) -> str | None:
 def typing_hold(con, agent: str) -> str | None:
     """Why nothing may be typed at this agent's session now: someone holds its input, the wall, or a clear owed."""
     held = inputhold.held_by_other(con, agent)
-    return inputhold.held_why(agent, held) if held else wall_reason(con, agent) or clear_hold(con, agent)
+    return inputhold.held_why(agent, held) if held else stopgate.wall_reason(con, agent) or clear_hold(con, agent)
 
 
 def _cache_lapsed(con, agent: str, now: int) -> bool:
@@ -313,26 +312,6 @@ def _clear_over_background(con, agent: str, handle: str, running: str, log) -> t
                        f"background work still running ({running}); it was told {timefmt.ago(now - since)} "
                        f"earlier and asked to stop it. That work is gone - rerun it if it still matters.\n")
     return ok, why
-
-
-def wall_reason(con, agent: str, row=None) -> str | None:
-    """Why typing at this agent's open session would only spend quota, or None.
-
-    A turn that ended on the usage limit, or a park that a usage trigger put
-    it in, means the account cannot run one: what is typed starts a turn that
-    fails at once, marks the request delivered, clears the very mark that
-    says the agent is at the wall - and the next ask starts it over, each
-    round counting as a degraded handoff. Checked where the keystrokes are
-    sent, so no caller - `supervise`, `hl say`, an answer - can skip it.
-    """
-    if events.at_limit(con, agent):
-        return f"{agent} is at its usage limit"
-    row = row if row is not None else db.get_agent_state(con, agent)
-    if row and row["state"] == PARKED and not row["closed_at"]:
-        last = db.last_handoff(con, agent)
-        if last and last["trigger_kind"] in handoff.MOVABLE_TRIGGERS:
-            return f"{agent} is parked until its usage window rolls over"
-    return None
 
 
 def _live_session(con, agent: str) -> str | None:

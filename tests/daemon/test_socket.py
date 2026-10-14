@@ -161,7 +161,7 @@ def test_the_socket_server_binds_a_private_file_a_real_client_can_reach(home: Pa
 
 
 def test_a_message_is_not_typed_at_an_agent_that_is_at_the_wall(home: Path) -> None:
-    """delivery.wall_reason's own docstring: no path that types at an agent's
+    """stopgate.wall_reason's own docstring: no path that types at an agent's
     terminal may skip it - typed anyway, a turn at the usage wall fails at
     once and clears the very mark that says so."""
     sent = _typeable_world(home)

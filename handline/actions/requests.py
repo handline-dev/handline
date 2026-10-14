@@ -7,7 +7,7 @@ from ..team import ask as askmod
 from ..infra import timefmt
 from ..session import blocked
 from .. import db
-from ..team import hr
+from ..team import proposals
 from . import prompt_blocks
 
 from .routing import HUMAN
@@ -406,7 +406,7 @@ def founder_waits(con) -> list[dict]:
     # A block's request is the same fact a second time, said where the founder is not
     # looking; the row above already is.
     raised: set[int] = {int(b["request_id"]) for b in db.blocks(con) if b["request_id"]}
-    for prop in hr.listing():
+    for prop in proposals.listing():
         how = {"proposed": "awaiting your decision",
                "approved": "approved, not yet applied"}.get(prop.get("state"))
         if how is None:

@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from handline.session import stopgate  # noqa: E402
 
 
 
@@ -993,7 +994,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
     sent: list[str] = []
     said: list[str] = []
     real = (termmod.alive, termmod.send, termmod.available, termmod.typeable_now,
-            dmn_delivery.wall_reason)
+            stopgate.wall_reason)
     try:
         orca_seen()
         termmod.typeable_now = lambda h: True
@@ -1035,9 +1036,9 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
         _set_request_state(con, ask, "landed", verdict="fine", announced=True)
 
         # The gates delivery has.
-        dmn_delivery.wall_reason = lambda con_, agent, row=None: "at its 5h limit"
+        stopgate.wall_reason = lambda con_, agent, row=None: "at its 5h limit"
         check("nudge: not at the usage wall", not nudge(now) and not sent, str(sent))
-        dmn_delivery.wall_reason = real[4]
+        stopgate.wall_reason = real[4]
         termmod.typeable_now = lambda h: False
         check("nudge: not at a modal or a working agent", not nudge(now) and not sent, str(sent))
         termmod.typeable_now = lambda h: True
@@ -1142,7 +1143,7 @@ def test_an_open_head_request_on_an_idle_agent_is_nudged_then_shown(home: Path) 
               not any("idle on" in b["what"] for b in actions.stuck(con)))
     finally:
         (termmod.alive, termmod.send, termmod.available, termmod.typeable_now,
-         dmn_delivery.wall_reason) = real
+         stopgate.wall_reason) = real
         con.close()
 
 
@@ -2425,7 +2426,7 @@ edges:
         rc = climod.main(hire)
         check("hr: a shell that lost its identity is refused, not taken for the founder",
               rc != 0 and "dohyun" not in paths.list_agents()
-              and not hr.listing(), str(rc))
+              and not proposals.listing(), str(rc))
 
         # An agent proposes; nothing changes until the founder answers.
         os.environ["OCP_AGENT"] = "marina"
@@ -2434,7 +2435,7 @@ edges:
               rc == 0 and "dohyun" not in paths.list_agents()
               and [c["agent"] for c in hr.pending()] == ["dohyun"], str(rc))
         del os.environ["OCP_AGENT"]
-        for p_ in hr.listing():
+        for p_ in proposals.listing():
             hr.path_of(p_["id"]).unlink()
 
         # The founder, at their own prompt.
@@ -2448,7 +2449,7 @@ edges:
         cfg = yamlcompat.load(agents.agent_file("dohyun").read_text())
         check("hr: with the model and the effort it was hired at",
               cfg.get("model") == "opus" and cfg.get("effort") == "high", str(cfg))
-        applied = [p_ for p_ in hr.listing() if p_["agent"] == "dohyun"]
+        applied = [p_ for p_ in proposals.listing() if p_["agent"] == "dohyun"]
         check("hr: and the record is still a file",
               len(applied) == 1 and applied[0]["state"] == "applied"
               and applied[0]["requested_by"] == "human", str(applied))
@@ -2457,7 +2458,7 @@ edges:
         # no agent the routing table does not know.
         hand_edit_team("teams:\n  dev: [marina]\n")
         ok, said = hr.enact("add", "halfborn", repo="/repo", why="w", team_name="dev")
-        rec = [p_ for p_ in hr.listing() if p_["agent"] == "halfborn"]
+        rec = [p_ for p_ in proposals.listing() if p_["agent"] == "halfborn"]
         check("hr: a refused edit registers nobody",
               not ok and "halfborn" not in paths.list_agents(), said)
         check("hr: and says so in the record",
@@ -9282,7 +9283,7 @@ def test_connect_to_a_migrated_database_takes_no_write_lock(home: Path) -> None:
 
 
 def test_stop_wait_reason_reads_the_task_boards_own_wait(home: Path) -> None:
-    """T288/#1748: `actions.stop_wait_reason`, checked branch by branch."""
+    """`stopgate.stop_wait_reason`, checked branch by branch."""
     _board_world(home)
     hand_edit_team("""
 agents:
@@ -9300,30 +9301,30 @@ limits:
     con = db.connect()
     try:
         check("stop_wait_reason: no current task at all is None",
-              actions.stop_wait_reason(con, "worker") is None)
+              stopgate.stop_wait_reason(con, "worker") is None)
 
         tid = db.new_task(con, "build the thing", "worker", "manager")
         db.set_current_task(con, "worker", tid)
-        reason = actions.stop_wait_reason(con, "worker")
+        reason = stopgate.stop_wait_reason(con, "worker")
         check("stop_wait_reason: current task, nothing recorded, refuses the stop",
               reason is not None and f"T{tid}" in reason, reason)
 
         # An open child task is a recorded wait; done, it is not.
         kid = db.new_task(con, "sub part", "worker", "manager", parent_task=tid)
         check("stop_wait_reason: an open child task is a recorded wait",
-              actions.stop_wait_reason(con, "worker") is None)
+              stopgate.stop_wait_reason(con, "worker") is None)
         db.mark_task_done(con, kid, "done")
         check("stop_wait_reason: a done child is no longer a wait",
-              actions.stop_wait_reason(con, "worker") is not None)
+              stopgate.stop_wait_reason(con, "worker") is not None)
 
         # A --blocked-by task is a recorded wait; removed, it is not.
         blocker = db.new_task(con, "blocker task", "worker", "manager")
         db.add_block(con, tid, blocker)
         check("stop_wait_reason: a --blocked-by task is a recorded wait",
-              actions.stop_wait_reason(con, "worker") is None)
+              stopgate.stop_wait_reason(con, "worker") is None)
         db.remove_block(con, tid, blocker)
         check("stop_wait_reason: removing the block restores the refusal",
-              actions.stop_wait_reason(con, "worker") is not None)
+              stopgate.stop_wait_reason(con, "worker") is not None)
 
         # An open decision task to human is a recorded wait - answered, it
         # is not.
@@ -9331,18 +9332,18 @@ limits:
         check("setup: a decision task", ok, msg)
         dec_rid = db.task_requests(con, dec)[0]["id"]
         check("stop_wait_reason: an open decision task to human is a recorded wait",
-              actions.stop_wait_reason(con, "worker") is None)
+              stopgate.stop_wait_reason(con, "worker") is None)
         db.close_if_queued(con, dec_rid, "done", "approved")
         check("stop_wait_reason: once the founder answers, it is no longer a wait "
               "(not task_state's OPEN_STATES, which counts 'done' as open)",
-              actions.stop_wait_reason(con, "worker") is not None)
+              stopgate.stop_wait_reason(con, "worker") is not None)
 
         # An open say of the agent's own is never a wait (T401 item 18: a
         # message needs no answer, so it cannot gate the stop).
         ok, msg, _ = askmod.say("manager", "quick one?", requester="worker")
         check("setup: a say", ok, msg)
         check("stop_wait_reason: an open say is not a recorded wait",
-              actions.stop_wait_reason(con, "worker") is not None)
+              stopgate.stop_wait_reason(con, "worker") is not None)
     finally:
         con.close()
 

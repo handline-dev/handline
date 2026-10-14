@@ -5,7 +5,7 @@ import time
 
 from ..team import agents
 from ..infra import lock, timefmt
-from ..session import blocked
+from ..session import blocked, stopgate
 from ..daemon import delivery as dmn_delivery, landing as dmn_landing, lifecycle as dmn_lifecycle
 from ..infra import daemonlock
 from ..session import states as dmn_states
@@ -89,7 +89,7 @@ def _delivery_state(con, agent: str, sessions: dict | None,
         return "mid-turn", f"{agent} is mid-turn - nothing is typed at a working agent", True
     if row["state"] == dmn_states.HANDOFF:
         return "mid-handoff", f"{agent} is mid-handoff", True
-    walled = dmn_delivery.wall_reason(con, agent, row)
+    walled = stopgate.wall_reason(con, agent, row)
     if walled:
         return "account at the wall", f"{walled} - delivered when it wakes or moves", True
     return "", "", True

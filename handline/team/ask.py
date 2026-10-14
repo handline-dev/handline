@@ -789,12 +789,13 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
     # usage park: an answer is not evidence the window rolled over, and
     # queueing it would open the session to the very typing the park is
     # there to prevent.
-    from ..daemon import delivery as dmn_delivery, evaluate as dmn_evaluate
+    from ..daemon import evaluate as dmn_evaluate
+    from ..session import stopgate
 
     # A requester no agent directory backs has no state to queue: the write made `hl ps` list it as an agent.
     if row["response"] == "async" and row["requester"] != HUMAN and row["requester"] in paths.list_agents() \
             and not _terminal(con, row["requester"]) \
-            and not dmn_delivery.wall_reason(con, row["requester"]):
+            and not stopgate.wall_reason(con, row["requester"]):
         outstanding = con.execute(
             "SELECT COUNT(*) c FROM requests WHERE requester = ? AND state = 'queued' "
             "AND response = 'async'", (row["requester"],)).fetchone()["c"]

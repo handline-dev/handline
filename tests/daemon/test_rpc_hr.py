@@ -15,7 +15,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.daemon import rpc_hr, stream  # noqa: E402
 from handline.team import ask as askmod  # noqa: E402
-from handline.team import hr  # noqa: E402
+from handline.team import hr, proposals  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_rpc import Wire, _code, _hp  # noqa: E402
@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def _raise(kind: str, name: str, who: str = "manager", **kw) -> str:
     ok, said = hr.propose(kind, name, who, kw.pop("why", "needs a hand"), **kw)
     assert ok, said
-    return max(hr.listing(), key=lambda p: p.get("created") or 0)["id"] if False else said.split()[1]
+    return max(proposals.listing(), key=lambda p: p.get("created") or 0)["id"] if False else said.split()[1]
 
 
 def _set(pid: str, **fields) -> None:

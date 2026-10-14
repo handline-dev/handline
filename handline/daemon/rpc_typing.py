@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from .. import db
 from ..infra import lock, paths
-from ..session import term
+from ..session import stopgate, term
 from . import delivery, inputhold, lifecycle, rpc, rpc_gates
 
 MAX_TEXT, MAX_KEYS = 8000, 64
@@ -51,7 +51,7 @@ def _act(ctx, name: str, params, send, wall: bool = False) -> dict:
             if not handle or not term.available():
                 raise rpc.refused(f"{agent} has no terminal", gate="state")
             if wall:
-                why = delivery.wall_reason(con, agent)
+                why = stopgate.wall_reason(con, agent)
                 if why:
                     raise rpc.refused(why, gate="wall")
                 blocker = term.screen_blocker(handle)

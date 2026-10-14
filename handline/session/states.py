@@ -34,6 +34,15 @@ WAKER = {
     STALLED: "a person: w, behind a confirmation (unstall, folded into wake)",
 }
 
+# An account whose login expired: no window rolls over to wait out, and a turn
+# on it fails, so the move is not weighed against a reset and takes no note.
+LOGIN_TRIGGER = "login"
+
+# The triggers a move answers: the two walls, a person's own order, and a login that expired. Nothing
+# below a wall is a reason to move a working agent, and an account nobody can
+# read is not a wall.
+MOVABLE_TRIGGERS = ("usage", "usage_7d", "forced", LOGIN_TRIGGER)
+
 # The marker a QUEUED or PARKED row's `detail` starts with when it is the
 # move/placement machinery waiting, not a usage wall - screen_state draws
 # MOVING, not PENDING.

@@ -12,7 +12,7 @@ import time
 from .. import db
 from ..infra import paths, textsafe
 from ..team import ask as askmod
-from ..team import hr
+from ..team import hr, proposals as hrstore
 from . import agentview, rpc, stream
 
 STATES = {"proposed": "open", "approved": "apply_failed", "applied": "approved", "rejected": "rejected", "withdrawn": "withdrawn"}
@@ -36,11 +36,11 @@ def _settled_at(prop: dict, state: str) -> int | None:
 
 
 def _items(prop: dict) -> list[dict]:
-    return hr._ordered(hr._items_of(prop)) if prop["kind"] == hr.BUNDLE else [prop]
+    return hr._ordered(hr._items_of(prop)) if prop["kind"] == hrstore.BUNDLE else [prop]
 
 
 def title_of(prop: dict) -> str:
-    if prop["kind"] == hr.BUNDLE:
+    if prop["kind"] == hrstore.BUNDLE:
         return f"bundle {len(_items(prop))} changes"
     return f"{prop['kind']} {prop['agent']}" + (f" -> {prop['to']}" if prop["kind"] in hr.EDGE_KINDS and prop.get("to") else "")
 
@@ -72,7 +72,7 @@ def _diff(prop: dict) -> str:
 
 
 def _asked(prop: dict) -> dict | None:
-    if prop["kind"] == hr.BUNDLE:
+    if prop["kind"] == hrstore.BUNDLE:
         return None
     out = {k: str(prop[k]) for k in ("vendor", "model", "effort", "team", "repo", "to") if prop.get(k)}
     if prop["kind"] == "settings" and hr._sets_of(prop):
@@ -88,7 +88,7 @@ def wire(prop: dict) -> dict | None:
     pid = num(prop["id"])
     if pid is None:
         return None
-    bundle = prop["kind"] == hr.BUNDLE
+    bundle = prop["kind"] == hrstore.BUNDLE
     out = {"id": pid, "agent": f"{len(_items(prop))} changes" if bundle else prop["agent"], "kind": prop["kind"], "title": title_of(prop), "diff": _diff(prop),
            "state": state, "created": agentview._ts(int(prop.get("created") or 0)), "subject": hr.subject_of(prop),
            "settled": agentview._ts(_settled_at(prop, state)) if state != "open" else None,
@@ -107,7 +107,7 @@ def proposals(state: str | None = None, now: int | None = None) -> list[dict]:
     """What hr.list serves: the waiting ones, oldest first, then the settled of the last 7 days (at most 50), newest first; with `state`, only that, in
     the same order and with no bound."""
     now = int(time.time()) if now is None else now
-    stored = [(p, wire(p)) for p in hr.listing()]
+    stored = [(p, wire(p)) for p in hrstore.listing()]
     items = [(p, w) for p, w in stored if w is not None]
     waiting = sorted((x for x in items if x[1]["state"] in WAITING), key=lambda x: (int(x[0].get("created") or 0), x[1]["id"]))
     settled = sorted((x for x in items if x[1]["state"] not in WAITING), key=lambda x: (-_settled_at(x[0], x[1]["state"]), -x[1]["id"]))
@@ -138,7 +138,7 @@ def check(con) -> None:
     """Say what changed in the store since the last look, once: a proposal that appeared open is `hr.raised`; one that left open (decided, withdrawn)
     or whose apply ran again is `hr.settled`. The first look says nothing: what was there before is the snapshot's."""
     global _seen
-    now = {w["id"]: w for w in (wire(p) for p in hr.listing()) if w is not None}
+    now = {w["id"]: w for w in (wire(p) for p in hrstore.listing()) if w is not None}
     with _lock:
         before, _seen = _seen, {i: (w["state"], w["settled"], w["error"]) for i, w in now.items()}
         if before is None:
@@ -154,7 +154,7 @@ def check(con) -> None:
                 continue
             else:
                 kind = "hr.settled"
-            stream.emit(con, "hr", kind, {"proposal": w}, agent=None if w["kind"] == hr.BUNDLE else w["agent"], title=w["title"],
+            stream.emit(con, "hr", kind, {"proposal": w}, agent=None if w["kind"] == hrstore.BUNDLE else w["agent"], title=w["title"],
                         target={"screen": "hr", "id": str(i)})
 
 

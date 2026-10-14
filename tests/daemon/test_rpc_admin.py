@@ -20,7 +20,7 @@ from handline.actions import details  # noqa: E402
 from handline.daemon import rpc_terminal, socket_server  # noqa: E402
 from handline.infra import paths, sessiontoken  # noqa: E402
 from handline.session import term as termmod  # noqa: E402
-from handline.team import agents, hr  # noqa: E402
+from handline.team import agents, hr, proposals  # noqa: E402
 from handline.usage import cycle, load as loadmod  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -199,7 +199,7 @@ def test_settings_set_writes_every_key_in_one_step_or_none(home: Path) -> None:
 def _proposal() -> dict:
     ok, said = hr.propose("settings", "worker", requester="manager", why="w", sets={"effort": "high"})
     assert ok, said
-    return next(p for p in hr.listing() if p.get("state") == "proposed")
+    return next(p for p in proposals.listing() if p.get("state") == "proposed")
 
 
 def test_hr_decide_rejects_and_approves_the_proposal_it_names(home: Path) -> None:

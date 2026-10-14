@@ -7,7 +7,7 @@ from pathlib import Path
 
 from ..team import ask as askmod
 from .. import db
-from ..team import hr
+from ..team import hr, proposals
 from ..team import rehome
 from ..team import trust
 from ..infra import protected, textsafe
@@ -100,7 +100,7 @@ def cmd_hr(args) -> int:
             print(json.dumps(hr.pending() + (hr.decided() if args.all else []), indent=2))
             return 0
         skipped: list[str] = []
-        rows = hr.listing(skipped)
+        rows = proposals.listing(skipped)
         for why in skipped:
             print(f"skipped, cannot be read - {why}", file=sys.stderr)
         if not rows:

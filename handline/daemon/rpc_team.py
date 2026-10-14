@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from .. import db
 from ..team import ask as askmod
-from ..team import hr
+from ..team import hr, proposals
 from . import rpc, rpc_hr
 
 
@@ -27,7 +27,7 @@ def _proposal(params) -> dict:
     pid = params.get("proposal")
     if isinstance(pid, bool) or not isinstance(pid, int) or pid < 0:
         raise rpc.bad_request("proposal is a proposal id", "proposal", rpc.INVALID_PARAMS)
-    for prop in hr.listing():
+    for prop in proposals.listing():
         if isinstance(prop.get("id"), str) and prop["id"].isalnum() and _num(prop["id"]) == pid:
             return prop
     raise rpc.RpcError(rpc.NOT_FOUND, "not_found", f"no proposal {pid}", what="proposal", name=str(pid))

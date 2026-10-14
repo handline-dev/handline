@@ -115,8 +115,7 @@ def _record(agent: str, event: str, raw: dict) -> None:
     """Hand the event to the daemon, which writes it down and decides what it means for the agent's state. With
     the daemon down it goes to the spool, which only records. A hook never fails its session over this."""
     try:
-        from ..daemon import spool
-        from ..infra import daemonclient as client
+        from ..infra import daemonclient as client, hookspool
         request_id = uuid.uuid4().hex
         at = int(time.time())
         try:
@@ -126,7 +125,7 @@ def _record(agent: str, event: str, raw: dict) -> None:
             client.call(sock, "hook.record", {"agent": agent, "kind": event, "at": at, "data": raw,
                                               "request_id": request_id}, client_name="hook")
         except (OSError, client.RpcError):
-            spool.append(agent, event, raw, request_id, at)
+            hookspool.append(agent, event, raw, request_id, at)
     except Exception:  # noqa: BLE001 - a hook must never break the session
         pass
 
