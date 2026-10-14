@@ -1,3 +1,5 @@
+import type { Attachment } from '@handline/client';
+
 // How text names an uploaded image (docs/story1-task-images-graph.md section A): `![caption](attachment:<id>)`, in a task body, a memo
 // or a reject note. The daemon cuts a text into parts on read; this writes the reference.
 
@@ -14,12 +16,6 @@ export function titleFromNote(note: string, fallback: string): string {
   return line ? (line.length > 60 ? `${line.slice(0, 59)}…` : line) : fallback;
 }
 
-export interface ImageRef {
-  id: string;
-  name: string;
-  mime: 'image/png';
-  bytes: number;
-}
 export type TextPart =
   { text: string } | { image: { id: string; name?: string; mime?: string; bytes?: number }; caption: string; gone?: boolean };
 
@@ -39,11 +35,12 @@ export function cutText(text: string): TextPart[] | null {
   return out;
 }
 
+/** An image part as an Attachment: the daemon's carries every field, one cut here only the id and the caption. */
+export const asAttachment = (i: { id: string; name?: string; mime?: string; bytes?: number }): Attachment =>
+  ({ name: 'image', mime: 'image/png', bytes: 0, ...i }) as Attachment;
+
 /** The text without its image references, and the images it names (the kept ones, from the daemon's parts when it sent them). */
-export function splitImages(
-  text: string,
-  parts?: TextPart[],
-): { text: string; images: { id: string; name?: string; mime?: string; bytes?: number }[] } {
+export function splitImages(text: string, parts?: TextPart[]): { text: string; images: Attachment[] } {
   const cut = parts ?? cutText(text);
   if (!cut) return { text, images: [] };
   return {
@@ -51,6 +48,11 @@ export function splitImages(
       .map((p) => ('text' in p ? p.text : ''))
       .join('')
       .trim(),
-    images: cut.flatMap((p) => ('image' in p && !p.gone ? [p.image] : [])),
+    images: cut.flatMap((p) => ('image' in p && !p.gone ? [asAttachment(p.image)] : [])),
   };
 }
+
+// The daemon will send these fields once the contract has them (docs/story1-task-images-graph.md); the generated types lack them, so the
+// apps read them here, in one place.
+export const bodyPartsOf = (task: object): TextPart[] | undefined => (task as { body_parts?: TextPart[] }).body_parts;
+export const partsOf = (memo: object): TextPart[] | undefined => (memo as { parts?: TextPart[] }).parts;

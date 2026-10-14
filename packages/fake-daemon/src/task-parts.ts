@@ -1,4 +1,6 @@
 // A text cut at its image references (docs/story1-task-images-graph.md section A): `![caption](attachment:<id>)` is the one form read.
+// Not done yet: a swept image is refused as bad_request (the doc says not_found); an edit that keeps an old reference is refused if its image
+// is gone (the doc never refuses it); no agent role rule; a reject note and the timeline rows carry no parts.
 import type { Attachment } from '@handline/contract';
 
 export type Part = { text: string } | { image: Attachment | { id: string }; caption: string; gone?: true };

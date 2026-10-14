@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { CLOSED, LISTED, TASK_STATES, type TaskColumn, type TaskFilter } from '@handline/app-core';
 import { BarInput, Button, Icon, Popup, Segmented, Select, Toolbar } from './ui/index.ts';
 import { STATE_GLYPH } from './taskui.tsx';
-import { canCapture } from './Capture.tsx';
+import { canCapture, requestCapture } from './Capture.tsx';
 
 /** Which tasks the pills show: the open ones, the ones I own, or the closed ones. */
 export type Scope = 'open' | 'mine' | 'closed';
@@ -36,7 +36,7 @@ export function TasksHead(props: {
   onFilter: (f: TaskFilter) => void;
   onView: (m: Mode) => void;
   onSelecting: () => void;
-  onAct: (what: 'states' | 'keys' | 'new' | 'capture') => void;
+  onAct: (what: 'states' | 'keys' | 'new') => void;
 }) {
   const { filter, mode, selecting } = props;
   return (
@@ -135,7 +135,7 @@ export function TasksHead(props: {
           label="Capture"
           title="Capture a window (⌘⇧C)"
           className="max-sm:min-h-[44px]"
-          onClick={() => props.onAct('capture')}
+          onClick={requestCapture}
         />
       ) : null}
       <Button icon="keys" label="Keys" title="Keys (?)" className="max-sm:min-h-[44px]" onClick={() => props.onAct('keys')} />

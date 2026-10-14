@@ -20,7 +20,6 @@ import { useAgents, useServes, useTasks } from '@handline/app-data';
 import { setting } from './daemon.ts';
 import { goTasks } from './route.ts';
 import { TaskDetail } from './TaskDetail.tsx';
-import { CaptureDialog, useCaptureShortcut } from './Capture.tsx';
 import { NewTask } from './NewTask.tsx';
 import { Row } from './TaskRows.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from './TasksHead.tsx';
@@ -55,28 +54,16 @@ const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|T
 export function TasksPage({ storage, route }: { storage: KV | null; route: string }) {
   const id = route ? Number(route) : null;
   const wide = useWide(1100);
-  const [capturing, setCapturing] = useState(false);
-  const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
-  useCaptureShortcut(() => setCapturing(true));
-  const capture = () => setCapturing(true);
-  const dialog = capturing ? <CaptureDialog agents={agents} task={id} onClose={() => setCapturing(false)} /> : null;
-  if (id !== null && !wide)
-    return (
-      <>
-        <TaskDetail id={id} onBack={() => goTasks()} onCapture={capture} />
-        {dialog}
-      </>
-    );
+  if (id !== null && !wide) return <TaskDetail id={id} onBack={() => goTasks()} />;
   return (
     <div className={`tasks-split relative flex min-h-0 min-w-0 flex-1${id !== null ? ' with-pane' : ''}`}>
-      <TaskList storage={storage} selected={id} onCapture={capture} />
+      <TaskList storage={storage} selected={id} />
       {id !== null ? <TaskDetail id={id} onBack={() => goTasks()} embedded drawer /> : null}
-      {dialog}
     </div>
   );
 }
 
-function TaskList({ storage, selected, onCapture }: { storage: KV | null; selected: number | null; onCapture: () => void }) {
+function TaskList({ storage, selected }: { storage: KV | null; selected: number | null }) {
   const now = useNow();
   const [mode, setMode] = useState<Mode>(() => (setting(storage, 'tasksView', 'list').value === 'tree' ? 'tree' : 'list'));
   const [filter, setFilter] = useState<TaskFilter>(defaultFilter);
@@ -312,7 +299,7 @@ function TaskList({ storage, selected, onCapture }: { storage: KV | null; select
         onFilter={setFilter}
         onView={setView}
         onSelecting={() => setSelecting(!selecting)}
-        onAct={(what) => (what === 'capture' ? onCapture() : what === 'states' && open === 'states' ? shut() : act(what))}
+        onAct={(what) => (what === 'states' && open === 'states' ? shut() : act(what))}
       />
       {open === 'new' ? <NewTask agents={agents} onClose={shut} /> : null}
       <View q={q} served={listServed} shape="tasks" what="tasks">

@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
 import { splitImages, type TextPart } from '@handline/app-core';
-import type { Attachment } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
@@ -25,7 +24,7 @@ export function MemoRow({ task, memo, when }: { task: number; memo: { id: number
   return (
     <View testID={`memo-${memo.id}`} style={{ gap: space.sm }}>
       <Text style={{ color: c.ink }}>{`${memo.author} ${when}: ${shown.text}`}</Text>
-      {shown.images.length ? <Pictures items={shown.images as Attachment[]} /> : null}
+      {shown.images.length ? <Pictures items={shown.images} /> : null}
       {ask === null && (
         <View style={{ flexDirection: 'row', gap: space.sm }}>
           <Button

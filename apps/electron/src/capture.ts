@@ -53,6 +53,7 @@ export class Capture {
     if (typeof id !== 'string' || id.length > 256) return fail('bad_request', 'capture takes { id }');
     let all: Source[];
     try {
+      // desktopCapturer cannot ask for one window: this is the one full-size call of the capture, made when the person has picked.
       all = await this.deps.sources(FULL_SIZE);
     } catch (err) {
       return fail('unavailable', err instanceof Error ? err.message : String(err));

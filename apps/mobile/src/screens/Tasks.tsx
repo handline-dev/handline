@@ -3,9 +3,9 @@
 // chips narrow the list as on the web.
 import { useState } from 'react';
 import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
-import { ago, CLOSED, splitImages, type TextPart, defaultFilter, idleText, shown, sortTasks, TASK_STATES, timeoutText, taskRef } from '@handline/app-core';
+import { ago, CLOSED, bodyPartsOf, splitImages, type TextPart, defaultFilter, idleText, shown, sortTasks, TASK_STATES, timeoutText, taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
-import type { Attachment, Task, TaskDetail } from '@handline/client';
+import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
@@ -185,7 +185,7 @@ function WithImages(props: { text: string; parts?: TextPart[] }) {
   return (
     <View style={{ gap: space.sm }}>
       {text ? <Text style={{ color: c.ink }}>{text}</Text> : null}
-      {images.length ? <Pictures items={images as Attachment[]} /> : null}
+      {images.length ? <Pictures items={images} /> : null}
     </View>
   );
 }
@@ -216,7 +216,7 @@ function Body({ t }: { t: TaskDetail }) {
       {t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
       {t.body ? (
         <Section title="Brief">
-          <WithImages text={t.body} parts={(t as { body_parts?: TextPart[] }).body_parts} />
+          <WithImages text={t.body} parts={bodyPartsOf(t)} />
         </Section>
       ) : null}
       {t.blockers.length ? (

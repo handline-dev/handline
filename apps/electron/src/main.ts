@@ -8,7 +8,7 @@ import { unixSocketTransport } from '@handline/client-node';
 import { isDebugWindow } from './debug-window.ts';
 import { Desk } from './desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
-import { serveCapture, type CaptureDeps } from './capture.ts';
+import { serveCapture } from './capture.ts';
 import { Opener } from './open.ts';
 import { followMain, takeRoute } from './follow-app.ts';
 import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from './mode.ts';
@@ -18,14 +18,6 @@ import { Connection, Page, CHANNELS } from './bridge.ts';
 import { serveDir } from './serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from './update.ts';
 
-/** The worktree of an agent comes from the shell's own daemon connection, never from the page. */
-const pathOpener = (origin: string, client: DaemonClient) =>
-  new Opener(origin, {
-    worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,
-    open: (p) => shell.openPath(p),
-    reveal: (p) => shell.showItemInFolder(p),
-  });
-const windowSources: CaptureDeps['sources'] = (thumbnailSize) => desktopCapturer.getSources({ types: ['window'], thumbnailSize });
 const env = (k: string) => process.env[`HANDLINE_${k}`] ?? process.env[`OCP_${k}`];
 /** The same rule the daemon uses: the environment's, else ~/.handline once it exists, else ~/.orcapipe. */
 const home =
@@ -101,6 +93,7 @@ function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote |
   ipcMain.handle(CHANNELS.setMode, (e, arg) => c.setMode(e, arg));
   ipcMain.handle(CHANNELS.phone, (e) => c.phone(e));
   ipcMain.handle(CHANNELS.pairRemote, (e, arg) => c.pairRemote(e, arg));
+  serveCapture(ipcMain, origin, { sources: (thumbnailSize) => desktopCapturer.getSources({ types: ['window'], thumbnailSize }) });
 }
 
 /** Runs `f` until it stops throwing, two seconds apart. */
@@ -217,9 +210,13 @@ if (!app.requestSingleInstanceLock()) {
     handleConnection(origin, own, current.mode, remote);
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
-    const opener = pathOpener(origin, client);
+    // The worktree of an agent comes from the shell's own daemon connection, never from the page.
+    const opener = new Opener(origin, {
+      worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,
+      open: (p) => shell.openPath(p),
+      reveal: (p) => shell.showItemInFolder(p),
+    });
     const composer = new Composer(origin, { env: editorEnv, tmp: app.getPath('temp') });
-    serveCapture(ipcMain, origin, { sources: windowSources });
     ipcMain.handle(CHANNELS.openPath, (e, arg) => opener.openPath(e, arg));
     ipcMain.handle(CHANNELS.compose, (e, arg) => composer.compose(e, arg));
     ipcMain.handle(CHANNELS.cancelCompose, (e, arg) => composer.cancel(e, arg));

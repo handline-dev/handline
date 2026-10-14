@@ -2,26 +2,42 @@
 // or add it as a comment on the open task (docs/story1-research.md, 1-1). Only in the desktop shell, which owns the capture.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { titleFromNote, withImages } from '@handline/app-core';
-import { classify, sentence, useUploadImage, useWrite } from '@handline/app-data';
+import { classify, sentence, useAgents, useUploadImage, useWrite } from '@handline/app-data';
+import { useTasksRoute } from './route.ts';
 import { shell } from './shell.ts';
 import { Button, Dialog, FIELD, FIELD_LABEL, NOTE, Select, Textarea } from './ui/index.ts';
 
 /** True when this shell can capture a window. */
 export const canCapture = (): boolean => shell('captureWindow') !== null;
 
-/** ⌘⇧C (Ctrl+Shift+C elsewhere) asks for the capture dialog. */
-export function useCaptureShortcut(open: () => void): void {
+const EVENT = 'handline:capture';
+/** Asks the capture host (mounted once, app-wide) to open the dialog. */
+export const requestCapture = (): void => void dispatchEvent(new Event(EVENT));
+
+/** The capture dialog for the whole app: opens on a request or ⌘⇧C (not Ctrl+Shift+C, which is copy in a terminal), over the open task if any. */
+export function CaptureHost(): ReactNode {
+  const [open, setOpen] = useState(false);
+  const route = useTasksRoute();
+  const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
   useEffect(() => {
     if (!canCapture()) return;
     const key = (e: KeyboardEvent) => {
-      if (e.shiftKey && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c' && !e.altKey) {
+      if (e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'c') {
         e.preventDefault();
-        open();
+        setOpen(true);
       }
     };
+    const ask = () => setOpen(true);
     addEventListener('keydown', key);
-    return () => removeEventListener('keydown', key);
-  });
+    addEventListener(EVENT, ask);
+    return () => {
+      removeEventListener('keydown', key);
+      removeEventListener(EVENT, ask);
+    };
+  }, []);
+  if (!open) return null;
+  const task = route && /^\d+$/.test(route) ? Number(route) : null;
+  return <CaptureDialog agents={agents} task={task} onClose={() => setOpen(false)} />;
 }
 
 /**
@@ -97,8 +113,8 @@ export function CaptureDialog({
     try {
       const a = await upload(picture, shot.name, 'image/png');
       const text = withImages(note, [a.id], shot.name.replace(/\.png$/, ''));
-      if (as === 'comment' && task !== null) await memo.mutateAsync({ task, text } as never);
-      else await ask.mutateAsync({ owner, title: titleFromNote(note, 'Capture'), body: text, time_box: '2h', priority: 2 } as never);
+      if (as === 'comment' && task !== null) await memo.mutateAsync({ task, text });
+      else await ask.mutateAsync({ owner, title: titleFromNote(note, 'Capture'), body: text, time_box: '2h', priority: 2 });
       if (!gone.current) onClose();
     } catch (e) {
       if (!gone.current) {
