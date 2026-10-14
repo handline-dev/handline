@@ -155,3 +155,22 @@ export function useAttachmentUrl(id: string, thumb: boolean): { url: string | nu
   }, [store, id, thumb]);
   return state;
 }
+
+export type AttachmentRead = { state: 'loading' } | { state: 'ready'; mime: Mime; bytes: Uint8Array } | { state: 'gone' } | { state: 'failed' };
+
+/** The bytes of an attachment, read on each mount (no cache, for an app that has no object URLs); `gone` when the daemon dropped it. */
+export function useAttachmentBytes(id: string, thumb: boolean): AttachmentRead {
+  const store = useStore();
+  const [read, setRead] = useState<AttachmentRead>({ state: 'loading' });
+  useEffect(() => {
+    let live = true;
+    setRead({ state: 'loading' });
+    readImage((m, p) => store.client.call(m as never, p as never), id, thumb)
+      .then(({ mime, bytes }) => live && setRead({ state: 'ready', mime, bytes }))
+      .catch((e) => live && setRead({ state: e instanceof RpcError && e.code === 'not_found' ? 'gone' : 'failed' }));
+    return () => {
+      live = false;
+    };
+  }, [store, id, thumb]);
+  return read;
+}
