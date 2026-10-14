@@ -247,9 +247,9 @@ GLOBAL_SWITCHES = (
 
 
 def _switch_accessors() -> dict:
-    from ..daemon import handoff_note
     from ..session import autoaccept
-    return {"handoff_note": (handoff_note.default_enabled, handoff_note.set_default_enabled),
+    return {"handoff_note": (lambda: idle_close.config_flag("handoff_note", True),
+                             lambda on: idle_close.set_config_flag("handoff_note", on)),
             "auto_accept": (autoaccept.enabled, autoaccept.set_enabled),
             "ignore_cache_expiry": (idle_close.default_ignore_cache_expiry, idle_close.set_ignore_cache_expiry)}
 

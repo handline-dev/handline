@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/hlclient"
 	"github.com/handline/handline/go/internal/taskresult"
 	"github.com/handline/handline/go/internal/textsafe"
@@ -143,11 +144,23 @@ func detailLines(t obj, now float64, home string) []string {
 		body = "(none)"
 	}
 	out = append(out, "", "brief", body)
+	out = append(out, pathLines(list(t, "body_parts"), "")...)
 	if memos := list(t, "memos"); len(memos) > 0 {
 		out = append(out, "", "memos")
 		for _, m := range memos {
 			out = append(out, fmt.Sprintf("  memo %s  %s  %s\n    %s", str(m, "id"), str(m, "author"), stamp(m["at"]), str(m, "text")))
+			out = append(out, pathLines(list(m, "parts"), "    ")...)
 		}
+	}
+	var rejects []string
+	for _, r := range list(t, "timeline") {
+		if str(r, "kind") == "reject" {
+			rejects = append(rejects, fmt.Sprintf("  %s  %s\n    %s", stamp(r["at"]), str(r, "who"), str(r, "text")))
+			rejects = append(rejects, pathLines(list(r, "parts"), "    ")...)
+		}
+	}
+	if len(rejects) > 0 {
+		out = append(append(out, "", "sent back"), rejects...)
 	}
 	if bs := list(t, "blockers"); len(bs) > 0 {
 		out = append(out, "", "waiting on")
@@ -171,6 +184,19 @@ func detailLines(t obj, now float64, home string) []string {
 		out = append(out, "", "assignee and owner changes")
 		for _, a := range as {
 			out = append(out, fmt.Sprintf("  %s  %s %s -> %s, by %s", stamp(a["at"]), str(a, "what"), str(a, "from"), str(a, "to"), str(a, "by")))
+		}
+	}
+	return out
+}
+
+// pathLines is where the images of a text's parts are stored, one line each as the daemon types them to an agent; only an agent's
+// task.get carries a path.
+func pathLines(parts []obj, indent string) []string {
+	var out []string
+	for _, p := range parts {
+		img, _ := p["image"].(obj)
+		if path := str(p, "path"); path != "" && img != nil {
+			out = append(out, indent+attachments.Line(len(out)+1, path, str(img, "mime"), num(img, "bytes")))
 		}
 	}
 	return out

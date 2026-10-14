@@ -248,39 +248,6 @@ def test_triggers() -> None:
     T = triggers
     check("trigger: the default context-handoff limit is 150,000 tokens",
           T.CONTEXT_TOKENS == 150_000)
-    check("trigger: quiet agent does not fire", not T.evaluate(10, 10).fired)
-    check("trigger: context at the default fires",
-          T.evaluate(10, T.CONTEXT_TOKENS).kind == "context")
-    check("trigger: one token under the default does not",
-          not T.evaluate(10, T.CONTEXT_TOKENS - 1).fired)
-    check("trigger: an explicit ctx_limit overrides the default",
-          T.evaluate(10, 300_000, ctx_limit=300_000).kind == "context"
-          and not T.evaluate(10, 300_000 - 1, ctx_limit=300_000).fired)
-
-    # A working agent runs to the wall: nothing below 100% is a usage trigger.
-    for pct in (85, 90, 95, 99):
-        check(f"trigger: {pct}% is not a reason to hand off", not T.evaluate(pct, 10).fired)
-    t = T.evaluate(100, 10)
-    check("trigger: the wall fires", t.fired and t.kind == "usage", t.reason)
-    check("trigger: the weekly wall fires on its own figure",
-          T.evaluate(9, 10, long_pct=100).kind == "usage_7d")
-    check("trigger: 98% of the week is not a wall", not T.evaluate(9, 10, long_pct=98).fired)
-
-    # Unknown usage is not a wall: the wall announces itself, and moving an agent
-    # off an account nobody can read spends a cold start on a guess.
-    t = T.evaluate(None, 10)
-    check("trigger: unknown usage does not fire", not t.fired, t.reason)
-
-    check("stay: an idle agent never moves",
-          T.stay_or_move(False, 10 * 3600)[0] is False)
-    check("stay: its account resets sooner than a start pays back",
-          T.stay_or_move(True, 10 * 60)[0] is False)
-    check("move: work waits and the reset is far", T.stay_or_move(True, 3 * 3600)[0])
-    check("move: an unknown reset is not soon", T.stay_or_move(True, None)[0])
-    check("stay: T follows a measured cold start",
-          T.stay_within_s(13, 5 * 3600) == 13 / 100 * 5 * 3600
-          and T.stay_within_s(13) == T.STAY_WITHIN_S
-          and T.stay_within_s(None) == T.STAY_WITHIN_S)
     check("stretch: an empty account lasts headroom over one agent's burn",
           abs(T.stretch_s(45, 0.0) - 45 / T.TYPICAL_AGENT_BURN_PER_S) < 1e-6)
     check("stretch: fill shortens it", T.stretch_s(45, 0.02) < T.stretch_s(45, 0.0))
@@ -296,20 +263,10 @@ def test_triggers() -> None:
     noisy = T.burn_rate_per_s([(0, 62), (2, 63)])
     check("burn: a quantized step over seconds is not a rate", noisy == 0.0,
           f"{noisy * 60}%/min")
-    check("burn: and it does not read as a wall", not T.evaluate(63, 10).fired)
     check("burn: a span shorter than the minimum is not measured",
           T.burn_rate_per_s([(0, 60), (T.MIN_BURN_SPAN_S - 1, 75)]) == 0.0)
     check("burn: a real climb over a long enough span still measures",
           abs(T.burn_rate_per_s([(0, 60), (300, 75)]) * 60 - 3.0) < 0.01)
-
-    # The weekly window is run to its own wall too.
-    t = T.evaluate(9, 10, long_pct=100)
-    check("trigger: a longest-window reading at its wall fires",
-          t.fired and t.kind == "usage_7d" and "longest window" in t.reason, t.reason)
-    check("trigger: no 7d reading at all is not a 7d refusal",
-          not T.evaluate(9, 10, long_pct=None).fired)
-    check("trigger: a 5h wall wins when both are at theirs",
-          T.evaluate(100, 10, long_pct=100).kind == "usage")
 
 
 def test_fold_is_not_rejected_over_a_header_it_overwrites(home: Path) -> None:
@@ -368,177 +325,6 @@ def test_a_rejected_fold_still_records_what_it_spent(home: Path) -> None:
               payload.get("model") == "haiku", str(payload))
     finally:
         foldmod.run_model = real
-        con.close()
-
-
-def test_the_handoff_is_three_facts_read_without_a_model(home: Path) -> None:
-    """A handoff has to work when every account is walled, which is when a
-    model call cannot: it is the request in hand, the session's transcript path
-    and the worktree's state, read from disk, and it is degraded only when one
-    of those could not be read."""
-    _daemon_home(home, 50)
-    wt = _worktree_with_a_dirty_file(home / "wt-backend")
-    real = foldmod.run_model
-    foldmod.run_model = lambda *a, **k: (_ for _ in ()).throw(AssertionError("model called"))
-    con = db.connect()
-    try:
-        db.set_terminal(con, "backend", "term_x", str(wt))
-        rid = db.add_request(con, "marina", "backend", "fix the routing\nsecond line", None,
-                             "peer", "async", None, 0, None)
-        db.mark_delivered(con, rid)
-        write_agent_status("backend", "alpha", session_id="sess-1",
-                           transcript_path="/tmp/sess-1.jsonl")
-
-        missing = handoffmod.record(con, "backend")
-        text = db.get_handoff(con, "backend")
-        head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=wt,
-                              capture_output=True, text=True).stdout.strip()
-        check("handoff: nothing is missing when the facts can be read",
-              missing == [], str(missing))
-        check("handoff: it names the request in hand, first line only",
-              f"#{rid} from marina - fix the routing" in text and "second line" not in text,
-              text)
-        check("handoff: it names the previous session's transcript",
-              "sess-1" in text and "/tmp/sess-1.jsonl" in text, text)
-        check("handoff: it gives the branch, HEAD and what is uncommitted",
-              f"branch: topic @ {head}" in text and "?? dirty.txt" in text, text)
-        check("handoff: and nothing else - no digest sections",
-              "진행중" not in text and "recent commits" not in text, text)
-
-        # A request nobody has been shown yet is not one in hand.
-        db.add_request(con, "marina", "backend", "later", None, "peer", "async", None, 0, None)
-        _set_request_state(con, rid, "landed", "ok")
-        check("handoff: no delivered request is a fact, not a gap",
-              handoffmod.record(con, "backend") == []
-              and "request: none in progress" in db.get_handoff(con, "backend"))
-
-        # Each fact that cannot be read degrades it, and says which.
-        paths.agent_status_file("backend").unlink()
-        gaps = handoffmod.record(con, "backend")
-        check("handoff: no snapshot of the session names the transcript as the gap",
-              gaps == ["the session's transcript path"], str(gaps))
-        check("handoff: and the record says so where the agent reads it",
-              "could not read the session's transcript path" in db.get_handoff(con, "backend")
-              and "branch: topic" in db.get_handoff(con, "backend"))
-        db.set_terminal(con, "backend", "term_x", str(home / "gone"))
-        gaps = handoffmod.record(con, "backend")
-        check("handoff: a worktree that is gone is the other gap",
-              len(gaps) == 2 and gaps[1].startswith("the worktree"), str(gaps))
-    finally:
-        foldmod.run_model = real
-        con.close()
-
-
-def test_the_handoff_carries_the_agents_progress_note_on_its_request(home: Path) -> None:
-    """T60: the agent writes what is done and what is left on the request in
-    hand (`hl progress`); the handoff carries it, and only for that request."""
-    _daemon_home(home, 50)
-    con = db.connect()
-    try:
-        db.set_terminal(con, "backend", "term_x", str(_worktree_with_a_dirty_file(home / "wt-backend")))
-        write_agent_status("backend", "alpha", session_id="sess-1",
-                           transcript_path="/tmp/sess-1.jsonl")
-        ok, said = handoffmod.set_progress(con, "backend", "deferred: waits on T9")
-        check("progress: no request in hand, the note is kept on the agent (T366)",
-              ok and handoffmod.get_progress(con, "backend") == "deferred: waits on T9", said)
-        handoffmod.record(con, "backend")
-        check("progress: the handoff of an agent with no request carries it",
-              "deferred: waits on T9" in db.get_handoff(con, "backend"))
-        rid = db.add_request(con, "marina", "backend", "fix it", None,
-                             "peer", "async", None, 0, None)
-        db.mark_delivered(con, rid)
-        _set_request_state(con, rid, "landed", "ok")
-        check("progress: an idle note does not resurface after a request came and went (T366)",
-              handoffmod.get_progress(con, "backend") is None)
-        rid = db.add_request(con, "marina", "backend", "fix it", None,
-                             "peer", "async", None, 0, None)
-        ok, said = handoffmod.set_progress(con, "backend", "x")
-        check("progress: a request not yet delivered is not one in hand; the note stays on the agent",
-              ok and said.startswith("you"), said)
-        t1 = db.new_task(con, "one", "backend", "marina")
-        t2 = db.new_task(con, "two", "backend", "marina")
-        db.set_current_task(con, "backend", t1)
-        ok, said = handoffmod.set_progress(con, "backend", "half of T1")
-        db.set_current_task(con, "backend", t2)
-        check("progress: with a task in hand the note is the task's, not the next task's (T366)",
-              ok and said.startswith(f"T{t1}") and handoffmod.get_progress(con, "backend") is None, said)
-        db.set_current_task(con, "backend", None)
-        db.mark_delivered(con, rid)
-        ok, said = handoffmod.set_progress(con, "backend", "done: parser\nleft: tests")
-        check("progress: kept on the delivered request", ok and said == f"#{rid}", said)
-        check("progress: the agent's own note is dropped once a request has one",
-              db.get_meta(con, "progress-agent:backend") is None)
-        handoffmod.record(con, "backend")
-        text = db.get_handoff(con, "backend")
-        check("progress: the handoff carries both lines, right after the request",
-              f"#{rid} from marina" in text and "  done: parser\n  left: tests" in text
-              and text.index("progress") > text.index(f"#{rid}"), text)
-        ok, _ = handoffmod.set_progress(con, "backend", "a\x1b[31mb\x9bc\u2028d")
-        kept = handoffmod.get_progress(con, "backend")
-        check("progress: ESC, a C1 control and U+2028 never reach the handoff; U+2028 is a line break",
-              ok and kept == "abc\nd" and "\x1b" not in db.get_meta(con, f"progress:{rid}"),
-              repr(kept))
-        handoffmod.set_progress(con, "backend", "done: parser\nleft: tests")
-        ok, said = handoffmod.set_progress(con, "backend", "y" * (handoffmod.PROGRESS_MAX + 1))
-        check("progress: a note past the cap is refused and the old one stays",
-              not ok and handoffmod.get_progress(con, "backend") == "done: parser\nleft: tests", said)
-        handoffmod.set_progress(con, "backend", "")
-        handoffmod.record(con, "backend")
-        check("progress: an empty note clears it", "progress" not in db.get_handoff(con, "backend"))
-        handoffmod.set_progress(con, "backend", "old")
-        _set_request_state(con, rid, "landed", "ok")
-        rid2 = db.add_request(con, "marina", "backend", "next", None,
-                              "peer", "async", None, 0, None)
-        db.mark_delivered(con, rid2)
-        handoffmod.record(con, "backend")
-        check("progress: the next request does not inherit the last one's note",
-              "progress" not in db.get_handoff(con, "backend"), db.get_handoff(con, "backend"))
-    finally:
-        con.close()
-
-
-def test_the_handoff_names_the_effective_head_not_a_blocked_one(home: Path) -> None:
-    """T337 round 4, auditor #2028 finding 2: _request_line, set_progress and
-    get_progress read db.head_of_queue directly - with a true head blocked
-    on record, that named the wrong request: one the agent was never told,
-    not the one behind it that it is actually working on. A resumed session
-    would be told it is working on the wrong thing, and a progress note
-    would land on a request that never carries it forward."""
-    _daemon_home(home, 50)
-    con = db.connect()
-    try:
-        db.set_terminal(con, "backend", "term_x", str(_worktree_with_a_dirty_file(home / "wt-backend")))
-        write_agent_status("backend", "alpha", session_id="sess-1",
-                           transcript_path="/tmp/sess-1.jsonl")
-
-        ok, msg, tid = actions.task_new("product", "backend", "the blocked head", "the blocked head")
-        check("setup: backend holds the task", ok, msg)
-        head = db.task_requests(con, tid)[0]["id"]
-        nxt = db.add_request(con, "reviewer", "backend", "fix it", None,
-                             "peer", "async", None, 0, None)
-        db.mark_delivered(con, nxt)
-        ok, msg, t_blocker = actions.task_new("product", "reviewer", "unrelated", "unrelated")
-        check("setup: a task to block on", ok, msg)
-        ok, msg = actions.add_block(con, tid, t_blocker, "product")
-        check("setup: the task is now blocked", ok, msg)
-
-        line = handoffmod._request_line(con, "backend")
-        check("handoff line: names the effective head, not the blocked true one",
-              f"#{nxt} from reviewer" in line and f"#{head}" not in line, line)
-
-        ok, said = handoffmod.set_progress(con, "backend", "done: the review\nleft: nothing")
-        check("progress: kept on the effective head, not the blocked one",
-              ok and said == f"#{nxt}", said)
-        check("progress: read back the same way",
-              handoffmod.get_progress(con, "backend") == "done: the review\nleft: nothing")
-        check("progress: the blocked head itself carries no note",
-              handoffmod.progress_of(con, head) is None)
-
-        handoffmod.record(con, "backend")
-        text = db.get_handoff(con, "backend")
-        check("handoff: the record names the effective head",
-              f"#{nxt} from reviewer" in text and f"#{head}" not in text, text)
-    finally:
         con.close()
 
 
@@ -739,9 +525,6 @@ def main() -> int:
         run(lambda: test_fold_is_not_rejected_over_a_header_it_overwrites(Path(td) / 'fhdr'))
         run(lambda: test_a_fold_is_a_process_not_a_session(Path(td) / 'foldproc'))
         run(lambda: test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend'))
-        run(lambda: test_the_handoff_is_three_facts_read_without_a_model(Path(td) / 'hdhome'))
-        run(lambda: test_the_handoff_carries_the_agents_progress_note_on_its_request(Path(td) / 'hdprog'))
-        run(lambda: test_the_handoff_names_the_effective_head_not_a_blocked_one(Path(td) / 'hdprogblocked'))
         run(lambda: test_the_digest_facts_do_not_repeat_one_event_kind(Path(td) / 'hdfacts'))
         run(lambda: test_fold_falls_back_to_claude_when_the_own_vendor_has_no_usable_account(Path(td) / 'foldfb'))
         run(lambda: test_run_model_asks_the_vendor_for_its_headless_argv(Path(td) / 'headless'))

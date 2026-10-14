@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/taskresult"
@@ -105,16 +106,40 @@ func acceptMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any
 	}
 }
 
+// rejectNote is task.reject's note as kept: one line of words, then each image it names on a line of its own.
+func rejectNote(note string) (string, error) {
+	refs := attachments.Refs(note)
+	words := note
+	if len(refs) > 0 {
+		words = note[:refs[0].Start]
+	}
+	lines := []string{strings.TrimSpace(textsafe.Oneline(words))}
+	if lines[0] == "" {
+		return "", badParam("note is the one line that says what is missing", "note")
+	}
+	for i, r := range refs {
+		end := len(note)
+		if i+1 < len(refs) {
+			end = refs[i+1].Start
+		}
+		if strings.TrimSpace(note[r.End:end]) != "" {
+			return "", badParam("note is one line of words, then only its image references", "note")
+		}
+		lines = append(lines, textsafe.Oneline(note[r.Start:r.End]))
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
 // rejectMethod is task.reject: the report is dropped and the task goes back to its owner's queue, the note told to the owner.
-func rejectMethod(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
+func rejectMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		tid, err := taskID(p)
 		if err != nil {
 			return nil, err
 		}
 		note, _ := p["note"].(string)
-		if note = strings.TrimSpace(textsafe.Oneline(note)); note == "" {
-			return nil, badParam("note is the one line that says what is missing", "note")
+		if note, err = rejectNote(note); err != nil {
+			return nil, err
 		}
 		by := c.Caller.Actor()
 		var notes []told
@@ -122,6 +147,9 @@ func rejectMethod(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 			t, err := reportFor(tx, tid, by, "reject")
 			if err != nil {
+				return nil, err
+			}
+			if err := claimImages(tx, home, by, note, "", "note"); err != nil {
 				return nil, err
 			}
 			now := time.Now().Unix()

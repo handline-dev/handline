@@ -37,8 +37,24 @@ func TestAPlanThatCannotBeReadLeavesTheRecordedOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", t.TempDir()) // no claude to ask
-	got, err := vendorPlans{home}.Refresh("a1")
+	got, err := vendorPlans{home, ""}.Refresh("a1")
 	if err != nil || got != "pro" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+// The plan is asked of the claude the daemon runs, never of whatever `claude` is on PATH: a test's fake stays its claude.
+func TestAPlanIsAskedOfTheConfiguredClaude(t *testing.T) {
+	_, _, _, home := wired(t)
+	t.Setenv("PATH", t.TempDir()) // no claude on PATH
+	dir := filepath.Join(home, "accounts", "a1", ".claude")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte("{}"), 0o600) // logged in: only its presence is read
+	cli := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\necho '{\"subscriptionType\": \"max\"}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := (vendorPlans{home, cli}).Refresh("a1"); err != nil || got != "max" {
 		t.Fatalf("got %q, %v", got, err)
 	}
 }

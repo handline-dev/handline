@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/handline/handline/go/internal/testkill"
 )
 
 // TestMain makes this test binary the fake Claude CLI when FAKE_CLAUDE is set: it speaks the stream-json protocol the real one
@@ -24,6 +26,7 @@ func TestMain(m *testing.M) {
 }
 
 func fakeClaude() {
+	testkill.ExitWithParent()
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
 		fmt.Println(PinnedCLI + " (Claude Code)")
 		return

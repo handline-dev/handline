@@ -1,24 +1,15 @@
-"""Tests: the event stream (daemon/stream.py): cursors, replay without gaps or repeats, the retention gap, a
-slow client dropped with a gap, the watcher that sees other writers, the notification detectors, and the
-subscribe, unsubscribe and events.feed methods.
-
+"""Tests: a database made before the event stream gets its log from a plain connect.
 Run on its own: python3 tests/daemon/test_stream.py   (all areas: python3 tests/test_ocp.py)
 """
 from __future__ import annotations
 
-import contextlib
-import io
 import sys
-import threading
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline import actions  # noqa: E402
-from handline.daemon import agentview  # noqa: E402
-from handline.infra import sessiontoken  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 

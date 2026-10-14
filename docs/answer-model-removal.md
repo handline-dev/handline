@@ -67,7 +67,7 @@ Step 4c takes these, so they are not edited here unless a slice needs it: `team/
 
 Each slice is one review.
 
-1. **Daemon tolerates the old spelling.** The Go and Python team loaders ignore `relation` and `response` on an edge, and `hr.propose` ignores them in `HrArgs`. No behaviour changes for a team.yaml without them. *First, with nothing before it.*
+1. **Daemon tolerates the old spelling.** The Go and Python team loaders ignore `relation` and `response` on an edge, and `hr.propose` ignores them in `HrArgs`. No behaviour changes for a team.yaml without them. *First, with nothing before it.* **Done**, with `kind` too. Routing reads none of the three from an edge, and the check at delivery refuses only what routing does not allow. A task or an ask to the founder is kind `task` whatever the edge says.
 2. **Contract + fake.** Drop the methods, params, fields and fixtures above. Regenerate the three generated files. Drop the Go `Register` lines of `chat.dismiss` and `inbox.answer` in the same commit, since `hello` lists from the generated `contract.json`. The fake follows. *After the web and mobile app slices (below) have shipped, because the apps read `answered`, `options`, `dismissed` and `answer` and call both methods.*
 3. **Go daemon: routing and sending.** `team`, `hrwrites` and the `supervisor` pieces: no relation, response or reply, and no `async` wake. Before deleting the wake, confirm a Go test holds "the opener is woken when its task is done" through the done notice. *After 1.*
 4. **Go daemon: chat, mailbox and db.** Answer rows and `settles`, dismissal, the landing branches, `mailRow.waiting`, and `DecisionTaskOfCard`/`SettleDecisionTasks` (a decision ends by `task.done`). Write NULL to `relation`, `response` and `settles`; no migration step. *After 2 and 3.*
@@ -101,4 +101,5 @@ apps/mobile (mobile):
 ## Open for the manager
 
 - An edge's `kind` (`kind: task` on `* -> human`, the older `escalate`, `verdict`) is not in item 5. "Only may ask" suggests it goes too, with "a say to the founder is a say; work for the founder is `hl task new --assign human`". Not in these slices unless decided.
+- `SupervisorOf` (`team/supervisor.go`, Python `actions.routing.supervisor_of`) still reads a `relation: supervisor` edge from one named agent: it decides who is whose report (task reports, queue listing, the "work cannot reach a report" refusal). The live team.yaml has none, as its only supervisor edge starts from `human`. Slice 3 deletes `Edge.Relation`, so this rule then gives way to the name alone, unless it is decided to keep it.
 - `task.ask`, where the founder asks about a task: it is already a say linked to the task, so it stays. Only its `is_task_question` mark goes.

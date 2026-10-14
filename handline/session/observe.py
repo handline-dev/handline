@@ -207,24 +207,6 @@ def env_of(pid: int, name: str) -> str | None:
     return _extract(env, name) if env is not None else None
 
 
-def account_of_process(pid: int) -> str | None:
-    """The account a running process is spending: the one its own config-dir
-    variable names, read off its environment. It is what the process was
-    started with and never changes, so it is the one answer that cannot be out
-    of date - unlike a column recorded when a move was decided.
-    None when unreadable, or a config dir that is not one of ours.
-
-    Which variable is the vendor's answer (`config_dir_env`), so each known
-    vendor's is asked; which account it names is layout, not vendor
-    (`vendors.account_named_by`)."""
-    for drv in vendors.known():
-        cfg = env_of(pid, drv.config_dir_env())
-        acct = vendors.account_named_by(cfg) if cfg else None
-        if acct:
-            return acct
-    return None
-
-
 def live_sessions() -> dict[str, int] | None:
     """`_live_sessions`, and the cause of a failed reading said once to `report` (and its end, once)."""
     global _failing

@@ -420,7 +420,7 @@ export class FakeDaemon {
     if (method.startsWith('inbox.')) return { value: this.inbox.call(method, p, c.caller.name, ok) };
     if (this.tasks.serves(method))
       return {
-        value: taskCall(this.tasks, method, p, c.caller.name, this.script, (task, to, text) => {
+        value: taskCall(this.tasks, method, p, c.caller.name, c.role === 'agent', this.script, (task, to, text) => {
           const s = this.session(to);
           if (!s.open) this.script.startSession(s, false, this.actor(c));
           const body =

@@ -3,6 +3,7 @@
 import type { Memo, Task, TaskClock, TaskDetail } from '@handline/contract';
 import { seedTasks } from './fixtures.ts';
 import { invalidParams, refused, storeFailure } from './errors.ts';
+import { refs, type FakeAttachments } from './attachments.ts';
 
 export class TaskFailure extends Error {
   code: 'not_found' | 'refused' | 'bad_request';
@@ -16,8 +17,15 @@ export class TaskFailure extends Error {
 interface Host {
   emit(topic: 'tasks', type: string, f: { data: Record<string, unknown> }): void;
   sessions: Map<string, unknown>;
+  uploads: FakeAttachments;
 }
-type Row = Task & { body: string; memos?: Memo[]; blockers: { task: number; reason: string }[]; clock?: TaskClock | null };
+type Row = Task & {
+  body: string;
+  memos?: Memo[];
+  notes?: { at: string; who: string; text: string }[]; // the notes it was sent back with
+  blockers: { task: number; reason: string }[];
+  clock?: TaskClock | null;
+};
 
 export class FakeTasks {
   private held: Row[] | null = null;
@@ -52,6 +60,11 @@ export class FakeTasks {
   private isAgent(name: string): boolean {
     return this.host.sessions.has(name);
   }
+  /** Checks and claims the images a write's text names; an agent names only an image some task's text already shows. */
+  private images(text: string, was: string, field: string, agent: boolean): void {
+    const shown = () => new Set(this.rows.flatMap((r) => [r.body, ...(r.memos ?? []).map((m) => m.text), ...(r.notes ?? []).map((n) => n.text)].flatMap(refs)));
+    this.host.uploads.check(text, was, field, agent, shown);
+  }
   private emit(t: Task): void {
     this.host.emit('tasks', 'task.changed', { data: t as unknown as Record<string, unknown> });
   }
@@ -79,7 +92,7 @@ export class FakeTasks {
     if (!t) throw new TaskFailure('not_found', `no task ${String(id)}`);
     return t;
   }
-  private view({ body: _body, blockers, clock, ...t }: Row): Task {
+  private view({ body: _body, memos: _memos, notes: _notes, blockers, clock, ...t }: Row): Task {
     const ended = t.state === 'done' || t.state === 'discarded';
     return { ...t, blocked_by: blockers.map((b) => b.task), time: ended ? null : (clock ?? null) };
   }
@@ -103,29 +116,41 @@ export class FakeTasks {
     return { items: rows.slice(0, limit).map((r) => this.view(r)), more: rows.length > limit };
   }
 
-  memo(p: Record<string, unknown>, op: 'add' | 'edit' | 'delete', person: string): number {
+  memo(p: Record<string, unknown>, op: 'add' | 'edit' | 'delete', person: string, agent = false): number {
     const t = this.find(p.task);
     const memos = (t.memos ??= []);
     if (op === 'add') {
+      this.images(String(p.text), '', 'text', agent);
       const id = memos.reduce((n, m) => Math.max(n, m.id), 0) + 1;
       memos.push({ id, task: t.id, author: person, at: this.now(), text: String(p.text) });
       return id;
     }
     const i = memos.findIndex((m) => m.id === p.memo);
     if (i < 0) throw new TaskFailure('refused', `memo ${String(p.memo)} does not exist`);
-    if (op === 'edit') memos[i] = { ...memos[i]!, text: String(p.text) };
+    if (op === 'edit') {
+      this.images(String(p.text), memos[i]!.text, 'text', agent);
+      memos[i] = { ...memos[i]!, text: String(p.text) };
+    }
     else memos.splice(i, 1);
     return memos[i]?.id ?? 0;
   }
 
-  get(p: Record<string, unknown>): TaskDetail {
+  get(p: Record<string, unknown>, agent = false): TaskDetail {
     const t = this.find(p.task);
+    const parts = (text: string) => this.host.uploads.parts(text, agent);
+    const withParts = <T extends object>(o: T, text: string) => {
+      const cut = parts(text);
+      return cut ? { ...o, parts: cut } : o;
+    };
+    const memos = (t.memos ?? []).map((m) => withParts(m, m.text));
+    const bodyParts = parts(t.body);
     return {
       ...this.view(t),
       body: t.body,
+      ...(bodyParts ? { body_parts: bodyParts } : {}),
       deliveries: t.delivered ? [{ at: t.delivered, how: 'typed', outcome: 'delivered' }] : [],
       events: [{ topic: 'tasks', type: 'task.opened', at: t.created, actor: null, agent: t.to, title: t.title, target: null, data: {} }],
-      memos: t.memos ?? [],
+      memos,
       blockers: t.blockers.map((b) => {
         const held = this.rows.find((r) => r.id === b.task);
         return { ...b, owner: held?.to ?? '', title: held?.title ?? '' };
@@ -138,15 +163,19 @@ export class FakeTasks {
       time: t.state === 'done' || t.state === 'discarded' ? null : (t.clock ?? null),
       parent_title: this.rows.find((r) => r.id === t.parent)?.title ?? null,
       subtasks: this.rows.filter((r) => r.parent === t.id).map((r) => ({ id: r.id, title: r.title, owner: r.to, state: r.state })),
-      timeline: [],
+      timeline: [
+        ...(t.memos ?? []).map((m) => withParts({ at: m.at, who: m.author, kind: 'memo' as const, text: m.text, memo: m.id, edited_at: m.edited_at ?? null }, m.text)),
+        ...(t.notes ?? []).map((n) => withParts({ at: n.at, who: n.who, kind: 'reject' as const, text: n.text, memo: null, edited_at: null }, n.text)),
+      ].sort((a, b) => a.at.localeCompare(b.at)),
       people: { recent: [], team: [], others: [] },
     };
   }
 
-  create(p: Record<string, unknown>, person: string): number {
+  create(p: Record<string, unknown>, person: string, agent = false): number {
     const owner = String(p.owner ?? '');
     if (!this.isAgent(owner)) throw new TaskFailure('bad_request', `no agent ${owner}`);
     if (typeof p.title !== 'string' || !p.title.trim()) throw new TaskFailure('bad_request', 'a task needs a title');
+    this.images(String(p.body ?? ''), '', 'body', agent);
     const id = this.nextId++;
     this.seed({
       id,
@@ -164,10 +193,11 @@ export class FakeTasks {
     return id;
   }
 
-  edit(p: Record<string, unknown>): void {
+  edit(p: Record<string, unknown>, agent = false): void {
     const t = this.find(p.task);
     if (t.state === 'done' || t.state === 'discarded') throw new TaskFailure('refused', `task ${t.id} is closed`);
     if (p.owner !== undefined && !this.isAgent(String(p.owner))) throw new TaskFailure('bad_request', `no agent ${String(p.owner)}`);
+    if (p.body !== undefined) this.images(String(p.body), t.body, 'body', agent);
     this.change(t, {
       ...(p.owner !== undefined ? { to: String(p.owner) } : {}),
       ...(p.title !== undefined ? { title: String(p.title) } : {}),
@@ -212,11 +242,19 @@ export class FakeTasks {
     const t = this.reportFor(p, person, 'accept');
     this.change(t, { state: 'done', done: this.now(), evidence: t.report!.evidence, report: null });
   }
-  /** The report is dropped and the task is queued again for its owner. */
-  reject(p: Record<string, unknown>, person: string): void {
-    if (!String(p.note ?? '').trim()) throw invalidParams('note is the one line that says what is missing', 'note');
+  /** The report is dropped and the task is queued again for its owner. The note is one line of words, then only its image references. */
+  reject(p: Record<string, unknown>, person: string, agent = false): void {
+    const note = String(p.note ?? '');
+    const first = note.search(/!\[[^\]]*\]\(attachment:/);
+    const words = (first < 0 ? note : note.slice(0, first)).replace(/\s+/g, ' ').trim();
+    if (!words) throw invalidParams('note is the one line that says what is missing', 'note');
+    const images = first < 0 ? '' : note.slice(first);
+    if (images.replace(/!\[[^\]]*\]\(attachment:[^)]*\)/g, '').trim())
+      throw invalidParams('note is one line of words, then only its image references', 'note');
     const t = this.reportFor(p, person, 'reject');
-    this.change(t, { state: 'queued', evidence: null, report: null });
+    this.images(images, '', 'note', agent);
+    const kept = [words, ...(images.match(/!\[[^\]]*\]\(attachment:[^)]*\)/g) ?? [])].join('\n');
+    this.change(t, { state: 'queued', evidence: null, report: null, notes: [...(t.notes ?? []), { at: this.now(), who: person, text: kept }] });
   }
   reopen(p: Record<string, unknown>, person: string): void {
     const t = this.find(p.task);
@@ -275,6 +313,7 @@ export function taskCall(
   method: string,
   p: Record<string, unknown>,
   person: string,
+  agent: boolean,
   script: { accepted(said: string, extra?: Record<string, unknown>): unknown },
   ask: (task: number, to: string, text: string) => number = () => {
     throw refused('unsupported', 'the fake daemon does not serve task.ask');
@@ -286,11 +325,11 @@ export function taskCall(
       case 'tasks.list':
         return tasks.list(p);
       case 'task.get':
-        return tasks.get(p);
+        return tasks.get(p, agent);
       case 'task.new':
-        return ok('Task asked.', { task: tasks.create(p, person) });
+        return ok('Task asked.', { task: tasks.create(p, person, agent) });
       case 'task.edit':
-        return (tasks.edit(p), ok('Task changed.'));
+        return (tasks.edit(p, agent), ok('Task changed.'));
       case 'task.withdraw':
         return (tasks.close(p, 'withdraw'), ok('Task withdrawn.'));
       case 'task.cancel':
@@ -307,7 +346,7 @@ export function taskCall(
       case 'task.accept':
         return (tasks.accept(p, person), ok('Task accepted.'));
       case 'task.reject':
-        return (tasks.reject(p, person), ok('Task sent back.'));
+        return (tasks.reject(p, person, agent), ok('Task sent back.'));
       case 'task.reopen':
         return (tasks.reopen(p, person), ok('Task reopened.'));
       case 'task.queue':
@@ -321,9 +360,9 @@ export function taskCall(
       case 'task.merge':
         return (tasks.merge(p), ok('Tasks folded.'));
       case 'task.memo.add':
-        return ok('Memo added.', { memo: tasks.memo(p, 'add', person) });
+        return ok('Memo added.', { memo: tasks.memo(p, 'add', person, agent) });
       case 'task.memo.edit':
-        return (tasks.memo(p, 'edit', person), ok('Memo changed.'));
+        return (tasks.memo(p, 'edit', person, agent), ok('Memo changed.'));
       case 'task.memo.delete':
         return (tasks.memo(p, 'delete', person), ok('Memo deleted.'));
       default:

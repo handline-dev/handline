@@ -15,7 +15,8 @@ import (
 )
 
 // The routing policy of team.yaml (handline/team/team.py). An agent only ever knows a target and a message; whether the edge is
-// allowed, the response and the kind are decided here, deterministically, with no model involved. Unlisted edges are denied.
+// allowed is decided here, deterministically, with no model involved. Unlisted edges are denied. Routing reads no edge's relation,
+// response or kind: an edge only allows.
 
 const (
 	// DefaultLinks are the links an agent has without any edge written for them: it may ask its parent (its name up to the last
@@ -51,9 +52,6 @@ limits:
 `
 )
 
-// validResponse: blocking is deliberately absent; a requester holding an account while it waits is the most expensive idle.
-var validResponse = []string{"async", "fire_and_forget"}
-
 // ParentName is the agent a name hangs under: harbor.sea -> harbor; "" for a name with no dot.
 func ParentName(agent string) string {
 	i := strings.LastIndex(agent, ".")
@@ -75,10 +73,9 @@ type Decision struct {
 
 // Edge is one edge or deny entry of team.yaml, its values as read.
 type Edge struct {
-	From, To                 any
-	Relation, Response, Kind any
-	Reason                   any
-	has                      map[string]bool
+	From, To, Reason any
+	Relation         any // read only by SupervisorOf
+	has              map[string]bool
 }
 
 // Team is team.yaml read.
@@ -193,13 +190,6 @@ func NewTeam(doc *yamlcompat.OMap) (*Team, error) {
 		if _, has := o.M["to"]; !has {
 			return nil, cerr("edges[%d] needs both 'from' and 'to'", i)
 		}
-		resp, has := o.M["response"]
-		if !has {
-			resp = "async"
-		}
-		if s, ok := resp.(string); !ok || !contains(validResponse, s) {
-			return nil, cerr("edges[%d].response=%s is not one of %s. 'blocking' is intentionally not supported.", i, pyRepr(resp), pyRepr(anyStrings(validResponse)))
-		}
 		if err := t.checkPattern(fmt.Sprintf("edges[%d].from", i), pyStr(o.M["from"])); err != nil {
 			return nil, err
 		}
@@ -252,22 +242,10 @@ func NewTeam(doc *yamlcompat.OMap) (*Team, error) {
 	return t, nil
 }
 
-func anyStrings(xs []string) []any {
-	out := make([]any, len(xs))
-	for i, x := range xs {
-		out[i] = x
-	}
-	return out
-}
-
 func edgeOf(o *yamlcompat.OMap) Edge {
-	e := Edge{From: o.M["from"], To: o.M["to"], Relation: o.M["relation"], Response: o.M["response"], Kind: o.M["kind"],
-		Reason: o.M["reason"], has: map[string]bool{}}
+	e := Edge{From: o.M["from"], To: o.M["to"], Reason: o.M["reason"], Relation: o.M["relation"], has: map[string]bool{}}
 	for k := range o.M {
 		e.has[k] = true
-	}
-	if !e.has["response"] {
-		e.Response = "async"
 	}
 	return e
 }
@@ -451,29 +429,6 @@ func (t *Team) DefaultLink(requester, target string) *Decision {
 	return nil
 }
 
-// edgeKind: escalate is the old spelling of a request to the founder, which is a task of theirs.
-func edgeKind(k any) *string {
-	switch x := k.(type) {
-	case nil:
-		return nil
-	case string:
-		if x == "escalate" {
-			return sp("task")
-		}
-		return &x
-	}
-	s := pyStr(k)
-	return &s
-}
-
-func optStr(v any) *string {
-	if v == nil {
-		return nil
-	}
-	s := pyStr(v)
-	return &s
-}
-
 // Route decides a request. reply: this answers a request target sent to requester; it needs no edge back, but an explicit deny
 // still wins.
 func (t *Team) Route(requester, target string, chainDepth int, reply bool) Decision {
@@ -499,8 +454,7 @@ func (t *Team) Route(requester, target string, chainDepth int, reply bool) Decis
 	// First match wins, like firewall rules: order in team.yaml is significant.
 	for _, e := range t.Edges {
 		if t.Matches(pyStr(e.From), requester) && t.Matches(pyStr(e.To), target) {
-			return Decision{Allowed: true, Reason: fmt.Sprintf("edge %s -> %s", pyStr(e.From), pyStr(e.To)), Relation: optStr(e.Relation),
-				Response: pyStr(e.Response), Kind: edgeKind(e.Kind), ChainDepth: chainDepth}
+			return Decision{Allowed: true, Reason: fmt.Sprintf("edge %s -> %s", pyStr(e.From), pyStr(e.To)), Response: "async", ChainDepth: chainDepth}
 		}
 	}
 	if d := t.DefaultLink(requester, target); d != nil {

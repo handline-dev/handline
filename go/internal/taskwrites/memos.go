@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 )
@@ -79,13 +80,25 @@ func Register(s *rpc.Server, home string, tell Teller) {
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopenMethod(home, tell)})
 	s.Register("task.done", rpc.Method{Role: "agent", Write: true, Handler: doneMethod(home, tell)})
 	s.Register("task.accept", rpc.Method{Role: "agent", Write: true, Handler: acceptMethod(home, tell)})
-	s.Register("task.reject", rpc.Method{Role: "agent", Write: true, Handler: rejectMethod(tell)})
+	s.Register("task.reject", rpc.Method{Role: "agent", Write: true, Handler: rejectMethod(home, tell)})
 	s.Register("task.cancel", rpc.Method{Role: "member", Write: true, Handler: cancelMethod(home, tell)})
 	s.Register("task.release", rpc.Method{Role: "agent", Write: true, Handler: releaseMethod(home, tell)})
 	s.Register("task.merge", rpc.Method{Role: "agent", Write: true, Handler: mergeMethod(home, tell)})
-	s.Register("task.memo.add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd(tell)})
-	s.Register("task.memo.edit", rpc.Method{Role: "agent", Write: true, Handler: memoEdit(tell)})
+	s.Register("task.memo.add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd(home, tell)})
+	s.Register("task.memo.edit", rpc.Method{Role: "agent", Write: true, Handler: memoEdit(home, tell)})
 	s.Register("task.memo.delete", rpc.Method{Role: "agent", Write: true, Handler: memoDelete(tell)})
+}
+
+// claimImages checks the images text names, where it replaces was, and claims them (contract x-attachments, Tasks). by is the writer: an
+// agent names only images a task already shows.
+func claimImages(tx *sql.Tx, home, by, text, was, field string) error {
+	s := attachments.New(home)
+	ids, err := s.Check(tx, text, was, field, by != human)
+	if err != nil || len(ids) == 0 {
+		return err
+	}
+	_, err = s.Claim(ids)
+	return err
 }
 
 func badParam(message, field string) *rpc.Error {
@@ -162,7 +175,7 @@ func guard(by, author string, mid int64) error {
 
 // The holder of a doing task is not told of a memo change here: the telling is a typed say, the delivery layer's.
 
-func memoAdd(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
+func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		tid, err := taskID(p)
 		if err != nil {
@@ -179,6 +192,9 @@ func memoAdd(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 				}
 				return nil, refusal(fmt.Sprintf("no task T%d", tid))
 			}
+			if err := claimImages(tx, home, c.Caller.Actor(), body, "", "text"); err != nil {
+				return nil, err
+			}
 			res, err := tx.Exec("INSERT INTO task_memos(task_id, author, body, created_at) VALUES (?, ?, ?, ?)", tid, c.Caller.Actor(), body,
 				float64(time.Now().UnixNano())/1e9)
 			if err != nil {
@@ -194,7 +210,7 @@ func memoAdd(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	}
 }
 
-func memoEdit(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
+func memoEdit(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		tid, err := taskID(p)
 		if err != nil {
@@ -224,6 +240,9 @@ func memoEdit(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 			}
 			if body == was {
 				return nil, refusal(fmt.Sprintf("memo %d already reads that way - nothing to edit", mid))
+			}
+			if err := claimImages(tx, home, c.Caller.Actor(), body, was, "text"); err != nil {
+				return nil, err
 			}
 			if _, err := tx.Exec("UPDATE task_memos SET body = ?, edited_at = ? WHERE id = ?", body, time.Now().Unix(), mid); err != nil {
 				return nil, err

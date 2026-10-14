@@ -124,11 +124,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             out[key or " ".join(argv)] = buf.getvalue() + err.getvalue()
         # A fold whose model returns a digest that lost what was done: the refusal
         # names the lost items, which the agent wrote.
-        real_model, real_record = foldmod.run_model, handoffmod.record
+        real_model = foldmod.run_model
         foldmod.run_model = lambda *a, **k: (True, "# 2026-01-01 · reviewer\n\n## Done\n")
-        # `write-handoff` reads the agent's own terminal for the handoff, which
-        # there is none of here: stand in for that step and print what it stored.
-        handoffmod.record = lambda con, agent: []
 
         def queue(params: dict) -> dict:
             """inbox.queue is the Go daemon's: every string of its reply is text somebody typed, given here as it would come."""
@@ -162,7 +159,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             picks.__exit__(None, None, None)
             reads.__exit__(None, None, None)
             says.__exit__(None, None, None)
-            foldmod.run_model, handoffmod.record = real_model, real_record
+            foldmod.run_model = real_model
         scene.driven = driven
         return out
 
