@@ -52,6 +52,31 @@ Who may name an image: a member or the founder, any kept id (they may `attachmen
 
 **Contract edits.** `x-attachments`: add "Tasks" (the reference form, the checks, keeping, parts, the agent's path lines) and change "roles" to name the agent's reference rule. Params: the descriptions of the five texts above. Schemas: `ImagePart` (`Attachment` and `caption`, optional `gone`, `path` for an agent), `TextPart` (`text`), `TaskDetail.body_parts`, `Memo.parts`, the timeline row's `parts`, and the timeline kind `reject` (each parts field an optional `array` of `oneOf` `TextPart`, `ImagePart`). Fixtures: a task with two references read back in parts; an unknown id refused; an agent naming an id it has not read refused, then accepted for one in its parent's body; a memo and a reject note with an image; a swept image read back as `gone`.
 
+## A+. Chat uses the same path
+
+The founder's order: one image path for three places, chat messages, task bodies (now Markdown) and memos. Part A is that path; this part brings chat onto it. Upload stays `attachment.put`.
+
+**The texts.** The reference form, the checks, keeping, parts and path lines of part A apply to every text a person or an agent sends as a message too: `chat.send` `body`, `say` `body`, `inbox.reply` `text` and `task.handoff` `note`. One parser, one checker and one keeper serve all of them; only the field named in a refusal differs.
+
+**`chat.send` `attachments` stays.** Today's apps send a list of ids and keep working. The two forms meet in one message:
+
+- Its images are the references in the body, in order, then the listed ids not already referenced. An id in both counts once; at most 6 in all (`bad_request`, field `attachments` when the list is what goes over, else `body`).
+- `ChatMessage.attachments` keeps listing every image of the message, in that order, so today's clients draw them all. Such a client shows a reference's text as written; a client that reads `parts` does not.
+- The checks are part A's for both forms, in the write's own transaction. Two changes for the list, so both forms answer alike: an id already sent is accepted (the fake daemon refuses it today, the Go daemon does not), and an image no longer kept is `not_found`, what `attachment`, as the Go daemon already answers (the contract says `bad_request`).
+- With `task` the body is the new task's brief, so references in it are allowed and checked as `task.new` `body`. The list stays refused with `task`: a brief names its images in its text.
+
+**Who may name an image in a message.** As for a task: a member or the founder any kept image; an agent only one a task or a message already names, so it can pass on a picture it was shown, never an upload no one has sent.
+
+**Keeping.** A message that names an image claims it, kept 30 days after the message, as today. An image is removed only when nothing keeps it any more: no open task names it, and its last claim and last task are 30 days old.
+
+**What a client reads.** `ChatMessage` gains `parts` with part A's shape (`TextPart`, `ImagePart`), present when the message has an image: the body cut at its references, then one image part per listed id, with an empty `caption`. A timeline row of kind `handoff` gains `parts` as a memo does. `body` stays as it is.
+
+**What an agent gets.** Delivery adds one line per image after the text, the form it has today (`[image N: /absolute/path.png (image/png, 184 KB)]`), numbered over the message's images in the order above. The same lines go in the inbox file `hl read` shows, which has none today. An `ImagePart` carries `path` for an agent caller only.
+
+**Markdown.** A task body, a memo and a message are stored as written. The daemon reads only the image references, anywhere in the text (inside a code span too); the rest is the client's to draw. A client draws the text as Markdown (CommonMark with GFM lists and tables), shows raw HTML as text, and never fetches an image by another scheme (an `http:` image is shown as a link), so nothing outside the daemon is loaded. It draws images from `parts`, not by parsing the text. A client that does not draw Markdown yet shows the text parts as plain text, as today. Titles stay plain text. An agent reads the Markdown as written.
+
+**Contract edits.** `x-attachments`: "what" and "flow" name messages and tasks as one path; "tasks" becomes "texts" listing the nine fields; "roles" covers messages; "storage" gets the keeping rule above. `chat.send` `attachments`: how it meets the body's references, and the two changed refusals. The descriptions of `say` `body`, `inbox.reply` `text`, `task.handoff` `note`, and `Task`/`TaskDetail` `body` (Markdown). Schemas: `ChatMessage.parts`, `parts` on the `handoff` timeline row. Fixtures: a `chat.send` with a reference and a listed id read back in `parts` and `attachments`; the same id in both counted once; 4 referenced and 3 listed refused; an already sent id accepted; `chat.send` with `task` and a reference read back in the task's `body_parts`; an agent's `say` naming an image from its brief accepted and one never sent refused.
+
 ## B. The task graph (1-6)
 
 **Is `tasks.list` enough?** Mostly yes, and no `tasks.graph` method is proposed. A `Task` row already carries a node and its edges:
@@ -83,5 +108,6 @@ Three things are missing, each a small addition:
 ## Build slices that follow
 
 1. Go: `body_parts` and the `parts` fields, the reject row of the timeline, the reference checks, keeping, path lines to agents. hl prints the path lines in `hl task show`.
-2. Go: `tasks.list` `under`, `Task.waits`, `Task.waiting` (with the stored cause). The fake daemon follows each slice. Done: in `contract/protocol.json`.
-3. Apps (handline.pc, phone): the image picker in the task body and memo editor, `task.reject` with the circled picture, and the graph on `under` + `waits` + `waiting`.
+2. Go: part A+, on part A's parser, checker and keeper; path lines in the inbox file.
+3. Go: `tasks.list` `under`, `Task.waits`, `Task.waiting` (with the stored cause). The fake daemon follows each slice. Done: in `contract/protocol.json`.
+4. Apps (handline.pc, phone): the image picker in the task body and memo editor, `task.reject` with the circled picture, and the graph on `under` + `waits` + `waiting`.

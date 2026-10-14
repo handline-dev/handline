@@ -68,7 +68,7 @@ describe('U13 agent settings', () => {
     expect(control<HTMLSelectElement>('effort').value).toBe('high');
     expect(control<HTMLInputElement>('context_k').value).toBe('300');
     expect(on('sandbox')).toBe(true);
-    expect(on('skip_permissions')).toBe(false);
+    expect($('[data-field="skip_permissions"]')).toBeNull();
     for (const k of ['weight', 'handoff_note', 'repo', 'mode', 'browser', 'browser_sites', 'idle_close']) expect(field(k)).toBeTruthy();
   });
 
@@ -123,18 +123,6 @@ describe('U13 agent settings', () => {
     await until(() => text(field('effort')).includes('busy'), 'the note');
     expect(control<HTMLSelectElement>('effort').value).toBe('high');
     expect(session(s).settings.effort).toBe('high');
-  });
-
-  it('skip prompts asks first in the bridge words; Cancel sends nothing and Turn on saves', async () => {
-    const s = await open();
-    await click(control('skip_permissions'));
-    expect(text($('.verb-sheet.danger'))).toContain('it will act without asking, from the next launch');
-    await click(btn('Cancel'));
-    expect(on('skip_permissions')).toBe(false);
-    expect(session(s).settings.skip_permissions).toBe('off');
-    await click(control('skip_permissions'));
-    await click(btn('Turn on'));
-    await until(() => session(s).settings.skip_permissions === 'on', 'saved');
   });
 
   it('turning the sandbox off asks; turning it back on asks nothing', async () => {

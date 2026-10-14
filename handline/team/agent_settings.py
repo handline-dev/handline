@@ -9,7 +9,7 @@ from ..usage import status
 from ..infra import textsafe
 from . import agents
 
-EDITABLE = ("model", "effort", "weight", "repo", "skip_permissions", "browser", "browser_sites",
+EDITABLE = ("model", "effort", "weight", "repo", "browser", "browser_sites",
             "context_k", "idle_close", "handoff_note", "sandbox", "mode")
 # Not on every form: the settings tab does not draw them yet, so a form without them leaves them be.
 OPTIONAL = frozenset({"sandbox", "mode"})
@@ -37,7 +37,6 @@ def settings_of(agent: str) -> dict:
             "model": str(cfg.get("model") or agents.DEFAULT_MODEL),
             "effort": str(cfg.get("effort") or agents.DEFAULT_EFFORT),
             "weight": str(cfg.get("weight") or "light"), "repo": str(cfg.get("repo") or ""),
-            "skip_permissions": "on" if agents.skip_permissions_in_effect(agent, cfg) else "off",
             "sandbox": "on" if agents.sandbox_on(agent, cfg) else "off", "mode": agents.mode_of(agent, cfg),
             "browser": agents.browser_mode(cfg), "browser_sites": " ".join(agents.browser_origins(cfg)),
             "context_k": str(agents.context_tokens(cfg) // 1000),
@@ -58,8 +57,6 @@ def settings_problem(form: dict) -> str | None:
         return f"effort must be one of {', '.join(agents.VALID_EFFORT)}"
     if form["weight"] not in WEIGHTS:
         return f"weight must be one of {', '.join(WEIGHTS)}"
-    if form["skip_permissions"] not in ("on", "off"):
-        return "skip permissions must be on or off"
     if form.get("sandbox", "on") not in ("on", "off"):
         return "sandbox must be on or off"
     if form.get("mode", agents.DEFAULT_MODE) not in agents.MODES:
@@ -125,7 +122,6 @@ def save_settings(agent: str, changes: list[tuple[str, str, str]]) -> tuple[bool
                 chrome, mcp = mode == "chrome", agents.browser_mcp_config(cfg, mode, origins)
             agents.register(agent, model=new.get("model"), effort=new.get("effort"),
                             weight=new.get("weight"), repo=new.get("repo"),
-                            skip_permissions=None if "skip_permissions" not in new else new["skip_permissions"] == "on",
                             mode=new.get("mode"),
                             sandbox=None if "sandbox" not in new else new["sandbox"] == "on",
                             chrome=chrome, mcp_config=mcp,
@@ -168,12 +164,6 @@ def form_with(agent: str, values: dict[str, str]) -> tuple[dict, dict]:
         raise ValueError(f"not a setting: {', '.join(unknown)} (settings: {', '.join(EDITABLE)})")
     current = settings_of(agent)
     return current, {**{k: current[k] for k in EDITABLE}, **{k: str(v) for k, v in values.items()}}
-
-
-def mode_in_form(current: dict, picked: str) -> str:
-    """The mode a form sends: with skip prompts on the mode is bypass and the dropdown (which has no
-    bypass, and is greyed out) means nothing, so what the file has stays."""
-    return current["mode"] if current["skip_permissions"] == "on" else picked
 
 
 NOTHING = "nothing to change"

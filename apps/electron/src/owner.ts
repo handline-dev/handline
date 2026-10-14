@@ -16,7 +16,8 @@ export interface OwnerDeps {
   socketUp(): Promise<boolean>;
   gatewayUp(): Promise<boolean>;
   spawn(cmd: Cmd): Child;
-  daemon: Cmd;
+  /** A function when the command needs something looked up at spawn time; it throws the reason the daemon cannot start. */
+  daemon: Cmd | (() => Promise<Cmd>);
   gateway: Cmd;
   wait(ms: number): Promise<void>;
   /** How long a started child gets to answer, in polls of 250 ms. */
@@ -61,10 +62,10 @@ export class Owner {
     }
   }
 
-  private async ensure(name: string, up: () => Promise<boolean>, cmd: Cmd): Promise<void> {
+  private async ensure(name: string, up: () => Promise<boolean>, cmd: Cmd | (() => Promise<Cmd>)): Promise<void> {
     // One that answers may be an earlier run still shutting down: it is trusted only if it still answers a moment later.
     if ((await up()) && (await this.d.wait(500), await up())) return;
-    const child = this.d.spawn(cmd);
+    const child = this.d.spawn(typeof cmd === 'function' ? await cmd() : cmd);
     let exited: number | null | undefined;
     child.onExit((code) => {
       exited = code;
@@ -129,20 +130,31 @@ export class Owner {
   }
 }
 
+/** The claude the daemon runs: the named one (CLAUDE), else the first executable `claude` on the login shell's PATH, then on the app's own.
+ * Throws when there is none: a bare `claude` would resolve against the PATH of a Dock launch, which has no shell dirs. */
+export function resolveClaude(named: string | undefined, paths: (string | undefined)[], isExec: (file: string) => boolean): string {
+  if (named) return named;
+  for (const dir of paths.flatMap((p) => (p ?? '').split(':')).filter(Boolean)) {
+    if (isExec(`${dir}/claude`)) return `${dir}/claude`;
+  }
+  throw new Error('claude was not found on the PATH; install it or set HANDLINE_CLAUDE to its full path');
+}
+
 /** The two commands, from the environment: a checkout runs `go/handlined` as the daemon (with the service's flags) and as the gateway;
- * a packaged app names its own binary, and CLAUDE the claude the daemon runs. */
+ * a packaged app names its own binary. `claude` is the one the daemon runs, resolved by the caller. */
 export function commands(
   env: (k: string) => string | undefined,
   root: string,
   listen: string,
   advertise: string | null = null,
+  claude: string = env('CLAUDE') ?? 'claude',
 ): { daemon: Cmd; gateway: Cmd } {
   const homeArgs = env('HOME') ? ['-home', env('HOME')!] : ['-allow-real-home'];
   const file = env('HANDLINED') ?? `${root}/go/handlined`;
   return {
     daemon: {
       file,
-      args: [...homeArgs, '-structured-cli', env('CLAUDE') ?? 'claude', '-structured-tick', '-terminal-tick', '-cutover'],
+      args: [...homeArgs, '-structured-cli', claude, '-structured-tick', '-terminal-tick', '-cutover'],
     },
     gateway: {
       file,

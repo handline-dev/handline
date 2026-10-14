@@ -39,7 +39,7 @@ export function whyNot(verb: RowVerb, t: Task, me: string): string | null {
     case 'queue':
       return t.state === 'draft' ? null : `#${t.id} is not a draft`;
     case 'draft':
-      return t.state === 'queued' ? null : `#${t.id} is not queued`;
+      return t.state === 'queued' || t.state === 'doing' ? null : `#${t.id} is not queued or running`;
     case 'release':
       return t.state === 'doing' ? null : `#${t.id} is not running`;
     case 'reopen':

@@ -44,7 +44,7 @@ describe('agent settings', () => {
     expect(input('context_k-input').value).toBe('300');
     expect(chosen('effort-high')).toBe(true);
     expect(text($('sandbox-switch'))).toBe('On');
-    expect(text($('skip_permissions-switch'))).toBe('Off');
+    expect($('field-skip_permissions')).toBeNull();
     for (const k of ['weight', 'handoff_note', 'repo', 'mode', 'browser', 'browser_sites', 'idle_close'])
       expect($(`field-${k}`)).not.toBeNull();
     expect($('session-account')).not.toBeNull();
@@ -82,19 +82,6 @@ describe('agent settings', () => {
     await until(() => text($('effort-note')).includes('busy'), 'the note');
     expect(chosen('effort-high')).toBe(true);
     expect(stored(m).effort).toBe('high');
-    m.store.stop();
-  });
-
-  it('skip prompts asks first in the bridge words; Cancel sends nothing and Turn on saves', async () => {
-    const m = await mount();
-    await until(() => $('skip_permissions-switch'), 'the settings');
-    await press($('skip_permissions-switch'));
-    expect(text($('skip_permissions-ask'))).toContain('it will act without asking, from the next launch');
-    await press($('skip_permissions-cancel'));
-    expect(stored(m).skip_permissions).toBe('off');
-    await press($('skip_permissions-switch'));
-    await press($('skip_permissions-go'));
-    await until(() => stored(m).skip_permissions === 'on', 'the save');
     m.store.stop();
   });
 

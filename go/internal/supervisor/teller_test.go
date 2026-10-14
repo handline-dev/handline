@@ -115,6 +115,32 @@ func TestTheTellerAfterAReleaseTypesTheStopAtAHolderAndRetiresAQueuedRequest(t *
 	}
 }
 
+func TestTheTellerAfterADraftParksTheHolderAndMovesItOnToItsNextTask(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	first := r.newTask("bob", "alice", "current")
+	second := r.newTask("bob", "alice", "the next one")
+	r.AdvanceCurrentTask(r.DB, "bob")
+	_, err := r.DB.Exec("UPDATE tasks SET queued_by = NULL WHERE id = ?", first) // the draft's own writes: unapproved, its delivery ended
+	r.must(err)
+	reqs, _ := db.TaskRequests(r.DB, first)
+	_, err = r.DB.Exec("UPDATE requests SET state = 'landed', landed_at = 1 WHERE id = ?", reqs[0].ID)
+	r.must(err)
+	r.must(db.EndHeld(r.DB, first, "bob"))
+	r.must(db.RefreshSent(r.DB, first))
+	r.term.typed = nil
+	said := r.Released(first, fmt.Sprintf("T%d made draft by alice", first), []taskwrites.Retired{{RID: reqs[0].ID, Requester: "alice", Target: "bob", Held: true, Park: true}})
+	if len(said) != 1 || said[0] != fmt.Sprintf("#%d ended; bob told to stop and moved on", reqs[0].ID) {
+		t.Fatalf("%q", said)
+	}
+	if typed := strings.Join(r.term.typed, "\n"); !strings.Contains(typed, "it is parked: stop work on it and move on to your next task") {
+		t.Fatalf("%q", typed)
+	}
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != second {
+		t.Fatalf("the holder was not moved on: %d", cur)
+	}
+}
+
 func TestTheTellerAfterACancelClosesTheTellsAndTypesTheStopToAnOwnerWithNoDelivery(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")

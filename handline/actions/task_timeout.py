@@ -66,10 +66,12 @@ def timeout_text(t: dict) -> str:
 
 
 def timeout_lines(t: dict, waits: str = "") -> list[str]:
-    """The task page's lines: the length and when it ends, or what a paused clock (`paused`, its seconds left) waits on."""
+    """The task page's lines: the length and when it ends, what a stopped clock waits on, or what a paused one (`paused`) has left."""
     line = f"timeout {timefmt.span(t['length'])}" + (" (the default)" if t["default"] else "")
+    if waits and t["start"] is None:
+        return [line, f"timeout paused: waiting on {waits}"]
     if t.get("paused") is not None:
-        return [line, f"paused{waits}, {timefmt.span(t['paused'])} left"]
+        return [line, f"paused, {timefmt.span(t['paused'])} left"]
     if t["start"] is None:
         return [line + " - counts while the task is doing"]
     out = [line, f"ends {timefmt.stamp(t['end'])}"]

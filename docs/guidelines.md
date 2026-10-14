@@ -94,9 +94,6 @@ That holds at launch too. When a start stops at a dialog no standing rule answer
 agent stalled with the dialog in its own words and a decision lands in your inbox. Answer it in the
 terminal; the stall lifts by itself once the screen is clear.
 
-If you turn on `--skip-permissions`, do it per agent and only for agents working in a throwaway
-worktree.
-
 ## Habits that pay off
 
 - Check `hl inbox` before you check on an agent. The answer is usually there.

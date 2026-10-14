@@ -29,6 +29,11 @@ func TestTheTaskImageFixturesPassAgainstTheTaskWritesAndReads(t *testing.T) {
 	play(t, "attachments.json", func(fx fixtureplay.Fixture) bool { return strings.HasPrefix(fx.Spec, "task.") })
 }
 
+// The fixtures of contract/fixtures/task_page.json: the page's fixture opens a task as an agent, which the binary's run cannot.
+func TestTheTaskPageFixturesPassAgainstTheTaskWritesAndReads(t *testing.T) {
+	play(t, "task_page.json", func(fixtureplay.Fixture) bool { return true })
+}
+
 func play(t *testing.T, file string, keep func(fixtureplay.Fixture) bool) {
 	fixtures, err := fixtureplay.Load(filepath.Join("..", "..", "..", "contract", "fixtures", file))
 	if err != nil {
@@ -47,6 +52,8 @@ func play(t *testing.T, file string, keep func(fixtureplay.Fixture) bool) {
 			home := t.TempDir()
 			os.MkdirAll(filepath.Join(home, "agents", "w"), 0o755)
 			os.WriteFile(filepath.Join(home, "agents", "w", "agent.yaml"), nil, 0o644)
+			os.MkdirAll(filepath.Join(home, "agents", "o"), 0o755)
+			os.WriteFile(filepath.Join(home, "agents", "o", "agent.yaml"), nil, 0o644)
 			tell := taskwrites.NewFakeTeller()
 			roles := map[string]string{"": fx.As}
 			for name, role := range fx.With {
@@ -65,7 +72,7 @@ func play(t *testing.T, file string, keep func(fixtureplay.Fixture) bool) {
 				reads.Register(s, reads.Env{DB: sdb, Home: home, Started: time.Now()})
 				conns[name] = open(t, s)
 			}
-			vars := map[string]any{"founder_key": "founder"}
+			vars := map[string]any{"founder_key": "founder", "task_owner": "o"}
 			for n, step := range fx.Steps {
 				on, _ := step["on"].(string)
 				reply := conns[on].call(t, fixtureplay.Fill(step["send"], vars))

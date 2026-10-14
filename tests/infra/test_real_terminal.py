@@ -243,6 +243,13 @@ def test_a_failed_start_stops_the_world() -> None:
     check("the world was stopped", Doomed.stopped, "")
 
 
+def test_a_world_closed_after_other_tests_stops_its_tmux_server(r: Real) -> None:
+    """A world kept across tests is closed after they reset the suite's tmux switch: its own tmux server still goes."""
+    sock = r.world.env["OCP_TMUX_SOCKET"]
+    alive = subprocess.run([support.REAL_TMUX, "-L", sock, "list-sessions"], capture_output=True).returncode == 0
+    check("the shared world's tmux server is gone once it is closed", not alive, sock)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_a_failed_start_stops_the_world())
@@ -265,6 +272,7 @@ def main() -> int:
             run(lambda: test_the_shared_client_drives_the_terminal_end_to_end())
         finally:
             THE.close()
+        run(lambda: test_a_world_closed_after_other_tests_stops_its_tmux_server(THE))
     return run_area(tests)
 
 

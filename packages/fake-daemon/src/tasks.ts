@@ -87,7 +87,7 @@ export class FakeTasks {
     });
   }
 
-  private find(id: unknown): Row {
+  find(id: unknown): Row {
     const t = this.rows.find((r) => r.id === id);
     if (!t) throw new TaskFailure('not_found', `no task ${String(id)}`);
     return t;
@@ -294,10 +294,10 @@ export class FakeTasks {
     this.change(t, { state: 'queued', done: null });
   }
   /** Queue or draft a list: the whole call is refused if any of them is in the wrong state. */
-  move(p: Record<string, unknown>, from: 'draft' | 'queued', to: 'draft' | 'queued'): void {
+  move(p: Record<string, unknown>, from: readonly string[], to: 'draft' | 'queued'): void {
     const rows = ((p.tasks as number[]) ?? []).map((id) => this.find(id));
-    const bad = rows.find((t) => t.state !== from);
-    if (bad) throw new TaskFailure('refused', `task ${bad.id} is ${bad.state}, not ${from}`);
+    const bad = rows.find((t) => !from.includes(t.state));
+    if (bad) throw new TaskFailure('refused', `task ${bad.id} is ${bad.state}, not ${from.join(' or ')}`);
     for (const t of rows) this.change(t, { state: to });
   }
   discard(p: Record<string, unknown>): void {
@@ -323,7 +323,7 @@ export class FakeTasks {
 }
 
 // The task methods the fake serves; the rest (handoff) are refused as `unsupported`.
-const BASIC = new Set(['tasks.list', 'task.get', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel']);
+const BASIC = new Set(['tasks.list', 'task.get', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel', 'task.ask']);
 const VERBS = new Set([
   'task.done',
   'task.accept',
@@ -347,6 +347,9 @@ export function taskCall(
   person: string,
   agent: boolean,
   script: { accepted(said: string, extra?: Record<string, unknown>): unknown },
+  ask: (task: number, to: string, text: string) => number = () => {
+    throw refused('unsupported', 'the fake daemon does not serve task.ask');
+  },
 ): unknown {
   const ok = (said: string, extra?: Record<string, unknown>) => script.accepted(said, extra);
   try {
@@ -363,6 +366,13 @@ export function taskCall(
         return (tasks.close(p, 'withdraw'), ok('Task withdrawn.'));
       case 'task.cancel':
         return (tasks.close(p, 'cancel'), ok('Task cancelled.'));
+      case 'task.ask': {
+        if (!Number.isInteger(p.task)) throw invalidParams('task is a task number', 'task');
+        if (typeof p.to !== 'string' || !p.to) throw invalidParams("to is an agent's name", 'to');
+        if (typeof p.text !== 'string' || !p.text.trim()) throw invalidParams('text is the question, not empty', 'text');
+        tasks.find(p.task);
+        return ok('Asked.', { request: ask(p.task as number, p.to, p.text.trim()) });
+      }
       case 'task.done':
         return ok(tasks.done(p, person));
       case 'task.accept':
@@ -372,9 +382,9 @@ export function taskCall(
       case 'task.reopen':
         return (tasks.reopen(p, person), ok('Task reopened.'));
       case 'task.queue':
-        return (tasks.move(p, 'draft', 'queued'), ok('Queued.'));
+        return (tasks.move(p, ['draft'], 'queued'), ok('Queued.'));
       case 'task.draft':
-        return (tasks.move(p, 'queued', 'draft'), ok('Back to draft.'));
+        return (tasks.move(p, ['queued', 'doing'], 'draft'), ok('Back to draft.'));
       case 'task.discard':
         return (tasks.discard(p), ok('Task discarded.'));
       case 'task.release':

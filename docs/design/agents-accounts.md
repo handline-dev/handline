@@ -40,7 +40,7 @@ A single column, 640 px at most, label at left (160 px) and control at right, se
 - **Agent** (read-only): session runs on (account), vendor, enabled.
 - **Model**: model (pick from the known list or type one), effort (select), weight (select), hand off at (number, "k tokens", with the share of the window it is shown beside it), handoff note (select; the "follow the global switch" choice names what the switch says now, e.g. "follow the global switch (on)").
 - **Work**: repo (text).
-- **Session**: mode (select, bypass not offered), skip prompts (switch, "from the next launch"), sandbox (switch).
+- **Session**: mode (select, "from the next launch"), sandbox (switch).
 - **Browser**: browser (select), sites (a list of allowed sites with add and remove), idle close (minutes, 0 = never).
 - **Schedules** (§2.3).
 
@@ -51,7 +51,7 @@ Fields whose effect comes at the next launch carry the bridge's note ("from the 
 Write kind from §8.5: `agent.set` is **authored**. The web keeps the bridge's per-field save (its `commit()` on blur for text fields, on change for selects and switches); there is no Save button, because the cache patch is per field and a failed field reverts alone:
 - A text or number field saves on blur or Enter; a select and a switch save on change.
 - While the value differs from the daemon's, the field shows the hollow dot; on refusal it reverts and its note line says why. A field with an invalid value (a non-number in "hand off at") is not sent; the note says what is allowed.
-- **Two switches confirm first, in the bridge's words.** Turning **skip prompts** on asks "Stop asking before this agent runs tools": "skip prompts runs claude --dangerously-skip-permissions: it will act without asking, from the next launch.", buttons **Turn on** and **Cancel**, drawn in `--block` as a danger confirm. Turning **sandbox** off (when it is on) asks "Run this agent without its sandbox": "Its commands will run with nothing holding them back, until its session ends.", buttons **Turn off** and **Cancel**. Until the person confirms nothing is sent; on Cancel, or a refusal, the switch snaps back to its stored value. Turning either the safe way (skip prompts off, sandbox on) asks nothing.
+- **The sandbox switch confirms first, in the bridge's words.** Turning **sandbox** off (when it is on) asks "Run this agent without its sandbox": "Its commands will run with nothing holding them back, until its session ends.", buttons **Turn off** and **Cancel**, drawn in `--block` as a danger confirm. Until the person confirms nothing is sent; on Cancel, or a refusal, the switch snaps back to its stored value. Turning it back on asks nothing.
 - The founder-only fields (from `whoami`) show a lock `🔒` and are read-only for other roles, with "founder only" as the tooltip; the page never offers a write it knows will be refused.
 - Leaving the page with an unsaved invalid field asks "Leave without saving?" with the problems listed (the bridge's `Confirm.ask` on leave); with only valid fields there is nothing unsaved.
 
@@ -114,7 +114,7 @@ The list is cards with the two gauges stacked and the agents count; the account 
 ## 4. What the tests check
 
 - U12: one control per `AGENT_KEYS` verb; the confirm set equals the bridge's `CONFIRM` plus wake-on-stalled; a confirm whose state changed sends nothing; a verb the daemon does not serve is absent; decided marks per verb. Clear stall is built behind the method being listed.
-- U13: each field of `agent_settings.py` edits and saves, reverts on refusal with its note; turning skip prompts on and sandbox off ask first, and a cancelled or refused switch snaps back and sends nothing; founder-only fields lock; schedules add, edit and remove with the hollow dot; skeleton heights equal loaded heights.
+- U13: each field of `agent_settings.py` edits and saves, reverts on refusal with its note; turning sandbox off asks first, and a cancelled or refused switch snaps back and sends nothing; founder-only fields lock; schedules add, edit and remove with the hollow dot; skeleton heights equal loaded heights.
 - U14: gauge colours at 59, 60, 84 and 85 percent with the text always present; the popup's narrow tiers; login opens a terminal tab and never asks for a credential; remove, when listed, refuses an account in use before it asks for the name.
 - All: skeleton timing of §8.6, no spinner in the DOM, light and dark, reduced motion, screenshots at 375 and 1280.
 

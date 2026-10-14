@@ -256,9 +256,6 @@ class Opencode:
             argv += ["-m", str(model)]
         return argv
 
-    def skip_permissions_argv(self) -> list[str]:
-        return []
-
     def auto_mode_argv(self) -> list[str]:
         return []
 

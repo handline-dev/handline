@@ -65,12 +65,12 @@ and what became of them.
 
 Written by `hl agent register`. Edit it by registering again with new options, not by hand,
 unless you also run `hl team seal`. The fields you will use: `vendor`, `model`, `effort`, `weight`
-(`light` or `heavy`), `repo`, `skip_permissions`, `chrome`, and `mcp_config`. Which account an
+(`light` or `heavy`), `repo`, `chrome`, and `mcp_config`. Which account an
 agent is on is not in this file. The daemon records it, and `hl agent move` changes it.
 
 Two more are the founder's to change, with `hl agent set <agent> mode=<m>` or `sandbox=off|on`
 (an agent that asks goes through HR). `mode` is Claude's permission mode: `default`, `auto` (the
-default), `acceptEdits`, `plan`, or `bypass`, which is `skip_permissions`. The sandbox is off
+default), `acceptEdits` or `plan`. Bypass mode is not supported. The sandbox is off
 unless `sandbox: true` is in the file: `sandbox=on` starts the agent's next session inside
 Claude's sandbox, and every session after it, until `sandbox=off`.
 
