@@ -12,6 +12,7 @@ import { useConnection } from '@handline/app-react';
 import { usePalette } from '../theme.ts';
 import { Button } from './parts.tsx';
 import { AskAbout } from './TaskAsk.tsx';
+import { ReportVerbs } from './TaskReport.tsx';
 import { MergeTasks, ReleaseTask } from './TaskReleaseMerge.tsx';
 
 const CLOSED = ['done', 'discarded'];
@@ -185,6 +186,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   };
   const open = !CLOSED.includes(t.state);
   const mine = t.from === me;
+  const founder = useStore().client.hello?.role === 'founder';
   const running = t.state === 'doing';
   const startable = t.state === 'draft' || t.state === 'queued' || t.state === 'pending';
   // The sheet closes when the daemon accepts; a refusal leaves it open with the text (the write reports the reason).
@@ -225,6 +227,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
         {open && verb('edit', 'Edit', off.edit, 'edit')}
         {open && verb('discard', 'Discard', off.discard, 'discard')}
       </View>
+      {t.state === 'reported' && (mine || founder) && <ReportVerbs t={t} />}
       {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: 12 }}>{Object.values(off).find(Boolean)}</Text>}
       {ask === 'done' && (
         <ReasonSheet
