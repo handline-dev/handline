@@ -57,6 +57,17 @@ func (t *Tokens) Record(agent string, pid int) bool {
 	return t.Store.Put(NS, agent, strings.Join(lines, "\n")) == nil
 }
 
+// Forget drops pid from agent's sessions, once that process has exited. False when the store cannot be written.
+func (t *Tokens) Forget(agent string, pid int) bool {
+	var lines []string
+	for _, s := range t.sessions(agent) {
+		if s.pid != pid {
+			lines = append(lines, fmt.Sprintf("%d %s", s.pid, s.start))
+		}
+	}
+	return t.Store.Put(NS, agent, strings.Join(lines, "\n")) == nil
+}
+
 type session struct {
 	pid   int
 	start string
