@@ -40,7 +40,7 @@ Reading across:
 | Merge gate | Read branch protection and the PR's `mergeable` / required-check state; never bypass | Merge request approvals and pipeline-must-succeed |
 
 CI is `T3931`'s work under `T3929`, still queued: its plan is one always-reporting aggregate job as
-the single required check on main. That job is the check the CI and merge-gate rows read; this note
+the single required check on main, named `check` (PR #118, not merged yet). That job is the check the CI and merge-gate rows read; this note
 only reads its state and does not define it.
 
 ## 3. What we would borrow
