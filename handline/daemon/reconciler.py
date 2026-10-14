@@ -52,7 +52,7 @@ def _stall_agent(con, agent: str, log, actions: list[str],
     call site's own except clause is what draws the line between "this
     agent's problem" and a fault the caller must keep propagating (reconcile:
     ConfigError/UnicodeDecodeError/OSError, the class a bad agent.yaml
-    raises, the same distinction hr.listing already draws for a bad proposal
+    raises, the same distinction proposals.listing already draws for a bad proposal
     file; tick(): bare Exception, the wider net a live turn can fail in more
     ways than a config read can)."""
     if fds.is_exhaustion(e):

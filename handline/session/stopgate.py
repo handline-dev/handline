@@ -1,6 +1,6 @@
 """The Stop hook gate (T288, founder #1748): refuses to let an agent end its
 turn while its current task has no recorded wait
-(`actions.tasks.stop_wait_reason`, T319/T292).
+(`stop_wait_reason`).
 
 It also reminds, once per message, an agent that ends its turn without answering a question
 put to it (`_unanswered_question`).
@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import re
 
-from ..actions import tasks as taskmod
 from ..infra import protected
+from ..team import proposals
 from .. import db
+from . import events
+from .states import MOVABLE_TRIGGERS, PARKED
 
 _NS = "gates"
 _NAME = "stop_wait"
@@ -30,6 +32,43 @@ def enforced() -> bool:
 def set_enforced(on: bool) -> None:
     """Founder-only - `protected.put` itself refuses an agent session."""
     protected.put(_NS, _NAME, "on" if on else "off")
+
+
+def wall_reason(con, agent: str, row=None) -> str | None:
+    """Why typing at this agent's open session would only spend quota, or None.
+
+    A turn that ended on the usage limit, or a park that a usage trigger put
+    it in, means the account cannot run one: what is typed starts a turn that
+    fails at once, marks the request delivered, clears the very mark that
+    says the agent is at the wall - and the next ask starts it over, each
+    round counting as a degraded handoff. Checked where the keystrokes are
+    sent, so no caller - `supervise`, `hl say`, an answer - can skip it.
+    """
+    if events.at_limit(con, agent):
+        return f"{agent} is at its usage limit"
+    row = row if row is not None else db.get_agent_state(con, agent)
+    if row and row["state"] == PARKED and not row["closed_at"]:
+        last = db.last_handoff(con, agent)
+        if last and last["trigger_kind"] in MOVABLE_TRIGGERS:
+            return f"{agent} is parked until its usage window rolls over"
+    return None
+
+
+def stop_wait_reason(con, agent: str) -> str | None:
+    """Why `agent` should not stop right now: it holds a
+    current task with no recorded wait. None if it holds none, or has one."""
+    tid = db.current_task(con, agent)
+    if tid is None:
+        return None
+    if db.open_child_tasks(con, tid):
+        return None
+    if db.task_blockers(con, tid):
+        return None
+    if db.open_decision_tasks_of(con, agent):
+        return None
+    if any(p.get("requested_by") == agent and p.get("state") == "proposed" for p in proposals.listing()):
+        return None     # its roster proposal is waiting on the founder
+    return f"T{tid} is current with no recorded wait"
 
 
 def _reason(tid: int, why: str) -> str:
@@ -79,13 +118,12 @@ def decide(agent: str, raw: dict) -> tuple[bool, str | None]:
         return False, None
     con = db.connect()
     try:
-        from ..daemon import delivery
-        if delivery.wall_reason(con, agent):
+        if wall_reason(con, agent):
             return False, None
         row = db.get_agent_state(con, agent)
         if row and row["closed_at"]:
             return False, None
-        why = taskmod.stop_wait_reason(con, agent)
+        why = stop_wait_reason(con, agent)
         if why is None:
             owed = _unanswered_question(con, agent)
             if owed is None:

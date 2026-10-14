@@ -17,7 +17,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.daemon import agentview, delivery, handoff_note, lifecycle, rpc  # noqa: E402
 from handline.infra import sessiontoken  # noqa: E402
-from handline.session import states as dmn_states, idle_close, observe as obs, term  # noqa: E402
+from handline.session import states as dmn_states, idle_close, observe as obs, stopgate, term  # noqa: E402
 from handline.team import ask as askmod  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -33,7 +33,7 @@ def _drift(con, label: str, now: int) -> None:
           f"{view['state']} {view['state_detail']!r} vs {word} {detail!r}")
     check(f"{label}: has_dialog is the DIALOG word", view["has_dialog"] == (word == "DIALOG"))
     check(f"{label}: wall_reason and would_wake are the daemon's",
-          view["wall_reason"] == delivery.wall_reason(con, "backend", row) and view["would_wake"] == bool(lifecycle.would_wake(con, row)))
+          view["wall_reason"] == stopgate.wall_reason(con, "backend", row) and view["would_wake"] == bool(lifecycle.would_wake(con, row)))
     left = handoff_note.cache_left(con, "backend", now)
     check(f"{label}: the cache time is the daemon's",
           (view["cache_until"] is None) == (left is None) and (left is None or view["cache_until"] == agentview._ts(now + left)))

@@ -362,14 +362,14 @@ def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(ho
 
 
 def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -> None:
-    """`hr.listing()` feeds `hl hr list` and the bridge's waiting list. A file
+    """`proposals.listing()` feeds `hl hr list` and the bridge's waiting list. A file
     that does not parse used to raise out of both, and the parser refuses more
     than it did, so the same one file would have hidden every proposal. It is
     left out and named, and a file that parses to something that is not a
     proposal is treated the same way."""
     restore_world()
     use_home(home)
-    d = hr.dir_()
+    d = proposals.dir_()
     (d / "good.yaml").write_text("id: good\nkind: add\nagent: newone\nstate: proposed\n"
                                  "requested_by: x\n")
     (d / "broken.yaml").write_text("id: broken\nkind: add\nagent: [unclosed\n")
@@ -378,7 +378,7 @@ def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -
     (d / "kindless.yaml").write_text("id: k\nagent: a\n")
     (d / "binary.yaml").write_bytes(b"id: \xff\xfe\n")
     skipped: list[str] = []
-    rows = hr.listing(skipped)
+    rows = proposals.listing(skipped)
     check("hr listing: the one good proposal is listed",
           [r["id"] for r in rows] == ["good"], str(rows))
     check("hr listing: each file left out is named, with the reason",
@@ -386,7 +386,7 @@ def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -
           == ["alist.yaml", "binary.yaml", "broken.yaml", "kindless.yaml", "other.yaml"]
           and sum("not a proposal" in x for x in skipped) == 3, str(skipped))
     check("hr listing: asked for no report, it still returns the good ones",
-          [r["id"] for r in hr.listing()] == ["good"])
+          [r["id"] for r in proposals.listing()] == ["good"])
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         code = climod.main(["hr", "list"])
@@ -413,7 +413,7 @@ def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -
             f.unlink()
     skipped.clear()
     check("hr listing: with the bad files gone nothing is reported",
-          [r["id"] for r in hr.listing(skipped)] == ["good"] and skipped == [])
+          [r["id"] for r in proposals.listing(skipped)] == ["good"] and skipped == [])
 
 
 def test_adding_an_agent_with_a_repo_registers_the_repo_in_orca(home: Path) -> None:
@@ -2944,12 +2944,12 @@ edges:
               and rc == 1 and decisions.get("hr", pid) is None, said + out)
         hr.save(prop)
 
-        kinds = hr.KINDS
-        hr.KINDS = tuple(k for k in kinds if k != "team")
+        kinds = proposals.KINDS
+        proposals.KINDS = tuple(k for k in kinds if k != "team")
         try:
             ok, said = approve_hr(pid)
         finally:
-            hr.KINDS = kinds
+            proposals.KINDS = kinds
         check("stale: a process that does not know the kind decides nothing",
               not ok and "knows" in said and hr.load_proposal(pid)["state"] == "proposed"
               and decisions.get("hr", pid) is None, said)
@@ -3136,10 +3136,10 @@ def test_an_agents_role_and_base_change_only_by_a_proposal_the_founder_approves(
     big_role.write_text("# worker\n\n" + "x" * 3072 + "\n")
     before = (paths.agent_dir("worker") / "ROLE.md").read_text()
     rc, out = _cli(["hr", "context", "worker", "--role-file", str(big_role), "--why", "a long role"], as_agent="other")
-    big = next((x["id"] for x in hr.listing() if x["kind"] == "context"), None)
+    big = next((x["id"] for x in proposals.listing() if x["kind"] == "context"), None)
     check("context: a 3KB ROLE.md is raised as a proposal", rc == 0 and big and hr.withdraw(big, "other")[0], out)
     rc, out = _cli(["hr", "context", "worker", "--role-file", str(role_file), "--why", "tighten"], as_agent="other")
-    pid = next((x["id"] for x in hr.listing() if x["kind"] == "context" and x["id"] != big), None)
+    pid = next((x["id"] for x in proposals.listing() if x["kind"] == "context" and x["id"] != big), None)
     check("context: an agent's proposal is raised, and nothing is written",
           rc == 0 and pid and (paths.agent_dir("worker") / "ROLE.md").read_text() == before, out)
     prop = hr.load_proposal(pid)
@@ -3202,9 +3202,9 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
               not reply["ok"] and "park_timeout_s" not in agents.read("worker"), str(reply))
         rc, out = _cli(["agent", "set", "other", "model=opus"], as_agent="worker")
         check("settings: another agent's setting is not written, and it needs a reason",
-              rc == 1 and agents.read("other").get("model") != "opus" and not hr.listing(), out)
+              rc == 1 and agents.read("other").get("model") != "opus" and not proposals.listing(), out)
         rc, out = _cli(["agent", "set", "other", "model=opus", "effort=low", "--why", "its work is cheap"], as_agent="worker")
-        pid = next((x["id"] for x in hr.listing() if x["kind"] == "settings" and x["agent"] == "other"), None)
+        pid = next((x["id"] for x in proposals.listing() if x["kind"] == "settings" and x["agent"] == "other"), None)
         check("settings: with a reason it is proposed for the founder, and nothing is written",
               rc == 0 and pid and agents.read("other").get("model") != "opus", f"rc={rc} {out}")
         rc, out = _cli(["agent", "set", "worker", "effort=low"], as_agent="worker")
@@ -3214,7 +3214,7 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
               not reply["ok"] and "hl agent set other" in reply["said"] and "--why" in reply["said"], str(reply))
         rc, out = _cli(["agent", "set", "worker", "browser=chrome"], as_agent="worker")
         check("settings: a privileged change needs a reason",
-              rc == 1 and not [x for x in hr.listing() if x["agent"] == "worker"], out)
+              rc == 1 and not [x for x in proposals.listing() if x["agent"] == "worker"], out)
         reply = daemon_send({"verb": "agent_set", "agent": "worker", "speaker": "worker",
                              "values": {"skip_permissions": "on"}})
         check("settings: the daemon verb refuses a privileged one outright",
@@ -3235,7 +3235,7 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
               and "proposal" in out, f"rc={rc} {out}")
     finally:
         dmn_client.send = real
-    pid = next(x["id"] for x in hr.listing() if x["kind"] == "settings" and x["agent"] == "worker")
+    pid = next(x["id"] for x in proposals.listing() if x["kind"] == "settings" and x["agent"] == "worker")
     prop = hr.load_proposal(pid)
     con = db.connect()
     try:
@@ -3273,9 +3273,9 @@ def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_f
               and "mode" not in agents.read("worker") and not agents.skip_permissions(agents.read("worker")))
         rc, out = _cli(["agent", "set", "worker", "sandbox=off"], as_agent="worker")
         check("settings: asking for the sandbox off needs a reason", rc == 1 and agents.sandbox_on("worker", agents.read("worker")), out)
-        before = len(hr.listing())
+        before = len(proposals.listing())
         rc, out = _cli(["agent", "set", "worker", "sandbox=off", "mode=acceptEdits", "--why", "a system job"], as_agent="worker")
-        check("settings: with one it is only proposed", rc == 0 and "proposal" in out and len(hr.listing()) == before + 1
+        check("settings: with one it is only proposed", rc == 0 and "proposal" in out and len(proposals.listing()) == before + 1
               and agents.sandbox_on("worker", agents.read("worker")) and "mode" not in agents.read("worker"), out)
     finally:
         dmn_client.send = real_send
@@ -4291,7 +4291,7 @@ def _approve(pid: str) -> tuple[bool, str]:
 
 
 def _new_props(seen: set[str]) -> list[dict]:
-    got = [p for p in hr.listing() if p["id"] not in seen and p.get("state") == "proposed"]
+    got = [p for p in proposals.listing() if p["id"] not in seen and p.get("state") == "proposed"]
     seen |= {p["id"] for p in got}
     return got
 

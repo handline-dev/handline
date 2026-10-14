@@ -238,24 +238,6 @@ def task_state(con, row) -> str:
     return _state_of(row, asked and holds_current(con, row), asked)
 
 
-def stop_wait_reason(con, agent: str) -> str | None:
-    """Why `agent` should not stop right now (T288, #1748): it holds a
-    current task with no recorded wait. None if it holds none, or has one."""
-    tid = db.current_task(con, agent)
-    if tid is None:
-        return None
-    if db.open_child_tasks(con, tid):
-        return None
-    if db.task_blockers(con, tid):
-        return None
-    if db.open_decision_tasks_of(con, agent):
-        return None
-    from ..team import hr
-    if any(p.get("requested_by") == agent and p.get("state") == "proposed" for p in hr.listing()):
-        return None     # its roster proposal is waiting on the founder
-    return f"T{tid} is current with no recorded wait"
-
-
 def child_blocker_of(con, tid: int):
     """The open child task of someone else that blocks `tid`, or None - whatever it is for (a
     review, a merge, a piece of the work): the flow that uses one is project guidance (T443). A child

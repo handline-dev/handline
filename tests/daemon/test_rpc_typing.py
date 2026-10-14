@@ -18,6 +18,7 @@ from support import *  # noqa: E402,F401,F403
 from handline import actions  # noqa: E402
 from handline.daemon import delivery, inputhold, socket_server  # noqa: E402
 from handline.infra import lock, sessiontoken  # noqa: E402
+from handline.session import stopgate  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_rpc import Wire, _hp  # noqa: E402
@@ -147,8 +148,8 @@ def test_the_gates_refuse_in_the_plans_order_and_name_themselves(home: Path) -> 
         con = db.connect()
         inputhold.release(con, "worker")
         con.close()
-        orig = delivery.wall_reason
-        delivery.wall_reason = lambda con, agent, row=None: f"{agent} is at its usage limit"
+        orig = stopgate.wall_reason
+        stopgate.wall_reason = lambda con, agent, row=None: f"{agent} is at its usage limit"
         try:
             r = _call("session.input", {"agent": "worker", "text": "hi", "request_id": "w1"})
             check("session.input: at the usage limit is refused, gate wall", _gate(r) == "wall" and not h.sent, str(r))
@@ -156,7 +157,7 @@ def test_the_gates_refuse_in_the_plans_order_and_name_themselves(home: Path) -> 
                 r = _call(method, {"agent": "worker", "request_id": f"w-{method}", **METHODS[method]})
                 check(f"{method}: passes the wall, as a key does", "result" in r, str(r))
         finally:
-            delivery.wall_reason = orig
+            stopgate.wall_reason = orig
         h.sent.clear()
         h.blocker = termmod.Blocker(termmod.MODAL, "a dialog")
         r = _call("session.input", {"agent": "worker", "text": "hi", "request_id": "b1"})
@@ -272,11 +273,11 @@ def test_the_typing_fixtures_pass_against_this_daemon(home: Path) -> None:
         db.set_agent_state(con, a, "IDLE")
     inputhold.take(con, "worker", "person", "someone.else", int(time.time()))
     con.close()
-    real = (sessiontoken.agent_of, delivery.wall_reason, termmod.available, termmod.screen_blocker, termmod.send, termmod._screen_tail)
+    real = (sessiontoken.agent_of, stopgate.wall_reason, termmod.available, termmod.screen_blocker, termmod.send, termmod._screen_tail)
     sent = []
     termmod.send = lambda handle, text, enter=True: (sent.append((handle, text)) or (True, ""))
     termmod._screen_tail = lambda handle: ["Resume this session with:", "user@host ~ % "] if handle == "t-shelled" else None
-    delivery.wall_reason = lambda con, agent, row=None: f"{agent} is at its usage limit" if agent == "walled" else None
+    stopgate.wall_reason = lambda con, agent, row=None: f"{agent} is at its usage limit" if agent == "walled" else None
     termmod.available = lambda: True
     termmod.screen_blocker = lambda handle: termmod.Blocker(termmod.MODAL, "a dialog") if handle == "t-manager" else None
     agents.register("walled")
@@ -298,7 +299,7 @@ def test_the_typing_fixtures_pass_against_this_daemon(home: Path) -> None:
                     {"founder_key": _hp()["key"], "locked_agent": "backend", "held_agent": "worker", "walled_agent": "walled",
                      "dialog_agent": "manager", "shell_agent": "shelled"}) if r[0] != "skip"]
     finally:
-        sessiontoken.agent_of, delivery.wall_reason, termmod.available, termmod.screen_blocker, termmod.send, termmod._screen_tail = real
+        sessiontoken.agent_of, stopgate.wall_reason, termmod.available, termmod.screen_blocker, termmod.send, termmod._screen_tail = real
     bad = [(n, why) for st, why, n, _ in results if st != "pass"]
     check("fixtures: every typing fixture passes against this daemon, each as its own role", not bad and results, str(bad))
     check("fixtures: nothing is typed at the agent whose pane is a shell prompt", not [s for s in sent if s[0] == "t-shelled"], str(sent))

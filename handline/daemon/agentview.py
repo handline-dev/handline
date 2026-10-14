@@ -12,7 +12,7 @@ from .. import actions, db
 from ..infra import paths
 from ..infra.textsafe import oneline
 from ..infra.yamlcompat import ConfigError
-from ..session import blocked as blockedmod, idle_close, launch, term, triggers
+from ..session import blocked as blockedmod, idle_close, launch, stopgate, term, triggers
 from ..team import agents
 from ..usage import load as loadmod, status
 from . import delivery, handoff_note, lifecycle
@@ -113,7 +113,7 @@ def compute(con, name: str, now: int | None = None, table=_READ, counts=_READ, s
     task_row = db.get_task(con, task) if task is not None else None
     account = agents.current_account(name, con)
     st = status.read_for_agent(name, account) if account else None
-    wall_reason = delivery.wall_reason(con, name, row)
+    wall_reason = stopgate.wall_reason(con, name, row)
     would_wake = bool(lifecycle.would_wake(con, row))
     ready = (task_row is not None and word == "IDLE" and actions.task_state(con, task_row) == "queued"
              and not db.task_blockers(con, task))

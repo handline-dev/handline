@@ -31,7 +31,7 @@ import time
 
 from ..team import ask as askmod
 from .. import db
-from . import term, waiting
+from . import stopgate, term, waiting
 from ..infra import paths, timefmt
 
 # The same obstacle, with work waiting, this long before it is said. A dialog
@@ -194,7 +194,7 @@ def classify(con, agent: str, row) -> tuple[str, str, str] | None:
         return HOST_DOWN, "", ""
     if not term.alive(handle):
         return NO_TERMINAL, "its terminal is gone - Orca no longer has it", ""
-    if dmn_delivery.wall_reason(con, agent, row):
+    if stopgate.wall_reason(con, agent, row):
         return None
     if row["state"] not in (dmn_states.RUNNING, dmn_states.HANDOFF) and not dmn_delivery.session_present(agent):
         return NO_SESSION, "", ""

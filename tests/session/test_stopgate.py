@@ -8,6 +8,8 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -15,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.session import stopgate  # noqa: E402
-from handline.infra import protected  # noqa: E402
+from handline.infra import hookspool, protected  # noqa: E402
 
 
 def _open_task(home: Path) -> int:
@@ -316,6 +318,29 @@ def test_record_from_stdin_blocks_only_when_enforced_and_never_marks_idle(home: 
         del os.environ["OCP_AGENT"]
 
 
+# Run in a fresh interpreter with handline.daemon an empty package, so any import of a module of it is seen.
+_HOOK_REACH = """
+import io, json, sys, types
+pkg = types.ModuleType("handline.daemon"); pkg.__path__ = []
+import handline; sys.modules["handline.daemon"] = pkg
+from handline.session import events
+for ev in ("PreToolUse", "PostToolUse", "Stop", "SessionStart"):
+    sys.stdin = io.StringIO(json.dumps({"hook_event_name": ev, "tool_name": "Bash", "tool_input": {"command": "ls"}}))
+    events.record_from_stdin([ev])
+print(json.dumps(sorted(m for m in sys.modules if m.startswith("handline.daemon."))))
+"""
+
+
+def test_the_hook_and_its_stop_gate_load_nothing_of_the_python_daemon(home: Path) -> None:
+    _open_task(home)
+    env = dict(os.environ, OCP_AGENT="worker")
+    r = subprocess.run([sys.executable, "-c", _HOOK_REACH], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
+    lines = r.stdout.splitlines()
+    check("hook: the gate ran and the events were recorded, with no daemon module loaded",
+          r.returncode == 0 and '"decision": "block"' in r.stdout and lines[-1] == "[]"
+          and hookspool.path().exists(), r.stdout + r.stderr)
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_stop_wait_reason_becomes_a_reason_naming_the_task(Path(td) / 'sg0'))
@@ -328,6 +353,7 @@ def main() -> int:
         run(lambda: test_a_reply_answers_the_agent_and_asks_nothing_whoever_sent_it(Path(td) / 'sg8'))
         run(lambda: test_the_enforce_switch_is_the_founders_to_flip(Path(td) / 'sg3'))
         run(lambda: test_record_from_stdin_blocks_only_when_enforced_and_never_marks_idle(Path(td) / 'sg4'))
+        run(lambda: test_the_hook_and_its_stop_gate_load_nothing_of_the_python_daemon(Path(td) / 'sg10'))
     return run_area(tests)
 
 

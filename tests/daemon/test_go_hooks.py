@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.daemon import spool  # noqa: E402
-from handline.infra import protected, sessiontoken  # noqa: E402
+from handline.infra import hookspool, protected, sessiontoken  # noqa: E402
 from handline.session import events  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -115,8 +115,8 @@ def _forget_sessions() -> None:
 
 def _spool_file(lines: list) -> None:
     for agent, kind, data, rid, at in lines:
-        spool.append(agent, kind, data, rid, at)
-    with open(spool.path(), "a") as f:                 # a line that is not JSON, one missing keys, one of the wrong shape
+        hookspool.append(agent, kind, data, rid, at)
+    with open(hookspool.path(), "a") as f:                 # a line that is not JSON, one missing keys, one of the wrong shape
         f.write("this is not json\n" + json.dumps({"agent": "worker"}) + "\n" + json.dumps([1, 2]) + "\n")
 
 
@@ -242,9 +242,9 @@ def test_go_finishes_an_ingest_that_was_killed(home: Path) -> None:
     shutil.copy(home / "db.sqlite", snapshot)
     lines = _lines(base)[:3]
     for agent, kind, data, rid, at in lines:
-        spool.append(agent, kind, data, rid, at)
-    os.rename(spool.path(), spool.path().with_suffix(".ingesting"))          # the ingest was killed after taking the file
-    spool.append("worker", "Stop", {}, "late1", base + 50)                   # and a hook wrote a new one meanwhile
+        hookspool.append(agent, kind, data, rid, at)
+    os.rename(hookspool.path(), hookspool.path().with_suffix(".ingesting"))          # the ingest was killed after taking the file
+    hookspool.append("worker", "Stop", {}, "late1", base + 50)                   # and a hook wrote a new one meanwhile
     with tempfile.TemporaryDirectory() as td:
         binary = str(Path(td) / "handlined")
         built = subprocess.run([str(ROOT / "tools" / "build-go.sh"), binary], capture_output=True, text=True)

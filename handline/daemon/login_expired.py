@@ -17,7 +17,7 @@ from .. import db
 from ..session import term
 from ..session import triggers
 from . import handoff
-from ..session.states import QUEUED, RUNNING, IDLE, STALLED
+from ..session.states import LOGIN_TRIGGER, QUEUED, RUNNING, IDLE, STALLED
 
 LINE = "Login expired · Please run /login"
 # Only the rows nearest the prompt count, and only a row that is nothing but the
@@ -88,7 +88,7 @@ def check(con, agent: str, row, acct: str | None, log, actions: list[str]) -> bo
     marked = accounts.login_expired(acct) or _mark_from_screen(con, agent, row, acct, log)
     if not marked:
         return False
-    dest, why = handoff._move_plan(con, agent, handoff.LOGIN_TRIGGER)
+    dest, why = handoff._move_plan(con, agent, LOGIN_TRIGGER)
     if dest is None:
         # Nothing is waiting out a window here, so a retry loop would only fail again:
         # the agent is shown as stopped, and `lift` releases it once the account logs in.
@@ -97,7 +97,7 @@ def check(con, agent: str, row, acct: str | None, log, actions: list[str]) -> bo
         actions.append(f"{agent}: STALLED, {LOGIN_STALL} on {acct}")
         log(f"  {agent}: {detail}")
         return True
-    trigger = triggers.Trigger(True, handoff.LOGIN_TRIGGER, f"{LOGIN_STALL} on {acct}: {marked.get('why')}")
+    trigger = triggers.Trigger(True, LOGIN_TRIGGER, f"{LOGIN_STALL} on {acct}: {marked.get('why')}")
     ok = handoff.perform_handoff(con, agent, trigger, log, dest=dest)
     actions.append(f"{agent}: handoff (login){'' if ok else ' -> degraded'}")
     return True

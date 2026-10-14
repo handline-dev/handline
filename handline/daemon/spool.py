@@ -1,7 +1,5 @@
-"""The hook spool: where a hook leaves an event when the daemon is down (plan, "Agent hooks and the record
-path"). A hook sends its event to the daemon; if it cannot, it appends one line here, and the daemon reads the
-file and removes it at start. It only records: nothing in it decides or acts, and the daemon applies each line
-the same way it applies a call, once, by its request id."""
+"""Reading the hook spool (`infra/hookspool` writes it): the daemon applies each line the same way it applies a
+call, once, by its request id."""
 from __future__ import annotations
 
 import fcntl
@@ -11,25 +9,9 @@ import sqlite3
 import time
 
 from ..infra import paths
+from ..infra.hookspool import path
 
-NAME = paths.HOOK_SPOOL
 REJECTED = paths.HOOK_SPOOL_REJECTED
-
-
-def path():
-    return paths.home() / NAME
-
-
-def append(agent: str, kind: str, data: dict, request_id: str, at: int | None = None) -> None:
-    """One line, written whole under an exclusive lock, so lines from hooks running at once never mix."""
-    line = json.dumps({"agent": agent, "kind": kind, "at": int(time.time()) if at is None else at,
-                       "data": data, "request_id": request_id}) + "\n"
-    fd = os.open(path(), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        os.write(fd, line.encode("utf-8"))
-    finally:
-        os.close(fd)
 
 
 # What is not the line's fault, and so keeps it: the database busy or failing (sqlite3.Error: a lock that timed

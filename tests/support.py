@@ -61,7 +61,7 @@ if shutil.which("claude") is None:
 
 from handline.cli import (account as cliaccount, ask as cliask, bridge as clibridge, daemon as clidaemon,  # noqa: E402
                      health as clihealth, setup as clisetup, task as clitask)
-from handline.team import accounts, agents, ask as askmod, decisions, hr, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
+from handline.team import accounts, agents, ask as askmod, decisions, hr, proposals, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
 from handline import actions, cli as climod, db, vendors  # noqa: E402
 from handline.session import blocked as blockedmod, digest, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, term as termmod, triggers, waiting  # noqa: E402
 from handline.vendors import claude_meter as claudemeter  # noqa: E402
@@ -2475,6 +2475,7 @@ __all__ = [
     'dmn_usage_poll',
     'db',
     'hr',
+    'proposals',
     'decisions',
     'digest',
     'backupmod',

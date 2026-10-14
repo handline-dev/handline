@@ -24,7 +24,8 @@ from ..session import triggers
 
 from . import agentview, applysettings, costpilot, delivery, handoff, handoff_note, landing, lifecycle, login_expired, messaging, reconciler, noticedigest, schedules, spool, subscriptions, taskholds, taskqueue, timebox, usage_poll, waitfor
 from .states import MAX_FAILED_ATTEMPTS, MAX_THROTTLE_STREAK
-from ..session.states import DEGRADED, EVALUATED, HANDOFF, IDLE, PARKED, QUEUED, RUNNING, STALLED, THROTTLED
+from ..session.states import (DEGRADED, EVALUATED, HANDOFF, IDLE, MOVABLE_TRIGGERS, PARKED, QUEUED, RUNNING, STALLED,
+                              THROTTLED)
 
 
 # ---------------------------------------------------------------- reconcile
@@ -362,11 +363,11 @@ def supervise(con, agent: str, log, now: int, samples: dict,
         last = db.last_handoff(con, agent)
         verdict = triggers.evaluate(st.short_trusted, st.trusted_ctx_used,
                                     long_pct=st.long_trusted, ctx_limit=ctx_limit)
-        movable = last and last["trigger_kind"] in handoff.MOVABLE_TRIGGERS
+        movable = last and last["trigger_kind"] in MOVABLE_TRIGGERS
         # Still at the wall here, but another account may have rolled over or
         # freed a slot since the park: if the work is worth a cold start, move
         # now rather than wait out this account's own window.
-        if movable and verdict.fired and verdict.kind in handoff.MOVABLE_TRIGGERS \
+        if movable and verdict.fired and verdict.kind in MOVABLE_TRIGGERS \
                 and handoff._move_plan(con, agent, verdict.kind)[0]:
             with lock.terminal(agent) as mine:
                 # require_idle=False: `_move_to_room` ends the session itself,
@@ -414,7 +415,7 @@ def supervise(con, agent: str, log, now: int, samples: dict,
     # whatever the reading says (it can lag, or be the other window): move it
     # the same way a trigger would.
     stopped = at_wall
-    if stopped and not (t.fired and t.kind in handoff.MOVABLE_TRIGGERS):
+    if stopped and not (t.fired and t.kind in MOVABLE_TRIGGERS):
         text = stopped["limit"]
         t = triggers.Trigger(True, "usage_7d" if "week" in text.lower() else "usage",
                              f"turn ended on its usage limit: {text} "

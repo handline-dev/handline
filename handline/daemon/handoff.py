@@ -22,7 +22,8 @@ from ..session import triggers
 
 from . import delivery, handoff_note, lifecycle
 from .states import ASSUMED_ACCOUNT_RECHECK_S, HANDOFF_DEADLINE_S, LIMIT_SETTLE_S, MIN_HANDOFF_INTERVAL_S, PROMPT_CACHE_S, backoff_for
-from ..session.states import BY_HAND_MARK, HANDOFF, IDLE, MOVING_MARK, PARKED, QUEUED, RUNNING, STALLED
+from ..session.states import (BY_HAND_MARK, HANDOFF, IDLE, LOGIN_TRIGGER, MOVABLE_TRIGGERS, MOVING_MARK, PARKED, QUEUED,
+                              RUNNING, STALLED)
 
 
 def _record_handoff(con, agent: str, hid: str, log) -> bool:
@@ -240,15 +241,6 @@ def perform_handoff(con, agent: str, trigger: triggers.Trigger, log,
             delivery._mark_typed(con, agent)
         return ok
 
-
-# An account whose login expired: no window rolls over to wait out, and a turn
-# on it fails, so the move is not weighed against a reset and takes no note.
-LOGIN_TRIGGER = "login"
-
-# The triggers a move answers: the two walls, a person's own order, and a login that expired. Nothing
-# below a wall is a reason to move a working agent, and an account nobody can
-# read is not a wall.
-MOVABLE_TRIGGERS = ("usage", "usage_7d", "forced", LOGIN_TRIGGER)
 
 # The only triggers with a real wall to sleep out: an account's own window has
 # to roll over before either can clear. Everything else a handoff fires on -

@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.daemon import rpc, spool  # noqa: E402
+from handline.infra import hookspool  # noqa: E402
 from handline.infra import daemonclient as client
 from handline.infra import paths, service, sessiontoken  # noqa: E402
 from handline.session import waiting  # noqa: E402
@@ -253,7 +254,7 @@ def test_hooks_that_run_while_the_daemon_is_down_are_all_there_after(home: Path)
                 sys.stdin = real_in
     finally:
         del os.environ["OCP_AGENT"]
-    lines = spool.path().read_text().splitlines()
+    lines = hookspool.path().read_text().splitlines()
     check("spool: every hook event is a whole line in the file, nothing applied yet", len(lines) == len(kinds)
           and all(json.loads(ln)["agent"] == "worker" for ln in lines), str(len(lines)))
     con = db.connect()
@@ -261,7 +262,7 @@ def test_hooks_that_run_while_the_daemon_is_down_are_all_there_after(home: Path)
     n = spool.ingest(con, lambda m: None)
     got = [r["kind"] for r in con.execute("SELECT kind FROM events WHERE agent = 'worker' AND kind IN ('UserPromptSubmit', 'Stop') ORDER BY id")]
     check("spool: the daemon applies them all, in the order they happened", n == len(kinds) and got == [k for k in kinds if k != "PostToolUse"], str(got))
-    check("spool: and the file is gone", not spool.path().exists() and not spool.path().with_suffix(".ingesting").exists())
+    check("spool: and the file is gone", not hookspool.path().exists() and not hookspool.path().with_suffix(".ingesting").exists())
     check("spool: the agent's state is what the last event says", db.get_agent_state(con, "worker")["state"] == "IDLE")
     stamps = [r["ts"] for r in con.execute("SELECT ts FROM events WHERE agent = 'worker' AND kind = 'Stop'")]
     check("spool: each keeps the time the hook ran", all(abs(t - time.time()) < 60 for t in stamps) and len(stamps) == 2)
@@ -271,19 +272,19 @@ def test_hooks_that_run_while_the_daemon_is_down_are_all_there_after(home: Path)
 def test_a_spool_left_half_ingested_is_not_applied_twice(home: Path) -> None:
     support.use_home(home)
     agents.register("worker")
-    spool.append("worker", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit", "prompt": "x"}, "req-1")
-    spool.append("worker", "Stop", {"hook_event_name": "Stop"}, "req-2")
+    hookspool.append("worker", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit", "prompt": "x"}, "req-1")
+    hookspool.append("worker", "Stop", {"hook_event_name": "Stop"}, "req-2")
     con = db.connect()
-    work = spool.path().with_suffix(".ingesting")
-    spool.path().rename(work)               # a daemon that died after taking the file, before removing it
+    work = hookspool.path().with_suffix(".ingesting")
+    hookspool.path().rename(work)               # a daemon that died after taking the file, before removing it
     copy = work.read_text()
     spool.ingest(con, lambda m: None)
     work.write_text(copy)                   # the same lines again, as a crash after applying them would leave
     spool.ingest(con, lambda m: None)
     check("spool: replaying the same lines applies each request once",
           con.execute("SELECT COUNT(*) FROM events WHERE agent = 'worker' AND kind IN ('UserPromptSubmit', 'Stop')").fetchone()[0] == 2)
-    spool.append("worker", "Stop", {"hook_event_name": "Stop"}, "req-3")
-    path = spool.path()
+    hookspool.append("worker", "Stop", {"hook_event_name": "Stop"}, "req-3")
+    path = hookspool.path()
     path.write_text(path.read_text() + "not json at all\n")
     check("spool: a bad line is skipped and the rest applied", spool.ingest(con, lambda m: None) == 1)
     con.close()
@@ -295,13 +296,13 @@ def test_many_hooks_appending_at_once_never_mix_their_lines(home: Path) -> None:
 
     def go(i):
         for j in range(10):
-            spool.append("worker", "PostToolUse", {"hook_event_name": "PostToolUse", "pad": big}, f"r{i}-{j}")
+            hookspool.append("worker", "PostToolUse", {"hook_event_name": "PostToolUse", "pad": big}, f"r{i}-{j}")
     threads = [threading.Thread(target=go, args=(i,)) for i in range(8)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    lines = spool.path().read_text().splitlines()
+    lines = hookspool.path().read_text().splitlines()
     ids = {json.loads(ln)["request_id"] for ln in lines}
     check("spool: 80 lines from 8 writers, every one whole", len(lines) == 80 and len(ids) == 80)
 
@@ -358,9 +359,9 @@ def test_a_spool_replayed_after_a_crash_changes_nothing_a_second_time(home: Path
     con = db.connect()
     db.set_agent_state(con, "worker", dmn_states.IDLE)
     for i, kind in enumerate(("PostToolUse", "Stop")):
-        spool.append("worker", kind, {"hook_event_name": kind, "session_id": "s"}, f"seq-{i}")
-    work = spool.path().with_suffix(".ingesting")
-    copy = spool.path().read_text()
+        hookspool.append("worker", kind, {"hook_event_name": kind, "session_id": "s"}, f"seq-{i}")
+    work = hookspool.path().with_suffix(".ingesting")
+    copy = hookspool.path().read_text()
     spool.ingest(con, lambda m: None)
     check("replay: after the first pass the agent is idle", db.get_agent_state(con, "worker")["state"] == "IDLE")
     work.write_text(copy)           # the daemon died before it removed the file: the same two lines again
@@ -430,7 +431,7 @@ def test_a_line_the_database_could_not_take_stays_for_the_next_try_and_a_bad_lin
     support.use_home(home)
     agents.register("worker")
     for i in range(3):
-        spool.append("worker", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit", "prompt": str(i)}, f"lock-{i}")
+        hookspool.append("worker", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit", "prompt": str(i)}, f"lock-{i}")
     con = db.connect()
     con.execute("PRAGMA busy_timeout = 100")
     other = sqlite3.connect(paths.db_file(), isolation_level=None)
@@ -441,14 +442,14 @@ def test_a_line_the_database_could_not_take_stays_for_the_next_try_and_a_bad_lin
     finally:
         other.execute("ROLLBACK")
         other.close()
-    work = spool.path().with_suffix(".ingesting")
+    work = hookspool.path().with_suffix(".ingesting")
     check("locked: nothing is applied and nothing is lost: the lines are all still in the file",
           n == 0 and work.exists() and len(work.read_text().splitlines()) == 3, f"{n} {logs}")
     check("locked: it says why it stopped", any("could not take" in m and "locked" in m for m in logs), str(logs))
     n = spool.ingest(con, lambda m: None)
     got = con.execute("SELECT COUNT(*) FROM events WHERE kind = 'UserPromptSubmit'").fetchone()[0]
     check("locked: with the lock gone the next try applies all three, once, and removes the file",
-          n == 3 and got == 3 and not work.exists() and not spool.path().exists(), f"{n} {got}")
+          n == 3 and got == 3 and not work.exists() and not hookspool.path().exists(), f"{n} {got}")
     con.close()
 
 
@@ -456,7 +457,7 @@ def test_a_failure_part_way_leaves_only_the_lines_not_yet_applied(home: Path) ->
     support.use_home(home)
     agents.register("worker")
     for i in range(4):
-        spool.append("worker", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit"}, f"part-{i}")
+        hookspool.append("worker", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit"}, f"part-{i}")
     con = db.connect()
     from handline.daemon import rpc_hooks
     real = rpc_hooks.apply
@@ -470,7 +471,7 @@ def test_a_failure_part_way_leaves_only_the_lines_not_yet_applied(home: Path) ->
     rpc_hooks.apply = fails_on_third
     try:
         n = spool.ingest(con, lambda m: None)
-        left = [json.loads(ln)["request_id"] for ln in spool.path().with_suffix(".ingesting").read_text().splitlines()]
+        left = [json.loads(ln)["request_id"] for ln in hookspool.path().with_suffix(".ingesting").read_text().splitlines()]
         check("part way: two applied, and the failing line and the one after it are what is left", n == 2 and left == ["part-2", "part-3"], f"{n} {left}")
         n = spool.ingest(con, lambda m: None)
     finally:
@@ -483,18 +484,18 @@ def test_a_failure_part_way_leaves_only_the_lines_not_yet_applied(home: Path) ->
 def test_a_line_that_is_bad_is_skipped_and_the_good_ones_around_it_apply(home: Path) -> None:
     support.use_home(home)
     agents.register("worker")
-    spool.append("worker", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit"}, "good-1")
-    with open(spool.path(), "a") as f:
+    hookspool.append("worker", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit"}, "good-1")
+    with open(hookspool.path(), "a") as f:
         f.write("not json at all\n")
         f.write(json.dumps({"agent": "worker", "kind": "Stop"}) + "\n")                      # no data, no request id
         f.write(json.dumps({"agent": "worker", "kind": "Stop", "data": "no", "at": "x", "request_id": "bad-3"}) + "\n")
-    spool.append("worker", "Stop", {"hook_event_name": "Stop"}, "good-2")
+    hookspool.append("worker", "Stop", {"hook_event_name": "Stop"}, "good-2")
     con = db.connect()
     logs = []
     n = spool.ingest(con, logs.append)
-    rejected = [json.loads(ln) for ln in spool.path().with_name(spool.REJECTED).read_text().splitlines()]
+    rejected = [json.loads(ln) for ln in hookspool.path().with_name(spool.REJECTED).read_text().splitlines()]
     check("bad lines: the two good lines apply, the three bad ones are set aside whole, the spool file removed",
-          n == 2 and not spool.path().with_suffix(".ingesting").exists() and len(rejected) == 3
+          n == 2 and not hookspool.path().with_suffix(".ingesting").exists() and len(rejected) == 3
           and [r["line"] for r in rejected][0] == "not json at all"
           and {r["error"] for r in rejected} == {"JSONDecodeError", "KeyError", "ValueError"}, f"{n} {logs} {rejected}")
     check("bad lines: and the log counts them", any("3 line(s) set aside" in m for m in logs), str(logs))
@@ -503,7 +504,7 @@ def test_a_line_that_is_bad_is_skipped_and_the_good_ones_around_it_apply(home: P
 
 def test_an_unreadable_file_keeps_everything(home: Path) -> None:
     support.use_home(home)
-    spool.append("worker", "Stop", {"hook_event_name": "Stop"}, "unread-1")
+    hookspool.append("worker", "Stop", {"hook_event_name": "Stop"}, "unread-1")
     con = db.connect()
     real = Path.read_text
 
@@ -521,7 +522,7 @@ def test_an_unreadable_file_keeps_everything(home: Path) -> None:
     finally:
         Path.read_text = real
     check("file: a file that cannot be read raises, and stays where it is",
-          raised and spool.path().with_suffix(".ingesting").exists())
+          raised and hookspool.path().with_suffix(".ingesting").exists())
     con.close()
 
 
@@ -530,11 +531,11 @@ def test_an_applied_hook_id_is_kept_while_a_file_that_may_replay_it_is_waiting(h
     con = db.connect()
     old = int(time.time()) - 2 * 24 * 3600
     con.execute("INSERT INTO hook_applied(request_id, ts) VALUES('old-1', ?)", (old,))
-    spool.path().with_suffix(".ingesting").write_text("")           # a crash-left file
+    hookspool.path().with_suffix(".ingesting").write_text("")           # a crash-left file
     evmod.apply_hook(con, "backend", "Stop", {"hook_event_name": "Stop"}, "new-1", int(time.time()))
     check("keep: an id older than a day stays while a crash-left file waits",
           con.execute("SELECT COUNT(*) FROM hook_applied WHERE request_id = 'old-1'").fetchone()[0] == 1)
-    spool.path().with_suffix(".ingesting").unlink()
+    hookspool.path().with_suffix(".ingesting").unlink()
     evmod.apply_hook(con, "backend", "Stop", {"hook_event_name": "Stop"}, "new-2", int(time.time()))
     check("keep: and goes when none does", con.execute("SELECT COUNT(*) FROM hook_applied WHERE request_id = 'old-1'").fetchone()[0] == 0)
     con.close()
@@ -584,20 +585,20 @@ def test_pruning_keeps_each_agents_newest_applied_row(home: Path) -> None:
 
 def test_the_tick_applies_what_a_hook_left_while_the_daemon_ran(home: Path) -> None:
     support._daemon_home(home, 20)
-    spool.append("backend", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit", "prompt": "x"}, "tick-1")
+    hookspool.append("backend", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit", "prompt": "x"}, "tick-1")
     con = db.connect()
     from handline.daemon import evaluate
     evaluate.tick(con, lambda m: None)
     check("tick: a spooled hook event is applied by the next tick, not only at start",
-          con.execute("SELECT COUNT(*) FROM events WHERE kind = 'UserPromptSubmit'").fetchone()[0] == 1 and not spool.path().exists())
+          con.execute("SELECT COUNT(*) FROM events WHERE kind = 'UserPromptSubmit'").fetchone()[0] == 1 and not hookspool.path().exists())
     con.close()
 
 
 def test_a_line_that_cannot_be_applied_is_set_aside_not_lost(home: Path) -> None:
     support.use_home(home)
     agents.register("worker")
-    spool.append("worker", "Stop", {"hook_event_name": "Stop"}, "rej-1")
-    spool.append("worker", "Stop", {"hook_event_name": "Stop"}, "rej-2")
+    hookspool.append("worker", "Stop", {"hook_event_name": "Stop"}, "rej-1")
+    hookspool.append("worker", "Stop", {"hook_event_name": "Stop"}, "rej-2")
     con = db.connect()
     from handline.daemon import rpc_hooks
     real = rpc_hooks.apply
@@ -612,11 +613,11 @@ def test_a_line_that_cannot_be_applied_is_set_aside_not_lost(home: Path) -> None
         n = spool.ingest(con, logs.append)
     finally:
         rpc_hooks.apply = real
-    side = [json.loads(ln) for ln in spool.path().with_name(spool.REJECTED).read_text().splitlines()]
+    side = [json.loads(ln) for ln in hookspool.path().with_name(spool.REJECTED).read_text().splitlines()]
     check("rejected: the line an apply bug failed on is in the rejected file, whole, with the error class and a time",
           n == 1 and len(side) == 1 and json.loads(side[0]["line"])["request_id"] == "rej-1" and side[0]["error"] == "AttributeError"
           and side[0]["rejected_at"] > 0, str(side))
-    check("rejected: the next line still applied and the spool is gone", not spool.path().with_suffix(".ingesting").exists()
+    check("rejected: the next line still applied and the spool is gone", not hookspool.path().with_suffix(".ingesting").exists()
           and con.execute("SELECT COUNT(*) FROM events WHERE kind = 'Stop'").fetchone()[0] == 1)
     check("rejected: and the log says how many", any("1 line(s) set aside" in m for m in logs), str(logs))
     con.close()
@@ -624,18 +625,18 @@ def test_a_line_that_cannot_be_applied_is_set_aside_not_lost(home: Path) -> None
 
 def test_a_line_that_cannot_be_set_aside_either_stays_in_the_spool(home: Path) -> None:
     support.use_home(home)
-    spool.append("worker", "Stop", {"hook_event_name": "Stop"}, "stay-1")
+    hookspool.append("worker", "Stop", {"hook_event_name": "Stop"}, "stay-1")
     con = db.connect()
     from handline.daemon import rpc_hooks
     real = rpc_hooks.apply
     rpc_hooks.apply = lambda *a: (_ for _ in ()).throw(AttributeError("bug"))
-    spool.path().with_name(spool.REJECTED).mkdir()          # a folder where the file should go: it cannot be written
+    hookspool.path().with_name(spool.REJECTED).mkdir()          # a folder where the file should go: it cannot be written
     try:
         spool.ingest(con, lambda m: None)
     finally:
         rpc_hooks.apply = real
     check("rejected: when the rejected file cannot be written the line stays in the spool",
-          len(spool.path().with_suffix(".ingesting").read_text().splitlines()) == 1)
+          len(hookspool.path().with_suffix(".ingesting").read_text().splitlines()) == 1)
     con.close()
 
 
@@ -650,7 +651,7 @@ def test_an_older_event_arriving_late_is_recorded_and_moves_nothing(home: Path) 
     con = db.connect()
     db.set_agent_state(con, "worker", dmn_states.IDLE)
     # a PostToolUse kept in the spool behind a lock (t=100), then a live Stop (t=200), then the tick's replay
-    spool.append("worker", "PostToolUse", {"hook_event_name": "PostToolUse", "session_id": "s"}, "late-1", at=now - 100)
+    hookspool.append("worker", "PostToolUse", {"hook_event_name": "PostToolUse", "session_id": "s"}, "late-1", at=now - 100)
     con.execute("PRAGMA busy_timeout = 100")
     other = sqlite3.connect(paths.db_file(), isolation_level=None)
     other.execute("BEGIN IMMEDIATE")
@@ -709,7 +710,7 @@ def test_hl_hook_still_works_from_an_agent_session_with_the_daemon_down(home: Pa
     r = subprocess.run([str(ROOT / "bin" / "hl"), "hook", "UserPromptSubmit"], capture_output=True, text=True, env=env,
                        input=json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "s", "prompt": "x"}))
     check("hl hook: exits 0 and answers {} with no daemon", r.returncode == 0 and r.stdout.strip() == "{}", r.stdout + r.stderr[-200:])
-    check("hl hook: and the event is in the spool", spool.path().exists() and json.loads(spool.path().read_text().splitlines()[0])["kind"] == "UserPromptSubmit")
+    check("hl hook: and the event is in the spool", hookspool.path().exists() and json.loads(hookspool.path().read_text().splitlines()[0])["kind"] == "UserPromptSubmit")
 
 
 def main() -> int:
