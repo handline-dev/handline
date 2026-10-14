@@ -1327,7 +1327,7 @@
   {
    "name": "terminal.bytes.a_viewer_resizes_when_nobody_holds",
    "spec": "terminal.resize",
-   "about": "With nobody holding the input, any connection that has the terminal attached resizes it, and the last resize wins. Every attach hears it: a bytes attach by a snapshot, a text attach by a resize notice. Nothing is restored: the fixture puts the first size back itself. Needs --var bytes_agent.",
+   "about": "With nobody holding the input, any connection that has the terminal attached resizes it, down to 80 by 24, and the last resize wins. Every attach hears it: a bytes attach by a snapshot, a text attach by a resize notice. Under 80 by 24 a viewer is refused, gate input_holder. When the last attach goes, the size from before the first of those resizes is given back. Needs --var bytes_agent.",
    "as": "founder",
    "with": {
     "other": "founder"
@@ -1483,13 +1483,17 @@
       "method": "terminal.resize",
       "params": {
        "terminal": "{{term}}",
-       "cols": "{{c0}}",
-       "rows": "{{r0}}",
+       "cols": 79,
+       "rows": 30,
        "request_id": "conf-tb-27"
       }
      },
-     "result": {
-      "accepted": true
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "input_holder"
+      }
      },
      "notices": [
       {
@@ -1505,6 +1509,47 @@
       }
      ],
      "notices_within_s": 5
+    },
+    {
+     "on": "other",
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "terminal.detach",
+      "params": {
+       "terminal": "{{term}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "terminal.detach",
+      "params": {
+       "terminal": "{{term}}",
+       "format": "bytes"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 0
+      }
+     },
+     "result": {
+      "terminal": "{{term}}",
+      "cols": "{{c0}}",
+      "rows": "{{r0}}"
+     }
     }
    ]
   },

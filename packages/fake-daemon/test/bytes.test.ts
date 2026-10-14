@@ -111,6 +111,27 @@ test('with nobody holding the input a watcher resizes, the last resize wins, and
   other.close();
 });
 
+test('a viewer may not resize under 80 by 24, and the last detach gives back the size from before the first resize', async () => {
+  const { client, daemon, net } = setup();
+  const other = second(daemon, net, { client: 'other-viewer' });
+  await client.start();
+  await other.start();
+  const first = await client.call('terminal.attach', { agent: A, format: 'bytes', history: 0 });
+  await other.call('terminal.attach', { agent: A, format: 'text' });
+  const terminal = first.terminal;
+  const resize = (c: typeof client, cols: number, rows: number) => c.call('terminal.resize', { terminal, cols, rows });
+  await assert.rejects(resize(client, 79, 30), (e: RpcError) => e.gate === 'input_holder');
+  await assert.rejects(resize(client, 100, 23), (e: RpcError) => e.gate === 'input_holder');
+  await resize(client, 100, 30);
+  await resize(other, 90, 25);
+  await other.call('terminal.detach', { terminal });
+  await client.call('terminal.detach', { terminal, format: 'bytes' });
+  const again = await client.call('terminal.attach', { agent: A, format: 'bytes', history: 0 });
+  assert.deepEqual([again.cols, again.rows], [first.cols, first.rows]);
+  client.close();
+  other.close();
+});
+
 test('a slow client gets one snapshot above everything it missed', async () => {
   const { client, daemon } = setup();
   await client.start();

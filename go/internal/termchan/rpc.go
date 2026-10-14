@@ -18,9 +18,7 @@ import (
 //
 // attach replies with the snapshot (the frame and one page of history) and then, once that reply is sent, the connection is pushed
 // frame, resize, marker and holder notices until it detaches or hangs up. Many connections watch one terminal with one poller, which
-// stops with the last of them. resize is the input holder's alone, by the holder gate (the daemon holding is refused too: nobody holds
-// it to resize it), and where the host cannot resize it says so (gate unsupported); the size before it is given back when the holder
-// leaves. A terminal account.login opened belongs to no agent: it can be watched, has no holder, and is not resized.
+// stops with the last of them. Who may resize is in hold.go; where the host cannot resize it says so (gate unsupported). A terminal account.login opened belongs to no agent: it can be watched, has no holder, and is not resized.
 
 const (
 	DefaultHistory = 100
@@ -44,14 +42,15 @@ type Env struct {
 	mu    sync.Mutex
 	link  *ControlLink
 	login map[string]bool // handles of the terminals account.login opened
-	// restore is the size a terminal had before a holder resized it, given back when the holder leaves.
-	restore map[string][2]int
-	conns   map[*rpc.Conn]*attaches
+	// restore is the size a terminal had before a holder resized it, given back when the holder leaves; unheld is the size before the
+	// viewers' first resize while nobody held it, given back when the last attach goes and nobody holds it.
+	restore, unheld map[string][2]int
+	conns           map[*rpc.Conn]*attaches
 }
 
 // New is the terminal channel over db, reading the terminals of backend().
 func New(db *sql.DB, home string, backend func() term.Backend) *Env {
-	e := &Env{DB: db, Home: home, Backend: backend, login: map[string]bool{}, restore: map[string][2]int{}, conns: map[*rpc.Conn]*attaches{}, Bytes: NewBytesHub()}
+	e := &Env{DB: db, Home: home, Backend: backend, login: map[string]bool{}, restore: map[string][2]int{}, unheld: map[string][2]int{}, conns: map[*rpc.Conn]*attaches{}, Bytes: NewBytesHub()}
 	e.Hub = NewHub(e.host)
 	return e
 }
@@ -270,7 +269,7 @@ func (e *Env) hold(c *rpc.Conn, handle, format string, leave func()) {
 	e.mu.Unlock()
 	a.mu.Lock()
 	old := a.m[[2]string{handle, format}]
-	a.m[[2]string{handle, format}] = leave
+	a.m[[2]string{handle, format}] = func() { leave(); e.lastLeft(handle) }
 	a.mu.Unlock()
 	if old != nil {
 		old()

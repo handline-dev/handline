@@ -184,8 +184,8 @@ A terminal stream is its own subscription, apart from the event stream: high vol
 with its own backpressure. `terminal.attach {agent | terminal}` replies with a snapshot (the current
 frame and one page of history) and then pushes `frame {seq, changed rows}` notices, `resize`
 notices and `marker` notices (the daemon typed; control events). `terminal.history {before, limit}`
-pages scrollback. `terminal.resize {cols, rows}` is accepted from the input holder only and restored
-when they leave, where the backend can resize.
+pages scrollback. `terminal.resize {cols, rows}` is the input holder's, restored when they leave, or with
+nobody holding any attached viewer's down to 80 by 24, restored when the last one detaches; where the backend can resize.
 
 - **The daemon serves it.** The IDE and the web UI no longer read terminals themselves; one poller
   per terminal runs only while someone is attached, at most about 5 reads a second however many
