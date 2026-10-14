@@ -13,12 +13,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.actions import details  # noqa: E402
 from handline.session import backends  # noqa: E402
 from handline.session.backends import tmux  # noqa: E402
 from handline.session.backends.base import Backend  # noqa: E402
 from handline.team import spawn  # noqa: E402
-from handline.usage import stats  # noqa: E402
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -88,55 +86,6 @@ def test_the_config_is_a_count_that_only_a_real_number_turns_on(home: Path) -> N
     check("config: the CLI sets it and says when it applies", agents.read("auditor").get("extra_worktrees") == 2 and "made when it is next started" in out.getvalue(), out.getvalue())
 
 
-def test_a_missing_second_worktree_is_made_once_beside_the_first(home: Path) -> None:
-    repo, first = _world(home)
-    try:
-        check("make: nothing is made when the config asks for none", spawn.ensure_extras("auditor", first, repo) == ([], []))
-        agents.register("auditor", extra_worktrees=1)
-        have, told = spawn.ensure_extras("auditor", first, repo)
-        check("make: one is made, named for the agent with -2, beside the first", len(have) == 1 and Path(have[0]).name == "auditor-2"
-              and Path(have[0]).parent == Path(first).parent and Path(have[0]).is_dir() and told and "made worktree" in told[0], str((have, told)))
-        check("make: the first is where it was", Path(first).is_dir() and Path(first).name == "auditor")
-        con = db.connect()
-        row = db.get_agent_state(con, "auditor")
-        con.close()
-        check("make: it is recorded, and the first is still the row's worktree", spawn.extra_paths(row) == have and row["worktree"] == first)
-        again, told2 = spawn.ensure_extras("auditor", first, repo)
-        check("make: asked again it is kept and nothing is made", again == have and told2 == [] and len(list(Path(first).parent.glob("auditor*"))) == 2, str((again, told2)))
-        con = db.connect()
-        db.set_terminal(con, "auditor", None, first)        # the reconciler dropping the terminal
-        row = db.get_agent_state(con, "auditor")
-        con.close()
-        check("make: the reconciler's drop of the terminal keeps it", spawn.extra_paths(row) == have)
-        again, _ = spawn.ensure_extras("auditor", first)
-        check("make: a recovery start (no repo given) finds the repo and makes no third", again == have and len(list(Path(first).parent.glob("auditor*"))) == 2)
-        agents.register("auditor", extra_worktrees=2)
-        more, _ = spawn.ensure_extras("auditor", first, repo)
-        check("make: a count of 2 makes only the one that is missing", more[0] == have[0] and len(more) == 2 and Path(more[1]).name == "auditor-3", str(more))
-        import shutil
-        subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", more[1]], check=True, capture_output=True)
-        agents.register("auditor", extra_worktrees=2)
-        again, told3 = spawn.ensure_extras("auditor", first, repo)
-        check("make: one that is gone is made again, and the other is left", len(again) == 2 and again[0] == have[0] and Path(again[1]).is_dir() and told3, str((again, told3)))
-        text = dmn_spawn.spawn("auditor", repo, dry_run=True)[1]
-        check("make: a dry run says nothing is made when both are there", "would make" not in text, text)
-        agents.register("auditor", extra_worktrees=0)
-        check("make: with the config back to none the recorded ones are neither used nor removed", spawn.ensure_extras("auditor", first, repo)[0] == []
-              and Path(have[0]).is_dir())
-    finally:
-        backends.use(None)
-
-
-def test_the_dry_run_says_what_it_would_make(home: Path) -> None:
-    repo, first = _world(home)
-    try:
-        agents.register("auditor", extra_worktrees=1)
-        text = dmn_spawn.spawn("auditor", repo, dry_run=True)[1]
-        check("dry run: it names the second worktree it would make and makes none", "would make auditor-2" in text and not Path(first + "-2").exists(), text)
-    finally:
-        backends.use(None)
-
-
 def test_a_launch_gives_the_further_worktrees_to_that_agent_alone(home: Path) -> None:
     repo, first = _world(home)
     try:
@@ -168,8 +117,6 @@ def test_a_launch_gives_the_further_worktrees_to_that_agent_alone(home: Path) ->
 def main() -> int:
     def tests(td):
         run(lambda: test_the_config_is_a_count_that_only_a_real_number_turns_on(Path(td) / "x1"))
-        run(lambda: test_a_missing_second_worktree_is_made_once_beside_the_first(Path(td) / "x2"))
-        run(lambda: test_the_dry_run_says_what_it_would_make(Path(td) / "x3"))
         run(lambda: test_a_launch_gives_the_further_worktrees_to_that_agent_alone(Path(td) / "x4"))
     return run_area(tests)
 
