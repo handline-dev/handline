@@ -476,12 +476,10 @@ def _clock(time_box: dict, now: float) -> dict:
 
 
 def _waits_on(t: dict) -> str:
-    """What holds a task's clock: its open blockers, else its open children."""
+    """What holds a task's clock: its open blockers and open children, "" for none."""
     blockers = [f"T{b['task']}" for b in t.get("blockers") or []]
     kids = [f"T{k['id']}" for k in t.get("subtasks") or [] if k["state"] not in ("done", "discarded")]
-    if blockers:
-        return " - blocked by " + ", ".join(blockers)
-    return " - waiting on " + ", ".join(kids) if kids else ""
+    return ", ".join(blockers + kids)
 
 
 def _result_lines(r: dict, tid: int) -> list[str]:

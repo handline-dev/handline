@@ -11,7 +11,8 @@ import (
 
 // Four notices about work that has run long, all read from the db every tick.
 //
-// A task's own timeout (`ocp task new -t/--timeout`) only counts while it is doing and not waiting on a blocker or child; past it, its opener is told, and again every
+// A task's own timeout (`ocp task new -t/--timeout`) only counts while it is doing and not waiting on a blocker or child, and starts again
+// from zero when the wait ends; past it, its opener is told, and again every
 // further timeout_s stretch, until the task answers with one of `hl task edit --timeout` (continue) or `hl task release` (back to queued) -
 // or is simply done. Background work about to outlive the agent's prompt cache tells its supervisor it may be stopped after a veto window.
 // An agent IDLE with its current task's own wait never recorded, the Stop-hook gate's own backstop, and an agent nudged to resolve a
@@ -122,8 +123,8 @@ func (b *Timebox) answerer(t *Tick, agent string, tid int64) string {
 	return b.boss(agent)
 }
 
-// SweepTaskTimeouts is a task's timeout clock, read each tick: it runs only while the task is doing and waits on no blocker or child, and
-// resumes from what it had left; past it the opener is told, and again every stretch until it is done, extended or released. A task with
+// SweepTaskTimeouts is a task's timeout clock, read each tick: it runs only while the task is doing and waits on no blocker or child. Off
+// doing it resumes from what it had left; after a wait it starts again from zero. Past it the opener is told, and again every stretch until it is done, extended or released. A task with
 // no timeout_s takes the default where it becomes doing.
 func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 	driven := map[string]bool{}
@@ -139,7 +140,11 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 			b.remindReported(t, row, now)
 			continue
 		}
-		if !b.Ports.TaskDoing(t.Q, row) || must(db.TaskWaits(t.Q, tid)) {
+		if must(db.TaskWaits(t.Q, tid)) {
+			check(db.RestartTaskTimeout(t.Q, tid, db.DefaultTaskTimeoutS))
+			continue
+		}
+		if !b.Ports.TaskDoing(t.Q, row) {
 			if row.TimeoutAt.Valid {
 				check(db.PauseTaskTimeout(t.Q, tid, now))
 			}
