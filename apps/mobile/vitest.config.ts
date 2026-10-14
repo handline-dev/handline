@@ -5,8 +5,8 @@ export default defineConfig({
   resolve: {
     alias: {
       'react-native': 'react-native-web',
-      'expo-image-picker': new URL('./test/stubs/expo-image.ts', import.meta.url).pathname,
-      'expo-image-manipulator': new URL('./test/stubs/expo-image.ts', import.meta.url).pathname,
+      'expo-image-picker': new URL('./test/expo-image-stub.tsx', import.meta.url).pathname,
+      'expo-image-manipulator': new URL('./test/expo-image-stub.tsx', import.meta.url).pathname,
     },
   },
   test: { environment: 'happy-dom', include: ['test/**/*.test.tsx'] },
