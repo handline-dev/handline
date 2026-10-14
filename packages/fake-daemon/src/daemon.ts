@@ -226,7 +226,7 @@ export class FakeDaemon {
 
   private session(agent: unknown): Session {
     const s = typeof agent === 'string' ? this.sessions.get(agent) : undefined;
-    if (!s) throw new Failure('not_found', `no agent named ${String(agent)}`);
+    if (!s) throw new Failure('not_found', `no agent named ${String(agent)}`, { what: 'agent', name: agent });
     return s;
   }
   // ---- events ----
@@ -446,7 +446,19 @@ export class FakeDaemon {
     if (this.work.owns(method)) return { value: this.work.call(method, p, ok) };
     if (method.startsWith('attachment.')) return { value: this.uploads.call(method, p, ok) };
     if (method.startsWith('inbox.')) return { value: this.inbox.call(method, p, c.caller.name, ok) };
-    if (this.tasks.serves(method)) return { value: taskCall(this.tasks, method, p, c.caller.name, this.script) };
+    if (this.tasks.serves(method))
+      return {
+        value: taskCall(this.tasks, method, p, c.caller.name, this.script, (task, to, text) => {
+          const s = this.session(to);
+          if (!s.open) this.script.startSession(s, false, this.actor(c));
+          const body =
+            `Question on T${task} from the founder (the task keeps its holder): ${text}\n\n` +
+            "Answer by replying to this message: hl say human --parent <this message's #id> '<answer>'";
+          const { request } = this.chat.send({ agent: to, body, request_id: p.request_id }, c.caller.name);
+          this.chat.link(request, { id: task, title: this.tasks.find(task).title });
+          return request;
+        }),
+      };
     return null;
   }
 
