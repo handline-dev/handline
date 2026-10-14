@@ -309,7 +309,6 @@ def calls_that_reached_live_tmux() -> list[tuple[str, str]]:
     return out
 
 
-
 def calls_that_reached_the_stand_in_orca() -> list[tuple[str, str]]:
     """The calls the stand-in `orca` recorded, as (test, call)."""
     if not FAKE_ORCA_LOG.exists():
@@ -501,15 +500,6 @@ def answer_card(con, rid: int, verdict: str) -> None:
     dbtasks.settle_decision_tasks(con, rid, "done", verdict)
 
 
-def pointed_record(typed: str) -> str:
-    """The record a one-line wake pointer names ("Your handoff is in <file> -
-    ..."): what the session reads when it follows it. "" for a line that names none."""
-    try:
-        return Path(typed.split(" is in ")[1].split(" - ")[0]).read_text()
-    except (IndexError, OSError):
-        return ""
-
-
 def something_waiting(con, agent: str) -> None:
     """Leave a request waiting for `agent`, unless one is: a closed agent is
     woken for a message and for nothing else (T124), so a test of how a wake
@@ -519,50 +509,7 @@ def something_waiting(con, agent: str) -> None:
                        "peer", "async", None, 0, None)
 
 
-def relaunching_send(sent: list, table: dict[str, int]) -> object:
-    """An orca.send that records, and starts a session when it is a relaunch.
-
-    The daemon wakes a closed agent by typing its launch command into the shell
-    its session left behind, and everything it sends after that is sent to the
-    session that command started - so a fixture where the process table never
-    changes is a fixture where waking does not work.
-    """
-    def send(handle: str, text: str, enter: bool = True):
-        if not text and enter:
-            return True, ""      # a launch's Enter, sent on its own (T663): the line is what these record
-        sent.append(text)
-        if " launch " in text:
-            table[text.split(" launch ")[1].split()[0]] = 4242
-            # The wake prompt rides the launch as a file the launch takes, not
-            # as a line typed afterwards; listed here as what the session is
-            # handed on start, so tests can assert on what it was told.
-            if "--prompt-file " in text:
-                sent.append(take_launched_prompt(text))
-        elif text == "/exit":
-            table.clear()       # one terminal, one agent, in every fixture here
-        return True, ""
-    return send
-
-
 _taken_prompts: dict[str, str] = {}
-
-
-def take_launched_prompt(command: str) -> str | None:
-    """What a launch command's session starts with, taken as `hl launch`
-    takes it: the file is gone afterwards, which is how the daemon knows its
-    own launch started the session."""
-    if "--prompt-file " not in command:
-        return None
-    text = launch.take_prompt(shlex.split(command.split("--prompt-file ")[1])[0])
-    _taken_prompts[command] = text or ""
-    return text
-
-
-def launched_prompt(command: str) -> str:
-    """The first prompt a launch command hands its session, taken or not; ""
-    for one the daemon removed because nothing took it."""
-    f = Path(shlex.split(command.split("--prompt-file ")[1])[0])
-    return f.read_text() if f.exists() else _taken_prompts.get(command, "")
 
 
 def sessions_are(*agents: str) -> dict[str, int]:
@@ -661,19 +608,6 @@ def write_status(home: Path, acct: str, **fields) -> None:
     payload = {"account": acct, "collected_at": int(time.time()), "session_id": "s"}
     payload.update(old_to_windows(fields))
     (d / "status.json").write_text(json.dumps(payload))
-
-
-def readable_agent(con, home: Path, agent: str) -> None:
-    """Give `agent` the three things a handoff reads, so it comes out whole."""
-    wt = home / f"wt-{agent}"
-    if not wt.is_dir():
-        wt.mkdir(parents=True)
-        for args in (["init", "-q", "-b", "topic"], ["config", "user.email", "t@t"],
-                     ["config", "user.name", "t"], ["commit", "-q", "--allow-empty", "-m", "x"]):
-            subprocess.run(["git", *args], cwd=wt, check=True, capture_output=True)
-    db.set_terminal(con, agent, "term_x", str(wt))
-    write_agent_status(agent, "alpha", session_id="sess-1",
-                       transcript_path="/tmp/sess-1.jsonl")
 
 
 def keep_handoff(agent: str, text: str) -> None:
@@ -996,11 +930,6 @@ def _blocked_world(home: Path):
     return con
 
 
-def _decisions(con) -> list:
-    return con.execute(f"SELECT id, state, {db.ANSWER_SQL} FROM requests WHERE target = 'human' "
-                       "AND kind = 'task' ORDER BY id").fetchall()
-
-
 # Shapes reconstructed from Claude Code's wording, NOT measured on a live screen:
 # only EXIT_DIALOG above is. They stand for the trust dialog, a tool permission
 # prompt and a question with a plain No, to prove what ocp presses for each.
@@ -1074,81 +1003,6 @@ class _Terminal:
 
     def bring_back(self, tail):
         self.tail = list(tail)
-
-
-class _ExitTerm:
-    """A session at its prompt that answers `/exit` with `dialog`; the key that
-    exits it ends the session in the process table, Esc leaves it standing."""
-
-    def __init__(self, dialog, exits_on, table):
-        self.dialog, self.exits_on, self.table = dialog, exits_on, table
-        self.screen, self.sent = list(COMPOSER_EMPTY), []
-        self.torn, self.reads = 0, 0
-
-    def _read(self, handle, limit=40):
-        self.reads += 1
-        if self.torn and self.screen == list(self.dialog):
-            self.torn -= 1
-            return _screen_of(self.dialog[-1:])
-        return _screen_of(self.screen)
-
-    def install(self):
-        termmod._screen = self._read
-        termmod.send = self.send
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.screen_blocker = REAL_TERMINAL["screen_blocker"]
-        termmod.close_terminal = lambda h, tab=True: (True, "closed")
-
-    def send(self, handle, text, enter=True):
-        self.sent.append((text, enter))
-        if text == "/exit":
-            self.screen = list(self.dialog)
-        elif text == self.exits_on and self.screen == list(self.dialog):
-            self.table.pop("backend", None)
-            self.screen = ["$ "]            # the session is gone and its shell is what is drawn
-        elif text == "\x1b":
-            self.screen = list(COMPOSER_EMPTY)
-        return True, ""
-
-
-def _close_at(home: Path, dialog, exits_on="1", torn=0, screen=None, prep=None):
-    restore_world()
-    con = _blocked_world(home)
-    db.set_terminal(con, "backend", "term_x", "wt")
-    if prep:
-        prep(con)
-    table = sessions_are("backend")
-    term = _ExitTerm(dialog, exits_on, table)
-    term.torn = torn
-    if screen is not None:
-        term.screen = list(screen)
-    term.install()
-    st = types.SimpleNamespace(session_id="sess-1", ctx_pct=8)
-    ok, why = dmn_lifecycle._end_session(con, "backend", lambda m: None, st, resume="sess-1")
-    return con, term, ok, why
-
-
-def _bg_of(tail):
-    restore_world()
-    termmod._screen = lambda h: None if tail is None else _screen_of(tail)
-    try:
-        return termmod.background_work("term_x")
-    finally:
-        restore_world()
-
-
-def _decline_world(home: Path, tail=EXIT_DIALOG, **kw):
-    """backend is idle with work it cannot be given, behind `tail`."""
-    con = _blocked_world(home)
-    term = _Terminal(tail, **kw)
-    term.install()
-    termmod.live_terminals = lambda: {"term_x"}
-    return con, term
-
-
-def _reports(con) -> list:
-    return con.execute("SELECT id, kind, state, body FROM requests WHERE target = 'human' "
-                       "AND kind = 'say' ORDER BY id").fetchall()
 
 
 def _worktree_with_a_dirty_file(root: Path) -> Path:
@@ -1801,14 +1655,6 @@ def _raises(fn) -> bool:
         return True
 
 
-def _session_file(home: Path, session: str) -> None:
-    d = home / "agents" / "backend"
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "status.json").write_text(json.dumps({
-        "account": "alpha", "collected_at": int(time.time()),
-        "session_id": session, "pct_5h": 20}))
-
-
 def _park_via_handoff(con, agent: str, kind: str, hoff_state: str = "done") -> None:
     """Fabricate a completed handoff the way `_perform_handoff` leaves one,
     with `trigger_kind` on the record - the only place a park's cause is
@@ -1838,31 +1684,6 @@ LIMIT_DIALOG = """  ⎿  You've hit your session limit · resets 3:30pm (Asia/Se
      2. Wait here, then continue automatically at 3:30pm
      3. Upgrade your plan
    Enter to confirm · Esc to cancel""".split("\n")
-
-
-def _park_behind(home: Path, tail, ends_at_limit: bool = True, **term_kw):
-    """keeper is at its 5h wall with no account to go to, behind `tail`."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    agents.register("keeper")
-    db.set_account(con, "keeper", "alpha")
-    write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5, reset_5h=int(time.time()) + 3 * 3600)
-    keep_handoff("keeper", "# handoff · keeper\n## next\n- carry on\n")
-    db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
-    if ends_at_limit:
-        db.add_event(con, "keeper", "StopFailure", {"limit": "5h"})
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'keeper' AND kind = 'StopFailure'",
-                    (int(time.time()) - dmn_timing.LIMIT_SETTLE_S - 60,))
-    termmod.available = lambda: True
-    termmod.alive = lambda h: True
-    termmod.wait_idle = lambda h, timeout_ms=0: True
-    termmod.idle_now = lambda h: True
-    termmod.live_terminals = lambda: {"term_x"}
-    term = _Terminal(tail, after=AT_THE_PROMPT, **term_kw)
-    term.install()
-    sessions_are("keeper")
-    db.set_terminal(con, "keeper", "term_x", "wt")
-    return con, term
 
 
 def spooled(agent: str | None = None, kind: str | None = None) -> list[dict]:
@@ -2369,24 +2190,11 @@ def credentialed(home: Path, *accts: str) -> None:
         (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
 
 
-def write_status_json(agent_dir: Path, fields: dict) -> None:
-    """A fake agent's status.json: the hook-written record `status.read_for_agent` reads."""
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    (agent_dir / "status.json").write_text(json.dumps(fields))
-
-
 def orca_seen() -> None:
     """Orca is there and term_x is a live terminal."""
     termmod.available = lambda: True
     termmod.live_terminals = lambda: {"term_x"}
     termmod.alive = lambda h: True
-
-
-def orca_idle() -> None:
-    """Orca is there and every terminal is idle."""
-    termmod.available = lambda: True
-    termmod.alive = lambda h: True
-    termmod.idle_now = lambda h: True
 
 
 def orca_settled() -> None:
@@ -2520,10 +2328,7 @@ __all__ = [
     '_guarded_popen_init',
     'restore_world',
     '_set_request_state',
-    'relaunching_send',
     '_taken_prompts',
-    'take_launched_prompt',
-    'launched_prompt',
     'sessions_are',
     '_SESSION_TABLE',
     'exit_ends_session',
@@ -2538,7 +2343,6 @@ __all__ = [
     'old_to_windows',
     'Window',
     'windows',
-    'readable_agent',
     'keep_handoff',
     'kept_handoff',
     'write_agent_status',
@@ -2569,7 +2373,6 @@ __all__ = [
     'BANNER_AND_HINT_QUOTED_ABOVE_BOX',
     '_screen_of',
     '_blocked_world',
-    '_decisions',
     '_RULE_ROW',
     'TRUST_DIALOG',
     'PERMISSION_PROMPT',
@@ -2580,11 +2383,6 @@ __all__ = [
     'CLEARED_SCREEN',
     'AT_THE_PROMPT',
     '_Terminal',
-    '_ExitTerm',
-    '_close_at',
-    '_bg_of',
-    '_decline_world',
-    '_reports',
     '_worktree_with_a_dirty_file',
     'DIFFERENTIAL_CASES',
     'DUMP_STRINGS',
@@ -2615,12 +2413,10 @@ __all__ = [
     'OC_HOME',
     'OC_PERMISSION',
     '_raises',
-    '_session_file',
     '_park_via_handoff',
     'REAL_ACCESS_TOKEN',
     '_process_on',
     'LIMIT_DIALOG',
-    '_park_behind',
     '_fire_hook',
     '_Reading',
     '_samples_of',
@@ -2657,9 +2453,7 @@ __all__ = [
     'run_area',
     'use_home',
     'credentialed',
-    'write_status_json',
     'orca_seen',
-    'orca_idle',
     'orca_settled',
 ]
 
