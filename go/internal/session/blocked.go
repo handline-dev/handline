@@ -737,9 +737,6 @@ func (e *Env) track(agent string, row *AgentRow, now int64) (*Block, error) {
 		if e.Lifecycle.AutoTrust(agent) {
 			return nil, e.end(agent, rec, "its folder-trust prompt was accepted")
 		}
-		if e.Lifecycle.AutoBypass(agent) {
-			return nil, e.end(agent, rec, "its bypass-permissions warning was accepted")
-		}
 		return e.decline(agent, rec, now)
 	}
 	return rec, nil

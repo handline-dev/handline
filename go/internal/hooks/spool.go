@@ -121,7 +121,7 @@ func (h *Recorder) Ingest() (int, error) {
 			rejected++
 			continue
 		}
-		if err := Apply(h.DB, h.Home, l.agent, l.kind, l.data, l.requestID, l.at); err != nil {
+		if err := h.apply(l.agent, l.kind, l.data, l.requestID, l.at); err != nil {
 			h.Log("  spool: stopped at a line the database could not take (%v); %d line(s) left for the next try", err, len(lines)-i)
 			if kerr := keep(work, lines[i:]); kerr != nil {
 				return n, kerr

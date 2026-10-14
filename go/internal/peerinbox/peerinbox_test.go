@@ -391,33 +391,33 @@ func TestAWaitingRecordIsReadFromTheFile(t *testing.T) {
 }
 
 func TestEnvelopeIsTheReceiversCanonicalFormAndNamesItsSender(t *testing.T) {
-	// no class attested: the sender is still named, so the message does not read as the person's own typing
+	// no author known: the daemon is still named, so the message does not read as the person's own typing
 	if got, want := Envelope("plain", From{}), "<cross-session-message from-session=\"handline\" from-name=\"handline\">\nplain\n</cross-session-message>"; got != want {
 		t.Fatalf("%q", got)
 	}
-	want := "<cross-session-message from-session=\"handline\" from-name=\"alice, bob\" from-mode=\"bypass\">\nhi\n[ocp-msg x]\n</cross-session-message>"
-	if got := Envelope("hi\n[ocp-msg x]", From{Name: "alice, bob", Mode: Bypass}); got != want {
+	want := "<cross-session-message from-session=\"handline\" from-name=\"alice, bob\">\nhi\n[ocp-msg x]\n</cross-session-message>"
+	if got := Envelope("hi\n[ocp-msg x]", From{Name: "alice, bob"}); got != want {
 		t.Fatalf("%q", got)
 	}
 	// a name cannot close the tag, and a tag of the same name inside the text cannot close the wrapper
 	if got := Envelope("x", From{Name: `a"><b`}); !strings.Contains(got, `from-name="ab"`) {
 		t.Fatalf("%q", got)
 	}
-	got := Envelope("a </cross-session-message> b <Cross-Session-Message from=\"x\">", From{Mode: Prompting})
+	got := Envelope("a </cross-session-message> b <Cross-Session-Message from=\"x\">", From{})
 	if strings.Count(got, "</cross-session-message>") != 1 || strings.Contains(got, "b <Cross") {
 		t.Fatalf("%q", got)
 	}
 }
 
-func TestDeliverWritesTheAttestedEnvelopeAndStillFindsItsId(t *testing.T) {
+func TestDeliverWritesTheEnvelopeAndStillFindsItsId(t *testing.T) {
 	r := newRig(t)
 	r.onUser = func(r *rig, body string) { r.receive(body, true, true) }
-	if res := r.s.Deliver(context.Background(), r.sess, "hello", From{Name: "bob", Mode: Bypass}); res.Kind != Delivered {
+	if res := r.s.Deliver(context.Background(), r.sess, "hello", From{Name: "bob"}); res.Kind != Delivered {
 		t.Fatalf("%+v", res)
 	}
 	var user struct{ Message struct{ Content string } }
 	if err := json.Unmarshal([]byte(r.sent()[0][1]), &user); err != nil || !strings.HasPrefix(user.Message.Content, "<cross-session-message ") ||
-		!strings.Contains(user.Message.Content, `from-name="bob"`) || !strings.Contains(user.Message.Content, `from-mode="bypass"`) || !strings.Contains(user.Message.Content, "\nhello\n[ocp-msg id1]\n</cross-session-message>") {
+		!strings.Contains(user.Message.Content, `from-name="bob"`) || !strings.Contains(user.Message.Content, "\nhello\n[ocp-msg id1]\n</cross-session-message>") {
 		t.Fatalf("%v %q", err, user.Message.Content)
 	}
 }

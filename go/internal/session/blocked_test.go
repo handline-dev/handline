@@ -518,7 +518,7 @@ func TestSeveralBlocksComeDueInOneRequestAndAUnregisteredAgentIsNeverLookedAt(t 
 	}
 }
 
-func TestAutoTrustAndBypassEndABlockOnAnIdleAgent(t *testing.T) {
+func TestAutoTrustEndsABlockOnAnIdleAgent(t *testing.T) {
 	b := newBlockedFixture(t)
 	b.term.blockers["h1"] = &term.Blocker{Kind: term.Modal, Title: "Do you trust this folder?", Detail: "trust"}
 	b.life.trust["backend"] = true
@@ -529,15 +529,8 @@ func TestAutoTrustAndBypassEndABlockOnAnIdleAgent(t *testing.T) {
 	if got := b.logs[len(b.logs)-1]; !strings.Contains(got, "its folder-trust prompt was accepted") {
 		t.Errorf("log %q", got)
 	}
-	b.life.trust["backend"] = false
-	b.life.bypass["backend"] = true
-	b.at(RecheckS)
-	b.sweep()
-	if b.block() != nil || !strings.Contains(b.logs[len(b.logs)-1], "its bypass-permissions warning was accepted") {
-		t.Errorf("block %+v log %q", b.block(), b.logs[len(b.logs)-1])
-	}
 	// A working agent's dialog is its person's to answer: nothing is pressed or accepted.
-	b.life.bypass["backend"] = false
+	b.life.trust["backend"] = false
 	b.exec("UPDATE agent_state SET state = 'RUNNING'")
 	b.term.press["h1"] = [3]string{term.Cleared, "x", ""}
 	b.at(2 * RecheckS)
