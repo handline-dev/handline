@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/turns"
 )
 
 // Recorder serves hook.record and the spool over one database and home.
@@ -12,6 +13,8 @@ type Recorder struct {
 	DB   *sql.DB
 	Home string
 	Log  func(format string, args ...any)
+	// Turns, when set, is told each recorded event (the -turns-from-hooks switch).
+	Turns *turns.Tracker
 }
 
 // SpoolEvery is how often the spool is looked at while the daemon runs, as the Python daemon does each tick.
@@ -45,8 +48,18 @@ func (h *Recorder) record(c *rpc.Conn, params map[string]any) (any, error) {
 	if !safeName(agent) {
 		return nil, rpc.BadRequestError("agent is not a name this daemon keeps files for", "agent", rpc.InvalidParams)
 	}
-	if err := Apply(h.DB, h.Home, agent, kind, data, params["request_id"].(string), at); err != nil {
+	if err := h.apply(agent, kind, data, params["request_id"].(string), at); err != nil {
 		return nil, err
 	}
 	return map[string]any{}, nil
+}
+
+func (h *Recorder) apply(agent, kind string, data map[string]any, requestID string, at int64) error {
+	if err := Apply(h.DB, h.Home, agent, kind, data, requestID, at); err != nil {
+		return err
+	}
+	if h.Turns != nil {
+		h.Turns.Hook(agent, kind, data, at)
+	}
+	return nil
 }

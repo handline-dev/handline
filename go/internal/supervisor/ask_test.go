@@ -29,7 +29,7 @@ func TestAskQueuesWritesTheInboxFileAndTellsOnlyAfterTheCommit(t *testing.T) {
   "ts": 100000,
   "from": "alice",
   "to": "bob",
-  "relation": "peer",
+  "relation": null,
   "kind": null,
   "response": "async",
   "chain_depth": 0,

@@ -50,7 +50,7 @@ function renumber<T extends { id: number }>(rows: T[], provisional: (r: T) => bo
 }
 
 const newTask = (c: Ctx, p: never): Task => {
-  const v = as<{ owner: string; title: string; time_box?: string; relation?: string; response?: string; parent?: number }>(p);
+  const v = as<{ owner: string; title: string; time_box?: string; relation?: string; parent?: number }>(p);
   return {
     id: provisionalId(),
     from: c.me,
@@ -58,7 +58,7 @@ const newTask = (c: Ctx, p: never): Task => {
     title: v.title,
     state: 'pending',
     relation: v.relation ?? 'manager',
-    response: v.response ?? 'async',
+    response: 'async', // still required by the contract; goes with it
     time_box: v.time_box ?? null,
     parent: v.parent ?? null,
     created: c.now,
@@ -101,6 +101,9 @@ const tasks: Record<string, WriteSpec> = {
   'task.queue': verb('queue', 'queue'),
   'task.draft': verb('draft', 'draft'),
   'task.release': verb('release', 'release'),
+  // A report is the opener's to judge: nothing shows until the daemon says it is closed or sent back.
+  'task.accept': decided('accept'),
+  'task.reject': decided('reject'),
   'task.withdraw': verb('withdraw', 'withdraw'),
   'task.cancel': verb('cancel', 'cancel'),
   'task.edit': verb('edit', 'edit'),
@@ -137,6 +140,12 @@ const tasks: Record<string, WriteSpec> = {
       changeMemos(c, task, (l) => l.map((m) => (m.id === memo ? { ...m, text } : m)));
     },
   },
+  // The question is a message to the holder linked to the task; the task page reads it again for the event it leaves.
+  'task.ask': {
+    kind: 'decided',
+    label: 'ask',
+    touches: (d, p) => [qk.task(d, as<{ task: number }>(p).task)],
+  },
   'task.memo.delete': {
     kind: 'authored',
     label: 'delete memo',
@@ -165,12 +174,6 @@ const settings: Record<string, WriteSpec> = {
     quiet: true,
     touches: inboxKeys,
     patch: (c, p) => markItems(c, as<{ ids: number[] }>(p).ids, { read: true }),
-  },
-  'inbox.answer': {
-    kind: 'authored',
-    label: 'answer',
-    touches: inboxKeys,
-    patch: (c, p) => markItems(c, [as<{ id: number }>(p).id], { read: true, answered: true }),
   },
   'inbox.reply': {
     kind: 'authored',
@@ -309,6 +312,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'account.add': 'add account',
     'terminal.close': 'close terminal',
     'task.discard': 'discard',
+    'task.ask': 'ask',
     'device.pair': 'pair',
     'device.revoke': 'revoke',
   }).map(([m, label]) => [m, decided(label)]),
@@ -365,6 +369,9 @@ export const PAIRING = ['device.redeem'] as const;
 
 /** Agent commands: an agent sends these, the UI never does. Guard test 2 reads this list. */
 export const NOT_FROM_UI = [
+  // No screen sends these any more; they leave the contract with the answer model.
+  'chat.dismiss',
+  'inbox.answer',
   'session.wake', // a message to a closed agent starts it; no screen wakes one by hand
   'say',
   'hook.record',
@@ -374,11 +381,6 @@ export const NOT_FROM_UI = [
   'task.start',
   'task.progress',
   'task.handoff',
-  // A member command the app does not send yet.
-  'task.ask',
-  // `hl task accept` and `hl task reject`: the app has no button for a reported task yet.
-  'task.accept',
-  'task.reject',
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',

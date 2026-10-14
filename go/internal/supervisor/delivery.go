@@ -1,9 +1,7 @@
 package supervisor
 
 import (
-	"database/sql"
 	"errors"
-	"fmt"
 	"os"
 
 	"github.com/handline/handline/go/internal/db"
@@ -12,10 +10,6 @@ import (
 
 // Delivering queued requests (daemon/delivery.py): checking the routing edge, picking the head, telling the agent.
 
-// OverrideKinds are the kinds ask accepts for a task or a say regardless of what the routing edge carries: enforce_edges
-// must not treat that override as a changed edge.
-var OverrideKinds = map[string]bool{"task": true, "say": true}
-
 const sayKind = "say"
 
 func strOf(p *string) string {
@@ -23,14 +17,6 @@ func strOf(p *string) string {
 		return ""
 	}
 	return *p
-}
-
-// sameText is a nullable column against a decision's optional value (None equals None).
-func sameText(col sql.NullString, v *string) bool {
-	if !col.Valid || v == nil {
-		return !col.Valid && v == nil
-	}
-	return col.String == *v
 }
 
 // RepliesTo is ask.replies_to: does a request from requester to target answer parent, one target sent to requester.
@@ -77,40 +63,14 @@ func (e *Env) EnforceEdges(q db.Q, agent string) (ok bool, err error) {
 			parent = must(db.GetRequest(q, r.ParentID.Int64))
 		}
 		d := t.Route(r.Requester, r.Target, int(r.ChainDepth), RepliesTo(parent, r.Requester, r.Target))
-		kind := d.Kind
-		if r.Kind.Valid && OverrideKinds[r.Kind.String] {
-			k := r.Kind.String
-			kind = &k
-		}
-		var why string
-		switch {
-		case !d.Allowed:
-			why = d.Reason
-		case !sameText(r.Relation, d.Relation) || !sameText(r.Response, &d.Response) || !sameText(r.Kind, kind):
-			why = fmt.Sprintf("the routing table says %s/%s/%s, the request says %s/%s/%s",
-				pyNone(d.Relation), d.Response, pyNone(kind), pyNullNone(r.Relation), pyNullNone(r.Response), pyNullNone(r.Kind))
-		default:
+		if d.Allowed {
 			check(db.ClearEdge(q, r.ID))
 			continue
 		}
-		must(db.RetireQueued(q, r.ID, "denied", "refused at delivery: "+why))
-		e.log("  %s: #%d from %s refused - %s", agent, r.ID, r.Requester, why)
+		must(db.RetireQueued(q, r.ID, "denied", "refused at delivery: "+d.Reason))
+		e.log("  %s: #%d from %s refused - %s", agent, r.ID, r.Requester, d.Reason)
 	}
 	return true, nil
-}
-
-func pyNone(p *string) string {
-	if p == nil {
-		return "None"
-	}
-	return *p
-}
-
-func pyNullNone(ns sql.NullString) string {
-	if !ns.Valid {
-		return "None"
-	}
-	return ns.String
 }
 
 // HeadTaskBlocked is delivery.head_task_blocked: is the head's own task on record as waited on, blocked by another open task or

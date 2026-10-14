@@ -13,10 +13,6 @@ from support import *  # noqa: E402,F401,F403
 from handline.vendors import claude_hooks as hooks  # noqa: E402
 
 
-
-
-
-
 # ---------------------------------------------------------------- status line
 def test_init_leaves_the_status_line_slot_empty(home: Path) -> None:
     """ocp installs no status line (D11): the slot is the human's. `hl init`
@@ -252,14 +248,6 @@ def test_launch(home: Path) -> None:
     mcp_json.unlink()
     check("fingerprint: removing it again matches the original", launch.fingerprint("launchtest") == before)
 
-    # T448: a session launched before skip-permissions was turned on has to read
-    # as drifted, or it is reused and the setting never reaches Claude Code.
-    agents.register("launchtest", skip_permissions=True)
-    on = launch.fingerprint("launchtest")
-    check("fingerprint: turning skip-permissions on changes it", on != before)
-    agents.register("launchtest", skip_permissions=False)
-    check("fingerprint: turning it off returns to the original", launch.fingerprint("launchtest") == before)
-
 
 def test_doctor_checks_shared_mcp_config(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
@@ -300,44 +288,6 @@ def test_doctor_checks_shared_mcp_config(home: Path) -> None:
     finally:
         mcp_json.chmod(0o644)
     mcp_json.unlink()
-
-
-def test_a_walled_wake_is_said_once_not_every_tick(home: Path) -> None:
-    """A closed agent with work waiting is retried every tick for as long as its
-    account sits at the wall, and the wall is one reason that lasts for hours.
-    `_wake_agent` returns it and the tick says it once; `_wake_agent` used to log
-    it as well, on every retry, which is a line per tick for the same sentence."""
-    _daemon_home(home, 100)
-    con = db.connect()
-    real_avail, real_alive, real_run = termmod.available, termmod.alive, orcacli._run
-
-    def no_orca(args, timeout=180):
-        raise AssertionError(f"reached the real orca: {args}")
-    try:
-        termmod.available, termmod.alive, orcacli._run = (lambda: True), (lambda h: True), no_orca
-        db.set_closed(con, "backend", "sess-1")
-        db.add_request(con, "marina", "backend", "please look", None, "peer", "async",
-                       None, 0, None)
-        dmn_evaluate._SAID.clear()
-        logged: list[str] = []
-        for _ in range(4):
-            dmn_evaluate.supervise(con, "backend", logged.append, int(time.time()), {}, [])
-        wall = [m for m in logged if "5h window" in m]
-        check("wall wake: the account really is the reason, so the fixture reaches the wall",
-              wall, str(logged))
-        check("wall wake: it is said once across four ticks, not once per tick",
-              len(wall) == 1, str(logged))
-        ok, why = dmn_lifecycle.wake_agent(con, "backend", logged.append)
-        check("wall wake: and the wake itself still refuses and returns the reason",
-              not ok and "5h window" in why, why)
-        logged.clear()
-        dmn_lifecycle.wake_agent(con, "backend", logged.append)
-        check("wall wake: a direct wake does not log it either - its caller has the reason",
-              not [m for m in logged if "5h window" in m], str(logged))
-    finally:
-        termmod.available, termmod.alive, orcacli._run = real_avail, real_alive, real_run
-        dmn_evaluate._SAID.clear()
-        con.close()
 
 
 def test_the_relabel_recovery_command_quotes_what_it_names(home: Path) -> None:
@@ -502,50 +452,19 @@ def test_doctor_names_a_repo_whose_mcp_json_claude_would_ask_about(home: Path) -
     check("doctor: and only those two: not the approved repo, not the one with no .mcp.json", len(named) == 2, str(named))
 
 
-def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> None:
-    """T170: off by default; on adds the driver's flag once at the next launch;
-    only a real true counts; a vendor with no such switch is told, not broken."""
+def test_chrome_and_mcp_config_are_per_agent_switches_read_at_launch(home: Path) -> None:
+    """Each is off by default and reaches the argv at the next launch; only the founder sets them."""
     use_home(home)
     accounts.register("alpha")
     (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
     agents.register("backend")
     cdrv = vendors.get("claude")
     cdrv.binary = lambda: "/x/bin/claude"
-    flag = "--dangerously-skip-permissions"
     try:
-        check("skip: off by default", flag not in launch.build("backend")[0])
-        agents.register("backend", skip_permissions=True)
-        check("skip: register turns it on, in agent.yaml",
-              agents.read("backend").get("skip_permissions") is True)
-        check("skip: a launch after it carries the flag", flag in launch.build("backend")[0])
-        check("skip: once, even when the caller passed it too",
-              launch.build("backend", [flag])[0].count(flag) == 1)
-        agents.register("backend", effort="high")
-        check("skip: a re-registration that omits it keeps it",
-              flag in launch.build("backend")[0])
-        for bad in ("yes", "true", 1, "on"):
-            p = agents.agent_file("backend")
-            cfg = agents.load(p.read_text())
-            cfg["skip_permissions"] = bad
-            p.write_text(agents.dump(cfg))
-            reseal(p)
-            check(f"skip: {bad!r} is not a true, so it is off",
-                  not agents.skip_permissions(agents.read("backend"))
-                  and flag not in launch.build("backend")[0])
-        agents.register("backend", skip_permissions=True)
-        agents.register("backend", skip_permissions=False)
-        check("skip: turning it off removes the key and the flag",
-              "skip_permissions" not in agents.read("backend")
-              and flag not in launch.build("backend")[0])
-        out = _capture(lambda: climod.main(["agent", "register", "backend", "--repo", "/repo", "--skip-permissions", "on"]))
-        check("skip: the CLI sets it and says when it applies",
-              agents.read("backend").get("skip_permissions") is True and "next launch" in out, out)
-        _capture(lambda: climod.main(["agent", "register", "backend", "--skip-permissions", "off"]))
-        check("skip: and off from the CLI", "skip_permissions" not in agents.read("backend"))
-        # T875: the same wiring, through the real parser and launch.build.
+        # Through the real parser and launch.build.
         check("chrome: a launch is --no-chrome by default",
               "--no-chrome" in launch.build("backend")[0] and "--chrome" not in launch.build("backend")[0])
-        out = _capture(lambda: climod.main(["agent", "register", "backend", "--chrome", "on"]))
+        out = _capture(lambda: climod.main(["agent", "register", "backend", "--repo", "/repo", "--chrome", "on"]))
         argv = launch.build("backend")[0]
         check("chrome: the CLI turns it on, says when, and the launch carries --chrome",
               "--chrome" in argv and "--no-chrome" not in argv and "next launch" in out, (argv, out))
@@ -566,7 +485,7 @@ def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> No
               len(got) == 1 and json.loads(got[0])["mcpServers"]["browser"]["command"] == "sh"
               and "next launch" in out, (got, out))
         check("mcp: and the fingerprint moves", launch.fingerprint("backend") != fp_off)
-        agents.register("backend", effort="high")
+        agents.register("backend")
         check("mcp: a re-registration that omits it keeps it", len(mcp_args(launch.build("backend")[0])) == 1)
         bad = home / "bad-mcp.json"
         bad.write_text('{"servers": {}}')
@@ -605,92 +524,6 @@ def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> No
                   err.getvalue())
         finally:
             os.environ.pop("OCP_AGENT")
-        real = os.environ.get("OCP_AGENT")
-        os.environ["OCP_AGENT"] = "backend"
-        try:
-            err = io.StringIO()
-            with contextlib.redirect_stderr(err):
-                rc = climod.main(["agent", "register", "backend", "--skip-permissions", "on"])
-            check("skip: an agent's own session cannot turn it on",
-                  rc == 1 and "founder's" in err.getvalue()
-                  and "skip_permissions" not in agents.read("backend"), err.getvalue())
-            os.environ.pop("OCP_AGENT")
-            agents.register("backend", skip_permissions=True)
-            os.environ["OCP_AGENT"] = "backend"
-            with contextlib.redirect_stderr(io.StringIO()):
-                rc = climod.main(["agent", "register", "backend", "--skip-permissions", "off"])
-            check("skip: nor off - the grant is the founder's both ways",
-                  rc == 1 and agents.read("backend").get("skip_permissions") is True
-                  and agents.skip_permissions_granted("backend"))
-            try:
-                agents.register("backend", skip_permissions=False)
-                check("skip: and the call itself refuses an agent, not just the CLI", False)
-            except PermissionError:
-                check("skip: and the call itself refuses an agent, not just the CLI",
-                      agents.skip_permissions_granted("backend"))
-            os.environ.pop("OCP_AGENT")
-            agents.register("backend", skip_permissions=False)
-        finally:
-            if real is None:
-                os.environ.pop("OCP_AGENT", None)
-            else:
-                os.environ["OCP_AGENT"] = real
-        check("skip: opencode has no such switch, so it adds nothing",
-              vendors.get("opencode").skip_permissions_argv() == [])
-    finally:
-        del cdrv.binary
-
-
-def test_skip_permissions_needs_the_founders_grant_not_just_the_file(home: Path) -> None:
-    """T175: agent.yaml is writable by every agent's sandbox, so the key in it
-    alone never adds the flag. The grant is recorded by `register` (the CLI or
-    the screen), and doctor names a key that has none."""
-    use_home(home)
-    accounts.register("alpha")
-    (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
-    agents.register("backend")
-    cdrv = vendors.get("claude")
-    cdrv.binary = lambda: "/x/bin/claude"
-    flag = "--dangerously-skip-permissions"
-
-    def edit(**kw):
-        p = agents.agent_file("backend")
-        cfg = agents.load(p.read_text())
-        cfg.pop("skip_permissions", None)
-        cfg.update(kw)
-        p.write_text(agents.dump(cfg))
-        reseal(p)
-
-    def doctor_says():
-        r = doctor.Report()
-        doctor._check_agents(r)
-        return [n for _lv, n, _d in r.rows if "skip_permissions" in n]
-    try:
-        edit(skip_permissions=True)
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            argv = launch.build("backend")[0]
-        check("grant: a key written into agent.yaml alone adds no flag, and says why",
-              flag not in argv and "never turned it on" in err.getvalue(), err.getvalue())
-        check("grant: doctor names it", len(doctor_says()) == 1, str(doctor_says()))
-        check("grant: and it is not in effect",
-              not agents.skip_permissions_in_effect("backend", agents.read("backend")))
-
-        agents.register("backend", skip_permissions=True)
-        check("grant: register grants it, and the flag comes",
-              flag in launch.build("backend")[0] and doctor_says() == [])
-        edit(skip_permissions=True)
-        check("grant: a later hand edit of the file changes nothing", flag in launch.build("backend")[0])
-
-        agents.register("backend", skip_permissions=False)
-        edit(skip_permissions=True)
-        with contextlib.redirect_stderr(io.StringIO()):
-            argv = launch.build("backend")[0]
-        check("grant: turning it off revokes the grant, so the key put back by hand is inert",
-              flag not in argv and len(doctor_says()) == 1)
-        agents.register("backend")
-        check("grant: a re-registration that omits it leaves the grant as it was",
-              not agents.skip_permissions_granted("backend"))
     finally:
         del cdrv.binary
 
@@ -1023,57 +856,47 @@ def test_doctor_service_check(home: Path) -> None:
         service.crash_loop_detected = orig_loop
 
 
-def test_spawn_base_selection(tmp: Path) -> None:
-    """Branching from the stale side silently loses work, so pick_base must not
-    guess - and must refuse outright when the two have diverged."""
-    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
-               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
-    run = lambda cwd, *a: subprocess.run(["git", *a], cwd=cwd, capture_output=True, env=env)  # noqa: E731
+def test_hl_spawn_and_unstall_ask_the_go_daemon(tmp: Path) -> None:
+    """`hl spawn` is session.start with the repo and base, then the first task through chat.send; `hl unstall` is agent.unstall.
+    What the daemon does with them is tested in Go (go/internal/lifecycle, go/internal/sessionrpc)."""
+    calls: list[tuple[str, dict]] = []
 
-    origin = tmp / "origin"
-    origin.mkdir(parents=True)
-    run(origin, "init", "-q", "-b", "main")
-    (origin / "f.txt").write_text("base\n")
-    run(origin, "add", "-A"); run(origin, "commit", "-qm", "base")
+    def took(method: str, said: str):
+        return lambda p: (calls.append((method, p)), {"accepted": True, "said": said})[1]
 
-    work = tmp / "work"
-    subprocess.run(["git", "clone", "-q", str(origin), str(work)], capture_output=True)
+    def refused(method: str, said: str):
+        def reply(p):
+            calls.append((method, p))
+            raise dmn_client.RpcError({"message": said, "data": {"code": "refused"}})
+        return reply
 
-    ref, why = spawnmod.pick_base(work, "main")
-    check("spawn: in sync, uses the local base", ref == "main", f"{ref} ({why})")
+    with support.daemon_says("session.start", took("session.start", "backend: worktree /w")), \
+            support.daemon_says("chat.send", took("chat.send", "queued for backend")):
+        rc, out = _cli(["spawn", "backend", "--repo", str(tmp), "--prompt", "first job"], as_agent=None)
+    start, send = (calls + [("", {})] * 2)[:2]
+    check("spawn: session.start gets the agent, the repo as an absolute path and the default base",
+          start[0] == "session.start" and start[1]["agent"] == "backend" and start[1]["repo"] == str(tmp.resolve())
+          and start[1]["base"] == "main", str(calls))
+    check("spawn: the first task goes to chat.send after the start",
+          send[0] == "chat.send" and send[1]["agent"] == "backend" and send[1]["body"] == "first job", str(calls))
+    check("spawn: both replies are printed", rc == 0 and "backend: worktree /w" in out and "queued for backend" in out, out)
 
-    # Local ahead: branching from origin/main would drop the local commits.
-    (work / "f.txt").write_text("local work\n")
-    run(work, "add", "-A"); run(work, "commit", "-qm", "local only")
-    ref, why = spawnmod.pick_base(work, "main")
-    check("spawn: local ahead, branches from local", ref == "main", f"{ref} ({why})")
-    check("spawn: says why", "leads by 1" in why, why)
+    calls.clear()
+    with support.daemon_says("session.start", refused("session.start", "backend: not started - no account has room")):
+        rc, out = _cli(["spawn", "backend", "--repo", str(tmp), "--base", "dev", "--prompt", "first job"], as_agent=None)
+    check("spawn: a refused start fails, says why, and sends no first task",
+          rc == 1 and "no account has room" in out and [m for m, _ in calls] == ["session.start"] and calls[0][1]["base"] == "dev",
+          f"{rc} {out} {calls}")
 
-    # Remote ahead only.
-    work2 = tmp / "work2"
-    subprocess.run(["git", "clone", "-q", str(origin), str(work2)], capture_output=True)
-    (origin / "f.txt").write_text("remote work\n")
-    run(origin, "add", "-A"); run(origin, "commit", "-qm", "remote only")
-    ref, why = spawnmod.pick_base(work2, "main")
-    check("spawn: remote ahead, branches from origin", ref == "origin/main", f"{ref} ({why})")
-
-    # Diverged: refuse rather than pick a side.
-    (work2 / "other.txt").write_text("diverge\n")
-    run(work2, "add", "-A"); run(work2, "commit", "-qm", "local diverge")
-    ref, why = spawnmod.pick_base(work2, "main")
-    check("spawn: diverged, refuses instead of guessing", ref is None, f"{ref} ({why})")
-    check("spawn: tells the human to merge first", "Merge" in why or "merge" in why, why)
-
-    # T483: a repo whose branch is not `main` (legacy's) must not be handed `main`.
-    other = tmp / "other"
-    other.mkdir()
-    run(other, "init", "-q", "-b", "trunk")
-    ref, why = spawnmod.pick_base(other, "main")
-    check("spawn: no commit at all, refuses with a plain reason", ref is None and "first commit" in why, why)
-    (other / "f.txt").write_text("x\n")
-    run(other, "add", "-A"); run(other, "commit", "-qm", "first")
-    ref, why = spawnmod.pick_base(other, "main")
-    check("spawn: no main, branches from the checked-out branch", ref == "trunk", f"{ref} ({why})")
+    calls.clear()
+    with support.daemon_says("agent.unstall", took("agent.unstall", "backend: STALLED -> QUEUED")):
+        rc, out = _cli(["unstall", "backend"], as_agent=None)
+    check("unstall: agent.unstall gets the agent and its words are printed",
+          rc == 0 and calls[0][0] == "agent.unstall" and calls[0][1]["agent"] == "backend" and "STALLED -> QUEUED" in out,
+          f"{rc} {out} {calls}")
+    with support.daemon_says("agent.unstall", refused("agent.unstall", "backend: not STALLED (IDLE)")):
+        rc, out = _cli(["unstall", "backend"], as_agent=None)
+    check("unstall: a refusal fails and says why", rc == 1 and "not STALLED (IDLE)" in out, f"{rc} {out}")
 
 
 def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
@@ -1261,213 +1084,6 @@ def test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
               and ("assignable" in msg))
     check("doctor: agrees - not assignable, not the pick's blind spot",
           "not assignable" in row, row)
-
-
-def test_spawn_survives_its_own_main_path(home: Path) -> None:
-    """`hl spawn <agent> --prompt "..."` is the command's main path, and it
-    raised there - after the worktree and the terminal were already made, so it
-    left a real worktree and a live terminal with no task in it. Nothing drove
-    spawn() past terminal-create, so the suite walked around the crash."""
-    os.environ["OCP_HOME"] = str(home)
-    home.mkdir(parents=True, exist_ok=True)
-    agents.register("spawny")
-
-    repo = home / "repo"
-    (repo / ".git").mkdir(parents=True)
-
-    real = (spawnmod._run, spawnmod.prompt_landed, termmod.wait_idle, termmod.available,
-           dmn_delivery.wait_for_session)
-    try:
-        host = TmuxStandIn()
-        termmod.available = lambda: True
-        spawnmod._run = lambda args, cwd=None: (0, "", "")
-        spawnmod.prompt_landed = lambda agent, since, timeout_s=0: True
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.run_current = lambda: None       # register_worker looks for a Run to join;
-        termmod.run_create = lambda objective: None    # there is none, so the worker is not registered
-        # spawn() confirms a session came up before it says "started" (#1976,
-        # T146 pt.2) - not this test's own concern, so it is not made to wait.
-        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
-
-        ok, msg = spawnmod.spawn("spawny", repo, base="main", prompt="do the thing")
-        check("spawn: the command's main path runs to the end", ok, msg)
-        check("spawn: and the task is actually sent",
-              any(a[0] == "send-keys" and "do the thing" in " ".join(a) for a in host.calls), str(host.calls))
-        check("spawn: a ready agent draws no warning", "WARNING" not in msg, msg)
-
-        # The wait is the guard against typing into a booting TUI, so its
-        # answer must read the right way round: it warned on success and was
-        # silent on failure, which is worse than not warning at all.
-        termmod.wait_idle = lambda h, timeout_ms=0: False
-        ok, msg = spawnmod.spawn("spawny", repo, base="main", prompt="do the thing")
-        check("spawn: a wait that did not succeed warns", "WARNING" in msg, msg)
-    finally:
-        (spawnmod._run, spawnmod.prompt_landed, termmod.wait_idle, termmod.available,
-         dmn_delivery.wait_for_session) = real
-
-
-def test_spawn_and_start_in_refuse_to_say_started_with_no_session(home: Path) -> None:
-    """A terminal the host made is not a session
-    running in it - `spawn`/`start_in` must say so (`ok=False`, the "no
-    session is running" text), not warn while still claiming success. The
-    daemon's own auto-start (`_start_for_work`) decides on that same `ok` now,
-    not on the terminal the row still holds (the terminal is real; only the
-    session inside it is missing), so it must not reset the wake-failure
-    streak or log "started" over one either."""
-    os.environ["OCP_HOME"] = str(home)
-    home.mkdir(parents=True, exist_ok=True)
-    credentialed(home, "alpha")
-    agents.register("spawny", repo=str(home / "checkout"))
-    con = db.connect()
-
-    repo = home / "repo"
-    (repo / ".git").mkdir(parents=True)
-
-    real = (spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
-           dmn_delivery.wait_for_session)
-    try:
-        TmuxStandIn()
-        termmod.available = lambda: True
-        spawnmod._run = lambda args, cwd=None: (0, "", "")
-        termmod.run_current = lambda: None
-        termmod.run_create = lambda objective: None
-        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: False
-
-        ok, msg = spawnmod.spawn("spawny", repo, base="main")
-        check("spawn: no session confirmed is not started",
-              not ok and "no session is running" in msg, msg)
-
-        wt = home / "keep-wt"
-        wt.mkdir()
-        ok, msg = spawnmod.start_in("spawny", str(wt))
-        check("start_in: no session confirmed is not started either",
-              not ok and "no session is running" in msg, msg)
-
-        # The daemon's own auto-start of an agent with work waiting.
-        db.add_request(con, "manager", "spawny", "do it", None,
-                       "peer", "async", None, 0, None)
-        said = dmn_lifecycle._start_for_work(con, "spawny", lambda _m: None)
-        row = db.get_agent_state(con, "spawny")
-        check("dispatch: a spawn with no session confirmed is not 'started'",
-              "could not be started" in said, said)
-        check("dispatch: and it counts as a failed wake, not a fresh streak",
-              row["wake_failures"] == 1, str(dict(row)))
-    finally:
-        (spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
-         dmn_delivery.wait_for_session) = real
-        con.close()
-
-
-def test_spawn_registers_a_repo_orca_lacks_and_tries_again(home: Path) -> None:
-    """A worktree create that fails with repo_not_found gets one retry, after the
-    repo is put in Orca - never for one Orca already has, and never twice."""
-    os.environ["OCP_HOME"] = str(home)
-    home.mkdir(parents=True, exist_ok=True)
-    credentialed(home, "alpha")
-    agents.register("regy", repo=str(ROOT))
-    creates: list[list[str]] = []
-    have_repo = {"ok": False}
-    not_found = json.dumps({"ok": False, "error": {"code": "repo_not_found"}})
-
-    def fake_run(args, cwd=None):
-        if args[:3] == ["orca", "worktree", "create"]:
-            creates.append(args)
-            if not have_repo["ok"]:
-                return 1, not_found, ""
-            return 0, json.dumps({"result": {"worktree": {"path": str(home / "wt")}}}), ""
-        if args[:3] == ["orca", "terminal", "create"]:
-            return 0, json.dumps({"result": {"terminal": {"handle": "term_r"}}}), ""
-        return 0, "", ""
-
-    fake = FakeOrca({})
-    real = (orcacli._exec, spawnmod._run, termmod.available, orcacli._run, termmod.available,
-            termmod.wait_idle, dmn_delivery.wait_for_session)
-    try:
-        termmod.available = lambda: True
-        spawnmod._run = fake_run
-        orcacli._exec = lambda argv, timeout=120: fake_run(argv)
-        orcacli._run, termmod.available = fake.run, lambda: True
-        termmod.wait_idle = lambda *_a, **_k: True
-        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
-
-        real_add = fake.run
-
-        def add_then_ready(args, timeout=180):
-            if args[0] != "repo":
-                return True, "{}"
-            r = real_add(args, timeout)
-            if args[:2] == ["repo", "add"]:
-                have_repo["ok"] = True
-            return r
-        orcacli._run = add_then_ready
-        real_rc, real_rcr = termmod.run_current, termmod.run_create
-        termmod.run_current, termmod.run_create = (lambda: None), (lambda objective: None)
-        ok, msg = spawnmod.spawn("regy", ROOT, base="main")
-        check("spawn: repo_not_found registers the repo, then the worktree is made",
-              len(creates) == 2 and fake.repos == [str(ROOT)], f"{msg} {creates} {fake.repos}")
-
-        # Orca already has it: repo_not_found is not ours to fix by adding it again.
-        agents.register("regy2", repo=str(ROOT))
-        creates.clear()
-        have_repo["ok"] = False
-        n = len(fake.calls)
-        ok, msg = spawnmod.spawn("regy2", ROOT, base="main")
-        check("spawn: a repo Orca already lists is not added again, and the failure is shown",
-              not ok and len(creates) == 1 and "repo_not_found" in msg
-              and all(c[:2] != ["repo", "add"] for c in fake.calls[n:]), f"{msg} {fake.calls[n:]}")
-    finally:
-        (orcacli._exec, spawnmod._run, termmod.available, orcacli._run, termmod.available,
-         termmod.wait_idle, dmn_delivery.wait_for_session) = real
-        termmod.run_current, termmod.run_create = real_rc, real_rcr
-
-
-def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
-    """`worktree create --name keeper` on a name already taken makes keeper-2
-    beside it, stranding the branch and whatever is uncommitted in the first.
-    With the terminal record gone but the checkout on disk, spawn must start
-    the agent in the checkout it has and create nothing."""
-    os.environ["OCP_HOME"] = str(home)
-    home.mkdir(parents=True, exist_ok=True)
-    agents.register("keeper", "alpha")
-    wt = home / "keeper-wt"
-    wt.mkdir()
-
-    repo = home / "repo"
-    (repo / ".git").mkdir(parents=True)
-
-    real = (spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
-           dmn_delivery.wait_for_session)
-    con = db.connect()
-    try:
-        host = TmuxStandIn()
-        termmod.available = lambda: True
-        spawnmod._run = lambda args, cwd=None: (0, "", "")
-        termmod.run_current = lambda: None
-        termmod.run_create = lambda objective: None
-        # spawn() confirms a session came up before it says "started" (#1976,
-        # T146 pt.2) - not this test's own concern, so it is not made to wait.
-        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
-        # The selector `hl launch` records, not a plain path.
-        db.set_terminal(con, "keeper", None, f"abc123::{wt}")
-
-        ok, msg = spawnmod.spawn("keeper", repo, base="main", dry_run=True)
-        check("spawn: a dry run names the worktree it would keep", ok and str(wt) in msg, msg)
-        check("spawn: and plans no worktree create", "worktree create" not in msg, msg)
-
-        ok, msg = spawnmod.spawn("keeper", repo, base="main")
-        check("spawn: an agent with a worktree and no terminal starts", ok, msg)
-        check("spawn: no second worktree is created", host.worktrees_made() == [], str(host.git))
-        check("spawn: the terminal opens in the worktree it had",
-              [str(wt)] == [a[a.index("-c") + 1] for a in host.windows()], str(host.windows()))
-
-        # Gone from disk, there is nothing to keep: a fresh one is made.
-        db.set_terminal(con, "keeper", None, f"abc123::{wt}-missing")
-        ok, msg = spawnmod.spawn("keeper", repo, base="main")
-        check("spawn: a worktree that is gone is made anew", len(host.worktrees_made()) == 1, str(host.git))
-    finally:
-        con.close()
-        (spawnmod._run, termmod.available, termmod.run_current,
-         termmod.run_create, dmn_delivery.wait_for_session) = real
 
 
 def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
@@ -1841,10 +1457,8 @@ def test_allow_home_writes_reads_entries_as_claude_code_does(home: Path) -> None
 
 
 def test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(home: Path) -> None:
-    """`state_hooks()` is the one fact hooks, init, doctor and the state word
-    ask: claude has them, opencode and a second vendor do not, and a vendor
-    without them is one whose row state is read off its screen."""
-    from handline.daemon import screenstate
+    """`state_hooks()` is the one fact hooks, init and doctor ask: claude has them, opencode and a second
+    vendor do not."""
     use_home(home)
     check("state hooks: claude has them", vendors.get("claude").state_hooks() is not None)
     check("state hooks: opencode has none - its screen is the witness",
@@ -1852,14 +1466,6 @@ def test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(hom
     check("state hooks: the list the commands loop over is claude's alone",
           [type(h).__name__ for h in vendors.state_hooks()] == ["ClaudeHooks"],
           str(vendors.state_hooks()))
-    accounts.register("clacct")
-    accounts.register("ocacct", vendor="opencode")
-    check("state hooks: a claude account's state comes from its hooks",
-          screenstate._state_from_screen("clacct") is False)
-    check("state hooks: an opencode account's is read off its screen",
-          screenstate._state_from_screen("ocacct") is True)
-    check("state hooks: an account whose vendor has no driver is neither",
-          screenstate._state_from_screen("nosuch") is False)
 
 
 def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) -> None:
@@ -1996,87 +1602,6 @@ def test_doctor_and_ps_report_a_drifted_launch(home: Path) -> None:
     finally:
         obsmod.live_sessions = real
         con.close()
-
-
-def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> None:
-    """The actual gap (founder #596, orcapipe-manager #668): `register()` skips
-    a LINKED item whose shared target did not exist yet, and it only runs when
-    an account is created or re-registered by hand - so alpha, beta and gamma
-    had no CLAUDE.md link at all, silently, because the file did not exist
-    when they were made. A fixture that creates the accounts after the file
-    exists would pass on the broken code; this creates them before it, the way
-    they actually are today."""
-    use_home(home)
-    accounts.register("alpha")
-    accounts.register("beta")
-    accounts.register("gamma")
-    alpha_claude = vendors.config_dir("alpha") / "CLAUDE.md"
-    beta_claude = vendors.config_dir("beta") / "CLAUDE.md"
-    gamma_claude = vendors.config_dir("gamma") / "CLAUDE.md"
-    check("relink: matches today - no CLAUDE.md link exists yet",
-          not alpha_claude.exists() and not beta_claude.exists() and not gamma_claude.exists())
-
-    # A deliberate override: a real file, not a link - what a human's own fix
-    # or customization looks like on disk.
-    gamma_claude.write_text("gamma's own")
-
-    # The file is added the way the founder actually will: dropped straight
-    # into shared/.claude, no `hl` command run at all afterward.
-    shared_target = vendors.shared_dir("claude") / "CLAUDE.md"
-    shared_target.write_text("policy text")
-
-    done = accounts.relink_all()
-    check("relink: it reaches every account that existed before it did",
-          alpha_claude.is_symlink() and beta_claude.is_symlink()
-          and os.readlink(alpha_claude) == str(shared_target)
-          and os.readlink(beta_claude) == str(shared_target), str(done))
-    check("relink: and says what it did, by account",
-          done.get("alpha") == ["CLAUDE.md"] and done.get("beta") == ["CLAUDE.md"], str(done))
-    check("relink: an account's own override is left alone, not overwritten",
-          "gamma" not in done and gamma_claude.read_text() == "gamma's own", str(done))
-    check("relink: the override is what doctor reports, and nothing else",
-          accounts.unlinked() == [("gamma", "CLAUDE.md")], str(accounts.unlinked()))
-    rr = doctor.Report()
-    doctor._check_shared_links(rr)
-    check("relink: doctor warns naming the account and item",
-          any(lv == doctor.WARN and "gamma: CLAUDE.md" in d for lv, _, d in rr.rows))
-    check("relink: idempotent - nothing left to do once everyone is caught up",
-          accounts.relink_all() == {})
-
-    # A link pointing elsewhere: the timed pass leaves it, a human's register replaces it.
-    beta_claude.unlink()
-    beta_claude.symlink_to(home / "elsewhere")
-    accounts.relink_all()
-    check("relink: a link pointing elsewhere is not replaced by the timed pass",
-          os.readlink(beta_claude) == str(home / "elsewhere"))
-    accounts.register("beta")
-    check("relink: register() still replaces it, as before",
-          os.readlink(beta_claude) == str(shared_target))
-
-    # The ordinary path still works: a freshly registered account gets it
-    # straight from `register()`, with no relink pass needed.
-    accounts.register("delta")
-    check("relink: a freshly registered account is linked by register() itself",
-          (vendors.config_dir("delta") / "CLAUDE.md").is_symlink())
-
-    # And the daemon does this without being told to, every tick - the actual
-    # fix for "a human has to remember a command per account": nobody has to
-    # remember anything, because the daemon is already running.
-    accounts.register("epsilon")
-    # Simulate epsilon predating CLAUDE.md ever landing in shared, the same
-    # way alpha and beta did above - unlink what register() just linked, so
-    # the tick has something of its own to catch up on.
-    (vendors.config_dir("epsilon") / "CLAUDE.md").unlink()
-    termmod.live_terminals = lambda: None    # tick's sweep asks Orca; this is about relink
-    logs: list[str] = []
-    con = db.connect()
-    try:
-        dmn_evaluate.tick(con, logs.append)
-    finally:
-        con.close()
-    check("relink: the daemon's own tick catches up an account with nothing to run for it",
-          (vendors.config_dir("epsilon") / "CLAUDE.md").is_symlink()
-          and any("relinked epsilon" in ln for ln in logs), str(logs))
 
 
 def test_a_test_never_reaches_the_real_home(home: Path) -> None:
@@ -2326,7 +1851,6 @@ def test_venv(home: Path) -> None:
           r.returncode == 1 and "no requirements.txt" in r.stdout and "shasum" not in r.stderr, f"out={r.stdout!r} err={r.stderr!r}")
 
 
-
 def test_shared_settings_turn_claude_notifications_off_once(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
     settings = home / "shared" / ".claude" / "settings.json"
@@ -2439,7 +1963,6 @@ def main() -> int:
         run(lambda: test_a_settings_write_that_dies_leaves_the_old_file(Path(td) / 'setatomic'))
         run(lambda: test_launch(home))
         run(lambda: test_doctor_checks_shared_mcp_config(home))
-        run(lambda: test_a_walled_wake_is_said_once_not_every_tick(Path(td) / 'wallonce'))
         skip(lambda: test_the_relabel_recovery_command_quotes_what_it_names(Path(td) / 'relabelquote'), ORCA_UNMAINTAINED)
         run(lambda: test_a_vendor_with_no_driver_refuses_the_launch(Path(td) / 'novendor'))
         run(lambda: test_doctor_looks_for_the_vendors_executable_not_its_name(Path(td) / 'doctorbin'))
@@ -2451,23 +1974,18 @@ def main() -> int:
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
         run(lambda: test_a_claude_account_with_a_coding_plan_key_launches_on_glm(Path(td) / 'glmkey'))
         run(lambda: test_doctor_names_a_repo_whose_mcp_json_claude_would_ask_about(Path(td) / 'mcpjson'))
-        run(lambda: test_skip_permissions_is_a_per_agent_switch_read_at_launch(Path(td) / 'skipperm'))
-        run(lambda: test_skip_permissions_needs_the_founders_grant_not_just_the_file(Path(td) / 'skipgrant'))
+        run(lambda: test_chrome_and_mcp_config_are_per_agent_switches_read_at_launch(Path(td) / 'switches'))
         run(lambda: test_the_protected_store_is_outside_what_agents_write(Path(td) / 'protstore'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_init_keeps_the_lock_file_out_of_the_home_repo(Path(td) / 'd6e'))
         run(lambda: test_doctor_service_check(Path(td) / 'svc7'))
-        run(lambda: test_spawn_base_selection(Path(td) / 'spawn'))
+        run(lambda: test_hl_spawn_and_unstall_ask_the_go_daemon(Path(td) / 'hlspawn'))
         run(lambda: test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj'))
         run(lambda: test_doctor_checks_team_yaml_and_that_its_agents_are_registered(Path(td) / 'docteam'))
         run(lambda: test_an_agent_is_told_its_team_from_team_yaml(Path(td) / 'teamprompt'))
         run(lambda: test_doctor_says_one_thing_per_account(Path(td) / 'doc2'))
         run(lambda: test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
             Path(td) / 'docactive'))
-        run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
-        run(lambda: test_spawn_and_start_in_refuse_to_say_started_with_no_session(Path(td) / 'spawnnosess'))
-        skip(lambda: test_spawn_registers_a_repo_orca_lacks_and_tries_again(Path(td) / 'spawnrepo'), ORCA_UNMAINTAINED)
-        run(lambda: test_spawn_keeps_the_worktree_an_agent_still_has(Path(td) / 'spawnkeep'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
         run(lambda: test_a_launch_installs_a_hook_event_added_since_the_last_install(Path(td) / 'hookgrow'))
         run(lambda: test_doctor_catches_a_wanted_event_installed_before_it_existed(Path(td) / 'hookgap'))
@@ -2479,7 +1997,6 @@ def main() -> int:
         run(lambda: test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(Path(td) / 'statehooks'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
         run(lambda: test_doctor_and_ps_report_a_drifted_launch(Path(td) / 'docdrift'))
-        run(lambda: test_a_file_added_to_shared_reaches_every_existing_account(Path(td) / 'relink'))
         run(lambda: test_venv(Path(td) / 'venvhome'))
         run(lambda: test_a_test_never_reaches_the_real_home(Path(td) / 'realhome'))
         run(lambda: test_atomic_write_replaces_the_file_and_leaves_no_temp(Path(td) / 'atomic'))

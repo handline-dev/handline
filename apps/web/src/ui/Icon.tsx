@@ -163,7 +163,6 @@ const ICONS = {
   queued: [Clock, 'Sending'],
   typed: [Keyboard, 'Typed'],
   delivered: [Check, 'Delivered'],
-  unanswered: [CircleDashed, 'Not answered'],
   answered: [CheckCheck, 'Answered'],
   dismissed: [CircleX, 'Dismissed'],
   failed: [CircleAlert, 'Not sent'],

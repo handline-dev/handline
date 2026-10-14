@@ -49,6 +49,16 @@ os.environ[paths.TEST_ROOT_ENV] = str(TEST_ROOT)
 os.environ["OCP_HOME"] = str(TEST_ROOT / ".orcapipe")
 atexit.register(shutil.rmtree, TEST_ROOT, True)
 
+
+def _exit_on(signum, _frame):
+    raise SystemExit(128 + signum)
+
+
+# A stopped run (the runner's timeout, a closed terminal) ends like a failed one: finally blocks and atexit run, so
+# what a test started is stopped and its temp folders go.
+for _sig in (signal.SIGTERM, signal.SIGHUP):
+    signal.signal(_sig, _exit_on)
+
 # The suite must not need the real claude: a machine without one (an agent's
 # sandbox) would fail every test that gets as far as launching. A stub that
 # exits at once stands in when none is on PATH; a real one is left alone.
@@ -63,105 +73,39 @@ from handline.cli import (account as cliaccount, ask as cliask, bridge as clibri
                      health as clihealth, setup as clisetup, task as clitask)
 from handline.team import accounts, agents, ask as askmod, decisions, hr, proposals, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
 from handline import actions, cli as climod, db, vendors  # noqa: E402
-from handline.session import blocked as blockedmod, digest, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, term as termmod, triggers, waiting  # noqa: E402
+from handline.session import blocked as blockedmod, digest, events as evmod, fold as foldmod, idle_close, launch, observe as obsmod, term as termmod, triggers, waiting  # noqa: E402
 from handline.vendors import claude_meter as claudemeter  # noqa: E402
 from handline.session import backends  # noqa: E402
 from handline.session.backends import orca_cli as orcacli, tmux as tmuxbackend  # noqa: E402
 from handline.vendors import claude_collect  # noqa: E402
 from handline.vendors.base import Window  # noqa: E402
 from handline.usage import windows  # noqa: E402
-from handline.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
+from handline.usage import burnrate, collect, load as loadmod, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
 from handline.infra import backup as backupmod, doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
 from handline.view import viewdata  # noqa: E402
 from handline.infra import daemonclient as dmn_client, daemonlock, devmode as devsetting  # noqa: E402
 from handline.session import states as dmn_states  # noqa: E402
-from handline.daemon import (delivery as dmn_delivery, devmode as dmn_devmode,  # noqa: E402
-                        evaluate as dmn_evaluate, handoff as dmn_handoff, lifecycle as dmn_lifecycle,
-                        locks as dmn_locks, login_expired as dmn_login_expired, loop as dmn_loop, messaging as dmn_messaging,
-                        reconciler as dmn_reconciler, socket_server as dmn_socket_server,
-                        states as dmn_timing, usage_poll as dmn_usage_poll)
 from handline.vendors import opencode as ocmod  # noqa: E402
 
 PASS, FAIL = [], []
 
-# A stand-in `close_session` that does not also end the session in the fake
-# process table would otherwise wait out the real minute before failing.
-dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S = 0.3, 0.05
-
-# `ocp ask`/`say` send to the daemon's socket (T351). Under the suite there is no
-# daemon: the CLI's client is a stand-in that hands the request to the very
-# handler the socket serves, on this process, and the notice is typed inline.
+# Under the suite no daemon runs: a command's daemon call is refused as with the daemon down, unless the test gives
+# the Go daemon's reply (`daemon_says`). The Go daemon's behaviour is tested in go/.
 import types as _types  # noqa: E402
 from handline.cli import ask as _cli_ask  # noqa: E402
-from handline.daemon import screenstate, sends as _dmn_sends  # noqa: E402
-_dmn_sends.RUN_INLINE = True
-_cli_ask.dmn_client = _types.SimpleNamespace(
-    send=lambda payload, timeout=None: dmn_socket_server._handle_request(payload, lambda _m: None))
-
-# The commands' method calls (`cli/client.py`) go to the daemon's own serving code on a thread of this process. The
-# caller is whoever OCP_AGENT names, as the daemon would find from the session's process; else the founder.
-import socket as _socket  # noqa: E402
-import threading as _threading  # noqa: E402
 from handline.cli import client as _cli_client  # noqa: E402
-from handline.daemon import rpc as _dmn_rpc  # noqa: E402
-from handline.infra import sessiontoken as _sessiontoken  # noqa: E402
+_cli_ask.dmn_client = _types.SimpleNamespace(send=lambda payload, timeout=None: None)
 
 
-class _CliConnection(_dmn_rpc.Connection):
-    def caller_for(self, key) -> "_dmn_rpc.Caller":
-        caller = _dmn_rpc.Caller(None, key)
-        agent = askmod.current_agent()
-        if agent:
-            caller.role, caller.info = "agent", {"kind": "agent", "name": agent}
-        return caller
+def _no_daemon(start: bool = True, timeout: float = 0):
+    raise dmn_client.DaemonDown("the daemon is not running")
 
 
-def _serve_cli(start: bool = True, timeout: float = 0) -> _socket.socket:
-    _sessiontoken.ensure_founder_key()
-    a, b = _socket.socketpair()
+def GO_ARGUMENTS(home, allow_live_home=False) -> list[str]:
+    """A stand-in for `service.go_arguments`, which needs the Go daemon built: for a test of the rest of the plist. The real
+    one is tested in test_service_plist_runs_the_go_daemon_and_the_live_home_needs_a_word."""
+    return [str(home / "handlined"), "-home", str(home)]
 
-    def serve() -> None:
-        try:
-            _CliConnection(b, lambda _m: None, dmn_socket_server._handle_request).serve()
-        finally:
-            b.close()
-    _threading.Thread(target=serve, daemon=True).start()
-    return a
-
-
-def _request_read(params: dict) -> dict:
-    """request.read as the Go daemon serves it (go/internal/reads/inboxget.go). The Python test server never had it, so `hl read`'s
-    call is answered here and the tests that look at a request through `hl read` still run."""
-    from handline.daemon import delivery, rpc_inbox_get
-    from handline.infra import daemonclient
-    rid, viewer = params["id"], askmod.current_agent() or db.HUMAN
-    until = time.time() + (params.get("wait_s") or 0)
-    while True:
-        con = db.connect()
-        try:
-            row = db.get_request(con, rid)
-            if row is None or (viewer == row["target"] and viewer != db.HUMAN and not row["edge_ok"]):
-                raise daemonclient.RpcError({"message": f"no request {rid}", "data": {"code": "not_found"}})
-            if row["state"] in rpc_inbox_get.SETTLED or time.time() >= until:
-                if viewer == db.HUMAN:
-                    actions.opened_by_human(con, rid)
-                full = con.execute(f"SELECT *, {db.ANSWER_SQL}, {db.DISMISSED_SQL} FROM requests WHERE id = ?", (rid,)).fetchone()
-                dismissed, by, reason = db.dismissal(full)
-                said = delivery.in_reply_to(con, row)
-                return {"id": rid, "requester": row["requester"], "target": row["target"], "kind": row["kind"] or "ask",
-                        "state": row["state"], "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(row["ts"])),
-                        "relation": row["relation"], "response": row["response"], "chain_depth": row["chain_depth"],
-                        "parent": {"id": row["parent_id"], "line": said.partition(": ")[2]} if said else None, "body": row["body"] or "",
-                        "answer": None if dismissed else (full["answer"] or None),
-                        "dismissal": {"by": by, "reason": reason} if dismissed else None}
-        finally:
-            con.close()
-        time.sleep(rpc_inbox_get.POLL_S)
-
-
-_served_call = _cli_client.call
-_cli_client.call = lambda method, params=None, **kw: (_request_read(params) if method == "request.read"
-                                                      else _served_call(method, params, **kw))
 
 @contextlib.contextmanager
 def daemon_says(method: str, reply):
@@ -188,17 +132,40 @@ def queue_head(params: dict) -> dict:
         "more_waiting": 0, "more_waiting_line": None, "how_to_close": "answer it"}}
 
 
-REAL_CLI_CONNECT = _cli_client.connect  # for a test that puts its own socket under the real call
-_cli_client.connect = _serve_cli
+def _first_line(body: str | None, shown: int = 40) -> str:
+    lines = (body or "").splitlines()
+    first = textsafe.oneline(lines[0]).strip() if lines else ""
+    return first[:shown].rstrip() + "…" if len(first) > shown else first
 
-def _ask_row(payload: dict, log=None) -> dict:
-    """A request row written and told the way the removed `ocp ask` did (T560): the
-    delivery tests need a plain row in an agent's queue, and no verb makes one now."""
+
+def request_read(params: dict) -> dict:
+    """A request.read reply that carries the row as the database holds it. Who may read it, the wait and marking it opened
+    are the Go daemon's and are tested there (go/internal/reads/requestread_test.go)."""
+    con = db.connect()
+    try:
+        row = con.execute(f"SELECT *, {db.ANSWER_SQL}, {db.DISMISSED_SQL} FROM requests WHERE id = ?", (params["id"],)).fetchone()
+        if row is None:
+            raise dmn_client.RpcError({"message": f"no request {params['id']}", "data": {"code": "not_found"}})
+        dismissed, by, reason = db.dismissal(row)
+        parent = db.get_request(con, int(row["parent_id"])) if row["parent_id"] is not None else None
+    finally:
+        con.close()
+    return {"id": row["id"], "requester": row["requester"], "target": row["target"], "kind": row["kind"] or "ask",
+            "state": row["state"], "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(row["ts"])),
+            "relation": row["relation"], "response": row["response"], "chain_depth": row["chain_depth"],
+            "parent": parent and {"id": parent["id"], "line": _first_line(parent["body"])}, "body": row["body"] or "",
+            "answer": None if dismissed else (row["answer"] or None), "dismissal": {"by": by, "reason": reason} if dismissed else None}
+
+
+REAL_CLI_CONNECT = _cli_client.connect  # for a test that puts its own socket under the real call
+_cli_client.connect = _no_daemon
+
+def _ask_row(payload: dict) -> dict:
+    """A request row written the way the removed `ocp ask` did: the tests need a plain row in an agent's
+    queue, and no verb makes one now. Delivering it is the Go daemon's."""
     kw = {k: v for k, v in payload.items() if k not in ("verb", "target", "body", "requester", "speaker")}
     ok, msg, rid = askmod.ask(payload["target"], payload["body"], requester=payload.get("requester"),
                               speaker=payload.get("speaker"), notify=False, **kw)
-    if ok:
-        _dmn_sends._after(rid, payload["target"], log or (lambda _m: None))
     return {"ok": bool(ok), "said": msg}
 
 
@@ -211,11 +178,8 @@ claudemeter.refresh_credential = lambda acct, timeout=0: False
 # The terminal functions the test world stands in for, captured once and put
 # back by restore_world, so no test inherits another's stand-in.
 REAL_TERMINAL = {n: getattr(termmod, n) for n in (
-    "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
-    "clear_context", "close_session", "relaunch", "resume_with", "modal_open",
-    "screen_blocker", "_screen", "decline_dialog", "background_work", "close_terminal",
-    "typeable_now", "idle_with_background")}
-termmod.LAUNCH_ENTER_DELAY_S = 0
+    "available", "live_terminals", "wait_idle", "idle_now", "send", "modal_open",
+    "screen_blocker", "_screen", "decline_dialog", "close_terminal")}
 REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals")
                 if hasattr(obsmod, n)}
 
@@ -343,7 +307,6 @@ def calls_that_reached_live_tmux() -> list[tuple[str, str]]:
     return out
 
 
-
 def calls_that_reached_the_stand_in_orca() -> list[tuple[str, str]]:
     """The calls the stand-in `orca` recorded, as (test, call)."""
     if not FAKE_ORCA_LOG.exists():
@@ -417,8 +380,6 @@ def restore_world() -> None:
     # And no screen to read for a key either: a test that presses one says so.
     termmod._screen = lambda handle: None
     termmod.PRESS_SETTLE_S = 0
-    blockedmod._checked.clear()
-    dmn_login_expired._checked.clear()
     accounts._modified.clear()
     accounts._present.clear()
     # The machine's process table is not the test world: with the real reading, whether a doctor or a task
@@ -430,11 +391,6 @@ def restore_world() -> None:
             setattr(obsmod, n, f)
     # Readings that outlive the tick or the frame by design, so one test's
     # world does not answer the next test's question.
-    dmn_delivery._seen.clear()
-    dmn_delivery._seen_at["t"] = 0.0
-    dmn_delivery._NOTED.clear()
-    dmn_delivery._FAILED.clear()
-    actions._WORLD["at"] = 0.0
 
 
 def upgrade(path: Path | None = None):
@@ -488,9 +444,43 @@ def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
     db.refresh_sent_of_request(con, rid)
 
 
-def approve_hr(pid: str):
-    """The founder approving a roster proposal as its card shows it now."""
-    return hr.decide(pid, "approved", askmod.HUMAN, subject=hr.subject_of(hr.load_proposal(pid)))
+def apply_hr(pid: str, con=None) -> tuple[bool, str]:
+    """A roster proposal's change made with the Python doers, which the founder's own change runs. Deciding a proposal
+    and applying it are the Go daemon's (go/internal/hrwrites)."""
+    own = con is None
+    con = con or db.connect()
+    try:
+        return hr._run(hr.load_proposal(pid), con)
+    finally:
+        if own:
+            con.close()
+
+
+_HR_WIRE = {"proposed": "open", "approved": "apply_failed", "applied": "approved", "rejected": "rejected", "withdrawn": "withdrawn"}
+
+
+@contextlib.contextmanager
+def go_hr():
+    """hr.list and hr.decide served from the proposal files, as far as `hl hr` reads them; an approve is apply_hr. The
+    gates and telling the proposer are the Go daemon's (go/internal/hrwrites)."""
+    def listed(params):
+        return {"proposals": [{"id": int(p["id"], 16), "kind": p["kind"], "agent": p["agent"], "state": _HR_WIRE[p["state"]],
+                               "requested_by": p.get("requested_by")}
+                              for p in proposals.listing() if p.get("state") in _HR_WIRE and p.get("requested_by") != "human"]}
+
+    def decided(params):
+        pid = f"{params['proposal']:08x}"
+        prop = hr.load_proposal(pid)
+        if prop is None:
+            raise dmn_client.RpcError({"message": f"no proposal {params['proposal']}"})
+        ok, said = (True, f"proposal {pid} rejected") if params["decision"] == "reject" else apply_hr(pid)
+        if not ok:
+            raise dmn_client.RpcError({"message": said})
+        hr.save({**prop, "state": "rejected" if params["decision"] == "reject" else "applied"})
+        return {"said": said}
+
+    with daemon_says("hr.list", listed), daemon_says("hr.decide", decided):
+        yield
 
 
 def answer_card(con, rid: int, verdict: str) -> None:
@@ -502,68 +492,7 @@ def answer_card(con, rid: int, verdict: str) -> None:
     dbtasks.settle_decision_tasks(con, rid, "done", verdict)
 
 
-def pointed_record(typed: str) -> str:
-    """The record a one-line wake pointer names ("Your handoff is in <file> -
-    ..."): what the session reads when it follows it. "" for a line that names none."""
-    try:
-        return Path(typed.split(" is in ")[1].split(" - ")[0]).read_text()
-    except (IndexError, OSError):
-        return ""
-
-
-def something_waiting(con, agent: str) -> None:
-    """Leave a request waiting for `agent`, unless one is: a closed agent is
-    woken for a message and for nothing else (T124), so a test of how a wake
-    goes needs one to have something to wake it for."""
-    if not db.head_of_queue(con, agent):
-        db.add_request(con, "reviewer", agent, "something for you", None,
-                       "peer", "async", None, 0, None)
-
-
-def relaunching_send(sent: list, table: dict[str, int]) -> object:
-    """An orca.send that records, and starts a session when it is a relaunch.
-
-    The daemon wakes a closed agent by typing its launch command into the shell
-    its session left behind, and everything it sends after that is sent to the
-    session that command started - so a fixture where the process table never
-    changes is a fixture where waking does not work.
-    """
-    def send(handle: str, text: str, enter: bool = True):
-        if not text and enter:
-            return True, ""      # a launch's Enter, sent on its own (T663): the line is what these record
-        sent.append(text)
-        if " launch " in text:
-            table[text.split(" launch ")[1].split()[0]] = 4242
-            # The wake prompt rides the launch as a file the launch takes, not
-            # as a line typed afterwards; listed here as what the session is
-            # handed on start, so tests can assert on what it was told.
-            if "--prompt-file " in text:
-                sent.append(take_launched_prompt(text))
-        elif text == "/exit":
-            table.clear()       # one terminal, one agent, in every fixture here
-        return True, ""
-    return send
-
-
 _taken_prompts: dict[str, str] = {}
-
-
-def take_launched_prompt(command: str) -> str | None:
-    """What a launch command's session starts with, taken as `hl launch`
-    takes it: the file is gone afterwards, which is how the daemon knows its
-    own launch started the session."""
-    if "--prompt-file " not in command:
-        return None
-    text = launch.take_prompt(shlex.split(command.split("--prompt-file ")[1])[0])
-    _taken_prompts[command] = text or ""
-    return text
-
-
-def launched_prompt(command: str) -> str:
-    """The first prompt a launch command hands its session, taken or not; ""
-    for one the daemon removed because nothing took it."""
-    f = Path(shlex.split(command.split("--prompt-file ")[1])[0])
-    return f.read_text() if f.exists() else _taken_prompts.get(command, "")
 
 
 def sessions_are(*agents: str) -> dict[str, int]:
@@ -662,19 +591,6 @@ def write_status(home: Path, acct: str, **fields) -> None:
     payload = {"account": acct, "collected_at": int(time.time()), "session_id": "s"}
     payload.update(old_to_windows(fields))
     (d / "status.json").write_text(json.dumps(payload))
-
-
-def readable_agent(con, home: Path, agent: str) -> None:
-    """Give `agent` the three things a handoff reads, so it comes out whole."""
-    wt = home / f"wt-{agent}"
-    if not wt.is_dir():
-        wt.mkdir(parents=True)
-        for args in (["init", "-q", "-b", "topic"], ["config", "user.email", "t@t"],
-                     ["config", "user.name", "t"], ["commit", "-q", "--allow-empty", "-m", "x"]):
-            subprocess.run(["git", *args], cwd=wt, check=True, capture_output=True)
-    db.set_terminal(con, agent, "term_x", str(wt))
-    write_agent_status(agent, "alpha", session_id="sess-1",
-                       transcript_path="/tmp/sess-1.jsonl")
 
 
 def keep_handoff(agent: str, text: str) -> None:
@@ -885,14 +801,6 @@ COMPOSER_EMPTY = [_COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
                  "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"]
 
 
-def _composer_typed(text: str) -> list:
-    """The same box with content in it - never read; the shape is all that
-    matters (#1157)."""
-    return [_COMPOSER_RULE_ROW, f"❯ {text}", _COMPOSER_RULE_ROW,
-            "  delta · 5h 68% · 7d 67%",
-            "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"]
-
-
 # One hint line under the box and no account status line, so the box sits one
 # row later than an ocp-launched agent's (auditor's #1144 fleet check).
 ONE_HINT_ROW_COMPOSER = [_COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
@@ -985,23 +893,6 @@ def _screen_of(tail, draft=None, source="screen"):
     return term
 
 
-def _blocked_world(home: Path):
-    """backend has a terminal and a session, and a task waiting it has not been told."""
-    _daemon_home(home, 20)
-    termmod.available = lambda: True
-    termmod.alive = lambda h: True
-    sessions_are("backend")
-    con = db.connect()
-    db.set_agent_state(con, "backend", dmn_states.IDLE)
-    db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", "task", 0, None)
-    return con
-
-
-def _decisions(con) -> list:
-    return con.execute(f"SELECT id, state, {db.ANSWER_SQL} FROM requests WHERE target = 'human' "
-                       "AND kind = 'task' ORDER BY id").fetchall()
-
-
 # Shapes reconstructed from Claude Code's wording, NOT measured on a live screen:
 # only EXIT_DIALOG above is. They stand for the trust dialog, a tool permission
 # prompt and a question with a plain No, to prove what ocp presses for each.
@@ -1045,8 +936,6 @@ CLEARED_SCREEN = ["  back at the prompt", "  > "]
 # The screen a session is really at once a dialog is gone: the composer's box
 # between its two rules, which screen_blocker must see to call the screen typeable.
 _COMPOSER_RULE_ROW = "─" * 60
-AT_THE_PROMPT = ["  back at the prompt", _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
-                 "  ⏵⏵ auto mode on (shift+tab to cycle)"]
 
 
 class _Terminal:
@@ -1075,94 +964,6 @@ class _Terminal:
 
     def bring_back(self, tail):
         self.tail = list(tail)
-
-
-class _ExitTerm:
-    """A session at its prompt that answers `/exit` with `dialog`; the key that
-    exits it ends the session in the process table, Esc leaves it standing."""
-
-    def __init__(self, dialog, exits_on, table):
-        self.dialog, self.exits_on, self.table = dialog, exits_on, table
-        self.screen, self.sent = list(COMPOSER_EMPTY), []
-        self.torn, self.reads = 0, 0
-
-    def _read(self, handle, limit=40):
-        self.reads += 1
-        if self.torn and self.screen == list(self.dialog):
-            self.torn -= 1
-            return _screen_of(self.dialog[-1:])
-        return _screen_of(self.screen)
-
-    def install(self):
-        termmod._screen = self._read
-        termmod.send = self.send
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.screen_blocker = REAL_TERMINAL["screen_blocker"]
-        termmod.close_terminal = lambda h, tab=True: (True, "closed")
-
-    def send(self, handle, text, enter=True):
-        self.sent.append((text, enter))
-        if text == "/exit":
-            self.screen = list(self.dialog)
-        elif text == self.exits_on and self.screen == list(self.dialog):
-            self.table.pop("backend", None)
-            self.screen = ["$ "]            # the session is gone and its shell is what is drawn
-        elif text == "\x1b":
-            self.screen = list(COMPOSER_EMPTY)
-        return True, ""
-
-
-def _close_at(home: Path, dialog, exits_on="1", torn=0, screen=None, prep=None):
-    restore_world()
-    con = _blocked_world(home)
-    db.set_terminal(con, "backend", "term_x", "wt")
-    if prep:
-        prep(con)
-    table = sessions_are("backend")
-    term = _ExitTerm(dialog, exits_on, table)
-    term.torn = torn
-    if screen is not None:
-        term.screen = list(screen)
-    term.install()
-    st = types.SimpleNamespace(session_id="sess-1", ctx_pct=8)
-    ok, why = dmn_lifecycle._end_session(con, "backend", lambda m: None, st, resume="sess-1")
-    return con, term, ok, why
-
-
-def _bg_of(tail):
-    restore_world()
-    termmod._screen = lambda h: None if tail is None else _screen_of(tail)
-    try:
-        return termmod.background_work("term_x")
-    finally:
-        restore_world()
-
-
-def _decline_world(home: Path, tail=EXIT_DIALOG, **kw):
-    """backend is idle with work it cannot be given, behind `tail`."""
-    con = _blocked_world(home)
-    term = _Terminal(tail, **kw)
-    term.install()
-    termmod.live_terminals = lambda: {"term_x"}
-    return con, term
-
-
-def _reports(con) -> list:
-    return con.execute("SELECT id, kind, state, body FROM requests WHERE target = 'human' "
-                       "AND kind = 'say' ORDER BY id").fetchall()
-
-
-def _worktree_with_a_dirty_file(root: Path) -> Path:
-    root.mkdir(parents=True, exist_ok=True)
-    for args in (["init", "-q", "-b", "topic"], ["config", "user.email", "t@t"],
-                 ["config", "user.name", "t"]):
-        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
-    (root / "a.txt").write_text("a")
-    subprocess.run(["git", "add", "a.txt"], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-qm", "first"], cwd=root, check=True,
-                   capture_output=True)
-    (root / "dirty.txt").write_text("not committed")
-    return root
 
 
 # ---------------------------------------------------------------- yaml differential
@@ -1498,8 +1299,13 @@ def claude_driver_cases(root: Path) -> dict:
                                                           mcp_approved=args["mcp_approved"], extra_dirs=args["extra_dirs"])})
     wanted = evmod.CAPTURED | evmod.ANSWERS | evmod.GUARDS
     settings = []
+    # The home is reached through a symlink, so its real path differs on every platform (a macOS tmp dir does by itself, a Linux one does not).
+    (root / "real").mkdir(parents=True, exist_ok=True)
+    link = root / "link"
+    if not link.exists():
+        link.symlink_to(root / "real")
     for case in CLAUDE_SETTINGS_CASES:
-        home = root / case["name"]
+        home = link / case["name"]
         restore_world()
         os.environ["OCP_HOME"] = str(home)
         target = home / "shared" / ".claude" / "settings.json"
@@ -1678,8 +1484,6 @@ class SecondVendor:
     def launch_argv(self, exe, model, effort, disallowed, mcp, preamble, hide=None, no_write=None,
                     memory_dir=None, trusted=None, chrome=False, sandbox=False):
         return [exe]
-    def skip_permissions_argv(self):
-        return ["--yolo"]
     def auto_mode_argv(self):
         return []
     def transcript_dir(self, config_dir, worktree):
@@ -1802,14 +1606,6 @@ def _raises(fn) -> bool:
         return True
 
 
-def _session_file(home: Path, session: str) -> None:
-    d = home / "agents" / "backend"
-    d.mkdir(parents=True, exist_ok=True)
-    (d / "status.json").write_text(json.dumps({
-        "account": "alpha", "collected_at": int(time.time()),
-        "session_id": session, "pct_5h": 20}))
-
-
 def _park_via_handoff(con, agent: str, kind: str, hoff_state: str = "done") -> None:
     """Fabricate a completed handoff the way `_perform_handoff` leaves one,
     with `trigger_kind` on the record - the only place a park's cause is
@@ -1841,39 +1637,11 @@ LIMIT_DIALOG = """  ⎿  You've hit your session limit · resets 3:30pm (Asia/Se
    Enter to confirm · Esc to cancel""".split("\n")
 
 
-def _park_behind(home: Path, tail, ends_at_limit: bool = True, **term_kw):
-    """keeper is at its 5h wall with no account to go to, behind `tail`."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    agents.register("keeper")
-    db.set_account(con, "keeper", "alpha")
-    write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5, reset_5h=int(time.time()) + 3 * 3600)
-    keep_handoff("keeper", "# handoff · keeper\n## next\n- carry on\n")
-    db.add_request(con, "marina", "keeper", "carry on", None, "peer", "async", None, 0, None)
-    if ends_at_limit:
-        db.add_event(con, "keeper", "StopFailure", {"limit": "5h"})
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'keeper' AND kind = 'StopFailure'",
-                    (int(time.time()) - dmn_timing.LIMIT_SETTLE_S - 60,))
-    termmod.available = lambda: True
-    termmod.alive = lambda h: True
-    termmod.wait_idle = lambda h, timeout_ms=0: True
-    termmod.idle_now = lambda h: True
-    termmod.live_terminals = lambda: {"term_x"}
-    term = _Terminal(tail, after=AT_THE_PROMPT, **term_kw)
-    term.install()
-    sessions_are("keeper")
-    db.set_terminal(con, "keeper", "term_x", "wt")
-    return con, term
-
-
-def drain_spool() -> None:
-    """What a hook left in the spool while no daemon was running, applied as the daemon does at start."""
-    from handline.daemon import spool
-    con = db.connect()
-    try:
-        spool.ingest(con, lambda m: None)
-    finally:
-        con.close()
+def spooled(agent: str | None = None, kind: str | None = None) -> list[dict]:
+    """The hook events left in the spool (no daemon runs under the suite, so a hook writes each one there)."""
+    from handline.infra import hookspool
+    lines = hookspool.path().read_text().splitlines() if hookspool.path().exists() else []
+    return [e for e in map(json.loads, lines) if agent in (None, e["agent"]) and kind in (None, e["kind"])]
 
 
 def _fire_hook(event: str, **fields) -> None:
@@ -1881,7 +1649,6 @@ def _fire_hook(event: str, **fields) -> None:
     sys.stdin = io.StringIO(json.dumps({"hook_event_name": event, "session_id": "s", **fields}))
     try:
         evmod.record_from_stdin([event])
-        drain_spool()
     finally:
         sys.stdin = real_in
 
@@ -2374,30 +2141,15 @@ def credentialed(home: Path, *accts: str) -> None:
         (home / "accounts" / acct / ".claude" / ".credentials.json").write_text("{}")
 
 
-def write_status_json(agent_dir: Path, fields: dict) -> None:
-    """A fake agent's status.json: the hook-written record `status.read_for_agent` reads."""
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    (agent_dir / "status.json").write_text(json.dumps(fields))
-
-
 def orca_seen() -> None:
     """Orca is there and term_x is a live terminal."""
     termmod.available = lambda: True
     termmod.live_terminals = lambda: {"term_x"}
-    termmod.alive = lambda h: True
-
-
-def orca_idle() -> None:
-    """Orca is there and every terminal is idle."""
-    termmod.available = lambda: True
-    termmod.alive = lambda h: True
-    termmod.idle_now = lambda h: True
 
 
 def orca_settled() -> None:
     """term_x is live and settled: both idle probes answer yes."""
     termmod.live_terminals = lambda: {"term_x"}
-    termmod.alive = lambda h: True
     termmod.wait_idle = lambda h, timeout_ms=0: True
 
 
@@ -2406,8 +2158,10 @@ __all__ = [
     'TmuxStandIn',
     'SUITE_TMUX_SOCKET',
     'ORCA_UNMAINTAINED',
-    'approve_hr',
-    'drain_spool',
+    'apply_hr',
+    'go_hr',
+    'GO_ARGUMENTS',
+    'spooled',
     'answer_card',
     '_ask_row',
     'hand_edit_team',
@@ -2457,22 +2211,9 @@ __all__ = [
     'clitask',
     'collect',
     'dmn_client',
-    'dmn_delivery',
-    'dmn_devmode',
-    'dmn_evaluate',
-    'dmn_handoff',
-    'dmn_lifecycle',
-    'dmn_locks',
-    'dmn_login_expired',
-    'dmn_messaging',
     'dmn_states',
-    'dmn_timing',
     'daemonlock',
     'devsetting',
-    'dmn_reconciler',
-    'dmn_loop',
-    'dmn_socket_server',
-    'dmn_usage_poll',
     'db',
     'hr',
     'proposals',
@@ -2482,12 +2223,10 @@ __all__ = [
     'doctor',
     'evmod',
     'foldmod',
-    'handoffmod',
     'idle_close',
     'launch',
     'loadmod',
     'lock',
-    'measure',
     'obsmod',
     'orcacli',
     'termmod',
@@ -2504,7 +2243,6 @@ __all__ = [
     'triggers',
     'tmuxbackend',
     'trustmod',
-    'screenstate',
     'viewdata',
     'usage_api',
     'claudemeter',
@@ -2530,10 +2268,7 @@ __all__ = [
     '_guarded_popen_init',
     'restore_world',
     '_set_request_state',
-    'relaunching_send',
     '_taken_prompts',
-    'take_launched_prompt',
-    'launched_prompt',
     'sessions_are',
     '_SESSION_TABLE',
     'exit_ends_session',
@@ -2548,7 +2283,6 @@ __all__ = [
     'old_to_windows',
     'Window',
     'windows',
-    'readable_agent',
     'keep_handoff',
     'kept_handoff',
     'write_agent_status',
@@ -2566,7 +2300,6 @@ __all__ = [
     'PASTED_DRAFT',
     '_COMPOSER_RULE_ROW',
     'COMPOSER_EMPTY',
-    '_composer_typed',
     'ONE_HINT_ROW_COMPOSER',
     'PICKER_HINT_ONLY_ENTER_TO_RETURN',
     'PICKER_CURRENT_SESSION_SELECTED',
@@ -2578,8 +2311,6 @@ __all__ = [
     'BANNER_ABOVE_ORDINARY_COMPOSER',
     'BANNER_AND_HINT_QUOTED_ABOVE_BOX',
     '_screen_of',
-    '_blocked_world',
-    '_decisions',
     '_RULE_ROW',
     'TRUST_DIALOG',
     'PERMISSION_PROMPT',
@@ -2588,14 +2319,7 @@ __all__ = [
     'TRUST_DIALOG_WITH_FREE_TEXT_ESC_LINE',
     'TRUST_DIALOG_WITH_ESC_MARK_ON_THE_TITLE',
     'CLEARED_SCREEN',
-    'AT_THE_PROMPT',
     '_Terminal',
-    '_ExitTerm',
-    '_close_at',
-    '_bg_of',
-    '_decline_world',
-    '_reports',
-    '_worktree_with_a_dirty_file',
     'DIFFERENTIAL_CASES',
     'DUMP_STRINGS',
     'DUMP_VALUES',
@@ -2625,12 +2349,10 @@ __all__ = [
     'OC_HOME',
     'OC_PERMISSION',
     '_raises',
-    '_session_file',
     '_park_via_handoff',
     'REAL_ACCESS_TOKEN',
     '_process_on',
     'LIMIT_DIALOG',
-    '_park_behind',
     '_fire_hook',
     '_Reading',
     '_samples_of',
@@ -2667,9 +2389,7 @@ __all__ = [
     'run_area',
     'use_home',
     'credentialed',
-    'write_status_json',
     'orca_seen',
-    'orca_idle',
     'orca_settled',
 ]
 

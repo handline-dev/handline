@@ -363,7 +363,6 @@ func TestAgentSetTakesEveryFieldOfTheContractForTheFounder(t *testing.T) {
 		{"model", "opus", "model: opus"},
 		{"effort", "high", "effort: high"},
 		{"weight", "heavy", "weight: heavy"},
-		{"skip_permissions", "on", "skip_permissions"},
 		{"browser", "chrome", "chrome: true"},
 		{"context_k", "120", "120"},
 		{"idle_close", "30", "park_timeout_s: 1800"},
@@ -394,6 +393,7 @@ func TestAgentSetRefusesWhatCannotBeSaved(t *testing.T) {
 	for name, params := range map[string]string{
 		"a bad value":    `{"agent":"alice","values":{"effort":"extreme"},"request_id":"b1"}`,
 		"an unknown key": `{"agent":"alice","values":{"nope":"x"},"request_id":"b2"}`,
+		"skip prompts":   `{"agent":"alice","values":{"skip_permissions":"on"},"request_id":"b4"}`,
 		"no agent":       `{"agent":"ghost","values":{"effort":"high"},"request_id":"b3"}`,
 	} {
 		if res := r.call("agent.set", params); res["error"] == nil {
@@ -423,7 +423,7 @@ func TestAgentSetIsRefusedToAPairedDevice(t *testing.T) {
 	r := newRig(t)
 	c := &rpc.Conn{Caller: rpc.Caller{Role: "member", Info: map[string]any{"kind": "device", "name": "phone", "device": "d1"}}}
 	before := r.file("agents", "alice", "agent.yaml")
-	_, err := r.e.agentSetMethod(c, map[string]any{"agent": "alice", "values": map[string]any{"skip_permissions": "on", "sandbox": "off"}})
+	_, err := r.e.agentSetMethod(c, map[string]any{"agent": "alice", "values": map[string]any{"sandbox": "off"}})
 	var re *rpc.Error
 	if !errors.As(err, &re) || re.Data["gate"] != "role" {
 		t.Fatalf("a device was not refused at the role gate: %v", err)
@@ -462,7 +462,7 @@ func TestAnAgentSetsTheOrdinaryKeysOfItselfAndNothingElse(t *testing.T) {
 		t.Fatal("a refused call changed another agent")
 	}
 	alice := r.file("agents", "alice", "agent.yaml")
-	for i, key := range []string{"skip_permissions", "sandbox", "mode"} { // the founder's alone
+	for i, key := range []string{"sandbox", "mode"} { // the founder's alone
 		if d := errOf(t, set("alice", fmt.Sprintf(`{%q:"on"}`, key), fmt.Sprintf("ag-f%d", i))); d["code"] != "refused" {
 			t.Errorf("%s: an agent set a founder-only key: %v", key, d)
 		}
@@ -578,5 +578,41 @@ func TestAPairedDeviceDecidesAndAnAgentSessionIsRefused(t *testing.T) {
 	res := r.decide(id, "reject", "", "g2")["result"].(map[string]any)
 	if res["said"] != "proposal aaaa0003 rejected" || r.state("aaaa0003") != "rejected" {
 		t.Fatalf("a paired device decides: %v %s", res, r.state("aaaa0003"))
+	}
+}
+
+func (r *rig) told(who string) []string {
+	r.t.Helper()
+	rows, err := r.db.Query("SELECT body FROM requests WHERE target = ? AND requester = 'human' ORDER BY id", who)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var b string
+		rows.Scan(&b)
+		out = append(out, b)
+	}
+	return out
+}
+
+func TestTheProposerIsToldHowEachDecisionWentInTheWordsHrPyUsed(t *testing.T) {
+	r := newRig(t)
+	_, id := r.propose("aaaa0011", "kind", "link", "agent", "alice", "to", "bob")
+	r.call("hr.decide", fmt.Sprintf(`{"proposal":%d,"decision":"reject","note":"not now","request_id":"t1"}`, id))
+	_, id = r.propose("aaaa0012", "kind", "link", "agent", "alice", "to", "bob")
+	r.decide(id, "reject", "", "t2")
+	p, id := r.propose("aaaa0013", "kind", "link", "agent", "alice", "to", "bob")
+	r.decide(id, "approve", p.subject(), "t3")
+	p, id = r.propose("aaaa0014", "kind", "bundle", "agent", "2 changes",
+		"i1.kind", "add", "i1.agent", "dave", "i1.team", "eng",
+		"i2.kind", "link", "i2.agent", "dave", "i2.to", "nobody")
+	r.decide(id, "approve", p.subject(), "t4")
+	got := r.told("alice")
+	if len(got) != 4 || got[0] != "proposal aaaa0011 was rejected: not now" || got[1] != "proposal aaaa0012 was rejected." ||
+		!strings.HasPrefix(got[2], "proposal aaaa0013 applied: alice may now ask bob.") ||
+		!strings.HasPrefix(got[3], "proposal aaaa0014 was approved but could not be applied: step 2 of 2 (link dave) failed") {
+		t.Fatalf("%q", got)
 	}
 }

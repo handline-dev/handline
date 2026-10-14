@@ -107,11 +107,12 @@ test('with nobody holding the input a watcher resizes, the last resize wins, and
   await until(() => mine.view.cols === 90 && mine.view.rows === 25, 'the last resize wins');
   await client.takeInput(A);
   await assert.rejects(other.bytes.resize(theirs.view, 70, 20), (e: RpcError) => e.gate === 'input_holder');
+  await assert.rejects(client.bytes.resize(mine.view, 79, 30), (e: RpcError) => e.gate === 'input_holder');
   client.close();
   other.close();
 });
 
-test('a viewer may not resize under 80 by 24, and the last detach gives back the size from before the first resize', async () => {
+test('nobody may resize under 80 by 24, and the last detach gives back the size from before the first resize', async () => {
   const { client, daemon, net } = setup();
   const other = second(daemon, net, { client: 'other-viewer' });
   await client.start();

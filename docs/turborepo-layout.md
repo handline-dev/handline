@@ -1,5 +1,7 @@
 # Turborepo layout: React Native app, responsive web, shared packages
 
+> **Done.** `web/` (the old UI, the phone PWA, `serve-ui.ts`, `web/legacy`) is deleted and `apps/web` is the only web app; its static server cases are pinned in `apps/electron/test/shell.test.ts`. The text below is the plan as it was and names `web/` paths that no longer exist.
+
 Founder's rule: mobile means a **React Native app**; the web is **responsive**; what they share lives in a **Turborepo**.
 This replaces "mobile is a PWA" in `web/README.md` (the PWA in `web/mobile/` is dropped) and extends
 `docs/web-ui-design.md` (§2 frame, §3 screens, §7 mobile screens); the main view of `apps/web` is in `docs/web-main-view.md`.

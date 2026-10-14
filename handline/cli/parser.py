@@ -16,7 +16,7 @@ from .agent import cmd_agent_move, cmd_agent_register, cmd_agent_set, cmd_launch
 from .ask import WAIT_DEFAULT_S, cmd_cancel, cmd_inbox, cmd_read, cmd_withdraw
 from .bridge import cmd_bridge
 from .device import cmd_device
-from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
+from .daemon import cmd_daemon_status, cmd_dev_mode
 from .health import cmd_backup, cmd_doctor, cmd_events, cmd_fold, cmd_status, cmd_triggers
 from .hooks import cmd_go, cmd_hook, cmd_hook_install, cmd_hooks_gate
 from .hr import cmd_hr, cmd_trust
@@ -106,9 +106,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--role-file", default=None, help="file to install as ROLE.md")
     p.add_argument("--repo", default=None,
                    help="where it works; lets the daemon start it when work arrives")
-    p.add_argument("--skip-permissions", default=None, choices=["on", "off"],
-                   help="start its sessions without asking before they act (default off); "
-                   "applies from the next launch; on re-registration, omit to keep the current one")
     p.add_argument("--extra-worktrees", type=int, default=None, choices=range(agents.MAX_EXTRA_WORKTREES + 1), metavar="N",
                    help=f"worktrees it has besides its first (0 to {agents.MAX_EXTRA_WORKTREES}, default 0): made beside the first when it is next "
                    "started, writable to it alone; on re-registration, omit to keep the current one")
@@ -125,7 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_agent_register)
 
     p = ag.add_parser("set", help="change an agent's settings: model, effort, context_k, handoff_note apply "
-                                  "at once; the rest (idle_close, browser, browser_sites, skip_permissions, repo, weight) "
+                                  "at once; the rest (idle_close, browser, browser_sites, repo, weight) "
                                   "go to HR for the founder to approve; so does every change to another agent's settings")
     p.add_argument("name")
     p.add_argument("values", nargs="+", metavar="setting=value")
@@ -229,8 +226,8 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--why", required=True, help="what the founder is deciding")
     q.set_defaults(name=None, team=None, repo=None, model=None, effort=None)
     q = hrsub.add_parser("list", help="proposals and what became of them")
-    q.add_argument("--json", action="store_true", help="the proposals waiting on the founder, as cards")
-    q.add_argument("--all", action="store_true", help="with --json: the settled ones too")
+    q.add_argument("--json", action="store_true", help="the proposals waiting on the founder, as hr.list serves them")
+    q.add_argument("--all", action="store_true", help="with --json: those settled in the last week too")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("relabel", help="name a renamed agent's Orca worktree for it "
@@ -253,7 +250,7 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
     q = hrsub.add_parser("approve", help="the founder approves proposals - one, several or --all - "
-                                         "and they are applied now; each proposer is told once")
+                                         "and they are applied now; each proposer is told of each")
     q.add_argument("ids", nargs="*", metavar="id", help="the proposals; none with --all")
     q.add_argument("--all", action="store_true", help="every proposal waiting on you")
     q.add_argument("--yes", action="store_true",
@@ -263,7 +260,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "proposal is shown and you are asked")
     q.set_defaults(name=None, why=None, team=None, repo=None,
                    model=None, effort=None)
-    q = hrsub.add_parser("reject", help="the founder rejects a proposal, or --all; each proposer is told once")
+    q = hrsub.add_parser("reject", help="the founder rejects a proposal, or --all; each proposer is told of each")
     q.add_argument("id", nargs="?", default=None)
     q.add_argument("reason", nargs="?", default="", help="why, told to the proposer")
     q.add_argument("--all", action="store_true", help="every proposal waiting on you (a reason goes with --reason)")
@@ -386,14 +383,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("install-hooks", help="add ocp event hooks to shared settings")
     p.set_defaults(fn=cmd_hook_install)
 
-    p = sub.add_parser("daemon", help="run the supervisor loop")
-    p.add_argument("--once", action="store_true", help="one tick, then exit")
-    p.add_argument("--max-ticks", type=int, default=None)
-    p.add_argument("--quiet", action="store_true")
-    p.add_argument("--foreground", action="store_true",
-                   help="accepted for symmetry; the daemon always runs in the foreground")
-    p.set_defaults(fn=cmd_daemon)
-
     p = sub.add_parser("ps", help="daemon and agent state")
     p.set_defaults(fn=cmd_daemon_status)
 
@@ -513,7 +502,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repo", required=True)
     p.add_argument("--base", default="main")
     p.add_argument("--prompt", default=None, help="first task to send once it is up")
-    p.add_argument("--dry-run", action="store_true")
     p.set_defaults(fn=cmd_spawn)
 
     p = sub.add_parser("bridge", aliases=["top", "watch"],
@@ -641,7 +629,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = tk.add_parser("queue", help="approve draft tasks to run - anyone; its opener and assignee are told")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")
     p.set_defaults(fn=cmd_task_queue)
-    p = tk.add_parser("draft", help="send queued tasks back to draft - anyone; its opener and assignee are told")
+    p = tk.add_parser("draft", help="send queued or doing tasks back to draft - anyone; its opener and assignee are told, a holder working it stopped and moved on")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")
     p.set_defaults(fn=cmd_task_draft)
     p = tk.add_parser("edit", help="change a task's assignee, owner, title, brief, priority, timeout or what it "
@@ -726,7 +714,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 _READ_ONLY = {"read", "inbox", "ps", "status", "team", "events", "doctor", "guide", "top", "watch", "bridge",
-              "hook", "hooks", "go", "memory", "schedule", "login", "venv", "daemon", "service", "backup", "dev-mode"}
+              "hook", "hooks", "go", "memory", "schedule", "login", "venv", "service", "backup", "dev-mode"}
 _TASK_READS = {"list", "show", "board"}
 
 

@@ -27,7 +27,7 @@ func (p *Parts) SupervisorPorts(lc *Lifecycle) supervisor.Ports {
 		Sessions:  sessions{p: p, ho: lc.Handoff},
 		Lifecycle: lifecycleStarter{m: lc.Manager},
 		Evaluate:  evaluate{},
-		Proposals: proposals{trust: team.NewTrust(p.home), q: p.db},
+		Proposals: team.TrustProposals{Trust: team.NewTrust(p.home), Q: p.db},
 		Stuck:     stuck{},
 	}
 }
@@ -148,61 +148,6 @@ func (evaluate) QueuedOrIdle(q db.Q, agent, when string) error {
 		return db.SetAgentState(q, agent, states.Queued, 0, when)
 	}
 	return db.SetAgentState(q, agent, states.Idle, 0, when+"; no requests waiting")
-}
-
-// proposals: the open trust proposal a founder's card waits on is found from the proposal files; the founder's answer is applied by the
-// Python daemon's trust apply until that is ported, and the proposer is told so.
-type proposals struct {
-	trust *team.Trust
-	q     db.Q
-}
-
-func (p proposals) OpenProposalOf(rid int64) string {
-	list, err := p.trust.Listing()
-	if err != nil {
-		return ""
-	}
-	var decisions []int64 // the decision tasks whose card is rid, in whatever state
-	if tasks, err := db.TasksForRequest(p.q, rid); err == nil {
-		for _, t := range tasks {
-			if t.Expects.String == "decision" {
-				if first, err := db.TaskRequests(p.q, t.ID); err == nil && len(first) > 0 && first[0].ID == rid {
-					decisions = append(decisions, t.ID)
-				}
-			}
-		}
-	}
-	for _, prop := range list {
-		if prop.Get("state") != "proposed" {
-			continue
-		}
-		if task, ok := asInt(prop.Get("task")); ok && task != 0 {
-			for _, d := range decisions {
-				if d == task {
-					return fmt.Sprint(prop.Get("id"))
-				}
-			}
-			continue
-		}
-		if n, ok := asInt(prop.Get("request")); ok && n == rid {
-			return fmt.Sprint(prop.Get("id"))
-		}
-	}
-	return ""
-}
-
-func (proposals) Answered(_ db.Q, pid string, _ *db.Request, _ string) string {
-	return fmt.Sprintf("proposal %s was answered; applying a trust proposal is not served by this daemon yet", pid)
-}
-
-func asInt(v any) (int64, bool) {
-	switch n := v.(type) {
-	case int:
-		return int64(n), true
-	case int64:
-		return n, true
-	}
-	return 0, false
 }
 
 // stuck: a structured agent's delivery is blocked by nothing the screen shows.

@@ -141,13 +141,6 @@ def test_every_topic_has_a_snapshot_method_and_the_terminal_channel_is_text() ->
           and "spans" in SPEC["components"]["schemas"]["Row"]["properties"])
 
 
-def test_the_legacy_verbs_all_map() -> None:
-    src = (ROOT / "handline" / "daemon" / "socket_server.py").read_text()
-    block = src.split("VERBS = {", 1)[1].split("}", 1)[0]
-    verbs = {ln.split('"')[1] for ln in block.splitlines() if ln.strip().startswith('"')}
-    check("contract: every legacy socket verb is mapped", verbs == set(SPEC["x-legacy"]), str(verbs ^ set(SPEC["x-legacy"])))
-
-
 def test_a_structured_agents_message_has_a_receipt_of_four_states_and_no_chat_withdraw() -> None:
     schemas = SPEC["components"]["schemas"]
     check("contract: a receipt is queued, sent, confirmed or unknown", schemas["Receipt"]["properties"]["state"]["enum"] == ["queued", "sent", "confirmed", "unknown"])
@@ -173,7 +166,6 @@ def main() -> int:
         run(lambda: test_every_reference_resolves())
         run(lambda: test_session_gates_are_declared_and_defined())
         run(lambda: test_every_topic_has_a_snapshot_method_and_the_terminal_channel_is_text())
-        run(lambda: test_the_legacy_verbs_all_map())
         run(lambda: test_a_structured_agents_message_has_a_receipt_of_four_states_and_no_chat_withdraw())
         run(lambda: test_generated_files_are_current())
     return run_area(tests)

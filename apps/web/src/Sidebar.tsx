@@ -299,6 +299,11 @@ function Row({
                 <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
                 <span className="name min-w-0 flex-1 whitespace-nowrap">{shortName(a.name, team)}</span>
                 <Badges badges={badges} />
+                {a.needs_you ? (
+                  <span className="needs flex-none rounded-pill bg-wait px-1.5 text-label text-canvas" title={a.needs_you.text ?? undefined}>
+                    {a.needs_you.kind}
+                  </span>
+                ) : null}
                 {queue.messages ? (
                   <span
                     className="q-msgs inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"

@@ -3,7 +3,7 @@
   {
    "name": "task.shot.unknown_task_is_not_found",
    "spec": "task.shot",
-   "about": "NOT_YET_IN_PYTHON A task that has no result holds no screenshot: not_found.",
+   "about": "A task that has no result holds no screenshot: not_found.",
    "as": "founder",
    "steps": [
     {
@@ -41,7 +41,7 @@
   {
    "name": "task.shot.needs_the_number_from_1",
    "spec": "task.shot",
-   "about": "NOT_YET_IN_PYTHON n is the screenshot's number, from 1: bad_request naming n.",
+   "about": "n is the screenshot's number, from 1: bad_request naming n.",
    "as": "founder",
    "steps": [
     {

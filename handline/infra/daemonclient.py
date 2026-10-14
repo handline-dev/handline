@@ -17,7 +17,7 @@ import time
 
 from . import paths, service
 
-# A wake can legitimately take up to ~450s (control.py's own WAITS); shorter
+# A wake can legitimately take up to ~450s; shorter
 # would misread one still in progress as the daemon being down.
 TIMEOUT_S = 480.0
 

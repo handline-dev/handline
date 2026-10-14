@@ -43,7 +43,7 @@ L = live and used today. S = made unnecessary by structured sessions. D = legacy
 | `usage/collect` | 194 | usage_poll, events, details | **S** for structured agents (context and cost come in `result`). **T** (frozen, unported) for terminal agents. |
 | `usage/replay` | 166 | tests only | **D**. No caller. |
 | `vendors/__init__`, `base` | 539 | everything | **P, trimmed**: `account_vendor`, `config_dir`, `for_account`, `record_vendor`, `identity`, `subscription_type`, `credential_present` (login state, already read by `reads/accounts.go`). The `Driver` methods about screens (about 25 of 45) are **S/D**. |
-| `vendors/claude` | 641 | launch, accounts | **P** for argv/env/identity/profile/login (about 0.25k; `lifecycle/build.go` has argv). Screen blockers, trust and bypass screens, `_describe_backgrounded` etc. (about 0.35k) **S/D**. |
+| `vendors/claude` | 641 | launch, accounts | **P** for argv/env/identity/profile/login (about 0.25k; `lifecycle/build.go` has argv). Screen blockers, the trust screen, `_describe_backgrounded` etc. (about 0.35k) **S/D**. |
 | `vendors/claude_collect` | 182 | collect | **S**. |
 | `vendors/claude_ask`, `claude_confirm` | 235 | prompts | **S** (the `can_use_tool` callback replaces the picker). |
 | `vendors/claude_hooks` | 402 | install, doctor | **T/decide.** Writes the shared settings.json hooks that report RUNNING/IDLE and the PreToolUse guard. Structured sessions need none of the state hooks; the PreToolUse guard still runs in `--print` (found in the S1 review), so the guard hook must stay installed. Keep only `ensure_shared` and `install` for that, if a hook-based guard is still wanted. Needs a decision. |

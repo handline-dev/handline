@@ -3,7 +3,7 @@
   {
    "name": "chat.transcript.a_session_start_is_an_item_with_its_cause",
    "spec": "chat.transcript",
-   "about": "NOT_YET_IN_PYTHON A session that began a conversation is a kind session item with cause and handoff (needs --var session_agent: an agent that has been started at least once with no resume).",
+   "about": "A session that began a conversation is a kind session item with cause and handoff (needs --var session_agent: an agent that has been started at least once with no resume).",
    "as": "founder",
    "steps": [
     {

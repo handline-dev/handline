@@ -24,14 +24,14 @@ Tailscale must be up when the app starts. Without it the gateway listens on loop
 
 The phones accept a plain link only for a `*.ts.net` name. A link with a bare `100.x` address is refused, so start the gateway with `-advertise <name>:7443`. Each in a terminal you keep open:
 
-    hl daemon        # or `hl service install` once, to keep it running
+    hl service install --allow-live-home   # the daemon, as a launchd job; once
     pnpm install && tools/build-go.sh && pnpm --filter @handline/web build
     go/handlined -gateway -allow-real-home -listen <ip>:7443 -advertise <name>:7443 -web apps/web/dist
 
 You should see `network listener on <ip>:7443, plain HTTP (Tailscale)`, in the gateway's terminal (with the app, in `daemon.log` in its data folder).
 
 **Common failure:** the gateway exits with `schema: ... does not exist: the daemon that owns it brings it up first` (or `... predates schema versions` or `... newer than the ...`).
-The Python daemon is not running, or is not the version of this checkout. Start it (`hl daemon`), then the gateway. (The app starts the daemon itself.)
+The daemon is not running, or is not the version of this checkout. Start it (`hl service install --allow-live-home`), then the gateway. (The app starts the daemon itself.)
 
 ## 2. PC
 

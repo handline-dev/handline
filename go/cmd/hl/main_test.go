@@ -30,6 +30,15 @@ var built struct {
 	err  error
 }
 
+// TestMain removes the hl the rigs share once every test has run with it.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if built.bin != "" {
+		os.RemoveAll(filepath.Dir(built.bin))
+	}
+	os.Exit(code)
+}
+
 func newRig(t *testing.T) *rig {
 	t.Helper()
 	root, err := os.MkdirTemp("", "hl")

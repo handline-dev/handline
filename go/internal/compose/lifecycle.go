@@ -97,6 +97,9 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	if tm == nil {
 		tm = newTerm(home)
 	}
+	if cfg.Turns != nil {
+		tm.Turns = cfg.Turns
+	}
 	spawns := &lifecycle.Spawns{Q: q, Host: termHost{tm}, Launch: launchPort, Delivery: lc.Env, Roster: roster, Now: cfg.Now,
 		Run: p.Run, Locks: p.Locks}
 	waiting := func(q db.Q, agent string) bool {
@@ -178,14 +181,6 @@ func (a agentsPort) ReadConfig(agent string) error {
 func (a agentsPort) CurrentAccount(q db.Q, agent string) string {
 	acct, _ := team.CurrentAccount(q, agent)
 	return acct
-}
-
-func (a agentsPort) SkipPermissionsInEffect(agent string) (bool, error) {
-	cfg, err := a.roster.Read(agent)
-	if err != nil {
-		return false, err
-	}
-	return a.roster.SkipPermissionsInEffect(agent, cfg), nil
 }
 
 func (a agentsPort) IsDeclared(folder string) bool { return a.trust.IsDeclared(folder) }
@@ -334,10 +329,8 @@ func (noTerminal) CloseTerminal(string) (bool, string)  { return false, notServe
 func (noTerminal) Relaunch(string, string, func() bool) (bool, string) {
 	return false, notServed
 }
-func (noTerminal) BypassPromptShowing(string) bool    { return false }
-func (noTerminal) AcceptBypass(string) (bool, string) { return false, notServed }
-func (noTerminal) WaitForTrustPrompt(string, bool)    {}
-func (noTerminal) DriverScope() func()                { return func() {} }
+func (noTerminal) WaitForTrustPrompt(string, bool) {}
+func (noTerminal) DriverScope() func()             { return func() {} }
 
 const notServed = "terminal agents are served by the Python daemon"
 

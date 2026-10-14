@@ -56,7 +56,8 @@ Everything else in the catalog. Table below.
 | modal-handoff | no | gap 2 |
 | modal-output | no | gap 1 |
 | modal-confirm-restart | yes | `AgentVerbs.tsx:64` |
-| modal-confirm-skip-permissions, modal-confirm-no-sandbox | yes | `SettingsView.tsx:104,187` (`DANGER` confirm) |
+| modal-confirm-skip-permissions | not needed | bypass mode is not supported |
+| modal-confirm-no-sandbox | yes | `SettingsView.tsx` (`DANGER` confirm) |
 | modal-schedule-add, modal-schedule-edit | yes | `Schedules.tsx` |
 | modal-site-add, modal-site-edit | partly | `SettingsView.tsx:213` adds and removes a site; no edit in place |
 | modal-answer-add | yes | `Answers.tsx` |

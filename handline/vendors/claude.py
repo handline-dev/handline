@@ -186,9 +186,6 @@ class Claude:
     def memory_settings(self, memory_dir: Path) -> dict:
         return {"autoMemoryDirectory": str(memory_dir)}
 
-    def skip_permissions_argv(self) -> list[str]:
-        return ["--dangerously-skip-permissions"]
-
     def permission_mode_argv(self, mode: str) -> list[str]:
         return ["--permission-mode", mode] if mode in ("default", "acceptEdits", "plan") else []
 
@@ -202,12 +199,6 @@ class Claude:
 
     def prompt_argv(self, prompt: str) -> list[str]:
         return [prompt]
-
-    def clear_command(self) -> str:
-        return "/clear"
-
-    def exit_command(self) -> str:
-        return "/exit"
 
     idle_from_screen = False
 
@@ -226,10 +217,6 @@ class Claude:
     def turn_on_screen(self, tail: list[str]) -> bool:
         return any(m in row.lower() for row in tail[-self.WORKING_ROWS:] for m in self.WORKING_MARKERS)
 
-    def idle_with_background(self, tail: list[str]) -> bool:
-        from ..session import term  # late: term looks drivers up
-        return _idle_with_background(term, tail)
-
     def screen_blocker(self, tail: list[str]):
         from ..session import term  # late: term looks drivers up
         return _screen_blocker(term, tail)
@@ -239,15 +226,6 @@ class Claude:
         return _trust_screen(term, tail)
 
     def trust_answer(self) -> str:
-        return TRUST_PROMPT_DOWN_ARROW
-
-    def bypass_screen(self, tail: list[str]) -> str | None:
-        return _bypass_screen(tail)
-
-    def bypass_accept(self) -> str:
-        return BYPASS_ACCEPT
-
-    def bypass_next_key(self) -> str:
         return TRUST_PROMPT_DOWN_ARROW
 
     def accepts_tool(self, tool: str | None) -> bool:
@@ -452,27 +430,6 @@ WORKSPACE_MARKER = "Accessing workspace:"
 TRUST_PROMPT_DOWN_ARROW = "\x1b[B"
 
 
-# claude's warning when it starts with --dangerously-skip-permissions on a config directory that
-# has not accepted it yet (a new account, or an agent moved to one): two unnumbered options,
-# the cursor on the one that exits.
-BYPASS_MARKER = "WARNING: Claude Code running in Bypass Permissions mode"
-BYPASS_ACCEPT = "Yes, I accept"
-BYPASS_DECLINE = "No, exit"
-_BYPASS_ROWS = 30
-
-
-def _bypass_screen(tail: list[str]) -> str | None:
-    """`Driver.bypass_screen`'s contract. Both options and the confirm hint must be on the
-    last rows, so a transcript that quotes the warning is not it."""
-    rows = [str(x).strip() for x in tail[-_BYPASS_ROWS:]]
-    if BYPASS_MARKER not in rows or not any(r.startswith("Enter to confirm") for r in rows):
-        return None
-    labels = [r.lstrip("\u276f").strip() for r in rows]
-    if BYPASS_ACCEPT not in labels or BYPASS_DECLINE not in labels:
-        return None
-    marked = [r.lstrip("\u276f").strip() for r in rows
-              if r.startswith("\u276f") and r.lstrip("\u276f").strip() in (BYPASS_ACCEPT, BYPASS_DECLINE)]
-    return marked[0] if len(marked) == 1 else ""
 
 
 def _trust_screen(term, tail: list[str]) -> str | None:
@@ -592,22 +549,6 @@ def _describe_backgrounded(term, tail: list, top: int) -> str:
     return " / ".join(shown[:3])[:term.DETAIL_CHARS]
 
 
-# A turn in progress draws a spinner row just above the composer ("✻ Honking… (2m 0s · ↓ 6.2k
-# tokens)") and "esc to interrupt" among the hints under it; a finished turn's line reads
-# "✻ Sautéed for 1m 26s", with no ellipsis (six samples, T592). Rows checked above the composer.
-_SPINNER_ROW = re.compile(r"^\S\s+\S+…(\s|$)")
-_SPINNER_ROWS = 6
-
-
-def _idle_with_background(term, tail: list) -> bool:
-    """`Driver.idle_with_background` on Claude Code's layout: the hint row counts background
-    work, and neither the spinner nor "esc to interrupt" is drawn (T458)."""
-    box = term._composer_box(tail)
-    if box is None or not term.footer_background(tail):
-        return False
-    if any("esc to interrupt" in str(r) for r in tail[box[1] + 1:]):
-        return False
-    return not any(_SPINNER_ROW.match(str(r).strip()) for r in tail[max(0, box[0] - _SPINNER_ROWS):box[0]])
 
 
 def _screen_blocker(term, tail: list) -> "term.Blocker | None":

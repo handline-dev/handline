@@ -12,8 +12,6 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
 
-
-
 def test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed() -> None:
     """A test that starts `orca` itself is stopped and named; one that catches the error still fails the run,
     because the attempt is kept; and a child process that reaches `orca` reaches the stand-in on PATH, which
@@ -350,6 +348,12 @@ def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> 
         path, code, out = runner._run_one(hang, [], timeout=1)
         check("runner: a hanging file is stopped at its limit, with the code and the words",
               code == runner.TIMED_OUT and "timed out after 1s" in out, out)
+        tidy, mark = Path(td) / "test_tidy.py", Path(td) / "torn-down"
+        tidy.write_text(f"import sys, time\nsys.path.insert(0, {str(Path(__file__).resolve().parent.parent)!r})\nimport support\n"
+                        f"try:\n    print('up', flush=True)\n    time.sleep(60)\nfinally:\n    open({str(mark)!r}, 'w').close()\n")
+        _, code, out = runner._run_one(tidy, [], timeout=3 * limit)      # support imports more than a bare start
+        check("runner: a file stopped at its limit tears down first: its finally runs",
+              code == runner.TIMED_OUT and "up" in out and mark.exists(), out)
         check("runner: a missing module is found from the crash",
               runner.missing_module(subprocess.run([sys.executable, str(nomod)], capture_output=True,
                                                    text=True).stderr) == "surely_not_installed_anywhere")
@@ -357,7 +361,7 @@ def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> 
               runner.missing_module("No module named 'x'\n1 passed, 0 failed\n") is None)
 
         own = Path(td) / "test_own.py"
-        own.write_text("import handline.daemon.no_such_module_left_behind\n")
+        own.write_text("import handline.no_such_module_left_behind\n")
         _, _, out = runner._run_one(own, [], timeout=30)
         check("runner: a module of this repo that does not exist is not a skip - it is a broken import",
               runner.missing_module(out) is None and "no_such_module_left_behind" in out, out)
@@ -446,11 +450,11 @@ def test_an_empty_ocp_home_is_refused_not_read_as_the_current_directory() -> Non
             os.environ["OCP_HOME"] = saved
 
 
-def test_every_daemon_actions_and_team_module_imports_on_its_own() -> None:
-    """The daemon, actions and team packages import each other; a module imported first in a fresh
+def test_every_actions_and_team_module_imports_on_its_own() -> None:
+    """The actions and team packages import each other; a module imported first in a fresh
     interpreter (as tools/migrate_home.py does with handline.infra.daemonlock) must not hit a cycle."""
     from concurrent.futures import ThreadPoolExecutor
-    mods = sorted(f"ocp.{pkg}.{f.stem}" for pkg in ("daemon", "actions", "team")
+    mods = sorted(f"ocp.{pkg}.{f.stem}" for pkg in ("actions", "team")
                   for f in (ROOT / "handline" / pkg).glob("*.py") if f.stem != "__init__")
 
     def alone(mod: str) -> str:
@@ -458,7 +462,7 @@ def test_every_daemon_actions_and_team_module_imports_on_its_own() -> None:
         return "" if r.returncode == 0 else f"{mod}: {r.stderr.strip().splitlines()[-1][:160]}"
     with ThreadPoolExecutor(8) as ex:
         broken = [b for b in ex.map(alone, mods) if b]
-    check("imports: each daemon, actions and team module imports alone", not broken, "; ".join(broken[:3]))
+    check("imports: each actions and team module imports alone", not broken, "; ".join(broken[:3]))
 
 
 def test_every_tools_file_with_a_shebang_is_executable_in_the_index() -> None:
@@ -476,7 +480,7 @@ def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
         home.mkdir()
-        run(lambda: test_every_daemon_actions_and_team_module_imports_on_its_own())
+        run(lambda: test_every_actions_and_team_module_imports_on_its_own())
         run(lambda: test_every_tools_file_with_a_shebang_is_executable_in_the_index())
         run(lambda: test_timefmt_stamp_reads_a_missing_time_as_empty_or_the_epoch())
         run(lambda: test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs())

@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/textsafe"
 )
@@ -29,7 +30,7 @@ const (
 	MaxName       = 128       // characters of a file name kept
 	UploadTTL     = time.Hour
 	UnsentTTL     = 24 * time.Hour
-	KeepFor       = 30 * 24 * time.Hour // after the message that names the image
+	KeepFor       = 30 * 24 * time.Hour // after the message that names the image, or the last task that names it closes
 )
 
 // kinds are the types taken, by the mime a client says and the extension the file is stored with.
@@ -207,11 +208,13 @@ type PutOut struct {
 }
 
 // Put takes one chunk.
-func (s *Store) Put(in PutIn) (*PutOut, error) {
+func (s *Store) Put(q db.Q, in PutIn) (*PutOut, error) {
 	if err := s.ensure(); err != nil {
 		return nil, err
 	}
-	s.Sweep()
+	if err := s.Sweep(q); err != nil {
+		return nil, err
+	}
 	if _, ok := kinds[in.Mime]; !ok {
 		return nil, badParam("mime is image/png, image/jpeg, image/gif or image/webp", "mime")
 	}
@@ -406,10 +409,15 @@ func (s *Store) Claim(ids []string) ([]Info, error) {
 	return out, nil
 }
 
-// Sweep removes what has outlived its time: an upload not finished within UploadTTL, an image no message names after UnsentTTL, and one a
-// message names KeepFor after that message.
-func (s *Store) Sweep() {
+// Sweep removes what has outlived its time: an upload not finished within UploadTTL, an image no message or task names after UnsentTTL,
+// one a message names KeepFor after that message, and one a task names KeepFor after the last task naming it closed (never while one is
+// open).
+func (s *Store) Sweep(q db.Q) error {
 	now := s.now()
+	held, err := Held(q, now.Unix())
+	if err != nil {
+		return err
+	}
 	for _, p := range s.glob("uploads", "*.json") {
 		var u upload
 		if readJSON(p, &u) != nil || now.Sub(time.Unix(u.Created, 0)) > UploadTTL {
@@ -422,8 +430,8 @@ func (s *Store) Sweep() {
 			continue
 		}
 		expired := now.Sub(time.Unix(im.Created, 0)) > UnsentTTL
-		if im.Claimed != 0 {
-			expired = now.Sub(time.Unix(im.Claimed, 0)) > KeepFor
+		if from, ok := held[im.ID]; ok || im.Claimed != 0 {
+			expired = now.Sub(time.Unix(max(im.Claimed, from), 0)) > KeepFor
 		}
 		if expired {
 			s.remove(im.Info)
@@ -434,6 +442,7 @@ func (s *Store) Sweep() {
 			os.Remove(p)
 		}
 	}
+	return nil
 }
 
 func (s *Store) glob(dir, pattern string) []string {

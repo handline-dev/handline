@@ -34,7 +34,7 @@ func TestTheTableIsTheContractsTable(t *testing.T) {
 }
 
 func TestOnlyARoutineDialogIsAnsweredAndAnUnknownOneIsAPersons(t *testing.T) {
-	for id, want := range map[string]bool{"folder_trust": true, "bypass_warning": true, "tool_permission": false, "question": false,
+	for id, want := range map[string]bool{"folder_trust": true, "tool_permission": false, "question": false,
 		"usage_limit_choice": false, "exit_confirm": false, "startup_notice": false, "a dialog from the next release": false, "": false} {
 		if Answered(id) != want {
 			t.Errorf("%q answered: %v", id, !want)

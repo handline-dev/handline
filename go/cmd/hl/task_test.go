@@ -196,13 +196,19 @@ func TestAReportedTaskReadsAsAwaitingWhoItAnswersTo(t *testing.T) {
 func TestTaskShowReadsAPausedClock(t *testing.T) {
 	box := obj{"length_s": float64(7200), "default": false, "left_s": float64(4800)}
 	held := obj{"blockers": []any{obj{"task": float64(9)}}, "subtasks": []any{obj{"id": float64(8), "state": "doing"}, obj{"id": float64(6), "state": "done"}}}
-	for want, t2 := range map[string]obj{
-		"paused - blocked by T9, 1h20m left": held,
-		"paused - waiting on T8, 1h20m left": {"subtasks": held["subtasks"]},
-		"paused, 1h20m left":                 {},
+	for _, c := range []struct {
+		task obj
+		want string
+	}{
+		{held, "timeout paused: waiting on T9, T8"},
+		{obj{"subtasks": held["subtasks"]}, "timeout paused: waiting on T8"},
+		{obj{}, "paused, 1h20m left"},
+		{obj{"to": "human"}, "timeout paused: waiting on human"},
+		{obj{"state": "reported", "from": "human"}, "timeout paused: waiting on human"},
+		{obj{"blockers": []any{obj{"task": float64(9), "owner": "human"}}}, "timeout paused: waiting on T9 (human)"},
 	} {
-		if got := timeoutLines(box, 0, waitsOn(t2)); len(got) != 2 || got[0] != "timeout 2h00m" || got[1] != want {
-			t.Errorf("%q, want %q", got, want)
+		if got := timeoutLines(box, 0, waitsOn(c.task)); len(got) != 2 || got[0] != "timeout 2h00m" || got[1] != c.want {
+			t.Errorf("%q, want %q", got, c.want)
 		}
 	}
 	running := obj{"length_s": float64(7200), "default": false, "start": "2026-10-01T10:00:00Z", "end": "2026-10-01T12:00:00Z", "left_s": nil}
@@ -231,7 +237,8 @@ func TestTaskShowListAndBoardRead(t *testing.T) {
 	})
 	show := `T7  Fix it
 state done   assignee b.two   owner a.one   P1   parent T3   created 2026-10-01 10:00
-timeout 1h00m - counts while the task is doing
+timeout 1h00m
+timeout paused: waiting on T9, T8
 done 2026-10-02 11:30: abc123
 commit abc1234def (not on main)
 shot ` + r.home + `/shots/T7/1.png (2048 bytes)
@@ -275,5 +282,23 @@ assignee and owner changes
 		`task.board {"everyone":false}`}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("calls\n got  %v\n want %v", got, want)
+	}
+}
+
+func TestTaskShowPrintsWhereTheImagesOfItsTextsAre(t *testing.T) {
+	img := func(path string) obj {
+		return obj{"image": obj{"id": "0123456789abcdef", "mime": "image/png", "bytes": float64(2048)}, "caption": "x", "path": path}
+	}
+	shot := "[image 1: /h/attachments/a.png (image/png, 2 KB)]"
+	got := strings.Join(detailLines(obj{
+		"id": float64(7), "title": "t", "body": "see ![x](attachment:0123456789abcdef)",
+		"body_parts": []any{obj{"text": "see "}, img("/h/attachments/a.png"), obj{"image": obj{"id": "1"}, "caption": "gone", "gone": true}},
+		"memos":      []any{obj{"id": float64(1), "author": "w", "text": "m", "parts": []any{img("/h/attachments/a.png")}}},
+		"timeline":   []any{obj{"kind": "reject", "who": "human", "text": "no", "parts": []any{img("/h/attachments/a.png")}}},
+	}, 0, ""), "\n")
+	for _, want := range []string{"brief\nsee ![x](attachment:0123456789abcdef)\n" + shot + "\n", "    m\n    " + shot, "sent back\n", "    no\n    " + shot} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("no %q in\n%s", want, got)
+		}
 	}
 }

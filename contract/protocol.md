@@ -43,7 +43,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 |---|---|
 | `role` | Caller's role is agent: a person-at-the-terminal method. |
 | `terminal_lock` | The agent's terminal lock, the one the tick holds. |
-| `input_holder` | Someone else holds the input. A daemon holder is a short hold, not a refusal. terminal.resize with no holder: the caller has not attached the terminal, or asked for less than 80 by 24. |
+| `input_holder` | Someone else holds the input. A daemon holder is a short hold, not a refusal. terminal.resize: under 80 by 24, whoever asks; with no holder, from a caller that has not attached the terminal. |
 | `wall` | The usage limit (wall_reason): typing would only spend quota. |
 | `screen_blocker` | A dialog is open, so a typed line would answer it. Use keys or prompt.answer. |
 | `state` | The state checks the legacy verb has today; this protocol adds none. |
@@ -380,7 +380,7 @@ Page scrollback; absolute line indexes.
 
 ### `terminal.resize`
 
-Resize: the input holder's while there is one, any attached connection's down to 80 by 24 while there is none. While a person holds the input, only they resize, and the size from before their first resize is restored when they leave; anyone else is refused, gate `input_holder`, and scales its own view. While nobody holds it (the daemon's own hold included), any connection that has the terminal attached, in any format, may resize it to at least 80 columns by 24 rows, and the last resize wins; when the last attach goes and nobody holds the input, the size from before the first of these resizes is restored. Under 80 by 24, or from a connection that has not attached it, the resize is refused, gate `input_holder`, and the viewer scales its own view: the daemon reads the screen line by line, and narrower, Claude Code wraps a dialog's footer and options so the daemon no longer recognises the dialog. A holder may go under it. Every attach is told of the change: a `resize` notice for text and styled, a `snapshot` notice, reason `resize`, for bytes. A handle no agent has is never resized.
+Resize, never under 80 by 24: the input holder's while there is one, any attached connection's while there is none. While a person holds the input, only they resize, and the size from before their first resize is restored when they leave; anyone else is refused, gate `input_holder`, and scales its own view. While nobody holds it (the daemon's own hold included), any connection that has the terminal attached, in any format, may resize it to at least 80 columns by 24 rows, and the last resize wins; when the last attach goes and nobody holds the input, the size from before the first of these resizes is restored. From a connection that has not attached it, the resize is refused, gate `input_holder`. Under 80 by 24 any resize is refused, the holder's included, gate `input_holder`, and the caller keeps its grid and scales its own view: the daemon reads the screen line by line, and narrower, Claude Code wraps a dialog's footer and options so the daemon no longer recognises the dialog. Every attach is told of the change: a `resize` notice for text and styled, a `snapshot` notice, reason `resize`, for bytes. A handle no agent has is never resized.
 
 ### `terminal.input`
 
@@ -512,7 +512,7 @@ Approve draft tasks to run: anyone may; each task's opener and assignee are told
 
 ### `task.draft`
 
-Send queued tasks back to draft: anyone may; each task's opener and assignee are told.
+Send queued or doing tasks back to draft: anyone may; each task's opener and assignee are told. A holder working the task is told to stop and moved on to its next task, and commits or changes it left in its worktree are kept in a memo on the task.
 
 ### `task.merge`
 
@@ -768,8 +768,8 @@ Every `hl` command an agent runs today and the method that serves it.
 Agent commands the spec does not keep at agent role, for the founder to decide. Each is founder-only or a person's act today, or is not a daemon call.
 
 - **Founder only today:** `hl cancel`; `hl unstall`; `hl team seal`; `hl hr approve|reject|apply|relabel|rehome|links`; `hl trust remove|apply|mcp`; `hl schedule add|edit|remove`; `hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)`; `hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)`; `hl dev-mode`; `hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)`; `hl service ...`
-- **Needs a decision:** `hl spawn (a founder's act; agent.create serves it to the founder's apps, and no agent-role method serves it)`; `hl agent register (a roster change, founder)`
-- **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl go`; `hl install-hooks`; `hl daemon`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl withdraw`; `hl memory migrate`; `hl task note (suppressed)`
+- **Needs a decision:** `hl spawn (a founder's act; it calls session.start, and agent.create serves it to the founder's apps)`; `hl agent register (a roster change, founder)`
+- **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl go`; `hl install-hooks`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl withdraw`; `hl memory migrate`; `hl task note (suppressed)`
 
 The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.
 

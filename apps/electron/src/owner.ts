@@ -1,4 +1,4 @@
-// The app owns its daemon: when the Python service's socket or the Go gateway's socket is not answering at launch, the app starts what
+// The app owns its daemon: when the daemon's socket or the Go gateway's socket is not answering at launch, the app starts what
 // is missing as its own child processes and stops exactly those on quit. What was already running is never touched.
 
 export interface Cmd {
@@ -16,7 +16,8 @@ export interface OwnerDeps {
   socketUp(): Promise<boolean>;
   gatewayUp(): Promise<boolean>;
   spawn(cmd: Cmd): Child;
-  python: Cmd;
+  /** A function when the command needs something looked up at spawn time; it throws the reason the daemon cannot start. */
+  daemon: Cmd | (() => Promise<Cmd>);
   gateway: Cmd;
   wait(ms: number): Promise<void>;
   /** How long a started child gets to answer, in polls of 250 ms. */
@@ -48,12 +49,12 @@ export class Owner {
     for (const f of this.listeners) f();
   }
 
-  /** Brings both up, Python first (the gateway opens the database Python keeps). Never throws: a failure is the state. */
+  /** Brings both up, the daemon first (the gateway opens the database the daemon keeps). Never throws: a failure is the state. */
   async start(): Promise<void> {
     this.stopping = false;
     this.set('starting');
     try {
-      await this.ensure('daemon', () => this.d.socketUp(), this.d.python);
+      await this.ensure('daemon', () => this.d.socketUp(), this.d.daemon);
       await this.ensure('gateway', () => this.d.gatewayUp(), this.d.gateway);
       this.set('running');
     } catch (e) {
@@ -61,10 +62,10 @@ export class Owner {
     }
   }
 
-  private async ensure(name: string, up: () => Promise<boolean>, cmd: Cmd): Promise<void> {
+  private async ensure(name: string, up: () => Promise<boolean>, cmd: Cmd | (() => Promise<Cmd>)): Promise<void> {
     // One that answers may be an earlier run still shutting down: it is trusted only if it still answers a moment later.
     if ((await up()) && (await this.d.wait(500), await up())) return;
-    const child = this.d.spawn(cmd);
+    const child = this.d.spawn(typeof cmd === 'function' ? await cmd() : cmd);
     let exited: number | null | undefined;
     child.onExit((code) => {
       exited = code;
@@ -129,18 +130,34 @@ export class Owner {
   }
 }
 
-/** The two commands, from the environment: a checkout runs `bin/ocp daemon` and `go/handlined`; a packaged app names its own binaries. */
+/** The claude the daemon runs: the named one (CLAUDE), else the first executable `claude` on the login shell's PATH, then on the app's own.
+ * Throws when there is none: a bare `claude` would resolve against the PATH of a Dock launch, which has no shell dirs. */
+export function resolveClaude(named: string | undefined, paths: (string | undefined)[], isExec: (file: string) => boolean): string {
+  if (named) return named;
+  for (const dir of paths.flatMap((p) => (p ?? '').split(':')).filter(Boolean)) {
+    if (isExec(`${dir}/claude`)) return `${dir}/claude`;
+  }
+  throw new Error('claude was not found on the PATH; install it or set HANDLINE_CLAUDE to its full path');
+}
+
+/** The two commands, from the environment: a checkout runs `go/handlined` as the daemon (with the service's flags) and as the gateway;
+ * a packaged app names its own binary. `claude` is the one the daemon runs, resolved by the caller. */
 export function commands(
   env: (k: string) => string | undefined,
   root: string,
   listen: string,
   advertise: string | null = null,
-): { python: Cmd; gateway: Cmd } {
+  claude: string = env('CLAUDE') ?? 'claude',
+): { daemon: Cmd; gateway: Cmd } {
   const homeArgs = env('HOME') ? ['-home', env('HOME')!] : ['-allow-real-home'];
+  const file = env('HANDLINED') ?? `${root}/go/handlined`;
   return {
-    python: { file: env('OCP') ?? `${root}/bin/ocp`, args: ['daemon'] },
+    daemon: {
+      file,
+      args: [...homeArgs, '-structured-cli', claude, '-structured-tick', '-terminal-tick', '-cutover'],
+    },
     gateway: {
-      file: env('HANDLINED') ?? `${root}/go/handlined`,
+      file,
       args: ['-gateway', ...homeArgs, '-listen', listen, ...(advertise ? ['-advertise', advertise] : [])],
     },
   };

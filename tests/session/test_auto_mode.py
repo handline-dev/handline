@@ -84,9 +84,6 @@ def test_a_launch_starts_in_auto_mode_unless_the_agent_skips_permissions(home: P
         argv = launchmod.build("backend", spelling)[0]
         check(f"launch: a caller's {spelling} is the only mode, no stray 'auto' beside it",
               "auto" not in argv and not has(argv) and argv[-len(spelling):] == spelling, str(argv))
-    agents.register("backend", skip_permissions=True)
-    check("launch: a granted skip-permissions agent does not also ask for auto",
-          not has(launchmod.build("backend")[0]))
 
 
 def _launch_world(home: Path) -> None:
@@ -108,36 +105,26 @@ def test_an_agent_starts_in_the_mode_it_is_set_to(home: Path) -> None:
         agents.register("backend", mode=mode)
         argv = launchmod.build("backend")[0]
         check(f"mode: {mode} is the one --permission-mode, with no auto beside it",
-              _mode_flag(argv) == [mode] and "--dangerously-skip-permissions" not in argv, str(argv))
+              _mode_flag(argv) == [mode], str(argv))
         check(f"mode: {mode} gives the classifier nothing to be told",
               all("autoMode" not in x for x in _settings(argv)), str(_settings(argv)))
         check(f"mode: {mode} reads back", agents.read("backend")["mode"] == mode and agents.mode_of("backend", agents.read("backend")) == mode)
-    agents.register("backend", mode="bypass")
-    argv = launchmod.build("backend")[0]
-    check("mode: bypass is the old switch: the flag, no mode, and skip_permissions in the file",
-          "--dangerously-skip-permissions" in argv and _mode_flag(argv) == []
-          and agents.skip_permissions(agents.read("backend")) and "mode" not in agents.read("backend"), str(argv))
-    agents.register("backend", skip_permissions=False)
-    check("mode: turning the old switch off returns it to auto",
-          _mode_flag(launchmod.build("backend")[0]) == ["auto"])
-    agents.register("backend", skip_permissions=True)
-    check("mode: the old flag alone still shows as bypass", agents.mode_of("backend", agents.read("backend")) == "bypass")
-    agents.register("backend", mode="plan")
-    check("mode: a mode turns the old switch off and revokes its grant",
-          not agents.skip_permissions(agents.read("backend")) and not agents.skip_permissions_granted("backend"))
     agents.register("backend", mode="auto")
     check("mode: auto is written as nothing", "mode" not in agents.read("backend")
           and _mode_flag(launchmod.build("backend")[0]) == ["auto"])
-    try:
-        agents.register("backend", mode="yolo")
-        check("mode: an unknown one is refused", False, "it went through")
-    except ValueError:
-        check("mode: an unknown one is refused", True)
+    for unknown in ("yolo", "bypass"):
+        try:
+            agents.register("backend", mode=unknown)
+            check(f"mode: {unknown} is refused", False, "it went through")
+        except ValueError:
+            check(f"mode: {unknown} is refused", True)
     f = agents.agent_file("backend")
-    f.write_text(f.read_text() + "mode: bypass\n")
+    f.write_text(f.read_text() + "mode: bypass\nskip_permissions: true\n")
     reseal(f)
-    check("mode: a hand-written bypass with no grant is not bypass",
-          agents.mode_of("backend", agents.read("backend")) == "auto")
+    argv = launchmod.build("backend")[0]
+    check("mode: a file from before bypass was removed launches in auto, with no skip flag",
+          agents.mode_of("backend", agents.read("backend")) == "auto" and _mode_flag(argv) == ["auto"]
+          and "--dangerously-skip-permissions" not in argv, str(argv))
 
 
 def test_the_sandbox_is_on_only_where_agent_yaml_turns_it_on(home: Path) -> None:
@@ -184,8 +171,6 @@ def test_the_sandbox_setting_holds_across_sessions_until_it_is_changed(home: Pat
     def recorded() -> str:
         return json.loads(db.get_agent_state(con, "backend")["launch_parts"])["sandbox"]
     try:
-        check("nothing in the daemon ends it with a session",
-              importlib.util.find_spec("handline.daemon.sandboxlease") is None)
         agents.register("backend", sandbox=True)
         record_launch()
         check("on: a session launched with it is sandboxed", sandboxed())

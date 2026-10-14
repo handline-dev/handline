@@ -283,6 +283,45 @@ const decisionCardSQL = "SELECT t.id FROM tasks t WHERE t.owner = ? AND t.discar
 const openDecisionCardsSQL = "(SELECT MIN(l.request_id) FROM task_requests l JOIN tasks t ON t.id = l.task_id " +
 	"WHERE t.owner = ? AND t.discarded_by IS NULL AND t.done_evidence IS NULL GROUP BY t.id)"
 
+// TaskOfCard is decisions.task_of_card: the decision task whose card is request rid, in whatever state it is now; 0 for none.
+func TaskOfCard(q Q, rid int64) (int64, error) {
+	tasks, err := TasksForRequest(q, rid)
+	if err != nil {
+		return 0, err
+	}
+	for _, t := range tasks {
+		if t.Expects.String != "decision" {
+			continue
+		}
+		first, err := TaskRequests(q, t.ID)
+		if err != nil {
+			return 0, err
+		}
+		if len(first) > 0 && first[0].ID == rid {
+			return t.ID, nil
+		}
+	}
+	return 0, nil
+}
+
+// FounderClosed is decisions.answer_of's reading of a decision task marked done: its evidence is the founder's answer only when the
+// founder owns it and the last of its settle, done and reopen events is the founder's own settle or done.
+func FounderClosed(q Q, t *Task) (bool, error) {
+	if t.Owner != Human {
+		return false, nil
+	}
+	var kind, agent string
+	err := q.QueryRow("SELECT kind, agent FROM events WHERE "+eventTask+" = ? AND kind IN ('settle_decision_task', 'mark_task_done', 'reopen_task') "+
+		"ORDER BY id DESC LIMIT 1", t.ID).Scan(&kind, &agent)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return kind == "settle_decision_task" || kind == "mark_task_done" && agent == Human, nil
+}
+
 // DecisionTaskOfCard is db.decision_task_of_card: the open task of the founder's whose card is request rid, 0 for none.
 func DecisionTaskOfCard(q Q, rid int64) (int64, error) {
 	var id int64
@@ -452,9 +491,17 @@ func AdvanceTaskTimeout(q Q, tid, now, defaultS int64) error {
 	return err
 }
 
-// PauseTaskTimeout is db.pause_task_timeout: no deadline runs while a task is not doing or waits; what was left is kept for the resume.
+// PauseTaskTimeout is db.pause_task_timeout: no deadline runs while a task is not doing; what was left is kept for the resume.
 func PauseTaskTimeout(q Q, tid, now int64) error {
 	_, err := q.Exec("UPDATE tasks SET timeout_left = MAX(timeout_at - ?, 0), timeout_at = NULL WHERE id = ? AND timeout_at IS NOT NULL", now, tid)
+	return err
+}
+
+// RestartTaskTimeout: a task that waits gets its whole length back for when the wait ends. Set again on each tick it waits, so nothing
+// is lost or repeated across a restart. A clock that never started is left unstarted.
+func RestartTaskTimeout(q Q, tid, defaultS int64) error {
+	_, err := q.Exec("UPDATE tasks SET timeout_left = COALESCE(timeout_s, ?), timeout_at = NULL WHERE id = ? AND (timeout_at IS NOT NULL OR timeout_left IS NOT NULL)",
+		defaultS, tid)
 	return err
 }
 

@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   queued_by    TEXT,
   queued_at    INTEGER,
   -- T286: timeout_s is the length a doing task may run before its opener is told;
-  -- timeout_at the next deadline (NULL while it is not doing). See daemon/timebox.py.
+  -- timeout_at the next deadline (NULL while it is not doing). See go/internal/tick/timebox.go.
   timeout_s    INTEGER,
   timeout_at   INTEGER,
   -- T720: when its owner's session first had the task (the request that delivers it landed; a
@@ -625,7 +625,7 @@ def _baseline(con) -> None:
 # column (the doctor drops dead ones). A database that is not at the last number is not current. A step is
 # additive when a plain connect may run it under the lock: it is safe to run again and only adds.
 def _rpc_replies(con) -> None:
-    """The daemon's reply store: a write's reply, kept a day under its request_id (daemon/rpc.py)."""
+    """The daemon's reply store: a write's reply, kept a day under its request_id (go/internal/rpc/write.go)."""
     con.executescript("""
         CREATE TABLE IF NOT EXISTS rpc_replies (
           caller     TEXT    NOT NULL,
@@ -646,7 +646,7 @@ def _agent_view(con) -> None:
 
 
 def _stream_log(con) -> None:
-    """The event stream's log; its id is the cursor (daemon/stream.py)."""
+    """The event stream's log; its id is the cursor (go/internal/stream/log.go)."""
     con.executescript("""
         CREATE TABLE IF NOT EXISTS stream_log (
           id     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -665,7 +665,7 @@ def _stream_log(con) -> None:
 
 def _hook_applied(con) -> None:
     """The request ids of hook events already applied, kept a day, with whose and when they ran: the newest
-    `at` of an agent is what an older event must not move its state back past (session/events.py `apply_hook`)."""
+    `at` of an agent is what an older event must not move its state back past (go/internal/hooks/apply.go)."""
     con.executescript("""
         CREATE TABLE IF NOT EXISTS hook_applied (request_id TEXT PRIMARY KEY, ts INTEGER NOT NULL, agent TEXT, at INTEGER);
         CREATE INDEX IF NOT EXISTS hook_applied_agent ON hook_applied(agent, at);
@@ -674,7 +674,7 @@ def _hook_applied(con) -> None:
 
 def _write_effects(con) -> None:
     """What a write did, recorded in the same transaction as the write: a retry of its request_id after a crash
-    between the effect and the reply finds this and answers with it, repeating nothing (daemon/rpc.py)."""
+    between the effect and the reply finds this and answers with it, repeating nothing (go/internal/rpc/write.go)."""
     con.executescript("""
         CREATE TABLE IF NOT EXISTS write_effects (
           caller      TEXT    NOT NULL,

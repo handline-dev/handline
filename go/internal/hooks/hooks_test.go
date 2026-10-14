@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/turns"
 )
 
 func testRecorder(t *testing.T) *Recorder {
@@ -55,6 +56,40 @@ func TestAHookAppliesOnceByRequestIDAndALateOneMovesNothing(t *testing.T) {
 	}
 }
 
+func TestOnlyAFreshSessionStartNamesTheLaunchItCameFrom(t *testing.T) {
+	h := testRecorder(t)
+	now := time.Now().Unix()
+	start := func(source, sid string) {
+		t.Helper()
+		if err := Apply(h.DB, h.Home, "w", "SessionStart", map[string]any{"source": source, "session_id": sid}, sid, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	named := func() string {
+		var sid sql.NullString
+		h.DB.QueryRow("SELECT session_id FROM session_starts WHERE agent = 'w' ORDER BY id LIMIT 1").Scan(&sid)
+		return sid.String
+	}
+	if _, err := h.DB.Exec("INSERT INTO session_starts (agent, ts, cause, resumed, text, prompt) VALUES ('w', ?, 'wake', 0, '', '')", now); err != nil {
+		t.Fatal(err)
+	}
+	start("clear", "s-clear")
+	if got := named(); got != "" {
+		t.Errorf("a /clear claimed the launch: %q", got)
+	}
+	start("startup", "s-new")
+	if got := named(); got != "s-new" {
+		t.Errorf("the new session did not name its launch: %q", got)
+	}
+	if _, err := h.DB.Exec("INSERT INTO session_starts (agent, ts, cause, resumed, text, prompt) VALUES ('w', ?, 'launch', 0, '', '')", now-7200); err != nil {
+		t.Fatal(err)
+	}
+	start("startup", "s-late")
+	if n := count(t, h.DB, "SELECT COUNT(*) FROM session_starts WHERE session_id = 's-late'"); n != 0 {
+		t.Errorf("a launch too old was claimed")
+	}
+}
+
 func TestTheSpoolSetsABadLineAsideAndAppliesTheRest(t *testing.T) {
 	h := testRecorder(t)
 	now := time.Now().Unix()
@@ -93,3 +128,32 @@ func TestAnIngestThatFailsKeepsTheLinesItDidNotApply(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestAnInterruptIsWhatAStopWouldHaveDone(t *testing.T) {
+	h := testRecorder(t)
+	h.Turns = &turns.Tracker{Agent: func(string) string { return "w" }}
+	now := time.Now().Unix()
+	if err := h.apply("w", "UserPromptSubmit", map[string]any{}, "a", now); err != nil {
+		t.Fatal(err)
+	}
+	if idle, known := h.Turns.WaitIdle("%1", 0); idle || !known {
+		t.Fatalf("the tracker was not told the prompt: idle=%v known=%v", idle, known)
+	}
+	noteWait(h.Home, "w", "Bash", map[string]any{"command": "ls"}, 1)
+	if err := MarkInterrupted(h.DB, h.Home, "w"); err != nil {
+		t.Fatal(err)
+	}
+	var state, detail string
+	h.DB.QueryRow("SELECT state, detail FROM agent_state WHERE agent = 'w'").Scan(&state, &detail)
+	if state != "IDLE" || detail != "interrupted its turn" || ReadWait(h.Home, "w") != nil {
+		t.Fatalf("%s %q, wait %v", state, detail, ReadWait(h.Home, "w"))
+	}
+	h.DB.Exec("UPDATE agent_state SET state = 'STALLED' WHERE agent = 'w'")
+	if err := MarkInterrupted(h.DB, h.Home, "w"); err != nil {
+		t.Fatal(err)
+	}
+	h.DB.QueryRow("SELECT state FROM agent_state WHERE agent = 'w'").Scan(&state)
+	if state != "STALLED" {
+		t.Fatalf("an interrupt moved a state the daemon owns: %s", state)
+	}
+}

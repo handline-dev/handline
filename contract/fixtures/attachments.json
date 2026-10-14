@@ -3,7 +3,7 @@
   {
    "name": "attachment.put.an_agent_session_is_refused",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A call from an agent session is refused, gate role.",
+   "about": "A call from an agent session is refused, gate role.",
    "as": "agent",
    "steps": [
     {
@@ -45,7 +45,7 @@
   {
    "name": "attachment.put.a_caller_that_is_nobody_is_refused",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A caller that is nobody is refused, gate role.",
+   "about": "A caller that is nobody is refused, gate role.",
    "as": "anonymous",
    "steps": [
     {
@@ -92,7 +92,7 @@
   {
    "name": "attachment.put.needs_a_request_id",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A write without a request_id is bad_request naming it.",
+   "about": "A write without a request_id is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -133,7 +133,7 @@
   {
    "name": "attachment.put.svg_is_bad_request",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON Only PNG, JPEG, GIF and WebP: another mime is bad_request naming mime; nothing is stored.",
+   "about": "Only PNG, JPEG, GIF and WebP: another mime is bad_request naming mime; nothing is stored.",
    "as": "founder",
    "steps": [
     {
@@ -175,7 +175,7 @@
   {
    "name": "attachment.put.the_first_bytes_must_match_the_mime",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A whole file whose first bytes are not the mime it names is bad_request naming data; nothing is stored.",
+   "about": "A whole file whose first bytes are not the mime it names is bad_request naming data; nothing is stored.",
    "as": "founder",
    "steps": [
     {
@@ -217,7 +217,7 @@
   {
    "name": "attachment.put.over_10_mib_is_refused",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A file larger than 10 MiB is refused, gate limit, on its first chunk.",
+   "about": "A file larger than 10 MiB is refused, gate limit, on its first chunk.",
    "as": "founder",
    "steps": [
     {
@@ -259,7 +259,7 @@
   {
    "name": "attachment.put.a_wrong_offset_is_bad_request",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A chunk that does not start where the daemon holds is bad_request naming offset; the upload goes on from where it was.",
+   "about": "A chunk that does not start where the daemon holds is bad_request naming offset; the upload goes on from where it was.",
    "as": "founder",
    "steps": [
     {
@@ -349,7 +349,7 @@
   {
    "name": "attachment.put.a_png_in_one_chunk_is_read_back",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A whole PNG in one chunk answers with its Attachment, and attachment.get returns the same bytes and, with thumb, a small copy.",
+   "about": "A whole PNG in one chunk answers with its Attachment, and attachment.get returns the same bytes and, with thumb, a small copy.",
    "as": "founder",
    "steps": [
     {
@@ -434,7 +434,7 @@
   {
    "name": "attachment.get.unknown_id_is_not_found",
    "spec": "attachment.get",
-   "about": "NOT_YET_IN_PYTHON An id that was never put is not_found.",
+   "about": "An id that was never put is not_found.",
    "as": "founder",
    "steps": [
     {
@@ -471,7 +471,7 @@
   {
    "name": "attachment.get.a_malformed_id_is_bad_request",
    "spec": "attachment.get",
-   "about": "NOT_YET_IN_PYTHON An id that is not 16 hex digits is bad_request naming id.",
+   "about": "An id that is not 16 hex digits is bad_request naming id.",
    "as": "founder",
    "steps": [
     {
@@ -509,7 +509,7 @@
   {
    "name": "chat.send.more_than_six_attachments_is_bad_request",
    "spec": "chat.send",
-   "about": "NOT_YET_IN_PYTHON Seven attachments are bad_request naming attachments.",
+   "about": "Seven attachments are bad_request naming attachments.",
    "as": "founder",
    "steps": [
     {
@@ -558,7 +558,7 @@
   {
    "name": "chat.send.attachments_with_a_task_is_bad_request",
    "spec": "chat.send",
-   "about": "NOT_YET_IN_PYTHON Attachments do not go with a task: bad_request naming attachments.",
+   "about": "Attachments do not go with a task: bad_request naming attachments.",
    "as": "founder",
    "steps": [
     {
@@ -596,6 +596,634 @@
       "data": {
        "code": "bad_request",
        "field": "attachments"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.new.an_image_not_kept_is_not_found",
+   "spec": "task.new",
+   "about": "A brief naming an image the daemon does not keep is not_found, what attachment, and no task is opened.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo with a picture",
+       "body": "the button ![the button](attachment:0000000000000000)",
+       "request_id": "conf-at-12"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "attachment"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.new.a_malformed_image_id_is_bad_request",
+   "spec": "task.new",
+   "about": "An attachment: reference whose id is not an attachment id is bad_request, field body.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo with a picture",
+       "body": "the button ![the button](attachment:nope)",
+       "request_id": "conf-at-13"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "body"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.memo.add.more_than_six_images_is_bad_request",
+   "spec": "task.memo.add",
+   "about": "A text names at most 6 images; a memo naming 7 is bad_request, field text.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-14"
+      }
+     },
+     "result": {
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "aid"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo with a picture",
+       "body": "plain",
+       "request_id": "conf-at-15"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.memo.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "![the button](attachment:{{aid}})![the button](attachment:{{aid}})![the button](attachment:{{aid}})![the button](attachment:{{aid}})![the button](attachment:{{aid}})![the button](attachment:{{aid}})![the button](attachment:{{aid}})",
+       "request_id": "conf-at-16"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "text"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.memo.add.a_put_image_is_named_in_a_brief_and_a_memo",
+   "spec": "task.memo.add",
+   "about": "An image put by the founder is named in a task's brief and in a memo; the texts are stored as written and read back cut into parts, with no path for a founder.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-17"
+      }
+     },
+     "result": {
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "aid"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo with a picture",
+       "body": "cut off: ![the button](attachment:{{aid}})",
+       "request_id": "conf-at-18"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.memo.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "still ![the button](attachment:{{aid}})",
+       "request_id": "conf-at-19"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.get",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "body": "cut off: ![the button](attachment:{{aid}})",
+      "body_parts": [
+       {
+        "text": "cut off: "
+       },
+       {
+        "image": {
+         "id": "{{aid}}",
+         "name": "a.png",
+         "mime": "image/png",
+         "bytes": 70
+        },
+        "caption": "the button",
+        "path": {
+         "$absent": true
+        }
+       }
+      ],
+      "memos": {
+       "$contains": {
+        "text": "still ![the button](attachment:{{aid}})",
+        "parts": [
+         {
+          "text": "still "
+         },
+         {
+          "image": {
+           "id": "{{aid}}",
+           "name": "a.png",
+           "mime": "image/png",
+           "bytes": 70
+          },
+          "caption": "the button"
+         }
+        ]
+       }
+      },
+      "timeline": {
+       "$contains": {
+        "kind": "memo",
+        "parts": [
+         {
+          "text": "still "
+         },
+         {
+          "image": {
+           "id": "{{aid}}",
+           "name": "a.png",
+           "mime": "image/png",
+           "bytes": 70
+          },
+          "caption": "the button"
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.memo.add.an_agent_names_only_an_image_a_task_shows",
+   "spec": "task.memo.add",
+   "about": "An agent may not name an image no task shows (refused, gate role); once a founder's brief names it, the agent may carry it into its own text. Its task.get carries each image's path.",
+   "as": "agent",
+   "with": {
+    "founder": "founder"
+   },
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "founder"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-20"
+      }
+     },
+     "result": {
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "aid"
+       }
+      }
+     },
+     "on": "founder"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo with a picture",
+       "body": "plain",
+       "request_id": "conf-at-21"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     },
+     "on": "founder"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.memo.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "![the button](attachment:{{aid}})",
+       "request_id": "conf-at-22"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo with a picture",
+       "body": "see ![the button](attachment:{{aid}})",
+       "request_id": "conf-at-23"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "on": "founder"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "task.memo.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "from the brief: ![the button](attachment:{{aid}})",
+       "request_id": "conf-at-24"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "task.get",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "memos": {
+       "$contains": {
+        "parts": [
+         {
+          "text": "from the brief: "
+         },
+         {
+          "image": {
+           "id": "{{aid}}",
+           "name": "a.png",
+           "mime": "image/png",
+           "bytes": 70
+          },
+          "caption": "the button",
+          "path": {
+           "$regex": "^/.*\\.png$"
+          }
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.reject.a_note_with_an_image_is_a_timeline_row",
+   "spec": "task.reject",
+   "as": "agent",
+   "with": {
+    "boss": "founder"
+   },
+   "about": "A reject note may carry an image after its line of words; task.get shows the send-back as a reject row of the timeline, cut into parts.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "caller": {
+       "name": {
+        "$save": "me"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-25"
+      }
+     },
+     "result": {
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "aid"
+       }
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "{{me}}",
+       "title": "a reported task",
+       "body": "build it; done is it built and tested",
+       "time_box": "1h",
+       "request_id": "conf-at-26"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.done",
+      "params": {
+       "task": "{{tid}}",
+       "evidence": "built and tested",
+       "request_id": "conf-at-27"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$regex": "reported done"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.reject",
+      "params": {
+       "task": "{{tid}}",
+       "note": "the tests are missing\n![the failing run](attachment:{{aid}})",
+       "request_id": "conf-at-28"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.get",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "timeline": {
+       "$contains": {
+        "kind": "reject",
+        "text": "the tests are missing\n![the failing run](attachment:{{aid}})",
+        "parts": [
+         {
+          "text": "the tests are missing\n"
+         },
+         {
+          "image": {
+           "id": "{{aid}}",
+           "name": "a.png",
+           "mime": "image/png",
+           "bytes": 70
+          },
+          "caption": "the failing run",
+          "path": {
+           "$type": "string"
+          }
+         }
+        ]
+       }
       }
      }
     }

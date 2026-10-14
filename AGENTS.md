@@ -89,9 +89,8 @@ Easy to get wrong:
 - Triggers are level triggers: an edge trigger misses a crossing that happened
   while the daemon was down.
 - Everything under `~/.orcapipe` is writable by every agent, so it cannot prove
-  the founder asked for something. What only the founder may grant (an agent's
-  `skip_permissions`, the declared trust roots, the founder's answer to a roster
-  or trust proposal) is kept in `handline/infra/protected.py`, outside it. The
+  the founder asked for something. What only the founder may grant (the declared
+  trust roots, the founder's answer to a roster or trust proposal) is kept in `handline/infra/protected.py`, outside it. The
   proposal drafts stay in `~/.orcapipe`: an agent writes those, so only the
   recorded answer counts.
 
@@ -106,13 +105,16 @@ agent (ROLE.md, base.md); this file does not repeat them.
   whole suite before you hand the task to the auditor. The auditor runs the tests once at the
   exact sha (`HANDLINE_GO_RACE=1 tools/check.sh main`: the variable adds `-race` to the Go tests, and only this run sets it; in the foreground with a 600000 ms Bash timeout, never in the
   background); a count you quote is not a verdict. `tools/check.sh` runs nothing for documentation; for anything else
-  it runs `pnpm --dir packages/app-data test` first, then the Go suite and the Python files that test only Go
-  (its GO_FILES) for a change to go/ or the apps only, the whole suite (`tools/suite.sh`) otherwise.
+  it runs, in order: the app checks (`pnpm turbo test typecheck lint` when an app or JS workspace file changed, else
+  `pnpm --dir packages/app-data test`), then the Go suite and the Python files that test only Go (its GO_FILES) for
+  a change to go/ or the apps only, the whole suite (`tools/suite.sh`) otherwise.
 - Lighter review: a docs-only change, or a re-merge of main onto an already PASSed sha with no
   conflict, lands without a new review round. The auditor records the PASS on the new sha at once
   and the merger lands it.
-- Live checks: run them yourself on sigma, the test account, one short run each, and put the
-  results in the task. Do not send a live run to the founder.
+- Live checks: run them yourself, one short run each, and put the output in the task. They are opt-in:
+  `HANDLINE_LIVE=1 tools/live-e2e.sh`, or `HANDLINE_LIVE=1 go test -run TestLive... ./internal/...`. Each spends
+  the account with the most headroom now (`tools/live_account.py` says which and why) and runs a test daemon on a
+  scratch home, never the live one. Never from suite.sh, check.sh or CI. Do not send a live run to the founder.
 - Run tests only through `tools/test.sh`, never `python3 tests/...` by hand: it brings the
   venv python, an unset `OCP_AGENT`, unbuffered output and a temp `OCP_HOME` (bridge tests
   print nothing without them, and a hang looks like a stall).

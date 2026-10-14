@@ -87,7 +87,6 @@ hl agent register backend --model sonnet --repo ~/code/myproject
 | `--model` | Which model it runs. Smaller models cost less usage. |
 | `--effort` | `low` to `max`. The default is `medium`. This is a real cost lever. |
 | `--role-file` | A file to install as the agent's `ROLE.md`. |
-| `--skip-permissions on` | Its sessions do not ask before acting. The default is `off`. |
 | `--mcp-config` | MCP servers for this agent only. |
 
 Registering the same name again updates it. Options you leave out keep their current value.
@@ -106,8 +105,7 @@ edit `team.yaml` or any `agent.yaml` by hand, run `hl team seal` to accept your 
 ## Run the daemon
 
 ```bash
-hl daemon           # in the foreground, stops with the terminal
-hl service install  # as a launchd job: starts at login, restarts after a crash
+hl service install --allow-live-home  # as a launchd job: starts at login, restarts after a crash
 hl service status
 hl service logs
 ```

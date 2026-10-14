@@ -5,14 +5,10 @@ import os
 import sys
 from pathlib import Path
 
-from .. import actions
 from ..team import agent_settings, agents, ask as askmod, hr
 from ..infra import daemonclient as dmn_client
-from ..session import states as dmn_states
-from .. import db
 from ..session import launch, term
 from ..infra import names, paths, protected
-from ..team import spawn as spawnmod
 
 from . import client
 
@@ -52,7 +48,7 @@ def _propose_register(args) -> int:
               "and it is raised as a proposal", file=sys.stderr)
         return 1
     me, new = askmod.asking_agent(), args.name not in paths.list_agents()
-    sets = {k: v for k, v in (("skip_permissions", args.skip_permissions), ("weight", args.weight),
+    sets = {k: v for k, v in (("weight", args.weight),
                               ("browser", {"on": "chrome", "off": "off"}.get(args.chrome)))
             if v is not None}
     if not new:
@@ -98,13 +94,9 @@ def cmd_agent_register(args) -> int:
     d = agents.register(args.name, role=args.role, model=args.model,
                         effort=args.effort, weight=args.weight, role_file=args.role_file,
                         repo=args.repo, vendor=args.vendor,
-                        skip_permissions=None if args.skip_permissions is None
-                        else args.skip_permissions == "on",
                         chrome=None if args.chrome is None else args.chrome == "on",
                         mcp_config=mcp_text, extra_worktrees=args.extra_worktrees)
     print(f"registered agent '{args.name}': {d}")
-    if args.skip_permissions:
-        print(f"skip-permissions {args.skip_permissions}: applies from its next launch")
     if args.chrome:
         print(f"chrome {args.chrome}: applies from its next launch")
     if args.extra_worktrees is not None:
@@ -129,28 +121,18 @@ def cmd_launch(args) -> int:
 
 
 def cmd_spawn(args) -> int:
-    ok, msg = spawnmod.spawn(args.agent, Path(args.repo).resolve(), base=args.base,
-                             prompt=args.prompt, dry_run=args.dry_run)
-    print(msg)
-    return 0 if ok else 1
+    """session.start: the daemon gives the agent its worktree (the one it has, else a new one from --base) and starts it there. The
+    first task goes through the daemon's delivery, which types it once the agent is ready."""
+    ok, said = client.write("session.start", {"agent": args.agent, "repo": str(Path(args.repo).resolve()), "base": args.base})
+    print(said)
+    if not ok or not args.prompt:
+        return 0 if ok else 1
+    return client.said(*client.write("chat.send", {"agent": args.agent, "body": args.prompt}))
 
 
 def cmd_unstall(args) -> int:
-    """A human clearing a stall - every kind but a wake stall the sweep has
-    refuted by observing a session (section 8.6)."""
-    con = db.connect()
-    try:
-        row = db.get_agent_state(con, args.agent)
-        if not row:
-            print(f"no state for {args.agent}")
-            return 1
-        if row["state"] != dmn_states.STALLED:
-            print(f"{args.agent} is {row['state']}, not STALLED")
-            return 1
-        print(actions.unstall(con, args.agent))
-    finally:
-        con.close()
-    return 0
+    """agent.unstall: a stalled agent goes back to queued; one that is not stalled is refused."""
+    return client.said(*client.write("agent.unstall", {"agent": args.agent}))
 
 
 def cmd_agent_set(args) -> int:

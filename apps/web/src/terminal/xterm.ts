@@ -77,6 +77,15 @@ export const createXterm: CreateTerm = (host) => {
   return {
     term,
     propose: () => fit.proposeDimensions() ?? null,
+    onFit: (fn) => {
+      let last = '';
+      return term.onRender(() => {
+        const p = fit.proposeDimensions();
+        const now = p ? `${p.cols}x${p.rows}` : '';
+        if (p && now !== last) fn();
+        last = now;
+      });
+    },
     setFontSize: (px) => {
       term.options.fontSize = px;
     },
