@@ -158,6 +158,16 @@ func (t *Tracker) interrupt(agent string) {
 	}
 }
 
+// State is the agent's turn as its hooks last said.
+func (t *Tracker) State(agent string) State {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if tr := t.agents[agent]; tr != nil {
+		return tr.state
+	}
+	return Unknown
+}
+
 // WaitIdle waits up to timeout for the turn at handle to close. known is false when the hooks have not said, or stopped saying.
 func (t *Tracker) WaitIdle(handle string, timeout time.Duration) (idle, known bool) {
 	agent := t.Agent(handle)

@@ -447,7 +447,7 @@ def start_daemon(binary: str, root: Path, home: Path, account: dict, tmux: str |
             raise Refused(f"the test daemon did not come up; its log: {root / 'daemon.log'}")
         time.sleep(0.1)
     con = sqlite3.connect(home / "db.sqlite", timeout=10)
-    con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'queued', 0, ?)", (AGENT, str(root / "work")))
+    con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'IDLE', 0, ?)", (AGENT, str(root / "work")))
     con.commit()
     con.close()
     return sh.pid

@@ -8,13 +8,16 @@ import (
 	"github.com/handline/handline/go/internal/prompts"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
+	"github.com/handline/handline/go/internal/turns"
 )
 
 // rowSessions is what the view knows of the sessions whose rows this daemon writes: the structured ones it holds, and with terminals the
-// terminal agents, whose session is the one their session file shows (a status busy is a turn running).
+// terminal agents, whose session is the one their session file shows (a status busy is a turn running). Where the hooks have said
+// (turns), they answer busy first: the session file still says busy when the Stop hook arrives, so a view written then would stay running.
 type rowSessions struct {
 	p         *Parts
 	terminals bool
+	turns     *turns.Tracker
 }
 
 func (r rowSessions) terminal(agent string) bool { return r.terminals && !r.p.Kind(agent) }
@@ -33,6 +36,14 @@ func (r rowSessions) Alive(agent string) bool {
 
 func (r rowSessions) Busy(agent string) bool {
 	if r.terminal(agent) {
+		if r.turns != nil {
+			switch r.turns.State(agent) {
+			case turns.Working:
+				return true
+			case turns.Idle:
+				return false
+			}
+		}
 		rec, _, found := r.p.terminalSession(agent, r.p.liveTerminals())
 		return found == sessionFound && rec.Status == "busy"
 	}
@@ -45,7 +56,7 @@ func (p *Parts) agentView(cfg Config, cutover, terminals bool, tu tickUsage) *ag
 	lc, q, home := p.LC, p.db, cfg.Home
 	return &agentview.Env{
 		Q: q, Home: home,
-		Sessions:   rowSessions{p, terminals},
+		Sessions:   rowSessions{p, terminals, cfg.Turns},
 		Background: lc.Env,
 		Wakes:      lc.Manager,
 		Prompts:    &prompts.Env{DB: p.db, Home: home, Now: nowOf(cfg.Now)},
