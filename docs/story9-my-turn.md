@@ -7,7 +7,7 @@ Doc only (T3996). Read from the code at `origin/main` 499bf7b37. PC side only; q
 | Product | Your-turn surface | Notifications vs decisions | Top menu kept small by | Limit warnings | Licence of what we may borrow |
 |---|---|---|---|---|---|
 | [Orca](https://github.com/stablyai/orca) (worktree agent IDE) | Notifies when an agent finishes or needs attention; threads can be marked unread to return later | One stream, status-driven; no approval/FYI split found | Not checked | None found | MIT (LICENSE read: Lovecast Inc., 2026). Code and assets may be copied with the notice |
-| [Linear Inbox](https://linear.app/docs/inbox) | Inbox; new **Priority** tab splits "needs your attention" from "can wait" ([changelog 2026-09-03](https://linear.app/changelog/2026-09-03-priority-inbox)); Triage is a separate inbox for unreviewed items | Priority tab is filtered by source; [snooze](https://linear.app/docs/snooze) (H) hides an item until a time, new activity cancels it | Few sidebar entries: Inbox, My issues, then teams | None | Proprietary: ideas only |
+| [Linear Inbox](https://linear.app/docs/inbox) | Inbox; new **Priority** tab splits "needs your attention" from "can wait" ([changelog 2026-09-03](https://linear.app/changelog/2026-09-03-priority-inbox)); Triage is a separate inbox for unreviewed items | Priority tab is filtered by source; snooze (H, see the [Inbox docs](https://linear.app/docs/inbox)) hides an item until a time, new activity cancels it | Few sidebar entries: Inbox, My issues, then teams | None | Proprietary: ideas only |
 | [GitHub notifications](https://docs.github.com/en/account-and-profile/managing-subscriptions-and-notifications-on-github/viewing-and-triaging-notifications/managing-notifications-from-your-inbox) | Inbox with default filters (Assigned, Participating, Review requested, Mentions); each item has a `reason` | The `reason` is the split: `review-requested` and `assign` are decisions, `subscribed`/`state-change` are FYI; up to 15 saved filters | One bell | None | Proprietary: ideas only. The reason vocabulary is public docs |
 | Cursor Agents window ([forum](https://forum.cursor.com/t/agents-approval-window/170388)) | Sidebar grouped by Status, with a **Needs Attention** section for agents blocked on approval, question or plan, plus finished work not yet reviewed | Status groups, not a feed | Grouping, not menus | Not found | Proprietary: ideas only |
 | Conductor ([docs](https://www.conductor.build/docs)) | Workspace list showing who works and what needs attention | Not found in official docs | Not checked | Not found | Proprietary: ideas only |
@@ -27,6 +27,7 @@ PC = `apps/web` (also inside `apps/electron`; there is no `apps/desktop`). Phone
 | | Team (tabs Team, HR) | Who is who and may ask whom; HR proposals for the founder | yes | TeamEntry screen, HR screen |
 | | Worktrees | Worktree board and panel | yes (if served) | page from Agents tab |
 | | Accounts | Per account gauges, agents, login, remove | yes | tab |
+| | Stats | Tiles (tasks done, moves, handoffs, blocks), agent time, Outlook | yes | tab |
 | | Pair a phone | One-time QR window (Electron with own gateway only) | yes | n/a (Unpair button on Agents tab) |
 | Left rail, list | Agent rows | State dot, needs_you chip, queue, cache and context, row menu (verbs) | yes | Agents tab |
 | | Filter popover | Show agents by state | yes | no |
@@ -35,7 +36,6 @@ PC = `apps/web` (also inside `apps/electron`; there is no `apps/desktop`). Phone
 | | Keys (?) | Key sheet | yes | no |
 | Status bar | Daemon, agent counts by state | Read-only chips | yes | Banner when disconnected |
 | | Usage popup | Per account 5 h and week gauges, agents, runway; links to Accounts | yes | no |
-| Stats page (`#/stats`, reached from the palette only) | Stats | Tiles (tasks done, moves, handoffs, blocks), agent time, link to Accounts, Outlook | yes | tab |
 | Agent page | Tabs Chat, Tasks, Timeline, Transcript, Claude Code (terminal); split panes | Per agent | yes | Chat/Terminal tabs plus Tasks, Timeline |
 | Agent settings (`#/agents/:n/settings`) | Sections Model, Work, Session, Browser; Schedules | One field per save | yes | AgentSettings |
 | Palette (⌘K) | Pages, agents, tasks, messages | Search and jump to any page above | yes | no |
@@ -43,7 +43,7 @@ PC = `apps/web` (also inside `apps/electron`; there is no `apps/desktop`). Phone
 | Tray (Electron) | Open, daemon state, mode, Pair a phone, Quit, update | Menu bar | yes | n/a |
 | Phone bottom bar | Agents, Inbox, Tasks, Accounts, Stats | Five tabs | n/a | yes |
 
-Count today: PC has 5 nav rows plus 2 footer buttons, a status bar and a palette; the phone has 5 tabs.
+Count today: the PC rail has 4 to 7 nav rows (Inbox, Tasks, Team, Accounts, Stats always; Worktrees if served; Pair a phone in Electron with its own gateway) plus 2 footer buttons, a status bar and a palette; the phone has 5 tabs.
 
 ## C. Fold into 2-3 top menus
 
@@ -95,6 +95,8 @@ My turn · 3
 └────────────────────────────────────────────────┘
 ```
 
+A `needs_you` of kind `dialog` (any dialog the daemon does not know) has no Allow/Deny: its card has only Open terminal.
+
 **9-2 Inbox split.** Three groups; FYI is collapsed and shows a count.
 
 ```
@@ -108,23 +110,23 @@ Approvals  (1)    permission prompts, task reports to accept
 ```
 ◔ main  62% of 5 h used · week 41%
    agents stop at 17:40 at this rate (in 1 h 52 m) · resets 19:00
-◔ second  12% · no stop expected before the reset
+◔ second  12% · the window resets first: no stop time shown
    [ All accounts ]   [ Stats ]
 ```
-Warn (amber) from 90% of the 5 h window or when the stop time is before the reset; red from 95% or in under 15 minutes.
+`runs_out_in_seconds` is null when the reading is stale, there is no burn, or the window resets first; then the popover shows no stop time, not "safe". Warn (amber) from 90% of the 5 h window or when the stop time is before the reset; red from 95% or in under 15 minutes.
 
 ## E. What the daemon must add
 
-Checked first: `NeedsYou` {kind permission/question/usage, since, text, source} is on AgentView; `InboxItem` has `kind` (decision, ask, say, report/result, block, prompt), `task`, `options`, `answered`, `read`; `Task` has `priority` and the clock (`end`, `overdue_since`, `left_s`); `Account` has `five_hour`/`weekly` {used_pct, resets_at}, `runway` (words, `~10m to wall`) and `Outlook.runway` {account, runs_out_in_seconds, week_resets_at}. The web already draws runway from `gaugeOf`.
+Checked first: `NeedsYou` {kind permission/question/usage/dialog, since, text, source} is on AgentView; `InboxItem` has `kind` (a free string; the Go reader writes decision, ask, refused and the request kinds such as say, and the web also tests block and report/result), `prompt` (a field, kind permission/question inside it), `task`, `options`, `answered`, `read`; `Task` has `priority` and the clock in its `time` field (`end`, `overdue_since`, `left_s`; null once done); `Account` has `five_hour`/`weekly` {used_pct, resets_at}, `runway` (words, `~10m to wall`) and `Outlook.runway` {account, runs_out_in_seconds, week_resets_at} (from `stats.outlook`; `runs_out_in_seconds` is null when the reading is stale, there is no burn, or the window resets first). The web already draws runway from `gaugeOf`.
 
 | Need | Exists | Add | Read by |
 |---|---|---|---|
-| Decision / approval / FYI split | `InboxItem.kind` (free string) | Nothing required: map kinds on the client (decision, ask = decisions; prompt of kind permission = approval; the rest = FYI). Ask for a `needs` field (`decision` / `approval` / `fyi`) only so the daemon, not each client, owns the table | 9-2, phone |
+| Decision / approval / FYI split | `InboxItem.kind` (free string) | Nothing required: map kinds on the client (decision, ask = decisions; an item whose `prompt` is a permission = approval; the rest = FYI). Ask for a `needs` field (`decision` / `approval` / `fyi`) only so the daemon, not each client, owns the table | 9-2, phone |
 | Priority and deadline on an item | on the task only | `InboxItem.priority` and `InboxItem.due` copied from its task (null without one), so a card needs no task read | 9-1 |
 | Snooze | none | `inbox.snooze {id, until}` and a `snoozed_until` field; new activity clears it | 9-1 |
-| Stop time | `Outlook.runway.runs_out_in_seconds` (needs `accounts.outlook`); `Account.runway` is words | `Account.runs_out_at` (Timestamp or null) in `accounts.list` with `usage: true`, so the popover needs one call and no text parsing | 9-3, phone |
+| Stop time | `Outlook.runway.runs_out_in_seconds` (from `stats.outlook`; null for a stale reading, no burn, or a reset first); `Account.runway` is words | `Account.runs_out_at` (Timestamp or null) in `accounts.list` with `usage: true`, so the popover needs one call and no text parsing | 9-3, phone |
 | Warning level | none | Not needed: the client applies the thresholds in D | 9-3 |
-| Items for "My turn" count | `inbox.list` + agent `needs_you` + `hr.list` | `status` summary field `my_turn` (count) so the badge costs one call. Optional | rail, tray |
+| Items for "My turn" count | `inbox.list` + agent `needs_you` + `hr.list` | `daemon.status` field `my_turn` (count; it has `inbox.unread` today) so the badge costs one call. Optional | rail, tray |
 
 ## F. Questions for handline.mobile
 
