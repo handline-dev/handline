@@ -65,7 +65,11 @@ if (process.argv.includes('--picture')) {
   // The phone cannot attach, so a message with one image is put in handline.architect's chat, as the tests do.
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   const id = daemon.uploads.put({ name: 'dot.png', mime: 'image/png', bytes: 70, data: png }).attachment!.id;
-  daemon.chat.send({ agent: 'handline.architect', body: 'Here is a picture', request_id: 'e2e-picture', attachments: [id] }, 'founder', daemon.uploads.take);
+  daemon.chat.send(
+    { agent: 'handline.architect', body: 'Here is a picture', request_id: 'e2e-picture', attachments: [id] },
+    'founder',
+    daemon.uploads.take,
+  );
 }
 daemon.raiseProposal({
   id: 1,
