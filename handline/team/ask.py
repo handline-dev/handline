@@ -789,8 +789,8 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
     # usage park: an answer is not evidence the window rolled over, and
     # queueing it would open the session to the very typing the park is
     # there to prevent.
-    from ..daemon import evaluate as dmn_evaluate
     from ..session import stopgate
+    from ..session.states import IDLE, QUEUED
 
     # A requester no agent directory backs has no state to queue: the write made `hl ps` list it as an agent.
     if row["response"] == "async" and row["requester"] != HUMAN and row["requester"] in paths.list_agents() \
@@ -802,7 +802,11 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
         if outstanding == 0:
             # QUEUED only if something is queued or untold: a quiet dismissal
             # leaves neither, and the asker just goes back to idle.
-            dmn_evaluate.queued_or_idle(con, row["requester"], f"request {rid} resolved: {state}")
+            when = f"request {rid} resolved: {state}"
+            if db.unreached_count(con, row["requester"]):
+                db.set_agent_state(con, row["requester"], QUEUED, wake_at=None, detail=when)
+            else:
+                db.set_agent_state(con, row["requester"], IDLE, wake_at=None, detail=f"{when}; no requests waiting")
     forget_inbox(row["target"], rid)
     said = push_answer(con, row["requester"]) if notify else ""
     # T318: this row may have been what kept the target's current task (T292)

@@ -1,4 +1,4 @@
-// The app owns its daemon: when the Python service's socket or the Go gateway's socket is not answering at launch, the app starts what
+// The app owns its daemon: when the daemon's socket or the Go gateway's socket is not answering at launch, the app starts what
 // is missing as its own child processes and stops exactly those on quit. What was already running is never touched.
 
 export interface Cmd {
@@ -16,7 +16,7 @@ export interface OwnerDeps {
   socketUp(): Promise<boolean>;
   gatewayUp(): Promise<boolean>;
   spawn(cmd: Cmd): Child;
-  python: Cmd;
+  daemon: Cmd;
   gateway: Cmd;
   wait(ms: number): Promise<void>;
   /** How long a started child gets to answer, in polls of 250 ms. */
@@ -48,12 +48,12 @@ export class Owner {
     for (const f of this.listeners) f();
   }
 
-  /** Brings both up, Python first (the gateway opens the database Python keeps). Never throws: a failure is the state. */
+  /** Brings both up, the daemon first (the gateway opens the database the daemon keeps). Never throws: a failure is the state. */
   async start(): Promise<void> {
     this.stopping = false;
     this.set('starting');
     try {
-      await this.ensure('daemon', () => this.d.socketUp(), this.d.python);
+      await this.ensure('daemon', () => this.d.socketUp(), this.d.daemon);
       await this.ensure('gateway', () => this.d.gatewayUp(), this.d.gateway);
       this.set('running');
     } catch (e) {
@@ -129,18 +129,23 @@ export class Owner {
   }
 }
 
-/** The two commands, from the environment: a checkout runs `bin/ocp daemon` and `go/handlined`; a packaged app names its own binaries. */
+/** The two commands, from the environment: a checkout runs `go/handlined` as the daemon (with the service's flags) and as the gateway;
+ * a packaged app names its own binary, and CLAUDE the claude the daemon runs. */
 export function commands(
   env: (k: string) => string | undefined,
   root: string,
   listen: string,
   advertise: string | null = null,
-): { python: Cmd; gateway: Cmd } {
+): { daemon: Cmd; gateway: Cmd } {
   const homeArgs = env('HOME') ? ['-home', env('HOME')!] : ['-allow-real-home'];
+  const file = env('HANDLINED') ?? `${root}/go/handlined`;
   return {
-    python: { file: env('OCP') ?? `${root}/bin/ocp`, args: ['daemon'] },
+    daemon: {
+      file,
+      args: [...homeArgs, '-structured-cli', env('CLAUDE') ?? 'claude', '-structured-tick', '-terminal-tick', '-cutover'],
+    },
     gateway: {
-      file: env('HANDLINED') ?? `${root}/go/handlined`,
+      file,
       args: ['-gateway', ...homeArgs, '-listen', listen, ...(advertise ? ['-advertise', advertise] : [])],
     },
   };

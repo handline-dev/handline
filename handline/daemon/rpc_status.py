@@ -24,7 +24,6 @@ def _host() -> dict:
 
 
 def _status(ctx, params) -> dict:
-    from .loop import _loaded_sha       # loop imports this module's server, so not at the top
     con = db.connect()
     try:
         have = {v["name"]: v["state"] for v in agentview.stored_all(con)}
@@ -36,7 +35,7 @@ def _status(ctx, params) -> dict:
         unread = len(actions.mailbox_rows(con))
     finally:
         con.close()
-    return {"alive": True, "version": _loaded_sha(), "protocol": rpc.PROTOCOL, "schema": db.LATEST_VERSION,
+    return {"alive": True, "version": rpc._loaded_sha(), "protocol": rpc.PROTOCOL, "schema": db.LATEST_VERSION,
             "started_at": agentview._ts(STARTED_AT), "terminal_host": _host(),
             "agents": {"total": len(names), "by_state": by_state}, "inbox": {"unread": unread}}
 

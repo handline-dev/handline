@@ -23,7 +23,6 @@ import time
 from pathlib import Path
 
 from . import names, paths
-from .yamlcompat import ConfigError, load as load_yaml
 
 LABEL = "dev.orcapipe.daemon"
 
@@ -81,23 +80,13 @@ def ocp_executable() -> str:
 
 
 # ---------------------------------------------------------------- plist
-IMPL_KEY = "daemon_impl"        # config.yaml: "python" (the default) or "go"
-IMPLS = ("python", "go")
-PYTHON_RETIRED = "the Python daemon is being removed (docs/python-daemon-removal.md): the service runs the Go daemon"
+IMPL_KEY = "daemon_impl"        # config.yaml: written by `hl service use go`; the service runs the Go daemon whatever it says
+IMPLS = ("python", "go")        # python is accepted only to be refused with PYTHON_RETIRED
+PYTHON_RETIRED = "the Python daemon is gone (docs/python-daemon-removal.md): the service runs the Go daemon"
 
 
 class ServiceError(Exception):
     """The plist cannot be built as asked; nothing was written."""
-
-
-def daemon_impl() -> str:
-    """Which daemon the service runs: the config.yaml `daemon_impl` word, python when it is absent or not one of IMPLS."""
-    try:
-        cfg = load_yaml(paths.config_file().read_text())
-    except (OSError, ConfigError):
-        return "python"
-    v = cfg.get(IMPL_KEY) if isinstance(cfg, dict) else None
-    return v if v in IMPLS else "python"
 
 
 def go_executable() -> Path:
@@ -132,15 +121,9 @@ def _path_with_python3() -> str:
     return path
 
 
-def build_plist(home: Path | None = None, impl: str | None = None, allow_live_home: bool = False) -> dict:
+def build_plist(home: Path | None = None, allow_live_home: bool = False) -> dict:
     home = home or paths.home()
-    impl = impl or daemon_impl()
-    # bin/ocp's own bash wrapper picks the interpreter at run time (the
-    # venv's python3 if it is ready, PATH's otherwise), not sys.executable
-    # pinned at install time - a python upgrade or a removed venv would
-    # otherwise leave this pointed at an interpreter that no longer
-    # exists, and the failure would be a job that silently never starts.
-    program = go_arguments(home, allow_live_home) if impl == "go" else [ocp_executable(), "daemon"]
+    program = go_arguments(home, allow_live_home)
     return {
         "Label": label(),
         "ProgramArguments": program,
@@ -156,7 +139,7 @@ def build_plist(home: Path | None = None, impl: str | None = None, allow_live_ho
         # block the daemon cannot find claude/orca (PATH), resolve ~ for
         # anything that uses it (HOME), or find the right ~/.orcapipe (OCP_HOME).
         "EnvironmentVariables": {
-            "PATH": _path_with_python3() if impl == "go" else os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"),
+            "PATH": _path_with_python3(),
             "HOME": os.environ.get("HOME", str(Path.home())),
             "OCP_HOME": str(home),
         },
@@ -250,7 +233,7 @@ def install(home: Path | None = None, allow_live_home: bool = False) -> tuple[bo
     if not status()["loaded"]:
         return False, f"launchctl bootstrap succeeded but launchd does not list {label()}"
     run_launchctl(["enable", service_target()])
-    return True, f"installed {path}, label {label()}, daemon {daemon_impl()}"
+    return True, f"installed {path}, label {label()}"
 
 
 def load() -> tuple[bool, str]:
@@ -352,29 +335,21 @@ _GO_START_LINE = re.compile(r"\d{4}/\d\d/\d\d \d\d:\d\d:\d\d handlined(: | \S+ s
 def crash_loop_detected(home: Path | None = None, window_s: int = 300, threshold: int = 4) -> bool:
     """A supervisor that respawns faster than it can do useful work is not
     supervising, it is thrashing. There is no launchd-exposed restart counter
-    to read (scout, request #14), so this counts our own startup line in the
-    log instead - a real crash loop leaves several `daemon starting` lines
-    (whether it got to reconcile or exited straight away because another
-    daemon already held the lock - both are launchd restarting us) within
-    one `window_s` window.
+    to read, so this counts the Go daemon's start lines in its log instead: a
+    crash loop leaves several within one `window_s` window, whether each start
+    got up or died at once.
     """
-    go = daemon_impl() == "go"
-    p = err_log(home) if go else out_log(home)      # the Go daemon logs to stderr, with the date first
+    p = err_log(home)       # the Go daemon logs to stderr, with the date first
     if not p.exists():
         return False
     now = time.localtime()
     hits = 0
     for line in _tail_lines(p):
-        if go:
-            # "2026/10/10 13:45:00 handlined <sha> serving ..." is its line for a start that got up; a start that
-            # refuses (lock held, database, bad flag) dies with "2026/10/10 13:45:00 handlined: <why>" instead.
-            if not _GO_START_LINE.match(line):
-                continue
-            clock = line[11:19]
-        else:
-            if "daemon starting" not in line or not line.startswith("["):
-                continue
-            clock = line[1:9]
+        # "2026/10/10 13:45:00 handlined <sha> serving ..." is its line for a start that got up; a start that
+        # refuses (lock held, database, bad flag) dies with "2026/10/10 13:45:00 handlined: <why>" instead.
+        if not _GO_START_LINE.match(line):
+            continue
+        clock = line[11:19]
         try:
             ts = time.strptime(clock, "%H:%M:%S")
         except ValueError:

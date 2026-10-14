@@ -429,34 +429,6 @@ def test_a_launch_stopping_at_a_dialog_a_rule_covers_is_answered_and_goes_on(hom
         con.close()
 
 
-def test_a_dialog_stall_is_lifted_when_the_screen_shows_no_dialog_and_a_session_runs(home: Path) -> None:
-    con, term = _startup_world(home, MCP_DIALOG)
-    real = (termmod.live_terminals, obsmod.live_sessions)
-    try:
-        dmn_lifecycle._clear_trust_prompt(con, "backend", "term_x", lambda _m: None, launched=True)
-        termmod.live_terminals = lambda: {"term_x"}
-        obsmod.live_sessions = lambda: {"backend": 4242}
-
-        def sweep() -> list[str]:
-            said: list[str] = []
-            dmn_reconciler.sweep(con, lambda _m: None, said)
-            return said
-
-        sweep()
-        check("dialog stall: the dialog still up leaves the stall",
-              db.get_agent_state(con, "backend")["state"] == dmn_states.STALLED)
-        term.tail = list(AT_THE_PROMPT)
-        said = sweep()
-        check("dialog stall: the dialog gone lifts it and says so",
-              db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE
-              and any("STALLED -> IDLE" in a for a in said), str(said))
-        check("dialog stall: ...and closes the decision",
-              not db.open_decision_ids(con, "backend", dmn_lifecycle.DIALOG_DECISION))
-    finally:
-        termmod.live_terminals, obsmod.live_sessions = real
-        con.close()
-
-
 def main() -> int:
     def tests(td):
         run(lambda: test_the_setting_defaults_on_and_a_stuck_prompt_is_not_pressed_every_tick(Path(td) / 'aa3'))
@@ -474,7 +446,6 @@ def main() -> int:
         run(lambda: test_a_launch_stopping_at_a_dialog_no_rule_covers_presses_nothing_and_shows_the_founder_the_dialog(Path(td) / 'aa16'))
         run(lambda: test_a_launch_stopping_at_a_dialog_a_rule_covers_is_answered_and_goes_on(Path(td) / 'aa17'))
         run(lambda: test_a_wake_in_place_meeting_a_permission_prompt_neither_stalls_nor_raises_a_decision(Path(td) / 'aa19'))
-        run(lambda: test_a_dialog_stall_is_lifted_when_the_screen_shows_no_dialog_and_a_session_runs(Path(td) / 'aa18'))
     return run_area(tests)
 
 

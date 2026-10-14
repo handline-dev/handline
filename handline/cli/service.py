@@ -47,7 +47,6 @@ def cmd_service_status(args) -> int:
     print(f"label:       {service.label()}")
     print(f"plist:       {service.plist_path()}")
     print(f"installed:   {st['installed']}")
-    print(f"daemon:      {service.daemon_impl()}")
     print(f"loaded:      {st['loaded']}")
     print(f"pid:         {st['pid'] or '-'}")
     print(f"last exit:   {st['last_exit_code'] or '-'}")

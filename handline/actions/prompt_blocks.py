@@ -1,6 +1,6 @@
 """The one prompt an agent's screen shows, as a row the bridge reads and answers (T395).
 
-The daemon's screen watch (`daemon.prompts`) judges each agent's screen once and
+The daemon's screen watch judges each agent's screen once and
 keeps a `prompt_blocks` row for what it shows: a permission prompt, an
 AskUserQuestion, or a plain dialog - never two at once, in that priority. The
 bridge only reads those rows (`open_blocks`) and asks for an answer

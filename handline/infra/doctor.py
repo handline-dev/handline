@@ -591,30 +591,12 @@ def _check_memory(r: Report) -> None:
         r.add(OK, "memory within budget")
 
 
-def _check_one_daemon(r: Report) -> None:
-    """Exactly one supervisor, counted in the process table.
-
-    Two on one database wake, park and notify every agent twice, and the older
-    one runs whatever code it was started with. The lock names only the one
-    holding it, so a duplicate that predates it shows up only here.
-    """
-    from ..daemon import locks as dmn_locks
+def _check_daemon(r: Report) -> None:
+    """Whether a daemon holds this home's lock; the lock refuses a second one."""
     from . import daemonlock
 
-    live = dmn_locks.processes()
-    if len(live) > 1:
-        r.add(WARN, f"{len(live)} daemons are running: pid "
-                    f"{', '.join(str(x) for x in live)}",
-              "end all but one - the others supervise unrecorded")
-    else:
-        pid = daemonlock.running_elsewhere()
-        if pid:
-            r.add(OK, f"daemon running (pid {pid})")
-        elif live:
-            r.add(WARN, f"a daemon process (pid {live[0]}) does not hold the lock",
-                  "it is not supervising - starting up, or a copy the lock refused")
-        else:
-            r.add(OK, "no daemon running")
+    pid = daemonlock.running_elsewhere()
+    r.add(OK, f"daemon running (pid {pid})" if pid else "no daemon running")
 
 
 def _check_service(r: Report) -> None:
@@ -729,7 +711,7 @@ def _run() -> Report:
     _check_rejected_hook_lines(r)
     _check_launch_drift(r)
     _check_session_matches_the_record(r)
-    _check_one_daemon(r)
+    _check_daemon(r)
     _check_shared_links(r)
     _check_memory(r)
     _check_service(r)

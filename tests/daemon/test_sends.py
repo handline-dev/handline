@@ -249,32 +249,6 @@ def test_a_say_is_typed_at_once_and_owes_no_answer(home: Path) -> None:
     check("say: typed at once", len(sent) == 1 and "which branch is it on?" in sent[0][1], str(sent))
 
 
-def test_a_typed_say_leaves_nothing_pending_and_the_agent_idle(home: Path) -> None:
-    """T398: a say is finished once typed - it stays neither queued nor counted -
-    so the agent it went to reads IDLE, not PENDING."""
-    sent = _world(home)
-    con = db.connect()
-    try:
-        reply = _verb({"verb": "say", "requester": "product", "speaker": "product",
-                       "target": "backend", "body": "quick one"})
-        row = db.get_request(con, con.execute("SELECT id FROM requests WHERE target = 'backend'").fetchone()["id"])
-        check("typed say: typed at once", reply["ok"] and len(sent) == 1, str((reply, sent)))
-        check("typed say: and finished - done, not left queued for a resolve",
-              row["state"] == "landed", str(dict(row)))
-        check("typed say: closed with no verdict, so no reply is made of it (T441)",
-              db.shown_verdict(row) is None and db.answer_row_of(con, row["id"]) is None, str(dict(row)))
-        check("typed say: in = 0", db.unreached_count(con, "backend") == 0)
-        check("typed say: the agent reads IDLE",
-              dmn_evaluate.queued_or_idle(con, "backend", "test") == dmn_states.IDLE)
-        check("typed say: a typed ask that is still unanswered does not count either",
-              _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-                     "target": "backend", "body": "please"})["ok"]
-              and db.unreached_count(con, "backend") == 0
-              and dmn_evaluate.queued_or_idle(con, "backend", "test") == dmn_states.IDLE)
-    finally:
-        con.close()
-
-
 def test_only_what_has_not_reached_the_agent_counts(home: Path) -> None:
     sent = _world(home)
     hand_edit_team(DESIGN_TEAM.replace(
@@ -581,28 +555,6 @@ def test_a_say_reaching_a_resumed_session_as_its_first_prompt_is_finished(home: 
         con.close()
 
 
-def test_a_delivered_task_whose_terminal_is_lost_is_started_again(home: Path) -> None:
-    """T398 (auditor #2427 2): open work is a reason to give an agent somewhere to
-    run, whether or not it was already told."""
-    _world(home)
-    con = db.connect()
-    try:
-        rid = db.add_request(con, "product", "backend", "the work", None, "peer", "async", "task", 0, None)
-        db.mark_delivered(con, rid)
-        con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'backend'")
-        calls: list = []
-        real = dmn_lifecycle._start_for_work
-        dmn_lifecycle._start_for_work = lambda c, a, log: (calls.append(a), "started")[1]
-        try:
-            dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
-        finally:
-            dmn_lifecycle._start_for_work = real
-        check("lost terminal: an agent holding a delivered, open task is started again",
-              calls == ["backend"], str(calls))
-    finally:
-        con.close()
-
-
 def test_with_the_daemon_down_say_sends_nothing(home: Path) -> None:
     _world(home)
     saved = cli_ask.dmn_client
@@ -763,7 +715,6 @@ def main() -> int:
         run(lambda: test_a_say_is_typed_at_once_and_owes_no_answer(Path(td) / "s5"))
         run(lambda: test_a_closed_agent_is_woken_and_told_once_by_its_first_prompt(Path(td) / "s7"))
         run(lambda: test_an_agent_with_no_terminal_is_started_and_told_once_by_tell_now(Path(td) / "s8"))
-        run(lambda: test_a_typed_say_leaves_nothing_pending_and_the_agent_idle(Path(td) / "s9"))
         run(lambda: test_only_what_has_not_reached_the_agent_counts(Path(td) / "s10"))
         run(lambda: test_a_message_for_a_closed_session_counts_until_it_is_typed_on_wake(Path(td) / "s11"))
         run(lambda: test_the_daemon_start_settles_old_says_and_leaves_old_asks(Path(td) / "s12"))
@@ -773,7 +724,6 @@ def main() -> int:
         run(lambda: test_queued_tasks_go_out_as_one_batch_a_minute_and_an_urgent_one_flushes_it(Path(td) / 'openhead'))
         run(lambda: test_a_failed_send_puts_the_message_back_as_owed(Path(td) / "s13"))
         run(lambda: test_a_say_reaching_a_resumed_session_as_its_first_prompt_is_finished(Path(td) / "s14"))
-        run(lambda: test_a_delivered_task_whose_terminal_is_lost_is_started_again(Path(td) / "s15"))
         run(lambda: test_with_the_daemon_down_say_sends_nothing(Path(td) / "s6"))
         run(lambda: test_a_sandboxed_command_asks_the_daemon_to_type_what_it_queued(Path(td) / "s16"))
         run(lambda: test_a_push_from_outside_the_daemon_is_handed_to_it_to_start_the_agent_now(Path(td) / "s17"))

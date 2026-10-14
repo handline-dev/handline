@@ -335,38 +335,6 @@ def test_the_countdown_runs_on_the_real_ttl(home: Path) -> None:
         con.close()
 
 
-def test_the_daemon_tick_asks_an_agent_that_stays_open_and_leaves_it_open(home: Path) -> None:
-    """Through the real tick: an agent set never to close, idle until its cache is nearly spent, is asked
-    once and is not closed by having answered."""
-    con, asks, real, tpath, st = _world(home)
-    real_o = (termmod.available, termmod.alive, termmod.live_terminals, termmod.wait_idle)
-    try:
-        orca_seen()
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        sessions_are("backend")
-        idle_close.set_agent_close_timeout("backend", 0)
-        t = time.time()
-        _write(tpath, _response(t - 3250, H1))
-        db.add_event(con, "backend", "Stop", {})
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (int(t) - 3250,))
-        lines: list[str] = []
-        for _ in range(3):
-            dmn_evaluate.supervise(con, "backend", lines.append, int(t), {}, [])
-        check("tick: the idle agent is asked once however many ticks pass in the window",
-              len(asks) == 1 and any("before its cache expires" in m for m in lines), f"{asks} {lines}")
-        db.add_event(con, "backend", "UserPromptSubmit", {})
-        handoff_note.note_path("backend").write_text("next: nothing yet")
-        db.add_event(con, "backend", "Stop", {})
-        dmn_evaluate.supervise(con, "backend", lines.append, int(t) + 60, {}, [])
-        row = db.get_agent_state(con, "backend")
-        check("tick: having answered, it is not closed for it and not asked again",
-              not row["closed_at"] and len(asks) == 1, str(dict(row)))
-    finally:
-        termmod.available, termmod.alive, termmod.live_terminals, termmod.wait_idle = real_o
-        dmn_delivery.type_notice = real
-        con.close()
-
-
 def main() -> int:
     def tests(td):
         run(lambda: test_the_cache_clock_is_the_last_responses_time_and_the_ttl_the_nearest_that_wrote_the_cache(Path(td) / "c1"))
@@ -377,7 +345,6 @@ def main() -> int:
         run(lambda: test_the_switch_is_per_agent_with_the_global_one_behind_it(Path(td) / "c6"))
         run(lambda: test_a_closed_session_resumes_while_its_real_cache_lives_and_starts_fresh_with_the_note_after(Path(td) / "c7"))
         run(lambda: test_the_countdown_runs_on_the_real_ttl(Path(td) / "c8"))
-        run(lambda: test_the_daemon_tick_asks_an_agent_that_stays_open_and_leaves_it_open(Path(td) / "c9"))
     return run_area(tests)
 
 

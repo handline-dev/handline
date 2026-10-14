@@ -222,7 +222,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "team init": "writes team.yaml",
         "cancel": "founder-only; it prints the Go daemon's words (request.cancel), which hold ids and names",
         "hook": "reads a hook payload on stdin and prints nothing",
-        "daemon": "runs forever", "service install": "launchd", "service uninstall": "launchd",
+        "service install": "launchd", "service uninstall": "launchd",
         "service status": "launchd; prints a pid",
         "service use": "writes the daemon_impl setting; driven in test_service_use_sets_the_daemon_the_next_install_runs "
                        "(tests/session/test_daemon_session.py), not this scene",
