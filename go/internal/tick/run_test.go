@@ -2,6 +2,7 @@ package tick
 
 import (
 	"errors"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
