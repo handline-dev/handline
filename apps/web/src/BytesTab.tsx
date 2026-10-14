@@ -24,7 +24,6 @@ const SKELETON_DELAY_MS = 150;
 const SKELETON_MIN_MS = 300;
 const SKELETON_ROWS = [64, 82, 48, 90, 36, 72, 56, 28]; // percent of the width, in the shape of a screen of text
 const RESIZE_MS = 150;
-const MEASURE_TRIES = 40; // how long a pane that has not measured itself is asked again
 const utf8 = new TextEncoder();
 const NOTE: Record<ByteViewState, string> = { attaching: '', live: '', stale: 'Reconnecting…', failed: '' };
 
@@ -100,15 +99,9 @@ export function BytesTab({
         timer: ReturnType<typeof setTimeout> | undefined;
       /** The pane sizes the host unless another person holds the input: the one who holds, or anyone while nobody does. */
       const sizes = () => !watchOnly && (holding || !otherHolds);
-      const sendSize = (tries = 0) => {
+      const sendSize = () => {
         const v = live.current?.view;
-        const want = v && v.state === 'live' && sizes() ? pane.propose() : null;
-        // A pane just attached or shown has no size to propose yet and no resize to say so: ask again until it measures.
-        if (v && v.state === 'live' && sizes() && !want && tries < MEASURE_TRIES) {
-          timer = setTimeout(() => sendSize(tries + 1), RESIZE_MS);
-          return;
-        }
-        const g = v && want ? gridToSend(want, v) : null;
+        const g = v && v.state === 'live' && sizes() ? gridToSend(pane.propose(), v) : null;
         if (v && g) void store.client.bytes.resize(v, g.cols, g.rows).catch(() => {}); // a refused size leaves the grid as it is
       };
       /** The window changed (or the pane just went live): ask the host for the grid that fits it, after a short debounce. */
@@ -117,7 +110,7 @@ export function BytesTab({
         if (!v) return;
         if (!sizes()) return pane.setFontSize(fontFor(el.clientWidth, v.cols));
         clearTimeout(timer);
-        timer = setTimeout(() => sendSize(), RESIZE_MS);
+        timer = setTimeout(sendSize, RESIZE_MS);
         repaint();
       };
       /** The host's grid changed, whoever changed it. Never asks for a size: two panes of different sizes would trade sizes for ever. */
@@ -150,6 +143,7 @@ export function BytesTab({
       stage.addEventListener('focusin', grab);
       stage.addEventListener('keydown', leave);
       watch.observe(el);
+      const fitted = pane.onFit?.(layout); // xterm measures its cells after it first draws: no element resize says so
       let off = () => {};
       /** The view's state, holders included: what the person sees, and whether this pane sizes the host (on going live and on any change). */
       const settle = (v: ByteTerminalView) => {
@@ -192,6 +186,7 @@ export function BytesTab({
       }
       cleanup = () => {
         watch.disconnect();
+        fitted?.dispose();
         clearTimeout(timer);
         typing.dispose();
         stage.removeEventListener('mousedown', grab);

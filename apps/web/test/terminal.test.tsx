@@ -224,6 +224,7 @@ describe('the pane', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
   let proposed: { cols: number; rows: number } | null = null;
+  const fits: (() => void)[] = []; // what the pane calls when xterm has measured its cells
   afterEach(() => void (proposed = null));
   let root: Root | null = null;
   let box: HTMLElement;
@@ -244,7 +245,7 @@ describe('the pane', () => {
     const create: CreateTerm = () => {
       term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
       made.push(term);
-      return { term, propose: () => proposed, setFontSize() {}, mark: (l) => marks.push(l), focus() {}, dispose: () => term.dispose() };
+      return { term, propose: () => proposed, onFit: (fn) => (fits.push(fn), { dispose: () => void fits.splice(fits.indexOf(fn), 1) }), setFontSize() {}, mark: (l) => marks.push(l), focus() {}, dispose: () => term.dispose() };
     };
     const store = new Store(s.client);
     store.me = s.client.hello?.caller.name ?? ''; // the test store is never started, which is what sets it
@@ -361,7 +362,7 @@ describe('the pane', () => {
     expect(resize.mock.calls[1]!.slice(1)).toEqual([120, 40]);
   });
 
-  it('a pane that has not measured itself when it goes live sends its size as soon as it can, with no click and no window change', async () => {
+  it('a pane that is live before xterm has measured its cells sends its size when it is measured, with no click and no window change', async () => {
     const s = setup();
     const resize = vi.spyOn(s.client.bytes, 'resize');
     proposed = null;
@@ -369,6 +370,7 @@ describe('the pane', () => {
     await wait(400);
     expect(resize).not.toHaveBeenCalled();
     proposed = { cols: 100, rows: 30 };
+    await act(async () => fits.forEach((f) => f()));
     await until(() => resize.mock.calls.length > 0, 'the size once measured');
     expect(resize.mock.calls[0]!.slice(1)).toEqual([100, 30]);
   });
