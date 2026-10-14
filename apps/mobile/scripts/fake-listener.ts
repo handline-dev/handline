@@ -1,5 +1,5 @@
 // The fake daemon as the paired-device listener: wss with a fresh self-signed certificate, paired devices only.
-// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt]`
+// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture]`
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -60,6 +60,16 @@ if (process.argv.includes('--prompt')) {
       { key: '2', label: 'No', answer: 'no' },
     ],
   };
+}
+if (process.argv.includes('--picture')) {
+  // The phone cannot attach, so a message with one image is put in handline.architect's chat, as the tests do.
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const id = daemon.uploads.put({ name: 'dot.png', mime: 'image/png', bytes: 70, data: png }).attachment!.id;
+  daemon.chat.send(
+    { agent: 'handline.architect', body: 'Here is a picture', request_id: 'e2e-picture', attachments: [id] },
+    'founder',
+    daemon.uploads.take,
+  );
 }
 daemon.raiseProposal({
   id: 1,
