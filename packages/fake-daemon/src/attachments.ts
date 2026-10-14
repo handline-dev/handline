@@ -1,8 +1,8 @@
 // The fake daemon's images: attachment.put takes a file in chunks, attachment.get gives it back, chat.send names the finished ones.
 // Image bytes live here only; the replay store (replies, events) holds a digest or the Attachment, never the data.
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { Attachment } from '@handline/contract';
-import { badRequest, Failure, refused } from './errors.ts';
+import { badRequest, Failure, invalidParams, refused } from './errors.ts';
 
 // These mirror the contract's x-attachments limits (kept in prose there; app-data holds the client's copy).
 export const CHUNK = 512 * 1024;
@@ -19,6 +19,10 @@ const MAGIC: [Mime, number[]][] = [
   ['image/webp', [0x52, 0x49, 0x46, 0x46]],
 ];
 const typeOf = (b: Buffer): Mime | undefined => MAGIC.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0];
+const newId = () => randomBytes(8).toString('hex');
+
+/** The ids a task's text names, in order: `![caption](attachment:ID)` and nothing else (x-attachments, tasks). */
+export const refs = (text: string): string[] => [...text.matchAll(/!\[[^\]]*\]\(attachment:([^)]*)\)/g)].map((m) => m[1]!);
 
 interface Upload {
   name: string;
@@ -54,7 +58,7 @@ export class FakeAttachments {
       if (offset !== 0) throw badRequest('The first chunk starts at 0.', 'offset');
       if (this.uploads.size >= MAX_OPEN) throw refused('limit', 'Too many uploads are open.');
       if (this.unsent() + bytes > MAX_UNSENT) throw refused('limit', 'Too many unsent images.');
-      id = randomUUID();
+      id = newId();
       up = { name: String(name).split(/[\\/]/).pop() || 'image', mime, bytes, parts: [], received: 0 };
       this.uploads.set(id, up);
     } else {
@@ -69,7 +73,7 @@ export class FakeAttachments {
     this.uploads.delete(id);
     const all = Buffer.concat(up.parts);
     if (all.length !== up.bytes || typeOf(all) !== up.mime) throw badRequest('The file is not the type it says.', 'data');
-    const attachment: Attachment = { id: randomUUID(), name: up.name, mime: up.mime, bytes: up.bytes };
+    const attachment: Attachment = { id: newId(), name: up.name, mime: up.mime, bytes: up.bytes };
     this.files.set(attachment.id, { ...attachment, data: all, sent: false });
     return { upload: id, received: up.received, attachment };
   }
@@ -102,6 +106,24 @@ export class FakeAttachments {
       return a;
     });
   };
+
+  /**
+   * What a task write may name in `field` (x-attachments, tasks): at most 6 images, each finished and kept, and for an agent only one a task
+   * already shows. An image the replaced text (`was`) names is not checked again. The new ones are claimed, as a message's are.
+   */
+  check(text: string, was: string, field: string, agent: boolean, shown: () => Set<string>): void {
+    const ids = refs(text);
+    if (ids.length > MAX_PER_MESSAGE) throw invalidParams(`${field} names more than 6 images`, field);
+    const kept = new Set(refs(was));
+    const named = ids.filter((id) => !kept.has(id));
+    for (const id of named) {
+      if (!/^[0-9a-f]{16}$/.test(id)) throw invalidParams(`attachment:${id} is not an attachment id`, field);
+      if (this.uploads.has(id)) throw invalidParams(`attachment:${id} is an upload that has not finished`, field);
+      if (!this.files.has(id)) throw new Failure('not_found', `no image ${id}`, { what: 'attachment', name: id });
+      if (agent && !shown().has(id)) throw refused('role', `attachment:${id} is named by no task: an agent names only an image a task shows`);
+    }
+    for (const id of named) this.files.get(id)!.sent = true;
+  }
 
   /** The attachment.* methods. */
   call(method: string, p: Record<string, unknown>, ok: (said: string, extra?: object) => object) {

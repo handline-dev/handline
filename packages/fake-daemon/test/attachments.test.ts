@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { setup } from '../src/helpers.ts';
+import { second, setup } from '../src/helpers.ts';
 
 const AUD = 'handline.auditor';
 // A 1x1 PNG (70 bytes), a PNG header padded out to a chosen size, and bytes that are not an image.
@@ -88,4 +88,28 @@ test('a reply to an open question takes its images like any message', async () =
   });
   assert.ok(sent.request);
   client.close();
+});
+
+test("a task's text names only finished, kept images; an agent only one a task already shows", async () => {
+  const s = setup();
+  s.daemon.tasks.verbs = true;
+  await s.client.start();
+  const agent = second(s.daemon, s.net, { role: 'agent', client: AUD });
+  await agent.start();
+  const img = (await put(s.client, PNG)).attachment!.id;
+  const ref = (id: string) => `![the button](attachment:${id})`;
+  const code = (e: unknown) => (e as { data?: { code?: string; field?: string; gate?: string } }).data;
+  const fail = (p: Promise<unknown>) => p.then(() => assert.fail('accepted'), code);
+  const made = await s.client.call('task.new', { owner: AUD, title: 't', body: 'plain', request_id: 'n1' });
+  const task = made.task as number;
+  assert.equal((await fail(s.client.call('task.new', { owner: AUD, title: 't', body: ref('0000000000000000'), request_id: 'n2' })))?.code, 'not_found');
+  assert.equal((await fail(s.client.call('task.memo.add', { task, text: ref('nope'), request_id: 'm1' })))?.field, 'text');
+  assert.equal((await fail(s.client.call('task.memo.add', { task, text: ref(img).repeat(7), request_id: 'm2' })))?.field, 'text');
+  assert.equal((await fail(agent.call('task.memo.add', { task, text: ref(img), request_id: 'm3' })))?.gate, 'role');
+  await s.client.call('task.edit', { task, body: `cut off ${ref(img)}`, request_id: 'e1' });
+  await agent.call('task.memo.add', { task, text: `from the brief ${ref(img)}`, request_id: 'm4' });
+  s.daemon.uploads.expire(img);
+  await s.client.call('task.edit', { task, body: `still cut off ${ref(img)}`, request_id: 'e2' }); // a kept reference is not checked again
+  agent.close();
+  s.client.close();
 });
