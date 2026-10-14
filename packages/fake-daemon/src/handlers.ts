@@ -216,11 +216,11 @@ const BASE: Record<string, (h: Call) => unknown> = {
   'terminal.resize': (h) => {
     const { c, p, script, byTerminal } = h;
     const s = byTerminal(p.terminal);
-    // With nobody holding the input, any connection watching the terminal resizes it down to 80 by 24; otherwise the holder alone.
+    // With nobody holding the input, any connection watching the terminal resizes it; otherwise the holder alone. Never under 80 by 24.
     const free = s.holder.kind === 'daemon';
     if (free ? !c.attached.has(tid(s)) : s.holder.name !== c.caller.name)
       throw refused('input_holder', free ? 'attach the terminal to resize it' : 'only the input holder may resize');
-    if (free && (Number(p.cols) < 80 || Number(p.rows) < 24)) throw refused('input_holder', 'under 80 by 24 only the input holder may resize');
+    if (Number(p.cols) < 80 || Number(p.rows) < 24) throw refused('input_holder', 'never resized under 80 by 24');
     if (free) s.unheld ??= [s.cols, s.rows];
     s.cols = Number(p.cols);
     s.rows = Number(p.rows);
