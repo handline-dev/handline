@@ -437,32 +437,6 @@ def restore_world() -> None:
     actions._WORLD["at"] = 0.0
 
 
-def _snap(*_geometry, **_cursor) -> str:
-    """The team as plain text, for tests that read what a row says: what waits on
-    the founder, then one line per agent, from the same data the app's rows use."""
-    plain = lambda cell: viewdata._ANSI.sub("", cell)  # noqa: E731
-    con = db.connect()
-    try:
-        waits = actions.founder_waits(con)
-        rows, notes = viewdata.agents_data(con)
-    finally:
-        con.close()
-    out = ["Handline"]
-    if waits:
-        out.append(f"{viewdata.WAITING_ON_YOU} ({len(waits)})")
-        out += [f"  {w['who']} · {w['what']}" for w in waits]
-    out += ["", "AGENTS"]
-    for r in rows:
-        if r.error:
-            out.append(f"  {plain(r.twig)}{r.shown}  config error: {r.error}")
-            continue
-        wall = f"  ⏳ {r.wall.account}{r.wall.mark} {r.wall.when}" if r.wall else ""
-        out.append(f"  {plain(r.twig)}{r.shown}{plain(viewdata.fold_suffix(r.under, r.urgency))}  {r.acct}  "
-                   f"{r.kind}  {plain(viewdata.state_cell(r.state, r.until))}  {plain(r.ctx)}  "
-                   f"{r.inbox or '·'}  {r.tasks or '·'}{'  ' + plain(r.fire) if r.fire else ''}{wall}")
-    return "\n".join(out + [f"  {n}" for n in notes])
-
-
 def upgrade(path: Path | None = None):
     """Connect as the daemon does at start, after a test has put the database back in an older shape:
     the version is forgotten first, so the migrations run again."""
@@ -2554,7 +2528,6 @@ __all__ = [
     '_REAL_POPEN_INIT',
     '_guarded_popen_init',
     'restore_world',
-    '_snap',
     '_set_request_state',
     'relaunching_send',
     '_taken_prompts',

@@ -330,7 +330,6 @@ def test_the_countdown_runs_on_the_real_ttl(home: Path) -> None:
         left = handoff_note.cache_left(con, "backend", t)
         check("countdown: a five-minute cache shows what five minutes has left, not an hour",
               left is not None and abs(left - 200) < 3, str(left))
-        check("countdown: the screen's cell reads it", ar_cell(con, t) == "3:20")
     finally:
         dmn_delivery.type_notice = real
         con.close()
@@ -366,11 +365,6 @@ def test_the_daemon_tick_asks_an_agent_that_stays_open_and_leaves_it_open(home: 
         termmod.available, termmod.alive, termmod.live_terminals, termmod.wait_idle = real_o
         dmn_delivery.type_notice = real
         con.close()
-
-
-def ar_cell(con, now: float) -> str:
-    from handline.ui.components import agent_rows
-    return re.sub(r"\x1b\[[0-9;]*m", "", agent_rows.cache_cell(agent_rows.cache_left(con, "backend", int(now))))
 
 
 def main() -> int:

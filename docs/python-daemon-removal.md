@@ -22,13 +22,13 @@ process beside the Go daemon. Those are the **switch** rows: the module goes onc
 | `states` | 167 | - | move | Moved: the state words, `park_wakeable`, `STUCK_RUNNING_S` and `IDLE_CLOSE_S` are `handline/session/states.py`. The other timing constants are the daemon's. |
 | `schedules` | 120 | `cli/schedule`, `actions/schedule`, `team/hr` | move | Moved: `parse`, `load`, `of`, `sid` are `handline/team/schedules.py`. `sweep`, which fires them, stays for step 4; only the Python tick calls it. Go serves `schedules.list` and `schedule.add`, so `hl schedule` can switch later. |
 | `devmode` | 174 | - | move | Moved: `dev_mode_enabled` and `set_dev_mode` are `handline/infra/devmode.py`. The file watcher that restarts the Python daemon stays for step 4 (Go has `tick/devmode.go`). `hl doctor --drop-dead-columns` no longer asks whether the daemon is older than the Python files on disk: the Go daemon names none of those columns. |
-| `lifecycle` | 1,419 | `actions/control`, `actions/stuck`, `session/blocked`, `session/launch`, `team/ask`, `view/viewdata` | switch | Done: `hl resume` calls `session.wake`, `hl triggers` reads `agent.triggers`, `hl status` reads `status.pick`, and `hl ps` and `hl team` read `wake_wait_reason` of `agents.list` with `status: true`. What still imports it is reached only by the Python daemon. |
+| `lifecycle` | 1,419 | `actions/control`, `actions/stuck`, `session/blocked`, `session/launch`, `team/ask` | switch | Done: `hl resume` calls `session.wake`, `hl triggers` reads `agent.triggers`, `hl status` reads `status.pick`, and `hl ps` and `hl team` read `wake_wait_reason` of `agents.list` with `status: true`. What still imports it is reached only by the Python daemon. |
 | `handoff` | 681 | `actions/control` | switch | Done: `hl agent move` calls `agent.move`. |
-| `delivery` | 1,531 | `actions/stuck`, `session/blocked`, `session/handoff`, `session/stopgate`, `team/ask`, `team/spawn`, `ui`, `view/viewdata` | switch | Done: `hl read` prints `request.read`; `hl inbox` prints `inbox.queue` and marks the item it shows read with `inbox.mark_read`. `hl withdraw` calls `request.withdraw` and `hl cancel` calls `request.cancel`, with a dry run for the plan it confirms. What still imports it is reached only by the Python daemon. |
+| `delivery` | 1,531 | `actions/stuck`, `session/blocked`, `session/handoff`, `session/stopgate`, `team/ask`, `team/spawn` | switch | Done: `hl read` prints `request.read`; `hl inbox` prints `inbox.queue` and marks the item it shows read with `inbox.mark_read`. `hl withdraw` calls `request.withdraw` and `hl cancel` calls `request.cancel`, with a dry run for the plan it confirms. What still imports it is reached only by the Python daemon. |
 | `taskholds` | 170 | - | switch | Done: `hl team` reads why a task waits from `task_waits` of `agents.list` with `status: true`. |
-| `screenstate` | 193 | `view/viewdata`, `ui` | delete | The word a row shows. `hl ps` and `hl team` read `screen_word` of `agents.list` with `status: true`. `handline/ui` and the functions of `viewdata` that read it have no caller outside the Python daemon; `hl account list` uses `viewdata.agents_cell` only. |
-| `agentview` | 195 | `view/viewdata` | switch | As `screenstate`. |
-| `handoff_note` | 220 | `actions/details`, `session/handoff`, `ui` | delete | The on/off toggle is `handoff_note` of the Go `settings.get` and `settings.set`; the note itself is Go's (`go/internal/handoff`). The three importers are reached only by the Python daemon. |
+| `screenstate` | 193 | - | delete | The word a row shows. `hl ps` and `hl team` read `screen_word` of `agents.list` with `status: true`. Done: `handline/ui` and the functions of `viewdata` that read it are deleted; `viewdata` keeps what `hl account list` and `hl daemon` draw. |
+| `agentview` | 195 | - | switch | As `screenstate`. |
+| `handoff_note` | 220 | `actions/details`, `session/handoff` | delete | The on/off toggle is `handoff_note` of the Go `settings.get` and `settings.set`; the note itself is Go's (`go/internal/handoff`). Both importers are reached only by the Python daemon. |
 | `landing` | 172 | `actions/conversation`, `actions/stuck` | delete | `state` reads a session's transcript to say whether a request landed: the Go daemon records `landed_at`, which the chat reads carry. No `hl` command reaches the two importers. |
 | `spool` | 112 | `session/events` | delete | The Go `hl hook` and `go/internal/hooks/spool.go` write and read the spool. Done: `hl doctor` takes the two file names from `handline/infra/paths.py`. `session/events` is the Python `hl hook`, which the Go `hl` no longer runs. |
 | `inputhold` | 100 | `actions/control`, `session/autoaccept` | delete | Who may type at a terminal: only the daemon asks. |
@@ -48,7 +48,8 @@ imported from outside, and `cmd_daemon*`, `cmd_dev_mode` are names of `cli/daemo
 3. Switch the commands, one method at a time. Done: `hl triggers`, `hl status`, `hl ps`, `hl team`, `hl resume`,
    `hl agent move`, `hl read`, `hl inbox`, `hl cancel`, `hl withdraw`; `hl doctor` no longer imports the package's
    `reconciler` or `spool`. Every import left in the table is reached only by the Python daemon or by code no
-   command runs (`handline/ui`, half of `view/viewdata`, the Python `hl hook`).
+   command runs (the Python `hl hook`). Deleted: `handline/ui` and the half of `view/viewdata` only it and the
+   tests read.
 4. Delete `handline/daemon`, `hl daemon`, and the tests that only exercise it: 65 test files import the package, 48 of
    them in `tests/daemon`.
 
