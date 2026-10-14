@@ -10,8 +10,8 @@ import (
 	"github.com/handline/handline/go/internal/rpc"
 )
 
-// terminal.input and terminal.resize, the input holder's alone (handline/daemon/rpc_terminal.py), and the holder notice with the size
-// given back when the holder leaves.
+// terminal.input, the input holder's alone (handline/daemon/rpc_terminal.py); terminal.resize, the holder's while there is one and any
+// attached connection's while there is none; and the holder notice with the size given back when the holder leaves.
 
 const (
 	// MaxInput is the most bytes one terminal.input carries.
@@ -140,15 +140,23 @@ func (e *Env) resize(c *rpc.Conn, params map[string]any) (any, error) {
 	if agent == "" {
 		return nil, rpc.Refused("no agent has this terminal, so it has no input holder to resize it", "input_holder", "")
 	}
-	if err := e.holderOf(c, agent, "resize it"); err != nil {
+	holder, err := e.Holds.Holder(agent)
+	if err != nil {
 		return nil, err
+	}
+	if holder != nil {
+		if err := e.holderOf(c, agent, "resize it"); err != nil {
+			return nil, err
+		}
+	} else if !e.attached(c, handle) {
+		return nil, rpc.Refused("attach "+agent+"'s terminal to resize it", "input_holder", "")
 	}
 	h := e.host()
 	beforeCols, beforeRows, known := h.Size(handle)
 	if ok, why := h.Resize(handle, cols, rows); !ok {
 		return nil, rpc.Refused(agent+"'s terminal host cannot resize it: "+why, "unsupported", "")
 	}
-	if known {
+	if known && holder != nil { // a size set with no holder is kept until the next resize
 		e.mu.Lock()
 		if _, kept := e.restore[handle]; !kept {
 			e.restore[handle] = [2]int{beforeCols, beforeRows}
@@ -156,6 +164,9 @@ func (e *Env) resize(c *rpc.Conn, params map[string]any) (any, error) {
 		e.mu.Unlock()
 	}
 	e.resized(handle, e.Hub.OpenAll(handle), cols, rows)
+	if holder == nil {
+		return map[string]any{"accepted": true, "said": agent + ": terminal is " + strconv.Itoa(cols) + " by " + strconv.Itoa(rows)}, nil
+	}
 	if err := e.Holds.Touch(agent, callerName(c)); err != nil {
 		return nil, err
 	}

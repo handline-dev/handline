@@ -69,8 +69,11 @@ class World:
             att.cond.notify()
 
     def tell(self, method, **params):
-        """Output and snapshot notices are bytes attaches' (a text attach is told of output by a frame, below); the rest go to every attach."""
+        """Output and snapshot notices are bytes attaches' (a text attach is told of output by a frame, below); resize is a text or
+        styled attach's (a bytes attach is told by a snapshot); the rest go to every attach."""
         for att in list(self.attaches):
+            if method == "resize" and att.fmt == "bytes":
+                continue
             if method in ("output", "snapshot") and att.fmt != "bytes":
                 if method == "output":
                     self.push(att, "frame", full=True, lines=[{"text": r} for r in self.rows], cursor=None, **({"format": "styled"} if att.fmt == "styled" else {}))
@@ -176,6 +179,7 @@ def take(ctx, method):
             if w.before:
                 w.size, w.before = w.before, None
                 w.tell("snapshot", reason="resize", **w.snapshot_fields())
+                w.tell("resize", cols=w.size[0], rows=w.size[1])
             w.tell("holder", holders=w.holders())
     return "ok", {"accepted": True, "said": "done"}
 
@@ -194,13 +198,15 @@ def terminal(ctx, method, params):
                 return "ok", {"first": 0, "lines": [], "more": False}
             lines = [] if w.alt else w.scroll[-params["limit"]:]
             return "ok", {"first": len(w.scroll) - len(lines), "lines": lines, "more": False}
-        if w.holder != ctx.id:
+        free = w.holder is None and method == "terminal.resize" and any(a.ctx is ctx for a in w.attaches)
+        if w.holder != ctx.id and not free:
             return "fail", REFUSED
         if method == "terminal.resize":
-            if w.before is None:
+            if w.before is None and not free:       # a size set while nobody holds is kept: no restore
                 w.before = w.size
             w.size = (params["cols"], params["rows"])
             w.tell("snapshot", reason="resize", **w.snapshot_fields())
+            w.tell("resize", cols=w.size[0], rows=w.size[1])
             return "ok", {"accepted": True, "said": f"terminal is {params['cols']} by {params['rows']}"}
         echo = b""
         for byte in base64.b64decode(params["data"]):      # terminal.input: typed characters are echoed, a CR runs the line, ctrl-c drops it

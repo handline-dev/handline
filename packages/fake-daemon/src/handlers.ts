@@ -213,7 +213,9 @@ const BASE: Record<string, (h: Call) => unknown> = {
   'terminal.resize': (h) => {
     const { c, p, script, byTerminal } = h;
     const s = byTerminal(p.terminal);
-    if (s.holder.name !== c.caller.name || s.holder.kind === 'daemon') throw refused('input_holder', 'only the input holder may resize');
+    // With nobody holding the input, any connection watching the terminal resizes it; otherwise the holder alone.
+    if (s.holder.kind === 'daemon' ? !c.attached.has(tid(s)) : s.holder.name !== c.caller.name)
+      throw refused('input_holder', s.holder.kind === 'daemon' ? 'attach the terminal to resize it' : 'only the input holder may resize');
     s.cols = Number(p.cols);
     s.rows = Number(p.rows);
     script.pushTerminal(s, 'resize', (seq): Notifications['resize'] => ({ terminal: tid(s), seq, cols: s.cols, rows: s.rows }));

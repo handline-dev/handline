@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/inputhold"
+	"github.com/handline/handline/go/internal/rpc"
 )
 
 func holdRig(t *testing.T) rig {
@@ -29,7 +30,7 @@ func TestKeystrokesAndAResizeAreTheInputHoldersAloneAndAReleaseGivesTheSizeBack(
 		t.Fatalf("the daemon holds the input: take it first, got %v", err)
 	}
 	if _, err := r.e.resize(pat, size); gate(t, err) != "input_holder" {
-		t.Fatalf("the daemon holds the input: only a holder resizes, got %v", err)
+		t.Fatalf("nobody holds the input and pat has not attached the terminal, got %v", err)
 	}
 	if won, err := r.e.Holds.Take("ann", "person", "pat"); !won || err != nil {
 		t.Fatalf("take %v %v", won, err)
@@ -108,4 +109,75 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// viewer attaches c to the terminal as text and returns what it is told.
+func (r rig) viewer(t *testing.T, c *rpc.Conn) *inbox {
+	in := &inbox{}
+	cl := NewClient(in.send, func() {})
+	ch := r.e.Hub.Attach("%1", cl, "text")
+	r.e.hold(c, "%1", "text", func() { ch.Detach(cl) })
+	ch.Begin(cl)
+	t.Cleanup(func() { ch.Detach(cl) })
+	return in
+}
+
+// toldSize waits until in has a resize notice for cols by rows.
+func toldSize(t *testing.T, in *inbox, cols, rows int) {
+	t.Helper()
+	for end := time.Now().Add(3 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
+		in.mu.Lock()
+		for _, m := range in.msgs {
+			if p, _ := m["params"].(map[string]any); m["method"] == "resize" && p["cols"] == cols && p["rows"] == rows {
+				in.mu.Unlock()
+				return
+			}
+		}
+		in.mu.Unlock()
+	}
+	t.Fatalf("no resize to %dx%d in %v", cols, rows, in.msgs)
+}
+
+func TestWithNobodyHoldingTheInputAnAttachedViewerResizesAndTheLastResizeWins(t *testing.T) {
+	r := holdRig(t)
+	pat, sam := person("pat"), person("sam")
+	toPat, toSam := r.viewer(t, pat), r.viewer(t, sam)
+	sized := func(c *rpc.Conn, cols, rows int) error {
+		_, err := r.e.resize(c, map[string]any{"terminal": "%1", "cols": json.Number(itoa(cols)), "rows": json.Number(itoa(rows))})
+		return err
+	}
+	if err := sized(person("lee"), 100, 30); gate(t, err) != "input_holder" {
+		t.Fatalf("a connection that has not attached the terminal, got %v", err)
+	}
+	if err := sized(pat, 100, 30); err != nil {
+		t.Fatal(err)
+	}
+	toldSize(t, toPat, 100, 30)
+	toldSize(t, toSam, 100, 30)
+	if err := sized(sam, 90, 25); err != nil {
+		t.Fatal(err)
+	}
+	toldSize(t, toPat, 90, 25)
+	toldSize(t, toSam, 90, 25)
+	if cols, rows, _ := r.h.Size("%1"); cols != 90 || rows != 25 || len(r.e.restore) != 0 {
+		t.Fatalf("the last resize wins and nothing is owed back: %dx%d %v", cols, rows, r.e.restore)
+	}
+
+	// Once someone holds the input, only they resize, and their leaving gives back the size the viewers left.
+	if won, err := r.e.Holds.Take("ann", "person", "pat"); !won || err != nil {
+		t.Fatalf("take %v %v", won, err)
+	}
+	if err := sized(sam, 70, 20); gate(t, err) != "input_holder" {
+		t.Fatalf("a viewer while another holds, got %v", err)
+	}
+	if err := sized(pat, 120, 40); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.e.Holds.Release("ann"); err != nil {
+		t.Fatal(err)
+	}
+	if cols, rows, _ := r.h.Size("%1"); cols != 90 || rows != 25 {
+		t.Fatalf("the holder's leaving restores 90x25, got %dx%d", cols, rows)
+	}
+	toldSize(t, toSam, 90, 25)
 }

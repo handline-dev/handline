@@ -35,7 +35,7 @@
  "x-gates": {
   "role": "Caller's role is agent: a person-at-the-terminal method.",
   "terminal_lock": "The agent's terminal lock, the one the tick holds.",
-  "input_holder": "Someone else holds the input. A daemon holder is a short hold, not a refusal.",
+  "input_holder": "Someone else holds the input. A daemon holder is a short hold, not a refusal. terminal.resize with no holder: the caller has not attached the terminal.",
   "wall": "The usage limit (wall_reason): typing would only spend quota.",
   "screen_blocker": "A dialog is open, so a typed line would answer it. Use keys or prompt.answer.",
   "state": "The state checks the legacy verb has today; this protocol adds none.",
@@ -606,7 +606,7 @@
   "slow_client": "Output is never dropped from the middle. When one attach's unsent output reaches 1 MiB decoded, the daemon discards all of it and sends one `snapshot` notice, reason `slow_client`, with a seq above everything discarded; output follows it. Counting bytes, not seconds, is the whole rule. A connection that falls behind on events past the gap rule is closed with gap `slow_client` as before and attaches again.",
   "history": "Lines come as strings with their SGR codes, as the host keeps them: one physical row each (the row as the pane wrapped it, never joined), starting at default attributes and ending in a reset, with no line break inside. `history` on attach and `limit` on `terminal.history` count lines as in text (default 100, at most 2000); a page is trimmed to 1 MiB and says `more`. Only the normal screen has scrollback: while `alt_screen` is true the snapshot's history is empty.",
   "input": "`terminal.input` carries keystrokes and pasted bytes as base64; its gates and recording are on the method.",
-  "resize": "`terminal.resize` is unchanged: the input holder alone, restored when they leave. A bytes attach is told of any size change, the holder's or the restore, by a `snapshot` notice, reason `resize`, with the new cols and rows, and gets no `resize` notice: the client repaints rather than reflow, as tmux's reflow is not xterm's.",
+  "resize": "See `terminal.resize` for who may resize. A bytes attach is told of any size change, whoever caused it and the restore included, by a `snapshot` notice, reason `resize`, with the new cols and rows, and gets no `resize` notice: the client repaints rather than reflow, as tmux's reflow is not xterm's.",
   "markers": "`marker` and `holder` notices come to a bytes attach as to a text one, in the one counter: a `marker` stands where the daemon typed, before the output that echoes it. Each carries `format`, the attach it was sent to, since a terminal watched in both formats gets each notice once per attach with that attach's counter."
  },
  "x-terminal-styled": {
@@ -3457,7 +3457,8 @@
   },
   {
    "name": "terminal.resize",
-   "summary": "Resize; accepted from the input holder only, restored when they leave.",
+   "summary": "Resize: the input holder's while there is one, any attached connection's while there is none.",
+   "description": "While a person holds the input, only they resize, and the size from before their first resize is restored when they leave; anyone else is refused, gate `input_holder`, and scales its own view. While nobody holds it (the daemon's own hold included), any connection that has the terminal attached, in any format, may resize it and the last resize wins; the size stays until the next resize, with no restore. A connection that has not attached it is refused, gate `input_holder`. Every attach is told of the change: a `resize` notice for text and styled, a `snapshot` notice, reason `resize`, for bytes. A handle no agent has is never resized.",
    "paramStructure": "by-name",
    "params": [
     {

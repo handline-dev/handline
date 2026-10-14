@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fromBase64, type ByteEvent, type RpcError } from '@handline/client';
-import { setup, until } from '../src/helpers.ts';
+import { second, setup, until } from '../src/helpers.ts';
 
 const A = 'handline.term-build';
 const text = (b: Uint8Array) => new TextDecoder().decode(b);
@@ -92,6 +92,23 @@ test("the holder's resize gives a bytes watcher a snapshot with the new size, an
   const reset = events.filter((e) => e.type === 'reset').at(-1);
   assert.ok(reset?.type === 'reset' && reset.reason === 'resize' && reset.rows === 30);
   client.close();
+});
+
+test('with nobody holding the input a watcher resizes, the last resize wins, and a holder makes it theirs alone', async () => {
+  const { client, daemon, net } = setup();
+  const other = second(daemon, net, { client: 'other-viewer' });
+  await client.start();
+  await other.start();
+  const mine = await watch(client),
+    theirs = await watch(other);
+  await client.bytes.resize(mine.view, 100, 30);
+  await until(() => theirs.view.cols === 100 && mine.view.cols === 100, 'both views at 100');
+  await other.bytes.resize(theirs.view, 90, 25);
+  await until(() => mine.view.cols === 90 && mine.view.rows === 25, 'the last resize wins');
+  await client.takeInput(A);
+  await assert.rejects(other.bytes.resize(theirs.view, 70, 20), (e: RpcError) => e.gate === 'input_holder');
+  client.close();
+  other.close();
 });
 
 test('a slow client gets one snapshot above everything it missed', async () => {

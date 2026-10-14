@@ -87,6 +87,7 @@ terminal.attach.styled_snapshot_shape
 terminal.attach.text_format_is_unchanged
 terminal.attach.the_daemon_says_it_serves_bytes
 terminal.bytes.a_second_attach_replaces_the_first
+terminal.bytes.a_viewer_resizes_when_nobody_holds
 terminal.bytes.alt_screen_is_in_the_snapshot
 terminal.bytes.detach_names_a_format
 terminal.bytes.output_follows_the_snapshot
@@ -98,7 +99,7 @@ terminal.close.terminal_lock_gate
 terminal.history.bytes_lines_are_strings
 terminal.input.refused_to_a_non_holder
 terminal.open.says_where_the_terminal_is
-terminal.resize.only_the_input_holder_may
+terminal.resize.unattached_is_refused_when_nobody_holds
 transcript.events.a_terminal_agent_is_unsupported
 transcript.events.before_reads_the_older_page
 transcript.events.newest_page_has_every_kind

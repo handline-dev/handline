@@ -578,9 +578,9 @@
    ]
   },
   {
-   "name": "terminal.resize.only_the_input_holder_may",
+   "name": "terminal.resize.unattached_is_refused_when_nobody_holds",
    "spec": "terminal.resize",
-   "about": "While the daemon holds the input nobody may resize: refused, gate input_holder. Needs --var terminal_handle: the handle of an agent's terminal nobody holds.",
+   "about": "While the daemon holds the input, a connection that has not attached the terminal may not resize it: refused, gate input_holder. Needs --var terminal_handle: the handle of an agent's terminal nobody holds.",
    "as": "founder",
    "steps": [
     {
