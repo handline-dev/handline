@@ -28,4 +28,10 @@ None of them has more than one person watching one shell, or hands the keys betw
 - **3-1 (daemon):** `terminal.new {cwd?, name?}`, a `shells` list with a topic, `terminal.close {terminal}`, an input holder per shell, re-adopt tmux shells on start. Contract change first, fake daemon second.
 - **3-2 (PC):** a "New shell" in the tab menu, the shell in the same tab strip as agent terminals, working folder picked from the agent's worktree or the repo, shells survive an app restart, Close asks first when a process runs.
 
-Open for the founder: shells in the worktree of a task or only in a repo folder; whether a shell may be shared by two people (the holder rule allows it); phone shows shells read-only (text grid) in v1.
+## 4. Founder answers
+
+- **Folder:** a shell opens in the task's worktree; the person may `cd` elsewhere.
+- **One terminal model:** a plain shell and a Claude Code agent terminal are the same daemon code and the same pane, not two.
+- **Several devices on one terminal:** the device that connected last holds control and the size follows it. Every other device shows the terminal dimmed with a "take control" button in the centre that takes back the size and the input. This replaces today's holder rule for agent terminals too.
+- **Phone:** it may take control with the same button; the size then follows the phone.
+- **Build:** Story 3 waits on the hold before anything is built.
