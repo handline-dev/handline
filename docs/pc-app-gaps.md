@@ -240,7 +240,7 @@ Not proposed: **sending an image from the phone** (a new native picker package: 
 
 ## 13. Next units, 2026-10-14 (after §12)
 
-Read on main `e714cb96`. Y1 to Y3 of §12 (PRs #55, #67, #56) and the phone Timeline tab (#58) are on main. Four member methods have a fixture and no caller: `task.ask`, `chat.refs`, `worktree.diff`, `task.shot`. The web's `#` menu in the compose box builds its list from the loaded messages and the agent's tasks (`ChatMenus.tsx:73`); the phone has no `#` menu. Each unit below needs nothing from the founder or the daemon team, runs on the fake and the fixtures, and ends with the root gate green and the auditor.
+Read on main `6084617c`. Y1 to Y3 of §12 (PRs #55, #67, #56) and the phone Timeline tab (#58) are on main. Four member methods have a fixture and no caller: `task.ask`, `chat.refs`, `worktree.diff`, `task.shot`. The web's `#` menu in the compose box builds its list from the loaded messages and the agent's tasks (`ChatMenus.tsx:73`); the phone has no `#` menu. Each unit below needs nothing from the founder or the daemon team, runs on the fake and the fixtures, and ends with the root gate green and the auditor.
 
 | # | Unit | Files | Done when | App |
 |---|---|---|---|---|
@@ -252,6 +252,6 @@ Read on main `e714cb96`. Y1 to Y3 of §12 (PRs #55, #67, #56) and the phone Time
 | Q2 | **Web: the `#` menu reads `chat.refs`**, so it reaches requests older than the loaded page | `apps/web/src/ChatMenus.tsx`, `apps/web/test/chat-refs.test.tsx` | a request outside the loaded messages is listed and picked; the tasks stay | web (after F1) |
 | Q3 | **Web: screenshots of W1, W2 and V1** at 375, 768 and 1280 in `docs/img`, named `q2-<screen>-<width>.png` as the existing ones are | `docs/img/` | the three screens read right at each width, checked by the auditor | web |
 
-Parallel: after F1, P1, Q1 and Q2 and P2 touch different files and run together; P3 and Q3 touch only `e2e/` and `docs/img/`. P1 and Q1 both edit task verbs but in different apps. F1 is the only unit that touches the fake.
+Parallel: after F1, P1, P2, Q1 and Q2 touch different files and run together; P3 and Q3 touch only `e2e/` and `docs/img/`. P1 and Q1 both edit task verbs but in different apps. F1 is the only unit that touches the fake.
 
 **Needs the founder:** image attach on the phone (a native picker package and a rebuilt dev client); a Changes tab with `worktree.diff` (`new-agent-worktrees.md` §6 item 6: v1 or later); push notices on the phone (a native package, and `events.feed` is an agent-role method).
