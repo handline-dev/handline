@@ -185,7 +185,7 @@ with its own backpressure. `terminal.attach {agent | terminal}` replies with a s
 frame and one page of history) and then pushes `frame {seq, changed rows}` notices, `resize`
 notices and `marker` notices (the daemon typed; control events). `terminal.history {before, limit}`
 pages scrollback. `terminal.resize {cols, rows}` is the input holder's, restored when they leave, or with
-nobody holding any attached viewer's down to 80 by 24, restored when the last one detaches; where the backend can resize.
+nobody holding any attached viewer's, never under 80 by 24, restored when the last one detaches; where the backend can resize.
 
 - **The daemon serves it.** The IDE and the web UI no longer read terminals themselves; one poller
   per terminal runs only while someone is attached, at most about 5 reads a second however many

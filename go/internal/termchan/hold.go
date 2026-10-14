@@ -11,17 +11,18 @@ import (
 )
 
 // terminal.input, the input holder's alone (handline/daemon/rpc_terminal.py); terminal.resize, the holder's while there is one and any
-// attached connection's while there is none, down to the floor the screen reader needs; and the holder notice. The size before a holder's
-// first resize is given back when they leave, and the size before the viewers' first when the last attach goes and nobody holds the input.
+// attached connection's while there is none, never under the floor the screen reader needs; and the holder notice. The size before a
+// holder's first resize is given back when they leave, and the size before the viewers' first when the last attach goes and nobody holds
+// the input.
 
 const (
 	// MaxInput is the most bytes one terminal.input carries.
 	MaxInput         = 16384
 	maxCols, maxRows = 500, 200
 	// The screen reader matches whole lines: narrower than this, Claude Code wraps a dialog's footer and options and the daemon no
-	// longer recognises the dialog. Only a holder may go under it.
-	unheldCols, unheldRows = 80, 24
-	typingElsewhere        = "someone else is typing at this agent"
+	// longer recognises the dialog, whoever resized it.
+	minCols, minRows = 80, 24
+	typingElsewhere  = "someone else is typing at this agent"
 )
 
 // HoldersChanged tells every client of agent's terminal who holds its input now, and when the daemon does again, puts back the size a
@@ -185,9 +186,10 @@ func (e *Env) resize(c *rpc.Conn, params map[string]any) (any, error) {
 		}
 	} else if !e.attached(c, handle) {
 		return nil, rpc.Refused("attach "+agent+"'s terminal to resize it", "input_holder", "")
-	} else if cols < unheldCols || rows < unheldRows {
-		return nil, rpc.Refused("under "+strconv.Itoa(unheldCols)+" by "+strconv.Itoa(unheldRows)+" only whoever holds "+agent+
-			"'s input may resize it: the daemon cannot read its dialogs narrower", "input_holder", "")
+	}
+	if cols < minCols || rows < minRows {
+		return nil, rpc.Refused(agent+"'s terminal is never resized under "+strconv.Itoa(minCols)+" by "+strconv.Itoa(minRows)+
+			": the daemon cannot read its dialogs narrower", "input_holder", "")
 	}
 	h := e.host()
 	beforeCols, beforeRows, known := h.Size(handle)

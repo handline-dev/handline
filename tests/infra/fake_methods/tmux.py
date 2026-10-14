@@ -214,7 +214,7 @@ def terminal(ctx, method, params):
         if w.holder != ctx.id and not free:
             return "fail", REFUSED
         if method == "terminal.resize":
-            if free and (params["cols"] < 80 or params["rows"] < 24):
+            if params["cols"] < 80 or params["rows"] < 24:
                 return "fail", REFUSED
             if free and w.unheld is None:
                 w.unheld = w.size

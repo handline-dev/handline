@@ -43,7 +43,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 |---|---|
 | `role` | Caller's role is agent: a person-at-the-terminal method. |
 | `terminal_lock` | The agent's terminal lock, the one the tick holds. |
-| `input_holder` | Someone else holds the input. A daemon holder is a short hold, not a refusal. terminal.resize with no holder: the caller has not attached the terminal, or asked for less than 80 by 24. |
+| `input_holder` | Someone else holds the input. A daemon holder is a short hold, not a refusal. terminal.resize: under 80 by 24, whoever asks; with no holder, from a caller that has not attached the terminal. |
 | `wall` | The usage limit (wall_reason): typing would only spend quota. |
 | `screen_blocker` | A dialog is open, so a typed line would answer it. Use keys or prompt.answer. |
 | `state` | The state checks the legacy verb has today; this protocol adds none. |
@@ -380,7 +380,7 @@ Page scrollback; absolute line indexes.
 
 ### `terminal.resize`
 
-Resize: the input holder's while there is one, any attached connection's down to 80 by 24 while there is none. While a person holds the input, only they resize, and the size from before their first resize is restored when they leave; anyone else is refused, gate `input_holder`, and scales its own view. While nobody holds it (the daemon's own hold included), any connection that has the terminal attached, in any format, may resize it to at least 80 columns by 24 rows, and the last resize wins; when the last attach goes and nobody holds the input, the size from before the first of these resizes is restored. Under 80 by 24, or from a connection that has not attached it, the resize is refused, gate `input_holder`, and the viewer scales its own view: the daemon reads the screen line by line, and narrower, Claude Code wraps a dialog's footer and options so the daemon no longer recognises the dialog. A holder may go under it. Every attach is told of the change: a `resize` notice for text and styled, a `snapshot` notice, reason `resize`, for bytes. A handle no agent has is never resized.
+Resize, never under 80 by 24: the input holder's while there is one, any attached connection's while there is none. While a person holds the input, only they resize, and the size from before their first resize is restored when they leave; anyone else is refused, gate `input_holder`, and scales its own view. While nobody holds it (the daemon's own hold included), any connection that has the terminal attached, in any format, may resize it to at least 80 columns by 24 rows, and the last resize wins; when the last attach goes and nobody holds the input, the size from before the first of these resizes is restored. From a connection that has not attached it, the resize is refused, gate `input_holder`. Under 80 by 24 any resize is refused, the holder's included, gate `input_holder`, and the caller keeps its grid and scales its own view: the daemon reads the screen line by line, and narrower, Claude Code wraps a dialog's footer and options so the daemon no longer recognises the dialog. Every attach is told of the change: a `resize` notice for text and styled, a `snapshot` notice, reason `resize`, for bytes. A handle no agent has is never resized.
 
 ### `terminal.input`
 

@@ -1149,7 +1149,7 @@
   {
    "name": "terminal.bytes.resize_gives_watchers_a_snapshot",
    "spec": "terminal.resize",
-   "about": "NOT_YET_IN_PYTHON: A watcher on bytes is told of the holder's resize, and of the restore, by a snapshot notice with the new size and no resize notice. Needs --var bytes_agent.",
+   "about": "NOT_YET_IN_PYTHON: A watcher on bytes is told of the holder's resize, and of the restore, by a snapshot notice with the new size and no resize notice. Not even the holder may go under 80 by 24: refused, gate input_holder. Needs --var bytes_agent.",
    "as": "founder",
    "steps": [
     {
@@ -1300,6 +1300,26 @@
      "send": {
       "jsonrpc": "2.0",
       "id": 5,
+      "method": "terminal.resize",
+      "params": {
+       "terminal": "{{term}}",
+       "cols": 79,
+       "rows": 30,
+       "request_id": "conf-tb-28"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "input_holder"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
       "method": "input.release",
       "params": {
        "agent": "{{bytes_agent}}",
@@ -1327,7 +1347,7 @@
   {
    "name": "terminal.bytes.a_viewer_resizes_when_nobody_holds",
    "spec": "terminal.resize",
-   "about": "With nobody holding the input, any connection that has the terminal attached resizes it, down to 80 by 24, and the last resize wins. Every attach hears it: a bytes attach by a snapshot, a text attach by a resize notice. Under 80 by 24 a viewer is refused, gate input_holder. When the last attach goes, the size from before the first of those resizes is given back. Needs --var bytes_agent.",
+   "about": "With nobody holding the input, any connection that has the terminal attached resizes it, down to 80 by 24, and the last resize wins. Every attach hears it: a bytes attach by a snapshot, a text attach by a resize notice. Under 80 by 24 the resize is refused, gate input_holder. When the last attach goes, the size from before the first of those resizes is given back. Needs --var bytes_agent.",
    "as": "founder",
    "with": {
     "other": "founder"
