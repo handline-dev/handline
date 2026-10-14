@@ -40,7 +40,7 @@ export function useBodyImages(setBody: (update: (body: string) => string) => voi
         const files = imagesOf(e.clipboardData.files);
         if (!files.length) return;
         e.preventDefault();
-        take(files, e.currentTarget);
+        void take(files, e.currentTarget);
       },
       onDragOver: (e: DragEvent<Box>) => {
         if ([...e.dataTransfer.types].includes('Files')) e.preventDefault();
@@ -49,7 +49,7 @@ export function useBodyImages(setBody: (update: (body: string) => string) => voi
         const files = imagesOf(e.dataTransfer.files);
         if (!files.length) return;
         e.preventDefault();
-        take(files, e.currentTarget);
+        void take(files, e.currentTarget);
       },
     },
   };
