@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { ago } from '@handline/app-core';
 import type { InboxItem } from '@handline/client';
 import { Button, CodeBlock, Icon, type IconName } from './ui/index.ts';
-import { answerable, kindIcon, kindLabel, type Verbs } from './inboxKinds.ts';
+import { decidable, kindIcon, kindLabel, type Verbs } from './inboxKinds.ts';
 
 export const EVIDENCE_LINES = 3;
 
@@ -86,14 +86,6 @@ export function InboxRow(props: { item: InboxItem; verbs: Verbs; more: boolean; 
             onClick={() => v.read(i.id)}
           />
         ) : null}
-        <Button
-          size="sm"
-          icon="dismiss"
-          label="Dismiss"
-          disabled={!!v.off.dismiss}
-          title={v.off.dismiss ?? 'Dismiss'}
-          onClick={() => v.dismiss(i.id)}
-        />
       </span>
     </header>
   );
@@ -105,7 +97,7 @@ export function InboxDetail(props: {
   pending: boolean;
   whole: boolean;
   onWhole: () => void;
-  onBox: (box: 'answer' | 'reply') => void;
+  onBox: (box: 'reply') => void;
 }) {
   const { item: i, verbs: v } = props;
   const lines = (i.evidence ?? '').split('\n');
@@ -129,42 +121,20 @@ export function InboxDetail(props: {
       ) : null}
       {i.prompt ? (
         // The prompt's own card (permission, dialog) is the prompt-card unit's; here the item shows what is asked and where to answer.
-        <CodeBlock scroll data-prompt-slot>{i.prompt.command ?? i.prompt.lines.join('\n')}</CodeBlock>
+        <CodeBlock scroll data-prompt-slot>
+          {i.prompt.command ?? i.prompt.lines.join('\n')}
+        </CodeBlock>
       ) : null}
       {props.pending ? (
         <p className="muted inbox-mark my-1" role="status">
           <Icon name="sending" />
         </p>
       ) : null}
-      {i.answered ? (
-        <p className="muted">
-          <Icon name="answer" label="Answered" />
-        </p>
-      ) : null}
       <div className="inbox-actions">
-        {answerable(i) && !i.answered
-          ? i.options.map((o) => (
-              <Button
-                key={o.id}
-                variant="outline"
-                label={o.label}
-                disabled={!!v.off.answer}
-                title={v.off.answer ?? undefined}
-                onClick={() => v.answer(i.id, { option: o.id })}
-              />
-            ))
-          : null}
-        {answerable(i) && !i.answered ? (
-          <Button
-            icon="answer"
-            label="Answer"
-            disabled={!!v.off.answer}
-            title={v.off.answer ?? 'Answer'}
-            data-verb="answer"
-            onClick={() => props.onBox('answer')}
-          />
+        {decidable(i) ? (
+          <Button icon="done" label="Done" disabled={!!v.off.decide} title={v.off.decide ?? 'Done'} onClick={() => v.decide(i)} />
         ) : null}
-        {!answerable(i) && !i.prompt && i.kind !== 'block' ? (
+        {i.kind !== 'decision' && !i.prompt && i.kind !== 'block' ? (
           <Button
             icon="reply"
             label="Reply"
