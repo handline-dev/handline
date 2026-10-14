@@ -112,8 +112,10 @@ agent (ROLE.md, base.md); this file does not repeat them.
 - Lighter review: a docs-only change, or a re-merge of main onto an already PASSed sha with no
   conflict, lands without a new review round. The auditor records the PASS on the new sha at once
   and the merger lands it.
-- Live checks: run them yourself on sigma, the test account, one short run each, and put the
-  results in the task. Do not send a live run to the founder.
+- Live checks: run them yourself, one short run each, and put the output in the task. They are opt-in:
+  `HANDLINE_LIVE=1 tools/live-e2e.sh`, or `HANDLINE_LIVE=1 go test -run TestLive... ./internal/...`. Each spends
+  the account with the most headroom now (`tools/live_account.py` says which and why) and runs a test daemon on a
+  scratch home, never the live one. Never from suite.sh, check.sh or CI. Do not send a live run to the founder.
 - Run tests only through `tools/test.sh`, never `python3 tests/...` by hand: it brings the
   venv python, an unset `OCP_AGENT`, unbuffered output and a temp `OCP_HOME` (bridge tests
   print nothing without them, and a hang looks like a stall).

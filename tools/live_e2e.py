@@ -1,44 +1,53 @@
 #!/usr/bin/env python3
-"""Drive one real Claude Code agent through the live daemon and time how fast the daemon's event stream reflects each step.
+"""Drive one real Claude Code agent through a test daemon and time how fast the daemon's event stream reflects each step.
 
-  tools/live-e2e.sh --account NAME --agent NAME [--json]
+  HANDLINE_LIVE=1 tools/live-e2e.sh [--daemon BINARY] [--json]
 
-Spends real tokens: run it only on purpose, from the founder's own terminal (the founder key is hidden from agent sessions),
-never from tools/suite.sh or check.sh. It drives an agent that already exists and never registers or removes one. It refuses
-an agent whose model is not haiku, whose permission mode is not `default` (the permission step needs a real prompt), or
-that is busy. The daemon picks the account a session starts on; when it picks another, the run moves the agent to
---account (agent.move) before the first turn.
+Spends real tokens: run it only on purpose, never from tools/suite.sh, check.sh or CI. Any agent may run it. It spends the
+account tools/live_account.py picks (the most usage headroom now). It never touches the live daemon: it starts its own
+on a scratch home under a temp test root, with one haiku agent in permission mode `default` (the permission step needs a
+real prompt), the real shared settings, and the picked account's real config dir (HANDLINE_LIVE_ACCOUNTS: the keychain
+keeps the login under that path). The agent's own hl and hooks reach the test daemon. --daemon is the handlined to run;
+by default this checkout's is built.
+It answers yes to every permission prompt the agent raises outside the permission step, so the run is unattended:
+the agent works in a scratch checkout, but on this machine and with the real account's config dir.
 
 It subscribes to the agents, tasks, chat and notifications topics and waits on each step's event with a deadline; nothing
 is polled. A step the daemon reflects within 5 s is `pass`, later is `slow`, never is `missing`. A step paced by the model
 (the answer, the agent's own message, the task closing) gets MODEL_S instead, and its time is mostly the model's. A missing
 step is followed by one agent.get so the table says whether the thing happened without an event. A missing step is a
-finding for the table, not a failure: exit 1 only when a step FAILs. A run cut short stops the session and discards its
-task, so the next run's precheck finds the agent free.
+finding for the table, not a failure: exit 1 only when a step FAILs.
 """
 from __future__ import annotations
 
 import argparse
 import base64
 import json
+import os
+import re
+import secrets
+import shutil
+import signal
 import socket
+import sqlite3
 import struct
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
 import zlib
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from handline.infra import paths, sessiontoken  # noqa: E402
-from handline.team import agents  # noqa: E402
+import live_account
 
 DEADLINE_S = 5.0
 SLOW_S = 30.0      # how long past the deadline a step still counts as slow rather than missing
 MODEL_S = 120.0
 TOPICS = ["agents", "tasks", "chat", "notifications"]
+AGENT = "live.e2e"
+REPO = Path(__file__).resolve().parent.parent
 
 
 class Refused(Exception):
@@ -46,15 +55,15 @@ class Refused(Exception):
 
 
 class Daemon:
-    """One JSON-RPC connection to the daemon's socket, said hello to as the founder."""
+    """One JSON-RPC connection to the test daemon's socket, said hello to as its founder."""
 
-    def __init__(self, key: str) -> None:
+    def __init__(self, sock: Path, key: str) -> None:
         self.sock = socket.socket(socket.AF_UNIX)
-        self.sock.connect(str(paths.socket_file()))
+        self.sock.connect(str(sock))
         self.file = self.sock.makefile("rb")
         self.next_id = 0
         self.hello = self.call("hello", {"client": "live-e2e", "protocol": 1, "key": key})
-        if self.hello.get("caller", {}).get("kind") != "founder":
+        if self.hello.get("role") != "founder":
             raise Refused(f"the daemon took this connection as {self.hello.get('caller')}, not the founder")
 
     def read(self) -> dict | None:
@@ -79,8 +88,8 @@ class Daemon:
 class Stream:
     """A subscribed connection: a reader thread keeps every event with its arrival time and wakes whoever waits."""
 
-    def __init__(self, key: str) -> None:
-        self.conn = Daemon(key)
+    def __init__(self, sock: Path, key: str) -> None:
+        self.conn = Daemon(sock, key)
         self.conn.call("subscribe", {"topics": TOPICS})
         self.events: list[tuple[float, dict]] = []
         self.cond = threading.Condition()
@@ -123,6 +132,11 @@ def agent_changed(agent: str, state: str):
     return lambda ev: ev["type"] == "agent.changed" and ev.get("agent") == agent and ev["data"].get("state") == state
 
 
+def landed(req: int | None):
+    """A founder message the daemon delivered into the agent's session (chat.send is how a structured session takes input)."""
+    return lambda ev: ev["type"] == "chat.message" and ev["data"].get("id") == req and bool(ev["data"].get("landed_at"))
+
+
 def solid_png(rgb: tuple[int, int, int], side: int = 32) -> bytes:
     def chunk(kind: bytes, data: bytes) -> bytes:
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
@@ -131,11 +145,43 @@ def solid_png(rgb: tuple[int, int, int], side: int = 32) -> bytes:
             + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
 
 
+def yes(prompt: dict) -> str:
+    """The option that answers yes: a structured prompt offers its own keys (allow, deny)."""
+    return next((o["key"] for o in prompt.get("options") or [] if o.get("answer") == "yes"), "yes")
+
+
+class Answerer:
+    """Answers yes to the agent's permission prompts outside the permission step, on a connection of its own: a haiku agent in
+    mode default asks before almost any command it improvises, and those prompts are not what a step measures."""
+
+    def __init__(self, sock: Path, key: str, stream: Stream, agent: str) -> None:
+        self.d, self.s, self.agent = Daemon(sock, key), stream, agent
+        self.on = threading.Event()
+        self.on.set()
+        self.answered: set[str] = set()
+        threading.Thread(target=self.loop, daemon=True).start()
+
+    def loop(self) -> None:
+        seen, since = set(), 0.0
+        asks = lambda ev: (ev.get("agent") == self.agent or (ev.get("data") or {}).get("agent") == self.agent) and id(ev) not in seen \
+            and (ev["type"] == "prompt_asked" or agent_changed(self.agent, "waiting")(ev))
+        while got := self.s.wait(since, asks, time.time() + 3600):
+            since, ev = got
+            seen.add(id(ev))
+            self.on.wait()
+            try:
+                prompt = self.d.call("agent.get", {"agent": self.agent}).get("prompt")
+                if prompt and prompt["id"] not in self.answered:
+                    self.answered.add(prompt["id"])
+                    self.d.write("prompt.answer", {"agent": self.agent, "prompt": prompt["id"], "choice": yes(prompt)})
+            except (Refused, OSError):
+                pass
+
+
 class Run:
-    def __init__(self, daemon: Daemon, stream: Stream, agent: str) -> None:
-        self.d, self.s, self.agent = daemon, stream, agent
+    def __init__(self, daemon: Daemon, stream: Stream, answerer: Answerer, agent: str) -> None:
+        self.d, self.s, self.answerer, self.agent = daemon, stream, answerer, agent
         self.rows: list[dict] = []
-        self.task: int | None = None  # the run's task while it is open
 
     def record(self, row: dict) -> None:
         self.rows.append(row)
@@ -154,75 +200,27 @@ class Run:
         self.record(row)
         return got[1] if got else None
 
-    def no_event(self, name: str, since: float) -> None:
-        """A step the contract has no event for: missing, with what agent.get says happened."""
-        self.record({"step": name, "paced_by": "daemon", "result": "missing", "seconds": None,
-                     "note": "no event for it in the contract; " + self.explain(since)})
-
     def explain(self, since: float) -> str:
         v = self.d.call("agent.get", {"agent": self.agent})
         seen = ", ".join(self.s.states_since(self.agent, since)) or "none"
         return f"states seen: {seen}; agent.get: state {v.get('state')}, terminal {v.get('terminal')!r}, session_open {v.get('session_open')}"
 
-    def clean_up(self) -> None:
-        """After a run cut short: cancel its open task (cancel, unlike discard, also withdraws its open request) and end the
-        agent's session, each tried whether or not the other worked."""
-        def try_(do) -> None:
-            try:
-                do()
-            except (Refused, OSError) as e:
-                print(f"live-e2e: clean-up incomplete, check {self.agent} by hand: {e}", file=sys.stderr)
-        if self.task:
-            try_(lambda: self.d.write("task.cancel", {"task": self.task, "reason": "live e2e run cut short"}))
-        def stop() -> None:
-            if self.d.call("agent.get", {"agent": self.agent}).get("session_open"):
-                self.d.write("session.stop", {"agent": self.agent, "mode": "exit"})
-        try_(stop)
-
     def fail(self, name: str, why: str) -> None:
         self.record({"step": name, "paced_by": "daemon", "result": "FAIL", "seconds": None, "note": why})
 
 
-def precheck(d: Daemon, agent: str) -> dict:
-    view = d.call("agent.get", {"agent": agent})
-    why = []
-    if "haiku" not in (view.get("model") or ""):
-        why.append(f"model is {view.get('model')!r}, not haiku")
-    mode = agents.mode_of(agent, agents.read(agent))
-    if mode != "default":
-        why.append(f"permission mode is {mode!r}, not default")
-    if view.get("state") not in ("idle", "no_terminal") or view.get("task_count"):
-        why.append(f"it is not free: state {view.get('state')!r}, {view.get('task_count') or 0} open task(s)")
-    if why:
-        raise Refused(f"{agent}: " + "; ".join(why))
-    return view
-
-
-def lifecycle(r: Run, view: dict, account: str) -> None:
+def lifecycle(r: Run) -> None:
     d, a = r.d, r.agent
-    if view.get("session_open"):  # start from no session, so the start itself is measured
-        d.write("session.stop", {"agent": a, "mode": "exit"})
-        if not r.s.wait(time.time() - 1, agent_changed(a, "no_terminal"), time.time() + 60):
-            raise Refused(f"{a}: its open session did not exit within 60 s")
-
     t = time.time()
     d.write("session.start", {"agent": a})
     r.step("starting shown until ready", t, agent_changed(a, "starting"))
     r.step("ready (idle)", t, agent_changed(a, "idle"), model=True)
-    r.no_event("terminal created", t)
-    on = d.call("agent.get", {"agent": a}).get("account")
-    if on != account:
-        print(f"  moving {a} from {on} to {account}", flush=True)
-        d.write("agent.move", {"agent": a, "account": account})
-        moved = lambda ev: agent_changed(a, "idle")(ev) and ev["data"].get("account") == account
-        if not r.s.wait(time.time(), moved, time.time() + MODEL_S):
-            raise Refused(f"{a}: not idle on {account} within {MODEL_S:.0f} s of agent.move")
 
     t = time.time()
-    d.write("session.input", {"agent": a, "text": "Reply with the single word PONG and nothing else."})
+    req = d.write("chat.send", {"agent": a, "body": "Reply with the single word PONG and nothing else."}).get("request")
+    r.step("message landed", t, landed(req))
     r.step("working", t, agent_changed(a, "running"))
     r.step("idle when done", t, agent_changed(a, "idle"), model=True)
-    r.step("text typed", t, lambda ev: ev["type"] == "agent.control" and ev.get("agent") == a)
 
 
 def chat_and_attachment(r: Run) -> None:
@@ -242,8 +240,7 @@ def chat_and_attachment(r: Run) -> None:
         params["attachments"] = [att["id"]]
     t = time.time()
     req = d.write("chat.send", params).get("request")
-    r.step("founder message landed in the agent's session", t,
-           lambda ev: ev["type"] == "chat.message" and ev["data"].get("id") == req and bool(ev["data"].get("landed_at")))
+    r.step("founder message landed in the agent's session", t, landed(req))
     said = r.step("agent's message reached the founder chat", t,
                   lambda ev: ev["type"] == "chat.message" and ev["data"].get("from") == a and nonce in (ev["data"].get("body") or ""),
                   model=True)
@@ -256,9 +253,9 @@ def task_and_permission(r: Run) -> None:
     """A task goes queued, doing, done; the agent closes it with `hl task done`, which mode default asks permission for."""
     d, a = r.d, r.agent
     t = time.time()
+    r.answerer.on.clear()
     task = d.write("task.new", {"owner": a, "title": "live e2e: close this task",
                                 "body": 'Close this task with hl task done, evidence "e2e", and do nothing else.'}).get("task")
-    r.task = task
     is_task = lambda *st: lambda ev: ev["type"] == "task.changed" and ev["data"].get("id") == task and ev["data"].get("state") in st
     r.step("task queued", t, is_task("queued"))
     r.step("task doing", t, is_task("doing"), model=True)
@@ -274,21 +271,19 @@ def task_and_permission(r: Run) -> None:
         r.rows[-1]["note"] = f"kind {prompt['data'].get('kind')!r}, lines {prompt['data']['lines'][:3]!r}"
     open_prompt = prompt["data"] if prompt else d.call("agent.get", {"agent": a}).get("prompt")
     if open_prompt:
-        # a terminal prompt takes yes; a structured one offers its own keys (allow, deny), so take the one that answers yes
-        choice = next((o["key"] for o in open_prompt.get("options") or [] if o.get("answer") == "yes"), "yes")
-        d.write("prompt.answer", {"agent": a, "prompt": open_prompt["id"], "choice": choice})
+        r.answerer.answered.add(open_prompt["id"])
+        d.write("prompt.answer", {"agent": a, "prompt": open_prompt["id"], "choice": yes(open_prompt)})
+    r.answerer.on.set()
     closed = r.step("task done", t, is_task("done", "reported"), model=True)
     if closed and closed["data"].get("state") == "reported":
         d.write("task.accept", {"task": task})
-    if closed:
-        r.task = None
     r.s.wait(t, agent_changed(a, "idle"), time.time() + MODEL_S)
 
 
 def kill_and_exit(r: Run) -> None:
     d, a = r.d, r.agent
     t = time.time()
-    d.write("session.input", {"agent": a, "text": "Write the numbers from 1 to 3000, one per line, with no tools."})
+    d.write("chat.send", {"agent": a, "body": "Write the numbers from 1 to 3000, one per line, with no tools."})
     running = r.s.wait(t, agent_changed(a, "running"), t + MODEL_S)
     if not running:
         r.fail("kill switch: turn stopped (idle)", "the turn never showed as running")
@@ -302,37 +297,126 @@ def kill_and_exit(r: Run) -> None:
     t = time.time()
     d.write("session.stop", {"agent": a, "mode": "exit"})
     r.step("Claude Code exited", t, agent_changed(a, "no_terminal"))
-    t = time.time()
-    d.write("terminal.close", {"agent": a})
-    r.no_event("terminal closed", t)
+
+
+def scratch(root: Path, account: dict) -> tuple[Path, str]:
+    """The test daemon's home under root, with its founder key where the daemon looks for one under a test root: one account
+    (the picked one, with the reading the live daemon last took of it), the real shared settings, and the agent in a git
+    checkout of its own."""
+    home, real = root / "state", Path(account["home"])
+    store = root / ".config" / "orcapipe" / "protected" / re.sub(r"[^A-Za-z0-9]", "-", str(home)) / "founder-keys"
+    store.mkdir(parents=True, mode=0o700)
+    key = secrets.token_urlsafe(32)
+    (store / "key").write_text(key)
+    (store / "key").chmod(0o600)
+    acct = home / "accounts" / account["account"]
+    acct.mkdir(parents=True)
+    for f in ("status.json", "subscription.json"):
+        if (real / "accounts" / account["account"] / f).exists():
+            shutil.copy(real / "accounts" / account["account"] / f, acct / f)
+    (home / "shared" / ".claude").mkdir(parents=True)
+    shutil.copy(real / "shared" / ".claude" / "settings.json", home / "shared" / ".claude" / "settings.json")
+    work = root / "work"
+    work.mkdir()
+    for args in (["init", "-q"], ["commit", "-q", "--allow-empty", "-m", "live e2e"]):
+        subprocess.run(["git", "-c", "user.name=live-e2e", "-c", "user.email=live-e2e@localhost", *args], cwd=work, check=True)
+    (home / "agents" / AGENT).mkdir(parents=True)
+    (home / "agents" / AGENT / "agent.yaml").write_text(f"model: haiku\nmode: default\nstructured: true\nrepo: {work}\n")
+    (home / "team.yaml").write_text(f"agents:\n  {AGENT}: {{}}\nedges:\n"
+                                    '  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }\n')
+    return home, key
+
+
+def start_daemon(binary: str, root: Path, home: Path, account: dict) -> int:
+    """The test daemon as production runs it (structured sessions, the tick, the cutover), in a process group of its own so its
+    sessions go with it; returns that group. Like launchd's daemon it has no parent: an agent's hl counts the Claude Codes
+    above it, and the one running this run must not be one. The agent's row names its checkout: the daemon makes no worktrees yet."""
+    env = {k: v for k, v in os.environ.items() if k not in ("HANDLINE_AGENT", "OCP_AGENT", "HANDLINE_HOME", "OCP_HOME")}
+    env |= {"HANDLINE_TEST_ROOT": str(root), "HANDLINE_LIVE_ACCOUNTS": account["home"]}
+    claude = shutil.which("claude")
+    if not claude:
+        raise Refused("no claude on PATH")
+    version = subprocess.run([claude, "--version"], capture_output=True, text=True).stdout.split()[0]
+    sh = subprocess.Popen(["/bin/sh", "-c", '"$@" >/dev/null 2>"$LOG" & echo $!', "sh", binary, "-home", str(home), "-structured-cli",
+                           claude, "-claude-version", version, "-structured-tick", "-cutover"],
+                          env=env | {"LOG": str(root / "daemon.log")}, stdout=subprocess.PIPE, start_new_session=True)
+    pid = int(sh.stdout.readline())
+    sh.wait()
+    sock = home / "daemon.sock"
+    until = time.time() + 30
+    while not sock.exists():
+        if not alive(pid) or time.time() > until:
+            raise Refused(f"the test daemon did not come up; its log: {root / 'daemon.log'}")
+        time.sleep(0.1)
+    con = sqlite3.connect(home / "db.sqlite", timeout=10)
+    con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'queued', 0, ?)", (AGENT, str(root / "work")))
+    con.commit()
+    con.close()
+    return sh.pid
+
+
+def alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+
+
+def stop_daemon(group: int) -> None:
+    try:
+        os.killpg(group, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    until = time.time() + 30
+    while time.time() < until:
+        try:
+            os.killpg(group, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.2)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--account", required=True, help="the test account: the agent is moved there when the daemon starts it elsewhere")
-    ap.add_argument("--agent", required=True, help="an existing haiku agent in permission mode default")
+    ap.add_argument("--daemon", help="the handlined binary to test; by default this checkout's is built")
     ap.add_argument("--json", action="store_true", help="print the table as JSON at the end")
+    ap.add_argument("--keep", action="store_true", help="keep the test root (home, daemon log) for a look afterwards")
     args = ap.parse_args()
-
-    key = sessiontoken.founder_key_held()
-    if not key:
-        print("live-e2e: no founder key here; run it from the founder's own terminal, not an agent session", file=sys.stderr)
+    if os.environ.get("HANDLINE_LIVE") != "1":
+        print("live-e2e: spends real tokens; HANDLINE_LIVE=1 runs it", file=sys.stderr)
         return 2
-    r = None
+
+    account = live_account.pick_live()
+    print(f"live-e2e: account {account['account']}: {account['why']}", flush=True)
+    root = Path(tempfile.mkdtemp(prefix="live-e2e.")).resolve()
+    daemon, r = None, None
     try:
-        d = Daemon(key)
-        view = precheck(d, args.agent)
-        r = Run(d, Stream(key), args.agent)
-        print(f"live-e2e: {args.agent} on {args.account}, daemon {d.hello.get('daemon')}")
-        lifecycle(r, view, args.account)
+        binary = args.daemon
+        if not binary:
+            binary = str(root / "handlined")
+            subprocess.run(["go", "build", "-o", binary, "./cmd/handlined"], cwd=REPO / "go", check=True)
+        home, key = scratch(root, account)
+        daemon = start_daemon(binary, root, home, account)
+        d = Daemon(home / "daemon.sock", key)
+        s = Stream(home / "daemon.sock", key)
+        r = Run(d, s, Answerer(home / "daemon.sock", key, s, AGENT), AGENT)
+        print(f"live-e2e: {AGENT} on a test daemon {d.hello.get('daemon')}, home {home}", flush=True)
+        lifecycle(r)
         chat_and_attachment(r)
         task_and_permission(r)
         kill_and_exit(r)
-    except (Refused, OSError, KeyboardInterrupt) as e:
+        print(f"live-e2e: {len(r.answerer.answered)} permission prompt(s) answered yes, the permission step's own among them", flush=True)
+    except (Refused, OSError, subprocess.CalledProcessError, KeyboardInterrupt) as e:
         print(f"live-e2e: {str(e) or 'interrupted'}", file=sys.stderr)
-        if r:
-            r.clean_up()
         return 2
+    finally:
+        if daemon:
+            stop_daemon(daemon)
+        if args.keep:
+            print(f"live-e2e: kept {root}", file=sys.stderr)
+        else:
+            shutil.rmtree(root, ignore_errors=True)
     if args.json:
         print(json.dumps(r.rows, indent=1))
     return 1 if any(row["result"] == "FAIL" for row in r.rows) else 0
