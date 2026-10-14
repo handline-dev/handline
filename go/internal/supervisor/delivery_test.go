@@ -130,15 +130,19 @@ func TestEnforceEdgesDeniesWhatTheTableDoesNotAllow(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	rid := r.ask("alice", "bob", "x", "")
-	// the row says a different relation than the table
-	r.DB.Exec("UPDATE requests SET edge_ok = NULL, relation = 'supervisor' WHERE id = ?", rid)
+	// queued before the edges' relation, response and kind stopped being read: those are not the table's to check
+	r.DB.Exec("UPDATE requests SET edge_ok = NULL, relation = 'supervisor', response = 'fire_and_forget', kind = 'verdict' WHERE id = ?", rid)
+	deep := r.ask("alice", "bob", "y", "")
+	r.DB.Exec("UPDATE requests SET edge_ok = NULL, chain_depth = 4 WHERE id = ?", deep)
 	ok, err := r.EnforceEdges(r.DB, "bob")
 	r.must(err)
 	if !ok {
 		t.Fatal("untrusted")
 	}
-	row, _ := db.GetRequest(r.DB, rid)
-	if row.State != "denied" || !strings.HasPrefix(row.Answer.String, "refused at delivery: the routing table says peer/async/None, the request says supervisor/async/None") {
+	if row, _ := db.GetRequest(r.DB, rid); row.State != "queued" || row.EdgeOK.Int64 != 1 {
+		t.Fatalf("%+v", row)
+	}
+	if row, _ := db.GetRequest(r.DB, deep); row.State != "denied" || row.Answer.String != "refused at delivery: chain depth 4 reached the limit 4 (loop guard)" {
 		t.Fatalf("%+v", row)
 	}
 	// a system name is not an agent's edge

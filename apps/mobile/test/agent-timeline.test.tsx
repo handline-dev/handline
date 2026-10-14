@@ -33,7 +33,7 @@ describe('the Timeline tab', () => {
     expect($('timeline-older')).toBeNull();
     expect($('timeline-60')?.textContent).toMatch(/input\./);
     m.store.stop();
-  });
+  }, 20000); // 60 events are 60 calls: 4.5 s alone, over 5 s under load
 
   it('says so when nothing is recorded', async () => {
     const m = await mount();

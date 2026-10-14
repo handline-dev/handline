@@ -34,11 +34,9 @@ def _world(home: Path) -> list:
 
 def test_a_task_kind_ask_keeps_the_one_at_a_time_rule(home: Path) -> None:
     sent = _world(home)
-    hand_edit_team(DESIGN_TEAM.replace(
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }'))
+    hand_edit_team(DESIGN_TEAM)
     reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-                   "target": "backend", "body": "a piece of work"})
+                   "target": "backend", "body": "a piece of work", "kind": "task"})
     check("ask: a task-kind ask is accepted", reply["ok"], str(reply))
     check("ask: but not typed at once - it waits for an agent that is free", sent == [], str(sent))
 

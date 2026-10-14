@@ -337,15 +337,15 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 		return o, nil
 	}
 	kind := in.Kind
-	if kind == "" {
-		kind = strOf(d.Kind)
+	if kind == "" && in.Target == db.Human {
+		kind = "task" // what is asked of the founder is a task of theirs, whatever the edge says
 	}
 	rid := must(db.AddRequest(q, db.NewRequest{Requester: requester, Target: in.Target, Body: in.Body, Files: in.Files, Relation: strOf(d.Relation),
 		Response: d.Response, Kind: kind, ChainDepth: depth, ParentID: in.ParentID, ChainID: chainID}))
 	if in.SendNow {
 		must(db.MarkSendNow(q, rid))
 	}
-	if !in.NoCard && in.Target == db.Human && in.Kind == "" && strOf(d.Kind) == "task" {
+	if !in.NoCard && in.Target == db.Human && in.Kind == "" {
 		// What is asked of the founder is a decision task, and this row its card; `task new` opens its own task and says NoCard.
 		tid := must(db.NewTask(q, firstLineTitle(in.Body), db.Human, requester, 0, db.DefaultPriority, "decision", 0, ""))
 		must(db.SetTaskQueued(q, tid, db.Human))

@@ -66,14 +66,12 @@ def test_team_routing() -> None:
 
     d = t.route("backend", "human")
     check("route: the founder is routable", d.allowed, d.reason)
-    check("route: a request to the founder is a task", d.kind == "task")
     old = team.Team({"agents": {"backend": {}}, "edges": [
         {"from": "*", "to": "human", "kind": "escalate", "creates_gate": True}]}).route("backend", "human")
-    check("route: a team.yaml that still says kind raise keeps working, as a task",
-          old.allowed and old.kind == "task", str(old))
-
-    check("route: fire_and_forget preserved",
-          t.route("backend", "archivist").response == "fire_and_forget")
+    check("route: a team.yaml that still says kind escalate keeps working", old.allowed, str(old))
+    d = t.route("backend", "archivist")
+    check("route: an edge's relation, response and kind are not read",
+          (d.relation, d.response, d.kind) == (None, "async", None), str(d))
     check("route: chain depth limit", not t.route("backend", "reviewer", chain_depth=4).allowed)
 
     # A deny must win even though an earlier wildcard edge would match.
@@ -953,9 +951,10 @@ def test_team_validation() -> None:
     old = team.Team(yamlcompat.parse("agents:\n  a: { intake: nonsense, model: mid }\n"))
     check("team validation: an old team.yaml's intake key is ignored, not an error",
           "a" in old.agents)
+    blocking = team.Team(yamlcompat.parse('edges:\n  - { from: "a", to: "b", response: blocking }\n'))
+    check("team validation: an edge's response is not read, so no value of it is refused",
+          len(blocking.edges) == 1)
     for bad, label in [
-        ('edges:\n  - { from: "a", to: "b", response: blocking }\n',
-         "blocking response rejected"),
         ('edges:\n  - { to: "b" }\n', "edge without 'from' rejected"),
     ]:
         try:
@@ -2152,8 +2151,8 @@ deny:
     check("default links: an explicit deny still wins",
           not tm.route("boat.sea", "orca.reviewer").allowed and "denied: " in tm.route("boat.sea", "orca.reviewer").reason)
     check("default links: an explicit edge still comes first",
-          team.Team({**data, "edges": [{"from": "boat.sea", "to": "boat", "response": "fire_and_forget"}]})
-          .route("boat.sea", "boat").response == "fire_and_forget")
+          team.Team({**data, "edges": [{"from": "boat.sea", "to": "boat"}]})
+          .route("boat.sea", "boat").reason == "edge boat.sea -> boat")
     rc, out = _cli(["hr", "team", "reef", "--member", "dive=/w/dive", "--member", "reef.map",
                     "--repo", "/w/reef", "--why", "cli path"], as_agent=askmod.HUMAN)
     check("team: the founder's `hr team` creates it directly, suffix or full names, repo after '='",
@@ -2416,9 +2415,8 @@ deny:
                             relation="peer", response="fire_and_forget")
         check("link: the founder adds an edge directly", ok, said)
         text = tf.read_text()
-        check("link: the edge is one line with what was asked for",
-              '  - { from: "marina", to: "keeper", relation: peer, response: fire_and_forget }'
-              in text, text)
+        check("link: the edge is one line, without the relation and response asked for",
+              '  - { from: "marina", to: "keeper", response: async }' in text, text)
         check("link: it goes before the first wildcard edge, so it is reached",
               text.index('from: "marina"') < text.index('from: "*"'), text)
         check("link: the comments and every other line are kept",
@@ -2427,17 +2425,13 @@ deny:
               and all(l in text for l in original.splitlines()), text)
         t = team.Team.load()
         d = t.route("marina", "keeper")
-        check("link: the router now allows it, with the response given",
-              d.allowed and d.response == "fire_and_forget", d.reason)
+        check("link: the router now allows it", d.allowed, d.reason)
 
         for label, args, kw, want in [
                 ("the same edge twice", ("marina", "keeper"), {}, "already has the edge"),
                 ("a target that is not an agent", ("marina", "ghost"), {}, "not an agent"),
                 ("itself", ("marina", "marina"), {}, "itself"),
-                ("a route a deny covers", ("keeper", "scout"), {}, "deny"),
-                ("a bad response", ("marina", "scout"), {"response": "blocking"}, "response"),
-                ("a relation that is not a word", ("marina", "scout"),
-                 {"relation": "a, b: c"}, "relation")]:
+                ("a route a deny covers", ("keeper", "scout"), {}, "deny")]:
             ok, said = hr.enact("link", args[0], to=args[1], why="w", **kw)
             check(f"link: refused - {label}", not ok and want in said, said)
         check("link: and a refusal leaves the file as it was", tf.read_text() == text)
