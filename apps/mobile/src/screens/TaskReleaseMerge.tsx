@@ -1,5 +1,5 @@
 // Release and Merge on the phone's task page (docs/pc-app-gaps.md R2). Release takes a doing task back to queued and needs a reason; the
-// daemon takes no target state. Merge starts from this task and folds the chosen others into it. Both keep their sheet open with the
+// contract's optional draft target is left out. Merge starts from this task and folds the chosen others into it. Both keep their sheet open with the
 // reason when the daemon refuses.
 import { useState } from 'react';
 import { Text, View } from 'react-native';
