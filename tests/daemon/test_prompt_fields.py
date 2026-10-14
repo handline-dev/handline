@@ -17,7 +17,6 @@ from handline.session import promptparse  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
-
 def test_a_field_the_screen_does_not_state_is_null_never_guessed(home: Path) -> None:
     check("fields: an edit approval's title was never captured: no tool, no command, no reason",
           promptparse.permission_fields("Edit file", ["src/a.py", "│ a reason"]) == {"tool": None, "command": None, "reason": None})

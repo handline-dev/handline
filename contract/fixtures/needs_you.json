@@ -3,7 +3,7 @@
   {
    "name": "terminal.open.agent_is_required",
    "spec": "terminal.open",
-   "about": "NOT_YET_IN_PYTHON No agent is bad_request naming it.",
+   "about": "No agent is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -39,7 +39,7 @@
   {
    "name": "terminal.open.unknown_agent_is_not_found",
    "spec": "terminal.open",
-   "about": "NOT_YET_IN_PYTHON An agent nobody registered is not_found.",
+   "about": "An agent nobody registered is not_found.",
    "as": "founder",
    "steps": [
     {
@@ -76,7 +76,7 @@
   {
    "name": "terminal.open.is_refused_to_an_agent_session",
    "spec": "terminal.open",
-   "about": "NOT_YET_IN_PYTHON An agent session may not open a terminal: refused, gate role.",
+   "about": "An agent session may not open a terminal: refused, gate role.",
    "as": "agent",
    "steps": [
     {
@@ -113,7 +113,7 @@
   {
    "name": "terminal.open.says_where_the_terminal_is",
    "spec": "terminal.open",
-   "about": "NOT_YET_IN_PYTHON The host, the handle and how to attach; it types nothing. Needs --var terminal_agent.",
+   "about": "The host, the handle and how to attach; it types nothing. Needs --var terminal_agent.",
    "as": "founder",
    "steps": [
     {
@@ -171,7 +171,7 @@
   {
    "name": "agent.get.needs_you_is_set_while_a_decision_waits",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON An agent that waits on a decision only a person can make has needs_you with a kind, since, a text and a source, and is waiting with attention alert. Needs --var view_alert_agent.",
+   "about": "An agent that waits on a decision only a person can make has needs_you with a kind, since, a text and a source, and is waiting with attention alert. Needs --var view_alert_agent.",
    "as": "founder",
    "steps": [
     {
@@ -237,7 +237,7 @@
   {
    "name": "agent.get.needs_you_is_null_when_nothing_waits",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON An agent with nothing to decide has needs_you null. Needs --var view_plain_agent.",
+   "about": "An agent with nothing to decide has needs_you null. Needs --var view_plain_agent.",
    "as": "founder",
    "steps": [
     {
@@ -272,7 +272,7 @@
   {
    "name": "answer.add.a_dialog_rule_is_unsupported",
    "spec": "answer.add",
-   "about": "NOT_YET_IN_PYTHON A daemon that answers no dialog refuses to save a dialog rule: refused, gate unsupported Needs --var dialogs_retired=1: a daemon that answers no dialog (the var only names that it is one). (the Python daemon keeps saving them until the cutover).",
+   "about": "A daemon that answers no dialog refuses to save a dialog rule: refused, gate unsupported Needs --var dialogs_retired=1: a daemon that answers no dialog (the var only names that it is one). (the Python daemon keeps saving them until the cutover).",
    "as": "founder",
    "steps": [
     {

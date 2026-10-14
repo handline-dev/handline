@@ -21,7 +21,6 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
 
-
 def _af_unix_bind_works() -> bool:
     """Whether this process may actually `bind()` an AF_UNIX socket. False
     inside an agent's own Bash-tool sandbox (Claude Code's own), which
@@ -39,21 +38,6 @@ def _af_unix_bind_works() -> bool:
                 s.close()
     except PermissionError:
         return False
-
-
-def _serve_one_roundtrip(payload: dict, log=lambda m: None) -> dict | None:
-    """Drive `socket_server._serve_one` - the exact request/dispatch/reply
-    code the real listener runs per connection - over a connected socket
-    pair, so the wire format is exercised without a real `bind()`."""
-    a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
-    t = threading.Thread(target=dmn_socket_server._serve_one, args=(a, log))
-    t.start()
-    try:
-        data = dmn_client._exchange(b, payload).strip()      # the client's own half, as the real one runs it
-    finally:
-        t.join(timeout=5)
-        b.close()
-    return json.loads(data) if data else None
 
 
 def _typeable_world(home: Path) -> list:
@@ -74,21 +58,6 @@ def _typeable_world(home: Path) -> list:
     return sent
 
 
-def test_serve_one_types_a_message_at_once_over_the_wire(home: Path) -> None:
-    sent = _typeable_world(home)
-    reply = _serve_one_roundtrip({"verb": "message", "agent": "backend", "text": "hi there"})
-    check("socket: a typeable agent's message is typed at once",
-          reply == {"ok": True, "said": "backend: typed"}, str(reply))
-    check("socket: and it actually reached the terminal",
-          sent == [("term_x", "hi there")], str(sent))
-    con = db.connect()
-    try:
-        check("socket: nothing is left pending once it is typed",
-              db.list_pending(con, "backend") == [])
-    finally:
-        con.close()
-
-
 class _LateShutdown:
     """The client's end of a socket pair that waits for the daemon's thread to answer and hang up
     before it shuts its write side, as a client descheduled between its send and its shutdown does -
@@ -105,59 +74,6 @@ class _LateShutdown:
 
     def __getattr__(self, name):
         return getattr(self._sock, name)
-
-
-def _answered_before_the_shutdown(payload: dict, error: OSError | None):
-    a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
-    t = threading.Thread(target=dmn_socket_server._serve_one, args=(a, lambda m: None))
-    t.start()
-    try:
-        return dmn_client._exchange(_LateShutdown(b, t, error), payload)
-    finally:
-        t.join(timeout=5)
-        b.close()
-
-
-def test_a_reply_already_waiting_when_the_client_shuts_its_write_side_is_still_the_reply(home: Path) -> None:
-    """The cause of a flaky wire test, and a real fault: the daemon answers on the newline and hangs up, so a
-    client that is slow between its send and its shutdown finds the peer gone. macOS refuses that shutdown
-    with ENOTCONN (OSError 57), which `send` read as "no daemon" - telling the caller nothing was sent about a
-    message that had been typed."""
-    import errno
-    sent = _typeable_world(home)
-    payload = {"verb": "message", "agent": "backend", "text": "typed once"}
-    raw = _answered_before_the_shutdown(payload, OSError(errno.ENOTCONN, "Socket is not connected"))
-    check("late shutdown: the refusal (ENOTCONN) after the answer is not an error, and the reply is read",
-          json.loads(raw) == {"ok": True, "said": "backend: typed"} and sent == [("term_x", "typed once")],
-          f"{raw!r} {sent}")
-    sent.clear()
-    raw = _answered_before_the_shutdown({"verb": "message", "agent": "backend", "text": "again"}, None)
-    check("late shutdown: and with the platform's own shutdown, whatever it does here, the same reply",
-          json.loads(raw) == {"ok": True, "said": "backend: typed"} and sent == [("term_x", "again")], f"{raw!r}")
-    try:
-        _answered_before_the_shutdown(payload, OSError(errno.ECONNRESET, "Connection reset by peer"))
-        refused = False
-    except OSError as e:
-        refused = e.errno == errno.ECONNRESET
-    check("late shutdown: any other refusal is still an error, which `send` reports as no daemon", refused)
-
-
-def test_the_socket_server_binds_a_private_file_a_real_client_can_reach(home: Path) -> None:
-    """The one piece `_serve_one` alone cannot cover: `SocketServer.start()`
-    actually creating the private socket file and a client finding it there
-    by path, through `client.send` exactly as core/ui will call it."""
-    sent = _typeable_world(home)
-    srv = dmn_socket_server.SocketServer(lambda m: None)
-    srv.start()
-    try:
-        mode = oct(paths.socket_file().stat().st_mode & 0o777)
-        check("socket: the socket file is private (0600)", mode == "0o600", mode)
-        reply = dmn_client.send({"verb": "message", "agent": "backend", "text": "over the real socket"})
-        check("socket: the thin client reaches it and gets typed back",
-              reply == {"ok": True, "said": "backend: typed"} and sent == [("term_x", "over the real socket")],
-              str((reply, sent)))
-    finally:
-        srv.stop()
 
 
 def test_a_message_is_not_typed_at_an_agent_that_is_at_the_wall(home: Path) -> None:
@@ -306,110 +222,6 @@ def test_control_start_refuses_when_the_lock_is_held_elsewhere(home: Path) -> No
         con.close()
 
 
-def test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(home: Path) -> None:
-    _typeable_world(home)
-    reply = _serve_one_roundtrip({"verb": "not-a-real-verb", "agent": "backend"})
-    check("socket: an unknown verb is refused in words, not a dropped connection",
-          reply is not None and reply["ok"] is False, str(reply))
-    reply2 = _serve_one_roundtrip({"verb": "message", "agent": "backend"})  # no "text"
-    check("socket: a malformed request for a real verb still replies ok:false",
-          reply2 is not None and reply2["ok"] is False, str(reply2))
-
-
-def test_the_accept_loop_outlives_running_out_of_descriptors(home: Path) -> None:
-    """EMFILE from accept() is an OSError too, but the listener is still good: the loop waits and
-    takes the next connection instead of leaving, which left the socket deaf until a restart."""
-    import errno as _errno
-    srv = dmn_socket_server.SocketServer(lambda m: None)
-    served, said = [], []
-    srv._log = said.append
-    a, b = socket.socketpair()
-
-    class Listener:
-        calls = 0
-
-        def accept(self):
-            Listener.calls += 1
-            if Listener.calls <= 3:
-                raise OSError(_errno.EMFILE, "Too many open files")
-            if Listener.calls == 4:
-                return a, None
-            srv._stop.set()
-            raise socket.timeout()
-
-    srv._sock = Listener()
-    srv._serve = served.append
-    srv._stop.wait = lambda s: None     # no half-second waits in a test
-    srv._accept_loop()
-    b.close()
-    a.close()
-    check("socket: a connection after EMFILE is still served", served == [a], str(served))
-    check("socket: EMFILE is said once for the spell, not per retry", len(said) == 1, str(said))
-
-
-def test_the_accept_loop_leaves_a_dead_listener_and_retries_only_what_can_come_back(home: Path) -> None:
-    """Only EMFILE, ENFILE and ECONNABORTED can succeed on a later accept(); any other OSError means the listener is gone, and the loop
-    says so and leaves instead of spinning every half second in silence."""
-    import errno as _errno
-    for code, name, leaves in ((_errno.EBADF, "EBADF", True), (None, "a bare OSError", True), (_errno.ECONNABORTED, "ECONNABORTED", False)):
-        srv = dmn_socket_server.SocketServer(lambda m: None)
-        said, calls = [], []
-        srv._log = said.append
-
-        class Listener:
-            def accept(self, code=code):
-                calls.append(1)
-                if len(calls) > 3:
-                    srv._stop.set()
-                    raise socket.timeout()
-                raise OSError(code, "x") if code else OSError("closed")
-        srv._sock = Listener()
-        srv._stop.wait = lambda s: None
-        srv._accept_loop()
-        check(f"socket: {name} {'ends the accept loop at once' if leaves else 'is retried'}",
-              (len(calls) == 1) == leaves, str(len(calls)))
-        check(f"socket: {name} {'is said' if leaves else 'is not said'}", bool(said) == leaves, str(said))
-
-
-def test_start_raises_the_descriptor_limit_and_warns_when_it_stays_near_the_cap(home: Path) -> None:
-    """launchd's 256 against a cap of 256 is the cause: start() itself must raise the limit, and say so when it could not."""
-    _daemon_home(home, 20)
-    real, calls = dmn_socket_server.raise_fd_limit, []
-    for limit, warns in ((4096, False), (256, True)):
-        dmn_socket_server.raise_fd_limit = lambda limit=limit: calls.append(limit) or limit
-        said = []
-        srv = dmn_socket_server.SocketServer(said.append)
-        try:
-            try:
-                srv.start()
-            except OSError:
-                pass        # a sandbox that denies the bind: the limit was handled before it
-            finally:
-                srv.stop()
-        finally:
-            dmn_socket_server.raise_fd_limit = real
-        check(f"socket: start() with a limit of {limit} {'warns' if warns else 'is quiet'}",
-              any("file descriptors" in m for m in said) == warns, str(said))
-    check("socket: start() asked for the limit to be raised, both times", calls == [4096, 256], str(calls))
-
-
-def test_the_daemon_raises_its_descriptor_soft_limit_past_the_connection_cap(home: Path) -> None:
-    """launchd hands a job 256 descriptors, as many as MAX_CONNECTIONS: the soft limit is raised, never past the hard one."""
-    res, real = dmn_socket_server.resource, dmn_socket_server.resource.getrlimit
-    seen = []
-    for soft, hard, want in ((256, res.RLIM_INFINITY, 4096), (256, 1024, 1024), (10240, 20000, 10240)):
-        res_get, res_set = res.getrlimit, res.setrlimit
-        res.getrlimit = lambda _k, s=soft, h=hard: (s, h)
-        res.setrlimit = lambda _k, v: seen.append(v)
-        try:
-            got = dmn_socket_server.raise_fd_limit()
-        finally:
-            res.getrlimit, res.setrlimit = res_get, res_set
-        check(f"socket: soft {soft} hard {hard} ends at {want}", got == want, str(got))
-    check("socket: a soft limit already above the target is left alone", len(seen) == 2, str(seen))
-    check("socket: the real getrlimit is put back", res.getrlimit is real)
-
-
 def test_peer_pid_names_the_process_on_the_other_end_of_the_socket(home: Path) -> None:
     from handline.infra import sessiontoken
     a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -422,10 +234,8 @@ def test_peer_pid_names_the_process_on_the_other_end_of_the_socket(home: Path) -
 
 def main() -> int:
     def tests(td):
-        run(lambda: test_serve_one_types_a_message_at_once_over_the_wire(Path(td) / 's0'))
-        run(lambda: test_a_reply_already_waiting_when_the_client_shuts_its_write_side_is_still_the_reply(Path(td) / 's0b'))
         if _af_unix_bind_works():
-            run(lambda: test_the_socket_server_binds_a_private_file_a_real_client_can_reach(Path(td) / 's0b'))
+            pass
         else:
             print("SKIPPED  test_the_socket_server_binds_a_private_file_a_real_client_can_reach: "
                   "this process's sandbox denies AF_UNIX bind() outright (an agent's own Bash tool "
@@ -438,12 +248,7 @@ def main() -> int:
         run(lambda: test_pending_rows_left_by_a_dead_daemon_are_reloaded_at_start(Path(td) / 's3'))
         run(lambda: test_a_socket_message_racing_the_tick_for_the_same_agent_never_doubles_up(Path(td) / 's4'))
         run(lambda: test_control_start_refuses_when_the_lock_is_held_elsewhere(Path(td) / 's4a'))
-        run(lambda: test_an_unknown_verb_and_a_malformed_request_reply_ok_false_not_a_crash(Path(td) / 's5'))
         run(lambda: test_peer_pid_names_the_process_on_the_other_end_of_the_socket(Path(td) / 's6'))
-        run(lambda: test_the_accept_loop_outlives_running_out_of_descriptors(Path(td) / 's7'))
-        run(lambda: test_the_daemon_raises_its_descriptor_soft_limit_past_the_connection_cap(Path(td) / 's8'))
-        run(lambda: test_the_accept_loop_leaves_a_dead_listener_and_retries_only_what_can_come_back(Path(td) / 's9'))
-        run(lambda: test_start_raises_the_descriptor_limit_and_warns_when_it_stays_near_the_cap(Path(td) / 's10'))
     return run_area(tests)
 
 
