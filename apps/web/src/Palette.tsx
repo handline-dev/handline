@@ -1,8 +1,9 @@
 // The ⌘K palette (G14): one box for agents, tasks by number or title, the pages and a few actions. Arrows move, Enter goes, Escape closes.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { taskRef } from '@handline/app-core';
-import { useAgents, useTasks } from '@handline/app-data';
-import { goAgent, goInbox, goTasks, goTeam } from './route.ts';
+import { useAgents, useChatSearch, useServes, useTasks } from '@handline/app-data';
+import { snippet, when } from './ChatSearch.tsx';
+import { goAgent, goInbox, goMessage, goNew, goTasks, goTeam, goWorktrees } from './route.ts';
 import { Backdrop, Icon, PROW, PROW_HINT, PROW_NAME, type IconName } from './ui/index.ts';
 
 interface Hit {
@@ -17,6 +18,9 @@ const PAGES: [string, IconName, () => void][] = [
   ['Inbox', 'inbox', goInbox],
   ['Tasks', 'tasks', () => goTasks()],
   ['Team', 'team', () => goTeam()],
+  ['Worktrees', 'worktrees', () => goWorktrees()],
+  ['New agent', 'plus', () => goNew()],
+  ['HR', 'team', () => goTeam('hr')],
   ['Accounts', 'accounts', () => void (location.hash = '#/accounts')],
   ['Stats', 'stats', () => void (location.hash = '#/stats')],
   ['Settings', 'settings', () => void (location.hash = '#/settings')],
@@ -27,6 +31,14 @@ export function Palette({ onClose }: { onClose: () => void }) {
   const [at, setAt] = useState(0);
   const agentData = useAgents().data?.agents;
   const taskData = useTasks({}).data?.items;
+  const { served } = useServes('chat.search');
+  const [typed, setTyped] = useState(''); // the box once the person stops typing
+  useEffect(() => {
+    const t = setTimeout(() => setTyped(q.trim()), 250);
+    return () => clearTimeout(t);
+  }, [q]);
+  const messageQuery = typed.length >= 2 && typed === q.trim() ? typed : '';
+  const found = useChatSearch({ query: messageQuery, scope: 'all', limit: 5 }, served && messageQuery !== '').data?.messages;
   const hits = useMemo(() => {
     const needle = q.trim().toLowerCase().replace(/^#/, '');
     const agents = agentData ?? [];
@@ -34,10 +46,28 @@ export function Palette({ onClose }: { onClose: () => void }) {
     const all: Hit[] = [
       ...PAGES.map(([label, icon, run]): Hit => ({ key: `p:${label}`, icon, label, hint: 'page', run })),
       ...agents.map((a): Hit => ({ key: `a:${a.name}`, icon: 'agent', label: a.name, hint: a.state, run: () => goAgent(a.name) })),
-      ...tasks.map((t): Hit => ({ key: `t:${t.id}`, icon: 'tasks', label: `${taskRef(t.id)} ${t.title}`, hint: t.to, run: () => goTasks(t.id) })),
+      ...tasks.map((t): Hit => ({
+        key: `t:${t.id}`,
+        icon: 'tasks',
+        label: `${taskRef(t.id)} ${t.title}`,
+        hint: t.to,
+        run: () => goTasks(t.id),
+      })),
     ];
-    return (needle ? all.filter((h) => h.label.toLowerCase().includes(needle)) : all.filter((h) => h.key.startsWith('p:'))).slice(0, 12);
-  }, [q, agentData, taskData]);
+    const names = new Set(agents.map((a) => a.name));
+    const messages = (messageQuery ? (found ?? []) : []).map((m): Hit => {
+      const agent = names.has(m.from) ? m.from : m.to;
+      return {
+        key: `m:${m.id}`,
+        icon: 'chat',
+        label: snippet(m.body, messageQuery),
+        hint: `${agent} · ${when(m.at)}`,
+        run: () => goMessage(agent, m.id),
+      };
+    });
+    const main = needle ? all.filter((h) => h.label.toLowerCase().includes(needle)) : all.filter((h) => h.key.startsWith('p:'));
+    return [...main.slice(0, 12), ...messages];
+  }, [q, agentData, taskData, found, messageQuery]);
   const go = (h: Hit | undefined) => {
     if (!h) return;
     onClose();
@@ -57,8 +87,8 @@ export function Palette({ onClose }: { onClose: () => void }) {
           <input
             autoFocus
             className="h-9 flex-1 border-0 bg-transparent outline-none"
-            aria-label="Search agents, tasks and pages"
-            placeholder="Agents, tasks, pages…"
+            aria-label="Search agents, tasks, pages and messages"
+            placeholder="Agents, tasks, pages, messages…"
             value={q}
             onChange={(e) => {
               setQ(e.target.value);

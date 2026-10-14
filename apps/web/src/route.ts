@@ -40,6 +40,26 @@ export const useTasksRoute = (): string | null => useSyncExternalStore(subscribe
 export const goTasks = (task?: number): void => {
   location.hash = task === undefined ? '#/tasks' : `#/tasks/${task}`;
 };
+// A message number chosen outside the Chat tab (the palette): the chat of its agent lands on it once it is drawn.
+let wanted: { agent: string; id: number } | null = null;
+const wantedListeners = new Set<() => void>();
+const setWanted = (w: typeof wanted) => {
+  wanted = w;
+  wantedListeners.forEach((l) => l());
+};
+/** Opens the agent's chat and asks it to scroll to this message. */
+export const goMessage = (agent: string, id: number): void => {
+  setWanted({ agent, id });
+  goAgent(agent);
+};
+/** The message number waiting for this agent's chat; `done` clears it once the chat has taken it. */
+export function useWantedMessage(agent: string): { id: number | null; done: () => void } {
+  const w = useSyncExternalStore(
+    (cb) => (wantedListeners.add(cb), () => void wantedListeners.delete(cb)),
+    () => wanted,
+  );
+  return { id: w?.agent === agent ? w.id : null, done: () => setWanted(null) };
+}
 export const goSettings = (name: string): void => {
   location.hash = `#/agents/${encodeURIComponent(name)}/settings`;
 };
