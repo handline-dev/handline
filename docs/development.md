@@ -6,6 +6,7 @@ tools/test.sh tests/session/test_daemon_session.py    # one area file on its own
 tools/test.sh -k reconcile --write-labels before.txt   # a subset, labels saved
 tools/test.sh --diff-labels before.txt after.txt       # labels that changed state
 tools/check.sh main   # what a change needs: Go only for go/ and the apps, the whole suite otherwise
+HANDLINE_GO_RACE=1 tools/check.sh main   # the same with go test -race: the auditor's run on a sha, nobody else's
 ```
 
 `tools/test.sh` runs them under the machine's venv python, unbuffered, with `OCP_AGENT` unset and a
