@@ -35,3 +35,15 @@ test('chat.refs lists the agent newest requests, one line each', async () => {
   assert.ok(requests.length <= 30);
   await assert.rejects(client.call('chat.refs', { agent: 'no.such.agent' }), (e: RpcError) => e.data?.code === 'not_found');
 });
+
+test('chat.refs drops a withdrawn request and keeps a dismissed one', async () => {
+  const { client } = setup();
+  await client.start();
+  const gone = await client.call('chat.send', { agent: 'handline.architect', body: 'take back', request_id: 'refs-2' });
+  const kept = await client.call('chat.send', { agent: 'handline.architect', body: 'dismiss me', request_id: 'refs-3' });
+  await client.call('chat.cancel', { request: gone.request, request_id: 'refs-2c' });
+  await client.call('chat.dismiss', { request: kept.request, request_id: 'refs-3d' });
+  const ids = (await client.call('chat.refs', { agent: 'handline.architect' })).requests.map((r) => r.request);
+  assert.ok(!ids.includes(gone.request));
+  assert.ok(ids.includes(kept.request));
+});

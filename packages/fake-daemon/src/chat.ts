@@ -391,7 +391,7 @@ export class FakeChat {
   refs(p: Record<string, unknown>) {
     const agent = String(p.agent);
     const requests = this.messages
-      .filter((m) => m.agent === agent && !(m.receipt && m.landing === 'withdrawn') && m.landing !== 'dismissed')
+      .filter((m) => m.agent === agent && m.landing !== 'withdrawn')
       .sort((a, b) => b.id - a.id)
       .slice(0, 30)
       .map((m) => ({ request: m.id, from: m.from, to: m.to, line: [...(m.body.trim().split('\n')[0] ?? '')].slice(0, 60).join('') }));
