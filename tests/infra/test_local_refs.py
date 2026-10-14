@@ -1,5 +1,5 @@
 """Tests: tools/localrefs.py refuses personal data and ids that only mean something on one machine,
-in a diff, in a commit message, in the git hooks and in tools/land.sh.
+in a diff, in a commit message and in the git hooks.
 
 Run on its own: tools/test.sh tests/infra/test_local_refs.py   (all areas: tools/suite.sh)
 """
@@ -128,16 +128,13 @@ def _git(cwd: Path, *args: str, check_rc: bool = True) -> subprocess.CompletedPr
 
 
 def _repo(td: Path) -> Path:
-    """A main checkout holding the check, its allowlist, the hooks and a green suite."""
+    """A main checkout holding the check, its allowlist and the hooks."""
     main = td / "main"
     (main / "tools").mkdir(parents=True)
     _git(main, "init", "-q", "-b", "main")
-    for name in ("localrefs.py", "localrefs.allow", "land.sh"):
+    for name in ("localrefs.py", "localrefs.allow"):
         shutil.copy(TOOLS / name, main / "tools" / name)
     shutil.copytree(TOOLS / "githooks", main / "tools" / "githooks")
-    suite = main / "tools" / "suite.sh"
-    suite.write_text("#!/usr/bin/env bash\ntrue\n")
-    suite.chmod(0o755)
     (main / "a.py").write_text("x = 1\n")
     _git(main, "add", "-A")
     _git(main, "commit", "-q", "-m", "base")
@@ -162,48 +159,6 @@ def test_the_git_hooks_refuse_a_dirty_message_and_a_dirty_diff(home: Path) -> No
     (main / "c.py").write_text("# jo@" + "gmail.com  local-ref-ok\n")
     _git(main, "add", "c.py")
     check("hooks: the marker lets a fixture through", _git(main, "commit", "-m", "Add c", check_rc=False).returncode == 0)
-
-
-def _branch(main: Path, name: str, text: str, message: str) -> str:
-    _git(main, "checkout", "-q", "-b", name, "main")
-    (main / (name + ".py")).write_text(text)
-    _git(main, "add", "-A")
-    _git(main, "commit", "-q", "-m", message)
-    sha = _git(main, "rev-parse", "HEAD").stdout.strip()
-    _git(main, "checkout", "-q", "main")
-    return sha
-
-
-def _land(cwd: Path, home: Path, *args: str) -> subprocess.CompletedProcess:
-    env = dict(ENV, OCP_HOME=str(home / "ocphome"))
-    (home / "ocphome").mkdir(exist_ok=True)
-    return subprocess.run([str(cwd / "tools" / "land.sh"), *args], cwd=cwd, capture_output=True, text=True,
-                          env=env, timeout=60)
-
-
-def test_land_refuses_dirty_work_and_keeps_the_ids_out_of_git(home: Path) -> None:
-    main = _repo(home)
-    head = _git(main, "rev-parse", "HEAD").stdout.strip()
-    dirty = _branch(main, "dirty", "# see T" + "123\n", "Add dirty")
-    r = _land(main, home, dirty, "Merge a clean thing")
-    check("land: a branch whose diff adds a task id lands nothing and says so",
-          r.returncode == 1 and "task id" in r.stderr and "nothing landed" in r.stderr
-          and _git(main, "rev-parse", "HEAD").stdout.strip() == head, r.stderr)
-    badmsg = _branch(main, "badmsg", "z = 1\n", "Add z, T" + "123")
-    r = _land(main, home, badmsg, "Merge a clean thing")
-    check("land: a branch with a commit message carrying an id lands nothing",
-          r.returncode == 1 and "task id" in r.stderr and _git(main, "rev-parse", "HEAD").stdout.strip() == head, r.stderr)
-    clean = _branch(main, "clean", "w = 1\n", "Add w")
-    r = _land(main, home, clean, "Merge task T" + "123, auditor PASS #" + "9549")
-    check("land: a merge message with ids is refused too",
-          r.returncode == 1 and "task id" in r.stderr and "message number" in r.stderr, r.stderr)
-    note = "task T" + "123, PASS #" + "9549"
-    r = _land(main, home, "--note", note, clean, "Merge a clean thing")
-    merged = r.stdout.strip()
-    log = (home / "ocphome" / "landings.log").read_text()
-    check("land: a clean branch lands, and --note goes to the local log with the merge sha, not into git",
-          r.returncode == 0 and merged in log and note in log
-          and "T" + "123" not in _git(main, "log", "-3", "--format=%B").stdout, r.stderr + log)
 
 
 def test_the_products_own_ocp_syntax_in_a_doc_is_not_a_local_id() -> None:
@@ -297,7 +252,6 @@ def main() -> int:
         run(lambda: test_a_diff_is_read_for_its_added_lines_only())
         run(lambda: test_a_message_skips_git_comment_lines_only_when_asked())
         run(lambda: test_the_git_hooks_refuse_a_dirty_message_and_a_dirty_diff(Path(td) / "h1"))
-        run(lambda: test_land_refuses_dirty_work_and_keeps_the_ids_out_of_git(Path(td) / "h2"))
         run(lambda: test_the_products_own_ocp_syntax_in_a_doc_is_not_a_local_id())
         run(lambda: test_a_github_link_excuses_only_its_own_number())
         run(lambda: test_an_added_line_that_looks_like_a_file_header_is_still_a_line())

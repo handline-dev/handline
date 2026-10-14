@@ -1,9 +1,0 @@
-# Paths the merger may fix at land time without a new review (one glob per line): a conflict in a list file or
-# a README, a missing doc line. `tools/land.sh --fix` refuses anything else as needing a PASS. A glob is matched one
-# path component at a time: `*` stays inside one, `**` stands for any number of whole ones. Whatever this
-# says, a file agents read as instructions (CLAUDE.md, AGENTS.md, .claude/, skill/) always needs a PASS
-# (handline/infra/housekeeping.py). land.sh reads main's copy of this file, never the branch's.
-**/README.md
-docs/**/*.md
-design/**/*.md
-go/conformance-*.txt
