@@ -16,7 +16,7 @@ import (
 // switch (which belongs to the daemon's own settings), are passed in.
 
 var (
-	Editable = []string{"model", "effort", "weight", "repo", "skip_permissions", "browser", "browser_sites",
+	Editable = []string{"model", "effort", "weight", "repo", "browser", "browser_sites",
 		"context_k", "idle_close", "handoff_note", "sandbox", "mode"}
 	// Optional fields are not on every form: the settings tab does not draw them yet, so a form without them leaves them be.
 	Optional      = map[string]bool{"sandbox": true, "mode": true}
@@ -71,8 +71,8 @@ func (r *Roster) SettingsOf(db *sql.DB, agent, modelID string, idleMinutes func(
 		"vendor": orDefault(cfg, "vendor", DefaultVendor), "enabled": strconv.FormatBool(enabled),
 		"model": orDefault(cfg, "model", DefaultModel), "effort": orDefault(cfg, "effort", DefaultEffort),
 		"weight": orDefault(cfg, "weight", "light"), "repo": orDefault(cfg, "repo", ""),
-		"skip_permissions": onOff(r.SkipPermissionsInEffect(agent, cfg)), "sandbox": onOff(r.SandboxOn(agent, cfg)),
-		"mode": r.ModeOf(agent, cfg), "browser": BrowserMode(cfg), "browser_sites": strings.Join(BrowserOrigins(cfg), " "),
+		"sandbox": onOff(r.SandboxOn(agent, cfg)),
+		"mode":    r.ModeOf(agent, cfg), "browser": BrowserMode(cfg), "browser_sites": strings.Join(BrowserOrigins(cfg), " "),
 		"context_k": strconv.FormatInt(ContextTokensOf(cfg)/1000, 10), "handoff_note": note, "idle_close": idle}, nil
 }
 
@@ -92,8 +92,6 @@ func SettingsProblem(form map[string]string) string {
 		return "effort must be one of " + strings.Join(ValidEffort, ", ")
 	case !contains(Weights, form["weight"]):
 		return "weight must be one of " + strings.Join(Weights, ", ")
-	case form["skip_permissions"] != "on" && form["skip_permissions"] != "off":
-		return "skip permissions must be on or off"
 	}
 	if v, has := form["sandbox"]; has && v != "on" && v != "off" {
 		return "sandbox must be on or off"
@@ -196,15 +194,6 @@ func (r *Roster) FormWith(db *sql.DB, agent string, values map[string]string, mo
 	return current, form, nil
 }
 
-// ModeInForm is the mode a form sends: with skip prompts on the mode is bypass and the dropdown (which has no bypass) means
-// nothing, so what the file has stays.
-func ModeInForm(current Settings, picked string) string {
-	if current["skip_permissions"] == "on" {
-		return current["mode"]
-	}
-	return picked
-}
-
 // IdleClose is the daemon's own idle-close setting, which a form may change.
 type IdleClose interface {
 	Parse(text string) error
@@ -234,10 +223,6 @@ func (r *Roster) SaveSettings(agent string, changes []Change, idle IdleClose) (b
 		}
 		if v, ok := next["effort"]; ok {
 			o.Effort = strp(v)
-		}
-		if v, ok := next["skip_permissions"]; ok {
-			b := v == "on"
-			o.SkipPermissions = &b
 		}
 		if v, ok := next["mode"]; ok {
 			o.Mode = strp(v)

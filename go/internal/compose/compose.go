@@ -21,6 +21,7 @@ import (
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/transcript"
+	"github.com/handline/handline/go/internal/turns"
 )
 
 // Config is what the daemon main knows and the parts need.
@@ -51,6 +52,8 @@ type Config struct {
 	ConfirmTimeout time.Duration
 	// Term is the terminal host agents run in; nil is the one config.yaml names (tmux by default). Tests give a fake one.
 	Term *term.Term
+	// Turns, when set, is asked before the screen whether a terminal agent is mid-turn (-turns-from-hooks).
+	Turns *turns.Tracker
 	// DiskFree is the free and total bytes of the volume holding a path, for the disk watch; nil is statfs. Tests give a low one.
 	DiskFree func(path string) (free, total int64, err error)
 	// NotifiedNeedsYou has an unanswered prompt that Claude Code's Notification hook reports raise the needs-you card.
@@ -224,8 +227,21 @@ func (r *Runner) Open(spec lifecycle.StartSpec) error {
 		}
 		args = append(append([]string{}, args...), "--settings", path)
 	}
+	if r.parts.LC == nil {
+		return fmt.Errorf("%s: no lifecycle to record the session's proof in", spec.Agent)
+	}
+	tokens := r.parts.LC.Launch.Tokens
 	l := structured.Launch{Path: r.cfg.CLI, Args: args, Cwd: spec.Worktree, ConfigDir: cfgDir, SessionID: spec.SessionID,
-		Resume: spec.Resume, Env: append([]string{"OCP_AGENT=" + spec.Agent}, r.cfg.Env...)}
+		Resume: spec.Resume, Env: append([]string{"OCP_AGENT=" + spec.Agent}, r.cfg.Env...),
+		// The proof the CLI and what it runs are the agent (sessiontoken), as a terminal launch records it: without it the daemon cannot
+		// tell the agent's hl from the founder's.
+		Started: func(pid int) error {
+			if !tokens.Record(spec.Agent, pid) {
+				return fmt.Errorf("%s: the session's proof could not be recorded", spec.Agent)
+			}
+			return nil
+		},
+		Ended: func(pid int) { tokens.Forget(spec.Agent, pid) }}
 	if r.parts.db != nil {
 		l.Ledger = confirming{&structured.DBLedger{DB: r.parts.db, Agent: spec.Agent, Now: r.cfg.Now}, r.parts}
 	}

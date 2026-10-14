@@ -278,7 +278,7 @@ func TestUsersOfAndRemovePlan(t *testing.T) {
 }
 
 func TestSettingsProblemAndChanges(t *testing.T) {
-	good := map[string]string{"model": "opus", "repo": "", "effort": "high", "weight": "light", "skip_permissions": "off", "browser": "off",
+	good := map[string]string{"model": "opus", "repo": "", "effort": "high", "weight": "light", "browser": "off",
 		"browser_sites": "", "context_k": "200", "idle_close": "", "handoff_note": "default", "sandbox": "on", "mode": "auto"}
 	if p := SettingsProblem(good); p != "" {
 		t.Fatalf("%s", p)
@@ -286,7 +286,7 @@ func TestSettingsProblemAndChanges(t *testing.T) {
 	for field, c := range map[string][2]string{"model": {"", "model cannot be empty"}, "effort": {"huge", "effort must be one of low, medium, high, xhigh, max"},
 		"weight": {"mid", "weight must be one of light, heavy"}, "context_k": {"0", "context must be a whole number of thousands of tokens, at least 1"},
 		"idle_close": {"x", "idle close must be a whole number of minutes (0 = never), or blank to follow the global time"},
-		"browser":    {"ie", "browser must be off, chrome or playwright"}, "mode": {"wild", "mode must be one of default, auto, acceptEdits, plan, bypass"},
+		"browser":    {"ie", "browser must be off, chrome or playwright"}, "mode": {"wild", "mode must be one of default, auto, acceptEdits, plan"},
 		"repo": {"/no/such/folder", "repo '/no/such/folder' is not a folder"}, "model ": {"on", "model 'on' would not be read back as text"}} {
 		form := map[string]string{}
 		for k, v := range good {
@@ -305,9 +305,9 @@ func TestSettingsProblemAndChanges(t *testing.T) {
 	if SettingsProblem(form) != "name at least one site for the sandboxed browser" {
 		t.Fatal("a sandboxed browser needs sites")
 	}
-	current := Settings{"model": "sonnet", "effort": "medium", "weight": "light", "repo": "/r", "skip_permissions": "off", "browser": "off",
+	current := Settings{"model": "sonnet", "effort": "medium", "weight": "light", "repo": "/r", "browser": "off",
 		"browser_sites": "", "context_k": "200", "idle_close": "", "handoff_note": "default", "sandbox": "on", "mode": "auto"}
-	next := map[string]string{"model": "opus", "effort": "medium", "weight": "light", "repo": "", "skip_permissions": "off", "browser": "playwright",
+	next := map[string]string{"model": "opus", "effort": "medium", "weight": "light", "repo": "", "browser": "playwright",
 		"browser_sites": "https://a.com, https://b.com", "context_k": "100", "idle_close": "", "handoff_note": "on"}
 	got, err := SettingsChanges(current, next)
 	want := []Change{{"model", "sonnet", "opus"}, {"browser", "off", "playwright"}, {"browser_sites", "", "https://a.com https://b.com"},
@@ -317,9 +317,6 @@ func TestSettingsProblemAndChanges(t *testing.T) {
 	}
 	if !Privileged("repo") || Privileged("model") || Privileged("handoff_note") || !Privileged("anything_new") {
 		t.Fatal("privileged")
-	}
-	if ModeInForm(Settings{"skip_permissions": "on", "mode": "bypass"}, "plan") != "bypass" || ModeInForm(Settings{"skip_permissions": "off"}, "plan") != "plan" {
-		t.Fatal("ModeInForm")
 	}
 }
 

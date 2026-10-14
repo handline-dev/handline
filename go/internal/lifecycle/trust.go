@@ -17,14 +17,11 @@ import (
 func (m *Manager) clearTrustPrompt(agent, handle string, launched bool) (bool, string) {
 	// One driver scope for the whole check: the reads and the poll all ask this handle's driver.
 	defer m.Term.DriverScope()()
-	// An agent on a config directory that has never run it can meet both screens, in either order, and whichever is left standing would
-	// take the wake's Enter.
+	// A screen left standing would take the wake's Enter.
 	for i := 0; i < MaxStartupScreens; i++ {
 		var ok bool
 		var why string
 		switch {
-		case m.Term.BypassPromptShowing(handle):
-			ok, why = m.handleBypassPrompt(agent, handle)
 		case m.Term.TrustPromptShowing(handle):
 			ok, why = m.handleTrustPrompt(agent, handle)
 		default:
@@ -42,36 +39,6 @@ func (m *Manager) clearTrustPrompt(agent, handle string, launched bool) (bool, s
 		}
 	}
 	return false, fmt.Sprintf("%s's terminal still shows a startup screen after %d answers", agent, MaxStartupScreens)
-}
-
-// bypassGrant is whether the founder let this agent run with permissions skipped - configured and granted - and why not. The launch that
-// raised the warning was made on that word, so accepting it is the same word. An agent.yaml that cannot be read allows nothing.
-func (m *Manager) bypassGrant(agent string) (bool, string) {
-	granted, err := m.Agents.SkipPermissionsInEffect(agent)
-	if err != nil {
-		return false, "its agent.yaml could not be read (" + err.Error() + ")"
-	}
-	if granted {
-		return true, ""
-	}
-	return false, "skipping permissions is not granted for it"
-}
-
-// handleBypassPrompt answers the vendor's bypass-permissions warning, which a new config directory raises on the first launch with
-// skipped permissions. Accepted when this agent may skip them; otherwise nothing is pressed or typed (its cursor starts on the exit
-// option) and the wake fails with the reason, which the stall that follows carries to the founder.
-func (m *Manager) handleBypassPrompt(agent, handle string) (bool, string) {
-	allowed, why := m.bypassGrant(agent)
-	if !allowed {
-		return false, fmt.Sprintf("%s's terminal is showing the bypass-permissions warning and %s - nothing was typed; answer it in its terminal", agent, why)
-	}
-	if ok, why := m.Term.AcceptBypass(handle); !ok {
-		return false, fmt.Sprintf("%s: the bypass-permissions warning was not accepted: %s", agent, why)
-	}
-	must(db.AddEvent(m.Q, agent, "bypass_accepted"))
-	m.Log("  %s: accepted the bypass-permissions warning (skip permissions is granted)", agent)
-	m.Term.WaitIdle(handle)
-	return true, "accepted"
 }
 
 // handleTrustPrompt is standing consent: press "Yes" only for the folder the dialog itself names, only when that folder is both a

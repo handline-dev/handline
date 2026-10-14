@@ -72,7 +72,6 @@ func (*fakeTerm) WaitIdle(string) bool                  { return true }
 func (*fakeTerm) ScreenBlocker(string) *term.Blocker    { return nil }
 func (*fakeTerm) BackgroundWork(string) (string, bool)  { return "", true }
 func (*fakeTerm) CloseSession(string) (bool, string)    { return true, "" }
-func (*fakeTerm) BypassPromptShowing(string) bool       { return false }
 func (*fakeTerm) TrustPromptShowing(string) bool        { return false }
 func (*fakeTerm) DriverScope() func()                   { return func() {} }
 func (f *fakeTerm) CloseTerminal(string) (bool, string) { f.closedPane = true; return true, "" }
