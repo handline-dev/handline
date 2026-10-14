@@ -1,16 +1,18 @@
 // One task: its title, state, people and timing, the body, the delivery history, evidence, a reply box, what it waits on and what hangs under it,
 // and the verbs of the bridge's task detail. A verb that does not apply is hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { taskRef } from '@handline/app-core';
+import { taskRef, type TextPart } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useWrite } from '@handline/app-data';
+import { canCapture } from './Capture.tsx';
 import { Button, Icon } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
 import { AssignSheet, ReplyBox } from './TaskPeople.tsx';
 import { CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
 import { RichText } from './RichText.tsx';
+import { TextParts } from './TextParts.tsx';
 import { View } from './View.tsx';
 
 type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'edit' | 'release' | 'assign';
@@ -24,11 +26,14 @@ const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
 export function TaskDetail({
   id,
   onBack,
+  onCapture,
   embedded,
   drawer,
 }: {
   id: number;
   onBack: () => void;
+  /** Opens the capture dialog from here, where the list is not on screen. */
+  onCapture?: () => void;
   /** A pane inside its host (the Tasks tab of an agent pane, the Tasks page's split). */
   embedded?: boolean;
   /** The drawer over the Tasks table: absolute under the toolbar, only the Tasks page asks for it. */
@@ -47,9 +52,12 @@ export function TaskDetail({
       }`}
       aria-label={`Task ${taskRef(id)}`}
     >
-      <Button icon="close" label="Back" title="Back (Esc)" className="back self-end mb-4" onClick={onBack}>
-        Back
-      </Button>
+      <div className="mb-4 flex items-center justify-end gap-2">
+        {onCapture && canCapture() ? <Button icon="select" label="Capture" title="Capture a window (⌘⇧C)" onClick={onCapture} /> : null}
+        <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
+          Back
+        </Button>
+      </div>
       {gone ? (
         <div className="empty">
           <p>This task no longer exists.</p>
@@ -219,9 +227,9 @@ function Body({ t }: { t: Detail }) {
       {ask === 'edit' ? <EditForm t={t} onClose={() => setAsk(null)} /> : null}
 
       {t.body ? (
-        <p className="tbody-text m-0 whitespace-pre-wrap">
-          <RichText text={t.body} />
-        </p>
+        <div className="tbody-text m-0 whitespace-pre-wrap">
+          <TextParts text={t.body} parts={(t as { body_parts?: TextPart[] }).body_parts} />
+        </div>
       ) : null}
 
       {t.blockers.length ? <TaskLinks icon="waiting" label="Waits on" items={t.blockers} /> : null}
@@ -268,7 +276,7 @@ function Body({ t }: { t: Detail }) {
           <ul className="tmemos m-0 list-none p-0">
             {t.memos.map((m) => (
               <li key={m.id} className="whitespace-pre-wrap">
-                <span className="muted">{m.author}:</span> <RichText text={m.text} />
+                <span className="muted">{m.author}:</span> <TextParts text={m.text} parts={(m as { parts?: TextPart[] }).parts} />
               </li>
             ))}
           </ul>

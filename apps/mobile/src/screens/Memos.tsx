@@ -1,14 +1,17 @@
 // A task's memos on the phone (docs/pc-app-gaps.md U11): add, edit and delete, each a `useWrite` that shows at once and rolls back with the daemon's reason.
 import { useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
+import { splitImages, type TextPart } from '@handline/app-core';
+import type { Attachment } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
+import { Pictures } from './ChatPictures.tsx';
 import { Button } from './parts.tsx';
 import { Input, Sheet, useWhyNot } from './TaskActions.tsx';
 
 /** One memo with Edit and Delete (as the web's MemoRow). Both show at once and roll back with the reason on a refusal; Delete asks first. */
-export function MemoRow({ task, memo, when }: { task: number; memo: { id: number; author: string; text: string }; when: string }) {
+export function MemoRow({ task, memo, when }: { task: number; memo: { id: number; author: string; text: string; parts?: TextPart[] }; when: string }) {
   const c = usePalette();
   const edit = useWrite('task.memo.edit', String(task));
   const del = useWrite('task.memo.delete', String(task));
@@ -17,10 +20,12 @@ export function MemoRow({ task, memo, when }: { task: number; memo: { id: number
   const [ask, setAsk] = useState<null | 'edit' | 'delete'>(null);
   const [text, setText] = useState('');
   const sending = memo.id < 0; // not yet numbered by the daemon
+  const shown = splitImages(memo.text, memo.parts);
   const close = () => (setAsk(null), edit.reset(), del.reset());
   return (
     <View testID={`memo-${memo.id}`} style={{ gap: space.sm }}>
-      <Text style={{ color: c.ink }}>{`${memo.author} ${when}: ${memo.text}`}</Text>
+      <Text style={{ color: c.ink }}>{`${memo.author} ${when}: ${shown.text}`}</Text>
+      {shown.images.length ? <Pictures items={shown.images as Attachment[]} /> : null}
       {ask === null && (
         <View style={{ flexDirection: 'row', gap: space.sm }}>
           <Button

@@ -3,6 +3,8 @@
 import type { Memo, Task, TaskClock, TaskDetail } from '@handline/contract';
 import { seedTasks } from './fixtures.ts';
 import { invalidParams, refused, storeFailure } from './errors.ts';
+import { cut, MAX_REFS, refs } from './task-parts.ts';
+import type { Attachment } from '@handline/contract';
 
 export class TaskFailure extends Error {
   code: 'not_found' | 'refused' | 'bad_request';
@@ -26,10 +28,20 @@ export class FakeTasks {
   private now: () => string;
   /** Serve the verbs of the daemon's plan (D3: done, reopen, queue, draft, discard, merge) too; off, as the real daemon is today. */
   verbs = false;
+  /** The finished image with an id (the daemon's uploads); a reference to any other is refused. */
+  kept: (id: string) => Attachment | undefined = () => undefined;
 
   constructor(host: Host, now: () => string) {
     this.host = host;
     this.now = now;
+  }
+
+  /** A text's image references must be to kept images, at most six (contract: images in a task body). */
+  private checkRefs(text: unknown, field: string): void {
+    const ids = refs(String(text ?? ''));
+    if (ids.length > MAX_REFS) throw invalidParams(`at most ${MAX_REFS} images in one text`, field);
+    const bad = ids.find((id) => !this.kept(id));
+    if (bad) throw invalidParams(`${bad} is not an uploaded image`, field);
   }
 
   /** The rows; the fixtures are made on first use, when the daemon's clock is there. */
@@ -106,6 +118,7 @@ export class FakeTasks {
   memo(p: Record<string, unknown>, op: 'add' | 'edit' | 'delete', person: string): number {
     const t = this.find(p.task);
     const memos = (t.memos ??= []);
+    if (op !== 'delete') this.checkRefs(p.text, 'text');
     if (op === 'add') {
       const id = memos.reduce((n, m) => Math.max(n, m.id), 0) + 1;
       memos.push({ id, task: t.id, author: person, at: this.now(), text: String(p.text) });
@@ -118,14 +131,21 @@ export class FakeTasks {
     return memos[i]?.id ?? 0;
   }
 
+  /** `{ [key]: parts }` when the text names an image, else nothing (the field is only present then). */
+  private partsOf(key: string, text: string): Record<string, unknown> {
+    const parts = cut(text, this.kept);
+    return parts ? { [key]: parts } : {};
+  }
+
   get(p: Record<string, unknown>): TaskDetail {
     const t = this.find(p.task);
     return {
       ...this.view(t),
       body: t.body,
+      ...this.partsOf('body_parts', t.body),
       deliveries: t.delivered ? [{ at: t.delivered, how: 'typed', outcome: 'delivered' }] : [],
       events: [{ topic: 'tasks', type: 'task.opened', at: t.created, actor: null, agent: t.to, title: t.title, target: null, data: {} }],
-      memos: t.memos ?? [],
+      memos: (t.memos ?? []).map((m) => ({ ...m, ...this.partsOf('parts', m.text) })),
       blockers: t.blockers.map((b) => {
         const held = this.rows.find((r) => r.id === b.task);
         return { ...b, owner: held?.to ?? '', title: held?.title ?? '' };
@@ -145,6 +165,7 @@ export class FakeTasks {
 
   create(p: Record<string, unknown>, person: string): number {
     const owner = String(p.owner ?? '');
+    this.checkRefs(p.body, 'body');
     if (!this.isAgent(owner)) throw new TaskFailure('bad_request', `no agent ${owner}`);
     if (typeof p.title !== 'string' || !p.title.trim()) throw new TaskFailure('bad_request', 'a task needs a title');
     const id = this.nextId++;
@@ -167,6 +188,7 @@ export class FakeTasks {
   edit(p: Record<string, unknown>): void {
     const t = this.find(p.task);
     if (t.state === 'done' || t.state === 'discarded') throw new TaskFailure('refused', `task ${t.id} is closed`);
+    if (p.body !== undefined) this.checkRefs(p.body, 'body');
     if (p.owner !== undefined && !this.isAgent(String(p.owner))) throw new TaskFailure('bad_request', `no agent ${String(p.owner)}`);
     this.change(t, {
       ...(p.owner !== undefined ? { to: String(p.owner) } : {}),
@@ -215,6 +237,7 @@ export class FakeTasks {
   /** The report is dropped and the task is queued again for its owner. */
   reject(p: Record<string, unknown>, person: string): void {
     if (!String(p.note ?? '').trim()) throw invalidParams('note is the one line that says what is missing', 'note');
+    this.checkRefs(p.note, 'note');
     const t = this.reportFor(p, person, 'reject');
     this.change(t, { state: 'queued', evidence: null, report: null });
   }

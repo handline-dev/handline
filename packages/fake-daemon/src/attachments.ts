@@ -40,6 +40,14 @@ export class FakeAttachments {
     this.files.delete(id);
   }
 
+  /** The finished image with this id, as the contract's Attachment; undefined when unknown or let go of. */
+  info(id: string): Attachment | undefined {
+    const f = this.files.get(id);
+    if (!f) return undefined;
+    const { data: _data, sent: _sent, ...a } = f;
+    return a;
+  }
+
   put(p: Record<string, unknown>): { upload: string; received: number; attachment?: Attachment } {
     const { name, mime, bytes, data } = p as { name: string; mime: Mime; bytes: number; data: string };
     const offset = typeof p.offset === 'number' ? p.offset : 0;

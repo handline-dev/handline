@@ -118,6 +118,7 @@ export class FakeDaemon {
   });
 
   constructor(opts: FakeDaemonOptions = {}) {
+    this.tasks.kept = (id) => this.uploads.info(id);
     this.retention = opts.retention ?? 1000;
     this.now = opts.now ?? (() => new Date());
     this.serveChat = opts.chat ?? true;

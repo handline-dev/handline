@@ -2,12 +2,13 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell, type WebContents } from 'electron';
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Notification, session, shell, type WebContents } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
 import { isDebugWindow } from './debug-window.ts';
 import { Desk } from './desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
+import { serveCapture, type CaptureDeps } from './capture.ts';
 import { Opener } from './open.ts';
 import { followMain, takeRoute } from './follow-app.ts';
 import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from './mode.ts';
@@ -17,6 +18,14 @@ import { Connection, Page, CHANNELS } from './bridge.ts';
 import { serveDir } from './serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from './update.ts';
 
+/** The worktree of an agent comes from the shell's own daemon connection, never from the page. */
+const pathOpener = (origin: string, client: DaemonClient) =>
+  new Opener(origin, {
+    worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,
+    open: (p) => shell.openPath(p),
+    reveal: (p) => shell.showItemInFolder(p),
+  });
+const windowSources: CaptureDeps['sources'] = (thumbnailSize) => desktopCapturer.getSources({ types: ['window'], thumbnailSize });
 const env = (k: string) => process.env[`HANDLINE_${k}`] ?? process.env[`OCP_${k}`];
 /** The same rule the daemon uses: the environment's, else ~/.handline once it exists, else ~/.orcapipe. */
 const home =
@@ -208,13 +217,9 @@ if (!app.requestSingleInstanceLock()) {
     handleConnection(origin, own, current.mode, remote);
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
-    // The worktree of an agent comes from the shell's own daemon connection, never from the page.
-    const opener = new Opener(origin, {
-      worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,
-      open: (p) => shell.openPath(p),
-      reveal: (p) => shell.showItemInFolder(p),
-    });
+    const opener = pathOpener(origin, client);
     const composer = new Composer(origin, { env: editorEnv, tmp: app.getPath('temp') });
+    serveCapture(ipcMain, origin, { sources: windowSources });
     ipcMain.handle(CHANNELS.openPath, (e, arg) => opener.openPath(e, arg));
     ipcMain.handle(CHANNELS.compose, (e, arg) => composer.compose(e, arg));
     ipcMain.handle(CHANNELS.cancelCompose, (e, arg) => composer.cancel(e, arg));
