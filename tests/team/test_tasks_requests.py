@@ -3615,13 +3615,13 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
             rc, out = _cli(["cancel", str(again)], as_agent=None)
         check("cancel: without --yes the plan is shown from a dry run, and with no terminal to confirm in nothing more is asked",
               rc == 1 and [p.get("dry_run") for p in asked] == [True] and "the plan" in out, f"{asked} {out}")
-        with support.daemon_says("request.cancel", lambda p: {"ok": False, "plan": f"#{p['id']} is gone"}):
+        with support.daemon_says("request.cancel", lambda p: {"ok": False, "plan": "it is gone"}):
             rc, out = _cli(["cancel", "99999"], as_agent=None)
-        check("cancel: a request the dry run cannot cancel says why", rc == 1 and out.strip() == "not cancelled - #99999 is gone", out)
-        with support.daemon_says("request.cancel", lambda p: {"ok": False, "said": "not cancelled - #99999 is gone"}):
+        check("cancel: a request the dry run cannot cancel says why", rc == 1 and out.strip() == "not cancelled - it is gone", out)
+        with support.daemon_says("request.cancel", lambda p: {"ok": False, "said": "not cancelled - it is gone"}):
             rc, out = _cli(["cancel", "99999", "--yes"], as_agent=None)
         check("cancel: and a refused cancel prints the daemon's words as they come and fails",
-              rc == 1 and out.strip() == "not cancelled - #99999 is gone", out)
+              rc == 1 and out.strip() == "not cancelled - it is gone", out)
     finally:
         (termmod.alive, termmod.send, termmod.available, termmod.typeable_now,
          askmod.asking_agent) = real
