@@ -12,6 +12,7 @@ import { useConnection } from '@handline/app-react';
 import { usePalette } from '../theme.ts';
 import { ImageBodyInput } from './ImageBodyInput.tsx';
 import { Button } from './parts.tsx';
+import { AskAbout } from './TaskAsk.tsx';
 
 const CLOSED = ['done', 'discarded'];
 
@@ -55,7 +56,7 @@ export function Input(props: {
   );
 }
 
-function Chip(props: { on: boolean; label: string; onPress: () => void; testID: string }) {
+export function Chip(props: { on: boolean; label: string; onPress: () => void; testID: string }) {
   const c = usePalette();
   return (
     <Pressable
@@ -155,7 +156,7 @@ function ReasonSheet(props: {
   );
 }
 
-type Ask = null | 'done' | 'reopen' | 'withdraw' | 'cancel' | 'discard' | 'edit';
+type Ask = null | 'ask' | 'done' | 'reopen' | 'withdraw' | 'cancel' | 'discard' | 'edit';
 
 /** The verbs of one task; each is shown only when it applies, and disabled with its reason when the daemon does not serve it. */
 export function TaskVerbs({ t }: { t: TaskDetail }) {
@@ -178,6 +179,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
     draft: useWhyNot('task.draft'),
     discard: useWhyNot('task.discard'),
     edit: useWhyNot('task.edit'),
+    ask: useWhyNot('task.ask'),
   };
   const open = !CLOSED.includes(t.state);
   const mine = t.from === me;
@@ -215,6 +217,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
             onPress={() => void draft.mutateAsync({ tasks: [t.id] }).catch(() => {})}
           />
         )}
+        {verb('ask', 'Ask', off.ask, 'ask')}
         {open && verb('edit', 'Edit', off.edit, 'edit')}
         {open && verb('discard', 'Discard', off.discard, 'discard')}
       </View>
@@ -268,6 +271,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
           onSubmit={(reason) => settle(discard.mutateAsync({ task: t.id, reason }))}
         />
       )}
+      {ask === 'ask' && <AskAbout t={t} onClose={() => setAsk(null)} />}
       {ask === 'edit' && <EditTask t={t} onClose={() => setAsk(null)} />}
     </View>
   );
@@ -285,6 +289,7 @@ export function useTaskPending(id: number): boolean {
     ...usePending('task.draft'),
     ...usePending('task.discard'),
     ...usePending('task.edit'),
+    ...usePending('task.ask'),
     ...usePending('task.memo.add'),
     ...usePending('task.memo.edit'),
     ...usePending('task.memo.delete'),

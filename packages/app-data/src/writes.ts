@@ -309,6 +309,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'account.add': 'add account',
     'terminal.close': 'close terminal',
     'task.discard': 'discard',
+    'task.ask': 'ask',
     'device.pair': 'pair',
     'device.revoke': 'revoke',
   }).map(([m, label]) => [m, decided(label)]),
