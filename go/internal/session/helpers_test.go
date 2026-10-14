@@ -190,10 +190,9 @@ func (a *fakeAsker) ResolveDone(rid int64, text string) {
 func (a *fakeAsker) RequestState(rid int64) string    { return a.states[rid] }
 func (a *fakeAsker) OpenDecisionsOf(agent string) int { return a.open[agent] }
 
-type fakeLifecycle struct{ trust, bypass map[string]bool }
+type fakeLifecycle struct{ trust map[string]bool }
 
-func (l *fakeLifecycle) AutoTrust(a string) bool  { return l.trust[a] }
-func (l *fakeLifecycle) AutoBypass(a string) bool { return l.bypass[a] }
+func (l *fakeLifecycle) AutoTrust(a string) bool { return l.trust[a] }
 
 // blockedFixture is a world for the delivery blocks: one registered agent, "backend", running in terminal h1 with a request queued.
 type blockedFixture struct {
@@ -206,7 +205,7 @@ type blockedFixture struct {
 
 func newBlockedFixture(t *testing.T) *blockedFixture {
 	f := newFixture(t)
-	b := &blockedFixture{fixture: f, del: newFakeDelivery(), ask: newFakeAsker(), life: &fakeLifecycle{map[string]bool{}, map[string]bool{}}}
+	b := &blockedFixture{fixture: f, del: newFakeDelivery(), ask: newFakeAsker(), life: &fakeLifecycle{map[string]bool{}}}
 	f.Delivery, f.Asker, f.Lifecycle = b.del, b.ask, b.life
 	f.Agents = func() []string { return []string{"backend", "frontend"} }
 	f.agent("backend", Idle, "h1")

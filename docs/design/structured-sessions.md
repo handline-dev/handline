@@ -88,7 +88,7 @@ Every message to an agent from a person, another agent, the daemon's own notices
   "delivered".
 - **Now** writes at once with `priority:"now"`, which joins the running turn. **Queue** while a turn runs is held by the
   daemon and written when the CLI reports the turn over, one message per turn. The CLI has its own `priority:"later"`; the
-  daemon holds the queue itself because it can persist it, show it, and let a person withdraw it (`chat.withdraw`,
+  daemon holds the queue itself because it can persist it, show it, and let a person withdraw it (`chat.cancel`,
   `chat.send_now`, which are the existing "queued message" and "send now" buttons). With nothing running, Queue is the
   same as Now.
 - **Crash rule.** If the daemon or the CLI dies with an operation in `sent` and not `confirmed`, the daemon does not write it

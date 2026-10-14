@@ -41,7 +41,7 @@ func TestRegisterWritesSealsAndReadsBack(t *testing.T) {
 		t.Fatalf("%v %v %v %s", v, m, e, Kind(cfg))
 	}
 	// what an agent writes into the file is refused on the next read
-	os.WriteFile(filepath.Join(d, "agent.yaml"), append(b, "skip_permissions: true\n"...), 0o644)
+	os.WriteFile(filepath.Join(d, "agent.yaml"), append(b, "chrome: true\n"...), 0o644)
 	if _, err := r.Read("worker"); err == nil || !strings.Contains(err.Error(), "changed outside the founder's path") {
 		t.Fatalf("%v", err)
 	}
@@ -83,31 +83,27 @@ func i64(n int64) *int64 { return &n }
 func TestOnlyTheFoundersSessionRegistersAndGrants(t *testing.T) {
 	r := NewRoster(newHome(t))
 	asAgent(t, "worker")
-	skip := true
-	if _, err := r.Register("evil", RegisterOpts{SkipPermissions: &skip}); err == nil {
+	on := true
+	if _, err := r.Register("evil", RegisterOpts{Sandbox: &on}); err == nil {
 		t.Fatal("an agent registered")
 	}
 	if _, err := os.Stat(r.AgentFile("evil")); err == nil {
 		t.Fatal("a refusal left a file behind")
 	}
 	asAgent(t, "")
-	if _, err := r.Register("worker", RegisterOpts{Mode: strp("bypass")}); err != nil {
-		t.Fatal(err)
-	}
-	cfg, _ := r.Read("worker")
-	if !SkipPermissions(cfg) || !r.SkipPermissionsGranted("worker") || r.ModeOf("worker", cfg) != "bypass" {
-		t.Fatal("bypass is the grant and the switch")
-	}
-	// the file alone grants nothing
-	if r.ModeOf("other", cfg) != DefaultMode || r.SkipPermissionsInEffect("other", cfg) {
-		t.Fatal("a file with no grant was taken as one")
+	if _, err := r.Register("worker", RegisterOpts{Mode: strp("bypass")}); err == nil || !strings.Contains(err.Error(), "mode must be one of") {
+		t.Fatalf("bypass was taken as a mode: %v", err)
 	}
 	if _, err := r.Register("worker", RegisterOpts{Mode: strp("plan")}); err != nil {
 		t.Fatal(err)
 	}
-	cfg, _ = r.Read("worker")
-	if r.SkipPermissionsGranted("worker") || r.ModeOf("worker", cfg) != "plan" {
-		t.Fatalf("a mode other than bypass turns the switch off: %v", cfg)
+	cfg, _ := r.Read("worker")
+	if r.ModeOf("worker", cfg) != "plan" {
+		t.Fatalf("%v", cfg)
+	}
+	// a file from before bypass was removed runs in the default mode
+	if r.ModeOf("worker", Config{"mode": "bypass", "skip_permissions": true}) != DefaultMode {
+		t.Fatal("an old bypass file was taken as more than the default")
 	}
 	if r.SandboxOn("worker", cfg) {
 		t.Fatal("the sandbox is off unless the file turns it on")
@@ -177,9 +173,6 @@ func TestConfigReaders(t *testing.T) {
 	if ExtraWorktrees(Config{"extra_worktrees": int64(9)}) != 2 || ExtraWorktrees(Config{"extra_worktrees": true}) != 0 ||
 		ExtraWorktrees(Config{"extra_worktrees": int64(1)}) != 1 {
 		t.Error("extra_worktrees")
-	}
-	if SkipPermissions(Config{"skip_permissions": "yes"}) || SkipPermissions(Config{"skip_permissions": int64(1)}) || !SkipPermissions(Config{"skip_permissions": true}) {
-		t.Error("only a real true turns skipping on")
 	}
 	if v, m, e := Parts(Config{"model": int64(4), "effort": "", "vendor": nil}); v != "claude" || m != "4" || e != "medium" {
 		t.Errorf("%s %s %s", v, m, e)

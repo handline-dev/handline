@@ -522,7 +522,7 @@ def test_the_default_end_is_the_first_anniversary_of_the_start_still_ahead(home:
 
 def test_the_position_in_the_month_follows_the_subscription_start_and_the_setting(home: Path) -> None:
     use_home(home)
-    write_profile("a", {"subscriptionCreatedAt": "2026-01-31T12:00:00Z"})
+    write_profile("a", {"subscriptionCreatedAt": "2026-01-31T12:30:00Z"})
     first = cycle.started("a").date()
     at = lambda d: dt.datetime.combine(d, dt.time(12)).timestamp()
     write_cfg("")
