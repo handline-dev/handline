@@ -104,6 +104,9 @@ export function view(s: Session): AgentView {
     task: s.fx.task,
     cache_until: s.open && s.state === 'idle' ? new Date(Date.parse(s.since) + 5 * 60_000).toISOString() : null,
     has_dialog: s.prompt !== null,
+    needs_you: s.prompt
+      ? { kind: s.prompt.kind === 'permission' || s.prompt.kind === 'question' ? s.prompt.kind : 'dialog', since: s.prompt.since, text: s.prompt.reason ?? s.prompt.command ?? null, source: 'hook' }
+      : null,
     parent: s.fx.parent,
     ...(s.structured && { structured: true }),
     ...s.fx.view,
