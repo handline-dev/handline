@@ -73,6 +73,9 @@ export const NOT_QUERIES = [
   // No screen draws an attachment or a task screenshot yet.
   'attachment.get',
   'task.shot',
+  // `hl inbox` and `hl read`: an agent's queue and one request whole. The app draws the founder's inbox from inbox.list.
+  'inbox.queue',
+  'request.read',
 ] as const;
 
 export type ReadMethod = keyof typeof reads;
