@@ -20,7 +20,7 @@ import (
 
 // Standing consent for folders (handline/team/trust.py): which folders hl may answer the vendor's trust prompt for, on the
 // founder's own say-so, never inferred from the roster. The declared roots live in the protected store, which no agent can
-// write. Proposing raises the decision through the caller's Raise; applying an approved one is not here.
+// write. Proposing raises the decision through the caller's Raise; the founder's answer is applied in trustapply.go.
 
 const (
 	trustNS   = "trust"

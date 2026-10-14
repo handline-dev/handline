@@ -82,8 +82,9 @@ type Evaluate interface {
 type Proposals interface {
 	// OpenProposalOf is the id of the open trust proposal a request is the card of, "" for none.
 	OpenProposalOf(rid int64) string
-	// Answered carries out the founder's answer to proposal pid; the line for the proposer.
-	Answered(q db.Q, pid string, card *db.Request, verdict string) string
+	// Answered carries out the founder's answer to proposal pid: the line for the proposer, and what to report to the founder when an
+	// approve could not be applied ("" for nothing).
+	Answered(q db.Q, pid string, card *db.Request, verdict string) (line, report string, err error)
 }
 
 // Stuck is actions/stuck.py (_delivery_block): why work is not reaching an agent, in the daemon's own words.

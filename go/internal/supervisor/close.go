@@ -317,7 +317,18 @@ func (e *Env) ResolveWrite(q db.Q, in ResolveIn) (r *Resolved, ok bool, msg stri
 func (e *Env) ResolveTell(q db.Q, r *Resolved) (string, error) {
 	applied := ""
 	if r.Proposal != "" {
-		applied = e.Proposals.Answered(q, r.Proposal, r.Row, r.Verdict)
+		line, report, err := e.Proposals.Answered(q, r.Proposal, r.Row, r.Verdict)
+		if err != nil {
+			return "", err
+		}
+		applied = line
+		if report != "" {
+			after := &After{}
+			if _, err := e.Report(q, after, r.Row.Requester, report, "proposal approved, apply failed"); err != nil {
+				return "", err
+			}
+			after.Run()
+		}
 	}
 	msg, err := e.AfterClose(q, r.In.RID, r.Row, r.State, r.In.Notify)
 	if err != nil {
