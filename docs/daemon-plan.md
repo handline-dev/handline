@@ -278,10 +278,8 @@ straight: no shadow run, no differential runs, no mirroring of Python beyond wha
 
 1. **Conformance fixtures** in `contract/fixtures/`, run against the Go binary by `tools/test-go.sh`.
    A method Go serves leaves `go/conformance-missing.txt`.
-2. **Tick fixtures** in `contract/tick/fixtures/` (30): a database, a fake clock and a scripted
-   terminal host in, the database diff and the ordered terminal operations out. Their outputs are
-   frozen once from the Python daemon (`pyrun.py`) and kept as the expected files; the Go tick
-   test reads the fixture and compares with the expected file. `compare.py` is not run again.
+2. **Tick fixtures** (`contract/tick`, 30 scenarios frozen from the Python daemon) were deleted with
+   the Python tick (removal step 4a): no Go test read them.
 3. **Ordinary Go unit tests**, `go test -race ./...`, for each module.
 
 ### Go requirements
@@ -466,7 +464,7 @@ rest of the fixtures arrive as phase 1 lands their methods)
 | # | Owner | Task | Size | Done when |
 |---|---|---|---|---|
 | 16 | contract | Conformance suite as JSON fixtures in `contract/`, runnable against a socket path; the same fixtures drive the web UI team's fake daemon. First the `hello` and errors fixtures, then one set per phase 1 task. | M | The Python daemon passes everything its phase 1 tasks have landed. |
-| 17 | contract | Tick fixtures: fixture format, fake clock, fake terminal backend; 30 scenarios from the Python suite, their outputs frozen. | L | Done: `contract/tick`. |
+| 17 | contract | Tick fixtures: fixture format, fake clock, fake terminal backend; 30 scenarios from the Python suite, their outputs frozen. | L | Done, then deleted with the Python tick (removal step 4a). |
 | 18 | go | Module, the local and network listeners, `hello`, roles, sqlite and migrations, `go test -race` in CI. | M | The `hello` and errors fixtures pass on Go. Depends on 2, 3, 16. |
 | 19 | go | The record path: events, hooks ingest, collect, token log, spool, handoff, fold trigger. | L | Conformance for these passes on Go. |
 | 20 | go | Reads, writes, request ids, subscribe and device auth, by area in the order of the tables above. Several tasks. | L | Each area's fixtures pass on Go. |

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { grant } from '../src/grant.ts';
 import { commands, Owner, type Child, type Cmd } from '../src/owner.ts';
 
-const PY: Cmd = { file: 'py', args: ['daemon'] };
+const DAEMON: Cmd = { file: 'daemon', args: ['-structured-tick'] };
 const GO: Cmd = { file: 'go', args: ['-gateway'] };
 
 function rig(up: { socket: boolean; gateway: boolean }, over: { exitAtStart?: Cmd; neverUp?: Cmd } = {}) {
@@ -23,10 +23,10 @@ function rig(up: { socket: boolean; gateway: boolean }, over: { exitAtStart?: Cm
         },
       };
       // A started child answers on its socket on the next poll, unless the test says it never does.
-      if (over.neverUp !== cmd) setTimeout(() => (cmd === PY ? (up.socket = true) : (up.gateway = true)), 0);
+      if (over.neverUp !== cmd) setTimeout(() => (cmd === DAEMON ? (up.socket = true) : (up.gateway = true)), 0);
       return child;
     },
-    python: PY,
+    daemon: DAEMON,
     gateway: GO,
     wait: () => new Promise((r) => setTimeout(r, 1)),
     polls: 5,
@@ -38,10 +38,10 @@ test('with nothing running it starts the daemon, then the gateway, and stops bot
   const r = rig({ socket: false, gateway: false });
   await r.owner.start();
   assert.equal(r.owner.state, 'running');
-  assert.deepEqual(r.spawned, [PY, GO]);
+  assert.deepEqual(r.spawned, [DAEMON, GO]);
   assert.deepEqual(r.owner.owned(), ['daemon', 'gateway']);
   r.owner.stop();
-  assert.deepEqual(r.killed, ['go', 'py']);
+  assert.deepEqual(r.killed, ['go', 'daemon']);
   assert.equal(r.owner.state, 'stopped');
 });
 
@@ -63,13 +63,13 @@ test('only the missing half is started', async () => {
 });
 
 test('a child that exits at start, or never answers, is a failure with a reason, and the gateway is not tried', async () => {
-  const dies = rig({ socket: false, gateway: false }, { exitAtStart: PY });
+  const dies = rig({ socket: false, gateway: false }, { exitAtStart: DAEMON });
   await dies.owner.start();
   assert.equal(dies.owner.state, 'failed');
   assert.match(dies.owner.reason, /daemon exited at start/);
-  assert.deepEqual(dies.spawned, [PY]);
+  assert.deepEqual(dies.spawned, [DAEMON]);
 
-  const slow = rig({ socket: false, gateway: false }, { neverUp: PY });
+  const slow = rig({ socket: false, gateway: false }, { neverUp: DAEMON });
   await slow.owner.start();
   assert.equal(slow.owner.state, 'failed');
   assert.match(slow.owner.reason, /did not answer/);
@@ -85,18 +85,22 @@ test('a child that dies after the app is up shows as failed, but not one stopped
   const q = rig({ socket: false, gateway: false });
   await q.owner.start();
   q.owner.stop();
-  q.exits['py']!(null);
+  q.exits['daemon']!(null);
   assert.equal(q.owner.state, 'stopped');
 });
 
-test('commands: a checkout runs bin/ocp and go/handlined; the home and the binaries can be named', () => {
+test('commands: a checkout runs go/handlined as the daemon and the gateway; the home and the binaries can be named', () => {
   const none = commands(() => undefined, '/repo', '127.0.0.1:7443');
-  assert.deepEqual(none.python, { file: '/repo/bin/ocp', args: ['daemon'] });
+  assert.deepEqual(none.daemon, {
+    file: '/repo/go/handlined',
+    args: ['-allow-real-home', '-structured-cli', 'claude', '-structured-tick', '-terminal-tick', '-cutover'],
+  });
   assert.deepEqual(none.gateway.args, ['-gateway', '-allow-real-home', '-listen', '127.0.0.1:7443']);
-  const named = commands((k) => ({ HOME: '/h', OCP: '/x/ocp', HANDLINED: '/x/h' })[k], '/repo', ':1');
+  const named = commands((k) => ({ HOME: '/h', CLAUDE: '/x/claude', HANDLINED: '/x/h' })[k], '/repo', ':1');
   const ts = commands(() => undefined, '/repo', '100.101.2.3:7443', 'mac.tail1.ts.net:7443');
   assert.deepEqual(ts.gateway.args.slice(-4), ['-listen', '100.101.2.3:7443', '-advertise', 'mac.tail1.ts.net:7443']);
-  assert.equal(named.python.file, '/x/ocp');
+  assert.deepEqual(named.daemon.args.slice(0, 4), ['-home', '/h', '-structured-cli', '/x/claude']);
+  assert.equal(named.daemon.file, '/x/h');
   assert.deepEqual(named.gateway, { file: '/x/h', args: ['-gateway', '-home', '/h', '-listen', ':1'] });
 });
 
@@ -170,7 +174,7 @@ test('a gateway that answers once and is gone a moment later is started, not tru
       up.gateway = true;
       return { kill: () => undefined, onExit: () => undefined };
     },
-    python: PY,
+    daemon: DAEMON,
     gateway: GO,
     wait: async () => {
       up.gateway = false; // the earlier run finished shutting down while the app waited

@@ -79,7 +79,12 @@ def test_emfile_is_said_once_a_minute() -> None:
 
 
 def test_the_plist_carries_the_limit_the_daemon_raises_itself_to() -> None:
-    plist = service.build_plist()
+    real = service.go_arguments
+    try:
+        service.go_arguments = GO_ARGUMENTS
+        plist = service.build_plist()
+    finally:
+        service.go_arguments = real
     check("fds: the launchd plist sets the soft descriptor limit the daemon raises itself to",
           plist.get("SoftResourceLimits", {}).get("NumberOfFiles") == socket_server.FD_SOFT_LIMIT, str(plist.get("SoftResourceLimits")))
 

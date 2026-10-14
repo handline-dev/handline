@@ -21,8 +21,6 @@ MOVING = {
     ("account.py", "handline.db"),
     ("agent.py", "handline.db"),
     ("ask.py", "handline.db"),
-    ("daemon.py", "handline.daemon.locks"),
-    ("daemon.py", "handline.daemon.loop"),
     ("daemon.py", "handline.db"),
     ("health.py", "handline.db"),
     ("health.py", "handline.db.schema"),

@@ -207,44 +207,6 @@ def test_no_launch_line_is_typed_at_a_drawn_session_by_any_path(home: Path) -> N
         con.close()
 
 
-def test_the_sweep_does_not_call_a_drawn_session_gone(home: Path) -> None:
-    con, screen = _world(home, COMPOSER_EMPTY, table=False)
-    termmod.live_terminals = lambda: {"term_x"}
-    try:
-        lines: list[str] = []
-        for _ in range(3):
-            dmn_reconciler.sweep(con, lines.append, [])
-        row = db.get_agent_state(con, "backend")
-        check("sweep: a session drawn on its terminal is not recorded closed on the table's say-so alone",
-              row["closed_at"] is None, str(dict(row)))
-        check("sweep: and it says so once, not every tick", sum("is drawn on its terminal" in m for m in lines) == 1,
-              str(lines))
-        screen.rows = list(SHELL)
-        dmn_reconciler.sweep(con, lines.append, [])
-        check("sweep: once the screen shows a shell the session is recorded gone",
-              db.get_agent_state(con, "backend")["closed_at"] is not None)
-    finally:
-        con.close()
-
-
-def test_a_session_end_event_alone_marks_nothing_closed(home: Path) -> None:
-    """A /clear fires SessionEnd and the process lives on; only the table and the screen say a session is gone."""
-    con, screen = _world(home, COMPOSER_EMPTY, table=True)
-    termmod.live_terminals = lambda: {"term_x"}
-    try:
-        db.add_event(con, "backend", "SessionEnd", {"reason": "clear"})
-        db.add_event(con, "backend", "SessionStart", {})
-        dmn_reconciler.sweep(con, lambda _m: None, [])
-        check("session end: a SessionEnd with the process alive leaves the agent open",
-              db.get_agent_state(con, "backend")["closed_at"] is None)
-        db.add_event(con, "backend", "SessionEnd", {"reason": "other"})
-        dmn_reconciler.sweep(con, lambda _m: None, [])
-        check("session end: so does a bare SessionEnd with nothing else to go on",
-              db.get_agent_state(con, "backend")["closed_at"] is None)
-    finally:
-        con.close()
-
-
 def test_a_process_whose_environment_ps_withholds_is_not_ours_only_if_it_is_not_ours(home: Path) -> None:
     _daemon_home(home, 20)
     obsmod.live_sessions = REAL_OBSERVE["live_sessions"]
@@ -512,8 +474,6 @@ def main() -> int:
         run(lambda: test_a_message_waiting_for_an_exited_session_is_not_typed_into_its_shell(Path(td) / "g14"))
         run(lambda: test_a_close_is_not_recorded_while_a_session_is_still_drawn(Path(td) / "g2"))
         run(lambda: test_no_launch_line_is_typed_at_a_drawn_session_by_any_path(Path(td) / "g3"))
-        run(lambda: test_the_sweep_does_not_call_a_drawn_session_gone(Path(td) / "g4"))
-        run(lambda: test_a_session_end_event_alone_marks_nothing_closed(Path(td) / "g5"))
         run(lambda: test_a_process_whose_environment_ps_withholds_is_not_ours_only_if_it_is_not_ours(Path(td) / "g6"))
         run(lambda: test_a_session_is_present_if_the_table_lists_it_or_the_screen_draws_it(Path(td) / "g7"))
         run(lambda: test_work_reaches_a_session_the_table_missed(Path(td) / "g8"))

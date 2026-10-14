@@ -16,7 +16,7 @@ from .agent import cmd_agent_move, cmd_agent_register, cmd_agent_set, cmd_launch
 from .ask import WAIT_DEFAULT_S, cmd_cancel, cmd_inbox, cmd_read, cmd_withdraw
 from .bridge import cmd_bridge
 from .device import cmd_device
-from .daemon import cmd_daemon, cmd_daemon_status, cmd_dev_mode
+from .daemon import cmd_daemon_status, cmd_dev_mode
 from .health import cmd_backup, cmd_doctor, cmd_events, cmd_fold, cmd_status, cmd_triggers
 from .hooks import cmd_go, cmd_hook, cmd_hook_install, cmd_hooks_gate
 from .hr import cmd_hr, cmd_trust
@@ -386,14 +386,6 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("install-hooks", help="add ocp event hooks to shared settings")
     p.set_defaults(fn=cmd_hook_install)
 
-    p = sub.add_parser("daemon", help="run the supervisor loop")
-    p.add_argument("--once", action="store_true", help="one tick, then exit")
-    p.add_argument("--max-ticks", type=int, default=None)
-    p.add_argument("--quiet", action="store_true")
-    p.add_argument("--foreground", action="store_true",
-                   help="accepted for symmetry; the daemon always runs in the foreground")
-    p.set_defaults(fn=cmd_daemon)
-
     p = sub.add_parser("ps", help="daemon and agent state")
     p.set_defaults(fn=cmd_daemon_status)
 
@@ -726,7 +718,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 _READ_ONLY = {"read", "inbox", "ps", "status", "team", "events", "doctor", "guide", "top", "watch", "bridge",
-              "hook", "hooks", "go", "memory", "schedule", "login", "venv", "daemon", "service", "backup", "dev-mode"}
+              "hook", "hooks", "go", "memory", "schedule", "login", "venv", "service", "backup", "dev-mode"}
 _TASK_READS = {"list", "show", "board"}
 
 

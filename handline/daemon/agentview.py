@@ -16,7 +16,7 @@ from ..session import blocked as blockedmod, idle_close, launch, stopgate, term,
 from ..team import agents
 from ..usage import load as loadmod, status
 from . import delivery, handoff_note, lifecycle
-from .screenstate import DETAIL_CAP, screen_state, wire_state
+from . import screenstate    # a module, not its names: screenstate imports delivery, which comes back here
 
 
 def _ts(epoch) -> str | None:
@@ -98,8 +98,8 @@ def compute(con, name: str, now: int | None = None, table=_READ, counts=_READ, s
     if stuck is _READ:
         stuck = _stuck_by_agent(con)
     row = db.get_agent_state(con, name)
-    word, detail = screen_state(con, row, now)
-    wire, detail = wire_state(con, row, word, detail)
+    word, detail = screenstate.screen_state(con, row, now)
+    wire, detail = screenstate.wire_state(con, row, word, detail)
     config_error = None
     try:
         cfg = agents.read(name)
@@ -129,7 +129,7 @@ def compute(con, name: str, now: int | None = None, table=_READ, counts=_READ, s
         "wall_reason": wall_reason,
         "background_since": _ts(delivery.bg_since(con, name)),
         "would_wake": would_wake,
-        "blocker": oneline(blockedmod.headline(shown["kind"], shown["detail"]))[:DETAIL_CAP] if shown else None,
+        "blocker": oneline(blockedmod.headline(shown["kind"], shown["detail"]))[:screenstate.DETAIL_CAP] if shown else None,
         "account": account,
         "task": {"id": task, "title": task_row["title"]} if task_row else None,
         "cache_until": None if left is None else _ts(now + left),

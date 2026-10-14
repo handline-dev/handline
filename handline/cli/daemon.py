@@ -1,4 +1,4 @@
-"""`hl daemon` and dev mode."""
+"""`hl ps` and dev mode."""
 from __future__ import annotations
 
 import sys
@@ -7,7 +7,6 @@ import time
 from .. import actions
 from ..infra import timefmt
 from ..session import blocked as blockedmod
-from ..daemon import locks as dmn_locks, loop as dmn_loop
 from ..infra import daemonclient as dmn_client, devmode as dmn_devmode, daemonlock
 from .. import db
 from ..session import launch
@@ -20,12 +19,6 @@ from ..view import viewdata
 
 from . import client
 from .health import _name_col
-
-
-# ---------------------------------------------------------------- daemon
-def cmd_daemon(args) -> int:
-    return dmn_loop.run(once=args.once, verbose=not args.quiet,
-                         max_ticks=args.max_ticks)
 
 
 def cmd_dev_mode(args) -> int:
@@ -96,13 +89,6 @@ def cmd_daemon_status(args) -> int:
     print(f"daemon: {'running, pid ' + str(pid) if pid else 'not running'} - {supervisor}")
     if pid:
         print(_code_line())
-    live = dmn_locks.processes()
-    if len(live) > 1:
-        print(f"  WARNING: {len(live)} daemons are running (pid "
-              f"{', '.join(str(x) for x in live)}). Two supervisors notify, park and wake "
-              f"the same agent twice - end all but one.")
-    elif live and not pid:
-        print(f"  (pid {live[0]} is an `hl daemon` process that does not hold the lock)")
     con = db.connect()
     try:
         rows = db.all_agent_states(con)

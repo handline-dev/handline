@@ -302,44 +302,6 @@ def test_doctor_checks_shared_mcp_config(home: Path) -> None:
     mcp_json.unlink()
 
 
-def test_a_walled_wake_is_said_once_not_every_tick(home: Path) -> None:
-    """A closed agent with work waiting is retried every tick for as long as its
-    account sits at the wall, and the wall is one reason that lasts for hours.
-    `_wake_agent` returns it and the tick says it once; `_wake_agent` used to log
-    it as well, on every retry, which is a line per tick for the same sentence."""
-    _daemon_home(home, 100)
-    con = db.connect()
-    real_avail, real_alive, real_run = termmod.available, termmod.alive, orcacli._run
-
-    def no_orca(args, timeout=180):
-        raise AssertionError(f"reached the real orca: {args}")
-    try:
-        termmod.available, termmod.alive, orcacli._run = (lambda: True), (lambda h: True), no_orca
-        db.set_closed(con, "backend", "sess-1")
-        db.add_request(con, "marina", "backend", "please look", None, "peer", "async",
-                       None, 0, None)
-        dmn_evaluate._SAID.clear()
-        logged: list[str] = []
-        for _ in range(4):
-            dmn_evaluate.supervise(con, "backend", logged.append, int(time.time()), {}, [])
-        wall = [m for m in logged if "5h window" in m]
-        check("wall wake: the account really is the reason, so the fixture reaches the wall",
-              wall, str(logged))
-        check("wall wake: it is said once across four ticks, not once per tick",
-              len(wall) == 1, str(logged))
-        ok, why = dmn_lifecycle.wake_agent(con, "backend", logged.append)
-        check("wall wake: and the wake itself still refuses and returns the reason",
-              not ok and "5h window" in why, why)
-        logged.clear()
-        dmn_lifecycle.wake_agent(con, "backend", logged.append)
-        check("wall wake: a direct wake does not log it either - its caller has the reason",
-              not [m for m in logged if "5h window" in m], str(logged))
-    finally:
-        termmod.available, termmod.alive, orcacli._run = real_avail, real_alive, real_run
-        dmn_evaluate._SAID.clear()
-        con.close()
-
-
 def test_the_relabel_recovery_command_quotes_what_it_names(home: Path) -> None:
     """hr.label's recovery command was an f-string with no quoting - a worktree
     path or an agent name with a space in it produced a command that broke on
@@ -1998,87 +1960,6 @@ def test_doctor_and_ps_report_a_drifted_launch(home: Path) -> None:
         con.close()
 
 
-def test_a_file_added_to_shared_reaches_every_existing_account(home: Path) -> None:
-    """The actual gap (founder #596, orcapipe-manager #668): `register()` skips
-    a LINKED item whose shared target did not exist yet, and it only runs when
-    an account is created or re-registered by hand - so alpha, beta and gamma
-    had no CLAUDE.md link at all, silently, because the file did not exist
-    when they were made. A fixture that creates the accounts after the file
-    exists would pass on the broken code; this creates them before it, the way
-    they actually are today."""
-    use_home(home)
-    accounts.register("alpha")
-    accounts.register("beta")
-    accounts.register("gamma")
-    alpha_claude = vendors.config_dir("alpha") / "CLAUDE.md"
-    beta_claude = vendors.config_dir("beta") / "CLAUDE.md"
-    gamma_claude = vendors.config_dir("gamma") / "CLAUDE.md"
-    check("relink: matches today - no CLAUDE.md link exists yet",
-          not alpha_claude.exists() and not beta_claude.exists() and not gamma_claude.exists())
-
-    # A deliberate override: a real file, not a link - what a human's own fix
-    # or customization looks like on disk.
-    gamma_claude.write_text("gamma's own")
-
-    # The file is added the way the founder actually will: dropped straight
-    # into shared/.claude, no `hl` command run at all afterward.
-    shared_target = vendors.shared_dir("claude") / "CLAUDE.md"
-    shared_target.write_text("policy text")
-
-    done = accounts.relink_all()
-    check("relink: it reaches every account that existed before it did",
-          alpha_claude.is_symlink() and beta_claude.is_symlink()
-          and os.readlink(alpha_claude) == str(shared_target)
-          and os.readlink(beta_claude) == str(shared_target), str(done))
-    check("relink: and says what it did, by account",
-          done.get("alpha") == ["CLAUDE.md"] and done.get("beta") == ["CLAUDE.md"], str(done))
-    check("relink: an account's own override is left alone, not overwritten",
-          "gamma" not in done and gamma_claude.read_text() == "gamma's own", str(done))
-    check("relink: the override is what doctor reports, and nothing else",
-          accounts.unlinked() == [("gamma", "CLAUDE.md")], str(accounts.unlinked()))
-    rr = doctor.Report()
-    doctor._check_shared_links(rr)
-    check("relink: doctor warns naming the account and item",
-          any(lv == doctor.WARN and "gamma: CLAUDE.md" in d for lv, _, d in rr.rows))
-    check("relink: idempotent - nothing left to do once everyone is caught up",
-          accounts.relink_all() == {})
-
-    # A link pointing elsewhere: the timed pass leaves it, a human's register replaces it.
-    beta_claude.unlink()
-    beta_claude.symlink_to(home / "elsewhere")
-    accounts.relink_all()
-    check("relink: a link pointing elsewhere is not replaced by the timed pass",
-          os.readlink(beta_claude) == str(home / "elsewhere"))
-    accounts.register("beta")
-    check("relink: register() still replaces it, as before",
-          os.readlink(beta_claude) == str(shared_target))
-
-    # The ordinary path still works: a freshly registered account gets it
-    # straight from `register()`, with no relink pass needed.
-    accounts.register("delta")
-    check("relink: a freshly registered account is linked by register() itself",
-          (vendors.config_dir("delta") / "CLAUDE.md").is_symlink())
-
-    # And the daemon does this without being told to, every tick - the actual
-    # fix for "a human has to remember a command per account": nobody has to
-    # remember anything, because the daemon is already running.
-    accounts.register("epsilon")
-    # Simulate epsilon predating CLAUDE.md ever landing in shared, the same
-    # way alpha and beta did above - unlink what register() just linked, so
-    # the tick has something of its own to catch up on.
-    (vendors.config_dir("epsilon") / "CLAUDE.md").unlink()
-    termmod.live_terminals = lambda: None    # tick's sweep asks Orca; this is about relink
-    logs: list[str] = []
-    con = db.connect()
-    try:
-        dmn_evaluate.tick(con, logs.append)
-    finally:
-        con.close()
-    check("relink: the daemon's own tick catches up an account with nothing to run for it",
-          (vendors.config_dir("epsilon") / "CLAUDE.md").is_symlink()
-          and any("relinked epsilon" in ln for ln in logs), str(logs))
-
-
 def test_a_test_never_reaches_the_real_home(home: Path) -> None:
     """support.py stands a temp directory in for the user's home before ocp is
     imported, and paths.home() refuses the real ~/.orcapipe while it does."""
@@ -2439,7 +2320,6 @@ def main() -> int:
         run(lambda: test_a_settings_write_that_dies_leaves_the_old_file(Path(td) / 'setatomic'))
         run(lambda: test_launch(home))
         run(lambda: test_doctor_checks_shared_mcp_config(home))
-        run(lambda: test_a_walled_wake_is_said_once_not_every_tick(Path(td) / 'wallonce'))
         skip(lambda: test_the_relabel_recovery_command_quotes_what_it_names(Path(td) / 'relabelquote'), ORCA_UNMAINTAINED)
         run(lambda: test_a_vendor_with_no_driver_refuses_the_launch(Path(td) / 'novendor'))
         run(lambda: test_doctor_looks_for_the_vendors_executable_not_its_name(Path(td) / 'doctorbin'))
@@ -2479,7 +2359,6 @@ def main() -> int:
         run(lambda: test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(Path(td) / 'statehooks'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
         run(lambda: test_doctor_and_ps_report_a_drifted_launch(Path(td) / 'docdrift'))
-        run(lambda: test_a_file_added_to_shared_reaches_every_existing_account(Path(td) / 'relink'))
         run(lambda: test_venv(Path(td) / 'venvhome'))
         run(lambda: test_a_test_never_reaches_the_real_home(Path(td) / 'realhome'))
         run(lambda: test_atomic_write_replaces_the_file_and_leaves_no_temp(Path(td) / 'atomic'))

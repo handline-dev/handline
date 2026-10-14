@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline import actions  # noqa: E402
-from handline.daemon import delivery, evaluate, lifecycle, taskholds, taskqueue  # noqa: E402
+from handline.daemon import delivery, taskholds  # noqa: E402
 from handline.infra import daemonlock
 
 
@@ -322,44 +322,6 @@ def test_a_queued_task_never_reads_without_a_reason(home: Path) -> None:
         con.close()
 
 
-def test_a_free_owner_is_given_the_next_task_on_the_next_tick(home: Path) -> None:
-    """T721: the retry gate was set before the try, so a task that landed delayed the next one a minute."""
-    _world(home)
-    con = db.connect()
-    try:
-        ok, msg, first = actions.task_new("manager", "worker", "first", "first")
-        second, third = _waiting(con, "second"), _waiting(con, "third")
-        now = int(time.time())
-        db.mark_task_done(con, first, "done", "reason")
-        db.set_current_task(con, "worker", None)
-        taskqueue.sweep(con, lambda _m: None, now)
-        check("tick: the free owner is sent the next task", db.current_task(con, "worker") == second
-              and len(db.task_requests(con, second)) == 1)
-        db.mark_task_done(con, second, "done", "reason")
-        db.set_current_task(con, "worker", None)
-        taskqueue.sweep(con, lambda _m: None, now + 1)
-        check("tick: and the one after it a tick later, not a minute later",
-              db.current_task(con, "worker") == third and len(db.task_requests(con, third)) == 1)
-    finally:
-        con.close()
-
-
-def test_a_real_tick_records_why_a_task_waits(home: Path) -> None:
-    """The sweep is wired into the tick: take it out and the recording and the warning go with it."""
-    _world(home)
-    termmod.send = lambda h, t, enter=True: (True, "")
-    con = db.connect()
-    try:
-        ok, msg, first = actions.task_new("manager", "worker", "first", "first")
-        t = _waiting(con)
-        evaluate.tick(con, lambda _m: None)
-        rec = db.get_meta(con, taskholds.PREFIX + str(t))
-        check("tick: the waiting task has its reason in meta after one tick",
-              rec is not None and f"behind T{first}" in rec, str(rec))
-    finally:
-        con.close()
-
-
 def test_the_daemons_own_paths_note_why_they_did_not_type(home: Path) -> None:
     """No test writes the note here: deliver_queued and supervise do."""
     _world(home)
@@ -432,61 +394,6 @@ def test_an_open_dialog_holds_the_task_as_a_reason_not_a_missed_delivery(home: P
         con.close()
 
 
-def test_a_wake_or_start_that_fails_in_the_tick_is_noted(home: Path) -> None:
-    _world(home)
-    con = db.connect()
-    real_wake, real_start = lifecycle.wake_agent, lifecycle._start_for_work
-    try:
-        termmod.send = lambda h, t, enter=True: (True, "")
-        ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
-        sessions_are()                      # nothing runs: the sweep leaves it closed
-        db.set_closed(con, "worker", "sess-1")
-        lifecycle.wake_agent = lambda c, a, log, **k: (False, "launch refused")
-        evaluate.tick(con, lambda _m: None)
-        held = delivery.held_reason("worker", int(time.time()))
-        check("wake: the daemon noted the failed wake", held is None and delivery.failed_reason("worker", int(time.time())) == "could not be woken - launch refused",
-              str(held))
-        db.clear_closed(con, "worker")
-        con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'worker'")
-        lifecycle._start_for_work = lambda c, a, log: "worker: no repo"
-        evaluate.tick(con, lambda _m: None)
-        held = delivery.held_reason("worker", int(time.time()))
-        check("start: and the failed start", delivery.failed_reason("worker", int(time.time())) == "could not be started - worker: no repo",
-              str(held))
-        check("start: and the task's reason is that, not able",
-              (_why(con, t) or ("", True))[0] == "could not be started - worker: no repo"
-              and _why(con, t)[1] is False, str(_why(con, t)))
-    finally:
-        lifecycle.wake_agent, lifecycle._start_for_work = real_wake, real_start
-        con.close()
-
-
-def test_a_parked_agents_due_wake_notes_its_failure_and_clears_it_when_it_works(home: Path) -> None:
-    _world(home)
-    con = db.connect()
-    real_wake = lifecycle.wake_agent
-    try:
-        termmod.send = lambda h, t, enter=True: (True, "")
-        ok, msg, t = actions.task_new("manager", "worker", "the work", "the work")
-        sessions_are()
-        db.set_closed(con, "worker", "sess-1")
-        db.set_agent_state(con, "worker", "PARKED", wake_at=int(time.time()) - 5)
-        lifecycle.wake_agent = lambda c, a, log, **k: (False, "launch refused")
-        evaluate.tick(con, lambda _m: None)
-        check("parked and due: a wake that fails is noted",
-              delivery.failed_reason("worker", int(time.time())) == "could not be woken - launch refused",
-              str(delivery.failed_reason("worker", int(time.time()))))
-        # A real wake leaves the agent open, so the tick's later wake site has nothing to clear it.
-        lifecycle.wake_agent = lambda c, a, log, **k: (db.clear_closed(c, a), (True, "woken"))[1]
-        evaluate.tick(con, lambda _m: None)
-        check("parked and due: the next wake that works clears it",
-              delivery.failed_reason("worker", int(time.time())) is None,
-              str(delivery.failed_reason("worker", int(time.time()))))
-    finally:
-        lifecycle.wake_agent = real_wake
-        con.close()
-
-
 def main() -> int:
     def tests(td):
         try:
@@ -506,12 +413,8 @@ def main() -> int:
         run(lambda: test_a_busy_owner_is_never_blamed(Path(td) / "h9"))
         run(lambda: test_the_reason_is_kept_for_other_processes_and_dropped_when_told(Path(td) / "h10"))
         run(lambda: test_a_queued_task_never_reads_without_a_reason(Path(td) / "h11"))
-        run(lambda: test_a_free_owner_is_given_the_next_task_on_the_next_tick(Path(td) / "h12"))
-        run(lambda: test_a_real_tick_records_why_a_task_waits(Path(td) / "h13"))
         run(lambda: test_the_daemons_own_paths_note_why_they_did_not_type(Path(td) / "h14"))
         run(lambda: test_an_open_dialog_holds_the_task_as_a_reason_not_a_missed_delivery(Path(td) / "hdlg"))
-        run(lambda: test_a_wake_or_start_that_fails_in_the_tick_is_noted(Path(td) / "h15"))
-        run(lambda: test_a_parked_agents_due_wake_notes_its_failure_and_clears_it_when_it_works(Path(td) / "h16"))
     return run_area(tests)
 
 

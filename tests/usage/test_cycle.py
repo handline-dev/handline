@@ -1,5 +1,5 @@
 """Tests: an account on one-month subscriptions (handline/usage/cycle.py, the end date in
-status.pick_account / long_pace, handline/daemon/subscriptions.py, `hl account cycle`).
+status.pick_account / long_pace, `hl account cycle`).
 
 Run on its own: python3 tests/usage/test_cycle.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import sys
-import threading
 import types
 from pathlib import Path
 
@@ -16,8 +15,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.cli import account as cliaccount  # noqa: E402
-from handline.daemon import subscriptions  # noqa: E402
-from handline import actions  # noqa: E402
 from handline.infra import atomic  # noqa: E402
 from handline.usage import cycle, load  # noqa: E402
 
@@ -145,160 +142,6 @@ def test_the_week_stops_mattering_at_the_end_date(home: Path) -> None:
 
 class _Conn:
     pass
-
-
-def test_the_founder_is_told_once_before_the_end(home: Path) -> None:
-    use_home(home)
-    con = db.connect()
-    now = int(time.time())
-    today = dt.date.today()
-    for a in ("soon", "far", "off"):
-        write_status(home, a, pct_5h=5, pct_7d=10, reset_7d=now + DAY)
-
-    def told() -> list:
-        return actions.task_rows(con, owner=actions.HUMAN, state=list(actions.DELEGATED_STATES))
-
-    def cfg(soon_days: int) -> None:
-        write_cfg(f'month_cycle_soon: true\nsub_end_soon: "{(today + dt.timedelta(days=soon_days)).isoformat()}"\n'
-                  f'month_cycle_far: true\nsub_end_far: "{(today + dt.timedelta(days=20)).isoformat()}"\n'
-                  f'sub_end_off: "{(today + dt.timedelta(days=1)).isoformat()}"\n')
-
-    cfg(2)
-    for hour in range(3):                       # the text names the hours left, so only the memory keeps it to one
-        subscriptions.sweep_endings(con, lambda s: None, now + hour * 3600)
-    rows = told()
-    check("ending: the founder's board holds one task for the account inside the window, however many hours pass",
-          len(rows) == 1 and rows[0]["title"] == f"soon subscription ends {today + dt.timedelta(days=2)}",
-          str([r["title"] for r in rows]))
-    check("ending: and only one was ever opened - the memory, not a close and reopen each hour",
-          con.execute("SELECT COUNT(*) FROM tasks WHERE owner = ?", (db.HUMAN,)).fetchone()[0] == 1)
-    body = con.execute("SELECT body FROM requests WHERE target = ? ORDER BY id DESC", (db.HUMAN,)).fetchone()["body"]
-    check("ending: the task says what happens after, how to extend, and that it closes itself",
-          "not removed" in body and "hl account cycle soon --end" in body and "closes by itself" in body, body)
-    check("ending: it is the founder's own, open, as the home page counts 'for you'",
-          rows[0]["owner"] == actions.HUMAN and rows[0]["state"] in actions.DELEGATED_STATES)
-    first = rows[0]["id"]
-
-    cfg(1)
-    subscriptions.sweep_endings(con, lambda s: None, now)
-    now_open = told()
-    check("ending: a new end date closes the old notice and opens one for the new date",
-          len(now_open) == 1 and now_open[0]["id"] != first
-          and now_open[0]["title"] == f"soon subscription ends {today + dt.timedelta(days=1)}",
-          str([r["title"] for r in now_open]))
-    check("ending: the old one is done, with the daemon's reason",
-          "closed by the daemon" in (db.get_task(con, first)["done_evidence"] or ""))
-
-    cfg(-1)
-    subscriptions.sweep_endings(con, lambda s: None, now)
-    check("ending: once the account has ended its notice is closed, not left open", told() == [])
-    subscriptions.sweep_endings(con, lambda s: None, now + 3600)
-    check("ending: and an ended account is never told again", told() == [])
-
-    cfg(2)
-    subscriptions.sweep_endings(con, lambda s: None, now)
-    write_cfg("")
-    subscriptions.sweep_endings(con, lambda s: None, now)
-    check("ending: turning the cycle off closes the notice too", told() == [])
-
-    # What cannot be read is not "off", not "ended" and not "changed": the notice stays.
-    cfg(2)
-    subscriptions.sweep_endings(con, lambda s: None, now)
-    check("unreadable: setup - one open notice", len(told()) == 1)
-    ever = con.execute("SELECT COUNT(*) FROM tasks WHERE owner = ?", (db.HUMAN,)).fetchone()[0]
-    log: list[str] = []
-    write_cfg(f'month_cycle_soon: true\nsub_end_soon: {today + dt.timedelta(days=2)}\n')    # an unquoted date does not parse
-    check("unreadable: setup - the config really cannot be read", load.config_or_none() is None)
-    subscriptions.sweep_endings(con, log.append, now)
-    check("unreadable: a tick whose config cannot be read leaves the notice open and says so",
-          len(told()) == 1 and any("unreadable" in l for l in log), str(log))
-    write_cfg("month_cycle_soon: true\nsub_end_soon: not-a-date\n")
-    subscriptions.sweep_endings(con, lambda s: None, now)
-    check("unreadable: an end date that does not parse leaves it open", len(told()) == 1)
-    write_cfg("month_cycle_soon: true\n")
-    subscriptions.sweep_endings(con, lambda s: None, now)
-    check("unreadable: on the cycle with no end known (no profile) leaves it open", len(told()) == 1)
-    write_cfg("month_cycle_soon: true\nsub_end_soon: \"" + str(today + dt.timedelta(days=2)) + "\"\n")
-    subscriptions.sweep_endings(con, lambda s: None, now + 3600)
-    check("unreadable: and once readable again it is the same one task, not a second",
-          len(told()) == 1 and con.execute("SELECT COUNT(*) FROM tasks WHERE owner = ?", (db.HUMAN,)).fetchone()[0] == ever)
-    # a told date that has passed closes it even when no end can be known any more
-    write_cfg("month_cycle_soon: true\n")
-    subscriptions.sweep_endings(con, lambda s: None, now + 4 * DAY)
-    check("unreadable: a date already told and now past closes the notice, whatever else is unknown", told() == [])
-    con.close()
-
-
-def test_a_plan_is_asked_again_each_hour_off_the_tick(home: Path) -> None:
-    use_home(home)
-    con = db.connect()
-    for a in ("a", "b"):
-        write_status(home, a, pct_5h=5, pct_7d=10, reset_7d=int(time.time()) + DAY)
-    plans = {"a": "pro", "b": "pro"}
-    asked: list[str] = []
-    real_rec, real_sub = subscriptions.accounts.recorded_subscription_type, subscriptions.accounts.subscription_type
-    gate = threading.Event()
-
-    def ask(acct, refresh=False):
-        gate.wait(5)
-        asked.append(acct)
-        plans[acct] = plans_next.get(acct, plans[acct])
-        return plans[acct]
-
-    def tick(now):
-        subscriptions.sweep_plans(con, lambda s: None, now)
-
-    plans_next: dict[str, str] = {}
-    try:
-        subscriptions.accounts.recorded_subscription_type = lambda a: plans[a]
-        subscriptions.accounts.subscription_type = ask
-        now = 1_800_000_000
-        tick(now)
-        check("plan: the tick returns while the vendor is still being asked", asked == [] and subscriptions._asking.is_alive())
-        tick(now + 5)
-        gate.set()
-        subscriptions.wait_for_plan_ask()
-        check("plan: one account is asked, not two, while one is in flight", asked == ["a"], str(asked))
-        tick(now + 5)
-        subscriptions.wait_for_plan_ask()
-        check("plan: the next tick asks the other", asked == ["a", "b"], str(asked))
-        tick(now + 10)
-        subscriptions.wait_for_plan_ask()
-        check("plan: nobody is asked again inside the hour", asked == ["a", "b"], str(asked))
-        plans_next["a"] = "max"
-        tick(now + 3601)
-        subscriptions.wait_for_plan_ask()
-        check("plan: asked again after the hour, the oldest first", asked == ["a", "b", "a"], str(asked))
-        check("plan: the new plan is not an event until a tick sees it",
-              con.execute("SELECT COUNT(*) FROM events WHERE kind='plan_changed'").fetchone()[0] == 0)
-        tick(now + 3602)
-        rows = con.execute("SELECT * FROM events WHERE kind='plan_changed'").fetchall()
-        check("plan: a changed plan is an event, once", len(rows) == 1 and '"max"' in rows[0]["payload"], str(len(rows)))
-        tick(now + 3603)
-        check("plan: and not again",
-              con.execute("SELECT COUNT(*) FROM events WHERE kind='plan_changed'").fetchone()[0] == 1)
-    finally:
-        gate.set()
-        subscriptions.accounts.recorded_subscription_type, subscriptions.accounts.subscription_type = real_rec, real_sub
-    con.close()
-
-
-def test_a_plan_question_that_fails_is_logged_not_swallowed(home: Path) -> None:
-    use_home(home)
-    logged: list[str] = []
-    real = subscriptions.accounts.subscription_type
-
-    def boom(acct, refresh=False):
-        raise OSError("no claude")
-    try:
-        subscriptions.accounts.subscription_type = boom
-        subscriptions._ask("a", logged.append)
-        subscriptions.accounts.subscription_type = lambda acct, refresh=False: None
-        subscriptions._ask("a", logged.append)
-    finally:
-        subscriptions.accounts.subscription_type = real
-    check("plan: a failed question says so", any("failed: OSError" in l for l in logged), str(logged))
-    check("plan: so does an account with no plan at all", any("no plan recorded" in l for l in logged), str(logged))
 
 
 def test_the_end_date_bounds_the_week_in_the_runway_and_in_the_pick(home: Path) -> None:
@@ -762,9 +605,6 @@ def main() -> int:
         run(lambda: test_an_ended_account_is_not_picked_and_not_removed(Path(td) / 'c3'))
         run(lambda: test_the_short_last_week_is_spent_first(Path(td) / 'c4'))
         run(lambda: test_the_week_stops_mattering_at_the_end_date(Path(td) / 'c5'))
-        run(lambda: test_the_founder_is_told_once_before_the_end(Path(td) / 'c6'))
-        run(lambda: test_a_plan_is_asked_again_each_hour_off_the_tick(Path(td) / 'c7'))
-        run(lambda: test_a_plan_question_that_fails_is_logged_not_swallowed(Path(td) / 'c10'))
         run(lambda: test_the_end_date_bounds_the_week_in_the_runway_and_in_the_pick(Path(td) / 'c9'))
         run(lambda: test_account_cycle_command(Path(td) / 'c8'))
         run(lambda: test_the_profile_reader_returns_the_three_fields_and_nothing_else(Path(td) / 'c11'))

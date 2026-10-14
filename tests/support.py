@@ -75,11 +75,8 @@ from handline.infra import backup as backupmod, doctor, lock, paths, service, te
 from handline.view import viewdata  # noqa: E402
 from handline.infra import daemonclient as dmn_client, daemonlock, devmode as devsetting  # noqa: E402
 from handline.session import states as dmn_states  # noqa: E402
-from handline.daemon import (delivery as dmn_delivery, devmode as dmn_devmode,  # noqa: E402
-                        evaluate as dmn_evaluate, handoff as dmn_handoff, lifecycle as dmn_lifecycle,
-                        locks as dmn_locks, login_expired as dmn_login_expired, loop as dmn_loop, messaging as dmn_messaging,
-                        reconciler as dmn_reconciler, socket_server as dmn_socket_server,
-                        states as dmn_timing, usage_poll as dmn_usage_poll)
+from handline.daemon import (delivery as dmn_delivery, handoff as dmn_handoff, lifecycle as dmn_lifecycle,  # noqa: E402
+                        messaging as dmn_messaging, socket_server as dmn_socket_server, states as dmn_timing)
 from handline.vendors import opencode as ocmod  # noqa: E402
 
 PASS, FAIL = [], []
@@ -162,6 +159,12 @@ def _request_read(params: dict) -> dict:
 _served_call = _cli_client.call
 _cli_client.call = lambda method, params=None, **kw: (_request_read(params) if method == "request.read"
                                                       else _served_call(method, params, **kw))
+
+def GO_ARGUMENTS(home, allow_live_home=False) -> list[str]:
+    """A stand-in for `service.go_arguments`, which needs the Go daemon built: for a test of the rest of the plist. The real
+    one is tested in test_service_plist_runs_the_go_daemon_and_the_live_home_needs_a_word."""
+    return [str(home / "handlined"), "-home", str(home)]
+
 
 @contextlib.contextmanager
 def daemon_says(method: str, reply):
@@ -418,7 +421,6 @@ def restore_world() -> None:
     termmod._screen = lambda handle: None
     termmod.PRESS_SETTLE_S = 0
     blockedmod._checked.clear()
-    dmn_login_expired._checked.clear()
     accounts._modified.clear()
     accounts._present.clear()
     # The machine's process table is not the test world: with the real reading, whether a doctor or a task
@@ -2408,6 +2410,7 @@ __all__ = [
     'ORCA_UNMAINTAINED',
     'approve_hr',
     'drain_spool',
+    'GO_ARGUMENTS',
     'answer_card',
     '_ask_row',
     'hand_edit_team',
@@ -2458,21 +2461,14 @@ __all__ = [
     'collect',
     'dmn_client',
     'dmn_delivery',
-    'dmn_devmode',
-    'dmn_evaluate',
     'dmn_handoff',
     'dmn_lifecycle',
-    'dmn_locks',
-    'dmn_login_expired',
     'dmn_messaging',
     'dmn_states',
     'dmn_timing',
     'daemonlock',
     'devsetting',
-    'dmn_reconciler',
-    'dmn_loop',
     'dmn_socket_server',
-    'dmn_usage_poll',
     'db',
     'hr',
     'proposals',

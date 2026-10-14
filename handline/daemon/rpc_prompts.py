@@ -1,5 +1,5 @@
 """prompt.list and prompt.answer: the permission prompt, question or dialog an agent's screen shows now, and the answer
-to the one the caller saw. They wrap the daemon's screen watch (`daemon.prompts`, `actions.prompt_blocks`), which the
+to the one the caller saw. They read the screen through `actions.prompt_blocks`, which the
 legacy `answer_block` verb already answers through; no hl command serves them, they are the IDE's and web UI's.
 
 An answer names the prompt by its id, the screen block's fingerprint. When the open prompt is another, nothing is sent
