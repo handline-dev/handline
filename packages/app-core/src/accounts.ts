@@ -47,6 +47,21 @@ export function span(ms: number): string {
   return `${min} m`;
 }
 
+/** The popup's warning for an account (docs/story9-my-turn.md 9-3): amber from 90% of the 5 h window or when the agents stop before it resets, red from 95% or in under 15 minutes. */
+export interface Headroom {
+  tone: Tone;
+  /** When agents stop at this rate (ms since the epoch); null when the daemon gave no stop time (stale reading, no burn, or the window resets first). */
+  stopAt: number | null;
+}
+export function headroom(five: Window | null, runsOutInSeconds: number | null, now: number): Headroom {
+  const pct = five?.used_pct ?? 0;
+  const stopAt = runsOutInSeconds === null ? null : now + runsOutInSeconds * 1000;
+  const reset = five?.resets_at ? Date.parse(five.resets_at) : NaN;
+  const red = pct >= 95 || (runsOutInSeconds !== null && runsOutInSeconds < 15 * 60);
+  const amber = pct >= 90 || (stopAt !== null && Number.isFinite(reset) && stopAt < reset);
+  return { tone: red ? 'bad' : amber ? 'warn' : 'ok', stopAt };
+}
+
 export type AccountState = 'needs_login' | 'out' | 'in_use' | 'idle' | 'unknown';
 export const STATE_WORD: Record<AccountState, string> = {
   needs_login: 'login needed',

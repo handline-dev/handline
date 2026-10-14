@@ -128,11 +128,29 @@ describe('the usage popup', () => {
     expect(rows).toHaveLength(3);
     expect(text(rows[0])).toContain('alpha');
     expect(text(rows[0])).toContain('agents 1 / cap 4');
-    expect(text(rows[1])).toContain('runway');
+    await until(() => text($$('.usage-row')[1]).includes('agents stop at'), 'the stop time');
+    expect(text($$('.usage-row')[1])).toContain('(in 2 h)');
+    expect($$('.usage-row')[1]!.getAttribute('data-tone')).toBe('ok'); // 88%, and the window resets in 1 h, before the stop
+    expect(text($$('.usage-row')[0])).not.toContain('agents stop at');
+    expect($('.usage-stats')!.getAttribute('href')).toBe('#/stats');
     expect(rows[1]!.getAttribute('href')).toBe('#/accounts/beta');
     await click($('.usage-all'));
     expect(location.hash).toBe('#/accounts');
     expect($('.usage-pop')).toBeNull();
+  });
+
+  it('a window at 95% is a red row and one at 90% an amber row', async () => {
+    const s = setup();
+    const at = new Date(Date.now() + 3_600_000).toISOString();
+    s.daemon.accounts.add({ name: 'hot', five_hour: { used_pct: 96, resets_at: at, source: 'measured' } });
+    s.daemon.accounts.add({ name: 'warm', five_hour: { used_pct: 90, resets_at: at, source: 'measured' } });
+    await mount('#/agents/handline.architect', s, '1');
+    await until(() => $('.usage-btn'), 'the item');
+    await click($('.usage-btn'));
+    const row = (n: string) => $$('.usage-row').find((r) => r.getAttribute('href') === `#/accounts/${n}`)!;
+    await until(() => row('hot'), 'the rows');
+    expect(row('hot').getAttribute('data-tone')).toBe('bad');
+    expect(row('warm').getAttribute('data-tone')).toBe('warn');
   });
 
   it('follows the accounts topic', async () => {
