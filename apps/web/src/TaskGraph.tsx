@@ -1,15 +1,13 @@
 // The graph page: tasks as boxes, an arrow from the task that holds to the task that waits (the layout is app-core's `taskGraph`).
 // Drag to pan, wheel or the buttons to zoom, click a box to open the task.
 import { useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
-import { taskGraph, taskRef, type GraphEdge } from '@handline/app-core';
+import { clip, edgePath, taskGraph, taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { useTasks } from '@handline/app-data';
 import { toneOf } from '@handline/app-ui';
 import { goTasks } from './route.ts';
 import { Button } from './ui/index.ts';
 
-const path = (e: GraphEdge) => e.points.map((p, i) => `${i ? 'L' : 'M'}${p.x} ${p.y}`).join(' ');
-const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const TONE_CLASS = { run: 'text-working', wait: 'text-wait', block: 'text-bad', idle: 'text-ink-2' } as const;
 
 export function TaskGraphPage() {
@@ -56,7 +54,7 @@ export function TaskGraphPage() {
           <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`} className="text-ink-3">
             {g.edges.map((e) => (
               <g key={`${e.from}-${e.to}`} data-edge={`${e.from}-${e.to}`}>
-                <path d={path(e)} fill="none" stroke="currentColor" markerEnd="url(#tg-arrow)" />
+                <path d={edgePath(e)} fill="none" stroke="currentColor" markerEnd="url(#tg-arrow)" />
                 <text
                   x={e.points[Math.floor(e.points.length / 2)]!.x + 6}
                   y={e.points[Math.floor(e.points.length / 2)]!.y}

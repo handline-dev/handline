@@ -14,7 +14,7 @@ export const STATE_GLYPH = {
 export type Tone = 'run' | 'wait' | 'block' | 'idle';
 
 /** `run` is working, `wait` is waiting on someone or something, `block` is stuck, `idle` is nothing to watch. */
-export const STATE_TONE: Record<string, Tone> = {
+const STATE_TONE: Record<string, Tone> = {
   doing: 'run',
   queued: 'wait',
   pending: 'wait',
@@ -25,14 +25,8 @@ export const STATE_TONE: Record<string, Tone> = {
 };
 
 export const toneOf = (state: string): Tone => STATE_TONE[state] ?? 'idle';
-export const glyphOf = (state: string): (typeof STATE_GLYPH)[keyof typeof STATE_GLYPH] =>
-  (STATE_GLYPH as Record<string, (typeof STATE_GLYPH)[keyof typeof STATE_GLYPH]>)[state] ?? 'taskPending';
-
 /** The one vocabulary of waiting (docs/story1-research.md section 3). */
 export const WAIT_WORDS = {
   founder: 'waiting on you',
-  cap: 'at its cap',
-  wall: 'wall',
 } as const;
 export const blockedBy = (ids: readonly number[]): string => `blocked by ${ids.map((n) => `T${n}`).join(', ')}`;
-export const hostFull = (used: number, cap: number): string => `host full: ${used} of ${cap}`;

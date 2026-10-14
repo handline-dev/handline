@@ -3,16 +3,13 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import Svg, { G, Path, Rect, Text as SvgText } from 'react-native-svg';
-import { taskGraph, taskRef, type GraphEdge } from '@handline/app-core';
+import { clip, edgePath, taskGraph, taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task } from '@handline/client';
 import { toneOf, type Tone } from '@handline/app-ui';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Button } from './parts.tsx';
-
-const d = (e: GraphEdge) => e.points.map((p, i) => `${i ? 'L' : 'M'}${p.x} ${p.y}`).join(' ');
-const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 export function TaskGraph(props: { tasks: readonly Task[]; onSelect: (id: number) => void }) {
   const c = usePalette();
@@ -31,7 +28,7 @@ export function TaskGraph(props: { tasks: readonly Task[]; onSelect: (id: number
         <ScrollView testID="task-graph">
           <Svg width={g.width * k} height={g.height * k} viewBox={`0 0 ${g.width} ${g.height}`}>
             {g.edges.map((e) => (
-              <Path key={`${e.from}-${e.to}`} d={d(e)} stroke={c.muted} strokeWidth={1.5} fill="none" />
+              <Path key={`${e.from}-${e.to}`} d={edgePath(e)} stroke={c.muted} strokeWidth={1.5} fill="none" />
             ))}
             {g.nodes.map((n) => (
               <G key={n.id} onPress={() => props.onSelect(n.id)} testID={`graph-node-${n.id}`}>

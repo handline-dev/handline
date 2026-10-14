@@ -82,3 +82,8 @@ export function taskGraph(tasks: readonly Task[], opts: { me: string; closed?: b
   const { width = 0, height = 0 } = g.graph();
   return { nodes, edges, width, height };
 }
+
+/** The SVG path data of an edge. */
+export const edgePath = (e: GraphEdge): string => e.points.map((p, i) => `${i ? 'L' : 'M'}${p.x} ${p.y}`).join(' ');
+/** A box's second line cut to `n` characters. */
+export const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);

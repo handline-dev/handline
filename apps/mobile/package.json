@@ -26,7 +26,8 @@
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
-    "react-native": "0.86.3"
+    "react-native": "0.86.3",
+    "react-native-svg": "15.15.4"
   },
   "devDependencies": {
     "@handline/config": "workspace:*",
@@ -35,7 +36,6 @@
     "@types/react-dom": "^19",
     "happy-dom": "^18",
     "react-dom": "19.2.3",
-    "react-native-svg": "15.15.4",
     "react-native-web": "^0.21.0",
     "typescript": "~6.0.3",
     "vitest": "^3"
