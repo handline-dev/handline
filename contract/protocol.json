@@ -4575,6 +4575,14 @@
      }
     },
     {
+     "name": "under",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "That task and every task below it, at any depth, done and discarded included (all is implied); still within the caller's scope, newest first and paged as without it."
+     }
+    },
+    {
      "name": "before",
      "required": false,
      "schema": {
@@ -9533,6 +9541,36 @@
       },
       "description": "The ids of the open tasks that hold this one (block_reason names them as text); empty when nothing does. Absent from a daemon that does not send it."
      },
+     "waits": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        },
+        "open": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "task",
+        "open"
+       ]
+      },
+      "description": "Every task this one has waited on, oldest first, with whether it is still open: blocked_by keeps only the open ones, this keeps a done one too (a discarded blocker's wait ends with it and drops out). A child task is one its parent waits on. Absent from a daemon that does not send it."
+     },
+     "waiting": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/TaskWaiting"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Why the open task waits, as one field every view shows the same way; null when nothing waits, and for a task that is not queued or doing. hold_reason and block_reason stay until the apps read this. Absent from a daemon that does not send it."
+     },
      "time": {
       "oneOf": [
        {
@@ -9590,6 +9628,36 @@
      "evidence"
     ],
     "description": "A task row without its body."
+   },
+   "TaskWaiting": {
+    "type": "object",
+    "properties": {
+     "on": {
+      "type": "string",
+      "description": "The cause, one word of an open set (a client shows text for a word it does not know): task (behind its open blockers, tasks names them), founder (an open request to the founder on the task), cap (the owner's account has no free slot), wall (the owner's account is at a usage limit), owner (the owner is busy: mid-turn, a dialog, closed, another task ahead), host (reserved: the host is full; not sent until the host cap exists)."
+     },
+     "text": {
+      "type": "string",
+      "description": "The line every view shows for it: `blocked by T<n>`, `waiting on you`, else the daemon's own reason."
+     },
+     "tasks": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "description": "The tasks it waits on, for on task (by id, also one outside the caller's scope); empty otherwise."
+     },
+     "since": {
+      "$ref": "#/components/schemas/Timestamp"
+     }
+    },
+    "required": [
+     "on",
+     "text",
+     "tasks",
+     "since"
+    ],
+    "description": "Why a task waits (Task.waiting)."
    },
    "TaskDetail": {
     "allOf": [

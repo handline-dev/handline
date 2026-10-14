@@ -145,10 +145,10 @@ func (e *Env) AgentReason(q db.Q, agent string, now int64) (r0 string, r1 bool, 
 }
 
 // TaskReason is taskReason with a failed statement returned as the error.
-func (e *Env) TaskReason(q db.Q, t *db.Task, now int64) (r0 string, r1 bool, r2 bool, err error) {
+func (e *Env) TaskReason(q db.Q, t *db.Task, now int64) (r0, r1 string, r2 bool, r3 bool, err error) {
 	defer Catch(&err)
-	r0, r1, r2 = e.taskReason(q, t, now)
-	return r0, r1, r2, nil
+	r0, r1, r2, r3 = e.taskReason(q, t, now)
+	return r0, r1, r2, r3, nil
 }
 
 // LandedAlready is landedAlready with a failed statement returned as the error.
