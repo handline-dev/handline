@@ -81,7 +81,10 @@ export function InboxPage({ item }: { item: number | null }) {
   >;
   // FYI is folded until asked for, but a deep link into it opens it.
   const [fyiOpen, setFyiOpen] = useState(false);
-  const fyiShown = fyiOpen || (item != null && grouped.fyi.some((i) => i.id === item));
+  const [fyiClosed, setFyiClosed] = useState(false); // the header closed it while a deep link held it open
+  const fyiShown = fyiOpen || (!fyiClosed && item != null && grouped.fyi.some((i) => i.id === item));
+  // Mark all FYI read ignores the kind and agent filters: it is all of the FYI group.
+  const unreadFyi = waiting.filter((i) => inboxGroup(i) === 'fyi' && !i.read);
   const shown = [...grouped.decisions, ...grouped.approvals, ...(fyiShown ? grouped.fyi : [])];
   const kinds = [...new Set(waiting.map((i) => i.kind))];
   const agents = [...new Set(waiting.flatMap((i) => (i.agent ? [i.agent] : [])))];
@@ -89,7 +92,10 @@ export function InboxPage({ item }: { item: number | null }) {
   // A deep link that names an item the list no longer holds (read and gone) says so instead of showing nothing.
   const missing = item != null && list.isSuccess && !waiting.some((i) => i.id === item);
 
-  useEffect(() => setCursor(item), [item]);
+  useEffect(() => {
+    setCursor(item);
+    setFyiClosed(false);
+  }, [item]);
   useEffect(() => {
     if (item != null) document.querySelector(`[data-item="${item}"]`)?.scrollIntoView?.({ block: 'center' });
   }, [item, all.length]);
@@ -219,7 +225,6 @@ export function InboxPage({ item }: { item: number | null }) {
               const rows = grouped[g];
               if (!rows.length) return null;
               const fyi = g === 'fyi';
-              const unreadRows = rows.filter((i) => !i.read);
               return (
                 <section key={g} className={`inbox-group inbox-${g} flex flex-col gap-1`} aria-label={label}>
                   <h3 className="m-0 flex items-center gap-2 text-[13px] text-ink-2">
@@ -227,7 +232,7 @@ export function InboxPage({ item }: { item: number | null }) {
                       <button
                         className="flex items-center gap-1 border-0 bg-transparent p-0 text-inherit"
                         aria-expanded={fyiShown}
-                        onClick={() => setFyiOpen(!fyiShown)}
+                        onClick={() => (setFyiOpen(!fyiShown), setFyiClosed(fyiShown))}
                       >
                         <Icon name={fyiShown ? 'chevron' : 'chevronRight'} size={14} aria-hidden />
                         {label}
@@ -243,9 +248,9 @@ export function InboxPage({ item }: { item: number | null }) {
                         icon="markAllRead"
                         label="Mark all FYI read"
                         className="ml-auto"
-                        disabled={!unreadRows.length || !!verbs.off.read}
-                        title={verbs.off.read ?? 'Mark all FYI read'}
-                        onClick={() => markAll.mutate({ ids: unreadRows.map((i) => i.id) })}
+                        disabled={!unreadFyi.length || !!verbs.off.read}
+                        title={verbs.off.read ?? (filtered ? 'Mark all FYI read, filters ignored' : 'Mark all FYI read')}
+                        onClick={() => markAll.mutate({ ids: unreadFyi.map((i) => i.id) })}
                       />
                     ) : null}
                   </h3>
