@@ -60,8 +60,29 @@ function disc(b: Bitmap, cx: number, cy: number, r: number, rgb: [number, number
 
 function line(b: Bitmap, p: Point, q: Point, width: number, rgb: [number, number, number]) {
   const r = Math.max(0.5, width / 2);
-  const steps = Math.max(1, Math.ceil(Math.hypot(q.x - p.x, q.y - p.y) / Math.max(0.5, r / 2)));
-  for (let i = 0; i <= steps; i++) disc(b, p.x + ((q.x - p.x) * i) / steps, p.y + ((q.y - p.y) * i) / steps, r, rgb);
+  if (![p.x, p.y, q.x, q.y].every(Number.isFinite)) return;
+  // Only the part of the segment that can touch the bitmap is walked, so a stroke of 1e9 px costs what its visible part does.
+  let t0 = 0;
+  let t1 = 1;
+  const dx = q.x - p.x;
+  const dy = q.y - p.y;
+  const edges: [number, number][] = [[-dx, p.x + r], [dx, b.width + r - p.x], [-dy, p.y + r], [dy, b.height + r - p.y]];
+  for (const [d, room] of edges) {
+    if (d === 0) {
+      if (room < 0) return;
+    } else {
+      const t = room / d;
+      if (d < 0) t0 = Math.max(t0, t);
+      else t1 = Math.min(t1, t);
+    }
+  }
+  if (t0 > t1) return;
+  const len = Math.hypot(dx, dy) * (t1 - t0);
+  const steps = Math.max(1, Math.ceil(len / Math.max(0.5, r / 2)));
+  for (let i = 0; i <= steps; i++) {
+    const t = t0 + ((t1 - t0) * i) / steps;
+    disc(b, p.x + dx * t, p.y + dy * t, r, rgb);
+  }
 }
 
 function arrow(b: Bitmap, from: Point, to: Point, width: number, rgb: [number, number, number]) {

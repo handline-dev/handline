@@ -114,6 +114,7 @@ export type SvgElement =
   | { type: 'path'; d: string; stroke: string; strokeWidth: number }
   | { type: 'text'; x: number; y: number; fontSize: number; fill: string; text: string };
 
+const CAP_HEIGHT = 0.7;
 const num = (n: number) => String(Math.round(n * 100) / 100);
 const poly = (ps: Point[]) => ps.map((p, i) => `${i ? 'L' : 'M'}${num(p.x)} ${num(p.y)}`).join('');
 
@@ -123,7 +124,8 @@ const poly = (ps: Point[]) => ps.map((p, i) => `${i ? 'L' : 'M'}${num(p.x)} ${nu
  */
 export function shapesToSvg(shapes: readonly Shape[], width: number, height: number): { viewBox: string; elements: SvgElement[] } {
   const elements: SvgElement[] = shapes.map((s): SvgElement => {
-    if (s.kind === 'text') return { type: 'text', x: s.at.x, y: s.at.y, fontSize: s.size, fill: s.color, text: s.text };
+    // The raster's size is the capital height; a font's capitals are about 0.7 of its size, and the raster draws capitals only.
+    if (s.kind === 'text') return { type: 'text', x: s.at.x, y: s.at.y, fontSize: Number(num(s.size / CAP_HEIGHT)), fill: s.color, text: s.text.toUpperCase() };
     let d: string;
     if (s.kind === 'pen') d = s.points.length === 1 ? poly([s.points[0]!, s.points[0]!]) : poly(s.points);
     else if (s.kind === 'box') d = `${poly([s.from, { x: s.to.x, y: s.from.y }, s.to, { x: s.from.x, y: s.to.y }])}Z`;

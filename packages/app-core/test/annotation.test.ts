@@ -64,5 +64,15 @@ test('svg data has a path per shape and keeps the model units', () => {
   assert.deepEqual(svg.elements[0], { type: 'path', d: 'M1 2L3 4', stroke: '#e5322d', strokeWidth: 6 });
   assert.deepEqual(svg.elements[1]?.type === 'path' && svg.elements[1].d, 'M0 0L10 0L10 5L0 5Z');
   assert.equal(svg.elements[2]?.type === 'path' && svg.elements[2].d.startsWith('M0 0L100 0M100 0L'), true);
-  assert.deepEqual(svg.elements[3], { type: 'text', x: 5, y: 6, fontSize: 24, fill: '#e5322d', text: 'hi' });
+  assert.deepEqual(svg.elements[3], { type: 'text', x: 5, y: 6, fontSize: 34.29, fill: '#e5322d', text: 'HI' });
+});
+
+test('a stroke of a billion pixels is drawn only where it is visible, and fast', () => {
+  const s = run({ type: 'color', color: '#ff0000' }, { type: 'strokeStart', x: -1e9, y: 5 }, { type: 'strokeEnd', x: 1e9, y: 5 });
+  const t = Date.now();
+  const out = exportAnnotated(blankBitmap(30, 10), s.shapes);
+  assert.ok(Date.now() - t < 1000);
+  assert.deepEqual(px(out, 15, 5), [255, 0, 0, 255]);
+  const off = exportAnnotated(blankBitmap(30, 10), run({ type: 'strokeStart', x: -1e9, y: 500 }, { type: 'strokeEnd', x: 1e9, y: 500 }).shapes);
+  assert.ok(off.data.every((v) => v === 0));
 });
