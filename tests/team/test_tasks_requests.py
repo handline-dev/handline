@@ -4987,34 +4987,6 @@ def test_an_answer_is_a_message_of_its_own_with_its_own_number(home: Path) -> No
         actions.dismiss(con, rid2, me="manager", reason="not needed")
         check("dismissal: no answer row - it is a state, not words", db.answer_row_of(con, rid2) is None)
 
-        hand_edit_team("""
-agents:
-  manager: {}
-  worker:  {}
-
-edges:
-  - { from: "manager", to: "worker", relation: supervisor, response: fire_and_forget }
-  - { from: "worker", to: "manager", relation: subordinate, response: fire_and_forget }
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
-""")
-        ok, msg, h1 = askmod.ask("manager", "founder question", requester=actions.HUMAN)
-        askmod.resolve(h1, "manager's answer")
-        ok, msg, h2 = askmod.ask("manager", "another founder question", requester=actions.HUMAN)
-        actions.dismiss(con, h2, me=actions.HUMAN, reason="not needed", no_task="nothing to build")
-        h_ans = db.answer_row_of(con, h1)
-        rows, _ = actions.conversation_and_drawn(con, "manager", hint=False)
-        said = [r for r in rows if getattr(r, "kind", "") == "msg"]
-        asks = [r for r in said if r.part == 0 and r.rid == h1]
-        answers = [r for r in said if r.part == 1 and r.rid == h1]
-        check("conversation: the ask and its answer are each drawn once, numbered apart",
-              len(asks) == 1 and len(answers) == 1 and asks[0].mid == h1 and answers[0].mid == h_ans["id"]
-              and h_ans["id"] != h1, str([(r.rid, r.part, r.mid) for r in said]))
-        check("conversation: no answer row is drawn as a request of its own",
-              len([r for r in said if r.text == "manager's answer"]) == 1,
-              str([r.text for r in said]))
-        dismissed = [r for r in said if r.rid == h2 and r.part == 1]
-        check("conversation: a dismissal has no number of its own", dismissed and dismissed[0].mid is None)
-
         # An old verdict, written before answer rows existed, is given one - once.
         old = db.add_request(con, "worker", "manager", "old question", None, None, None, None, 0,
                              None, verdict="old verdict")
@@ -7090,11 +7062,6 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
               thread and all("read - no reply" not in l for l in thread
                              if "what I mean" not in l)
               and sum("dismissed" in l for l in thread) == 3, str(thread))
-        _, drawn_lines = "", actions.conversation_and_drawn(con, "manager")[0]
-        check("dismissed: the conversation draws the label",
-              sum("dismissed" in l for l in drawn_lines) == 3
-              and all("read - no reply" not in l for l in drawn_lines
-                      if "what I mean" not in l), str(drawn_lines))
         title, sections = actions.message_detail(con, old)
         detail = "\n".join(l for _, ls in sections[:1] for l in ls)
         check("dismissed: an opened message shows the label",
@@ -7109,19 +7076,9 @@ def test_a_dismissal_is_a_state_and_never_reads_as_words(home: Path) -> None:
               str([dict(r) for r in db.unannounced_answers(con, "worker")]))
         check("dismissed: the label is still how the row reads",
               db.shown_verdict(db.get_request(con, w)) == "dismissed by manager - not now")
-        con.execute("UPDATE requests SET state_at = ? WHERE id = ?", (int(time.time()), w))
-        seen = int(time.time())
-        db.set_cursor(con, "seen:manager", seen)
-        check("unread: nothing new after the tab was read", actions.chat_unread(con, "manager") == 0)
-        fresh = _human_request()
-        actions.dismiss(con, fresh, me="manager", reason="not mine", no_task="nothing")
-        con.execute("UPDATE requests SET ts = ?, state_at = ? WHERE id = ?",
-                    (seen - 5, seen + 10, fresh))
-        check("unread: an agent's dismissal of the founder's message is a new line",
-              actions.chat_unread(con, "manager") == 1, str(actions.chat_unread(con, "manager")))
         gaps = actions.reason_gaps(con)
-        check("dismissed: the reason gap still counts both shapes (5 dismissals, 1 blank)",
-              (gaps["retirements"], gaps["retirements_blank"]) == (5, 1), str(gaps))
+        check("dismissed: the reason gap still counts both shapes (4 dismissals, 1 blank)",
+              (gaps["retirements"], gaps["retirements_blank"]) == (4, 1), str(gaps))
     finally:
         con.close()
 

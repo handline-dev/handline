@@ -6,7 +6,6 @@ import threading
 import time
 
 from ..team import accounts
-from ..infra import timefmt
 from ..team import agents
 from ..usage import collect
 from .. import db
@@ -21,57 +20,7 @@ from ..session import triggers
 from ..team import trust
 from .. import vendors
 
-from .conversation import CHAT_TAB, Entry, Event, Fact, OTHERS_TAB, UNTOLD_TAB, chat_unread, conversation_and_drawn
-
-
-def agent_detail(con, agent: str, hint: bool = True) -> list[tuple[str, list[str]]]:
-    """What is behind an agent's row, in sections a screen can draw.
-
-    The head, then the conversation the human has with it, then whatever is
-    waiting on it or owed to it that is not part of that conversation - a
-    request from another agent is not something the human said to it. What it
-    knows and what it has done are read on request (`agent_knows`, `agent_done`).
-
-    `hint`: see `conversation_and_drawn`.
-    """
-    row = db.get_agent_state(con, agent)
-    try:
-        cfg = agents.read(agent)
-        acct = agents.current_account(agent, con)
-    except Exception as e:  # noqa: BLE001
-        return [("", [f"config error: {e}"])]
-    st = status.read_for_agent(agent, acct)
-    head = [Fact(("account", acct or "-"), ("model", str(cfg.get("model"))),
-                 ("effort", cfg.get("effort") or agents.DEFAULT_EFFORT),
-                 ("ctx", "?" if st.ctx_pct is None else str(st.ctx_pct) + "%"))]
-    if row:
-        closed = "  ·closed" if row["closed_at"] else ""
-        head.append(Fact(("state", f"{row['state']}{closed}"),
-                         *([("wakes", timefmt.stamp(row["wake_at"], timefmt.CLOCK))]
-                           if row["wake_at"] else [])))
-        if row["detail"]:
-            head.append(row["detail"])
-
-    # What the conversation drew is not repeated; every other queued request
-    # and untold answer is listed under it, including one in a chain too old
-    # for the conversation to draw.
-    chat, drawn = conversation_and_drawn(con, agent, hint)
-    others = [Entry(r["id"], r["requester"], r["body"] or "", r["ts"])
-              for r in db.queued_for(con, agent) if r["id"] not in drawn]
-    untold = [Entry(r["id"], r["target"], db.shown_verdict(r) or r["state"], db.answered_at(r))
-              for r in db.unannounced_answers(con, agent) if r["id"] not in drawn]
-    if others or untold:
-        # Where the reader is left, at the end of the conversation.
-        chat += [f"below: {len(others)} also queued for it, {len(untold)} "
-                 "answers it has not been told - press G to read them"]
-    sections = [("", head)]
-    n = chat_unread(con, agent)
-    sections.append((CHAT_TAB + (f" ({n if n < 100 else '99+'} new)" if n else ""), chat))
-    if others:
-        sections.append((f"{OTHERS_TAB} ({len(others)})", others))
-    if untold:
-        sections.append((f"{UNTOLD_TAB} ({len(untold)})", untold))
-    return sections
+from .conversation import Event
 
 
 def agent_knows(con, agent: str) -> list[str]:
