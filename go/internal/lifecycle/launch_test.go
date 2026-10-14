@@ -92,7 +92,6 @@ type launchRig struct {
 func newLaunchRig(t *testing.T) *launchRig {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", t.TempDir()) // the protected store lives under the user home
 	t.Setenv("OCP_AGENT", "")
 	t.Setenv("HANDLINE_AGENT", "")
 	t.Setenv("OCP_HOME", home)
