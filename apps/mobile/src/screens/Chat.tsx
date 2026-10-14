@@ -1,7 +1,8 @@
 // Chat tab of the agent page: the conversation with the agent on `useChat`, like the web's Chat. The person's messages show how far they
 // got (a glyph and a word), a tap picks one to reply to, an unanswered one can be taken back, a question from the agent can be answered,
 // and a refused send stays as a failed row with Retry. A message to a structured agent shows its receipt (queued, sent, confirmed, or unknown:
-// lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A daemon that does not serve chat gets an empty state.
+// lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message, in the
+// chat that shows it. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { isOpenAsk, landingLabel, sideOf, timeline } from '@handline/app-core';
@@ -12,6 +13,8 @@ import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
 import { Line, clock } from './ChatLines.tsx';
+import { ChatFind } from './ChatFind.tsx';
+import { ChatSearch } from './ChatSearch.tsx';
 import { Button, Row } from './parts.tsx';
 
 /** A shape for each stage, so the stage does not rest on colour. */
@@ -65,6 +68,10 @@ export function Chat(props: { detail: AgentDetail }) {
   const [text, setTextState] = useState(drafts.get(agent) ?? '');
   const scroll = useRef<ScrollView>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
+  const [going, setGoing] = useState<number | null>(null); // a message number being found
+  const [flash, setFlash] = useState<number | null>(null); // the message a search hit just landed on
+  const rowY = useRef(new Map<number, number>());
+  const [missing, setMissing] = useState(false); // the hit's message could not be found
   const setText = (v: string) => {
     drafts.set(agent, v);
     setTextState(v);
@@ -97,6 +104,27 @@ export function Chat(props: { detail: AgentDetail }) {
     read.mutate({ ids });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inbox.data, chat.status, agent]);
+
+  const drawn = going !== null && entries.some((e) => e.kind !== 'item' && e.id === going);
+  const reveal = (id: number) => {
+    const y = rowY.current.get(id);
+    if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - space.lg), animated: true });
+  };
+  const found = () => {
+    pinned.current = false;
+    setFlash(going);
+    if (going !== null) reveal(going);
+    setGoing(null);
+  };
+  const lost = () => {
+    setGoing(null);
+    setMissing(true);
+  };
+  useEffect(() => {
+    if (flash === null) return;
+    const t = setTimeout(() => setFlash(null), 1500);
+    return () => clearTimeout(t);
+  }, [flash]);
 
   if (chat.status === 'off') return <ChatEmpty />;
 
@@ -142,6 +170,20 @@ export function Chat(props: { detail: AgentDetail }) {
           {scope === 'mine' ? 'You and this agent' : 'Also what agents tell each other'}
         </Text>
       </Row>
+      <ChatSearch
+        agent={agent}
+        scope={scope}
+        onGo={(id) => {
+          setMissing(false);
+          setGoing(id);
+        }}
+      />
+      {going !== null && <ChatFind id={going} scope={scope} setScope={setScope} chat={chat} drawn={drawn} onFound={found} onLost={lost} />}
+      {missing && (
+        <Text testID="search-lost" style={{ color: c.muted, paddingHorizontal: space.md }}>
+          That message is no longer in this chat.
+        </Text>
+      )}
       <ScrollView
         ref={scroll}
         testID="chat"
@@ -176,6 +218,11 @@ export function Chat(props: { detail: AgentDetail }) {
               m={e.message}
               agent={agent}
               picked={picked?.id === e.id}
+              flashed={flash === e.id}
+              onRow={(y) => {
+                rowY.current.set(e.id, y);
+                if (flash === e.id) reveal(e.id);
+              }}
               working={working}
               onPick={(m) => {
                 setItem(null);
@@ -260,6 +307,8 @@ function Bubble(props: {
   m: ChatMessage;
   agent: string;
   picked: boolean;
+  flashed: boolean;
+  onRow: (y: number) => void;
   working: boolean;
   onPick: (m: ChatMessage) => void;
   onRestore: (text: string) => void;
@@ -292,6 +341,7 @@ function Bubble(props: {
     <Pressable
       testID={`msg-${m.id}`}
       disabled={unnumbered || failed}
+      onLayout={(e) => props.onRow(e.nativeEvent.layout.y)}
       onPress={() => props.onPick(m)}
       style={{
         alignSelf: side === 'person' ? 'flex-end' : 'flex-start',
@@ -301,10 +351,15 @@ function Bubble(props: {
         borderRadius: radius.lg,
         backgroundColor: bg,
         borderWidth: 1,
-        borderColor: props.picked ? c.accent : failed ? c.block : c.line,
+        borderColor: props.picked || props.flashed ? c.accent : failed ? c.block : c.line,
         opacity: unnumbered && !failed ? 0.6 : 1,
       }}
     >
+      {props.flashed && (
+        <Text testID={`found-${m.id}`} style={{ color: c.accent, fontSize: 11 }}>
+          Found by search
+        </Text>
+      )}
       {side === 'other' && (
         <Text style={{ color: c.muted, fontSize: 11 }}>
           {m.from} → {m.to}
