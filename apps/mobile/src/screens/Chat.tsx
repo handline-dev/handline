@@ -6,23 +6,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { isOpenAsk, landingLabel, sideOf, timeline } from '@handline/app-core';
-import {
-  classify,
-  sentence,
-  useAgents,
-  useChat,
-  useChatActions,
-  useChatLocate,
-  useInbox,
-  useWrite,
-  type ChatScope,
-} from '@handline/app-data';
+import { classify, sentence, useAgents, useChat, useChatActions, useInbox, useWrite, type ChatScope } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, Landing, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
 import { Line, clock } from './ChatLines.tsx';
+import { ChatFind } from './ChatFind.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { Button, Row } from './parts.tsx';
 
@@ -80,7 +71,7 @@ export function Chat(props: { detail: AgentDetail }) {
   const [going, setGoing] = useState<number | null>(null); // a message number being found
   const [flash, setFlash] = useState<number | null>(null); // the message a search hit just landed on
   const rowY = useRef(new Map<number, number>());
-  const locate = useChatLocate({ request: going ?? 0 }, going !== null);
+  const [missing, setMissing] = useState(false); // the hit's message could not be found
   const setText = (v: string) => {
     drafts.set(agent, v);
     setTextState(v);
@@ -114,25 +105,21 @@ export function Chat(props: { detail: AgentDetail }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inbox.data, chat.status, agent]);
 
-  // A hit: when its message is drawn, scroll to it and mark it; else learn its chat from the daemon, switch to it and read back until it is there.
-  const where = locate.data?.scope;
   const drawn = going !== null && entries.some((e) => e.kind !== 'item' && e.id === going);
   const reveal = (id: number) => {
     const y = rowY.current.get(id);
     if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - space.lg), animated: true });
   };
-  useEffect(() => {
-    if (going === null) return;
-    if (drawn) {
-      pinned.current = false;
-      setFlash(going);
-      reveal(going);
-      setGoing(null);
-    } else if (where && where !== scope) setScope(where);
-    else if (where && chat.hasOlder && !chat.loadingOlder) chat.loadOlder();
-    else if (where && !chat.hasOlder && !chat.loadingOlder) setGoing(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [going, where, scope, drawn, chat.hasOlder, chat.loadingOlder, entries.length]);
+  const found = () => {
+    pinned.current = false;
+    setFlash(going);
+    if (going !== null) reveal(going);
+    setGoing(null);
+  };
+  const lost = () => {
+    setGoing(null);
+    setMissing(true);
+  };
   useEffect(() => {
     if (flash === null) return;
     const t = setTimeout(() => setFlash(null), 1500);
@@ -183,7 +170,20 @@ export function Chat(props: { detail: AgentDetail }) {
           {scope === 'mine' ? 'You and this agent' : 'Also what agents tell each other'}
         </Text>
       </Row>
-      <ChatSearch agent={agent} scope={scope} onGo={setGoing} />
+      <ChatSearch
+        agent={agent}
+        scope={scope}
+        onGo={(id) => {
+          setMissing(false);
+          setGoing(id);
+        }}
+      />
+      {going !== null && <ChatFind id={going} scope={scope} setScope={setScope} chat={chat} drawn={drawn} onFound={found} onLost={lost} />}
+      {missing && (
+        <Text testID="search-lost" style={{ color: c.muted, paddingHorizontal: space.md }}>
+          That message is no longer in this chat.
+        </Text>
+      )}
       <ScrollView
         ref={scroll}
         testID="chat"

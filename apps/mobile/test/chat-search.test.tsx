@@ -56,6 +56,33 @@ describe('chat search on the phone', () => {
     m.store.stop();
   });
 
+  it('reads older pages until a hit beyond the first page is drawn', async () => {
+    const m = await open((s) => {
+      s.daemon.chat.seed(ARCH, { from: 'founder', to: ARCH, body: 'the needle of long ago' });
+      for (let i = 0; i < 60; i++) s.daemon.chat.seed(ARCH, { from: 'founder', to: ARCH, body: `filler ${i}` });
+    });
+    await search('needle');
+    await until(() => hits().length, 'a hit');
+    expect($('msg-' + hits()[0]!.getAttribute('data-testid')!.replace('hit-', ''))).toBeNull();
+    const id = hits()[0]!.getAttribute('data-testid')!.replace('hit-', '');
+    await press(hits()[0]!);
+    await until(() => $(`found-${id}`), 'the older message marked');
+    m.store.stop();
+  });
+
+  it('says so when the daemon cannot find a message that is not drawn', async () => {
+    const m = await open((s) => {
+      s.daemon.knobs.refuse('chat.locate', 'state', 'gone');
+      s.daemon.chat.seed(ARCH, { from: 'founder', to: ARCH, body: 'the needle of long ago' });
+      for (let i = 0; i < 60; i++) s.daemon.chat.seed(ARCH, { from: 'founder', to: ARCH, body: `filler ${i}` });
+    });
+    await search('needle');
+    await until(() => hits().length, 'a hit');
+    await press(hits()[0]!);
+    await until(() => $('search-lost'), 'the notice');
+    m.store.stop();
+  });
+
   it('a daemon that does not list chat.search shows no box', async () => {
     const m = await open((s) => s.daemon.knobs.unserve('chat.search'));
     expect($('chat-search')).toBeNull();
