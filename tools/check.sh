@@ -2,7 +2,7 @@
 # The tests a change needs, from what it changes against <base> (default main): the one run the auditor makes on a sha.
 #   tools/check.sh [<base>]
 # - nothing changed, or documentation only (docs/, design/, *.md, but not contract/ or skill/): nothing.
-# - only the Go daemon and the apps (go/, apps/, web/, packages/, the JS workspace files, the tools that serve only
+# - only the Go daemon and the apps (go/, apps/, packages/, the JS workspace files, the tools that serve only
 #   the Go checks): the Go suite (tools/test-go.sh) and the Python files that test only Go (GO_FILES). No Python logic tests. None of this
 #   tests the apps: their own checks are `pnpm turbo test typecheck lint`.
 # - anything else (handline/, ocp/, tests/, tools/, ...): the whole suite, tools/suite.sh, which runs the Go suite too.
@@ -22,7 +22,7 @@ while IFS= read -r path; do
     case "$path" in
         contract/*|skill/*) kind=python; break ;;
         docs/*|design/*|*.md) [ "$kind" = none ] && kind=docs ;;
-        go/*|apps/*|web/*|packages/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json) kind=go ;;
+        go/*|apps/*|packages/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json) kind=go ;;
         tools/build-go.sh|tools/build-hl.sh|tools/go-env.sh|tools/check-go-tidy.sh|tools/conformance_fds.py|tools/go_contract.py|tools/go_schema.py) kind=go ;;
         *) kind=python; break ;;
     esac
