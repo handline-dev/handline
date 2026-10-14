@@ -169,7 +169,7 @@ def cmd_task_queue(args) -> int:
 
 
 def cmd_task_draft(args) -> int:
-    """Send queued tasks back to draft - anyone."""
+    """Send queued or doing tasks back to draft - anyone."""
     return _cmd_task_queue(args, False)
 
 

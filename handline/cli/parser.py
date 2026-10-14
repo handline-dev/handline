@@ -632,7 +632,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = tk.add_parser("queue", help="approve draft tasks to run - anyone; its opener and assignee are told")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")
     p.set_defaults(fn=cmd_task_queue)
-    p = tk.add_parser("draft", help="send queued tasks back to draft - anyone; its opener and assignee are told")
+    p = tk.add_parser("draft", help="send queued or doing tasks back to draft - anyone; its opener and assignee are told, a holder working it stopped and moved on")
     p.add_argument("tasks", type=_task_arg, nargs="+", metavar="T")
     p.set_defaults(fn=cmd_task_draft)
     p = tk.add_parser("edit", help="change a task's assignee, owner, title, brief, priority, timeout or what it "

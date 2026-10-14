@@ -262,10 +262,10 @@ export class FakeTasks {
     this.change(t, { state: 'queued', done: null });
   }
   /** Queue or draft a list: the whole call is refused if any of them is in the wrong state. */
-  move(p: Record<string, unknown>, from: 'draft' | 'queued', to: 'draft' | 'queued'): void {
+  move(p: Record<string, unknown>, from: readonly string[], to: 'draft' | 'queued'): void {
     const rows = ((p.tasks as number[]) ?? []).map((id) => this.find(id));
-    const bad = rows.find((t) => t.state !== from);
-    if (bad) throw new TaskFailure('refused', `task ${bad.id} is ${bad.state}, not ${from}`);
+    const bad = rows.find((t) => !from.includes(t.state));
+    if (bad) throw new TaskFailure('refused', `task ${bad.id} is ${bad.state}, not ${from.join(' or ')}`);
     for (const t of rows) this.change(t, { state: to });
   }
   discard(p: Record<string, unknown>): void {
@@ -340,9 +340,9 @@ export function taskCall(
       case 'task.reopen':
         return (tasks.reopen(p, person), ok('Task reopened.'));
       case 'task.queue':
-        return (tasks.move(p, 'draft', 'queued'), ok('Queued.'));
+        return (tasks.move(p, ['draft'], 'queued'), ok('Queued.'));
       case 'task.draft':
-        return (tasks.move(p, 'queued', 'draft'), ok('Back to draft.'));
+        return (tasks.move(p, ['queued', 'doing'], 'draft'), ok('Back to draft.'));
       case 'task.discard':
         return (tasks.discard(p), ok('Task discarded.'));
       case 'task.release':

@@ -17,6 +17,7 @@ type Retired struct {
 	Requester, Target string
 	Held, Delivered   bool
 	Notify            bool // the requester is told of the close
+	Park              bool // a draft took the held task back: its target is moved on to its next task
 }
 
 // releaseMethod is task.release (actions.release_task): anyone's call, with a one-line reason, to take a doing task back to queued or
