@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { second, setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
+import { popPlace } from '../src/UsagePopup.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -150,6 +151,12 @@ describe('the usage popup', () => {
     await click($('.usage-btn'));
     document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     await until(() => !$('.usage-pop'), 'closed by an outside click');
+  });
+
+  it('the popup is placed above the button and kept inside the window', () => {
+    expect(popPlace({ left: 1214, top: 760 }, 1280, 800)).toEqual({ bottom: 48, left: 912 });
+    expect(popPlace({ left: 20, top: 760 }, 1280, 800)).toEqual({ bottom: 48, left: 20 });
+    expect(popPlace({ left: 330, top: 600 }, 360, 640)).toEqual({ bottom: 48, left: 8 });
   });
 
   it('a window at 95% is a red row and one at 90% an amber row', async () => {

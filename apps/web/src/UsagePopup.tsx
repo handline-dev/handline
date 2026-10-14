@@ -15,6 +15,13 @@ const EDGE = { ok: 'border-line', warn: 'border-wait', bad: 'border-bad' } as co
 const POP =
   'usage-pop fixed bottom-[var(--pop-b)] left-[var(--pop-l)] z-20 flex w-[min(360px,calc(100vw_-_16px))] flex-col gap-2 rounded-card border border-line bg-panel p-2.5 shadow-[var(--shadow-pop)] max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:w-auto max-sm:rounded-b-none max-sm:rounded-t-dialog';
 
+const POP_W = 360;
+/** Above the button, its left edge kept inside the window (the button sits at the right of the bar). */
+export function popPlace(button: { left: number; top: number }, vw: number, vh: number): { bottom: number; left: number } {
+  const w = Math.min(POP_W, vw - 16);
+  return { bottom: vh - button.top + 8, left: Math.max(8, Math.min(button.left, vw - w - 8)) };
+}
+
 export function UsagePopup() {
   const { data } = useAccounts();
   const { served } = useServes('accounts.list');
@@ -37,9 +44,19 @@ export function UsagePopup() {
       document.removeEventListener('keydown', esc);
     };
   }, [open]);
-  const toggle = () => {
+  const place = () => {
     const r = root.current?.getBoundingClientRect();
-    if (r) setAt({ '--pop-b': `${window.innerHeight - r.top + 8}px`, '--pop-l': `${Math.max(8, r.left)}px` } as CSSProperties);
+    if (!r) return;
+    const p = popPlace(r, window.innerWidth, window.innerHeight);
+    setAt({ '--pop-b': `${p.bottom}px`, '--pop-l': `${p.left}px` } as CSSProperties);
+  };
+  useEffect(() => {
+    if (!open) return;
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [open]);
+  const toggle = () => {
+    place();
     setOpen(!open);
   };
   const now = useNow();
