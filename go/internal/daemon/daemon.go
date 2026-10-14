@@ -15,6 +15,7 @@ import (
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/authority"
 	"github.com/handline/handline/go/internal/chatwrites"
+	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/debugterm"
 	"github.com/handline/handline/go/internal/devices"
 	"github.com/handline/handline/go/internal/hooks"
@@ -36,6 +37,7 @@ import (
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/termchan"
 	"github.com/handline/handline/go/internal/transcript"
+	"github.com/handline/handline/go/internal/turns"
 	"github.com/handline/handline/go/internal/version"
 	"github.com/handline/handline/go/internal/watcher"
 	"github.com/handline/handline/go/internal/weblogin"
@@ -75,7 +77,9 @@ type Config struct {
 	// OwnPrompts makes this daemon the one writer of prompt_blocks: it runs the screen watch. Without it the rows are only read.
 	// Every daemon but a gateway takes the daemon singleton, so none starts beside a Python daemon.
 	OwnPrompts bool
-	Terminal   term.Backend // the host the screen watch reads; nil is the configured one (tests give a fake)
+	Terminal   term.Backend
+	// Turns, when set, says whether a terminal agent is mid-turn from its hooks and transcript; nil reads its screen (-turns-from-hooks).
+	Turns *turns.Tracker // the host the screen watch reads; nil is the configured one (tests give a fake)
 
 	// EnsureFounderKey makes the founder key when there is none and reports whether the store could be written (the daemon main sets it
 	// to the home's tokens: the store is outside the home, so a test leaves it nil).
@@ -174,11 +178,19 @@ func Start(cfg Config) (*Daemon, error) {
 		return nil, err
 	}
 	d := &Daemon{cfg: cfg, db: db, started: time.Now(), conns: map[net.Conn]struct{}{}, stop: make(chan struct{})}
+	if cfg.Turns != nil {
+		cfg.Turns.Agent = func(handle string) string { a, _ := dbpkg.AgentOfTerminal(db, handle); return a }
+		cfg.Turns.Interrupted = func(agent string) {
+			if err := hooks.MarkInterrupted(db, cfg.Home, agent); err != nil {
+				cfg.Log("  turns: %s: %v", agent, err)
+			}
+		}
+	}
 	if cfg.OnOpen != nil {
 		cfg.OnOpen(db, d.env())
 	}
 	if !cfg.Gateway { // the Python daemon alone writes agent state: a gateway has no hook.record and reads no spool
-		d.hooks = &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log}
+		d.hooks = &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log, Turns: cfg.Turns}
 		d.logins = &weblogin.Manager{Home: cfg.Home}
 		d.prompts = prompts.New(db, cfg.Home, &reads.Env{DB: db, Home: cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
 		d.prompts.Structured = cfg.Answers
@@ -427,6 +439,9 @@ func (d *Daemon) typing() *sessionrpc.Env {
 	t := term.New(term.Dynamic(d.cfg.Home), nil)
 	if d.cfg.Terminal != nil {
 		t = term.New(d.cfg.Terminal, nil)
+	}
+	if d.cfg.Turns != nil {
+		t.Turns = d.cfg.Turns
 	}
 	return &sessionrpc.Env{DB: d.db, Home: d.cfg.Home, Holds: d.holds, Term: t, Marker: d.tchan.Marker, Structured: d.cfg.Structured,
 		Wall:          func(agent string) string { why, _ := d.env().WallReason(d.db, agent, nil); return why },

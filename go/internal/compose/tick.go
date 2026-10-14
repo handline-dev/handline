@@ -68,6 +68,9 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	logLine := func(s string) { cfg.Log("%s", s) }
 	tu := tickUsage{p: p, u: uenv, roster: lc.roster, own: tc.Cutover}
 	view := p.agentView(cfg, tc.Cutover, tc.Terminals, tu)
+	if cfg.Turns != nil && tc.Terminals {
+		cfg.Turns.OnChange(view.RefreshOne)
+	}
 	agents := func() []string { return p.tickAgents(tc.Terminals) }
 	reconciler := &lifecycle.Reconciler{Q: q, Log: logLine, Ports: lifecycle.ReconcilerPorts{
 		Agents:     agents,

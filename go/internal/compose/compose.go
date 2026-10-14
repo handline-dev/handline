@@ -21,6 +21,7 @@ import (
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/transcript"
+	"github.com/handline/handline/go/internal/turns"
 )
 
 // Config is what the daemon main knows and the parts need.
@@ -51,6 +52,8 @@ type Config struct {
 	ConfirmTimeout time.Duration
 	// Term is the terminal host agents run in; nil is the one config.yaml names (tmux by default). Tests give a fake one.
 	Term *term.Term
+	// Turns, when set, is asked before the screen whether a terminal agent is mid-turn (-turns-from-hooks).
+	Turns *turns.Tracker
 	// DiskFree is the free and total bytes of the volume holding a path, for the disk watch; nil is statfs. Tests give a low one.
 	DiskFree func(path string) (free, total int64, err error)
 }

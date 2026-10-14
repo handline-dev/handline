@@ -97,6 +97,9 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	if tm == nil {
 		tm = newTerm(home)
 	}
+	if cfg.Turns != nil {
+		tm.Turns = cfg.Turns
+	}
 	spawns := &lifecycle.Spawns{Q: q, Host: termHost{tm}, Launch: launchPort, Delivery: lc.Env, Roster: roster, Now: cfg.Now,
 		Run: p.Run, Locks: p.Locks}
 	waiting := func(q db.Q, agent string) bool {
