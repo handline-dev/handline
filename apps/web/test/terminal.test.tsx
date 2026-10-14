@@ -361,6 +361,18 @@ describe('the pane', () => {
     expect(resize.mock.calls[1]!.slice(1)).toEqual([120, 40]);
   });
 
+  it('a pane that has not measured itself when it goes live sends its size as soon as it can, with no click and no window change', async () => {
+    const s = setup();
+    const resize = vi.spyOn(s.client.bytes, 'resize');
+    proposed = null;
+    await mount(s);
+    await wait(400);
+    expect(resize).not.toHaveBeenCalled();
+    proposed = { cols: 100, rows: 30 };
+    await until(() => resize.mock.calls.length > 0, 'the size once measured');
+    expect(resize.mock.calls[0]!.slice(1)).toEqual([100, 30]);
+  });
+
   it('sends no size while another person holds the input, and follows again when they let go', async () => {
     const s = setup();
     const other = second(s.daemon, s.net, { client: 'someone-else' });
