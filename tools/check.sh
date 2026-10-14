@@ -8,6 +8,7 @@
 # Either of the last two first runs the app checks: `pnpm turbo test typecheck lint` (turbo caches it) when a JS workspace
 # file changed (apps/, packages/, the root JS files, contract/protocol.ts), else only the packages/app-data tests
 # (6 s), whose guards fail on a contract method the apps' tables do not name.
+# CHECK_PLAN=1 prints `kind=<none|docs|go|python> apps=<no|app-data|turbo>` and runs nothing.
 # A failing step does not stop the ones after it, so one run shows every failure; the exit status is 1 if any failed.
 cd "$(dirname "$0")/.." || exit 1
 # Hook and read parity with the Python daemon, and the Go migrations and method table being current.
@@ -33,6 +34,13 @@ while IFS= read -r path; do
         *) kind=python; break ;;
     esac
 done <<< "$changed"
+# CHECK_PLAN=1: say what would run and stop (CI reads this to pick its jobs): kind is none, docs, go or python; apps is yes or no.
+if [ -n "${CHECK_PLAN:-}" ]; then
+    apps=no
+    case "$kind" in go|python) grep -qE '^(apps|web|packages)/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|contract/package\.json|contract/protocol\.ts)$' <<< "$changed" && apps=turbo || apps=app-data ;; esac
+    echo "kind=$kind apps=$apps"
+    exit 0
+fi
 rc=0
 case "$kind" in
     none) echo "nothing changed against $base: no tests to run" >&2 ;;
