@@ -152,8 +152,8 @@ func setQueued(tx *sql.Tx, home string, tid int64, by string, queued bool) (stri
 	return msg, notes, closed, err
 }
 
-// withdrawDelivery closes the requests still asking t's owner to work it, as rejected, nobody told of the close (the draft notice tells the
-// opener and the owner). One that has landed is refused: its owner holds the task.
+// withdrawDelivery closes the requests still asking t's owner to work it (withdrawn when not yet delivered, else rejected), nobody told of
+// the close (the draft notice tells the opener and the owner). One that has landed is refused: its owner holds the task.
 func withdrawDelivery(tx *sql.Tx, t *task, by string) ([]Retired, error) {
 	reqs, err := taskRequests(tx, t.ID)
 	if err != nil {

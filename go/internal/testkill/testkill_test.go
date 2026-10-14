@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// started runs a shell that starts a grandchild and prints its pid, as the leader of a group of its own.
+// started runs a shell that starts a grandchild and prints its pid, as the leader of a group of its own that OnEnd kills.
 func started(t *testing.T) int {
 	t.Helper()
 	cmd := exec.Command("sh", "-c", "sleep 60 & echo $!; wait")
@@ -19,9 +19,12 @@ func started(t *testing.T) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Group(t, cmd); err != nil {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	pgid := cmd.Process.Pid
+	OnEnd(t, func() { syscall.Kill(-pgid, syscall.SIGKILL); cmd.Wait() })
 	line, err := bufio.NewReader(out).ReadString('\n')
 	if err != nil {
 		t.Fatal(err)
