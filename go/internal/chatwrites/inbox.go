@@ -327,6 +327,9 @@ func (w *writes) inboxReply(c *rpc.Conn, p map[string]any) (any, error) {
 				}
 			}
 		}
+		if _, err := w.images.CheckMessage(tx, body, "text", nil, c.Caller.Role == "agent"); err != nil {
+			return nil, nil, err
+		}
 		res, err := SayWrite(w.e, tx, me, target, body, rid, nil)
 		return res, nil, err
 	})

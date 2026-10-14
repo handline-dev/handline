@@ -387,7 +387,7 @@ export type TaskDetail = Task & {
     text: string;
     memo: number | null;
     edited_at: Timestamp | null;
-    /** `text` cut at the images it names, for a memo, an edit or a reject; present only when it names one. */
+    /** `text` cut at the images it names, for a memo, a handoff, an edit or a reject; present only when it names one. */
     parts?: (TextPart | ImagePart)[];
   }[];
   /** Whom the founder can ask about the task (task.ask), each agent once. */
@@ -833,8 +833,10 @@ export type ChatMessage = {
   scope?: "mine" | "all";
   /** Only for a message to a structured agent, while it is drawn (a withdrawn one is not). Changes ride the chat event. See x-delivery. */
   receipt?: Receipt;
-  /** The images sent with the message, in order. Absent when it has none. */
+  /** Every image of the message, in order: those the body names that are still kept, then those sent in `attachments`. Absent when it has none. */
   attachments?: Attachment[];
+  /** `body` cut at the images it names, in order, then one part per image sent with it in `attachments` that the body does not name (an empty caption); present only when the message has an image. The text parts joined give `body` with each reference left out. */
+  parts?: (TextPart | ImagePart)[];
   parent_item?: {
     /** The transcript item id. chat.transcript with since=id reads the page that shows it. */
     id: number;
@@ -1649,6 +1651,7 @@ export interface Methods {
   } };
   "chat.send": { params: {
   agent: AgentName;
+  /** Markdown. It may name images (x-attachments, texts), with or without `task`; with `task` it is the task's brief. */
   body: string;
   task?: {
     title: string;
@@ -1656,7 +1659,7 @@ export interface Methods {
   };
   /** The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is the new message. */
   parent?: number;
-  /** Images from attachment.put to send with this message, drawn in this order. Then body may be empty. An id that is unknown, expired or already sent is bad_request, field attachments. Not with task (bad_request). */
+  /** Images from attachment.put to send with this message, drawn after those the body names (x-attachments, flow); an id the body names too counts once, and the two together are at most 6 (bad_request, field attachments when the list goes over). Then body may be empty. An id may be sent again. A malformed id or an unfinished upload is bad_request, field attachments; an image never put or no longer kept is not_found, what attachment. Not with task (bad_request): a brief names its images in its text. */
   attachments?: AttachmentId[];
   /** A reply of the agent's own that this message answers: the `id` of an item of kind reply that chat.transcript lists for this agent (a structured session's text block, whose live event carries the same id as `item`, or the answer to a request). The agent's turn text has no message number, so it cannot be `parent`; the two do not go together, nor does this with task (bad_request, field parent_item). It may go with attachments. An id that is no item of this agent's transcript, or one of another agent's, is not_found (what: item); one that is not a reply (a tool call, a prompt, a task event, a session) is bad_request. */
   parent_item?: number;
@@ -1881,6 +1884,8 @@ export interface Methods {
       by: string | null;
       reason: string | null;
     } | null;
+    /** `body` cut at the images it names, in order, then one part per image sent with it in `attachments` that the body does not name (an empty caption); present only when the message has an image. The text parts joined give `body` with each reference left out. */
+    parts?: (TextPart | ImagePart)[];
   } };
   "request.withdraw": { params: {
   id: number;
@@ -1918,6 +1923,7 @@ export interface Methods {
 }; result: Accepted };
   "inbox.reply": { params: {
   id: number;
+  /** Markdown. It may name images (x-attachments, texts). */
   text: string;
   request_id: RequestId;
 }; result: Accepted };
@@ -1972,7 +1978,7 @@ export interface Methods {
   /** Who the task answers to: told when it ends, and may edit or reassign it. Default: the caller. */
   reporter?: string;
   title: string;
-  /** The brief, Markdown. It may name images (x-attachments, tasks). */
+  /** The brief, Markdown. It may name images (x-attachments, texts). */
   body?: string;
   time_box?: Duration;
   relation?: string;
@@ -1998,6 +2004,7 @@ export interface Methods {
   "task.handoff": { params: {
   task: number;
   to: string;
+  /** Markdown. It may name images (x-attachments, texts); they are the task's while it is open. */
   note: string;
   request_id: RequestId;
 }; result: Accepted };
@@ -2023,7 +2030,7 @@ export interface Methods {
 }; result: Accepted };
   "task.reject": { params: {
   task: number;
-  /** One line: what is missing. It is told to the owner. It may then name images (x-attachments, tasks), each on a line of its own after the words; nothing else may follow them. */
+  /** One line: what is missing. It is told to the owner. It may then name images (x-attachments, texts), each on a line of its own after the words; nothing else may follow them. */
   note: string;
   request_id: RequestId;
 }; result: Accepted };
@@ -2065,7 +2072,7 @@ export interface Methods {
   } };
   "task.memo.add": { params: {
   task: number;
-  /** Markdown. It may name images (x-attachments, tasks). */
+  /** Markdown. It may name images (x-attachments, texts). */
   text: string;
   request_id: RequestId;
 }; result: Accepted & {
@@ -2074,7 +2081,7 @@ export interface Methods {
   "task.memo.edit": { params: {
   task: number;
   memo: number;
-  /** Markdown. It may name images (x-attachments, tasks). */
+  /** Markdown. It may name images (x-attachments, texts). */
   text: string;
   request_id: RequestId;
 }; result: Accepted };
@@ -2129,7 +2136,7 @@ export interface Methods {
   /** A new reporter (who the task answers to); by its opener, its reporter or the founder. */
   reporter?: string;
   title?: string;
-  /** The new brief, Markdown. It may name images (x-attachments, tasks). */
+  /** The new brief, Markdown. It may name images (x-attachments, texts). */
   body?: string;
   time_box?: Duration;
   /** Owner only: what the task waits on. */
@@ -2151,6 +2158,7 @@ export interface Methods {
 }; result: Accepted };
   "say": { params: {
   target: string;
+  /** Markdown. It may name images (x-attachments, texts). */
   body: string;
   task?: number;
   /** Why this carries no task. */

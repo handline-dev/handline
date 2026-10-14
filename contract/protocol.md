@@ -119,7 +119,7 @@ A method marked write takes a required `request_id`.
 | `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?` | `{items, more}` |  |  |
 | `inbox.queue` | agent |  | `whose?`, `all?`, `since?`, `wait_s?` | `{whose, newest, head, history, waiting, lines, dealt}` | `refused`, `bad_request` | listing |
 | `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem` | `not_found`, `bad_request` |  |
-| `request.read` | agent |  | `id`, `wait_s?` | `{id, requester, target, kind, state, created, relation, response, chain_depth, parent, body, answer, dismissal}` | `not_found`, `bad_request` |  |
+| `request.read` | agent |  | `id`, `wait_s?` | `{id, requester, target, kind, state, created, relation, response, chain_depth, parent, body, answer, dismissal, parts}` | `not_found`, `bad_request` |  |
 | `request.withdraw` | agent | yes | `id`, `reason?`, `request_id` | `{ok, said}` | `bad_request` |  |
 | `request.cancel` | founder | yes | `id`, `dry_run?`, `request_id` | `{ok, plan, said}` | `refused`, `bad_request` |  |
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found`, `refused`, `bad_request` |  |

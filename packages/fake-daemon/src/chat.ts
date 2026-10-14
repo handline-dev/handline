@@ -1,7 +1,7 @@
 // The fake daemon's chat: messages with landing state, the transcript and the working line, on the chat topic.
 // A sent message lands one tick at a time (typed, delivered, working, answered) so a UI sees every state; `tick` is driven by the daemon's own.
 import { Failure, invalidParams, refused, storeFailure } from './errors.ts';
-import type { Attachment, ChatMessage, Landing, TranscriptItem, Working } from '@handline/contract';
+import type { Attachment, ChatMessage, ImagePart, Landing, TextPart, TranscriptItem, Working } from '@handline/contract';
 import { deliveryOf, receiptPatch, uuidFor, type Msg } from './delivery.ts';
 
 type Emit = (
@@ -19,6 +19,9 @@ export function chatCall<T>(fn: () => T): T {
   }
 }
 
+/** What a message carries: FakeAttachments.message. */
+type Images = (body: string, ids: unknown, task: unknown) => { attachments: Attachment[]; parts?: (TextPart | ImagePart)[] };
+
 /** One chat method. `checkAgent` throws for an agent that does not exist; `inboxDismiss` takes an inbox item off its list when the id is one. */
 export function chatMethod(
   chat: FakeChat,
@@ -28,7 +31,7 @@ export function chatMethod(
   checkAgent: () => unknown,
   ok: (said: string, extra?: object) => object,
   inboxDismiss: (id: unknown) => boolean,
-  attachments: { take(ids: unknown): Attachment[] } = { take: () => [] },
+  attachments: { message: Images } = { message: () => ({ attachments: [] }) },
 ): unknown {
   switch (method) {
     case 'chat.messages':
@@ -45,7 +48,7 @@ export function chatMethod(
       throw refused('unsupported', `the fake daemon does not serve ${method}`);
     case 'chat.send':
       checkAgent();
-      return chatCall(() => ok('Sent.', chat.send(p, person, attachments.take)));
+      return chatCall(() => ok('Sent.', chat.send(p, person, attachments.message)));
     case 'chat.dismiss':
       if (inboxDismiss(p.request)) return ok('Dismissed.');
       return chatCall(() => (chat.dismiss(p), ok('Dismissed.')));
@@ -204,12 +207,13 @@ export class FakeChat {
     return { items: items.slice(-limit), more: items.length > limit, working: t.working };
   }
 
-  send(p: Record<string, unknown>, person: string, takeAttachments: (ids: unknown) => Attachment[] = () => []) {
+  send(p: Record<string, unknown>, person: string, images: Images = () => ({ attachments: [] })) {
     const agent = String(p.agent),
       body = p.body;
     const parentItem = this.replyItem(p);
-    const attachments = takeAttachments(p.attachments);
-    if (typeof body !== 'string' || (!body.trim() && !attachments.length)) throw new ChatFailure('bad_request', 'a message needs a body');
+    if (typeof body !== 'string') throw new ChatFailure('bad_request', 'a message needs a body');
+    const { attachments, parts } = images(body, p.attachments, p.task);
+    if (!body.trim() && !attachments.length) throw new ChatFailure('bad_request', 'a message needs a body');
     const open = this.sessions.get(agent)?.state !== 'parked';
     const delivery = deliveryOf(p);
     const s = this.sessions.get(agent);
@@ -228,6 +232,7 @@ export class FakeChat {
       parent: typeof p.parent === 'number' ? p.parent : null,
       ...(parentItem ? { parent_item: parentItem } : {}),
       ...(attachments.length ? { attachments } : {}),
+      ...(parts ? { parts } : {}),
       landing: 'queued',
       delivered_at: null,
       typed_at: null,
