@@ -99,9 +99,79 @@ agent):
 Attribution is by process tree from each agent's session pid; processes with no agent are listed
 under "other" so the sum matches the machine.
 
+## 4. Several machines as one pool
+
+The founder's direction (T3866 memo 1715): an old laptop, a small desktop and a rented server working as
+one, because app builds eat memory and disk. Research only; nothing is built.
+
+### 4.1 How similar tools place work on machines
+
+| Tool | Licence | How a job finds a machine | Borrow |
+|---|---|---|---|
+| GitHub Actions self-hosted runners | MIT (`actions/runner`) | Labels route a job to runners with matching labels; runners can be grouped | Labels on a machine (`gpu`, `big-disk`, `has-repo-x`) |
+| Buildkite agent | MIT (`buildkite/agent`) | A step names a queue; an agent joins one queue by tag and takes the first available job; agent priority reorders | The agent pulls work; a machine that is full simply does not ask |
+| Nomad | BSL 1.1 (`hashicorp/nomad`; GitHub says "Other"); not open source | Filter nodes (health, constraints), then score feasible ones, mainly by bin packing, with affinity | The two steps only. Do not copy code |
+| Kubernetes | Apache-2.0 | Filter on a pod's resource *requests* against unreserved capacity, then score; no fit leaves it pending | Requests as the number placement uses; "pending" with a reason |
+| Dev containers | spec CC-BY-4.0, CLI MIT | A file describes the environment a workspace needs; it does not say where it runs (unverified beyond the README) | Name a worktree's toolchain once so any machine can build it |
+| Cloud sandboxes (E2B) | Apache-2.0 | Not checked beyond the licence | Nothing yet; a rented server is the same as one more machine here |
+
+Not found in the pages read, so unverified: how many jobs one GitHub runner runs at once, what Buildkite does
+when no agent is free, and how Nomad accounts CPU and memory per node.
+
+### 4.2 What to borrow
+
+1. **Filter, then score.** Filter: the machine has room under its own limit, holds (or can fetch) the
+   branch, and carries the labels the task needs. Score only among those that pass: most free room first,
+   so a laptop is not filled while the server idles. No fit: the work waits with the reason of the
+   closest machine (below), never fails.
+2. **Requests, not guesses.** An agent counts as one slot and a test run as the 4 GB one measured in
+   section 2. Placement reads those numbers; the shrink rule of 2-1 changes a machine's room, not the numbers.
+3. **Machines declare, the pool does not poll.** Each machine's daemon reports capacity, labels and what is
+   held now on the tick it already has; one place decides where work goes. Where that place lives
+   (one daemon driving remote workers, or a daemon per machine with a shared queue) is the open design
+   question; the founder's call.
+
+### 4.3 How the 2-1 limits keep a machine as one resource among several
+
+Nothing in 2-1 changes per machine. Each machine keeps its own host cap `H`, shrink on measured pressure
+and test-run slots. The pool adds one level above them:
+
+- **Account cap stays global.** The quota belongs to the account, not the machine: `3 of 4` counts agents on
+  every machine.
+- **Host cap stays local.** A start or wake needs room at both levels. The account level is checked first
+  (cheaper to explain), then a machine is chosen by 4.2.
+- **An agent lives where its worktree is.** Moving it is the existing handoff (stop, push the branch, start
+  on the other machine), not live migration. Cost: the branch must be pushed and the worktree rebuilt, so
+  placement should prefer the machine that already has it.
+- **The admin view (2-2) gains a machine column** and one strip per machine; "why did my agent not start"
+  names the machine that was closest to fitting.
+
+### 4.4 Load limits as one more waiting reason (founder memo 1696)
+
+An agent that cannot run now waits for one thing. Today the waits are on the founder, on another task and on
+an account limit. Add the load limits to the same list instead of a second mechanism:
+
+| Waiting on | Detail shown | Cleared by |
+|---|---|---|
+| Founder | what is asked | an answer |
+| Task | `T<n>` and its state | that task done |
+| Account limit | account, `n of cap`, runway | a turn ending or the window |
+| **Host full** | machine, `n of H` | a turn ending on that machine |
+| **Pressure** | machine, load or memory level, effective cap | calm for 10 ticks (2-1) |
+| **Test slot** | which run holds it | that run ending |
+
+One field on the agent view (kind, reference, one line, place in the queue) feeds the rail chip, the agent
+page and the admin table, so a wait on the load reads like every other wait. Whether the existing field
+names are reused or a new one is added was not checked against the daemon's view code.
+
 ## Sources
 
 Fetched 2026-10-14: the READMEs of the five repositories above through `gh api`;
 docs.github.com (self-hosted runners), buildkite.com/docs/agent/v3/configuration,
 developer.hashicorp.com/nomad/docs/job-specification/resources, onorca.dev/docs/agents/usage-tracking,
 conductor.build/docs, and Vibe Kanban's `docs/core-features/monitoring-task-execution.mdx`.
+Section 4, fetched 2026-10-15: docs.github.com (using labels with self-hosted runners),
+buildkite.com/docs/agent/v3/queues, developer.hashicorp.com/nomad/docs/concepts/scheduling/scheduling,
+kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler; licences through `gh api repos/<r>/license`
+for actions/runner, buildkite/agent, hashicorp/nomad, kubernetes/kubernetes, devcontainers/spec and
+devcontainers/cli, e2b-dev/E2B.
