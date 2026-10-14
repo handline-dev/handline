@@ -45,6 +45,7 @@ let wanted: { agent: string; id: number } | null = null;
 const wantedListeners = new Set<() => void>();
 const setWanted = (w: typeof wanted) => {
   wanted = w;
+  if (w) setTimeout(() => wanted === w && setWanted(null), 5000); // a chat that is not open does not take it later
   wantedListeners.forEach((l) => l());
 };
 /** Opens the agent's chat and asks it to scroll to this message. */
