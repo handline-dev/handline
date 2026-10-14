@@ -132,14 +132,7 @@ export function InboxDetail(props: {
       ) : null}
       <div className="inbox-actions">
         {decidable(i) ? (
-          <Button
-            icon="done"
-            label="Done"
-            disabled={!!v.off.decide}
-            title={v.off.decide ?? 'Done'}
-            data-verb="decide"
-            onClick={() => v.decide(i)}
-          />
+          <Button icon="done" label="Done" disabled={!!v.off.decide} title={v.off.decide ?? 'Done'} onClick={() => v.decide(i)} />
         ) : null}
         {i.kind !== 'decision' && !i.prompt && i.kind !== 'block' ? (
           <Button

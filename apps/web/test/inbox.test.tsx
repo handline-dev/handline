@@ -321,12 +321,13 @@ describe('keys', () => {
 });
 
 describe('the a key', () => {
-  it('on a decision it ends its task', async () => {
+  it('on a decision it does nothing: ending the task takes a click on Done', async () => {
     const s = await mount('#/inbox/3');
     await until(() => $$('.inbox-card').length === 3, 'the cards');
     await key('a');
-    await until(() => !card(3), 'the card to leave');
-    expect(s.daemon.tasks.get({ task: 1684 }).state).toBe('done');
+    await wait(50);
+    expect(card(3)).not.toBeNull();
+    expect(s.daemon.tasks.get({ task: 1684 }).state).toBe('doing');
   });
 
   it('on a prompt, which has no verb here, it does nothing: no mark read', async () => {

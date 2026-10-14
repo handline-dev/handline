@@ -12,7 +12,7 @@ import { View } from './View.tsx';
 const CONFIRM_ABOVE = 10;
 const KEYS: [string, string][] = [
   ['↵', 'open chat or task'],
-  ['a', 'done (a decision) or reply'],
+  ['a', 'reply'],
   ['m', 'mark read'],
   ['M', 'mark all read'],
   ['j / k', 'next / previous'],
@@ -39,7 +39,7 @@ function useVerbs(): Verbs {
     !open ? 'daemon not connected' : served[verb] ? null : `this daemon does not serve ${method}`;
   return {
     read: (id) => read.mutate({ ids: [id] }),
-    decide: (i) => (done.mutate({ task: i.task!, reason: true }), read.mutate({ ids: [i.id] })),
+    decide: (i) => (done.mutate({ task: i.task!, evidence: 'decided in the Inbox', reason: true }), read.mutate({ ids: [i.id] })),
     reply: (id, text) => reply.mutate({ id, text }),
     off: {
       read: why('read', 'inbox.mark_read'),

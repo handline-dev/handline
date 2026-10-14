@@ -53,6 +53,7 @@ test('who a message is from', () => {
   assert.equal(sideOf(mine, A, 'Handline desktop'), 'person');
   assert.equal(sideOf(ask, A, 'Handline desktop'), 'agent');
   assert.equal(sideOf(msg({ from: 'handline.auditor' }), A, 'Handline desktop'), 'other');
+  for (const old of ['delivered_unanswered', 'answered', 'dismissed'] as const) assert.equal(landingLabel(old), 'Delivered');
   assert.equal(landingLabel('something_new' as never), 'something_new'); // an open set: unknown states show as sent
 });
 
@@ -119,6 +120,7 @@ test('a message can be taken back until it is withdrawn, and the agent is asked 
   assert.deepEqual(takeBack(pm({ landing: 'queued' })), { confirm: false });
   assert.deepEqual(takeBack(pm({ landing: 'typed' })), { confirm: false });
   assert.deepEqual(takeBack(pm({ landing: 'delivered' })), { confirm: true });
+  assert.deepEqual(takeBack(pm({ landing: 'delivered_unanswered' })), { confirm: true });
   assert.equal(takeBack(pm({ landing: 'withdrawn' })), null);
   const r = (state: 'queued' | 'sent' | 'confirmed') => pm({ landing: 'typed', receipt: { state, uuid: 'u' } as never });
   assert.deepEqual(takeBack(r('queued')), { confirm: false });
