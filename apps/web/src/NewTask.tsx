@@ -21,7 +21,7 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
   };
   const said = missing || (ask.isError ? sentence(classify(ask.error)) : '');
   return (
-    <Dialog title="New task" onClose={onClose} action={{ label: 'Ask', keys: '⌘↵', form: 'newtask-form', disabled: ask.isPending }}>
+    <Dialog title="New task" onClose={onClose} action={{ label: 'Ask', keys: '⌘↵', form: 'newtask-form', disabled: ask.isPending || images.busy }}>
       <form
         id="newtask-form"
         name="newtask-form"

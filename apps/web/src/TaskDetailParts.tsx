@@ -137,7 +137,7 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
     edit.mutate({ task: t.id, ...change }, { onSuccess: onClose });
   };
   return (
-    <Sheet label={`Edit ${taskRef(t.id)}`} submit="Save" onCancel={onClose} onSubmit={save} busy={edit.isPending}>
+    <Sheet label={`Edit ${taskRef(t.id)}`} submit="Save" onCancel={onClose} onSubmit={save} busy={edit.isPending || images.busy}>
       <div className="tform grid gap-5">
         <label>
           Title

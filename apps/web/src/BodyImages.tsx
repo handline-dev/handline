@@ -1,5 +1,6 @@
 // Paste or drop an image into a task body: it is uploaded and `![name](attachment:<id>)` goes in at the cursor (docs/story1-task-images-graph.md A).
 import { useState, type ClipboardEvent, type DragEvent } from 'react';
+import type { Attachment } from '@handline/client';
 import { imageRef } from '@handline/app-core';
 import { classify, sentence, useUploadImage, whyNotImage } from '@handline/app-data';
 
@@ -11,22 +12,25 @@ export function useBodyImages(setBody: (update: (body: string) => string) => voi
   const upload = useUploadImage();
   const [busy, setBusy] = useState(0);
   const [problem, setProblem] = useState('');
-  const take = (files: File[], box: Box) => {
+  const take = async (files: File[], box: Box) => {
     setProblem('');
-    // The cursor is read now: the person may move it while the upload runs.
+    setBusy((n) => n + 1);
+    // Uploads run side by side; the refs go in together, in file order, where the cursor is when the last one ends.
+    const done = await Promise.allSettled(
+      files.map(async (f) => {
+        const why = whyNotImage(f);
+        if (why) throw new Error(why);
+        const name = f.name || 'image';
+        const a = await upload(f, name, f.type as Attachment['mime']);
+        return imageRef(a.id, name.replace(/\.[^.]*$/, ''));
+      }),
+    );
+    const first = done.find((r) => r.status === 'rejected');
+    if (first) setProblem(sentence(classify(first.reason)));
+    const refs = done.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
     const at = box.selectionStart;
-    for (const f of files) {
-      const why = whyNotImage(f);
-      if (why) return setProblem(why);
-      const name = f.name || 'image';
-      setBusy((n) => n + 1);
-      upload(f, name, f.type as never)
-        .then(
-          (a) => setBody((b) => `${b.slice(0, at)}${imageRef(a.id, name.replace(/\.[^.]*$/, ''))}${b.slice(at)}`),
-          (e) => setProblem(sentence(classify(e))),
-        )
-        .finally(() => setBusy((n) => n - 1));
-    }
+    if (refs.length) setBody((b) => `${b.slice(0, at)}${refs.join('\n')}${b.slice(at)}`);
+    setBusy((n) => n - 1);
   };
   return {
     busy: busy > 0,
