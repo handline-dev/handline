@@ -10,11 +10,11 @@ docs were not fetched, so only public behaviour from general knowledge is listed
 
 | Tool | Licence | Identity | Events | PR to work | Review comments back to the agent | Merge gate |
 |---|---|---|---|---|---|---|
-| PR-Agent (`qodo-ai/pr-agent`) | MIT | GitHub App, token, or Action; GitLab, Bitbucket, Azure DevOps, Gitea | Webhook server, or a CLI/Action run per event (README) | One run per PR; no task | Reacts to a `/command` comment on the PR (README) | None; comments only |
-| Claude Code Action (`anthropics/claude-code-action`) | MIT | GitHub App plus repo secrets (README) | Runs in a workflow on PR, comment and review events | The workflow run is the unit | A mention or review comment triggers a run | Leaves it to branch protection |
+| PR-Agent (`qodo-ai/pr-agent`) | MIT | GitHub App, token, or Action; GitLab, Bitbucket, Azure DevOps, Gitea | Webhook server, or a CLI/Action run per event (README) | One run per PR; no task | Reacts to a `/command` comment on the PR (README) | Not in the README; comments only (unverified) |
+| Claude Code Action (`anthropics/claude-code-action`) | MIT | GitHub App plus repo secrets (README) | Runs in a workflow on PR, comment and review events (README lists comment and review triggers; the event list is general knowledge) | The workflow run is the unit | A mention or review comment triggers a run (README) | Not in the README; branch protection is the host's (general knowledge) |
 | Vibe Kanban (`BloopAI/vibe-kanban`) | Apache-2.0 | Local GitHub login (general knowledge) | None found in the README | A workspace/attempt opens a PR | Unverified | None found |
 | OpenHands (`All-Hands-AI/OpenHands`) | MIT | GitHub or GitLab token / app (general knowledge) | Webhook-style resolver on issues and PR comments (general knowledge) | Issue or PR to a conversation | Comment on the PR starts a run | None |
-| Orca (`stablyai/orca`) | MIT | Local `gh` and `glab` CLIs (see `docs/orca-feature-inventory.md` F50) | Polls through the CLI | Worktree linked to an issue or PR | Shown in the app | Shown, not enforced |
+| Orca (`stablyai/orca`) | MIT | Local `gh` and `glab` CLIs (`docs/orca-feature-inventory.md` F50) | Polling through the CLI (general knowledge) | Worktree linked to an issue or PR (F08, F48) | Shown in the app (F48) | Unverified |
 | Copilot coding agent, Devin, Cursor background agents / Bugbot, Codex cloud, Conductor | Closed | GitHub App (general knowledge) | Webhooks (general knowledge) | The agent opens a PR from a task | Review comments and bot findings fed back as new turns (Devin autofix, Copilot, Bugbot: general knowledge) | Required checks and approvals stay with GitHub |
 
 Reading across:
@@ -39,8 +39,9 @@ Reading across:
 | CI state | Check runs and statuses on the head sha; one rolled-up state on the task | Pipeline status of the MR head |
 | Merge gate | Read branch protection and the PR's `mergeable` / required-check state; never bypass | Merge request approvals and pipeline-must-succeed |
 
-CI is `T3931`'s work under `T3929`: the PR's required check is its output. This note only reads that
-check's state; it does not define the check.
+CI is `T3931`'s work under `T3929`, still queued: its plan is one always-reporting aggregate job as
+the single required check on main. That job is the check the CI and merge-gate rows read; this note
+only reads its state and does not define it.
 
 ## 3. What we would borrow
 
@@ -52,8 +53,10 @@ Ideas only; no code from Claude Squad (AGPL) or GitLab itself (NOASSERTION).
 3. **Copilot and Devin: review feedback arrives as a new turn on the same agent**, not a new agent.
 4. **Branch protection as the gate**, as everyone does.
 
-Libraries if the Go daemon talks to the API directly: `google/go-github` (BSD-3-Clause),
-`xanzy/go-gitlab` (Apache-2.0); or shell out to `gh` (MIT) and `glab`.
+Libraries if the Go daemon talks to the API directly: `google/go-github` (BSD-3-Clause);
+`xanzy/go-gitlab` (Apache-2.0) is archived, and its successor is GitLab's own Go client, hosted on
+gitlab.com (not on GitHub, so licence and name unchecked). Or shell out to `gh` (MIT, `cli/cli`) and
+`glab` (GitLab's CLI, also gitlab.com-hosted; licence unchecked).
 
 ## 4. Proposal
 
