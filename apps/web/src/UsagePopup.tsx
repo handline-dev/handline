@@ -13,7 +13,7 @@ const ROW = 'usage-row flex flex-col gap-1.5 rounded-card border bg-panel px-3 p
 const EDGE = { ok: 'border-line', warn: 'border-wait', bad: 'border-bad' } as const;
 // Fixed, not absolute: the rail clips what overflows it; --pop-b/--pop-l put it above the button. On a phone it is a sheet along the bottom.
 const POP =
-  'usage-pop fixed bottom-[var(--pop-b)] left-[var(--pop-l)] z-20 flex w-[min(360px,calc(100vw_-_16px))] flex-col gap-2 rounded-card border border-line bg-panel p-2.5 shadow-[var(--shadow-pop)] max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:w-auto max-sm:rounded-b-none max-sm:rounded-t-dialog';
+  'usage-pop fixed bottom-[var(--pop-b)] left-[var(--pop-l)] z-20 flex overflow-y-auto max-h-[calc(100dvh_-_var(--pop-b)_-_8px)] w-[min(360px,calc(100vw_-_16px))] flex-col gap-2 rounded-card border border-line bg-panel p-2.5 shadow-[var(--shadow-pop)] max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:max-h-[calc(100dvh_-_8px)] max-sm:w-auto max-sm:rounded-b-none max-sm:rounded-t-dialog';
 
 const POP_W = 360;
 /** Above the button, its left edge kept inside the window (the button sits at the right of the bar). */
