@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { DEBUG_HASH } from './debug/paneFacts.ts';
 
-const read = () => location.hash.match(/^#\/agents\/(.+?)(\/settings)?$/);
+const read = () => location.hash.match(/^#\/agents\/(.+?)(\/settings)?(?:\?m=(\d+))?$/);
 const readTasks = () => location.hash.match(/^#\/tasks(?:\/(\d+))?$/)?.[1] ?? (/^#\/tasks\/?$/.test(location.hash) ? '' : null);
 const subscribe = (cb: () => void) => {
   addEventListener('hashchange', cb);
@@ -40,6 +40,22 @@ export const useTasksRoute = (): string | null => useSyncExternalStore(subscribe
 export const goTasks = (task?: number): void => {
   location.hash = task === undefined ? '#/tasks' : `#/tasks/${task}`;
 };
+/** Opens the agent's chat on this message: the number rides in the URL (`#/agents/:name?m=:id`) until the Chat tab has scrolled to it. */
+export const goMessage = (agent: string, id: number): void => {
+  location.hash = `#/agents/${encodeURIComponent(agent)}?m=${id}`;
+};
+/** The message number the URL asks this agent's chat to show; `done` takes it out of the URL once the chat has taken it. */
+export function useWantedMessage(agent: string): { id: number | null; done: () => void } {
+  useSyncExternalStore(subscribe, hash);
+  const m = read();
+  return {
+    id: m?.[3] && decodeURIComponent(m[1]!) === agent ? Number(m[3]) : null,
+    done: () => {
+      history.replaceState(null, '', location.hash.replace(/\?m=\d+$/, ''));
+      dispatchEvent(new Event('hashchange'));
+    },
+  };
+}
 export const goSettings = (name: string): void => {
   location.hash = `#/agents/${encodeURIComponent(name)}/settings`;
 };
