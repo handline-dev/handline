@@ -512,7 +512,7 @@ Approve draft tasks to run: anyone may; each task's opener and assignee are told
 
 ### `task.draft`
 
-Send queued tasks back to draft: anyone may; each task's opener and assignee are told.
+Send queued or doing tasks back to draft: anyone may; each task's opener and assignee are told. A holder working the task is told to stop and moved on to its next task, and commits or changes it left in its worktree are kept in a memo on the task.
 
 ### `task.merge`
 

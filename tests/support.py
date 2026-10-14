@@ -49,6 +49,16 @@ os.environ[paths.TEST_ROOT_ENV] = str(TEST_ROOT)
 os.environ["OCP_HOME"] = str(TEST_ROOT / ".orcapipe")
 atexit.register(shutil.rmtree, TEST_ROOT, True)
 
+
+def _exit_on(signum, _frame):
+    raise SystemExit(128 + signum)
+
+
+# A stopped run (the runner's timeout, a closed terminal) ends like a failed one: finally blocks and atexit run, so
+# what a test started is stopped and its temp folders go.
+for _sig in (signal.SIGTERM, signal.SIGHUP):
+    signal.signal(_sig, _exit_on)
+
 # The suite must not need the real claude: a machine without one (an agent's
 # sandbox) would fail every test that gets as far as launching. A stub that
 # exits at once stands in when none is on PATH; a real one is left alone.
@@ -1289,8 +1299,13 @@ def claude_driver_cases(root: Path) -> dict:
                                                           mcp_approved=args["mcp_approved"], extra_dirs=args["extra_dirs"])})
     wanted = evmod.CAPTURED | evmod.ANSWERS | evmod.GUARDS
     settings = []
+    # The home is reached through a symlink, so its real path differs on every platform (a macOS tmp dir does by itself, a Linux one does not).
+    (root / "real").mkdir(parents=True, exist_ok=True)
+    link = root / "link"
+    if not link.exists():
+        link.symlink_to(root / "real")
     for case in CLAUDE_SETTINGS_CASES:
-        home = root / case["name"]
+        home = link / case["name"]
         restore_world()
         os.environ["OCP_HOME"] = str(home)
         target = home / "shared" / ".claude" / "settings.json"
@@ -1469,8 +1484,6 @@ class SecondVendor:
     def launch_argv(self, exe, model, effort, disallowed, mcp, preamble, hide=None, no_write=None,
                     memory_dir=None, trusted=None, chrome=False, sandbox=False):
         return [exe]
-    def skip_permissions_argv(self):
-        return ["--yolo"]
     def auto_mode_argv(self):
         return []
     def transcript_dir(self, config_dir, worktree):

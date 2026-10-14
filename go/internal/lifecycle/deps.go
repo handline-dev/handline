@@ -12,7 +12,7 @@ import (
 // Waits the lifecycle runs on (infra/waits.py and delivery's own).
 const (
 	WakeSessionTimeoutS = 15
-	// MaxStartupScreens: the folder-trust and bypass screens, in either order, with room for a dialog or two.
+	// MaxStartupScreens: the folder-trust screen, with room for the dialogs before or after it.
 	MaxStartupScreens = 4
 )
 
@@ -67,8 +67,8 @@ type HandoffPort interface {
 	ClearNote(q db.Q, agent string)
 }
 
-// Terminal is session/term.py as the lifecycle uses it. *term.Term satisfies the part that has landed; the closing, relaunching and
-// bypass-warning calls are G4's.
+// Terminal is session/term.py as the lifecycle uses it. *term.Term satisfies the part that has landed; the closing and relaunching
+// calls are G4's.
 type Terminal interface {
 	Available() bool
 	WaitIdle(handle string) bool
@@ -81,8 +81,6 @@ type Terminal interface {
 	CloseSession(handle string) (bool, string)  // types /exit
 	CloseTerminal(handle string) (bool, string) // closes the pane
 	Relaunch(handle, cmd string, started func() bool) (bool, string)
-	BypassPromptShowing(handle string) bool
-	AcceptBypass(handle string) (bool, string)
 	WaitForTrustPrompt(handle string, showing bool)
 	// DriverScope holds one driver lookup for the calls made inside it; the returned func ends it.
 	DriverScope() func()
@@ -132,7 +130,6 @@ type AgentsPort interface {
 	// ReadConfig fails for an agent.yaml that will not read.
 	ReadConfig(agent string) error
 	CurrentAccount(q db.Q, agent string) string
-	SkipPermissionsInEffect(agent string) (bool, error)
 	IsDeclared(folder string) bool
 	MeasureBegin(q db.Q, agent, account string)
 	RaiseDecision(q db.Q, agent, text, reason string) error

@@ -88,8 +88,8 @@ def test_yaml_differential() -> None:
     """The fallback must never disagree with PyYAML silently.
 
     Two parsers reading the same routing policy differently is worse than
-    having no fallback: `skip_permissions: no` was True under one and False under
-    the other, which decides whether a prompt is answered for the agent.
+    having no fallback: a `no` was True under one and False under the other, which
+    decides what a switch in agent.yaml does.
 
     What PyYAML reads is kept in tests/fixtures/pyyaml_expected.json, so the
     suite needs no PyYAML; where it is installed the fixture is checked too.
@@ -3225,12 +3225,12 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
     ok, said = apply_hr(props[0]["id"])
     check("register: approved, the agent exists with the browser on",
           ok and "helper" in paths.list_agents() and agents.chrome(agents.read("helper")), said)
-    rc, out = _cli(["agent", "register", "worker", "--skip-permissions", "on", "--why", "long unattended runs"],
+    rc, out = _cli(["agent", "register", "worker", "--weight", "heavy", "--why", "long unattended runs"],
                    as_agent="worker")
     props = _new_props(seen)
     check("register: an existing agent's privileged flag is a settings proposal",
           rc == 0 and [p["kind"] for p in props] == ["settings"]
-          and not agents.skip_permissions(agents.read("worker")), out)
+          and agents.read("worker").get("weight") != "heavy", out)
     mcp = home / "mcp.json"
     mcp.write_text('{"mcpServers": {}}')
     rc, out = _cli(["agent", "register", "worker", "--mcp-config", str(mcp), "--why", "x"], as_agent="worker")

@@ -10,7 +10,7 @@ import re
 import shlex
 from pathlib import Path
 
-from ..infra import paths, protected, sealed, textsafe
+from ..infra import paths, sealed, textsafe
 from ..session import triggers
 from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load, refuse_unsafe_values
 
@@ -64,13 +64,6 @@ def extra_worktrees(cfg: dict) -> int:
     if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
         return 0
     return min(v, MAX_EXTRA_WORKTREES)
-
-
-def skip_permissions(cfg: dict) -> bool:
-    """Whether this agent's sessions start without asking before they act.
-    Only a real true turns it on: an absent, null, or garbage value ("yes", 1,
-    "false") reads as off, so a bad config never grants what was not asked."""
-    return cfg.get("skip_permissions") is True
 
 
 def chrome(cfg: dict) -> bool:
@@ -187,37 +180,17 @@ def browser_mcp_config(cfg: dict, mode: str, origins: list[str]) -> str:
     return mcp_config_text(json.dumps({"mcpServers": servers})) if servers else ""
 
 
-_SKIP_NS = "skip_permissions"
-
-
-def skip_permissions_granted(agent: str) -> bool:
-    """Whether the founder turned it on, through `register` from a terminal or
-    the screen. agent.yaml alone never does: a file every agent's sandbox can
-    write is not a record of who asked, so the grant is kept in the protected
-    store, where an agent cannot write."""
-    return protected.get(_SKIP_NS, agent) == "granted"
-
-
-def skip_permissions_in_effect(agent: str, cfg: dict) -> bool:
-    """What a launch will do: configured, and granted."""
-    return skip_permissions(cfg) and skip_permissions_granted(agent)
-
-
-# Claude's permission modes. "bypass" is the old skip_permissions switch: `mode: bypass` is what
-# `register` writes as `skip_permissions: true`, so one switch and one founder's grant stand behind both.
-MODES = ("default", "auto", "acceptEdits", "plan", "bypass")
+# Claude's permission modes.
+MODES = ("default", "auto", "acceptEdits", "plan")
 DEFAULT_MODE = "auto"
 
 
 def mode_of(agent: str, cfg: dict) -> str:
-    """The permission mode a launch will use: bypass when skipping is configured and granted, else the
-    agent.yaml `mode` when it names one, else auto (what every launch used before there was a choice).
-    Anything else - an unknown name, a bypass the founder never granted - reads as the default, never as
-    more than was asked."""
-    if skip_permissions_in_effect(agent, cfg):
-        return "bypass"
+    """The permission mode a launch will use: the agent.yaml `mode` when it names one, else auto (what
+    every launch used before there was a choice). Anything else reads as the default, never as more than
+    was asked."""
     v = cfg.get("mode")
-    return v if isinstance(v, str) and v in MODES and v != "bypass" else DEFAULT_MODE
+    return v if isinstance(v, str) and v in MODES else DEFAULT_MODE
 
 
 def sandbox_on(agent: str, cfg: dict) -> bool:
@@ -283,7 +256,6 @@ def register(name: str, role: str = "", model: str | None = None,
              effort: str | None = None, weight: str | None = None,
              role_file: str | None = None, repo: str | None = None,
              vendor: str | None = None, context_tokens: int | None = None,
-             skip_permissions: bool | None = None,
              chrome: bool | None = None,
              mcp_config: str | None = None,
              mode: str | None = None,
@@ -301,18 +273,11 @@ def register(name: str, role: str = "", model: str | None = None,
     if vendor:
         from .. import vendors
         vendors.get(vendor)
-    # First, so an agent's refusal leaves nothing half-written: the grant is
-    # the founder's alone (infra/protected.py), and the key below is only
-    # what a launch reads once it is there.
+    # First, so an agent's refusal leaves nothing half-written: registering is
+    # the founder's alone.
     sealed.require_founder()
-    if mode is not None:
-        if mode not in MODES:
-            raise ValueError(f"mode must be one of {', '.join(MODES)}, not {mode!r}")
-        skip_permissions = mode == "bypass"      # bypass is the old switch; any other mode turns it off
-    if skip_permissions:
-        protected.put(_SKIP_NS, name, "granted")
-    elif skip_permissions is not None:
-        protected.delete(_SKIP_NS, name)
+    if mode is not None and mode not in MODES:
+        raise ValueError(f"mode must be one of {', '.join(MODES)}, not {mode!r}")
     d = paths.agent_dir(name)
     f = agent_file(name)
     text = None
@@ -324,8 +289,7 @@ def register(name: str, role: str = "", model: str | None = None,
                      "effort": effort or DEFAULT_EFFORT, "weight": weight or "light",
                      "enabled": True, **({"repo": repo} if repo else {}),
                      **({"vendor": vendor} if vendor and vendor != DEFAULT_VENDOR else {}),
-                     **({"skip_permissions": True} if skip_permissions else {}),
-                     **({"mode": mode} if mode not in (None, "bypass", DEFAULT_MODE) else {}),
+                     **({"mode": mode} if mode not in (None, DEFAULT_MODE) else {}),
                      **({"sandbox": True} if sandbox else {}),
                      **({"chrome": True} if chrome else {}),
                      **({"extra_worktrees": min(extra_worktrees, MAX_EXTRA_WORKTREES)} if extra_worktrees and extra_worktrees > 0 else {}),
@@ -361,13 +325,8 @@ def register(name: str, role: str = "", model: str | None = None,
                 cfg["extra_worktrees"] = extra_worktrees
             else:
                 cfg.pop("extra_worktrees", None)
-        if skip_permissions is not None:
-            if skip_permissions:
-                cfg["skip_permissions"] = True
-            else:
-                cfg.pop("skip_permissions", None)
         if mode is not None:
-            if mode in ("bypass", DEFAULT_MODE):
+            if mode == DEFAULT_MODE:
                 cfg.pop("mode", None)
             else:
                 cfg["mode"] = mode

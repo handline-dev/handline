@@ -2,7 +2,8 @@
 import { useState } from 'react';
 import { taskRef, timeoutText } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
-import { useWrite } from '@handline/app-data';
+import { classify, sentence, useWrite } from '@handline/app-data';
+import { useCan } from './taskui.tsx';
 import { Icon, type IconName } from './ui/Icon.tsx';
 import { Sheet } from './taskui.tsx';
 import { Button, Input, MetaField, MetaGrid, NativeSelect, Textarea } from './ui/index.ts';
@@ -163,5 +164,49 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
         </label>
       </div>
     </Sheet>
+  );
+}
+
+/** A question to the task's holder, kept as a message linked to the task; the text stays until the daemon accepts it. */
+export function AskBox({ t }: { t: Detail }) {
+  const can = useCan('task.ask');
+  const ask = useWrite('task.ask');
+  const [text, setText] = useState('');
+  const question = text.trim();
+  const send = () => {
+    if (!question || ask.isPending) return;
+    ask.mutate({ task: t.id, to: t.to, text: question }, { onSuccess: () => setText('') });
+  };
+  return (
+    <section className="mt-4 grid gap-2" aria-label="Ask about this task">
+      <h3 className="m-0 text-ink-3">Ask {t.to}</h3>
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          send();
+        }}
+      >
+        <Textarea
+          grow
+          className="tinput"
+          rows={2}
+          value={text}
+          disabled={!can.ok}
+          title={can.why}
+          placeholder="A question about this task"
+          aria-label="Question"
+          onChange={(e) => setText(e.target.value)}
+        />
+        <Button type="submit" variant="solid" icon="say" label="Ask" disabled={!can.ok || !question || ask.isPending} title={can.why}>
+          {ask.isPending ? 'Asking...' : 'Ask'}
+        </Button>
+      </form>
+      {ask.isError ? (
+        <p className="muted m-0" role="alert">
+          {sentence(classify(ask.error))}
+        </p>
+      ) : null}
+    </section>
   );
 }

@@ -348,6 +348,12 @@ def test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs() -> 
         path, code, out = runner._run_one(hang, [], timeout=1)
         check("runner: a hanging file is stopped at its limit, with the code and the words",
               code == runner.TIMED_OUT and "timed out after 1s" in out, out)
+        tidy, mark = Path(td) / "test_tidy.py", Path(td) / "torn-down"
+        tidy.write_text(f"import sys, time\nsys.path.insert(0, {str(Path(__file__).resolve().parent.parent)!r})\nimport support\n"
+                        f"try:\n    print('up', flush=True)\n    time.sleep(60)\nfinally:\n    open({str(mark)!r}, 'w').close()\n")
+        _, code, out = runner._run_one(tidy, [], timeout=3 * limit)      # support imports more than a bare start
+        check("runner: a file stopped at its limit tears down first: its finally runs",
+              code == runner.TIMED_OUT and "up" in out and mark.exists(), out)
         check("runner: a missing module is found from the crash",
               runner.missing_module(subprocess.run([sys.executable, str(nomod)], capture_output=True,
                                                    text=True).stderr) == "surely_not_installed_anywhere")

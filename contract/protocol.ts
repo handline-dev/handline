@@ -933,7 +933,6 @@ export type AgentSettingValues = {
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
   weight?: "light" | "heavy";
   repo?: string;
-  skip_permissions?: "on" | "off";
   /** custom is read-only: set in a terminal. */
   browser?: "off" | "chrome" | "playwright" | "custom";
   /** Space-separated origins. */
@@ -946,8 +945,8 @@ export type AgentSettingValues = {
   handoff_note?: "default" | "on" | "off";
   /** Why a key, not an is_off/back_on pair: it is already an agent setting (agents.sandbox_on, `hl agent set sandbox=on`), read in AgentDetail.settings and written the same way as every other key. `on` takes effect at once (the key and the grant go now; a running session restarts on the next idle sweep). `off` needs the founder's grant. */
   sandbox?: "on" | "off";
-  /** Permission mode; bypass only with skip_permissions granted. */
-  mode?: "default" | "auto" | "acceptEdits" | "plan" | "bypass";
+  /** Permission mode. */
+  mode?: "default" | "auto" | "acceptEdits" | "plan";
 };
 
 /** Every global setting by its config.yaml name, with its default; every one is the founder's to set. Per-account keys (label, cap, usage recovery, cycle) are account.set; per-agent keys are agent.set and schedule.*; a key marked Per agent also takes `agent` in settings.set. */
