@@ -303,6 +303,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'account.add': 'add account',
     'terminal.close': 'close terminal',
     'task.discard': 'discard',
+    'task.ask': 'ask',
     'device.pair': 'pair',
     'device.revoke': 'revoke',
   }).map(([m, label]) => [m, decided(label)]),
@@ -371,8 +372,6 @@ export const NOT_FROM_UI = [
   'task.start',
   'task.progress',
   'task.handoff',
-  // A member command the app does not send yet.
-  'task.ask',
   // `hl task accept` and `hl task reject`: the app has no button for a reported task yet.
   'task.accept',
   'task.reject',

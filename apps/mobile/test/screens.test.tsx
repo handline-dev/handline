@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { ARCH, sleep, until, box, $, text, rowHeightOf, press, mount } from './harness.tsx';
+import { ARCH, sleep, until, box, $, text, rowHeightOf, press, mount, fill, value } from './harness.tsx';
 import type { setup } from '@handline/fake-daemon/helpers';
 
 describe('the agent list', () => {
@@ -222,15 +222,6 @@ describe('the styled terminal', () => {
   });
 });
 
-/** Types into a field the way a keyboard does (react-native-web draws TextInput as an input or a textarea). */
-const fill = (id: string, v: string) =>
-  act(async () => {
-    const f = $(id) as unknown as HTMLInputElement | HTMLTextAreaElement;
-    const proto = f.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(f, v);
-    f.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-const value = (id: string) => ($(id) as unknown as HTMLInputElement | null)?.value;
 const MINE_DOING = 1684; // asked by me, running
 const MINE_DRAFT = 1700; // asked by me, not started
 
