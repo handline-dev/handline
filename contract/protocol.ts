@@ -1925,6 +1925,7 @@ export interface Methods {
   /** Who the task answers to: told when it ends, and may edit or reassign it. Default: the caller. */
   reporter?: string;
   title: string;
+  /** The brief, Markdown. It may name images (x-attachments, tasks). */
   body?: string;
   time_box?: Duration;
   relation?: string;
@@ -1975,7 +1976,7 @@ export interface Methods {
 }; result: Accepted };
   "task.reject": { params: {
   task: number;
-  /** One line: what is missing. It is told to the owner. */
+  /** One line: what is missing. It is told to the owner. It may then name images (x-attachments, tasks), each on a line of its own after the words; nothing else may follow them. */
   note: string;
   request_id: RequestId;
 }; result: Accepted };
@@ -2017,6 +2018,7 @@ export interface Methods {
   } };
   "task.memo.add": { params: {
   task: number;
+  /** Markdown. It may name images (x-attachments, tasks). */
   text: string;
   request_id: RequestId;
 }; result: Accepted & {
@@ -2025,6 +2027,7 @@ export interface Methods {
   "task.memo.edit": { params: {
   task: number;
   memo: number;
+  /** Markdown. It may name images (x-attachments, tasks). */
   text: string;
   request_id: RequestId;
 }; result: Accepted };
@@ -2079,6 +2082,7 @@ export interface Methods {
   /** A new reporter (who the task answers to); by its opener, its reporter or the founder. */
   reporter?: string;
   title?: string;
+  /** The new brief, Markdown. It may name images (x-attachments, tasks). */
   body?: string;
   time_box?: Duration;
   /** Owner only: what the task waits on. */

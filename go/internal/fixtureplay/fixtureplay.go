@@ -15,6 +15,7 @@ import (
 // Fixture is one scripted exchange: `as` is its own connection's role, `with` the extra connections by name and role.
 type Fixture struct {
 	Name  string
+	Spec  string
 	As    string
 	With  map[string]string
 	Steps []map[string]any
@@ -134,16 +135,25 @@ func isType(kind string, got any) bool {
 	return false
 }
 
-// Fill replaces each string that is a whole "{{name}}" with vars[name], keeping its type.
+// varPattern is a {{name}} in a fixture's string.
+var varPattern = regexp.MustCompile(`\{\{(\w+)\}\}`)
+
+// Fill is conformance.py's substitute: a string that is a whole "{{name}}" becomes vars[name], keeping its type; a {{name}} inside a longer
+// string is replaced by the value's text.
 func Fill(v any, vars map[string]any) any {
 	switch x := v.(type) {
 	case string:
-		if strings.HasPrefix(x, "{{") && strings.HasSuffix(x, "}}") {
-			if val, ok := vars[x[2:len(x)-2]]; ok {
+		if m := varPattern.FindStringSubmatch(x); m != nil && m[0] == x {
+			if val, ok := vars[m[1]]; ok {
 				return val
 			}
 		}
-		return x
+		return varPattern.ReplaceAllStringFunc(x, func(ref string) string {
+			if val, ok := vars[ref[2:len(ref)-2]]; ok {
+				return fmt.Sprint(val)
+			}
+			return ref
+		})
 	case map[string]any:
 		out := map[string]any{}
 		for k, e := range x {

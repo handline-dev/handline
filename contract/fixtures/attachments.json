@@ -600,6 +600,395 @@
      }
     }
    ]
+  },
+  {
+   "name": "task.new.an_image_not_kept_is_not_found",
+   "spec": "task.new",
+   "about": "A brief naming an image the daemon does not keep is not_found, what attachment, and no task is opened.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo with a picture",
+       "body": "the button ![the button](attachment:0000000000000000)",
+       "request_id": "conf-at-12"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "attachment"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.new.a_malformed_image_id_is_bad_request",
+   "spec": "task.new",
+   "about": "An attachment: reference whose id is not an attachment id is bad_request, field body.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo with a picture",
+       "body": "the button ![the button](attachment:nope)",
+       "request_id": "conf-at-13"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "body"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.memo.add.more_than_six_images_is_bad_request",
+   "spec": "task.memo.add",
+   "about": "A text names at most 6 images; a memo naming 7 is bad_request, field text.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-14"
+      }
+     },
+     "result": {
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "aid"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo with a picture",
+       "body": "plain",
+       "request_id": "conf-at-15"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.memo.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "![the button](attachment:{{aid}})![the button](attachment:{{aid}})![the button](attachment:{{aid}})![the button](attachment:{{aid}})![the button](attachment:{{aid}})![the button](attachment:{{aid}})![the button](attachment:{{aid}})",
+       "request_id": "conf-at-16"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "text"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.memo.add.a_put_image_is_named_in_a_brief_and_a_memo",
+   "spec": "task.memo.add",
+   "about": "An image put by the founder is named in a task's brief and in a memo; the texts are stored as written.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-17"
+      }
+     },
+     "result": {
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "aid"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo with a picture",
+       "body": "cut off: ![the button](attachment:{{aid}})",
+       "request_id": "conf-at-18"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.memo.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "still ![the button](attachment:{{aid}})",
+       "request_id": "conf-at-19"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.get",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "body": "cut off: ![the button](attachment:{{aid}})",
+      "memos": {
+       "$contains": {
+        "text": "still ![the button](attachment:{{aid}})"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.memo.add.an_agent_names_only_an_image_a_task_shows",
+   "spec": "task.memo.add",
+   "about": "An agent may not name an image no task shows (refused, gate role); once a founder's brief names it, the agent may carry it into its own text.",
+   "as": "agent",
+   "with": {
+    "founder": "founder"
+   },
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "founder"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-20"
+      }
+     },
+     "result": {
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "aid"
+       }
+      }
+     },
+     "on": "founder"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo with a picture",
+       "body": "plain",
+       "request_id": "conf-at-21"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     },
+     "on": "founder"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.memo.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "![the button](attachment:{{aid}})",
+       "request_id": "conf-at-22"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo with a picture",
+       "body": "see ![the button](attachment:{{aid}})",
+       "request_id": "conf-at-23"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "on": "founder"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "task.memo.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "from the brief: ![the button](attachment:{{aid}})",
+       "request_id": "conf-at-24"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
   }
  ]
 }

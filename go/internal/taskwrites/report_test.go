@@ -15,12 +15,17 @@ import (
 // reportEnv is a database with the agents w (who works the tasks), boss (who opens them) and mgr, and a caller of any method as any of them.
 func reportEnv(t *testing.T, rows ...string) (*sql.DB, *fakeTeller, func(agent, method, rid, params string) map[string]any) {
 	t.Helper()
+	return reportEnvIn(t, t.TempDir(), rows...)
+}
+
+// reportEnvIn is reportEnv with the daemon's home at home.
+func reportEnvIn(t *testing.T, home string, rows ...string) (*sql.DB, *fakeTeller, func(agent, method, rid, params string) map[string]any) {
+	t.Helper()
 	sdb, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { sdb.Close() })
-	home := t.TempDir()
 	for _, a := range []string{"w", "boss", "mgr"} {
 		os.MkdirAll(filepath.Join(home, "agents", a), 0o755)
 		os.WriteFile(filepath.Join(home, "agents", a, "agent.yaml"), nil, 0o644)
