@@ -3,7 +3,7 @@
   {
    "name": "request.withdraw.an_unknown_request_is_said_not_raised",
    "spec": "request.withdraw",
-   "about": "NOT_YET_IN_PYTHON A request that does not exist is a reply with ok false and the reason.",
+   "about": "A request that does not exist is a reply with ok false and the reason.",
    "as": "founder",
    "steps": [
     {
@@ -39,7 +39,7 @@
   {
    "name": "request.withdraw.id_is_a_number",
    "spec": "request.withdraw",
-   "about": "NOT_YET_IN_PYTHON An id that is not a number is bad_request naming id.",
+   "about": "An id that is not a number is bad_request naming id.",
    "as": "founder",
    "steps": [
     {
@@ -81,7 +81,7 @@
   {
    "name": "request.withdraw.reason_is_not_empty",
    "spec": "request.withdraw",
-   "about": "NOT_YET_IN_PYTHON A reason given empty is bad_request naming reason.",
+   "about": "A reason given empty is bad_request naming reason.",
    "as": "founder",
    "steps": [
     {
@@ -124,7 +124,7 @@
   {
    "name": "request.withdraw.a_caller_that_is_nobody_is_refused",
    "spec": "request.withdraw",
-   "about": "NOT_YET_IN_PYTHON A caller that is nobody is refused, gate role.",
+   "about": "A caller that is nobody is refused, gate role.",
    "as": "anonymous",
    "steps": [
     {
@@ -168,7 +168,7 @@
   {
    "name": "request.cancel.a_dry_run_of_an_unknown_request_says_why",
    "spec": "request.cancel",
-   "about": "NOT_YET_IN_PYTHON A dry run of a request that does not exist answers ok false with the reason in plan.",
+   "about": "A dry run of a request that does not exist answers ok false with the reason in plan.",
    "as": "founder",
    "steps": [
     {
@@ -205,7 +205,7 @@
   {
    "name": "request.cancel.an_unknown_request_is_said_not_raised",
    "spec": "request.cancel",
-   "about": "NOT_YET_IN_PYTHON Cancelling a request that does not exist is a reply with ok false and the reason.",
+   "about": "Cancelling a request that does not exist is a reply with ok false and the reason.",
    "as": "founder",
    "steps": [
     {
@@ -241,7 +241,7 @@
   {
    "name": "request.cancel.id_is_a_number",
    "spec": "request.cancel",
-   "about": "NOT_YET_IN_PYTHON An id that is not a number is bad_request naming id.",
+   "about": "An id that is not a number is bad_request naming id.",
    "as": "founder",
    "steps": [
     {
@@ -283,7 +283,7 @@
   {
    "name": "request.cancel.dry_run_is_boolean",
    "spec": "request.cancel",
-   "about": "NOT_YET_IN_PYTHON A dry_run that is not true or false is bad_request naming dry_run.",
+   "about": "A dry_run that is not true or false is bad_request naming dry_run.",
    "as": "founder",
    "steps": [
     {
@@ -326,7 +326,7 @@
   {
    "name": "request.cancel.a_caller_that_is_nobody_is_refused",
    "spec": "request.cancel",
-   "about": "NOT_YET_IN_PYTHON A caller that is nobody is refused, gate role.",
+   "about": "A caller that is nobody is refused, gate role.",
    "as": "anonymous",
    "steps": [
     {

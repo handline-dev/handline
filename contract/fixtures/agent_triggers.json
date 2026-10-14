@@ -3,7 +3,7 @@
   {
    "name": "agent.triggers.every_agent",
    "spec": "agent.triggers",
-   "about": "NOT_YET_IN_PYTHON With no agent, one row per agent the daemon knows: whether its triggers fire now and why, as hl triggers prints them.",
+   "about": "With no agent, one row per agent the daemon knows: whether its triggers fire now and why, as hl triggers prints them.",
    "as": "founder",
    "steps": [
     {
@@ -48,7 +48,7 @@
   {
    "name": "agent.triggers.one_agent",
    "spec": "agent.triggers",
-   "about": "NOT_YET_IN_PYTHON With agent, that agent's row alone. Needs --var triggers_agent: an agent the daemon knows.",
+   "about": "With agent, that agent's row alone. Needs --var triggers_agent: an agent the daemon knows.",
    "as": "founder",
    "steps": [
     {
@@ -92,7 +92,7 @@
   {
    "name": "agent.triggers.unknown_agent_is_not_found",
    "spec": "agent.triggers",
-   "about": "NOT_YET_IN_PYTHON An agent the home does not have is not_found.",
+   "about": "An agent the home does not have is not_found.",
    "as": "founder",
    "steps": [
     {

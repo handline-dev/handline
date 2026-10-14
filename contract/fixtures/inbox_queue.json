@@ -3,7 +3,7 @@
   {
    "name": "inbox.queue.the_founders_is_the_mailbox",
    "spec": "inbox.queue",
-   "about": "NOT_YET_IN_PYTHON The founder's own inbox is the mailbox: no head, how many wait and a line per agent.",
+   "about": "The founder's own inbox is the mailbox: no head, how many wait and a line per agent.",
    "as": "founder",
    "steps": [
     {
@@ -45,7 +45,7 @@
   {
    "name": "inbox.queue.all_adds_what_was_dealt_with",
    "spec": "inbox.queue",
-   "about": "NOT_YET_IN_PYTHON With all the founder's inbox also lists what was already dealt with.",
+   "about": "With all the founder's inbox also lists what was already dealt with.",
    "as": "founder",
    "steps": [
     {
@@ -82,7 +82,7 @@
   {
    "name": "inbox.queue.an_agents_has_a_head_or_none",
    "spec": "inbox.queue",
-   "about": "NOT_YET_IN_PYTHON An agent's inbox, read by the founder: the head of its queue or null, and with all its history (needs --var ask_agent).",
+   "about": "An agent's inbox, read by the founder: the head of its queue or null, and with all its history (needs --var ask_agent).",
    "as": "founder",
    "steps": [
     {
@@ -131,7 +131,7 @@
   {
    "name": "inbox.queue.wait_is_bounded",
    "spec": "inbox.queue",
-   "about": "NOT_YET_IN_PYTHON wait_s over 600 is invalid params naming wait_s.",
+   "about": "wait_s over 600 is invalid params naming wait_s.",
    "as": "founder",
    "steps": [
     {
@@ -172,7 +172,7 @@
   {
    "name": "inbox.queue.since_is_a_number",
    "spec": "inbox.queue",
-   "about": "NOT_YET_IN_PYTHON A since that is not a number is invalid params naming since.",
+   "about": "A since that is not a number is invalid params naming since.",
    "as": "founder",
    "steps": [
     {

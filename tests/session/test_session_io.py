@@ -13,8 +13,6 @@ from support import *  # noqa: E402,F401,F403
 from handline.daemon import handoff_note  # noqa: E402
 
 
-
-
 # ---------------------------------------------------------------- fail-closed
 def test_failclosed(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
@@ -1088,238 +1086,6 @@ def test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(home: Path) -
         con.close()
 
 
-def test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(home: Path) -> None:
-    """`hl restart`: a close and a wake in one step. It resumes the conversation by default (whatever
-    the prompt cache says) and types nothing at it unless something is waiting; --fresh starts a new
-    one; an agent mid-turn is refused unless --force."""
-    from handline.actions import control
-    from handline.daemon import socket_server
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[tuple[str, str]] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.send, termmod.available, launch.find_room,
-            termmod.close_terminal, handoffmod.capture)
-    order: list[str] = []
-    closed_panes: list[str] = []
-    try:
-        orca_seen()
-
-        def wait_idle(h, timeout_ms=0):
-            order.append("idle")
-            return True
-        termmod.wait_idle = wait_idle
-        real_capture = handoffmod.capture
-
-        def capture(*a, **k):
-            order.append("capture")
-            return real_capture(*a, **k)
-        handoffmod.capture = capture
-        termmod.close_terminal = lambda h, tab=True: (closed_panes.append(h), (True, "closed"))[1]
-        launch.find_room = lambda agent: "alpha"           # a fresh start goes where there is room
-        table = sessions_are("backend")
-
-        def send(handle: str, text: str, enter: bool = True):
-            sent.append((handle, text))
-            if text == "/exit":
-                table.pop("backend", None)
-            elif " launch " in text:
-                take_launched_prompt(text)
-                table["backend"] = 4242
-            return True, ""
-
-        termmod.send = send
-        db.set_terminal(con, "backend", "term_x", "wt")
-        write_status_json(home / "agents" / "backend", {
-            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
-            "pct_5h": 20, "ctx_pct": 8, "transcript_path": "/tmp/sess-1.jsonl"})
-
-        def restart(**kw):
-            sent.clear()
-            table["backend"] = 4200
-            db.set_agent_state(con, "backend", dmn_states.IDLE)
-            db.clear_cursor(con, "typed_at:backend")
-            ok, said = control.restart_result(con, "backend", **kw)
-            launched = [t for _h, t in sent if " launch " in t]
-            return ok, said, launched, db.get_agent_state(con, "backend")
-
-        ok, said, launched, row = restart()
-        check("restart: an idle agent is ended and launched again, in the terminal it had",
-              ok and [t for _h, t in sent][:1] == ["/exit"] and len(launched) == 1
-              and all(h == "term_x" for h, _t in sent), f"{ok} {said} {sent}")
-        check("restart: resuming the same conversation, and the one thing it is told is that it was restarted, "
-              "by whom, and to retry what was going wrong",
-              "--resume sess-1" in launched[0]
-              and launched_prompt(launched[0]) == "Restarted by human (resumed). "
-                                                  "If something was going wrong before this, retry it.", launched[0])
-        check("restart: and it is not left closed", row["closed_at"] is None and row["terminal"] == "term_x",
-              str(dict(row)))
-        check("restart: its start is recorded as a restart that resumed", "--why restart" in launched[0], launched[0])
-
-        db.set_closed(con, "backend", "sess-1")
-        table.pop("backend", None)
-        sent.clear()
-        ok, said = control.restart_result(con, "backend")
-        check("restart: an agent already closed is started again, not crashed on", ok, said)
-
-        support.something_waiting(con, "backend")
-        ok, said, launched, row = restart()
-        told = launched_prompt(launched[0])
-        check("restart: work queued for it follows that line in the resume's first prompt",
-              ok and "--resume sess-1" in launched[0] and told.startswith("Restarted by human (resumed).")
-              and told.index("something for you") > told.index("Restarted"), f"{said} {launched}")
-        con.execute("UPDATE requests SET state = 'landed'")
-
-        con.execute("UPDATE events SET ts = ts - 7200 WHERE agent = 'backend'")
-        check("restart: (the cache is cold here)",
-              dmn_lifecycle.cache_expired(con, "backend", "sess-1", int(time.time())))
-        ok, said, launched, row = restart()
-        check("restart: a cold cache still resumes - the conversation was asked for",
-              ok and launched and "--resume sess-1" in launched[0], f"{said} {launched}")
-
-        ok, said, launched, row = restart(by="orcapipe")
-        check("restart: an agent that asks is named, in the line and in the launch for the record",
-              ok and launched_prompt(launched[0]).startswith("Restarted by orcapipe (resumed).")
-              and "--by orcapipe" in launched[0], f"{said} {launched}")
-        db.set_handoff(con, "backend", "RECORD LEFT BY THE CLOSE")
-        ok, said, launched, row = restart(fresh=True)
-        told = launched_prompt(launched[0])
-        check("restart: a fresh restart opens with the notice, then the handoff pointer",
-              ok and told.startswith("Restarted by human (fresh). If something was going wrong before this, retry it.")
-              and "handoff" in told, told)
-        check("restart: --fresh starts a new conversation, and no session is left to resume",
-              ok and len(launched) == 1 and "--resume" not in launched[0] and row["resume_session"] is None
-              and "--why restart" in launched[0] and row["closed_at"] is None, f"{said} {launched} {dict(row)}")
-
-        sent.clear()
-        table["backend"] = 4200
-        db.set_agent_state(con, "backend", dmn_states.RUNNING)
-        ok, said = control.restart_result(con, "backend")
-        check("restart: an agent mid-turn is refused, and nothing is typed",
-              not ok and "mid-turn" in said and "--force" in said and not sent, f"{said} {sent}")
-        check("restart: and the board does not offer it", not control.can(con, "backend", "restart")[0])
-        db.clear_cursor(con, "typed_at:backend")
-        ok, said = control.restart_result(con, "backend", force=True)
-        check("restart: --force ends it as a close does and starts it again",
-              ok and any(t == "/exit" for _h, t in sent) and any(" launch " in t for _h, t in sent),
-              f"{said} {sent}")
-
-        db.set_agent_state(con, "backend", dmn_states.RUNNING)
-        db.set_handoff(con, "backend", None)
-        db.clear_cursor(con, "typed_at:backend")
-        table["backend"] = 4200
-        order.clear()
-        ok, said = control.restart_result(con, "backend", fresh=True, force=True)
-        check("restart: --fresh --force takes the handoff record only once the turn has ended",
-              ok and "capture" in order and order.index("idle") < order.index("capture"), f"{said} {order}")
-
-        db.set_agent_state(con, "backend", dmn_states.HANDOFF)
-        check("restart: mid-handoff is refused even with --force",
-              not control.restart_result(con, "backend", force=True)[0])
-
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        db.clear_cursor(con, "typed_at:backend")
-        table["backend"] = 4200
-        ok, said = socket_server.VERBS["restart"](con, lambda _m: None, agent="backend", fresh=False, force=False)
-        check("restart: the daemon's verb does the same", ok and "restarted" in said, said)
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        db.clear_cursor(con, "typed_at:backend")
-        table["backend"] = 4200
-        sent.clear()
-        ok, said = socket_server.VERBS["restart"](con, lambda _m: None, agent="backend", fresh=False, force=False,
-                                                  by="orcapipe")
-        told = launched_prompt(next(t for _h, t in sent if " launch " in t))
-        check("restart: the daemon's verb names the agent that asked, in the line and in the launch",
-              ok and told.startswith("Restarted by orcapipe (resumed).")
-              and any("--by orcapipe" in t for _h, t in sent), f"{said} {told}")
-
-        import argparse
-        import contextlib
-        import io
-        from handline.cli import task as cli_task
-        payloads: list = []
-        real_send_cli, real_agent_env = cli_task.dmn_client.send, os.environ.get("OCP_AGENT")
-        cli_task.dmn_client.send = lambda payload, timeout=0: (payloads.append(payload), {"ok": True, "said": "ok"})[1]
-        try:
-            for who, want in (("orcapipe", "orcapipe"), (None, "human")):
-                payloads.clear()
-                if who:
-                    os.environ["OCP_AGENT"] = who
-                else:
-                    os.environ.pop("OCP_AGENT", None)
-                with contextlib.redirect_stdout(io.StringIO()):
-                    cli_task.cmd_restart(argparse.Namespace(target="backend", fresh=False, force=False))
-                check(f"restart: hl restart as {who or 'a person'} asks the daemon in the name of {want}",
-                      payloads and payloads[0]["by"] == want and payloads[0]["verb"] == "restart", str(payloads))
-        finally:
-            cli_task.dmn_client.send = real_send_cli
-            if real_agent_env is None:
-                os.environ.pop("OCP_AGENT", None)
-            else:
-                os.environ["OCP_AGENT"] = real_agent_env
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        db.clear_cursor(con, "typed_at:backend")
-        table["backend"] = 4200
-        sent.clear()
-        dmn_lifecycle.close_fresh(con, "backend", lambda _m: None, status.read_for_agent("backend", "alpha"),
-                                  keep_pane=True)
-        support.something_waiting(con, "backend")
-        dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
-        launched = [t for _h, t in sent if " launch " in t]
-        check("wake: after a fresh close the start is recorded as one, and is a new conversation",
-              launched and "--why 'fresh close'" in launched[0] and "--resume" not in launched[0], str(launched))
-        check("restart: no restart closed the pane, and the agent's terminal is the one it had",
-              not closed_panes and db.get_terminal(con, "backend") == "term_x", f"{closed_panes}")
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        db.clear_cursor(con, "typed_at:backend")
-        table["backend"] = 4300
-        noid = status.read_for_agent("backend", "alpha")
-        noid.session_id = None
-        ok, said = dmn_lifecycle.close_agent(con, "backend", lambda _m: None, noid, keep_pane=True)
-        check("close: a live session with no id on record is refused, and the refusal names restart --fresh",
-              not ok and "no session id on record" in said and "--fresh" in said, said)
-        ok, said = dmn_lifecycle.close_fresh(con, "backend", lambda _m: None, noid, keep_pane=True)
-        check("close: --fresh gives the conversation up on purpose, so the same session is closed", ok, said)
-    finally:
-        (termmod.alive, termmod.wait_idle, termmod.send, termmod.available, launch.find_room,
-         termmod.close_terminal, handoffmod.capture) = real
-        con.close()
-
-
-def test_a_tool_use_marks_a_queued_or_idle_agent_running(home: Path) -> None:
-    """A prompt typed at a busy session is run inside its turn with no UserPromptSubmit, so the row
-    stayed QUEUED (PENDING) until the turn ended; a tool call is the sign it is working."""
-    use_home(home)
-    agents.register("toolish")
-    env = dict(os.environ, OCP_AGENT="toolish", OCP_ACCOUNT="alpha", OCP_HOME=str(home))
-    payload = json.dumps({"hook_event_name": "PostToolUse", "session_id": "s", "tool_name": "Bash",
-                          "tool_input": {"command": "ls"}})
-
-    def after(state, detail="", closed=False):
-        con = db.connect()
-        try:
-            db.set_agent_state(con, "toolish", state, detail=detail)
-            if closed:
-                con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = ?", (int(time.time()), "toolish"))
-                con.commit()
-        finally:
-            con.close()
-        subprocess.run([str(ROOT / "bin" / "hl"), "hook", "PostToolUse"], input=payload,
-                       capture_output=True, text=True, env=env)
-        drain_spool()
-        con = db.connect()
-        try:
-            return db.get_agent_state(con, "toolish")["state"]
-        finally:
-            con.close()
-
-    check("tool use: a QUEUED agent that runs a tool is RUNNING", after(dmn_states.QUEUED) == "RUNNING")
-    check("tool use: so is an IDLE one", after(dmn_states.IDLE) == "RUNNING")
-    check("tool use: a move in progress is the daemon's, left QUEUED",
-          after(dmn_states.QUEUED, detail="moving to beta") == "QUEUED")
-    check("tool use: a parked agent stays parked", after(dmn_states.PARKED) == "PARKED")
-    check("tool use: a closed session is not revived", after(dmn_states.IDLE, closed=True) == "IDLE")
-
-
 def test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_shows_it(home: Path) -> None:
     """A restart closes the session and wakes it; a wake that fails (here the process table cannot be read)
     left a bare shell that nothing retried and no screen named. The debt is read from the record by
@@ -1598,7 +1364,6 @@ def test_the_actor_column_is_added_to_an_existing_session_starts_table(home: Pat
               "actor" in cols and row["actor"] == "" and row["cause"] == "wake", str(cols))
     finally:
         con.close()
-
 
 
 def test_idle_session_is_closed_and_resumed(home: Path) -> None:
@@ -3199,180 +2964,6 @@ def test_a_closed_agents_relaunch_stops_at_the_trust_screen(home: Path) -> None:
         con.close()
 
 
-def test_hooks_report_activity(home: Path) -> None:
-    """A working agent must not still read as PARKED.
-
-    agent_state otherwise only changes when the daemon changes it, so an agent
-    that was parked and then given work directly stays PARKED - and the daemon
-    would "wake" it mid-task by injecting a handoff it never needed.
-    """
-    termmod.live_terminals = lambda: None    # doctor.run() below asks Orca; nothing here is about it
-    use_home(home)
-    agents.register("hooky")
-    env = dict(os.environ, OCP_AGENT="hooky", OCP_ACCOUNT="alpha", OCP_HOME=str(home))
-
-    con = db.connect()
-    try:
-        db.set_agent_state(con, "hooky", dmn_states.PARKED, wake_at=int(time.time()) + 9999,
-                           detail="parked earlier")
-    finally:
-        con.close()
-
-    payload = json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "s",
-                          "prompt": "do the thing"})
-    subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
-                   input=payload, capture_output=True, text=True, env=env)
-    drain_spool()
-
-    con = db.connect()
-    try:
-        row = db.get_agent_state(con, "hooky")
-        check("hooks: a prompt moves the agent to RUNNING", row["state"] == "RUNNING",
-              str(dict(row)))
-        check("hooks: and clears the stale wake_at", row["wake_at"] is None, str(dict(row)))
-
-        # STALLED is the daemon's to clear, not the agent's.
-        db.set_agent_state(con, "hooky", dmn_states.STALLED, detail="needs a human")
-    finally:
-        con.close()
-    subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
-                   input=payload, capture_output=True, text=True, env=env)
-    drain_spool()
-    con = db.connect()
-    try:
-        check("hooks: activity does not clear STALLED",
-              db.get_agent_state(con, "hooky")["state"] == dmn_states.STALLED)
-    finally:
-        con.close()
-
-    # A mid-handoff agent must not be yanked back to RUNNING either.
-    con = db.connect()
-    try:
-        db.set_agent_state(con, "hooky", dmn_states.HANDOFF, detail="handing off")
-    finally:
-        con.close()
-    subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "SessionStart"],
-                   input=json.dumps({"hook_event_name": "SessionStart", "session_id": "s"}),
-                   capture_output=True, text=True, env=env)
-    drain_spool()
-    con = db.connect()
-    try:
-        check("hooks: activity does not interrupt a handoff",
-              db.get_agent_state(con, "hooky")["state"] == dmn_states.HANDOFF)
-    finally:
-        con.close()
-
-    # The other end of the turn. RUNNING is what stops work being delivered and
-    # stops a session being closed, so an agent that entered it and never left
-    # was taken out of service without anything saying so: three agents sat
-    # RUNNING for over two hours, told about no request and holding their memory.
-    def hook(name: str, **extra) -> None:
-        subprocess.run([str(ROOT / "bin" / "ocp"), "hook", name],
-                       input=json.dumps({"hook_event_name": name, "session_id": "s", **extra}),
-                       capture_output=True, text=True, env=env)
-        drain_spool()
-
-    con = db.connect()
-    try:
-        db.set_agent_state(con, "hooky", dmn_states.RUNNING, detail="working")
-    finally:
-        con.close()
-    hook("SubagentStop")
-    con = db.connect()
-    try:
-        check("hooks: a subagent finishing does not mean the agent is free",
-              db.get_agent_state(con, "hooky")["state"] == dmn_states.RUNNING,
-              str(db.get_agent_state(con, "hooky")["state"]))
-    finally:
-        con.close()
-
-    hook("Stop")
-    con = db.connect()
-    try:
-        row = db.get_agent_state(con, "hooky")
-        check("hooks: the end of a turn returns it to IDLE",
-              row["state"] == dmn_states.IDLE, str(dict(row)))
-
-        # The other way in. `hl launch` records the terminal handle before
-        # execve, and that row used to be born RUNNING - so a new agent was out
-        # of service before it had done anything, and _mark_activity then
-        # declined to rewrite a state that was already RUNNING.
-        db.set_terminal(con, "newborn", "term_n", "wt")
-        born = db.get_agent_state(con, "newborn")
-        check("launch: recording a terminal does not claim the agent is working",
-              born["state"] == dmn_states.IDLE, str(dict(born)))
-        check("launch: and it can be closed and told about work like any idle one",
-              born["state"] not in (dmn_states.RUNNING, dmn_states.HANDOFF))
-
-        db.set_agent_state(con, "newborn", dmn_states.RUNNING, detail="working")
-        db.set_terminal(con, "newborn", "term_n2", "wt")
-        check("launch: and a later handle does not reset a state it knows nothing about",
-              db.get_agent_state(con, "newborn")["state"] == dmn_states.RUNNING,
-              str(dict(db.get_agent_state(con, "newborn"))))
-        check("hooks: and it can be told about work again",
-              row["state"] not in (dmn_states.RUNNING, dmn_states.HANDOFF))
-
-        # Being stuck in RUNNING is silent by nature, so doctor says it out loud.
-        db.set_agent_state(con, "hooky", dmn_states.RUNNING, detail="working")
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'hooky'",
-                    (int(time.time()) - dmn_timing.STUCK_RUNNING_S - 60,))
-        con.commit()
-    finally:
-        con.close()
-    rows = [d for lvl, name, d in doctor.run().rows if "RUNNING with nothing heard" in name]
-    check("doctor: a stuck RUNNING agent is reported", len(rows) == 1, str(rows))
-
-    con = db.connect()
-    try:
-        db.set_agent_state(con, "hooky", dmn_states.IDLE, detail="done")
-    finally:
-        con.close()
-
-
-def test_clear_does_not_look_like_waking(home: Path) -> None:
-    """/clear ends one session and starts another. If SessionStart counted as
-    activity, the daemon's own context reclaim would clear the park it had just
-    set, the unchanged usage would trigger again, and the agent would hand off
-    in a loop - which is exactly what happened: 42 folds in seven minutes."""
-    use_home(home)
-    agents.register("loopy")
-    env = dict(os.environ, OCP_AGENT="loopy", OCP_ACCOUNT="alpha", OCP_HOME=str(home))
-
-    con = db.connect()
-    try:
-        db.set_agent_state(con, "loopy", dmn_states.PARKED, wake_at=int(time.time()) + 9999,
-                           detail="parked by a handoff")
-    finally:
-        con.close()
-
-    for event in ("SessionEnd", "SessionStart"):
-        subprocess.run([str(ROOT / "bin" / "ocp"), "hook", event],
-                       input=json.dumps({"hook_event_name": event, "session_id": "new"}),
-                       capture_output=True, text=True, env=env)
-        drain_spool()
-    con = db.connect()
-    try:
-        row = db.get_agent_state(con, "loopy")
-        check("clear: a new session does not un-park the agent",
-              row["state"] == dmn_states.PARKED, str(dict(row)))
-        check("clear: and the wake_at survives", row["wake_at"] is not None, str(dict(row)))
-    finally:
-        con.close()
-
-    # A real prompt still means real work.
-    subprocess.run([str(ROOT / "bin" / "ocp"), "hook", "UserPromptSubmit"],
-                   input=json.dumps({"hook_event_name": "UserPromptSubmit",
-                                     "session_id": "new", "prompt": "do it"}),
-                   capture_output=True, text=True, env=env)
-    drain_spool()
-    con = db.connect()
-    try:
-        check("clear: a prompt still marks the agent as working",
-              db.get_agent_state(con, "loopy")["state"] == "RUNNING")
-    finally:
-        con.close()
-
-
 def test_an_idle_close_keeps_a_handoff_only_if_it_closed(home: Path) -> None:
     """A wake that has to start elsewhere has no live session to read the
     transcript path from, so the close takes the record while there is one.
@@ -3468,26 +3059,6 @@ def test_a_second_done_loses_the_race(home: Path) -> None:
         check("race: a done that read the row before the winner wrote is refused",
               not ok and "someone else" in msg, msg)
         check("race: and the winner's evidence stands", real(con, t2)["done_evidence"] == "winner")
-    finally:
-        con.close()
-
-
-def test_close_says_what_it_read_and_never_guesses(home: Path) -> None:
-    """T568: `ocp close` ends an agent's session; a task or a number is refused
-    with the way to end or undo a task, and nothing is closed."""
-    _board_world(home)
-    rc, out = _cli(["close", "T42"])
-    check("close: a task number is refused, pointing at `task done`",
-          rc == 1 and "task done" in out and "task reopen" in out, out)
-    rc, out = _cli(["close", "42"])
-    check("close: a bare number is no agent", rc == 1 and "not an agent" in out, out)
-    _cli(["task", "new", "--assign", "worker", "t", "t", "-t", "1h"])
-    rc, out = _cli(["close", "T1"])
-    check("close: a real task is refused too, and stays open", rc == 1 and "task done" in out, out)
-    con = db.connect()
-    try:
-        check("close: and the task is untouched",
-              actions.task_state(con, db.get_task(con, 1)) != "done")
     finally:
         con.close()
 
@@ -3763,11 +3334,9 @@ def main() -> int:
         run(lambda: test_nothing_is_pressed_for_what_is_not_a_dialog(Path(td) / 'dcl6'))
         run(lambda: test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(Path(td) / 'dcl7'))
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
-        run(lambda: test_restart_ends_the_session_and_starts_it_again_in_the_same_terminal(Path(td) / 'restart'))
         run(lambda: test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_shows_it(Path(td) / 'restartretry'))
         run(lambda: test_a_restart_closes_the_terminal_when_the_screen_cannot_be_read(Path(td) / 'restartpane'))
         run(lambda: test_the_actor_column_is_added_to_an_existing_session_starts_table(Path(td) / 'actorcol'))
-        run(lambda: test_a_tool_use_marks_a_queued_or_idle_agent_running(Path(td) / 'toolrun'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
         run(lambda: test_wait_session_gone_treats_an_unmappable_pid_as_unreadable())
         run(lambda: test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh'))
@@ -3818,11 +3387,8 @@ def main() -> int:
         run(lambda: test_a_resume_that_fails_falls_back_to_fresh_and_the_head_is_told_after(Path(td) / 'fbk1'))
         run(lambda: test_a_message_launched_behind_the_trust_screen_is_not_told_twice(Path(td) / 'fbk2'))
         run(lambda: test_a_closed_agents_relaunch_stops_at_the_trust_screen(Path(td) / 'trustclosed'))
-        run(lambda: test_hooks_report_activity(Path(td) / 'hooky'))
-        run(lambda: test_clear_does_not_look_like_waking(Path(td) / 'loopy'))
         run(lambda: test_an_idle_close_keeps_a_handoff_only_if_it_closed(Path(td) / 'hdclose'))
         run(lambda: test_a_second_done_loses_the_race(Path(td) / 'taskrace'))
-        run(lambda: test_close_says_what_it_read_and_never_guesses(Path(td) / 'taskcloseread'))
         run(lambda: test_an_idle_agent_is_asked_for_its_handoff_note_once_and_closed_when_it_is_written(Path(td) / 'hnote1'))
         run(lambda: test_a_close_never_waits_on_a_note_that_does_not_come(Path(td) / 'hnote2'))
         run(lambda: test_a_note_counts_only_for_the_stretch_it_was_asked_in(Path(td) / 'hnote3'))

@@ -599,7 +599,7 @@ def effective_task_head(con, agent: str):
 # changes and not on every tick (T456): a stall must never be silent.
 _HELD: dict[str, str] = {}
 # What stopped each agent's delivery or wake on its latest try, and when (T721): the daemon records
-# it per waiting task (`taskholds`). A reason not renewed within HELD_FRESH_S has stopped being true.
+# it per waiting task (go/internal/supervisor/holds.go). A reason not renewed within HELD_FRESH_S has stopped being true.
 _NOTED: dict[str, tuple[str, int, bool]] = {}
 # A wake or start that failed, kept apart so the delivery that follows in the same tick ("no live
 # terminal") does not hide the failure behind it.

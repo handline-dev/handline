@@ -66,7 +66,7 @@ def set_terminal(con, agent: str, terminal: str | None, worktree: str | None) ->
     """Record where an agent lives. This says nothing about what it is doing.
 
     It ran at `hl launch`, before execve, and inserted the row as RUNNING - so
-    an agent was born working, and `_mark_activity` then declined to rewrite a
+    an agent was born working, and the hook's activity marking then declined to rewrite a
     state that was already RUNNING. RUNNING is what stops work being delivered
     and stops a session being closed, so the row that only meant to record a
     terminal handle was taking the agent out of service before it had done

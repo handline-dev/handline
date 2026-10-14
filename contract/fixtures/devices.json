@@ -823,7 +823,7 @@
   {
    "name": "devices.topic_events",
    "spec": "subscribe",
-   "about": "NOT_YET_IN_PYTHON: A founder subscribed to the devices topic is sent device.paired (the Device) when a code is redeemed and device.revoked ({device}) when the device is revoked.",
+   "about": "A founder subscribed to the devices topic is sent device.paired (the Device) when a code is redeemed and device.revoked ({device}) when the device is revoked.",
    "as": "unpaired",
    "with": {
     "admin": "founder"
@@ -979,7 +979,7 @@
   {
    "name": "devices.topic_is_founder_only",
    "spec": "subscribe",
-   "about": "NOT_YET_IN_PYTHON: A member may subscribe to other topics but not to devices: refused, gate role.",
+   "about": "A member may subscribe to other topics but not to devices: refused, gate role.",
    "as": "unpaired",
    "with": {
     "admin": "founder"

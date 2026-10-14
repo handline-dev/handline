@@ -67,7 +67,7 @@ C1, C3, C4 and C5 are in `contract/protocol.json` (`x-structured-controls`, the 
 until the daemon seeds them). C2 and C6 were not gaps. F1 is in `packages/fake-daemon` (`structured-controls.ts`): a structured fake
 agent has no terminal or holder, refuses the typing methods and finds no terminal to attach, interrupts only a running turn and refuses
 a close mid-turn. Run them with `serve.ts --conformance --autoplay 50`, vars `structured_agent=handline.auditor turn_agent=conf.working
-interrupt_agent=conf.interrupt asking_agent=conf.asking`. The Python fake does not play them (`NOT_YET_IN_PYTHON`).
+interrupt_agent=conf.interrupt asking_agent=conf.asking`.
 
 Until A8 and W1 land, `setup({ structuredTerminal: true })` gives the app tests the old shape: `apps/web/test/send.test.tsx`,
 `apps/web/test/transcript.test.tsx` and `apps/mobile/test/harness.tsx`. Each app deletes its lines with its fix.

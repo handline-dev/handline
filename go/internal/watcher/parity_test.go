@@ -1,13 +1,10 @@
 package watcher
 
 import (
-	"bufio"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
-	osexec "os/exec"
 	"path/filepath"
 	"testing"
 
@@ -15,23 +12,6 @@ import (
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/stream"
 )
-
-// The Python watcher's detector, run on a copy of the database the Go one watches: the same first look, the same changes, and the rows it
-// writes are the ones Go writes (the topic, type, agent, title, target and data). %s is the detector's name in handline/daemon/stream.py.
-const pythonDetector = `
-import json, os, sqlite3, sys
-sys.path.insert(0, os.getcwd())
-from handline.daemon import stream
-from handline.infra import daemonlock
-daemonlock.running_elsewhere = os.getpid  # this detector is the daemon, as the Go one is: not the live one's lock
-con = sqlite3.connect(sys.argv[1]); con.row_factory = sqlite3.Row
-state = {}
-stream.%s(con, state); con.commit()
-print("ready", flush=True)
-sys.stdin.readline()
-stream.%s(con, state); con.commit()
-print(json.dumps([dict(r) for r in con.execute("SELECT topic, type, agent, title, target, data FROM stream_log ORDER BY id")]))
-`
 
 func norm(v any) any {
 	var out any
@@ -54,72 +34,40 @@ func same(a, b any) bool {
 	return string(x) == string(y)
 }
 
-// parity runs pyName (a detector of the Python watcher) and the Go detector over two databases that setup and then change are applied to
-// alike, and returns the rows Python wrote, and the rows Go wrote.
-// parityHome, when set, is the home the Python detector runs in (the hr proposals are files in it) and the Go one reads.
-var parityHome string
-
-func parity(t *testing.T, pyName string, detector func(*sql.DB) Detector, setup, change func(run func(string, ...any))) (py []map[string]any, goRows []*stream.Event) {
+// parity runs the Go detector over a database that setup and then change are applied to, and returns the rows the Python watcher wrote
+// for the same changes (recorded from handline/daemon/stream.py before it was deleted: testdata/parity/<test name>.json) and the rows Go
+// wrote.
+func parity(t *testing.T, detector func(*sql.DB) Detector, setup, change func(run func(string, ...any))) (py []map[string]any, goRows []*stream.Event) {
 	t.Helper()
-	root, _ := filepath.Abs("../../..")
-	dir := t.TempDir()
-	type side struct {
-		log *stream.Log
-		run func(string, ...any)
+	recorded, err := os.ReadFile(filepath.Join("testdata", "parity", t.Name()+".json"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	open := func(name string) side {
-		d, err := store.Open(filepath.Join(dir, name))
-		if err != nil {
+	if err := json.Unmarshal(recorded, &py); err != nil {
+		t.Fatal(err)
+	}
+	d, err := store.Open(filepath.Join(t.TempDir(), "go.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	run := func(q string, args ...any) {
+		if _, err := d.Exec(q, args...); err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { d.Close() })
-		return side{&stream.Log{DB: d}, func(q string, args ...any) {
-			if _, err := d.Exec(q, args...); err != nil {
-				t.Fatal(err)
-			}
-		}}
 	}
-	g, p := open("go.sqlite"), open("py.sqlite")
-	both := func(q string, args ...any) { g.run(q, args...); p.run(q, args...) }
-	setup(both)
-
-	script := fmt.Sprintf(pythonDetector, pyName, pyName)
-	cmd := osexec.Command("python3", "-I", "-c", script, filepath.Join(dir, "py.sqlite"))
-	cmd.Dir = root
-	cmd.Stderr = os.Stderr
-	home := parityHome
-	if home == "" { // never the home this test was started with: that may be the live one
-		home = filepath.Join(t.TempDir(), "home")
-	}
-	cmd.Env = append(os.Environ(), "OCP_HOME="+home, "HANDLINE_HOME="+home, "HANDLINE_TEST_ROOT="+filepath.Dir(home), "OCP_TEST_ROOT="+filepath.Dir(home))
-	in, _ := cmd.StdinPipe()
-	out, _ := cmd.StdoutPipe()
-	if err := cmd.Start(); err != nil {
-		if errors.Is(err, osexec.ErrNotFound) {
-			t.Skip("no python3:", err)
-		}
-		t.Fatalf("the Python detector did not start: %v", err)
-	}
-	defer cmd.Process.Kill()
-	r := bufio.NewReader(out)
-	if line, _ := r.ReadString('\n'); line != "ready\n" {
-		t.Fatalf("the Python detector did not start (its stderr is above): %q", line)
-	}
-	d := detector(g.log.DB)
-	emit := func(e stream.Entry) (*stream.Event, error) { return g.log.Append(e) }
-	if err := d.Scan(g.log.DB, emit); err != nil {
+	log := &stream.Log{DB: d}
+	setup(run)
+	det := detector(d)
+	emit := func(e stream.Entry) (*stream.Event, error) { return log.Append(e) }
+	if err := det.Scan(d, emit); err != nil {
 		t.Fatal(err)
 	}
-	change(both)
-	if err := d.Scan(g.log.DB, emit); err != nil {
+	change(run)
+	if err := det.Scan(d, emit); err != nil {
 		t.Fatal(err)
 	}
-	in.Write([]byte("\n"))
-	line, _ := r.ReadString('\n')
-	if err := json.Unmarshal([]byte(line), &py); err != nil {
-		t.Fatalf("%q: %v", line, err)
-	}
-	goRows, err := g.log.Since(0, []string{"agents", "tasks", "notifications", "inbox", "hr", "chat"}, "", 100)
+	goRows, err = log.Since(0, []string{"agents", "tasks", "notifications", "inbox", "hr", "chat"}, "", 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +94,7 @@ func sameRow(t *testing.T, i int, want map[string]any, e *stream.Event) {
 }
 
 func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
-	py, events := parity(t, "_tasks", func(d *sql.DB) Detector { return &Tasks{Reads: &reads.Env{DB: d}} },
+	py, events := parity(t, func(d *sql.DB) Detector { return &Tasks{Reads: &reads.Env{DB: d}} },
 		func(run func(string, ...any)) {
 			run("INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'old', 'bob', 'human', 1)")
 		},
@@ -213,7 +161,7 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 
 func TestGoAndPythonWriteTheSameRowsForTheSameAgentChanges(t *testing.T) {
 	v := func(name, state string) string { return `{"name":"` + name + `","state":"` + state + `","role":"r"}` }
-	py, events := parity(t, "_agents", func(*sql.DB) Detector { return &Agents{} },
+	py, events := parity(t, func(*sql.DB) Detector { return &Agents{} },
 		func(run func(string, ...any)) {
 			run("INSERT INTO agent_view(agent, view, updated) VALUES('amy', ?, 0), ('bob', ?, 0), ('cat', ?, 0)", v("amy", "idle"), v("bob", "idle"), v("cat", "idle"))
 		},
@@ -237,7 +185,7 @@ func TestGoAndPythonWriteTheSameRowsForTheSameAgentChanges(t *testing.T) {
 func TestGoAndPythonWriteTheSameRowsForTheSameChatChanges(t *testing.T) {
 	ins := "INSERT INTO requests(id, ts, requester, target, body, state, kind, settles) VALUES(?, ?, ?, ?, ?, ?, 'say', ?)"
 	pb := "INSERT INTO prompt_blocks(agent, kind, fingerprint, title, panel, detail, answerable, first_seen, last_seen) VALUES(?, 'question', 'f', 't', '[]', '{}', 1, ?, ?)"
-	py, events := parity(t, "_chat", func(d *sql.DB) Detector { return &Chat{Reads: &reads.Env{DB: d}} },
+	py, events := parity(t, func(d *sql.DB) Detector { return &Chat{Reads: &reads.Env{DB: d}} },
 		func(run func(string, ...any)) {
 			run("INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 't', 'bob', 'human', 1)")
 			run("INSERT INTO agent_view(agent, view, updated) VALUES('bob', ?, 0), ('amy', ?, 0)", `{"name":"bob","state":"idle"}`, `{"name":"amy","state":"idle"}`)

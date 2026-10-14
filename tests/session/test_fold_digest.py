@@ -12,8 +12,6 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
 
-
-
 # ---------------------------------------------------------------- digest/fold
 def test_digest() -> None:
     d = digest.Digest(date="2026-09-15", agent="backend", updated="14:32 (handoff #3)",
@@ -49,19 +47,6 @@ def test_digest() -> None:
     check("rollover: done is emptied", rolled.items("done") == [])
     check("rollover: in_progress carries forward", rolled.items("in_progress") == ["rate limiter"])
     check("rollover: blocked/next carry forward", rolled.items("next") == ["write tests"])
-
-
-def test_event_allowlist() -> None:
-    raw = {"hook_event_name": "UserPromptSubmit", "session_id": "s1",
-           "prompt": "secret business plan text", "cwd": "/tmp",
-           "model": {"id": "claude-sonnet-5"}, "api_key": "sk-should-never-appear",
-           "transcript_path": "/tmp/t.jsonl"}
-    slim = evmod._slim(raw)
-    check("events: prompt text is not stored", "prompt" not in slim, str(slim))
-    check("events: prompt length is stored", slim.get("prompt_length") == len(raw["prompt"]))
-    check("events: unlisted fields are dropped", "api_key" not in slim, str(slim))
-    check("events: model is flattened to its id", slim.get("model") == "claude-sonnet-5")
-    check("events: PostToolUse is not captured", "PostToolUse" not in evmod.CAPTURED)
 
 
 def test_fold(home: Path) -> None:
@@ -745,7 +730,6 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_digest())
-        run(lambda: test_event_allowlist())
         run(lambda: test_korean_digests_read_and_are_migrated_to_english_headings(Path(td) / 'enmig'))
         run(lambda: test_fold(Path(td) / 'foldhome'))
         run(lambda: test_build_prompt_tells_the_model_not_to_write_a_started_by_reference_as_hash_n(

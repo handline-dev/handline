@@ -15,14 +15,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.daemon import agentview, screenstate, socket_server, stream  # noqa: E402
+from handline.daemon import agentview, screenstate  # noqa: E402
 from handline.session import states as dmn_states
 from handline.infra import sessiontoken  # noqa: E402
 from handline.session import term as termmod  # noqa: E402
 from handline.team import agents  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_rpc import Wire, _hp  # noqa: E402
 
 SPEC = json.loads((Path(__file__).resolve().parent.parent.parent / "contract" / "protocol.json").read_text())
 WORDS = set(SPEC["x-state-words"]["words"])
@@ -89,77 +88,9 @@ def test_every_internal_state_goes_out_as_one_of_the_spec_words(home: Path) -> N
         con.close()
 
 
-def test_agents_list_agent_get_and_the_changed_event_send_the_words(home: Path) -> None:
-    support._daemon_home(home, 20)
-    termmod.live_terminals = lambda: set()
-    stream.HUB.subs.clear()
-    con = db.connect()
-    _set(con, "backend", dmn_states.RUNNING)
-    agentview.refresh(con)
-    w = Wire()
-    w.call("hello", _hp())
-    listed = w.call("agents.list", {})["result"]["agents"]
-    got = w.call("agent.get", {"agent": "backend"})["result"]
-    check("agents.list: every state is a lower-case word", all(a["state"] in WORDS for a in listed), str([a["state"] for a in listed]))
-    check("agent.get: the running agent is running", got["state"] == "running", got["state"])
-    watcher = stream.Watcher(lambda m: None)
-    watcher.scan(con)
-    _set(con, "backend", dmn_states.STALLED, detail="stalled")
-    agentview.refresh(con)
-    watcher.scan(con)
-    events = [e for e in stream.since(con, 0, ["agents", "notifications"])]
-    changed = [e for e in events if e["type"] == "agent.changed" and e["data"]["name"] == "backend"]
-    check("agent.changed: carries the lower-case word", changed and changed[-1]["data"]["state"] == "stalled", str(changed))
-    check("the stall notification still fires for a stalled agent", any(e["type"] == "stall" for e in events), str([e["type"] for e in events]))
-    status = w.call("daemon.status", {})["result"]
-    check("daemon.status: by_state counts the words", set(status["agents"]["by_state"]) <= WORDS, str(status["agents"]["by_state"]))
-    w.close()
-    con.close()
-
-
-def test_the_state_word_fixtures_pass_against_this_daemon(home: Path) -> None:
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "contract"))
-    import conformance
-    support._daemon_home(home, 20)
-    termmod.live_terminals = lambda: set()
-    con = db.connect()
-    now = int(time.time())
-    names = {}
-    for word in ("running", "idle", "queued", "parked", "waiting", "stalled", "no_terminal"):
-        names[word] = f"sw-{word.replace('_', '-')}"
-        agents.register(names[word])
-    _set(con, names["running"], dmn_states.RUNNING)
-    _set(con, names["idle"], dmn_states.IDLE)
-    _set(con, names["queued"], dmn_states.QUEUED)
-    _set(con, names["parked"], dmn_states.PARKED, wake_at=now + 3600, detail=dmn_states.BY_HAND_MARK)
-    _set(con, names["waiting"], dmn_states.IDLE)
-    con.execute("INSERT INTO prompt_blocks(agent, kind, fingerprint, title, panel, detail, first_seen, last_seen) VALUES(?,'permission','fpw','Run?',?,?,?,?)",
-                (names["waiting"], json.dumps(["Run ls?"]), json.dumps({}), now, now))
-    _set(con, names["stalled"], dmn_states.STALLED, detail="stalled")
-    _set(con, names["no_terminal"], dmn_states.IDLE, terminal=None)
-    agentview.refresh(con)
-    con.close()
-
-    def connect():
-        a, b = socket.socketpair()
-        threading.Thread(target=socket_server._serve_one, args=(b, lambda m: None), daemon=True).start()
-        return a
-    real = sessiontoken.agent_of
-    sessiontoken.agent_of = lambda pid: None
-    try:
-        results = conformance.run_all([Path("contract/fixtures/state_words.json")], {"founder": connect},
-                                      {"founder_key": _hp()["key"], **{f"state_{w}": n for w, n in names.items()}})
-    finally:
-        sessiontoken.agent_of = real
-    bad = [(n, why) for st, why, n in results if st != "pass"]
-    check("fixtures: all eight state word fixtures pass against this daemon", not bad and len(results) == 8, str(bad or results))
-
-
 def main() -> int:
     def tests(td):
         run(lambda: test_every_internal_state_goes_out_as_one_of_the_spec_words(Path(td) / "w1"))
-        run(lambda: test_agents_list_agent_get_and_the_changed_event_send_the_words(Path(td) / "w2"))
-        run(lambda: test_the_state_word_fixtures_pass_against_this_daemon(Path(td) / "w3"))
     return run_area(tests)
 
 

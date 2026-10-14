@@ -3,7 +3,7 @@
   {
    "name": "agent.get.a_structured_agent_has_no_terminal",
    "spec": "agent.get",
-   "about": "NOT_YET_IN_PYTHON: A structured agent reads structured true with no terminal and no input holder; its session is open while the session lives.",
+   "about": "A structured agent reads structured true with no terminal and no input holder; its session is open while the session lives.",
    "as": "founder",
    "steps": [
     {
@@ -40,7 +40,7 @@
   {
    "name": "session.input.a_structured_agent_is_unsupported",
    "spec": "session.input",
-   "about": "NOT_YET_IN_PYTHON: Refused (gate unsupported): a structured agent has no terminal to type at or watch.",
+   "about": "Refused (gate unsupported): a structured agent has no terminal to type at or watch.",
    "as": "founder",
    "steps": [
     {
@@ -80,7 +80,7 @@
   {
    "name": "session.keys.a_structured_agent_is_unsupported",
    "spec": "session.keys",
-   "about": "NOT_YET_IN_PYTHON: Refused (gate unsupported): a structured agent has no terminal to type at or watch.",
+   "about": "Refused (gate unsupported): a structured agent has no terminal to type at or watch.",
    "as": "founder",
    "steps": [
     {
@@ -122,7 +122,7 @@
   {
    "name": "session.type.a_structured_agent_is_unsupported",
    "spec": "session.type",
-   "about": "NOT_YET_IN_PYTHON: Refused (gate unsupported): a structured agent has no terminal to type at or watch.",
+   "about": "Refused (gate unsupported): a structured agent has no terminal to type at or watch.",
    "as": "founder",
    "steps": [
     {
@@ -162,7 +162,7 @@
   {
    "name": "input.take.a_structured_agent_is_unsupported",
    "spec": "input.take",
-   "about": "NOT_YET_IN_PYTHON: Refused (gate unsupported): a structured agent has no terminal to type at or watch.",
+   "about": "Refused (gate unsupported): a structured agent has no terminal to type at or watch.",
    "as": "founder",
    "steps": [
     {
@@ -201,7 +201,7 @@
   {
    "name": "input.release.a_structured_agent_is_unsupported",
    "spec": "input.release",
-   "about": "NOT_YET_IN_PYTHON: Refused (gate unsupported): a structured agent has no terminal to type at or watch.",
+   "about": "Refused (gate unsupported): a structured agent has no terminal to type at or watch.",
    "as": "founder",
    "steps": [
     {
@@ -240,7 +240,7 @@
   {
    "name": "terminal.attach.a_structured_agent_has_no_terminal",
    "spec": "terminal.attach",
-   "about": "NOT_YET_IN_PYTHON: A structured agent has no terminal to attach: not_found (terminal).",
+   "about": "A structured agent has no terminal to attach: not_found (terminal).",
    "as": "founder",
    "steps": [
     {
@@ -277,7 +277,7 @@
   {
    "name": "session.interrupt.stops_the_turn_that_runs",
    "spec": "session.interrupt",
-   "about": "NOT_YET_IN_PYTHON: A structured agent whose turn runs is interrupted by a control request; no input hold is needed.",
+   "about": "A structured agent whose turn runs is interrupted by a control request; no input hold is needed.",
    "as": "founder",
    "steps": [
     {
@@ -312,7 +312,7 @@
   {
    "name": "session.interrupt.no_turn_is_refused_by_state",
    "spec": "session.interrupt",
-   "about": "NOT_YET_IN_PYTHON: With no turn running there is nothing to interrupt: refused, gate state.",
+   "about": "With no turn running there is nothing to interrupt: refused, gate state.",
    "as": "founder",
    "steps": [
     {
@@ -351,7 +351,7 @@
   {
    "name": "session.stop.close_mid_turn_is_refused_for_a_structured_agent",
    "spec": "session.stop",
-   "about": "NOT_YET_IN_PYTHON: Closing a structured agent whose turn runs is refused, gate state: interrupt first.",
+   "about": "Closing a structured agent whose turn runs is refused, gate state: interrupt first.",
    "as": "founder",
    "steps": [
     {
@@ -391,7 +391,7 @@
   {
    "name": "prompt.answer.a_structured_prompt_takes_allow_or_deny",
    "spec": "prompt.answer",
-   "about": "NOT_YET_IN_PYTHON: A structured agent's permission prompt offers allow and deny; esc and yes are bad_request, allow answers it and the transcript shows the answer.",
+   "about": "A structured agent's permission prompt offers allow and deny; esc and yes are bad_request, allow answers it and the transcript shows the answer.",
    "as": "founder",
    "steps": [
     {

@@ -56,9 +56,17 @@ imported from outside, and `cmd_daemon*`, `cmd_dev_mode` are names of `cli/daemo
      `applysettings`, `costpilot`, `login_expired`, `noticedigest`, `schedules`, `subscriptions`, `taskqueue`, `waitfor`,
      `locks`) with their tests. `hl service install` installs only the Go daemon. `tools/gateway_smoke.py` runs on the
      Go daemon.
-   - b. The RPC layer (`rpc*`, `socket_server`, `stream`, `sends`, `relay`, `fds`) and what only it reaches. The Python
-     suite serves `hl`'s calls from it in-process, so its tests move first: those of commands the Go `hl` runs go,
-     the rest take canned replies from the contract fixtures.
+   - b. Done: the RPC layer (`rpc*`, `socket_server`, `stream`, `sends`, `relay`, `fds`, `spool`, `taskholds`,
+     `timebox`, `actions/chatreads`, `events.apply_hook`) and the Python fake of the daemon (`tests/infra/fake_methods`;
+     conformance runs against Go only). The tests of commands the Go `hl` runs went with it; the rest get the Go
+     method's reply canned (`support.daemon_says`). 1,362 Python tests before, 954 after.
+   - c. What is left, 13 modules, 5,799 lines, all reached from the Python `hl` through `actions`, `session` and
+     `team`: `delivery` (`actions/stuck`, `session/blocked`, `session/handoff`, `team/ask`, `team/spawn`),
+     `lifecycle` (`actions/control`, `actions/stuck`, `session/blocked`, `session/launch`, `team/ask`), `handoff`
+     (`actions/control`), `handoff_note` (`actions/details`, `session/handoff`), `inputhold` (`actions/control`,
+     `session/autoaccept`), `landing` (`actions/stuck`), `messaging` (`team/ask`); `agentview`, `screensamples`,
+     `screenstate`, `states`, `termbytes` and `termchannel` only through those. Each goes when the command that
+     reaches it stops doing the daemon's work in its own process.
 
 ## The Python hook
 
@@ -88,8 +96,8 @@ the `actions` package (`control`, `stuck`): step 4's work for every command.
 
 Names in `session/events`. The Python `hl` uses `CAPTURED`, `ANSWERS` and `GUARDS` (`session/launch`, `infra/doctor`,
 `cli/hooks`), `TURN_BOUNDARIES` and `AUDIT_KINDS` (`cli/health`, `session/fold`), and `at_limit` (`session/stopgate`).
-`record_from_stdin` and `record_commit` are `cli/hooks`'s. Only the Python daemon uses `apply_hook` (`rpc_hooks`) and
-`PROTECTED_STATES` (`handoff`); `_apply`, `_mark_activity` and `_note_tool_use` are reached only through `apply_hook`.
+`record_from_stdin` and `record_commit` are `cli/hooks`'s. `apply_hook` is deleted (step 4b): the Go daemon applies
+every hook (`go/internal/hooks`).
 
 Porting the other nine events, `hook commit`, the stop gate and the snapshot writer to the Go `hl` is its own work after
 step 4: about 4 pieces, then the switch goes and the Python path is deleted.

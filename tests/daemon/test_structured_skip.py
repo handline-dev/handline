@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.daemon import delivery, handoff, lifecycle, messaging  # noqa: E402
-from handline.daemon import agentview, rpc_hooks  # noqa: E402
+from handline.daemon import agentview  # noqa: E402
 
 LOG = lambda _m: None  # noqa: E731
 CASES = Path(__file__).resolve().parents[2] / "contract" / "agent-kind-cases.json"
@@ -90,20 +90,6 @@ def test_the_kind_is_read_as_the_go_daemon_reads_it(home: Path) -> None:
     check("kind: a permission mode is not the switch", not agents.is_structured("backend"))
 
 
-def test_a_hook_that_reaches_this_daemon_moves_a_terminal_agent_and_not_a_structured_one(home: Path) -> None:
-    con, _ = _world(home)
-    try:
-        before = _snapshot(con, "frontend")
-        for agent in ("backend", "frontend"):
-            rpc_hooks.apply(con, agent, "UserPromptSubmit", {"prompt": "go"}, f"req-{agent}", int(time.time()))
-        check("hook: a terminal agent's turn start is recorded", db.get_agent_state(con, "backend")["state"] == "RUNNING")
-        check("hook: the structured agent's record is exactly as it was", _snapshot(con, "frontend") == before, str(_snapshot(con, "frontend")))
-        check("hook: and the line is not marked applied, so the owner can still take it",
-              con.execute("SELECT 1 FROM hook_applied WHERE agent = 'frontend'").fetchone() is None)
-    finally:
-        con.close()
-
-
 def test_the_same_calls_do_act_on_a_terminal_agent(home: Path) -> None:
     """The control: the skips above are not vacuous. The same world, the same calls, the other agent."""
     con, typed = _world(home)
@@ -160,7 +146,6 @@ def test_a_structured_agent_switched_with_its_terminal_open_is_a_stuck_finding(h
 def main() -> int:
     def tests(td):
         run(lambda: test_the_kind_is_read_as_the_go_daemon_reads_it(Path(td) / "k1"))
-        run(lambda: test_a_hook_that_reaches_this_daemon_moves_a_terminal_agent_and_not_a_structured_one(Path(td) / "k2h"))
         run(lambda: test_the_same_calls_do_act_on_a_terminal_agent(Path(td) / "k5"))
         run(lambda: test_the_view_pass_leaves_the_structured_agents_row_alone(Path(td) / "k7"))
         run(lambda: test_a_structured_agent_switched_with_its_terminal_open_is_a_stuck_finding(Path(td) / "k8"))

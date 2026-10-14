@@ -76,7 +76,7 @@ from handline.view import viewdata  # noqa: E402
 from handline.infra import daemonclient as dmn_client, daemonlock, devmode as devsetting  # noqa: E402
 from handline.session import states as dmn_states  # noqa: E402
 from handline.daemon import (delivery as dmn_delivery, handoff as dmn_handoff, lifecycle as dmn_lifecycle,  # noqa: E402
-                        messaging as dmn_messaging, socket_server as dmn_socket_server, states as dmn_timing)
+                        messaging as dmn_messaging, states as dmn_timing)
 from handline.vendors import opencode as ocmod  # noqa: E402
 
 PASS, FAIL = [], []
@@ -85,80 +85,18 @@ PASS, FAIL = [], []
 # process table would otherwise wait out the real minute before failing.
 dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S = 0.3, 0.05
 
-# `ocp ask`/`say` send to the daemon's socket (T351). Under the suite there is no
-# daemon: the CLI's client is a stand-in that hands the request to the very
-# handler the socket serves, on this process, and the notice is typed inline.
+# Under the suite no daemon runs: a command's daemon call is refused as with the daemon down, unless the test gives
+# the Go daemon's reply (`daemon_says`). The Go daemon's behaviour is tested in go/.
 import types as _types  # noqa: E402
 from handline.cli import ask as _cli_ask  # noqa: E402
-from handline.daemon import screenstate, sends as _dmn_sends  # noqa: E402
-_dmn_sends.RUN_INLINE = True
-_cli_ask.dmn_client = _types.SimpleNamespace(
-    send=lambda payload, timeout=None: dmn_socket_server._handle_request(payload, lambda _m: None))
-
-# The commands' method calls (`cli/client.py`) go to the daemon's own serving code on a thread of this process. The
-# caller is whoever OCP_AGENT names, as the daemon would find from the session's process; else the founder.
-import socket as _socket  # noqa: E402
-import threading as _threading  # noqa: E402
 from handline.cli import client as _cli_client  # noqa: E402
-from handline.daemon import rpc as _dmn_rpc  # noqa: E402
-from handline.infra import sessiontoken as _sessiontoken  # noqa: E402
+from handline.daemon import screenstate  # noqa: E402
+_cli_ask.dmn_client = _types.SimpleNamespace(send=lambda payload, timeout=None: None)
 
 
-class _CliConnection(_dmn_rpc.Connection):
-    def caller_for(self, key) -> "_dmn_rpc.Caller":
-        caller = _dmn_rpc.Caller(None, key)
-        agent = askmod.current_agent()
-        if agent:
-            caller.role, caller.info = "agent", {"kind": "agent", "name": agent}
-        return caller
+def _no_daemon(start: bool = True, timeout: float = 0):
+    raise dmn_client.DaemonDown("the daemon is not running")
 
-
-def _serve_cli(start: bool = True, timeout: float = 0) -> _socket.socket:
-    _sessiontoken.ensure_founder_key()
-    a, b = _socket.socketpair()
-
-    def serve() -> None:
-        try:
-            _CliConnection(b, lambda _m: None, dmn_socket_server._handle_request).serve()
-        finally:
-            b.close()
-    _threading.Thread(target=serve, daemon=True).start()
-    return a
-
-
-def _request_read(params: dict) -> dict:
-    """request.read as the Go daemon serves it (go/internal/reads/inboxget.go). The Python test server never had it, so `hl read`'s
-    call is answered here and the tests that look at a request through `hl read` still run."""
-    from handline.daemon import delivery, rpc_inbox_get
-    from handline.infra import daemonclient
-    rid, viewer = params["id"], askmod.current_agent() or db.HUMAN
-    until = time.time() + (params.get("wait_s") or 0)
-    while True:
-        con = db.connect()
-        try:
-            row = db.get_request(con, rid)
-            if row is None or (viewer == row["target"] and viewer != db.HUMAN and not row["edge_ok"]):
-                raise daemonclient.RpcError({"message": f"no request {rid}", "data": {"code": "not_found"}})
-            if row["state"] in rpc_inbox_get.SETTLED or time.time() >= until:
-                if viewer == db.HUMAN:
-                    actions.opened_by_human(con, rid)
-                full = con.execute(f"SELECT *, {db.ANSWER_SQL}, {db.DISMISSED_SQL} FROM requests WHERE id = ?", (rid,)).fetchone()
-                dismissed, by, reason = db.dismissal(full)
-                said = delivery.in_reply_to(con, row)
-                return {"id": rid, "requester": row["requester"], "target": row["target"], "kind": row["kind"] or "ask",
-                        "state": row["state"], "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(row["ts"])),
-                        "relation": row["relation"], "response": row["response"], "chain_depth": row["chain_depth"],
-                        "parent": {"id": row["parent_id"], "line": said.partition(": ")[2]} if said else None, "body": row["body"] or "",
-                        "answer": None if dismissed else (full["answer"] or None),
-                        "dismissal": {"by": by, "reason": reason} if dismissed else None}
-        finally:
-            con.close()
-        time.sleep(rpc_inbox_get.POLL_S)
-
-
-_served_call = _cli_client.call
-_cli_client.call = lambda method, params=None, **kw: (_request_read(params) if method == "request.read"
-                                                      else _served_call(method, params, **kw))
 
 def GO_ARGUMENTS(home, allow_live_home=False) -> list[str]:
     """A stand-in for `service.go_arguments`, which needs the Go daemon built: for a test of the rest of the plist. The real
@@ -191,8 +129,28 @@ def queue_head(params: dict) -> dict:
         "more_waiting": 0, "more_waiting_line": None, "how_to_close": "answer it"}}
 
 
+def request_read(params: dict) -> dict:
+    """A request.read reply that carries the row as the database holds it. Who may read it, the wait and marking it opened
+    are the Go daemon's and are tested there (go/internal/reads/requestread_test.go)."""
+    from handline.daemon import delivery
+    con = db.connect()
+    try:
+        row = con.execute(f"SELECT *, {db.ANSWER_SQL}, {db.DISMISSED_SQL} FROM requests WHERE id = ?", (params["id"],)).fetchone()
+        if row is None:
+            raise dmn_client.RpcError({"message": f"no request {params['id']}", "data": {"code": "not_found"}})
+        dismissed, by, reason = db.dismissal(row)
+        said = delivery.in_reply_to(con, row)
+    finally:
+        con.close()
+    return {"id": row["id"], "requester": row["requester"], "target": row["target"], "kind": row["kind"] or "ask",
+            "state": row["state"], "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(row["ts"])),
+            "relation": row["relation"], "response": row["response"], "chain_depth": row["chain_depth"],
+            "parent": {"id": row["parent_id"], "line": said.partition(": ")[2]} if said else None, "body": row["body"] or "",
+            "answer": None if dismissed else (row["answer"] or None), "dismissal": {"by": by, "reason": reason} if dismissed else None}
+
+
 REAL_CLI_CONNECT = _cli_client.connect  # for a test that puts its own socket under the real call
-_cli_client.connect = _serve_cli
+_cli_client.connect = _no_daemon
 
 def _ask_row(payload: dict, log=None) -> dict:
     """A request row written and told the way the removed `ocp ask` did (T560): the
@@ -200,8 +158,12 @@ def _ask_row(payload: dict, log=None) -> dict:
     kw = {k: v for k, v in payload.items() if k not in ("verb", "target", "body", "requester", "speaker")}
     ok, msg, rid = askmod.ask(payload["target"], payload["body"], requester=payload.get("requester"),
                               speaker=payload.get("speaker"), notify=False, **kw)
-    if ok:
-        _dmn_sends._after(rid, payload["target"], log or (lambda _m: None))
+    if ok and payload["target"] != askmod.HUMAN:
+        con = db.connect()
+        try:
+            askmod.push_here(con, payload["target"], rid)
+        finally:
+            con.close()
     return {"ok": bool(ok), "said": msg}
 
 
@@ -1868,14 +1830,11 @@ def _park_behind(home: Path, tail, ends_at_limit: bool = True, **term_kw):
     return con, term
 
 
-def drain_spool() -> None:
-    """What a hook left in the spool while no daemon was running, applied as the daemon does at start."""
-    from handline.daemon import spool
-    con = db.connect()
-    try:
-        spool.ingest(con, lambda m: None)
-    finally:
-        con.close()
+def spooled(agent: str | None = None, kind: str | None = None) -> list[dict]:
+    """The hook events left in the spool (no daemon runs under the suite, so a hook writes each one there)."""
+    from handline.infra import hookspool
+    lines = hookspool.path().read_text().splitlines() if hookspool.path().exists() else []
+    return [e for e in map(json.loads, lines) if agent in (None, e["agent"]) and kind in (None, e["kind"])]
 
 
 def _fire_hook(event: str, **fields) -> None:
@@ -1883,7 +1842,6 @@ def _fire_hook(event: str, **fields) -> None:
     sys.stdin = io.StringIO(json.dumps({"hook_event_name": event, "session_id": "s", **fields}))
     try:
         evmod.record_from_stdin([event])
-        drain_spool()
     finally:
         sys.stdin = real_in
 
@@ -2409,8 +2367,8 @@ __all__ = [
     'SUITE_TMUX_SOCKET',
     'ORCA_UNMAINTAINED',
     'approve_hr',
-    'drain_spool',
     'GO_ARGUMENTS',
+    'spooled',
     'answer_card',
     '_ask_row',
     'hand_edit_team',
@@ -2468,7 +2426,6 @@ __all__ = [
     'dmn_timing',
     'daemonlock',
     'devsetting',
-    'dmn_socket_server',
     'db',
     'hr',
     'proposals',

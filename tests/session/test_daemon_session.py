@@ -13,8 +13,6 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
 
-
-
 def test_a_first_backfill_reads_a_slice_per_tick_not_the_whole_history(home: Path) -> None:
     from handline.usage import tokenlog
     _daemon_home(home, 20)
@@ -1285,7 +1283,7 @@ def test_a_woken_session_is_not_closed_while_its_wake_waits_for_the_first_turn(h
 
 def test_every_session_start_is_kept_with_its_cause_and_what_it_was_given(home: Path) -> None:
     """Each start the chat marks - why it began, whether it resumed, the handoff record and first prompt
-    it was given - is kept by `db.session_starts`, claimed by the session's own SessionStart."""
+    it was given - is kept by `db.session_starts` (the session's SessionStart claims it in the Go daemon, go/internal/hooks)."""
     _daemon_home(home, 20)
     con = db.connect()
     real_agent = os.environ.get("OCP_AGENT")
@@ -1298,13 +1296,8 @@ def test_every_session_start_is_kept_with_its_cause_and_what_it_was_given(home: 
               len(rows) == 1 and rows[0]["cause"] == "wake" and rows[0]["resumed"] == 0
               and rows[0]["text"] == "the record: carry on with #12" and rows[0]["prompt"] == "pick the task back up"
               and rows[0]["session_id"] is None, str([dict(r) for r in rows]))
-        support._fire_hook("SessionStart", source="clear", session_id="s-clear")
-        check("session starts: a /clear's SessionStart does not claim it", db.session_starts(con, "backend")[0]["session_id"] is None)
-        support._fire_hook("SessionStart", source="startup", session_id="s-new")
-        check("session starts: the new session's SessionStart names it", db.session_starts(con, "backend")[0]["session_id"] == "s-new")
 
         launch._keep_what_it_starts_with("backend", ["--resume", "s-old"], "an event", "restart")
-        support._fire_hook("SessionStart", source="resume", session_id="s-old")
         rows = db.session_starts(con, "backend")
         check("session starts: a resume is kept too - resumed, its own session, the event it was given, and the "
               "record its system prompt carries (`context_for` puts a waiting one there for a resume as well)",
@@ -1324,11 +1317,8 @@ def test_every_session_start_is_kept_with_its_cause_and_what_it_was_given(home: 
         check("session starts: a launch by hand with nothing is a 'launch' with no text and no prompt",
               last["cause"] == "launch" and last["text"] == "" and last["prompt"] == "", str(dict(last)))
 
-        con.execute("UPDATE session_starts SET ts = ts - 7200 WHERE cause = 'launch'")
-        support._fire_hook("SessionStart", source="startup", session_id="s-late")
         got = db.session_starts(con, "backend")
-        check("session starts: they come back oldest first, and a launch too old is not claimed",
-              [r["cause"] for r in got] == ["wake", "restart", "launch"] and got[2]["session_id"] is None,
+        check("session starts: they come back oldest first", [r["cause"] for r in got] == ["wake", "restart", "launch"],
               str([dict(r) for r in got]))
         check("session starts: a limit gives the newest, still in order",
               [r["cause"] for r in db.session_starts(con, "backend", limit=2)] == ["restart", "launch"])
@@ -1919,6 +1909,29 @@ def test_a_start_and_a_push_both_refuse_a_full_account_before_opening_a_terminal
         con.close()
 
 
+def _walled_lines(_params) -> dict:
+    """agents.list as the Go daemon answers `hl ps` and `hl team` (go/internal/reads/agents.go): backend's line, its wall
+    read with the Python predicate the Go one ports."""
+    con = db.connect()
+    try:
+        reason = launch.wake_wait_reason("backend", db.get_agent_state(con, "backend"), con)
+    finally:
+        con.close()
+    return {"agents": [{"name": "backend", "has_repo": True, "has_terminal": False, "started": True, "screen_word": "closed",
+                        "screen_detail": "", "unreached": 0, "task_waits": [], "wake_wait_reason": reason}]}
+
+
+def _screens() -> tuple[str, str]:
+    """What `hl ps` and `hl team` print; `hl team` is asked from `reviewer`, a peer of every agent in DESIGN_TEAM."""
+    with support.daemon_says("agents.list", _walled_lines):
+        ps_out = _capture(lambda: climod.main(["ps"]))
+        os.environ["OCP_AGENT"] = "reviewer"
+        try:
+            return ps_out, _capture(lambda: climod.main(["team"]))
+        finally:
+            del os.environ["OCP_AGENT"]
+
+
 def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
     """A closed agent whose resume is blocked at its account's 5h wall used to
     say nothing about it: `hl ps` showed "·closed", `hl triggers` said
@@ -1957,12 +1970,7 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
         check("walled: the daemon's own refusal is the same sentence, with only why it did not move after it",
               not ok and (why == reason or why.startswith(reason + "; not moved: ")), f"{why!r} != {reason!r}")
 
-        ps_out = _capture(lambda: climod.main(["ps"]))
-        # `hl team` is asked from somewhere - `reviewer` is a peer of every
-        # agent in DESIGN_TEAM, so backend is on its list.
-        os.environ["OCP_AGENT"] = "reviewer"
-        team_out = _capture(lambda: climod.main(["team"]))
-        del os.environ["OCP_AGENT"]
+        ps_out, team_out = _screens()
         check("walled: `hl ps` says it", reason in ps_out, ps_out)
         check("walled: `hl team` says it too - the fourth surface",
               "alpha" in team_out and when in team_out, team_out)
@@ -1973,10 +1981,7 @@ def test_a_walled_wake_says_so_everywhere(home: Path) -> None:
         row = db.get_agent_state(con, "backend")
         check("walled: and clears the moment the account has room",
               launch.wake_wait_reason("backend", row, con) is None)
-        ps_out = _capture(lambda: climod.main(["ps"]))
-        os.environ["OCP_AGENT"] = "reviewer"
-        team_out = _capture(lambda: climod.main(["team"]))
-        del os.environ["OCP_AGENT"]
+        ps_out, team_out = _screens()
         check("walled: and every screen falls silent with it",
               "rolls over" not in ps_out and when not in team_out,
               "still walled somewhere after the window rolled over")
@@ -2447,59 +2452,6 @@ edges:
     finally:
         (termmod.available, termmod.alive, termmod.idle_now, termmod.send,
          spawnmod.spawn, dmn_delivery.wait_for_session) = real
-        con.close()
-
-
-def test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(home: Path) -> None:
-    """STALLED is protected the same way HANDOFF was: two failed wakes from
-    earlier ticks already sit on the counter, this move's own wake is the
-    third, and if its session comes up late - after `_wake_agent` has given up
-    and written STALLED - and its hook fires anyway, `_mark_activity` refuses
-    to move an agent out of a protected state. RUNNING is never reached, so the
-    compare-and-set below is never given the chance to overrule STALLED. Three
-    launches that started nothing is 8.6's human call, not something one more
-    race should quietly clear."""
-    _daemon_home(home, 20)
-    _with_accounts("alpha", "beta")
-    con = db.connect()
-    agents.register("mover")
-    write_status(home, "beta", pct_5h=10, pct_7d=10, reset_5h=int(time.time()) + 3600)
-    real = (termmod.available, termmod.alive, termmod.close_session, termmod.relaunch,
-            termmod.idle_now, dmn_delivery.wait_for_session)
-    try:
-        orca_idle()
-        termmod.close_session = exit_ends_session("mover")
-        sessions_are("mover")
-        db.set_terminal(con, "mover", "term_x", "wt")
-        db.set_account(con, "mover", "alpha")
-        db.set_agent_state(con, "mover", dmn_states.PARKED, detail="parked earlier")
-        db.bump_counter(con, "mover", "wake_failures")
-        db.bump_counter(con, "mover", "wake_failures")
-        keep_handoff("mover", "# handoff · mover\n## Next\n- carry on\n")
-        dmn_delivery.wait_for_session = lambda agent, timeout=0: False
-
-        def relaunch_fails_but_late(h, cmd, **kw):
-            # The session comes up late - after `_wake_agent` has already
-            # given up on this, its third, attempt - and its hook fires anyway.
-            take_launched_prompt(cmd)
-            _SESSION_TABLE["t"]["mover"] = 4242
-            evmod._mark_activity(con, "mover", "UserPromptSubmit")
-            return False, "no session seen within the timeout"
-        termmod.relaunch = relaunch_fails_but_late
-
-        write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=int(time.time()) + 4 * 3600)
-        db.add_request(con, "marina", "mover", "carry on", None, "peer", "async", None, 0, None)
-        t = triggers.evaluate(100, 10)
-        moved = dmn_handoff._move_to_room(con, "mover", t, lambda _m: None)[0]
-        check("stalled: the third failure is not recorded as a move", not moved)
-        row = db.get_agent_state(con, "mover")
-        check("stalled: it lands on STALLED, not clobbered by the late hook",
-              row["state"] == dmn_states.STALLED and row["wake_failures"] == 3, str(dict(row)))
-        check("stalled: the row still says closed - nothing here claims a live session",
-              bool(row["closed_at"]) and row["account"] == "alpha", str(dict(row)))
-    finally:
-        (termmod.available, termmod.alive, termmod.close_session, termmod.relaunch,
-         termmod.idle_now, dmn_delivery.wait_for_session) = real
         con.close()
 
 
@@ -3031,8 +2983,6 @@ def main() -> int:
         run(lambda: test_a_resumed_handoff_also_records_its_park(Path(td) / 'parklevel6'))
         run(lambda: test_a_resumed_hand_park_stays_forceable_too(Path(td) / 'parklevel6b'))
         run(lambda: test_the_whole_loop_runs_on_our_own_commands(Path(td) / 'loop'))
-        run(lambda: test_stalled_survives_a_hook_that_fires_after_the_third_failed_wake(
-            Path(td) / 'movestalled'))
         run(lambda: test_who_is_asking_is_not_guessed(Path(td) / 'whoasks'))
         run(lambda: test_handoff_reclaims_context(Path(td) / 'reclaim'))
         run(lambda: test_a_resumed_context_handoff_wakes_at_once(Path(td) / 'resumectxwake'))

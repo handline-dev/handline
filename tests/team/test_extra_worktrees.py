@@ -14,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.actions import details  # noqa: E402
-from handline.daemon import rpc_worktrees  # noqa: E402
 from handline.session import backends  # noqa: E402
 from handline.session.backends import tmux  # noqa: E402
 from handline.session.backends.base import Backend  # noqa: E402
@@ -166,36 +165,12 @@ def test_a_launch_gives_the_further_worktrees_to_that_agent_alone(home: Path) ->
         backends.use(None)
 
 
-def test_every_lookup_maps_both_paths_to_the_one_agent(home: Path) -> None:
-    repo, first = _world(home)
-    try:
-        agents.register("auditor", extra_worktrees=1)
-        have, _ = spawn.ensure_extras("auditor", first, repo)
-        con = db.connect()
-        dirs = stats._worktrees(con)
-        known = rpc_worktrees.known_worktrees(con)
-        con.close()
-        check("lookups: usage attributes the first, the second and a folder in it to the agent",
-              all(stats.agent_for_cwd(p, dirs) == "auditor" for p in (first, have[0], have[0] + "/sub/dir")) and stats.agent_for_cwd("/elsewhere", dirs) == stats.UNATTRIBUTED, str(dirs))
-        check("lookups: worktrees.list knows both", known.get(os.path.realpath(first)) == "auditor" and known.get(os.path.realpath(have[0])) == "auditor", str(known))
-        declared, undeclared = details.eligible_worktrees()
-        pairs = {(a, w) for a, w in declared + undeclared}
-        check("lookups: trust covers both, one pair each", ("auditor", first) in pairs and ("auditor", have[0]) in pairs, str(pairs))
-        con = db.connect()
-        row = db.get_agent_state(con, "auditor")
-        con.close()
-        check("lookups: every path of the agent is its first and then its further ones", spawn.all_paths(row) == [first, *have])
-    finally:
-        backends.use(None)
-
-
 def main() -> int:
     def tests(td):
         run(lambda: test_the_config_is_a_count_that_only_a_real_number_turns_on(Path(td) / "x1"))
         run(lambda: test_a_missing_second_worktree_is_made_once_beside_the_first(Path(td) / "x2"))
         run(lambda: test_the_dry_run_says_what_it_would_make(Path(td) / "x3"))
         run(lambda: test_a_launch_gives_the_further_worktrees_to_that_agent_alone(Path(td) / "x4"))
-        run(lambda: test_every_lookup_maps_both_paths_to_the_one_agent(Path(td) / "x5"))
     return run_area(tests)
 
 

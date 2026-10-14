@@ -13,10 +13,6 @@ from support import *  # noqa: E402,F401,F403
 from handline.vendors import claude_hooks as hooks  # noqa: E402
 
 
-
-
-
-
 # ---------------------------------------------------------------- status line
 def test_init_leaves_the_status_line_slot_empty(home: Path) -> None:
     """ocp installs no status line (D11): the slot is the human's. `hl init`
@@ -2205,7 +2201,6 @@ def test_venv(home: Path) -> None:
                         env={**os.environ, "OCP_HOME": str(reqshome / "home")})
     check("venv: the bash wrapper falls back clean (not a raw shasum error) on a missing requirements.txt",
           r.returncode == 1 and "no requirements.txt" in r.stdout and "shasum" not in r.stderr, f"out={r.stdout!r} err={r.stderr!r}")
-
 
 
 def test_shared_settings_turn_claude_notifications_off_once(home: Path) -> None:
