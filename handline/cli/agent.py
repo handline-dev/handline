@@ -48,7 +48,7 @@ def _propose_register(args) -> int:
               "and it is raised as a proposal", file=sys.stderr)
         return 1
     me, new = askmod.asking_agent(), args.name not in paths.list_agents()
-    sets = {k: v for k, v in (("skip_permissions", args.skip_permissions), ("weight", args.weight),
+    sets = {k: v for k, v in (("weight", args.weight),
                               ("browser", {"on": "chrome", "off": "off"}.get(args.chrome)))
             if v is not None}
     if not new:
@@ -94,13 +94,9 @@ def cmd_agent_register(args) -> int:
     d = agents.register(args.name, role=args.role, model=args.model,
                         effort=args.effort, weight=args.weight, role_file=args.role_file,
                         repo=args.repo, vendor=args.vendor,
-                        skip_permissions=None if args.skip_permissions is None
-                        else args.skip_permissions == "on",
                         chrome=None if args.chrome is None else args.chrome == "on",
                         mcp_config=mcp_text, extra_worktrees=args.extra_worktrees)
     print(f"registered agent '{args.name}': {d}")
-    if args.skip_permissions:
-        print(f"skip-permissions {args.skip_permissions}: applies from its next launch")
     if args.chrome:
         print(f"chrome {args.chrome}: applies from its next launch")
     if args.extra_worktrees is not None:

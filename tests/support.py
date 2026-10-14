@@ -1469,8 +1469,6 @@ class SecondVendor:
     def launch_argv(self, exe, model, effort, disallowed, mcp, preamble, hide=None, no_write=None,
                     memory_dir=None, trusted=None, chrome=False, sandbox=False):
         return [exe]
-    def skip_permissions_argv(self):
-        return ["--yolo"]
     def auto_mode_argv(self):
         return []
     def transcript_dir(self, config_dir, worktree):

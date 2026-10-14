@@ -106,9 +106,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--role-file", default=None, help="file to install as ROLE.md")
     p.add_argument("--repo", default=None,
                    help="where it works; lets the daemon start it when work arrives")
-    p.add_argument("--skip-permissions", default=None, choices=["on", "off"],
-                   help="start its sessions without asking before they act (default off); "
-                   "applies from the next launch; on re-registration, omit to keep the current one")
     p.add_argument("--extra-worktrees", type=int, default=None, choices=range(agents.MAX_EXTRA_WORKTREES + 1), metavar="N",
                    help=f"worktrees it has besides its first (0 to {agents.MAX_EXTRA_WORKTREES}, default 0): made beside the first when it is next "
                    "started, writable to it alone; on re-registration, omit to keep the current one")
@@ -125,7 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(fn=cmd_agent_register)
 
     p = ag.add_parser("set", help="change an agent's settings: model, effort, context_k, handoff_note apply "
-                                  "at once; the rest (idle_close, browser, browser_sites, skip_permissions, repo, weight) "
+                                  "at once; the rest (idle_close, browser, browser_sites, repo, weight) "
                                   "go to HR for the founder to approve; so does every change to another agent's settings")
     p.add_argument("name")
     p.add_argument("values", nargs="+", metavar="setting=value")

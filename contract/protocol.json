@@ -262,18 +262,12 @@
   "pending": "PENDING is two words, by what it waits for: `queued` when nothing but the next tick stands between it and a start, `parked` when it waits for a time. A client draws both as waiting its turn, and the clock in state_detail tells them apart. MOVING is `parked` with state_detail `moving`."
  },
  "x-dialogs": {
-  "rule": "A dialog in an agent's terminal is routine, a human's or unknown. The daemon answers only the routine ones, and only at launch, once, from what the founder already decided; it never answers any other (no key into a pane after launch). A human's dialog and an unknown one are `needs_you` on the agent (AgentView), and the person answers them at the terminal terminal.open points to. Unknown is a person: a dialog the table does not name is class human, kind dialog. The class is decided from the hook or session file that reported it, never from the screen, except the two launch screens, which the launch reads once.",
+  "rule": "A dialog in an agent's terminal is routine, a human's or unknown. The daemon answers only the routine ones, and only at launch, once, from what the founder already decided; it never answers any other (no key into a pane after launch). A human's dialog and an unknown one are `needs_you` on the agent (AgentView), and the person answers them at the terminal terminal.open points to. Unknown is a person: a dialog the table does not name is class human, kind dialog. The class is decided from the hook or session file that reported it, never from the screen, except the launch's folder-trust screen, which the launch reads once.",
   "dialogs": {
    "folder_trust": {
     "class": "routine",
     "when": "launch",
     "answered_by": "the folder is inside a declared trust root (standing consent, trust.*)",
-    "else": "human, kind permission"
-   },
-   "bypass_warning": {
-    "class": "routine",
-    "when": "launch",
-    "answered_by": "the agent's mode is bypass and the founder granted it",
     "else": "human, kind permission"
    },
    "tool_permission": {
@@ -12297,13 +12291,6 @@
      "repo": {
       "type": "string"
      },
-     "skip_permissions": {
-      "type": "string",
-      "enum": [
-       "on",
-       "off"
-      ]
-     },
      "browser": {
       "type": "string",
       "enum": [
@@ -12349,10 +12336,9 @@
        "default",
        "auto",
        "acceptEdits",
-       "plan",
-       "bypass"
+       "plan"
       ],
-      "description": "Permission mode; bypass only with skip_permissions granted."
+      "description": "Permission mode."
      }
     }
    },

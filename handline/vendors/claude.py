@@ -186,9 +186,6 @@ class Claude:
     def memory_settings(self, memory_dir: Path) -> dict:
         return {"autoMemoryDirectory": str(memory_dir)}
 
-    def skip_permissions_argv(self) -> list[str]:
-        return ["--dangerously-skip-permissions"]
-
     def permission_mode_argv(self, mode: str) -> list[str]:
         return ["--permission-mode", mode] if mode in ("default", "acceptEdits", "plan") else []
 

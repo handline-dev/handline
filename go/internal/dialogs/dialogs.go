@@ -28,7 +28,6 @@ type Entry struct {
 // Table is every dialog the contract names.
 var Table = map[string]Entry{
 	"folder_trust":       {Routine, ""},
-	"bypass_warning":     {Routine, ""},
 	"tool_permission":    {Human, Permission},
 	"question":           {Human, Question},
 	"usage_limit_choice": {Human, Usage},

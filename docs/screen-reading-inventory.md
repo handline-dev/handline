@@ -33,17 +33,7 @@ The screen key is `Is this a project you created or one you trust` or `This fold
 
 **Replacement:** none from a hook, because the dialog comes before the session and its hooks. It can be avoided rather than read: `hasTrustDialogAccepted` for the project in the account's `.claude.json` (the key is in 2.1.299) means the dialog never shows. **No event; avoidable by config.**
 
-## 3. Bypass-permissions warning
-
-The screen key is `WARNING: Claude Code running in Bypass Permissions mode`, with `Yes, I accept`, `No, exit` and `Enter to confirm` in the last 30 rows (`term/drivers.go:213`).
-
-| Where | What it decides |
-|---|---|
-| `lifecycle/trust.go:26`, `:68`; `term/host.go:258` | A launch stopped at the warning; accept it |
-
-**Replacement:** none from a hook (it also precedes the session). Avoidable by config: `skipDangerousModePermissionPrompt` or `bypassPermissionsModeAccepted` (both in 2.1.299). **No event; avoidable by config.**
-
-## 4. Working or idle (mid-turn)
+## 3. Working or idle (mid-turn)
 
 The screen key is the same `WaitIdle` as in §1: a stable screen and no `esc to interrupt`.
 
@@ -51,13 +41,13 @@ The screen key is the same `WaitIdle` as in §1: a stable screen and no `esc to 
 |---|---|
 | `term/host.go:169` | Close: refuse while mid-turn |
 | `term/host.go:227` | Relaunch: wait for the old turn |
-| `lifecycle/trust.go:73`, `:113` | After accepting trust or bypass, the session settles |
+| `lifecycle/trust.go:73`, `:113` | After accepting trust, the session settles |
 | `lifecycle/structured.go:227` | A forced close or restart waits for the turn |
 | `lifecycle/reconciler.go:517` (`IdleNow`) | The silence check: is a silent agent idle right now |
 
 **Replacement:** `UserPromptSubmit` opens a turn; `Stop` or `StopFailure` closes it. The daemon already records these. The transcript JSONL, watched with file events, shows activity inside a turn. Not checked in 2.1.299: whether a turn interrupted with Esc fires `Stop`. **Replaceable; the interrupt case is unverified.**
 
-## 5. Idle with background work
+## 4. Idle with background work
 
 The screen key is the hint row under the composer: `to manage`, with `<n> <noun>` counts (`term/composer.go:118`), and no spinner row (`term/drivers.go:154`).
 
@@ -69,7 +59,7 @@ The screen key is the hint row under the composer: `to manage`, with `<n> <noun>
 
 **Replacement:** `Stop` in 2.1.299 carries `background_tasks` (id, type, status, description, command) and `session_crons`, so "done" can be told from "waiting for background work". The daemon does not read these fields yet. Background commands started by `PostToolUse` are already tracked (`session/bgjobs.go`). No hook fires when background work ends while the session is idle. **Partial: start yes, end no.**
 
-## 6. A dialog is open (blocker)
+## 5. A dialog is open (blocker)
 
 The screen key is a footer `Enter to confirm` or `Esc to cancel` in the last 3 rows (`term/screen.go:12`); otherwise, no composer box means unreadable.
 
@@ -85,7 +75,7 @@ The screen key is a footer `Enter to confirm` or `Esc to cancel` in the last 3 r
 
 **Replacement:** a tool permission dialog is `PermissionRequest` (tool_name, tool_input, permission_suggestions). The dialog closing is the next `PostToolUse`, `PostToolUseFailure`, `PermissionDenied` or `Stop`. `Notification` with type `permission_prompt`, `idle_prompt` or `elicitation_dialog` would also say a person is needed, once installed. Claude Code's own dialogs (exit over running work, "Teach auto mode about your environment?", startup screens) have no hook. **Tool permissions: yes. The CLI's own dialogs: no replacement.**
 
-## 7. What the prompt asks (reading it to answer)
+## 6. What the prompt asks (reading it to answer)
 
 The screen keys are numbered options under a `─`/`▔` rule (`term/screen.go:29`), the confirmation parse (`term/drivers.go:363`) and the AskUserQuestion parse (`term/drivers.go:621`).
 
@@ -97,7 +87,7 @@ The screen keys are numbered options under a `─`/`▔` rule (`term/screen.go:2
 
 **Replacement:** for a permission, `PermissionRequest` has the tool and its input, and its hook output `decision.behavior` `allow` or `deny` answers it with no keys. For AskUserQuestion, `PreToolUse` carries the questions in `tool_input` (the matcher would need `AskUserQuestion` added). Answering one through hook output is not verified. **Permissions: yes. Questions: read yes, answer unverified.**
 
-## 8. Usage-limit dialog
+## 7. Usage-limit dialog
 
 The screen key is options starting `Stop and wait for limit to reset` and `Wait here, then continue automatically` (`term/screen.go:198`).
 
@@ -107,17 +97,17 @@ The screen key is options starting `Stop and wait for limit to reset` and `Wait 
 
 **Replacement:** `StopFailure` with error `rate_limit` says the turn ended on the limit; `Notification` types `quota_auto_resume_*` follow the auto-resume. Getting the dialog off the screen still takes a key. **Event for the state; pressing it still needs the screen.**
 
-## 9. Conversation moved to the background (session picker)
+## 8. Conversation moved to the background (session picker)
 
 The screen key is `moved to the background` above the box, with `enter to open` or `space to reply` below it (`term/drivers.go:261`).
 
 | Where | What it decides |
 |---|---|
-| Inside every `ScreenBlocker` call in §6 | Typed text would start a new session |
+| Inside every `ScreenBlocker` call in §5 | Typed text would start a new session |
 
 **Replacement:** none found in 2.1.299. **No replacement.**
 
-## 10. Session ended (shell prompt)
+## 9. Session ended (shell prompt)
 
 The screen key is `Resume this session with` (`term/composer.go:81`), or a shell prompt (`%`, `$`, `#`) as the last row (`term/composer.go:87`).
 
@@ -134,4 +124,4 @@ The Python hook path (`handline/session/events.py`, for every event but Pre/Post
 
 ## No replacement yet
 
-The folder-trust and bypass screens (avoidable by config, not by event); Claude Code's own dialogs (exit over work, auto-mode setup, startup screens); the background-session picker; background work ending while idle; answering an AskUserQuestion without keys (unverified); and whether an interrupted turn fires `Stop` (unverified).
+The folder-trust screen (avoidable by config, not by event); Claude Code's own dialogs (exit over work, auto-mode setup, startup screens); the background-session picker; background work ending while idle; answering an AskUserQuestion without keys (unverified); and whether an interrupted turn fires `Stop` (unverified).
