@@ -89,6 +89,13 @@ def test_a_home_that_is_not_the_live_one_never_asks_launchd_for_the_live_service
         check("ensure: a test home with the live plist installed is told it is not the live home",
               why is not None and "is not the live home" in why and str(home) in why, str(why))
         check("ensure: and launchd is asked nothing", f.calls == [], str(f.calls))
+        other, real_live = (home / "other").resolve(), paths.live_homes
+        paths.live_homes = lambda: [other]
+        try:
+            check("serves: the home it is given is the one judged, here the live one asked about from a home that is not",
+                  service.serves_this_home(other) and not service.serves_this_home())
+        finally:
+            paths.live_homes = real_live
         os.environ["OCP_SERVICE_LABEL"] = "dev.handline.test"
         check("ensure: under a label of its own the same home has a service to ask for", service.serves_this_home())
     finally:
