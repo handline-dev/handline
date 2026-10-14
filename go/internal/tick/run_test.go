@@ -193,8 +193,12 @@ func TestChangedSettings(t *testing.T) {
 }
 
 func TestDevModeCheckFailsOnRejection(t *testing.T) {
-	d := &DevMode{Exe: "/bin/sleep"}
-	// The default check runs `Exe --version`; sleep rejects it at once, which is a failed start.
+	exe, err := exec.LookPath("false")
+	if err != nil {
+		t.Skip("no false on PATH")
+	}
+	d := &DevMode{Exe: exe}
+	// The default check runs `Exe --version`; false exits 1 at once, which is a failed start.
 	if err := d.check(); err == nil {
 		t.Error("a binary that rejects --version passed the start check")
 	}
