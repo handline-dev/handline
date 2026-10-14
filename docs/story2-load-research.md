@@ -104,16 +104,22 @@ under "other" so the sum matches the machine.
 The founder's direction (T3866 memo 1715): an old laptop, a small desktop and a rented server working as
 one, because app builds eat memory and disk. Research only; nothing is built.
 
+Terms of 2-1 used below: **host cap `H`**: at most `H` agents mid-turn on a machine. **Shrink rule**: the
+effective cap drops by one when load per core is above 1.5 or memory pressure is at warn for 3 ticks, floor 1.
+**Calm for 10 ticks**: 10 ticks without that, then the cap grows back by one, up to `H`. **Test-run slots**: `T`
+machine-wide locks a `pnpm turbo test` takes, default 1.
+
 ### 4.1 How similar tools place work on machines
 
 | Tool | Licence | How a job finds a machine | Borrow |
 |---|---|---|---|
 | GitHub Actions self-hosted runners | MIT (`actions/runner`) | Labels route a job to runners with matching labels; runners can be grouped | Labels on a machine (`gpu`, `big-disk`, `has-repo-x`) |
-| Buildkite agent | MIT (`buildkite/agent`) | A step names a queue; an agent joins one queue by tag and takes the first available job; agent priority reorders | The agent pulls work; a machine that is full simply does not ask |
-| Nomad | BSL 1.1 (`hashicorp/nomad`; GitHub says "Other"); not open source | Filter nodes (health, constraints), then score feasible ones, mainly by bin packing, with affinity | The two steps only. Do not copy code |
+| Buildkite agent | MIT (`buildkite/agent`) | A step names a queue; an agent listens on one queue (set by its tag) and runs what arrives there; agent priority reorders | The agent pulls work; a machine that is full simply does not ask |
+| Nomad | BSL 1.1 from 1.7.0 (1.6.2 and before are MPL; `hashicorp/nomad` shows "Other"); not open source | Filter nodes (health, constraints), then score feasible ones, mainly by bin packing, with affinity | The two steps only. Do not copy code |
 | Kubernetes | Apache-2.0 | Filter on a pod's resource *requests* against unreserved capacity, then score; no fit leaves it pending | Requests as the number placement uses; "pending" with a reason |
 | Dev containers | spec CC-BY-4.0, CLI MIT | A file describes the environment a workspace needs; it does not say where it runs (unverified beyond the README) | Name a worktree's toolchain once so any machine can build it |
-| Cloud sandboxes (E2B) | Apache-2.0 | Not checked beyond the licence | Nothing yet; a rented server is the same as one more machine here |
+
+Cloud sandboxes are out of scope here: a rented server is one more machine in this model.
 
 Not found in the pages read, so unverified: how many jobs one GitHub runner runs at once, what Buildkite does
 when no agent is free, and how Nomad accounts CPU and memory per node.
@@ -159,6 +165,11 @@ an account limit. Add the load limits to the same list instead of a second mecha
 | **Host full** | machine, `n of H` | a turn ending on that machine |
 | **Pressure** | machine, load or memory level, effective cap | calm for 10 ticks (2-1) |
 | **Test slot** | which run holds it | that run ending |
+| **Held: machine load** | machine and which of the two above holds it | calm, or the founder's *Force start* |
+
+Two rules from founder memo 1742. *Force start*: a held start or wake has a way out that starts it anyway, once,
+and says it went past the limit. *One always runs*: a machine with no agent mid-turn never holds a start, so
+the shrink floor of 1 cannot leave the person with nothing running under load.
 
 One field on the agent view (kind, reference, one line, place in the queue) feeds the rail chip, the agent
 page and the admin table, so a wait on the load reads like every other wait. Whether the existing field
@@ -174,4 +185,4 @@ Section 4, fetched 2026-10-15: docs.github.com (using labels with self-hosted ru
 buildkite.com/docs/agent/v3/queues, developer.hashicorp.com/nomad/docs/concepts/scheduling/scheduling,
 kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler; licences through `gh api repos/<r>/license`
 for actions/runner, buildkite/agent, hashicorp/nomad, kubernetes/kubernetes, devcontainers/spec and
-devcontainers/cli, e2b-dev/E2B.
+devcontainers/cli; the Nomad boundary from `LICENSE` at tags v1.6.2 and v1.7.0.
