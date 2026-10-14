@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/lifecycle"
@@ -86,5 +88,27 @@ func TestAStructuredSessionHidesTheOtherAgentsWithTheSandboxOffByDefault(t *test
 	team := filepath.Join(home, "team.yaml")
 	if !slices.Contains(got.Sandbox.Filesystem.DenyWrite, team) || !slices.Contains(got.Permissions.Deny, "Edit(/"+team+")") {
 		t.Fatalf("the roster is writable: %s", b)
+	}
+}
+
+// The CLI's pid is recorded as the agent's session while it runs, as a terminal launch records its own: the daemon tells the agent's hl
+// by it, and without it would fall through to the founder key.
+func TestAStructuredSessionIsRecordedAsTheAgentsWhileItRuns(t *testing.T) {
+	p, lc, _, _ := wired(t)
+	tokens := lc.Launch.Tokens
+	if err := p.Run.Open(lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "44444444-4444-4444-8444-444444444444"}); err != nil {
+		t.Fatal(err)
+	}
+	s := p.Run.mgr.Get("alice")
+	pid := s.Pid()
+	if got := tokens.AgentOf(pid); got != "alice" {
+		t.Fatalf("the CLI (pid %d) is told as %q", pid, got)
+	}
+	if err := p.Run.Close("alice"); err != nil {
+		t.Fatal(err)
+	}
+	<-s.Exited()
+	if kept, _ := tokens.Store.Get(sessiontoken.NS, "alice"); strings.Contains(kept, strconv.Itoa(pid)+" ") {
+		t.Fatalf("the record outlives the session: %q", kept)
 	}
 }

@@ -363,7 +363,6 @@ func TestAgentSetTakesEveryFieldOfTheContractForTheFounder(t *testing.T) {
 		{"model", "opus", "model: opus"},
 		{"effort", "high", "effort: high"},
 		{"weight", "heavy", "weight: heavy"},
-		{"skip_permissions", "on", "skip_permissions"},
 		{"browser", "chrome", "chrome: true"},
 		{"context_k", "120", "120"},
 		{"idle_close", "30", "park_timeout_s: 1800"},
@@ -394,6 +393,7 @@ func TestAgentSetRefusesWhatCannotBeSaved(t *testing.T) {
 	for name, params := range map[string]string{
 		"a bad value":    `{"agent":"alice","values":{"effort":"extreme"},"request_id":"b1"}`,
 		"an unknown key": `{"agent":"alice","values":{"nope":"x"},"request_id":"b2"}`,
+		"skip prompts":   `{"agent":"alice","values":{"skip_permissions":"on"},"request_id":"b4"}`,
 		"no agent":       `{"agent":"ghost","values":{"effort":"high"},"request_id":"b3"}`,
 	} {
 		if res := r.call("agent.set", params); res["error"] == nil {
@@ -423,7 +423,7 @@ func TestAgentSetIsRefusedToAPairedDevice(t *testing.T) {
 	r := newRig(t)
 	c := &rpc.Conn{Caller: rpc.Caller{Role: "member", Info: map[string]any{"kind": "device", "name": "phone", "device": "d1"}}}
 	before := r.file("agents", "alice", "agent.yaml")
-	_, err := r.e.agentSetMethod(c, map[string]any{"agent": "alice", "values": map[string]any{"skip_permissions": "on", "sandbox": "off"}})
+	_, err := r.e.agentSetMethod(c, map[string]any{"agent": "alice", "values": map[string]any{"sandbox": "off"}})
 	var re *rpc.Error
 	if !errors.As(err, &re) || re.Data["gate"] != "role" {
 		t.Fatalf("a device was not refused at the role gate: %v", err)
@@ -462,7 +462,7 @@ func TestAnAgentSetsTheOrdinaryKeysOfItselfAndNothingElse(t *testing.T) {
 		t.Fatal("a refused call changed another agent")
 	}
 	alice := r.file("agents", "alice", "agent.yaml")
-	for i, key := range []string{"skip_permissions", "sandbox", "mode"} { // the founder's alone
+	for i, key := range []string{"sandbox", "mode"} { // the founder's alone
 		if d := errOf(t, set("alice", fmt.Sprintf(`{%q:"on"}`, key), fmt.Sprintf("ag-f%d", i))); d["code"] != "refused" {
 			t.Errorf("%s: an agent set a founder-only key: %v", key, d)
 		}

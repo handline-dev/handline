@@ -107,27 +107,19 @@ func randomID() string {
 // equal messages from being dropped as a duplicate.
 func Body(text, id string) string { return text + "\n[ocp-msg " + id + "]" }
 
-// The receiver reads who a cross-session message is from, and the permission class its sender attests, from the tag the content is wrapped in;
-// content without it reads as the person's own typing in a terminal session. A session that bypasses permission prompts also holds a message
-// whose sender attested none, or another class than its own, until its person decides ("Held message from another session").
+// The receiver reads who a cross-session message is from from the tag the content is wrapped in; content without it reads as the person's own
+// typing in a terminal session.
 const (
 	envelopeTag = "cross-session-message"
 	senderName  = "handline"
 )
 
-// Permission classes a sender attests.
-const (
-	Bypass    = "bypass"
-	Prompting = "prompting"
-)
-
-// From says who a message is from: Name is shown with it (the daemon, "handline", when empty) and Mode is the class attested, Bypass or
-// Prompting, or "" for none.
-type From struct{ Name, Mode string }
+// From says who a message is from: Name is shown with it (the daemon, "handline", when empty).
+type From struct{ Name string }
 
 var tagLookalike = regexp.MustCompile(`(?i)<([\p{Cf}\s]*/?[\p{Cf}\s]*` + envelopeTag + `)`)
 
-// Envelope wraps body as the receiver reads a peer message that names its sender and attests its class. The form is the receiver's canonical
+// Envelope wraps body as the receiver reads a peer message that names its sender. The form is the receiver's canonical
 // one: attributes in its order, and a tag of the same name inside body defanged as it does, since a wrapper it cannot read back exactly is taken
 // as plain text.
 func Envelope(body string, from From) string {
@@ -137,9 +129,6 @@ func Envelope(body string, from From) string {
 	}
 	body = tagLookalike.ReplaceAllString(body, `<\$1`)
 	attrs := ` from-session="` + senderName + `" from-name="` + name + `"`
-	if from.Mode != "" {
-		attrs += ` from-mode="` + from.Mode + `"`
-	}
 	return "<" + envelopeTag + attrs + ">\n" + body + "\n</" + envelopeTag + ">"
 }
 
