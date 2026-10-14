@@ -142,6 +142,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
 		{Name: "attachment sweep", Run: func(db.Q, int64) error { attachments.New(home).Sweep(); return nil }},
+		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Tell: tellFounder}).Check},
 	}, Signalled: func() bool {
 		select {
 		case <-tc.Stop:
@@ -155,6 +156,12 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 			Migrate: func() error { return env.MigrateOldMessages(q) }, Reload: func() error { return env.ReloadPending(q) }})
 	}
 	return &Tick{Tick: t, Loop: loop, dev: dev, Startup: startup}
+}
+
+// tellFounder writes a message from the task board to the founder's inbox, as a delivery that cannot be confirmed is told.
+func tellFounder(q db.Q, text string) error {
+	_, err := db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: db.Human, Body: text, Response: "fire_and_forget", Kind: "say"})
+	return err
 }
 
 // startPorts are the steps of the daemon's start.
