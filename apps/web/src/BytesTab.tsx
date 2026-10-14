@@ -143,6 +143,7 @@ export function BytesTab({
       stage.addEventListener('focusin', grab);
       stage.addEventListener('keydown', leave);
       watch.observe(el);
+      const fitted = pane.onFit?.(layout); // xterm measures its cells after it first draws: no element resize says so
       let off = () => {};
       /** The view's state, holders included: what the person sees, and whether this pane sizes the host (on going live and on any change). */
       const settle = (v: ByteTerminalView) => {
@@ -185,6 +186,7 @@ export function BytesTab({
       }
       cleanup = () => {
         watch.disconnect();
+        fitted?.dispose();
         clearTimeout(timer);
         typing.dispose();
         stage.removeEventListener('mousedown', grab);
