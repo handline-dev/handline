@@ -81,7 +81,7 @@ describe('Merge tasks', () => {
     m.store.stop();
   }, 20000);
 
-  it('shows no control on a daemon without the verbs', async () => {
+  it('disables the control, with the reason, on a daemon without the verbs', async () => {
     const m = await mount(undefined, undefined, 'founder');
     await openTask(DOING);
     await until(() => $('verb-merge'), 'the verbs');
