@@ -583,17 +583,6 @@ def test_pruning_keeps_each_agents_newest_applied_row(home: Path) -> None:
     con.close()
 
 
-def test_the_tick_applies_what_a_hook_left_while_the_daemon_ran(home: Path) -> None:
-    support._daemon_home(home, 20)
-    hookspool.append("backend", "UserPromptSubmit", {"hook_event_name": "UserPromptSubmit", "prompt": "x"}, "tick-1")
-    con = db.connect()
-    from handline.daemon import evaluate
-    evaluate.tick(con, lambda m: None)
-    check("tick: a spooled hook event is applied by the next tick, not only at start",
-          con.execute("SELECT COUNT(*) FROM events WHERE kind = 'UserPromptSubmit'").fetchone()[0] == 1 and not hookspool.path().exists())
-    con.close()
-
-
 def test_a_line_that_cannot_be_applied_is_set_aside_not_lost(home: Path) -> None:
     support.use_home(home)
     agents.register("worker")
@@ -734,7 +723,6 @@ def main() -> int:
         run(lambda: test_a_line_that_is_bad_is_skipped_and_the_good_ones_around_it_apply(Path(td) / "e16"))
         run(lambda: test_an_unreadable_file_keeps_everything(Path(td) / "e17"))
         run(lambda: test_an_applied_hook_id_is_kept_while_a_file_that_may_replay_it_is_waiting(Path(td) / "e18"))
-        run(lambda: test_the_tick_applies_what_a_hook_left_while_the_daemon_ran(Path(td) / "e19"))
         run(lambda: test_a_line_that_cannot_be_applied_is_set_aside_not_lost(Path(td) / "e20"))
         run(lambda: test_a_line_that_cannot_be_set_aside_either_stays_in_the_spool(Path(td) / "e21"))
         run(lambda: test_an_older_event_arriving_late_is_recorded_and_moves_nothing(Path(td) / "e22"))

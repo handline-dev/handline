@@ -15,7 +15,7 @@ import time
 from typing import Callable, NamedTuple
 
 from .. import db
-from ..infra import sessiontoken
+from ..infra import gitrun, paths, sessiontoken
 
 PROTOCOL = 1
 MIN_CLIENT = 1
@@ -118,6 +118,18 @@ class DeviceCaller(Caller):
         return f"device:{self.info['device']}"
 
 
+_loaded: list[str] = []
+
+
+def _loaded_sha() -> str:
+    """The checkout's HEAD when this process first asked, read once: what the server runs, however far the checkout has
+    moved since."""
+    if not _loaded:
+        rc, out, _ = gitrun.run(paths.repo_root(), "rev-parse", "--short", "HEAD")
+        _loaded.append(out.strip() if rc == 0 and out.strip() else "unknown")
+    return _loaded[0]
+
+
 def _terminal_capabilities() -> dict:
     """The formats the terminal channel serves, in all and by host (x-terminal-bytes): tmux has text, bytes and styled, Orca text."""
     from ..session import backends
@@ -136,7 +148,6 @@ def _hello(ctx: "Connection", params: dict) -> dict:
     if protocol < MIN_CLIENT:
         raise refused(f"this daemon serves clients of protocol {MIN_CLIENT} or newer; yours speaks {protocol}",
                       gate="protocol", hint="hl service install")
-    from .loop import _loaded_sha       # loop imports this module's server, so not at the top
     ctx.caller = caller = ctx.caller_for(params.get("key"))
     return {"protocol": PROTOCOL, "min_client": MIN_CLIENT, "daemon": _loaded_sha(), "schema": db.LATEST_VERSION,
             "role": caller.role, "caller": caller.info,

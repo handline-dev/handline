@@ -149,7 +149,6 @@
    "hl hooks",
    "hl go",
    "hl install-hooks",
-   "hl daemon",
    "hl backup",
    "hl venv",
    "hl bridge",

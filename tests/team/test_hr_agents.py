@@ -1132,90 +1132,6 @@ def test_another_vendors_account_never_spends_a_live_refresh(home: Path) -> None
             usage_api.read, accounts.logged_in = real_read, real_login
 
 
-def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
-    """#1815: `is_session` decided from claude's own literals, so a session of
-    any other vendor matched nothing at all. `live_sessions` then left that
-    agent's pid None, and `reconcile` reads "terminal alive, no process" as the
-    session having died - so the daemon recorded a live, correctly placed agent
-    closed, on every tick. Which binary a session runs, and how the vendor
-    spells a headless run, are both the driver's answers now.
-
-    Driven through real `ps` command lines rather than by patching
-    `live_sessions`: every other test in this file replaces that function
-    wholesale, so none of them reaches `is_session` at all."""
-    _daemon_home(home, 20)
-    with second_vendor(metered=True):
-        check("is_session: a second vendor's own binary is a session",
-              obsmod.is_session("/opt/zai/bin/glmcode --model glm-4.6"))
-        check("is_session: claude's still is",
-              obsmod.is_session("/usr/local/bin/claude --resume abc123"))
-        check("is_session: the second vendor's own spelling of headless is not",
-              not obsmod.is_session("/opt/zai/bin/glmcode run 'fold it'"))
-        check("is_session: nor is claude's",
-              not obsmod.is_session("/usr/local/bin/claude -p 'fold it'"))
-        check("is_session: and nothing of ours is not a session either",
-              not obsmod.is_session("/usr/bin/ssh somewhere"))
-        check("is_session: a script under a claude scratchpad is not a session",
-              not obsmod.is_session("node /private/tmp/claude-501/-Users-x/abc/scratchpad/ws-only.ts"))
-        check("is_session: a bare claude on PATH is",
-              obsmod.is_session("claude --resume abc123"))
-        check("is_session: the Claude.app helper, its path holding a space, is",
-              obsmod.is_session("/Users/<user>/Library/Application Support/Claude/claude-code/2.1.288/abc/claude.app/Contents/MacOS/claude --verbose"))
-        check("is_session: an npm install run by node is",
-              obsmod.is_session("/opt/homebrew/bin/node /opt/homebrew/bin/claude --model opus"))
-    check("is_session: with that driver gone its command line is not a session",
-          not obsmod.is_session("/opt/zai/bin/glmcode --model glm-4.6"))
-
-    # And the invariant the miss actually broke: the daemon's own record of a
-    # running agent. Real `live_sessions`, over a process table we supply.
-    real = (obsmod.live_sessions, obsmod.process_table, obsmod._env_or_reason,
-            termmod.available, termmod.live_terminals)
-    obsmod.live_sessions = REAL_OBSERVE["live_sessions"]
-    termmod.available = lambda: True
-    termmod.live_terminals = lambda: {"term_x", "term_z"}
-    with second_vendor(metered=True):
-        try:
-            accounts.register("zeta", vendor="zai")
-            agents.register("glm")
-            _with_vendor("glm", "zai")
-            con = db.connect()
-            try:
-                db.set_terminal(con, "glm", "term_z", "wt")
-                db.set_agent_state(con, "glm", dmn_states.RUNNING, detail="working")
-                table = [(4301, "/opt/zai/bin/glmcode --model glm-4.6")]
-                obsmod.process_table = lambda: list(table)
-                obsmod._env_or_reason = lambda pid: (
-                    f"OCP_AGENT={'glm' if pid == 4301 else 'x'}", False)
-                check("vendor sweep: the premise - its pid is found",
-                      obsmod.live_sessions() == {"glm": 4301},
-                      str(obsmod.live_sessions()))
-                said: list[str] = []
-                dmn_reconciler.sweep(con, lambda _m: None, said)
-                row = db.get_agent_state(con, "glm")
-                check("vendor sweep: a live second-vendor session is not recorded closed",
-                      not row["closed_at"]
-                      and not any("glm: its session is gone" in a for a in said),
-                      str((dict(row), said)))
-
-                # The control, on the same fixture: when its process really has
-                # gone, the same sweep does record it closed - so the check
-                # above is about the vendor and not about a sweep that never
-                # reached this agent.
-                table.clear()
-                said = []
-                dmn_reconciler.sweep(con, lambda _m: None, said)
-                row = db.get_agent_state(con, "glm")
-                check("vendor sweep: and when it really is gone, it is recorded closed",
-                      row["closed_at"]
-                      and any("glm: its session is gone" in a for a in said),
-                      str((dict(row), said)))
-            finally:
-                con.close()
-        finally:
-            (obsmod.live_sessions, obsmod.process_table, obsmod._env_or_reason,
-             termmod.available, termmod.live_terminals) = real
-
-
 def test_an_accounts_verdict_is_asked_for_its_own_vendor(home: Path) -> None:
     """#1815: the panel's tick and the page's sentence arrive with no agent in
     hand, so a claude-only verdict said "no - a zai account, not claude" about
@@ -1265,78 +1181,6 @@ def test_an_accounts_verdict_is_asked_for_its_own_vendor(home: Path) -> None:
     ok, why = status.account_verdict("zeta", status.read("zeta"), None, [], True)
     check("verdict: an account whose vendor has no driver is still refused",
           not ok and "no driver for vendor 'nosuch'" in why, str((ok, why)))
-
-
-def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> None:
-    """#1776: an account whose vendor reports no usage is its own state, not
-    "no reading yet" - that one is a bootstrap candidate, and nothing will
-    ever give this one a reading. Its own agents start there; nothing is
-    moved onto it, it is never asked for usage, and it is drawn unmetered."""
-    _daemon_home(home, 20)
-    real = (usage_api.read, claudemeter.refresh_credential, accounts.logged_in)
-    with second_vendor(metered=False):
-        try:
-            accounts.register("alpha")
-            (paths.account_dir("alpha") / ".claude" / ".credentials.json").write_text("{}")
-            accounts.register("zeta", vendor="zai")
-            accounts.register("zeta2", vendor="zai")
-            agents.register("glm")
-            _with_vendor("glm", "zai")
-            st = status.read("zeta")
-            check("unmetered: read as its own state, not as no reading yet",
-                  st.unmetered and st.assignable() == (False, status.UNMETERED_WHY),
-                  str((st.unmetered, st.assignable())))
-            picked, ranked = status.pick_account(["zeta2"], bootstrap=True, agent="glm")
-            check("unmetered: never picked, not even as a bootstrap last resort",
-                  picked is None and dict(ranked)["zeta2"] == status.UNMETERED_WHY,
-                  str((picked, ranked)))
-            check("unmetered: nor is it a place a new session is put",
-                  launch.find_room("glm") is None, str(launch.find_room("glm")))
-            con = db.connect()
-            try:
-                db.set_account(con, "glm", "zeta")
-                con.commit()
-            finally:
-                con.close()
-            argv, env = launch.build("glm", ["--resume", "x"])
-            check("unmetered: and launches as its own vendor, into its own config dir",
-                  argv[0] == "/opt/zai/bin/glmcode"
-                  and env.get("ZAI_HOME") == str(vendors.config_dir("zeta")),
-                  str((argv[:1], env.get("ZAI_HOME"))))
-
-            asked: list[str] = []
-            usage_api.read = lambda acct, refresh=True: asked.append(acct)
-            real_recover = recovermod.recover
-            recovermod.recover = lambda acct: (False, "stub: not under test here")
-            con = db.connect()
-            try:
-                # One account per tick, each put on its cooldown once asked,
-                # so four ticks walk past every account there is.
-                for _ in range(4):
-                    dmn_usage_poll.poll_usage(con, lambda _m: None)
-            finally:
-                con.close()
-                recovermod.recover = real_recover
-            check("unmetered: the usage poll never asks about it",
-                  "alpha" in asked and not {"zeta", "zeta2"} & set(asked), str(asked))
-            usage_api.read = real[0]
-            renewed: list[str] = []
-            claudemeter.refresh_credential = lambda acct, **k: renewed.append(acct) or True
-            check("unmetered: nor does the endpoint reader, and it renews nothing",
-                  usage_api.read("zeta") is None and not renewed, str(renewed))
-
-            accounts.logged_in = lambda a: True
-            cell = viewdata.account_cells("zeta", status.read("zeta"))["five"]
-            check("unmetered: the account's cell says so", "unmetered" in cell, cell)
-            accounts.logged_in = real[2]
-            r = doctor.Report()
-            doctor._check_accounts(r)
-            check("unmetered: doctor says so rather than warning of no status.json",
-                  any(n == "account zeta: unmetered (zai)" for _lv, n, _d in r.rows)
-                  and not any(n.startswith("account zeta: no status") for _lv, n, _d in r.rows),
-                  str([n for _lv, n, _d in r.rows if "zeta" in n]))
-        finally:
-            usage_api.read, claudemeter.refresh_credential, accounts.logged_in = real
 
 
 def test_an_account_records_its_vendor(home: Path) -> None:
@@ -4236,50 +4080,6 @@ def cliteam_seal() -> tuple[int, str]:
     return rc, buf.getvalue()
 
 
-def test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(home: Path) -> None:
-    """An agent session's ask leaves edge_ok NULL; the human has no agent
-    supervision to check it, so the tick does."""
-    from handline.daemon import evaluate
-    _daemon_home(home, 20)
-    agents.register("scout")
-    hand_edit_team("agents:\n  scout: {}\nedges:\n"
-                   "  - { from: \"*\", to: \"human\", kind: task }\n")
-    saved = os.environ.get("OCP_AGENT")
-    os.environ["OCP_AGENT"] = "scout"
-    try:
-        ok, said, rid = askmod.ask("human", "need a call", requester="scout")
-    finally:
-        if saved is None:
-            os.environ.pop("OCP_AGENT", None)
-        else:
-            os.environ["OCP_AGENT"] = saved
-    con = db.connect()
-    try:
-        check("human: an agent session's ask to the human starts unchecked",
-              ok and db.get_request(con, rid)["edge_ok"] is None, said)
-        evaluate.tick(con, lambda _m: None)
-        check("human: one tick checks it against the founder's table",
-              db.get_request(con, rid)["edge_ok"] == 1, str(dict(db.get_request(con, rid))))
-        # The founder then takes the human's edge away: what an agent already
-        # wrote under the old table is refused, not left for the founder to see.
-        os.environ["OCP_AGENT"] = "scout"
-        try:
-            ok, said, rid2 = askmod.ask("human", "another", requester="scout")
-        finally:
-            if saved is None:
-                os.environ.pop("OCP_AGENT", None)
-            else:
-                os.environ["OCP_AGENT"] = saved
-        hand_edit_team("agents:\n  scout: {}\nedges: []\n")
-        evaluate.tick(con, lambda _m: None)
-        row = db.get_request(con, rid2)
-        check("human: a request the table no longer allows is denied at the tick",
-              row["state"] == "denied" and "refused at delivery" in (db.shown_verdict(row) or "")
-              and not row["edge_ok"], str(dict(row)))
-    finally:
-        con.close()
-
-
 def _approve(pid: str) -> tuple[bool, str]:
     """The founder approving `pid` as it reads now."""
     was = os.environ.pop("OCP_AGENT", None)
@@ -4428,7 +4228,6 @@ def main() -> int:
         home.mkdir()
         run(lambda: test_yaml())
         run(lambda: test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(Path(td) / 'edgeenf'))
-        run(lambda: test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(Path(td) / 'humanedge'))
         run(lambda: test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(Path(td) / 'edgeforge'))
         run(lambda: test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(Path(td) / 'noread'))
         run(lambda: test_the_decisionion_shows_the_effort_of_an_add_and_the_team_of_a_rename(Path(td) / 'esceffort'))
@@ -4465,11 +4264,8 @@ def main() -> int:
         run(lambda: test_a_claude_agent_is_never_placed_on_another_vendors_account(Path(td) / 'vendorpick'))
         run(lambda: test_another_vendors_account_never_spends_a_live_refresh(
             Path(td) / 'vendorrefresh'))
-        run(lambda: test_a_second_vendors_live_session_is_seen_by_the_sweep(
-            Path(td) / 'vendorsweep'))
         run(lambda: test_an_accounts_verdict_is_asked_for_its_own_vendor(
             Path(td) / 'vendorverdict'))
-        run(lambda: test_an_unmetered_account_is_pinned_never_picked_or_polled(Path(td) / 'unmetered'))
         run(lambda: test_an_account_records_its_vendor(Path(td) / 'vendorrecord'))
         run(lambda: test_shared_dir_is_named_by_the_vendors_own_config_dir_name(Path(td) / 'shareddir'))
         run(lambda: test_an_account_links_from_its_own_vendors_shared_dir(Path(td) / 'vendorshared'))

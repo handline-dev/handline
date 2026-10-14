@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Smoke the PC app's methods through the Go gateway: tools/gateway_smoke.py [--keep] [--port N] [--only NAME[,NAME]]
 
-Starts a SCRATCH home (never the real one, never a credential): the Python daemon (`bin/hl daemon`) on a private tmux
+Starts a SCRATCH home (never the real one, never a credential): the Go daemon (`handlined`) on a private tmux
 server with a fake `claude`, the Go gateway (`handlined -gateway`) on 127.0.0.1, and a world to read and write: two
 agents, a task, four requests waiting on the founder. It pairs a device on the gateway's own socket
 (device.pair with the scratch home's founder key), trades the code for a token over the websocket (device.redeem),
@@ -235,6 +235,10 @@ class World:
 
     # Seeding the world starts the worker, so the fake must be written before it: a subclass changes this, not the file after setup.
     FAKE_CLAUDE = '#!/bin/sh\necho "fake claude ready"\nwhile IFS= read -r line; do echo "got: $line"; done\n'
+    # The session file a running claude leaves, which is how the daemon's tick knows the session started.
+    SESSION_FILE = ('mkdir -p "$CLAUDE_CONFIG_DIR/sessions"\n'
+                    'printf \'{"cwd": "%s", "sessionId": "fake-%s", "status": "idle", "updatedAt": %s000}\' "$PWD" "$$" "$(date +%s)" '
+                    '> "$CLAUDE_CONFIG_DIR/sessions/$$.json"\n')
 
     def __init__(self, keep: bool, port: int | None) -> None:
         self.keep = keep
@@ -260,7 +264,8 @@ class World:
             d.mkdir(parents=True, exist_ok=True)
         # A fake claude: it prints a banner and answers every line it is typed, so a terminal has bytes to show and to take.
         fake = self.root / "bin" / "claude"
-        fake.write_text(self.FAKE_CLAUDE)
+        shebang, body = self.FAKE_CLAUDE.split("\n", 1)
+        fake.write_text(f"{shebang}\n{self.SESSION_FILE}{body}")
         fake.chmod(0o755)
         repo = self.root / "repo"
         repo.mkdir()
@@ -309,21 +314,29 @@ print(json.dumps({"task": tid, "say": say, "ask_inbox": ask1, "ask_chat": ask2, 
 ''' % (str(ROOT), str(self.home), str(repo))
         r = subprocess.run([sys.executable, "-c", code], env=self.env, capture_output=True, text=True, timeout=120)
         if r.returncode:
-            raise SystemExit("could not seed the scratch world:\n" + r.stdout + r.stderr)
+            raise SystemExit(f"could not seed the scratch world (exit {r.returncode}):\n" + r.stdout + r.stderr)
         self.seed = json.loads(r.stdout.strip().splitlines()[-1])
         self.seed["repo"] = str(repo)
 
+    def binary(self) -> Path:
+        """The Go daemon, built once into the scratch root."""
+        binary = self.root / "handlined"
+        if not binary.exists():
+            built = subprocess.run([str(ROOT / "tools" / "build-go.sh"), str(binary)], capture_output=True, text=True)
+            if built.returncode:
+                raise SystemExit("could not build the Go daemon:\n" + built.stdout + built.stderr)
+        return binary
+
     def start_daemon(self) -> None:
-        out = open(self.log("python-daemon"), "w")
-        p = subprocess.Popen([str(ROOT / "bin" / "hl"), "daemon", "--quiet"], env=self.env, stdout=out, stderr=subprocess.STDOUT, cwd=str(self.user))
+        out = open(self.log("daemon"), "w")
+        p = subprocess.Popen([str(self.binary()), "-home", str(self.home), "-structured-cli", str(self.root / "bin" / "claude"),
+                              "-structured-tick", "-terminal-tick", "-cutover"],
+                             env=self.env, stdout=out, stderr=subprocess.STDOUT, cwd=str(self.user))
         self.procs.append(p)
-        self.wait_for(lambda: (self.home / "daemon.sock").exists() and (self.home / "relay.sock").exists(), 60, "the Python daemon's sockets", p, "python-daemon")
+        self.wait_for(lambda: (self.home / "daemon.sock").exists() and (self.home / "relay.sock").exists(), 60, "the daemon's sockets", p, "daemon")
 
     def start_gateway(self) -> None:
-        binary = self.root / "handlined"
-        built = subprocess.run([str(ROOT / "tools" / "build-go.sh"), str(binary)], capture_output=True, text=True)
-        if built.returncode:
-            raise SystemExit("could not build the Go daemon:\n" + built.stdout + built.stderr)
+        binary = self.binary()
         out = open(self.log("gateway"), "w")
         p = subprocess.Popen([str(binary), "-gateway", "-home", str(self.home), "-listen", f"127.0.0.1:{self.port}"], env=self.env, stdout=out, stderr=subprocess.STDOUT)
         self.procs.append(p)

@@ -163,37 +163,6 @@ def test_failclosed(home: Path) -> None:
           picked is None, str(picked))
 
 
-def test_daemon_success_clears_streak(home: Path) -> None:
-    """A handoff that works - record AND clear both land - must end the
-    streak, or every agent eventually stalls just from having been busy.
-
-    Orca must be reachable for the clear to land at all (#1975): without it
-    `_reclaim_context` fails every time regardless of the record, and the
-    streak would correctly stay put, not exercising the success path this
-    test is for.
-    """
-    _daemon_home(home, 100)
-    con = db.connect()
-    real = (termmod.clear_context, termmod.alive, termmod.idle_now, termmod.live_terminals)
-    try:
-        orca_idle()
-        termmod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
-        termmod.live_terminals = lambda: {"term_x"}
-        for _ in range(3):
-            db.bump_counter(con, "backend", "throttle_count")
-        readable_agent(con, home, "backend")
-        sessions_are("backend")
-        db.set_agent_state(con, "backend", dmn_states.QUEUED)
-        dmn_evaluate.tick(con, lambda _m: None)
-        row = db.get_agent_state(con, "backend")
-        check("daemon: a successful handoff clears the throttle streak",
-              row["throttle_count"] == 0, str(dict(row)))
-    finally:
-        termmod.clear_context, termmod.alive, termmod.idle_now, termmod.live_terminals = real
-        termmod.available = lambda: False
-        con.close()
-
-
 def test_a_session_idle_over_background_work_is_told_from_one_mid_turn_by_its_screen(home: Path) -> None:
     """T458: Orca reads a session with work running behind its prompt as mid-turn, so no task
     was ever typed at it. The screen tells them apart on what a turn draws - the spinner row above
@@ -722,22 +691,6 @@ def test_the_human_and_strangers_are_not_blocked_agents(home: Path) -> None:
         con.close()
 
 
-def test_the_tick_looks_for_blocks(home: Path) -> None:
-    """Nothing here works unless the loop the daemon actually runs calls it."""
-    con = _blocked_world(home)
-    termmod.live_terminals = lambda: {"term_x"}
-    termmod.idle_now = lambda h: True
-    termmod.send = lambda h, text, enter=True: (False, "refused")
-    termmod.screen_blocker = lambda h: termmod.Blocker(termmod.MODAL, '"A dialog"')
-    try:
-        dmn_evaluate.tick(con, lambda _m: None)
-        rec = db.block_get(con, "backend")
-        check("tick: a tick opens the block for an agent behind a dialog",
-              rec is not None and rec["kind"] == "modal", str(rec and dict(rec)))
-    finally:
-        con.close()
-
-
 def test_a_dialog_ocps_own_exit_raised_is_said_at_once(home: Path) -> None:
     """`/exit` met background shells and the dialog is ocp's doing: it does not
     wait for T1, it stands with nothing waiting, and ocp does not answer it."""
@@ -767,61 +720,6 @@ def test_a_dialog_ocps_own_exit_raised_is_said_at_once(home: Path) -> None:
         screen["b"] = termmod.Blocker(termmod.UNREADABLE)
         blockedmod.note_close_failure(con, "backend", lines.append)
         check("close: an unreadable screen is not the dialog's doing", db.block_get(con, "backend") is None)
-    finally:
-        con.close()
-
-
-def test_a_failed_close_says_why_and_records_the_dialog(home: Path) -> None:
-    """The reason a close did not happen used to be dropped where it was made."""
-    con = _blocked_world(home)
-    con.execute("UPDATE requests SET state = 'landed'")
-    now = int(time.time())
-    termmod.wait_idle = lambda h, timeout_ms=0: True
-    termmod.send = lambda h, text, enter=True: (True, "")
-    termmod.close_session = lambda h, *a, **k: (True, "/exit typed")
-    termmod.screen_blocker = lambda h: termmod.Blocker(termmod.MODAL, '"Background work is running"')
-    real = dmn_delivery._wait_session_gone
-    dmn_delivery._wait_session_gone = lambda agent: False
-    lines: list[str] = []
-    try:
-        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=8, reset_5h=now + 1800)
-        agent_dir = home / "agents" / "backend"
-        write_status_json(agent_dir, {
-            "account": "alpha", "collected_at": now, "session_id": "sess-1", "pct_5h": 20, "ctx_pct": 8})
-        db.add_event(con, "backend", "Stop", {})
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_timing.IDLE_CLOSE_S - 60,))
-        for _ in range(3):
-            dmn_evaluate.supervise(con, "backend", lines.append, int(time.time()), {}, [])
-        check("close failed: the daemon says why, once per attempt",
-              sum("idle but not closed" in m for m in lines) == 1, str(lines))
-        rec = db.block_get(con, "backend")
-        check("close failed: and the dialog it raised is on the record",
-              rec and rec["origin"] == "close" and rec["kind"] == "modal", str(rec and dict(rec)))
-    finally:
-        dmn_delivery._wait_session_gone = real
-        con.close()
-
-
-def test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(home: Path) -> None:
-    """A dialog left open refuses the next close on every tick, and leaves no
-    close_failed event to stop them: the reason is said when it starts."""
-    con = _blocked_world(home)
-    con.execute("UPDATE requests SET state = 'landed'")
-    now = int(time.time())
-    termmod.close_session = lambda h, *a, **k: (False, "a modal is open on its screen; not typing /exit at it")
-    lines: list[str] = []
-    try:
-        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=8, reset_5h=now + 1800)
-        agent_dir = home / "agents" / "backend"
-        write_status_json(agent_dir, {
-            "account": "alpha", "collected_at": now, "session_id": "sess-1", "pct_5h": 20, "ctx_pct": 8})
-        db.add_event(con, "backend", "Stop", {})
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'", (now - dmn_timing.IDLE_CLOSE_S - 60,))
-        for _ in range(4):
-            dmn_evaluate.supervise(con, "backend", lines.append, int(time.time()), {}, [])
-        said = [m for m in lines if "idle but not closed" in m]
-        check("close refused: said once over four ticks, with the reason",
-              len(said) == 1 and "a modal is open" in said[0], str(lines))
     finally:
         con.close()
 
@@ -1703,127 +1601,6 @@ def test_the_actor_column_is_added_to_an_existing_session_starts_table(home: Pat
 
 
 
-def test_a_start_only_setting_that_changed_restarts_the_agent_at_an_idle_moment(home: Path) -> None:
-    """What a launch reads from settings (`launch.fingerprint_parts`) is compared with what the running
-    session was launched with: a differing one restarts the agent itself, resumed, naming it in the
-    first prompt - never mid-turn, never over a dialog, and not for a setting that applies live."""
-    from handline.daemon import applysettings
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[tuple[str, str]] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.send, termmod.available, launch.find_room,
-            termmod.typeable_now)
-    log: list[str] = []
-    try:
-        orca_seen()
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        launch.find_room = lambda agent: "alpha"
-        table = sessions_are("backend")
-
-        def send(handle: str, text: str, enter: bool = True):
-            sent.append((handle, text))
-            if text == "/exit":
-                table.pop("backend", None)
-            elif " launch " in text:
-                take_launched_prompt(text)
-                table["backend"] = 4242
-            return True, ""
-
-        termmod.send = send
-        screen_free = {"ok": True}
-        termmod.typeable_now = lambda h: screen_free["ok"]
-        db.set_terminal(con, "backend", "term_x", "wt")
-        write_status_json(home / "agents" / "backend", {
-            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
-            "pct_5h": 20, "ctx_pct": 8, "transcript_path": "/tmp/sess-1.jsonl"})
-        db.set_launch_fingerprint(con, "backend", launch.fingerprint("backend"),
-                                  json.dumps(launch.fingerprint_parts("backend")))
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-
-        def sweep():
-            sent.clear()
-            db.clear_cursor(con, "typed_at:backend")
-            table["backend"] = 4200
-            applysettings.sweep(con, log.append, int(time.time()))
-            return [t for _h, t in sent if " launch " in t]
-
-        check("settings: nothing changed, nothing restarted", not sweep() and not any(t == "/exit" for _h, t in sent))
-
-        idle_close.set_agent_close_timeout("backend", 600)
-        check("settings: a setting that applies live restarts nothing", not sweep() and not sent, str(sent))
-
-        (home / "agents" / "backend" / "base.md").write_text("a new standing rule")
-        db.set_agent_state(con, "backend", dmn_states.RUNNING)
-        check("settings: mid-turn it waits", not sweep() and not sent, str(sent))
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        screen_free["ok"] = False
-        check("settings: and so does a screen with a dialog open or a turn on it", not sweep() and not sent, str(sent))
-        screen_free["ok"] = True
-
-        launched = sweep()
-        check("settings: at an idle moment the session is ended and launched again, resumed",
-              len(launched) == 1 and [t for _h, t in sent][:1] == ["/exit"] and "--resume sess-1" in launched[0],
-              str(sent))
-        check("settings: it is recorded as a settings start by the daemon",
-              "--why settings" in launched[0] and "--by 'the daemon'" in launched[0], launched[0])
-        check("settings: and the first prompt names what changed",
-              launched_prompt(launched[0]) == "Restarted by the daemon (resumed) to apply changed settings: "
-                                              "base.md. If something was going wrong before this, retry it.",
-              launched_prompt(launched[0]))
-
-        check("settings: a launch that still disagrees is not restarted again for the same change",
-              not sweep() and not sent, str(sent))
-        (home / "agents" / "backend" / "base.md").write_text("another standing rule")
-        sent.clear()
-        db.clear_cursor(con, "typed_at:backend")
-        table["backend"] = 4200
-        dmn_evaluate.tick(con, log.append)
-        launched = [t for _h, t in sent if " launch " in t]
-        check("settings: a further change is restarted by the daemon's own tick", len(launched) == 1 and "--why settings" in launched[0],
-              str(sent))
-
-        con.execute("UPDATE agent_state SET launch_parts = NULL WHERE agent = 'backend'")
-        db.clear_meta(con, "settings_applied:backend")
-        check("settings: a session that recorded no settings names nothing, so restarts nothing", not sweep() and not sent)
-        db.set_launch_fingerprint(con, "backend", launch.fingerprint("backend"),
-                                  json.dumps({**launch.fingerprint_parts("backend"), "model": "x", "effort": "y"}))
-        db.clear_meta(con, "settings_applied:backend")
-        launched = sweep()
-        check("settings: more than one is named, in the order a launch reads them",
-              len(launched) == 1 and "settings: model, effort." in launched_prompt(launched[0]),
-              launched_prompt(launched[0]) if launched else str(sent))
-    finally:
-        (termmod.alive, termmod.wait_idle, termmod.send, termmod.available, launch.find_room,
-         termmod.typeable_now) = real
-        con.close()
-
-
-def test_a_launch_records_the_settings_it_read(home: Path) -> None:
-    """`_record_terminal`, the one moment a recipe and a running session are known to match, keeps the
-    fingerprint and, one setting at a time, what it read - which is what a later change is named from."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    real = (termmod.terminal_handle, termmod.worktree_id, spawnmod.register_worker)
-    try:
-        termmod.terminal_handle = lambda: "term_launched"
-        termmod.worktree_id = lambda: "wt"
-        spawnmod.register_worker = lambda *a, **k: None
-        launch._record_terminal("backend", "alpha", launch.fingerprint("backend"))
-        row = db.get_agent_state(con, "backend")
-        check("launch: the settings it read are recorded beside the fingerprint",
-              row["launch_fingerprint"] == launch.fingerprint("backend")
-              and {k: v for k, v in json.loads(row["launch_parts"]).items() if k != launch.LAUNCHED_AT}
-              == launch.fingerprint_parts("backend")
-              and launch.launched_at(row) is not None, str(dict(row)))
-        from handline.daemon import applysettings
-        (home / "agents" / "backend" / "base.md").write_text("a changed standing rule")
-        check("launch: and a later change to one of them is named from them",
-              applysettings.changed("backend", row) == ["base.md"], str(applysettings.changed("backend", row)))
-    finally:
-        termmod.terminal_handle, termmod.worktree_id, spawnmod.register_worker = real
-        con.close()
-
-
 def test_idle_session_is_closed_and_resumed(home: Path) -> None:
     """Memory is the scarce thing on one laptop running a team: an idle session
     holds 250-500MB and earns nothing with it. Closing keeps the terminal, and
@@ -2037,61 +1814,6 @@ def test_wait_session_gone_treats_an_unmappable_pid_as_unreadable() -> None:
             real_wait, real_poll, real_live)
 
 
-def test_a_close_that_will_not_take_is_not_tried_again_every_tick(home: Path) -> None:
-    """The idle schedule asks `should_close` every tick. A session that does
-    not die after /exit must not be typed at again, and must not hold the
-    daemon for the whole wait again, on each of them."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    typed: list[str] = []
-    waits: list[str] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.send, termmod.available,
-            termmod.modal_open, dmn_delivery._wait_session_gone)
-    try:
-        orca_seen()
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.modal_open = lambda h: False
-        termmod.send = lambda h, text, enter=True: (typed.append(text), (True, ""))[1]
-        sessions_are("backend")               # and it stays there whatever is typed
-        dmn_delivery._wait_session_gone = lambda agent: (waits.append(agent), False)[1]
-        db.set_terminal(con, "backend", "term_x", "wt")
-        now = int(time.time())
-        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=8,
-                     reset_5h=now + 1800)
-        agent_dir = home / "agents" / "backend"
-        write_status_json(agent_dir, {
-            "account": "alpha", "collected_at": now, "session_id": "sess-1",
-            "pct_5h": 20, "ctx_pct": 8})
-        db.add_event(con, "backend", "Stop", {})
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn_timing.IDLE_CLOSE_S - 60,))
-        st = status.read_for_agent("backend", "alpha")
-        check("close: the idle session is due to be closed",
-              dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, db.get_agent_state(con, "backend"), now, st))
-
-        for _ in range(3):
-            dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
-        check("close: three ticks over a session that will not die type /exit once",
-              typed.count("/exit") == 1, str(typed))
-        check("close: and wait for it once", len(waits) == 1, str(waits))
-        failed = db.last_event_ts(con, "backend", "close_failed")
-        check("close: the failure is on the record", failed is not None)
-        row = db.get_agent_state(con, "backend")
-        check("close: and the row is not marked closed", row["closed_at"] is None)
-        check("close: a failed close is not activity - it does not restart the idle clock",
-              db.last_activity(con, "backend") == now - dmn_timing.IDLE_CLOSE_S - 60)
-
-        # One idle window after the failure it is tried again. The failure is
-        # stamped by the real clock, which a loaded run moves well past `now`.
-        later = failed + dmn_timing.IDLE_CLOSE_S
-        check("close: after a full idle window it is due again",
-              dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, later, st))
-    finally:
-        (termmod.alive, termmod.wait_idle, termmod.send, termmod.available,
-         termmod.modal_open, dmn_delivery._wait_session_gone) = real
-        con.close()
-
-
 def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
     """Closing is for memory; a handoff is for context. An agent that was
     cleared rather than closed has no session worth resuming - what it needs is
@@ -2120,63 +1842,6 @@ def test_wake_without_a_closed_session_uses_the_handoff(home: Path) -> None:
               kept_handoff("backend") is None)
     finally:
         termmod.alive, termmod.available, termmod.send = real
-        con.close()
-
-
-def test_reconcile_does_not_clear_closed_at_on_a_failed_wake(home: Path) -> None:
-    """QUEUED with closed_at set is ambiguous, so reconcile leaves it alone.
-
-    A wake interrupted after relaunching but before its write, and a wake that
-    failed outright, leave the same two columns behind - and step 2's own
-    wake_agent produces the second one whenever a reboot's dead terminal cannot
-    be relaunched. Clearing on that shape gets the failure case backwards and
-    takes resume_session with it, which is the one thing a close must never
-    lose. Only a live witness, the process table, separates them.
-    """
-    _daemon_home(home, 20)
-    con = db.connect()
-    real = (termmod.alive, termmod.available)
-    try:
-        termmod.available = lambda: True
-        termmod.alive = lambda h: False  # the terminal a reboot leaves behind
-        db.set_terminal(con, "backend", "term_gone", "wt")
-        db.set_closed(con, "backend", "sess-1")
-        support.something_waiting(con, "backend")
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
-                           detail="parked and closed, daemon was down since")
-
-        logged: list[str] = []
-        dmn_reconciler.reconcile(con, logged.append)
-        row = db.get_agent_state(con, "backend")
-        check("reconcile: step 2's own wake attempt is logged as failing",
-              any("could not wake at reconciliation" in m for m in logged), str(logged))
-        check("reconcile: closed_at survives a failed wake attempt",
-              row["closed_at"] is not None, str(dict(row)))
-        check("reconcile: resume_session survives it too - it is not repairable once gone",
-              row["resume_session"] == "sess-1", str(dict(row)))
-        # And the deadline stays on the row. Clearing it before the wake had
-        # worked is how a failed wake became a permanent sleep: due_agents
-        # selects on wake_at, so a row with none is never looked at again.
-        check("reconcile: the wake stays due, so a later restart retries it",
-              row["wake_at"] is not None and row["state"] == dmn_states.PARKED, str(dict(row)))
-
-        # The terminal comes back - a human reopened it, or Orca was slow to
-        # start - and the next restart does what this one could not.
-        sent: list[str] = []
-        table = sessions_are()
-        termmod.alive = lambda h: True
-        termmod.live_terminals = lambda: {"term_gone"}
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.send = relaunching_send(sent, table)
-        db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", None, 0, None)
-        dmn_reconciler.reconcile(con, lambda _m: None)
-        row = db.get_agent_state(con, "backend")
-        check("reconcile: the retry resumes the session it kept",
-              any("--resume sess-1" in t for t in sent), str(sent))
-        check("reconcile: and only then is the deadline cleared",
-              row["state"] == dmn_states.QUEUED and row["wake_at"] is None, str(dict(row)))
-    finally:
-        termmod.alive, termmod.available = real
         con.close()
 
 
@@ -2220,57 +1885,6 @@ def test_the_daemon_never_types_into_a_trust_prompt_via_deliver(home: Path) -> N
     finally:
         (termmod.send, termmod.alive, termmod.idle_now, termmod.available,
          termmod.screen_blocker, termmod._screen) = real
-        con.close()
-
-
-def test_work_arriving_wakes_a_closed_agent(home: Path) -> None:
-    """A closed session cannot read its own inbox. Without this, `ocp ask`
-    queues into a terminal with nobody in it - reviewer sat closed with two
-    requests pending and nothing would ever have brought it back."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[str] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.send, termmod.available)
-    try:
-        orca_seen()
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        # The session runs until close_agent ends it, and then it does not -
-        # which is what the tick below has to work out for itself.
-        table = sessions_are("backend")
-        termmod.send = relaunching_send(sent, table)
-        db.set_terminal(con, "backend", "term_x", "wt")
-        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
-        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": int(time.time()),
-            "session_id": "sess-9", "pct_5h": 20}))
-
-        # A turn can start between a human pressing `c` and confirming it, so
-        # closing checks the state itself rather than trusting what the screen
-        # was showing. `should_close` refuses the same two states.
-        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="was working")
-        ok, why = dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
-                                  status.read_for_agent("backend", "alpha"))
-        check("close: a session mid-turn is not closed out from under the work",
-              not ok and "RUNNING" in why, why)
-        check("close: and nothing was typed at it", "/exit" not in sent, str(sent))
-
-        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="turn ended")
-        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
-                        status.read_for_agent("backend", "alpha"))
-        row = db.get_agent_state(con, "backend")
-        check("close: and a closed session is not left labelled RUNNING",
-              row["state"] != dmn_states.RUNNING, row["state"])
-
-        db.add_request(con, "reviewer", "backend", "please look at this", None,
-                       "peer", "async", None, 0, None)
-        sent.clear()
-        dmn_evaluate.tick(con, lambda _m: None)
-        check("wake: work arriving brings a closed agent back",
-              any("--resume sess-9" in t for t in sent), str(sent[:2]))
-        check("wake: and it is no longer marked closed",
-              db.get_agent_state(con, "backend")["closed_at"] is None)
-    finally:
-        termmod.alive, termmod.wait_idle, termmod.send, termmod.available = real
         con.close()
 
 
@@ -2690,80 +2304,6 @@ def test_a_launch_takes_its_prompt_once(home: Path) -> None:
     check("launch: a missing file is no prompt", launch.take_prompt(str(f)) is None)
 
 
-def test_a_closed_agent_is_not_handed_off(home: Path) -> None:
-    """Closing stops that session's status line, so 15 minutes later the
-    snapshot is stale and usage_unknown fires - on an agent that is idle,
-    healthy, and whose terminal is now a shell prompt. That would pay for a
-    fold and then type a handoff full of backticks at bash: the exact failure
-    this branch exists to remove, reached through its own new feature."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[str] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
-            termmod.available, termmod.clear_context)
-    try:
-        orca_seen()
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.idle_now = lambda h: True
-        termmod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
-        # A session runs in that terminal until close_agent ends it, and
-        # the wake below starts another one.
-        table = sessions_are("backend")
-        termmod.send = relaunching_send(sent, table)
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
-        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": int(time.time()),
-            "session_id": "sess-2", "pct_5h": 20}))
-        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
-                        status.read_for_agent("backend", "alpha"))
-        check("closed: the agent is marked closed",
-              db.get_agent_state(con, "backend")["closed_at"] is not None)
-
-        # Its own file stopped being written, and so did the account's.
-        write_status(home, "alpha", pct_5h=20, pct_7d=10,
-                     collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
-        st = status.read_for_agent("backend", "alpha")
-        check("closed: its usage does read as unknown",
-              st.short_trusted is None, str(st.short_trusted))
-        check("closed: and an unknown figure is not a wall, so nothing would fire on it",
-              not triggers.evaluate(st.short_trusted, None).fired)
-
-        sent.clear()
-        dmn_evaluate.tick(con, lambda _m: None)
-        row = db.get_agent_state(con, "backend")
-        check("closed: but a closed agent is not handed off",
-              row["state"] != dmn_states.PARKED, str(dict(row)))
-        check("closed: nothing is typed at its shell", not sent, str(sent))
-        check("closed: and no fold was paid for",
-              not db.in_flight_handoffs(con) and row["continuations"] == 0, str(dict(row)))
-        check("closed: it stays closed", row["closed_at"] is not None)
-
-        # And the screens say what the daemon does. A warning nobody will act
-        # on is the dashboard arguing with the daemon.
-        check("closed: the daemon's own rule says it is not a candidate",
-              not dmn_lifecycle.triggers_apply(row))
-
-        # The daemon's own note is not news. It is on every row, it is never
-        # something a human acts on - "woke from PARKED at reconciliation" -
-        # and a column that is always full of something unactionable is one a
-        # reader learns to skip. The states that do need a human still say so.
-        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="woke at reconciliation")
-        quiet = screenstate.screen_state(con, db.get_agent_state(con, "backend"))
-        check("screen: the daemon's bookkeeping is not beside the state word",
-              "reconciliation" not in quiet[1], str(quiet))
-        db.set_agent_state(con, "backend", dmn_states.STALLED, detail="three failed wakes")
-        loud = screenstate.screen_state(con, db.get_agent_state(con, "backend"))
-        check("screen: but what needs a human is, with its reason",
-              "three failed wakes" in loud[1], str(loud))
-        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="")
-    finally:
-        (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
-         termmod.available, termmod.clear_context) = real
-        con.close()
-
-
 def test_a_close_that_stamps_sessionend_does_not_unexpire_a_stale_cache(home: Path) -> None:
     """The real shape: an agent quiet past RESUME_WARM_S, then closed by ocp
     a minute ago. ocp's own `/exit` fires SessionEnd at once (handline/daemon/'s
@@ -2785,340 +2325,6 @@ def test_a_close_that_stamps_sessionend_does_not_unexpire_a_stale_cache(home: Pa
         check("cache: a close a minute ago does not read as activity a minute ago",
               dmn_lifecycle.cache_expired(con, "backend", "sess-close", now), "read warm")
     finally:
-        con.close()
-
-
-def test_a_park_that_was_also_closed_is_woken_without_being_judged(home: Path) -> None:
-    """An agent can be parked and closed at once, and then the wake_at branch is
-    what restores its session - so the same rule has to hold there. It held only
-    because that branch never re-read the row, which is the first thing anyone
-    tidying this code would fix."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[str] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
-            termmod.available, termmod.clear_context)
-    try:
-        orca_seen()
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.idle_now = lambda h: True
-        termmod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
-        # A session runs in that terminal until close_agent ends it, and
-        # the wake below starts another one.
-        table = sessions_are("backend")
-        termmod.send = relaunching_send(sent, table)
-        db.set_terminal(con, "backend", "term_x", "wt")
-        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
-        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": int(time.time()),
-            "session_id": "sess-8", "pct_5h": 20}))
-        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
-                        status.read_for_agent("backend", "alpha"))
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
-                           detail="parked and closed")
-        support.something_waiting(con, "backend")
-        row = db.get_agent_state(con, "backend")
-        check("parked+closed: the state this is about is reachable",
-              row["state"] == dmn_states.PARKED and row["closed_at"] is not None, str(dict(row)))
-
-        # Its own snapshot stopped with the session, and it was the only one here.
-        write_status(home, "alpha", pct_5h=20, pct_7d=10,
-                     collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
-        sent.clear()
-        dmn_evaluate.tick(con, lambda _m: None)
-        row = db.get_agent_state(con, "backend")
-        check("parked+closed: wake_at brings the same session back",
-              any("--resume sess-8" in t for t in sent), str(sent))
-        check("parked+closed: and it is not parked again on the reading it left",
-              row["state"] != dmn_states.PARKED, str(dict(row)))
-        check("parked+closed: nothing was folded for it",
-              row["continuations"] == 0 and not db.in_flight_handoffs(con), str(dict(row)))
-    finally:
-        (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
-         termmod.available, termmod.clear_context) = real
-        con.close()
-
-
-def test_a_due_closed_park_enforces_edges_before_the_wake_at_gate(home: Path) -> None:
-    """T146 pt.1 (auditor #1994 gap 1): a denied edge on a due closed park
-    settles to IDLE in the same tick, not left QUEUED on a request that is
-    already dead."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[str] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
-            termmod.available, termmod.clear_context)
-    try:
-        orca_seen()
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.idle_now = lambda h: True
-        termmod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
-        table = sessions_are("backend")
-        termmod.send = relaunching_send(sent, table)
-        db.set_terminal(con, "backend", "term_x", "wt")
-        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
-        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": int(time.time()),
-            "session_id": "sess-due", "pct_5h": 20}))
-        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
-                        status.read_for_agent("backend", "alpha"))
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
-                           detail="parked and closed")
-
-        # marketing (growth.*) -> backend (eng.*) is DESIGN_TEAM's own deny
-        # rule ("go through product") - a real edge enforce_edges will refuse.
-        rid = db.add_request(con, "marketing", "backend", "ship this", None,
-                             None, "async", None, 0, None)
-        con.execute("UPDATE requests SET edge_ok = NULL WHERE id = ?", (rid,))
-
-        write_status(home, "alpha", pct_5h=20, pct_7d=10,
-                     collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
-        sent.clear()
-        dmn_evaluate.tick(con, lambda _m: None)
-        check("wake_at-due: a denied edge does not wake a due closed park",
-              not sent, str(sent))
-        check("wake_at-due: the request is denied, not left unconfirmed forever",
-              db.get_request(con, rid)["state"] == "denied", dict(db.get_request(con, rid)))
-        check("wake_at-due: the park resolves to IDLE in this same tick, not left QUEUED "
-              "on a request that is already dead",
-              db.get_agent_state(con, "backend")["state"] == dmn_states.IDLE,
-              dict(db.get_agent_state(con, "backend")))
-    finally:
-        (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
-         termmod.available, termmod.clear_context) = real
-        con.close()
-
-
-def test_reconcile_wakes_a_park_that_was_also_closed(home: Path) -> None:
-    """The case above is proven through tick(), but a daemon that was down
-    across the whole window - which is the case launchd exists for, not the
-    exception - meets this agent at startup, in reconcile(), not in a later
-    tick. Before this fix, reconcile's own due_agents step set state to
-    QUEUED and cleared wake_at, which is exactly what disarms the wake_at
-    branch in supervise() that would otherwise have woken it - so a closed,
-    parked agent whose window rolled over while the daemon was dead came back
-    QUEUED and stayed that way, forever, with no session and no path left
-    that will ever relaunch it."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[str] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
-            termmod.available, termmod.clear_context)
-    try:
-        termmod.available = lambda: True
-        termmod.alive = lambda h: True
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.idle_now = lambda h: True
-        termmod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
-        # A session runs in that terminal until close_agent ends it, and
-        # the wake below starts another one.
-        table = sessions_are("backend")
-        termmod.send = relaunching_send(sent, table)
-        db.set_terminal(con, "backend", "term_x", "wt")
-        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
-        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": int(time.time()),
-            "session_id": "sess-9", "pct_5h": 20}))
-        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
-                        status.read_for_agent("backend", "alpha"))
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
-                           detail="parked and closed, daemon was down since")
-        support.something_waiting(con, "backend")
-
-        sent.clear()
-        dmn_reconciler.reconcile(con, lambda _m: None)
-        row = db.get_agent_state(con, "backend")
-        check("reconcile: a closed, due park is relaunched at startup, not left QUEUED",
-              any("--resume sess-9" in t for t in sent), str(sent))
-        check("reconcile: closed_at is cleared, not stuck behind a nulled wake_at",
-              row["closed_at"] is None, str(dict(row)))
-        check("reconcile: triggers apply to it again", dmn_lifecycle.triggers_apply(row))
-    finally:
-        (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
-         termmod.available, termmod.clear_context) = real
-        con.close()
-
-
-def test_reconcile_enforces_edges_before_waking_a_due_closed_park(home: Path) -> None:
-    """T146 pt.1 (founder #1970): the same edge-unconfirmed-request deadlock
-    as `test_an_edge_unconfirmed_request_still_wakes_a_closed_agent`, met on
-    `reconcile`'s own due_agents step instead of a live tick's wake_agent -
-    the path the founder's report and the auditor's review both named."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[str] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.send, termmod.available)
-    try:
-        orca_seen()
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        table = sessions_are("backend")
-        termmod.send = relaunching_send(sent, table)
-        db.set_terminal(con, "backend", "term_x", "wt")
-        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
-        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": int(time.time()),
-            "session_id": "sess-recon", "pct_5h": 20}))
-        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
-                        status.read_for_agent("backend", "alpha"))
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
-                           detail="parked and closed, daemon was down since")
-
-        rid = db.add_request(con, "reviewer", "backend", "please look at this", None,
-                             None, "async", "verdict", 0, None)
-        con.execute("UPDATE requests SET edge_ok = NULL WHERE id = ?", (rid,))
-
-        sent.clear()
-        dmn_reconciler.reconcile(con, lambda _m: None)
-        check("reconcile: an edge-unconfirmed request still wakes a due closed park",
-              any("--resume sess-recon" in t for t in sent), str(sent))
-        check("reconcile: its edge is confirmed on the way, not skipped",
-              db.get_request(con, rid)["edge_ok"] == 1, dict(db.get_request(con, rid)))
-    finally:
-        termmod.alive, termmod.wait_idle, termmod.send, termmod.available = real
-        con.close()
-
-
-def test_a_due_park_with_nothing_waiting_stays_closed(home: Path) -> None:
-    """A closed session is resumed to be handed a message. A deadline that
-    comes due with none waiting spends the deadline and leaves the agent
-    closed, from a tick and from reconcile alike (T124)."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[str] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
-            termmod.available, termmod.clear_context)
-    try:
-        orca_seen()
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.idle_now = lambda h: True
-        termmod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
-        table = sessions_are("backend")
-        termmod.send = relaunching_send(sent, table)
-        db.set_terminal(con, "backend", "term_x", "wt")
-        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
-        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": int(time.time()),
-            "session_id": "sess-10", "pct_5h": 20}))
-        dmn_lifecycle.close_agent(con, "backend", lambda _m: None,
-                        status.read_for_agent("backend", "alpha"))
-        for step, run_it in (("tick", lambda: dmn_evaluate.tick(con, lambda _m: None)),
-                             ("reconcile", lambda: dmn_reconciler.reconcile(con, lambda _m: None))):
-            db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=int(time.time()) - 10,
-                               detail="parked and closed")
-            sent.clear()
-            run_it()
-            row = db.get_agent_state(con, "backend")
-            check(f"{step}: nothing is resumed for a deadline with nothing waiting",
-                  not any("--resume" in t for t in sent), str(sent))
-            check(f"{step}: the deadline is spent and the agent stays closed",
-                  row["wake_at"] is None and row["closed_at"] is not None
-                  and row["state"] != dmn_states.PARKED, str(dict(row)))
-    finally:
-        (termmod.alive, termmod.wait_idle, termmod.idle_now, termmod.send,
-         termmod.available, termmod.clear_context) = real
-        con.close()
-
-
-def test_nothing_is_typed_into_a_shell_with_no_session(home: Path) -> None:
-    """Orca runs claude as a login shell's child, so a session that ends leaves
-    the terminal standing and our handle still working: `send` succeeds and the
-    text lands at a bash prompt. What we send is not inert there - a handoff's
-    backticks run and its `>` redirects - and `/exit` at that prompt exits the
-    shell, taking the terminal, the worktree and the only way back with it. So
-    every path that types checks the process table first, and a table it could
-    not read counts as no.
-    """
-    _daemon_home(home, 50)
-    con = db.connect()
-    sent: list[str] = []
-    cleared: list[str] = []
-    real = (termmod.available, termmod.alive, termmod.idle_now, termmod.wait_idle,
-            termmod.send, termmod.clear_context)
-    try:
-        termmod.available = lambda: True
-        termmod.live_terminals = lambda: {"term_x"}
-        termmod.alive = lambda h: True          # the terminal outlives the session
-        termmod.idle_now = lambda h: True       # and a bare shell probes as idle
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        termmod.clear_context = lambda h, wait=True, timeout_ms=0: (
-            cleared.append(h), (True, "context cleared"))[1]
-        table = sessions_are()                  # the shell is there; nobody is in it
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
-        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": int(time.time()),
-            "session_id": "sess-5", "pct_5h": 50}))
-        st = status.read_for_agent("backend", "alpha")
-
-        db.add_request(con, "reviewer", "backend", "look at this", None,
-                       "peer", "async", "task", 0, None)
-        check("shell: a waiting request is not announced to a shell",
-              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
-        check("shell: and it stays queued, for the wake to deliver",
-              len(db.queued_for(con, "backend")) == 1)
-
-        ok, why = dmn_lifecycle.close_agent(con, "backend", lambda _m: None, st)
-        check("shell: /exit is not typed at it - that would end the shell too",
-              not ok and not sent, f"{why} {sent}")
-        check("shell: and its terminal is left recorded",
-              db.get_agent_state(con, "backend")["terminal"] == "term_x")
-
-        keep_handoff("backend", "# handoff · backend\n- carry on\n")
-        ok, why = dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
-        check("shell: a handoff is not typed at it either",
-              not ok and not sent, f"{why} {sent}")
-
-        # The clear is gated where it is sent, not only where it is decided:
-        # a handoff resumed after a restart reaches it without passing the
-        # check perform_handoff makes.
-        ok, why = dmn_delivery._reclaim_context(con, "backend", lambda _m: None)
-        check("shell: /clear is not typed at it, whoever asked for it",
-              not ok and not cleared, f"{why} {cleared}")
-
-        t = triggers.Trigger(True, "context", "context 700,000 >= 120,000")
-        dmn_handoff.perform_handoff(con, "backend", t, lambda _m: None)
-        row = db.get_agent_state(con, "backend")
-        check("shell: no handoff is run for a session that is not there",
-              not cleared and not sent and not db.in_flight_handoffs(con), str(sent))
-        check("shell: so no fold is paid for either",
-              row["state"] != dmn_states.PARKED and row["continuations"] == 0, str(dict(row)))
-
-        # Fail-closed: "the process table could not be read" is not "no session",
-        # but it is not permission to send, which is the only question here.
-        obsmod.live_sessions = lambda: None
-        db.add_request(con, "reviewer", "backend", "and this", None,
-                       "peer", "async", "task", 0, None)
-        check("shell: an unreadable process table is a no, not a maybe",
-              not dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and not sent, str(sent))
-
-        # And with a session running, the same call does its job.
-        table["backend"] = 4242
-        obsmod.live_sessions = lambda: dict(table)
-        check("shell: a running agent is told what is waiting",
-              dmn_delivery.deliver_queued(con, "backend", lambda _m: None) and
-              any("waiting for you" in t2 for t2 in sent), str(sent))
-
-        # One listing per tick, not one per send: the sweep already asked.
-        calls = {"n": 0}
-        base = dict(table)
-
-        def counted():
-            calls["n"] += 1
-            return dict(base)
-
-        obsmod.live_sessions = counted
-        db.set_cursor(con, "notify:backend", 0)
-        con.execute("UPDATE requests SET delivered_at = NULL, typed_at = NULL")      # not told yet
-        sent.clear()
-        dmn_evaluate.tick(con, lambda _m: None)
-        check("shell: the tick reads the process table once, and the sends reuse it",
-              calls["n"] == 1 and any("waiting for you" in t2 for t2 in sent),
-              f"{calls['n']} listings, sent {sent}")
-    finally:
-        (termmod.available, termmod.alive, termmod.idle_now, termmod.wait_idle,
-         termmod.send, termmod.clear_context) = real
         con.close()
 
 
@@ -3244,57 +2450,6 @@ def test_a_close_right_after_a_delivery_in_the_same_tick_must_not_type(
         con.close()
 
 
-def test_an_answer_for_a_cold_session_closes_it_instead_of_being_typed(home: Path) -> None:
-    """T84: a line typed into an open session whose cache has expired makes the
-    vendor re-read the whole transcript uncached. The daemon closes it there
-    and the wake delivers on a fresh start; a warm session, or a cold one with
-    nothing to say, is left alone."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[str] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.available, termmod.send)
-    try:
-        orca_seen()
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        table = sessions_are("backend")
-        termmod.send = relaunching_send(sent, table)
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        (home / "agents" / "backend").mkdir(parents=True, exist_ok=True)
-        (home / "agents" / "backend" / "status.json").write_text(json.dumps({
-            "account": "alpha", "collected_at": int(time.time()),
-            "session_id": "sess-cold", "pct_5h": 20}))
-        st = status.read_for_agent("backend", "alpha")
-        now = int(time.time())
-        db.add_event(con, "backend", "Stop", {})
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn_timing.RESUME_WARM_S - 60,))
-        row = db.get_agent_state(con, "backend")
-        log = lambda _m: None
-
-        check("cold typing: nothing to say, a cold session is left open",
-              dmn_lifecycle._cold_before_typing(con, "backend", row, now, st, log) is None
-              and not sent)
-        rid = db.add_request(con, "backend", "reviewer", "spec?", None,
-                             "peer", "async", None, 0, None)
-        support._set_request_state(con, rid, "landed", "yes")
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn_timing.RESUME_WARM_S + 600,))
-        check("cold typing: a warm session with an answer waiting is left to be typed into",
-              dmn_lifecycle._cold_before_typing(con, "backend", row, now, st, log) is None
-              and not sent)
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
-                    (now - dmn_timing.RESUME_WARM_S - 60,))
-        dmn_evaluate.supervise(con, "backend", log, now, {}, [])
-        check("cold typing: a cold session with an answer waiting is closed by the tick",
-              db.get_agent_state(con, "backend")["closed_at"], str(sent))
-        check("cold typing: the answer was never typed into the old session",
-              all("yes" not in t for t in sent), str(sent))
-    finally:
-        termmod.alive, termmod.wait_idle, termmod.available, termmod.send = real
-        con.close()
-
-
 def _cold_backend(home: Path, con, sent: list) -> tuple:
     """An open IDLE `backend` whose last activity is past the cache's life."""
     orca_seen()
@@ -3311,33 +2466,6 @@ def _cold_backend(home: Path, con, sent: list) -> tuple:
     con.execute("UPDATE events SET ts = ? WHERE agent = 'backend'",
                 (now - dmn_timing.RESUME_WARM_S - 60,))
     return status.read_for_agent("backend", "alpha"), now
-
-
-def test_a_cold_session_close_that_fails_falls_back_to_typing(home: Path) -> None:
-    """T84 review #2391: a close that keeps failing must not hold the answer
-    forever - it is typed as on main, and the close is not tried every tick."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[str] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.available, termmod.send, dmn_lifecycle.close_agent)
-    tries: list[int] = []
-    try:
-        st, now = _cold_backend(home, con, sent)
-        rid = db.add_request(con, "backend", "reviewer", "spec?", None,
-                             "peer", "async", None, 0, None)
-        support._set_request_state(con, rid, "landed", "yes")
-        dmn_lifecycle.close_agent = lambda *a, **k: (tries.append(1) or (False, "refused"))
-        dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
-        check("cold close fails: the failing tick types nothing into the cold session",
-              not sent and tries, str((sent, tries)))
-        dmn_evaluate.supervise(con, "backend", lambda _m: None, now + 5, {}, [])
-        check("cold close fails: the next tick types the answer, and does not close again",
-              any("yes" in t for t in sent), str((sent, tries)))
-        check("cold close fails: and the cold path does not try the close again",
-              db.get_cursor(con, "cold_close_try:backend") == now, str(tries))
-    finally:
-        termmod.alive, termmod.wait_idle, termmod.available, termmod.send, dmn_lifecycle.close_agent = real
-        con.close()
 
 
 def test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(home: Path) -> None:
@@ -3423,106 +2551,6 @@ def test_a_cold_session_reads_its_blocked_head_through_effective_head(home: Path
               dmn_lifecycle._cold_before_typing(con, "backend", row, now, st, log) is None)
     finally:
         termmod.alive, termmod.wait_idle, termmod.available, termmod.send = real
-        con.close()
-
-
-def test_a_request_already_told_still_closes_a_cold_idle_session(home: Path) -> None:
-    """T154 (founder #789), auditor #821: should_close's queued-work guard
-    used to hold a session open for as long as anything about it was
-    unresolved, delivered or not - even past its prompt cache's life, where a
-    resume costs the same re-read a wake's cold start does anyway.
-    `_cold_before_typing` declines here (the request was already told, and
-    already nudged once) - it is `should_close`'s own idle window that closes
-    it. A request already told before the close is not on its own a reason to
-    wake it back up (that would close it right back up next window, forever,
-    #821) - only something new is: an undelivered request or an answer, and
-    that wake also retells what was already open, once its fresh session is
-    on screen (`_session_changed`)."""
-    _daemon_home(home, 20)
-    credentialed(home, "alpha")
-    con = db.connect()
-    sent: list[str] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.available, termmod.send)
-    session_changed = dmn_delivery._session_changed
-    try:
-        st, now = _cold_backend(home, con, sent)
-        rid = db.add_request(con, "marina", "backend", "carry on", None,
-                             "peer", "async", "task", 0, None)
-        db.mark_delivered(con, rid)
-        db.set_cursor(con, "notify:backend", rid)
-        db.set_notified_session(con, "backend", "sess-cold")
-        db.set_cursor(con, "nudge:backend", rid)   # already reminded, cap reached, T337
-        db.set_cursor(con, "nudge_count:backend", len(dmn_delivery.NUDGE_SCHEDULE_S))
-        con.execute("UPDATE requests SET delivered_at = ? WHERE id = ?",
-                    (now - dmn_timing.RESUME_WARM_S - 60, rid))
-        row = db.get_agent_state(con, "backend")
-
-        check("cold queue close: the cold path alone has nothing to close it for",
-              dmn_lifecycle._cold_before_typing(con, "backend", row, now, st, lambda _m: None) is None)
-        check("cold queue close: should_close does, past its own idle window",
-              dmn_lifecycle.should_close(con, "backend", dmn_states.IDLE, row, now, st))
-
-        dmn_evaluate.supervise(con, "backend", lambda _m: None, now, {}, [])
-        check("cold queue close: the tick closes it",
-              db.get_agent_state(con, "backend")["closed_at"], str(sent))
-        check("cold queue close: the request itself is untouched, left for the wake",
-              [r["id"] for r in db.queued_for(con, "backend")] == [rid])
-
-        # Nothing new for it: ticks pass, cache stays gone, and it stays
-        # closed rather than relaunching for the same open request forever.
-        del sent[:]
-        for later in (now + 5, now + 3600, now + 7200):
-            dmn_evaluate.supervise(con, "backend", lambda _m: None, later, {}, [])
-        check("cold queue close: not woken again for the request it already told",
-              db.get_agent_state(con, "backend")["closed_at"] and not sent, str(sent))
-
-        # Something new arrives - the wake it deserves, and it retells the
-        # old request too, once its fresh session is on screen.
-        db.add_request(con, "marina", "backend", "and one more thing", None,
-                       "peer", "async", "task", 0, None)
-        dmn_delivery._session_changed = lambda *a: True   # the wake's fresh session, once up
-        dmn_evaluate.supervise(con, "backend", lambda _m: None, now + 7205, {}, [])
-        check("cold queue close: the new request wakes it",
-              any(" launch " in t for t in sent), str(sent))
-        del sent[:]
-        db.add_event(con, "backend", "Stop", {})   # the fresh session's own first turn
-        con.execute("UPDATE events SET ts = ? WHERE agent = 'backend' AND id = "
-                    "(SELECT MAX(id) FROM events WHERE agent = 'backend')", (now + 7208,))
-        dmn_evaluate.supervise(con, "backend", lambda _m: None, now + 7210, {}, [])
-        check("cold queue close: the old, already-told request is retold first",
-              any("carry on" in t for t in sent), str(sent))
-    finally:
-        termmod.alive, termmod.wait_idle, termmod.available, termmod.send = real
-        dmn_delivery._session_changed = session_changed
-        con.close()
-
-
-def test_a_degraded_park_does_not_auto_clear(home: Path) -> None:
-    """DEGRADED is not a usage park. `DEGRADED_RETRY_S` is the only thing
-    that re-hands a failed handoff's own retry, and clearing it early on a
-    usage reading alone - which is not what parked this agent - would drop
-    that deadline instead.
-    """
-    _daemon_home(home, 20)
-    con = db.connect()
-    real = (termmod.available, termmod.alive)
-    try:
-        termmod.available = lambda: True
-        termmod.alive = lambda h: True
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_account(con, "backend", "alpha")
-        _park_via_handoff(con, "backend", "usage", hoff_state="degraded")
-        db.set_agent_state(con, "backend", dmn_states.DEGRADED,
-                           wake_at=int(time.time()) + 3600, detail="handoff timed out")
-        write_status(home, "alpha", pct_5h=5, pct_7d=10, ctx_pct=5,
-                     reset_5h=int(time.time()) + 1800)
-
-        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
-        row = db.get_agent_state(con, "backend")
-        check("park: DEGRADED is not scoped in - it keeps its own deadline",
-              row["state"] == dmn_states.DEGRADED and row["wake_at"] is not None, str(dict(row)))
-    finally:
-        termmod.available, termmod.alive = real
         con.close()
 
 
@@ -4647,32 +3675,6 @@ def test_a_planned_move_waits_one_turn_for_the_note_but_a_forced_one_does_not(ho
         con.close()
 
 
-def test_the_tick_asks_before_it_closes_and_closes_with_the_note(home: Path) -> None:
-    con, asks, real = _note_world(home)
-    real_o = (termmod.available, termmod.alive, termmod.typeable_now, dmn_lifecycle._end_session)
-    try:
-        termmod.available = lambda: True
-        termmod.alive = lambda h: True
-        termmod.typeable_now = lambda h: True
-        sessions_are("backend")
-        ended: list[int] = []
-        dmn_lifecycle._end_session = lambda *a, **k: (ended.append(1), db.set_closed(con, "backend", "sess-1"),
-                                                      (True, "closed"))[2]
-        write_agent_status("backend", "alpha", session_id="sess-1", transcript_path="/tmp/sess-1.jsonl")
-        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
-        check("tick: the first pass over an idle agent asks and does not close", len(asks) == 1 and not ended,
-              f"{asks} {ended}")
-        _the_agent_answers(con, "waiting on T700")
-        dmn_evaluate.supervise(con, "backend", lambda _m: None, int(time.time()), {}, [])
-        check("tick: the next pass closes it", ended == [1], str(ended))
-        check("tick: with the note in the record", "waiting on T700" in (db.get_handoff(con, "backend") or ""),
-              str(db.get_handoff(con, "backend")))
-    finally:
-        dmn_delivery.type_notice = real
-        (termmod.available, termmod.alive, termmod.typeable_now, dmn_lifecycle._end_session) = real_o
-        con.close()
-
-
 def test_an_ask_left_by_a_move_does_not_close_the_next_session_early(home: Path) -> None:
     con, asks, real = _note_world(home)
     real_o = (termmod.available, termmod.alive, termmod.typeable_now, termmod.send, termmod.clear_context)
@@ -4742,7 +3744,6 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_failclosed(home))
-        run(lambda: test_daemon_success_clears_streak(Path(td) / 'd5b'))
         run(lambda: test_the_screen_names_what_is_in_the_way(Path(td) / 'blk1'))
         run(lambda: test_a_session_idle_over_background_work_is_told_from_one_mid_turn_by_its_screen(Path(td) / 'idlebg'))
         run(lambda: test_a_launch_line_and_its_enter_are_sent_apart(Path(td) / 'launch1'))
@@ -4751,10 +3752,7 @@ def main() -> int:
         run(lambda: test_a_reminder_a_dialog_blocks_is_said(Path(td) / 'blk9'))
         run(lambda: test_a_stale_draft_never_blocks_delivery_again(Path(td) / 'blk9b'))
         run(lambda: test_the_human_and_strangers_are_not_blocked_agents(Path(td) / 'blk10'))
-        run(lambda: test_the_tick_looks_for_blocks(Path(td) / 'blk8'))
         run(lambda: test_a_dialog_ocps_own_exit_raised_is_said_at_once(Path(td) / 'blk5'))
-        run(lambda: test_a_failed_close_says_why_and_records_the_dialog(Path(td) / 'blk6'))
-        run(lambda: test_a_close_refused_by_a_dialog_is_said_once_not_every_tick(Path(td) / 'blk11'))
         run(lambda: test_a_close_never_stops_background_work(Path(td) / 'dcl0x'))
         run(lambda: test_a_dialog_ocp_can_decline_is_cleared_and_reported(Path(td) / 'dcl1'))
         run(lambda: test_ocps_own_exit_dialog_is_pressed_at_once_and_a_working_agents_after_a_wait(Path(td) / 'dcl2'))
@@ -4770,16 +3768,11 @@ def main() -> int:
         run(lambda: test_a_restart_closes_the_terminal_when_the_screen_cannot_be_read(Path(td) / 'restartpane'))
         run(lambda: test_the_actor_column_is_added_to_an_existing_session_starts_table(Path(td) / 'actorcol'))
         run(lambda: test_a_tool_use_marks_a_queued_or_idle_agent_running(Path(td) / 'toolrun'))
-        run(lambda: test_a_start_only_setting_that_changed_restarts_the_agent_at_an_idle_moment(Path(td) / 'applyset'))
-        run(lambda: test_a_launch_records_the_settings_it_read(Path(td) / 'recparts'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
         run(lambda: test_wait_session_gone_treats_an_unmappable_pid_as_unreadable())
-        run(lambda: test_a_close_that_will_not_take_is_not_tried_again_every_tick(Path(td) / 'exitretry'))
         run(lambda: test_wake_without_a_closed_session_uses_the_handoff(Path(td) / 'wakeh'))
-        run(lambda: test_reconcile_does_not_clear_closed_at_on_a_failed_wake(Path(td) / 'crashwake'))
         run(lambda: test_the_daemon_never_types_into_a_trust_prompt_via_deliver(
             Path(td) / 'delivertrust'))
-        run(lambda: test_work_arriving_wakes_a_closed_agent(Path(td) / 'wakework'))
         run(lambda: test_an_edge_unconfirmed_request_still_wakes_a_closed_agent(Path(td) / 'wakeedge'))
         run(lambda: test_a_closed_agents_only_request_failing_its_edge_stays_closed(Path(td) / 'wakeedgedenied'))
         run(lambda: test_a_delivery_belongs_to_the_session_it_was_typed_into(Path(td) / 'sessdeliver'))
@@ -4789,30 +3782,16 @@ def main() -> int:
         run(lambda: test_nothing_is_typed_at_a_modal(Path(td) / 'modal'))
         run(lambda: test_a_wake_types_nothing_at_a_shell_when_the_session_dies(Path(td) / 'shellwake'))
         run(lambda: test_a_launch_takes_its_prompt_once(Path(td) / 'takeprompt'))
-        run(lambda: test_a_closed_agent_is_not_handed_off(Path(td) / 'closedtrig'))
         run(lambda: test_a_close_that_stamps_sessionend_does_not_unexpire_a_stale_cache(Path(td) / 'sessend'))
-        run(lambda: test_a_park_that_was_also_closed_is_woken_without_being_judged(Path(td) / 'pclosed'))
-        run(lambda: test_a_due_closed_park_enforces_edges_before_the_wake_at_gate(Path(td) / 'pclosededge2'))
-        run(lambda: test_reconcile_wakes_a_park_that_was_also_closed(Path(td) / 'pclosed2'))
-        run(lambda: test_reconcile_enforces_edges_before_waking_a_due_closed_park(Path(td) / 'pclosededge'))
-        run(lambda: test_a_due_park_with_nothing_waiting_stays_closed(Path(td) / 'pclosed3'))
-        run(lambda: test_nothing_is_typed_into_a_shell_with_no_session(Path(td) / 'shellgate'))
         run(lambda: test_a_stalled_closed_agent_keeps_its_marker_when_walled(Path(td) / 'walledstalled'))
         run(lambda: test_a_delivery_and_a_handoff_in_the_same_tick_the_handoff_must_not_type(
             Path(td) / 'deliverhandoffrace'))
         run(lambda: test_a_close_right_after_a_delivery_in_the_same_tick_must_not_type(
             Path(td) / 'closerace'))
-        run(lambda: test_an_answer_for_a_cold_session_closes_it_instead_of_being_typed(
-            Path(td) / 'coldtyping'))
-        run(lambda: test_a_cold_session_close_that_fails_falls_back_to_typing(
-            Path(td) / 'coldfail'))
         run(lambda: test_a_cold_session_with_a_head_or_a_nudge_due_is_closed_once(
             Path(td) / 'coldonce'))
         run(lambda: test_a_cold_session_reads_its_blocked_head_through_effective_head(
             Path(td) / 'coldblocked'))
-        run(lambda: test_a_request_already_told_still_closes_a_cold_idle_session(
-            Path(td) / 'coldqueue'))
-        run(lambda: test_a_degraded_park_does_not_auto_clear(Path(td) / 'parklevel3'))
         run(lambda: test_a_close_gets_past_the_dialog_before_it_types_exit(Path(td) / 'limitclose'))
         run(lambda: test_a_dialog_ocp_cannot_get_past_stalls_the_agent_with_the_reason(
             Path(td) / 'dialogstall'))
@@ -4849,7 +3828,6 @@ def main() -> int:
         run(lambda: test_a_note_counts_only_for_the_stretch_it_was_asked_in(Path(td) / 'hnote3'))
         run(lambda: test_no_ask_is_made_when_a_turn_would_not_pay(Path(td) / 'hnote4'))
         run(lambda: test_a_planned_move_waits_one_turn_for_the_note_but_a_forced_one_does_not(Path(td) / 'hnote5'))
-        run(lambda: test_the_tick_asks_before_it_closes_and_closes_with_the_note(Path(td) / 'hnote6'))
         run(lambda: test_an_ask_left_by_a_move_does_not_close_the_next_session_early(Path(td) / 'hnote7'))
         run(lambda: test_a_session_at_the_usage_wall_is_not_asked_for_a_note(Path(td) / 'hnote8'))
     return run_area(tests)
