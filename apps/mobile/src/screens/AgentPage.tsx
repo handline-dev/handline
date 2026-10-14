@@ -159,7 +159,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         {stalled && hasTimeline && !showTimeline && (
           <Button
             testID="badge-stalled"
-            label={stalled.tip.toUpperCase() === stalled.label ? stalled.label : `${stalled.label}: ${stalled.tip}`}
+            label={stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`}
             kind="no"
             onPress={() => setExtra('timeline')}
           />
