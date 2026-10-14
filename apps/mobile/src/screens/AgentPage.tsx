@@ -156,8 +156,13 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       </Row>
       <View style={{ paddingHorizontal: space.md }}>
         <AgentVerbs detail={detail} row={row} onSettings={props.onSettings} />
-        {stalled && hasTimeline && (
-          <Button testID="badge-stalled" label={`${stalled.label}: ${stalled.tip}`} kind="no" onPress={() => setExtra('timeline')} />
+        {stalled && hasTimeline && !showTimeline && (
+          <Button
+            testID="badge-stalled"
+            label={stalled.tip.toUpperCase() === stalled.label ? stalled.label : `${stalled.label}: ${stalled.tip}`}
+            kind="no"
+            onPress={() => setExtra('timeline')}
+          />
         )}
       </View>
       <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }}>

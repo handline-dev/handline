@@ -2,7 +2,7 @@
 import { ScrollView, Text, View } from 'react-native';
 import { ago } from '@handline/app-core';
 import { classify, sentence, useServes, useTimeline } from '@handline/app-data';
-import { space } from '@handline/tokens';
+import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
 import { Button } from './parts.tsx';
@@ -26,7 +26,7 @@ export function AgentTimeline({ agent }: { agent: string }) {
           <View
             key={e.id}
             testID={`timeline-${e.id}`}
-            style={{ gap: 2, padding: space.sm, borderWidth: 1, borderColor: c.line, borderRadius: 8 }}
+            style={{ gap: 2, padding: space.sm, borderWidth: 1, borderColor: c.line, borderRadius: radius.md }}
           >
             <Text style={{ color: c.ink }}>{e.text}</Text>
             <Text style={{ color: c.muted, fontSize: 12 }}>{[e.kind, e.actor?.name, ago(e.at, now)].filter(Boolean).join(' · ')}</Text>
