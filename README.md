@@ -1,106 +1,79 @@
-# orcapipe
+# Handline
 
-orcapipe runs a team of Claude Code agents and keeps them working while you are away.
+You asked AI to build something for you. It worked, so you asked for more, and now several AIs are
+working on your project at once. Without noticing, you became the manager of a small team. Handline
+is the desk that manager needs.
 
-You give an agent a task. A daemon delivers it, resumes the agent if its session was closed, and
-moves it to another Claude account when the first one runs low. No model makes these decisions.
-They are plain rules you can read and change.
+It is early. We use it every day to build Handline itself, but you cannot install it and use it yet.
 
-It is a command-line tool called `hl`, plus a terminal screen (`hl`) for watching the team.
+## Does this sound familiar?
 
-## Who it is for
+- You gave work to a few AIs. You cannot tell which one is working and which one has been waiting
+  hours for your answer.
+- A button in your app looks wrong. You spend ten minutes describing in words where it is and how
+  it should look. Circling it on the screen would have taken five seconds.
+- A job you expected to take an hour took all day. Nobody can tell you whether the AI was working
+  or waiting for something.
 
-It fits you if you run several Claude Code agents at once and you are tired of watching usage
-limits, nudging idle terminals, and re-explaining work after a session dies. It works best with
-two or more Claude accounts, but one is enough to try it.
+## Why not the tools that already exist?
 
-It does not fit if you want a hosted service or a general agent framework. orcapipe only
-supervises Claude Code sessions that run in [Orca](https://github.com/stablyai/orca) terminals on
-your own Mac.
+Plenty of tools help you give work to AI. You can assign a ticket to an AI in a project tracker such
+as Linear, line up cards for AIs on a board, or circle a bug on a screenshot and send it. All of them
+answer one question: how do I hand this to an AI?
 
-## What you need
+Handline starts from the next question: when many AIs work for one person, how does that person
+keep up? Handline is built to save your attention. This is what it aims for:
 
-- macOS. The background service uses launchd. Other systems are untested.
-- Python 3 and git. It is developed on Python 3.14; older versions are untested.
-- [Claude Code](https://claude.com/claude-code), with the `claude` command on your PATH.
-- [Orca](https://github.com/stablyai/orca), with the `orca` command on your PATH.
-- One Claude login per account you want to add. You type each login yourself. `hl` never reads
-  or copies credentials.
+- Only what needs you should reach you, as a decision with what you need to make it, for example a
+  before and after picture with "I changed it like this. Is it ok?"
+- Every piece of work should say what it is waiting for: you, another piece of work, or free memory
+  and processor time. Nothing should sit still without a reason you can see.
+- You should see where the time went, and when something ran long, the AI that did it should explain
+  why.
+- Work should start only when there is room for it. Your accounts, your computers and your own time
+  are limited, and Handline should plan around them so you do not have to.
 
-## Install
+## What we hold to
 
-```bash
-git clone <this repository> orcapipe && cd orcapipe
-ln -s "$PWD/bin/hl" /usr/local/bin/hl    # or add bin/ to your PATH
-hl venv install                           # creates the venv (no dependencies to install now)
-hl init                                   # creates ~/.orcapipe
-hl doctor                                 # lists what is still missing
-```
+1. You show what you want. A circle on the screen and one line is a complete order.
+2. Work lives in tasks. Chat is where a task starts. Everything agreed is kept on the task, so it
+   can be found later.
+3. You decide and fixed rules run the rest. Which AI starts next and when is decided by rules you
+   can read, not by another AI's judgment.
+4. Some things only you may approve. An AI cannot approve its own work.
 
-`hl doctor` will report a red line for no accounts and no agents. That is expected at this point.
+## What it should feel like
 
-## Your first team
+You open the app in the morning. It shows what finished overnight and the two things that wait for
+you. One is a question with a before and after picture. You tap yes. The other is a review that
+failed, with the reason in one line.
 
-Add an account. This opens Claude's own login screen, and you type into it:
+You notice a page looks wrong. You capture it, circle the field and type "line this up with the
+others". That becomes a task. An AI picks it up when one is free, and an hour later the same task
+asks you to look.
 
-```bash
-hl account add alpha
-```
+At the end of the week you look at one map of all the work: what is done, what is moving, and what
+waits on you.
 
-Register an agent. `--repo` is the git repository it works in:
+## Where it is going
 
-```bash
-hl agent register backend --model sonnet --repo ~/code/myproject
-hl team init
-hl doctor
-```
-
-`hl team init` writes `~/.orcapipe/team.yaml`, which says who may send work to whom. Open it
-once; it is short. The starting file also names `reviewer` and `archivist`. Either register them
-the same way, or delete them from the file, or `hl doctor` warns about them. Fix any red line
-it shows.
-
-Start the agent in an Orca terminal. Use the full path to the repository:
-
-```bash
-orca terminal create --worktree path:/Users/you/code/myproject --command "hl launch backend"
-```
-
-Give it work, from your own shell:
-
-```bash
-hl task new --assign backend -t 2h "fix the flaky test" "tests/test_sync.py fails about one run in ten. Find the cause and fix it. Done means ten green runs in a row."
-hl inbox        # what is waiting on you
-hl       # the screen: agents, accounts, inbox
-```
-
-When the agent finishes, its result shows up in `hl inbox`. That is the whole loop: you
-write a task with a clear "done", an agent does it and reports, and you read the report.
-
-To keep the daemon running after you close the terminal or reboot:
-
-```bash
-hl service install
-```
+1. Give orders by pointing at the screen, and review the result inside the task.
+2. Hold new work when the computer is running out of memory, and show what is slowing it down.
+3. Open command windows in the same app, next to the AIs.
+4. Grow past one computer. Building an app takes a lot of memory and disk, and one laptop runs out
+   fast. Add another machine, such as an old laptop, a small desktop or a server you rent, and
+   Handline spreads the work across all of them as if they were one.
 
 ## Read next
 
-| | |
-|---|---|
-| [docs/setup.md](docs/setup.md) | Install in detail, accounts, the daemon, and what to do when a step fails |
-| [docs/configuration.md](docs/configuration.md) | `team.yaml`, `agent.yaml`, `ROLE.md`, and the other files in `~/.orcapipe` |
-| [docs/guidelines.md](docs/guidelines.md) | How to run a team well: tasks, roles, review, cost |
-| [docs/best-cases.md](docs/best-cases.md) | Setups that work, taken from how this project is built |
-| [docs/reference.md](docs/reference.md) | Every command, one line each |
-| [docs/how-it-works.md](docs/how-it-works.md) | The rules the daemon follows, and why |
-| [docs/development.md](docs/development.md) | Running the tests and working on orcapipe itself |
+- [docs/how-it-works.md](docs/how-it-works.md): the rules Handline follows, and why.
+- [docs/setup.md](docs/setup.md): installing it today, for developers.
+- [docs/development.md](docs/development.md): working on Handline itself.
 
 ## License
 
-orcapipe is free software under the [GNU Affero General Public License v3.0](LICENSE)
-(`AGPL-3.0-only`). If you cannot meet its terms, for example because you want to run a modified
-version as a network service without publishing your changes, a commercial license is available.
-Contact: *licensing contact to be filled in by the project owner*.
+Handline is free software under the [GNU Affero General Public License v3.0](LICENSE)
+(AGPL-3.0-only). If you cannot meet its terms, a commercial license is available.
 
 Contributions are accepted under the [contributor license agreement](CLA.md); see
 [CONTRIBUTING.md](CONTRIBUTING.md).
