@@ -12,6 +12,7 @@ import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
 import { Line, clock } from './ChatLines.tsx';
+import { Pictures } from './ChatPictures.tsx';
 import { Button, Row } from './parts.tsx';
 
 /** A shape for each stage, so the stage does not rest on colour. */
@@ -316,9 +317,12 @@ function Bubble(props: {
           ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
         </Text>
       )}
-      <Text testID={`body-${m.id}`} style={{ color: c.ink }}>
-        {m.body}
-      </Text>
+      {m.body ? (
+        <Text testID={`body-${m.id}`} style={{ color: c.ink }}>
+          {m.body}
+        </Text>
+      ) : null}
+      {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
       <Text style={{ color: c.muted, fontSize: 11 }}>
         {!unnumbered && `#${m.id} `}
         {clock(m.at)}
