@@ -47,6 +47,15 @@ async function editorEnv(): Promise<EditorEnv> {
   return login;
 }
 
+/** The gateway takes a browser's socket only from its own origin; this page is served here, so the shell says so for that socket. The device token still decides. */
+function allowGatewayOrigin(): void {
+  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['ws://*/*', 'wss://*/*'] }, (d, done) =>
+    done({
+      requestHeaders: gateway && new URL(d.url).host === gateway ? { ...d.requestHeaders, Origin: `http://${gateway}` } : d.requestHeaders,
+    }),
+  );
+}
+
 function show(): void {
   if (!win || win.isDestroyed()) return;
   if (win.isMinimized()) win.restore();
@@ -157,13 +166,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', show);
   void app.whenReady().then(async () => {
-    // The gateway takes a browser's socket only from its own origin; this page is served here, so the shell says so for that socket. The device token still decides.
-    session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['ws://*/*', 'wss://*/*'] }, (d, done) =>
-      done({
-        requestHeaders:
-          gateway && new URL(d.url).host === gateway ? { ...d.requestHeaders, Origin: `http://${gateway}` } : d.requestHeaders,
-      }),
-    );
+    allowGatewayOrigin();
     const settings = new SettingsFile(path.join(app.getPath('userData'), 'settings.json'));
     const current = settings.read(parseMode(env('MODE')));
     const remote = current.mode === 'connect' ? current.remote : null;
@@ -184,6 +187,7 @@ if (!app.requestSingleInstanceLock()) {
     const f = following?.follower;
     const own: Own = ownDaemon({
       env,
+      loginPath: async () => (await editorEnv()).PATH,
       home,
       root,
       socket,
