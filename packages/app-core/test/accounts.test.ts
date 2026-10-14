@@ -61,7 +61,8 @@ test('headroom: amber from 90% or a stop before the reset, red from 95% or under
   assert.equal(headroom(w(90), null, now).tone, 'warn');
   assert.equal(headroom(w(95), null, now).tone, 'bad');
   assert.equal(headroom(w(40), 2 * 3600, now).tone, 'warn'); // stops in 2 h, before the reset in 3 h
-  assert.equal(headroom(w(40), 4 * 3600, now).tone, 'ok'); // the window resets first
+  assert.deepEqual(headroom(w(40), 4 * 3600, now), { tone: 'ok', stopAt: null }); // the window resets first: no stop line
+  assert.equal(headroom(w(40), 3 * 3600, now).stopAt, null); // at the reset
   assert.equal(headroom(w(40), 14 * 60, now).tone, 'bad');
   assert.equal(headroom(w(40), 15 * 60, now).tone, 'warn');
   assert.equal(headroom(w(40), 2 * 3600, now).stopAt, now + 2 * 3600_000);

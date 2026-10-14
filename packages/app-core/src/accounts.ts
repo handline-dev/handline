@@ -55,8 +55,9 @@ export interface Headroom {
 }
 export function headroom(five: Window | null, runsOutInSeconds: number | null, now: number): Headroom {
   const pct = five?.used_pct ?? 0;
-  const stopAt = runsOutInSeconds === null ? null : now + runsOutInSeconds * 1000;
   const reset = five?.resets_at ? Date.parse(five.resets_at) : NaN;
+  const at = runsOutInSeconds === null ? null : now + runsOutInSeconds * 1000;
+  const stopAt = at !== null && Number.isFinite(reset) && at >= reset ? null : at;
   const red = pct >= 95 || (runsOutInSeconds !== null && runsOutInSeconds < 15 * 60);
   const amber = pct >= 90 || (stopAt !== null && Number.isFinite(reset) && stopAt < reset);
   return { tone: red ? 'bad' : amber ? 'warn' : 'ok', stopAt };
