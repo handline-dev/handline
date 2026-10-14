@@ -114,3 +114,71 @@ func errText(r map[string]any) string {
 	s, _ := e["message"].(string)
 	return s
 }
+
+// A draft is worked by nobody: the delivery still waiting is withdrawn, one that has landed is refused, and the task then reads draft.
+func TestDraftWithdrawsTheDeliveryNotYetLandedAndRefusesOneThatHas(t *testing.T) {
+	sdb, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sdb.Close()
+	for _, q := range []string{
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at) VALUES(1, 'sent', 'w', 'boss', 1, NULL, 5), " +
+			"(2, 'landed', 'w', 'boss', 1, 'boss', 5), (3, 'approved', 'w', 'boss', 1, 'boss', NULL), (4, 'parent', 'w', 'boss', 1, NULL, NULL), " +
+			"(5, 'child', 'w', 'boss', 1, NULL, 5), (7, 'held', 'w', 'boss', 1, 'boss', 5)",
+		"UPDATE tasks SET parent_task = 4 WHERE id = 5",
+		"INSERT INTO requests(id, requester, target, kind, state, ts, body, delivered_at) VALUES(10, 'boss', 'w', 'task', 'queued', 1, 'x', NULL), " +
+			"(11, 'boss', 'w', 'task', 'landed', 1, 'x', 6), (12, 'boss', 'w', 'task', 'queued', 1, 'x', NULL)",
+		"UPDATE requests SET queue_order = 1 WHERE id = 11",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10), (2, 11), (5, 12)",
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('w', 'RUNNING', 1, 7)", // w works T7: the others are held back
+	} {
+		if _, err := sdb.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	f := &fakeTeller{}
+	s := rpc.NewServer(auth{"boss"}, "x", store.LatestVersion(), "local", func(string, ...any) {})
+	s.DB = sdb
+	Register(s, t.TempDir(), f)
+	draft := func(rid string, tid int) map[string]any {
+		return call(t, s, fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.draft","params":{"tasks":[%d],"request_id":%q}}`, tid, rid))[0]
+	}
+	stateOf := func(tid int64) string {
+		tx, _ := sdb.Begin()
+		defer tx.Rollback()
+		tk, _ := getTask(tx, tid)
+		st, err := state(tx, tk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	var reqState string
+
+	r := draft("d1", 1)
+	if r["error"] != nil || r["result"].(map[string]any)["said"] != "delivered T1 - 1 stopped" || stateOf(1) != "draft" {
+		t.Fatalf("a delivery not yet landed is withdrawn: %v, T1 %s", r, stateOf(1))
+	}
+	sdb.QueryRow("SELECT state FROM requests WHERE id = 10").Scan(&reqState)
+	if reqState != "withdrawn" || len(f.released) != 1 || f.released[0].RID != 10 || f.released[0].Held {
+		t.Fatalf("#10 %s, told %+v", reqState, f.released)
+	}
+
+	f.released = nil
+	if e := errText(draft("d2", 2)); e != "task T2 has landed at w (#11), who holds it - a draft takes back only what has not landed" || stateOf(2) != "queued" {
+		t.Fatalf("a landed delivery: %q, T2 %s", e, stateOf(2))
+	}
+	sdb.QueryRow("SELECT state FROM requests WHERE id = 11").Scan(&reqState)
+	if reqState != "landed" || f.released != nil {
+		t.Fatalf("the refusal changed nothing: #11 %s, told %+v", reqState, f.released)
+	}
+
+	if r := draft("d3", 3); r["error"] != nil || stateOf(3) != "draft" || f.released != nil {
+		t.Fatalf("a queued task with no request out: %v, T3 %s", r, stateOf(3))
+	}
+
+	if e := errText(draft("d4", 4)); e != "task T4 is still queued: its child T5 is out - make that draft first" || stateOf(4) != "queued" {
+		t.Fatalf("asked through a child: %q, T4 %s", e, stateOf(4))
+	}
+}
