@@ -56,7 +56,7 @@ Three cases, each watched for at least 70 s afterwards:
 
 `idle_prompt` did not follow an interrupt either, though it follows a `Stop` (§4). The only record is in the transcript JSONL: a `user` entry with text `[Request interrupted by user]`, or `[Request interrupted by user for tool use]` in the two tool cases. The first case also carries `interruptedMessageId`. So the end of an interrupted turn is known by watching the transcript for that entry. Otherwise it stays unknown until the next `UserPromptSubmit`.
 
-Also seen: a background Bash command that finishes while the session is idle starts a new turn. A `UserPromptSubmit` fires, then a `Stop`. `Stop.background_tasks` lists the shell as `running` before the command ends, and is empty after. That corrects §5 of the inventory: the end of background work does fire a hook.
+Also seen: a background Bash command that finishes while the session is idle starts a new turn. A `UserPromptSubmit` fires, then a `Stop`. `Stop.background_tasks` lists the shell as `running` before the command ends, and is empty after. That corrects §4 of the inventory: the end of background work does fire a hook.
 
 ## 4. Notification: what arrives, and when
 

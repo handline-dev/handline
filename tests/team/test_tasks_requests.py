@@ -3889,11 +3889,15 @@ def test_a_reported_task_reads_as_awaiting_who_it_answers_to() -> None:
     box = {"length_s": 7200, "default": False, "start": None, "end": None, "overdue_since": None, "told": 0, "left_s": 4800}
     held = {**t, "state": "doing", "time": box, "blockers": [{"task": 9, "owner": "c", "title": "first"}],
             "subtasks": [{"id": 8, "owner": "d", "state": "doing", "title": "child"}, {"id": 6, "owner": "d", "state": "done", "title": "old"}]}
-    check("task show: a paused clock names the blocker and what is left",
-          clitask._detail_lines(held, 0)[2:4] == ["timeout 2h00m", "paused - blocked by T9, 1h20m left"], str(clitask._detail_lines(held, 0)[2:4]))
-    check("task show: with no blocker it names the open children, and with neither only what is left",
-          clitask._detail_lines({**held, "blockers": []}, 0)[3] == "paused - waiting on T8, 1h20m left"
-          and clitask._detail_lines({**held, "blockers": [], "subtasks": []}, 0)[3] == "paused, 1h20m left")
+    check("task show: a waiting task's clock names its open blockers and children, not what is left",
+          clitask._detail_lines(held, 0)[2:4] == ["timeout 2h00m", "timeout paused: waiting on T9, T8"], str(clitask._detail_lines(held, 0)[2:4]))
+    check("task show: with nothing open it says what is left",
+          clitask._detail_lines({**held, "blockers": [], "subtasks": []}, 0)[3] == "paused, 1h20m left")
+    check("task show: a wait on the founder says so - held by them, awaiting their accept, or a blocker they hold",
+          clitask._detail_lines({**held, "to": "human"}, 0)[3] == "timeout paused: waiting on human"
+          and clitask._detail_lines({**held, "state": "reported", "asker": "human"}, 0)[3] == "timeout paused: waiting on human"
+          and clitask._detail_lines({**held, "blockers": [{"task": 9, "owner": "human", "title": "x"}], "subtasks": []}, 0)[3]
+          == "timeout paused: waiting on T9 (human)")
     p = cli_parser.build_parser()
     check("task new parses without -t", p.parse_args(["task", "new", "--assign", "b.two", "x"]).timeout is None)
     check("task accept and reject parse, reject with its note",

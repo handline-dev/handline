@@ -43,6 +43,19 @@ TIMED_OUT = 124
 
 
 TIMES: dict[str, float] = {}     # file name -> seconds its process took
+RUNNING: set[subprocess.Popen] = set()     # the files still running, stopped if the runner is interrupted
+STOP_GRACE_S = 30      # how long a stopped file has to tear down (a gateway smoke world takes up to 20 s) before it is killed
+
+
+def _stop(proc: subprocess.Popen) -> None:
+    """SIGTERM the file's session, so its tests tear down, then SIGKILL what is left of it."""
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(proc.pid, signal.SIGTERM)
+        try:
+            proc.wait(STOP_GRACE_S)
+        except subprocess.TimeoutExpired:
+            pass
+        os.killpg(proc.pid, signal.SIGKILL)
 
 
 def _run_one(path: Path, args: list[str], python: str | None = None,
@@ -56,14 +69,16 @@ def _run_one(path: Path, args: list[str], python: str | None = None,
     proc = subprocess.Popen([python or sys.executable, "-u", str(path), *args], stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env,
                             start_new_session=True)
+    RUNNING.add(proc)
     try:
         out, _ = proc.communicate(timeout=limit)
         TIMES[path.name] = time.monotonic() - started
     except subprocess.TimeoutExpired:
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(proc.pid, signal.SIGKILL)
+        _stop(proc)
         out, _ = proc.communicate()
         return path, TIMED_OUT, (out or "") + f"\n{path.name} timed out after {limit:g}s\n"
+    finally:
+        RUNNING.discard(proc)
     return path, proc.returncode, out or ""
 
 
@@ -111,7 +126,12 @@ def run_all(argv: list[str]) -> int:
 
         jobs = [(p, child_args(p), None) for p in files]
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
-            results = list(pool.map(lambda j: _run_one(*j), jobs))
+            try:
+                results = list(pool.map(lambda j: _run_one(*j), jobs))
+            except BaseException:      # ctrl-c or a SIGTERM: the files run in sessions of their own, which it does not reach
+                for proc in list(RUNNING):
+                    _stop(proc)
+                raise
         if args.write_labels:
             with open(args.write_labels, "w") as out:
                 for p in files:

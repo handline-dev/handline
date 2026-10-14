@@ -344,13 +344,6 @@ def _check_agents(r: Report) -> None:
                       f"read them, then {fix} to approve them as they are")
         except (FileNotFoundError, agents.ConfigError):
             pass  # reported above as an agent.yaml error
-        try:
-            if agents.skip_permissions(agents.read(n)) and not agents.skip_permissions_granted(n):
-                r.add(WARN, f"agent {n}: skip_permissions in agent.yaml was never granted",
-                      "a launch ignores it; the founder turns it on with "
-                      f"`hl agent register {n} --skip-permissions on`, and off with `off`")
-        except (FileNotFoundError, agents.ConfigError):
-            pass  # reported above as an agent.yaml error
 
 
 def _check_team(r: Report) -> None:

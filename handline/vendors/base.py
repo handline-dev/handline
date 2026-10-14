@@ -251,16 +251,12 @@ class Driver(Protocol):
 
     def permission_mode_argv(self, mode: str) -> list[str]:
         """argv that starts the session in the vendor's permission `mode` (default, acceptEdits, plan:
-        `auto` is `auto_mode_argv`, `bypass` is `skip_permissions_argv`), empty when it has no such mode."""
+        `auto` is `auto_mode_argv`), empty when it has no such mode."""
 
     def memory_settings(self, memory_dir: Path) -> dict:
         """The settings that point this vendor's auto-memory at `memory_dir`
         (an absolute path), so a session keeps its memory per agent rather than
         per repo. Empty for a vendor with no auto-memory."""
-
-    def skip_permissions_argv(self) -> list[str]:
-        """argv that makes this vendor's session stop asking before it acts,
-        empty when it has no such switch."""
 
     def transcript_dir(self, config_dir: Path, worktree: str) -> Path | None:
         """The folder holding the transcripts of sessions run in `worktree`,
