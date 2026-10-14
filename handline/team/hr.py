@@ -7,7 +7,8 @@ with the least business being automatic, because an agent that can hire can
 spend an account into the ground without anyone deciding to.
 
 The shape is therefore: any agent may *propose*, only the founder may decide, and an approve
-is applied by the same call that records it. A proposal is not a task: it is its own record, and
+is applied by the same call that records it (the Go daemon's hr.decide; this module drafts, and
+makes the founder's own change). A proposal is not a task: it is its own record, and
 the founder decides it from a chat card or `hl hr approve|reject`. Three properties fall out:
 
   - It is a file. `hr/<id>.yaml` holds what was asked for, who asked, and what happened to it
@@ -33,7 +34,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import agent_settings, agents, ask as askmod, decisions, team
+from . import agent_settings, agents, decisions, team
 from .. import db, vendors
 from ..infra import atomic, paths, protected, sealed, textsafe
 from ..infra import timefmt
@@ -336,7 +337,7 @@ def propose(kind: str, name: str, requester: str, why: str,
             relation: str | None = None, members: list[str] | None = None,
             repos: dict[str, str] | None = None,
             sets: dict[str, str] | None = None) -> tuple[bool, str]:
-    """Write the proposal down for the founder to decide (`decide`). Nothing changes yet."""
+    """Write the proposal down for the founder to decide (the Go daemon's hr.decide). Nothing changes yet."""
     prop, err = _draft(kind, name, requester, why, team_name, repo, model,
                        to, effort, vendor, response, relation, members, repos, sets)
     if err:
@@ -780,11 +781,11 @@ def subject_of(prop: dict) -> str:
 
 
 def card(prop: dict) -> dict:
-    """A proposal as the founder's chat card and `hl hr list --json` show it. `text` is what
+    """A proposal as the founder's chat card and `hl hr approve` show it. `text` is what
     will happen if it is approved; `state` is "proposed" (waiting on the founder) or "approved"
     (decided, but the change did not go through - `error` says why, and approving again retries).
-    `subject` is the digest to hand back to `decide`: what was read is what is approved. `verdict` and
-    `at` say how and when a settled one ended (see `decided`)."""
+    `subject` is the digest to hand back to hr.decide: what was read is what is approved. `verdict` and
+    `at` say how and when a settled one ended."""
     return {"id": prop["id"], "kind": prop["kind"], "agent": prop["agent"],
             "to": prop.get("to"), "requested_by": prop.get("requested_by"),
             "why": prop.get("why"), "ts": int(prop.get("created") or 0),
@@ -792,19 +793,6 @@ def card(prop: dict) -> dict:
             "text": _decision_text(prop), "subject": subject_of(prop),
             "verdict": prop.get("verdict"),
             "at": int(prop.get("applied") or prop.get("decided") or prop.get("created") or 0)}
-
-
-def pending() -> list[dict]:
-    """The proposals still waiting on the founder, oldest first."""
-    return [card(p) for p in sorted(listing(), key=lambda p: p.get("created") or 0)
-            if p.get("state") in ("proposed", "approved")]
-
-
-def decided(since: int = 0) -> list[dict]:
-    """The proposals that are settled (rejected, applied, withdrawn) at or after `since`, oldest
-    first: what a chat card draws as the outcome of the one the founder decided."""
-    out = [card(p) for p in listing() if p.get("state") in ("rejected", "applied", "withdrawn")]
-    return sorted((c for c in out if c["at"] >= since), key=lambda c: (c["at"], c["id"]))
 
 
 def _open(pid: str) -> tuple[dict | None, str]:
@@ -820,177 +808,10 @@ def _open(pid: str) -> tuple[dict | None, str]:
     return prop, ""
 
 
-def _tell(prop: dict, text: str) -> None:
-    """Tell the proposer how it went. A message that cannot be delivered never undoes the decision."""
-    who = prop.get("requested_by")
-    if who and who != askmod.HUMAN:
-        askmod.say(who, text, requester=askmod.HUMAN)
-
-
-def decide(pid: str, call: str, by: str, note: str = "", subject: str = "", tell: bool = True) -> tuple[bool, str]:
-    """The founder's decision on a proposal: `call` is "approved" or "rejected". An approve is
-    applied now and the proposer is told the outcome; a reject is recorded and told.
-
-    The decision is recorded in the protected store, where no agent can write it, and `apply`
-    acts on that record alone - so only the founder's own session can decide (`by` is the
-    caller's claim; the store is the proof). An approve needs `subject`, the card's digest the
-    founder read: a draft that is not that one is refused, so an edit made after it was shown is
-    never approved unseen (the file is writable by every agent). Approving a proposal that was approved but did not apply retries it."""
-    if call not in ("approved", "rejected"):
-        return False, "decide `approved` or `rejected`"
-    if by != askmod.HUMAN:
-        return False, f"proposal {pid} is the founder's to decide, not {by}'s"
-    if call == "approved" and not subject:
-        return False, "approve what was read: pass the card's `subject`"
-    note = textsafe.oneline((note or "").strip())
-    prop, err = _open(pid)
-    if err:
-        return False, err
-    con = db.connect()
-    try:
-        # One decision wins: the state is read, the answer recorded and the state set under one
-        # write lock, so a withdraw or a second answer finds this one already there.
-        con.execute("BEGIN IMMEDIATE")
-        try:
-            prop = load_proposal(pid) or prop
-            if prop.get("state") not in ("proposed", "approved"):
-                con.execute("ROLLBACK")
-                return False, f"proposal {pid} is already {prop.get('state')}"
-            if call == "approved" and subject != subject_of(prop):
-                con.execute("ROLLBACK")
-                return False, (f"proposal {pid} changed after you read it - read it again "
-                               f"before approving")
-            got = decisions.get("hr", pid)
-            if (prop.get("state") == "approved" and call == "approved" and got
-                    and got.get("call") == "approved" and got.get("subject") == subject_of(prop)):
-                con.execute("ROLLBACK")
-                return apply(pid, tell=tell)
-            try:
-                decisions.record("hr", pid, 0, call, subject_of(prop))
-            except PermissionError as e:
-                con.execute("ROLLBACK")
-                return False, str(e)
-            prop["state"] = call
-            prop["verdict"] = note or call
-            prop["decided"] = int(time.time())
-            save(prop)
-            con.execute("COMMIT")
-        except BaseException:
-            if con.in_transaction:
-                con.execute("ROLLBACK")
-            raise
-    finally:
-        con.close()
-    if call == "rejected":
-        if tell:
-            _tell(prop, f"proposal {pid} was rejected" + (f": {note}" if note else "."))
-        return True, f"proposal {pid} rejected"
-    return apply(pid, tell=tell)
-
-
-def decide_many(entries: list[tuple[str, str]], call: str, by: str, note: str = "") -> tuple[bool, list[str]]:
-    """The founder's one decision on several proposals, each (id, subject): every one is decided and,
-    on an approve, applied with no agent in the way, in the order given. Each proposer is told once, with
-    every result that concerns them: applied, or failed and why. Returns (all went through, one line each)."""
-    results: list[tuple[dict, str, bool, str]] = []
-    lines: list[str] = []
-    for pid, subject in entries:
-        prop, _ = _open(pid)
-        ok, said = decide(pid, call, by, note, subject, tell=False)
-        lines.append(f"{pid}: {said.splitlines()[0] if said else ''}")
-        if prop:
-            results.append((prop, pid, ok, said))
-    by_who: dict[str, list[str]] = {}
-    for prop, pid, ok, said in results:
-        who = prop.get("requested_by")
-        if not who or who == askmod.HUMAN:
-            continue
-        head = f"{pid} ({prop['kind']} {prop['agent']})"
-        if call == "rejected":
-            word = "rejected" if ok else f"not rejected: {said}"
-        else:
-            word = f"applied: {said}" if ok else f"not applied: {said}"
-        by_who.setdefault(who, []).append(f"- {head} {word}")
-    for who, rows in by_who.items():
-        askmod.say(who, f"The founder decided {len(rows)} of your roster proposals:\n" + "\n".join(rows),
-                   requester=askmod.HUMAN)
-    return all(ok for _, _, ok, _ in results) and len(results) == len(entries), lines
-
-
-def apply(pid: str, con=None, tell: bool = True) -> tuple[bool, str]:
-    """Carry out a proposal the founder approved. Refuses anything else, and anything whose
-    recorded approval is not for the draft as it is now."""
-    prop, err = _open(pid)
-    if err:
-        return False, err
-    state = prop.get("state")
-    if state == "applied":
-        return False, (f"proposal {pid} was already applied on "
-                       f"{timefmt.stamp(prop.get('applied'), timefmt.DATE_TIME, 'an unknown date')}")
-    if state != "approved":
-        return False, (f"proposal {pid} is {state}, not approved - "
-                       f"the founder decides it with `hl hr approve {pid}`")
-    got = decisions.get("hr", pid)
-    if got is None or got.get("call") != "approved":
-        return False, (f"no approval from the founder is on record for proposal {pid} - "
-                       f"it was not decided by the founder; raise it again")
-    if got.get("subject") != subject_of(prop):
-        return False, (f"proposal {pid} was changed after the founder approved it - "
-                       f"what they approved is not what is in the draft now; raise it again")
-    own = con is None
-    con = con or db.connect()
-    try:
-        ok, said = _run(prop, con)
-        if not ok:
-            prop["error"] = said
-            save(prop)
-            if tell:
-                _tell(prop, f"proposal {pid} was approved but could not be applied: {said}")
-            return False, said
-        prop["state"] = "applied"
-        prop["applied"] = int(time.time())
-        prop.pop("error", None)
-        save(prop)
-        if tell:
-            _tell(prop, f"proposal {pid} applied: {said}")
-        return True, said
-    finally:
-        if own:
-            con.close()
-
-
-def withdraw(pid: str, me: str) -> tuple[bool, str]:
-    """The proposal's own author, or the founder, takes it back before it is applied."""
-    prop, err = _open(pid)
-    if err:
-        return False, err
-    if me not in (prop.get("requested_by"), askmod.HUMAN):
-        return False, f"proposal {pid} is {prop.get('requested_by')}'s to withdraw, not yours"
-    con = db.connect()
-    try:
-        con.execute("BEGIN IMMEDIATE")      # against a decision landing at the same moment
-        try:
-            prop = load_proposal(pid) or prop
-            if prop.get("state") not in ("proposed", "approved"):
-                con.execute("ROLLBACK")
-                return False, f"proposal {pid} is already {prop.get('state')} - nothing to withdraw"
-            prop["state"] = "withdrawn"
-            prop["decided"] = int(time.time())
-            save(prop)
-            con.execute("COMMIT")
-        except BaseException:
-            if con.in_transaction:
-                con.execute("ROLLBACK")
-            raise
-    finally:
-        con.close()
-    return True, f"proposal {pid} withdrawn"
-
-
 def leave_tasks(con) -> list[str]:
     """Proposals raised before they stopped being tasks: each still carries a decision task and
     its card request. An open one is taken off the founder's task board (the card closed, the task
-    discarded with it) and stays a proposal, now waiting on `decide`. One the founder already
+    discarded with it) and stays a proposal, now waiting on hr.decide. One the founder already
     answered keeps that answer if it is on record for the draft as it stands (approved, or
     rejected); any other is left to be decided again. Returns the ids of the proposals moved."""
     moved = []
