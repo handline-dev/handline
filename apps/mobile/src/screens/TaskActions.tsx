@@ -10,6 +10,7 @@ import { classify, sentence, useAgents, usePending, useServes, useWrite } from '
 import { radius, space } from '@handline/tokens';
 import { useConnection } from '@handline/app-react';
 import { usePalette } from '../theme.ts';
+import { ImageBodyInput } from './ImageBodyInput.tsx';
 import { Button } from './parts.tsx';
 
 const CLOSED = ['done', 'discarded'];
@@ -320,7 +321,7 @@ export function NewTask({ onClose }: { onClose: () => void }) {
         {agents.map((a) => chip(owner === a, a, () => setOwner(a), `nt-owner-${a}`))}
       </View>
       <Input testID="nt-title" label="Title" value={title} onChange={setTitle} />
-      <Input testID="nt-body" label="Body" value={body} onChange={setBody} multiline />
+      <ImageBodyInput testID="nt-body" label="Body" value={body} onChange={setBody} />
       <Input testID="nt-box" label="Time box" value={box} onChange={setBox} />
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         {PRIORITIES.map(([p, l]) => chip(priority === p, l, () => setPriority(p), `nt-priority-${p}`))}
@@ -379,7 +380,7 @@ function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
         ))}
       </View>
       <Input testID="et-title" label="Title" value={title} onChange={setTitle} />
-      <Input testID="et-body" label="Body" value={body} onChange={setBody} multiline />
+      <ImageBodyInput testID="et-body" label="Body" value={body} onChange={setBody} />
       <Input testID="et-box" label="Time box" value={box} onChange={setBox} />
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         {PRIORITIES.map(([p, l]) => (
