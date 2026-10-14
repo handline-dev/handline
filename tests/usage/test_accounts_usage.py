@@ -2938,9 +2938,6 @@ def test_a_forced_move_goes_through_the_verified_move_or_not_at_all(home: Path) 
         keep_handoff("keeper", "# handoff · keeper\n## Next\n- carry on\n")
         log: list[str] = []
 
-        check("forced: a live session is offered the move", actions.can(con, "keeper", "move")[0])
-        check("forced: an agent with no terminal is not",
-              not actions.can(con, "ghost", "move")[0])
         ok, msg = dmn_handoff.force_move(con, "keeper", "gamma", "test", log.append)
         check("forced: an account with no room is refused before anything ends",
               not ok and "keeper" in table and db.get_agent_state(con, "keeper")["account"] == "alpha", msg)
@@ -3456,8 +3453,6 @@ def test_a_closed_agent_moved_by_hand_wakes_on_the_new_account(home: Path) -> No
         termmod.resume_with = lambda h, text: (True, "handed back")
         dmn_delivery.wait_for_session = lambda agent, timeout=0: True
 
-        check("closed move: the bridge offers it", actions.can(con, "keeper", "move")[0],
-              actions.can(con, "keeper", "move")[1])
         ok, msg = dmn_handoff.force_move(con, "keeper", "beta", "the founder", lambda _m: None)
         check("closed move: accepted", ok and "beta" in msg, msg)
         check("closed move: nothing is launched until work wakes it", not launched, str(launched))
@@ -4716,42 +4711,6 @@ def test_a_usage_5h_handoff_still_parks_until_reset(home: Path) -> None:
         con.close()
 
 
-def test_a_hand_park_against_an_assumed_account_stays_forceable(home: Path) -> None:
-    """`actions.park` (the screen's `p`) is #1620/#1625's one park a person may
-    force early - but an agent with no recorded or reported account reads as
-    'assumed' (agents.account_reading's ordinary fallback, not an edge case),
-    which also asks for the short account-move recheck window. That ceiling
-    is not a reason to lose the by-hand mark: `w` must still force it.
-
-    Built through actions.park() itself, not a hand-written detail string -
-    the fixture production actually makes, per the auditor's #1744 should-fix."""
-    _daemon_home(home, 50)
-    con = db.connect()
-    real_alive, real_idle = termmod.alive, termmod.idle_now
-    try:
-        orca_idle()
-        termmod.clear_context = lambda h, wait=True, timeout_ms=0: (True, "context cleared")
-        sessions_are("backend")
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn_states.IDLE, detail="cleared")
-        con.execute("UPDATE agent_state SET account = NULL, account_source = NULL "
-                    "WHERE agent = 'backend'")
-        con.commit()
-        check("park: no account is recorded, so there is no reading",
-              agents.account_reading("backend", con) is None)
-
-        actions.park(con, "backend")
-        row = db.get_agent_state(con, "backend")
-        check("park: it parked", row["state"] == dmn_states.PARKED, str(dict(row)))
-        check("park: the by-hand mark survives the assumed-account short retry",
-              row["detail"].startswith(dmn_states.BY_HAND_MARK), row["detail"])
-        ok, why = actions.can(con, "backend", "wake")
-        check("park: and w may still force it", ok, why)
-    finally:
-        termmod.alive, termmod.idle_now = real_alive, real_idle
-        con.close()
-
-
 def test_env_of_is_not_fooled_by_an_env_looking_token_in_argv(home: Path) -> None:
     """`ps eww` prints argv before the real environment, so an agent launched
     with an argument that itself contains `NAME=value` text - a system prompt
@@ -4984,7 +4943,6 @@ def main() -> int:
         run(lambda: test_a_moved_handoff_with_a_good_record_clears_the_streak(Path(td) / 'movedreset'))
         run(lambda: test_a_moved_handoff_with_a_failed_record_still_marks_typed(Path(td) / 'movedtyped'))
         run(lambda: test_a_usage_5h_handoff_still_parks_until_reset(Path(td) / 'usage5hpark'))
-        run(lambda: test_a_hand_park_against_an_assumed_account_stays_forceable(Path(td) / 'handpark'))
         run(lambda: test_env_of_is_not_fooled_by_an_env_looking_token_in_argv(Path(td) / 'envargv'))
     return run_area(tests)
 

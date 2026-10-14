@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timezone
 
 from .. import actions, db
+from ..actions import stuck as stuckmod
 from ..infra import paths
 from ..infra.textsafe import oneline
 from ..infra.yamlcompat import ConfigError
@@ -50,7 +51,7 @@ def _stuck_by_agent(con) -> dict[str, dict]:
     reads the process table once for its own work, which is what `actions.stuck` is handed, so the view says what the screen does; a tick
     with no reading fresh leaves out what only the table or Orca could say, as when they cannot be read."""
     out: dict[str, dict] = {}
-    for b in actions.stuck(con, world=delivery.seen_world(con)):
+    for b in stuckmod.stuck(con, world=delivery.seen_world(con)):
         if b["agent"]:
             out.setdefault(b["agent"], b)
     return out

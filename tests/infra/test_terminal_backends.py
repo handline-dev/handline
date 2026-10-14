@@ -17,7 +17,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.actions import control as actions_control  # noqa: E402
 from handline.team import guide as guidemod  # noqa: E402
 
 
@@ -154,28 +153,6 @@ def test_the_launch_guide_is_worded_by_the_host_with_no_placeholder_left(home: P
         check(f"guide: under {host.name}, the launch and memory topics say {title} runs the launch command, and hl launch "
               f"sets the config dir", f"{title} runs the launch command" in shown and f"because {title} runs our" in shown
               and "hl launch sets CLAUDE_CONFIG_DIR itself" in shown, shown)
-
-
-def test_a_missing_host_is_named_by_that_host_in_each_message(home: Path) -> None:
-    use_home(home)
-
-    class Gone(FakeHost):
-        def available(self):
-            return False
-    backends.use(Gone())
-    agents.register("lost")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "lost", "h1", str(home))
-        reclaim = dmn_delivery._reclaim_context(con, "lost", lambda _m: None)[1]
-        typed = dmn_messaging.can_type_now(con, "lost", "h1")[1]
-        focus = actions_control.terminal(con, "lost")
-        check("missing: the context reclaim, the typing check and the switch all name the host, not Orca",
-              "fake is not on PATH" in reclaim and typed == "fake is not on PATH"
-              and "fake is not on PATH" in focus and "orca" not in (reclaim + typed + focus).lower(),
-              f"{reclaim} | {typed} | {focus}")
-    finally:
-        con.close()
 
 
 def _record(replies: dict | None = None):
@@ -1025,7 +1002,6 @@ def main() -> int:
         run(lambda: test_the_idle_wait_is_given_the_looked_up_drivers_screen_reading(Path(td) / "b15"))
         skip(lambda: test_orcas_own_words_for_the_manual_fallbacks_are_pinned(Path(td) / "b16"), ORCA_UNMAINTAINED)
         run(lambda: test_the_launch_guide_is_worded_by_the_host_with_no_placeholder_left(Path(td) / "b17"))
-        run(lambda: test_a_missing_host_is_named_by_that_host_in_each_message(Path(td) / "b18"))
         skip(lambda: test_the_orca_backend_makes_the_same_cli_calls_it_always_did(Path(td) / "b2"), ORCA_UNMAINTAINED)
         skip(lambda: test_the_orca_backend_makes_worktrees_and_registers_repos_as_before(Path(td) / "b3"), ORCA_UNMAINTAINED)
         run(lambda: test_the_terminal_layer_reaches_the_host_only_through_the_backend(Path(td) / "b4"))

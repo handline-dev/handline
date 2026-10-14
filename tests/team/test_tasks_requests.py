@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from handline.actions import stuck as stuckmod  # noqa: E402
 from handline.session import stopgate  # noqa: E402
 
 
@@ -1111,9 +1112,9 @@ def test_a_landed_task_delivery_is_the_task_the_agent_holds(home: Path) -> None:
         check("landed task: it is what the agent's inbox shows, as the task it is on",
               [m["id"] for m in askmod.inbox("backend")] == [rid1] and db.current_task(con, "backend") == first,
               str([m["id"] for m in askmod.inbox("backend")]))
-        actions._WORLD["at"] = 0.0
+        stuckmod._WORLD["at"] = 0.0
         check("landed task: it is not on the stuck list - it reached its agent",
-              not any(r["what"].startswith(f"#{rid1} ") for r in actions.stuck(con)), str(actions.stuck(con)))
+              not any(r["what"].startswith(f"#{rid1} ") for r in stuckmod.stuck(con)), str(stuckmod.stuck(con)))
         db.mark_task_done(con, first, "finished")
         db.set_cursor(con, "batch:backend", 0)            # the minute is up
         check("landed task: once it is done the next is told",
@@ -4823,13 +4824,11 @@ limits:
               ghost not in [r["id"] for r in db.queued_for(con, "worker")]
               and ghost not in [r["id"] for r in db.undelivered_for(con, "worker")]
               and ghost not in [r["id"] for r in db.send_now_pending(con, "worker")])
-        import importlib
-        stuckmod = importlib.import_module("handline.actions.stuck")
         con.execute("UPDATE requests SET ts = ts - 100000 WHERE id = ?", (ghost,))
         from handline.session import observe as obsmod, term as termmod
         was = (termmod.available, obsmod.live_sessions)
         termmod.available, obsmod.live_sessions = (lambda: False), (lambda: {})
-        actions._WORLD["at"] = 0.0
+        stuckmod._WORLD["at"] = 0.0
         try:
             stuck_now = stuckmod.stuck(con)
         finally:

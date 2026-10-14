@@ -68,6 +68,31 @@ imported from outside, and `cmd_daemon*`, `cmd_dev_mode` are names of `cli/daemo
      `screenstate`, `states`, `termbytes` and `termchannel` only through those. Each goes when the command that
      reaches it stops doing the daemon's work in its own process.
 
+     Survey of main `1ac422f5`. Three modules loaded the package whenever the command parser was imported, so every
+     Python `hl` command loaded it: `actions/control`, `actions/stuck` and `session/autoaccept`. Every other import of
+     it runs only on a call. The calls that a Python `hl` command makes:
+     - `hl hr approve`, `reject`, `apply`: `team/hr` tells the proposer with `team/ask.say`, which writes the request
+       row itself and pushes it. When the Go daemon does not take the `push` verb, it delivers in its own process
+       (`delivery`, `lifecycle`, `messaging`).
+     - `hl agent spawn`: `team/spawn` waits for the session with `delivery.wait_for_session`.
+     - Nothing else. Only the package itself calls these: `session/blocked`'s sweep half, `session/handoff`,
+       `session/launch.wake_wait`, the `handoff_note` switch in `actions/details`, `team/ask.inbox`, the rest of
+       `team/ask`'s writes (the Go `hl` runs `task`, `say`, `cancel` and `withdraw`), and `actions/stuck`.
+
+     Slices, in landing order, each one review:
+     1. Done: the parser loads nothing of the package. `actions/control` keeps `unstall`, the only function a command
+        calls; the rest was the old bridge's. `session/autoaccept` loses the tick's sweep. `actions` no longer
+        re-exports `stuck`; the package's `agentview` and `team/ask`'s in-process push import it themselves. `tests/session/test_stopgate.py` imports the parser with the package emptied.
+     2. `hl hr` calls `hr.propose`, `hr.decide`, `hr.withdraw` and `hr.list`. Go tells the proposer, so `team/hr`
+        no longer calls `team/ask`.
+     3. `hl agent spawn` calls `session.start` with `repo` and `base`, and `hl agent unstall` calls `agent.unstall`.
+        First check that `session.start` makes the worktree that `spawn` makes, and decide what `--prompt` and
+        `--dry-run` become.
+     4. Delete `handline/daemon` and everything only it reaches: the list under "Nothing else" above,
+        `actions/control`, `autoaccept.answer_by_rule`, and the tests that exercise only these (`tests/daemon`,
+        most of `tests/session/test_daemon_session.py` and `test_session_io.py`). If the diff is too big for one
+        review, split it by test area.
+
 ## The Python hook
 
 Claude Code runs `ocp hook <event>` for 12 events. The Go `hl` answers `PreToolUse`, `PostToolUse` and
@@ -91,8 +116,7 @@ it does not answer within 2 s (`infra/hookspool.append`); the Go daemon ingests 
 Done: the hook and its stop gate load no module of `handline/daemon`. `spool.append` is `infra/hookspool`;
 `wall_reason` and `stop_wait_reason` are `session/stopgate`, with `LOGIN_TRIGGER` and `MOVABLE_TRIGGERS` in
 `session/states`; the proposal reading is `team/proposals`. `tests/session/test_stopgate.py` runs the hook with the
-package emptied. What still loads the package on a hook is the command parser, through `cli/daemon` (all 71 files) and
-the `actions` package (`control`, `stuck`): step 4's work for every command.
+package emptied, after importing the command parser (step 4c, slice 1).
 
 Names in `session/events`. The Python `hl` uses `CAPTURED`, `ANSWERS` and `GUARDS` (`session/launch`, `infra/doctor`,
 `cli/hooks`), `TURN_BOUNDARIES` and `AUDIT_KINDS` (`cli/health`, `session/fold`), and `at_limit` (`session/stopgate`).

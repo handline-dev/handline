@@ -5,24 +5,17 @@ somewhere that is not the drawing code: a screen that decided anything for
 itself would be a second opinion, and this file exists so there is only ever
 one.
 
-Two halves. The acting half - wake, close, unstall, park, fold, start, message,
-answer, dismiss - is a line of glue each over the call the daemon or the CLI
-makes, and returns the one line to show for what happened. The reading half -
-messages, stuck, and the details behind a row - asks the database
-the questions a screen asks, and asks the daemon's own predicates for anything
-it would otherwise have to judge for itself.
-
-Two of them cannot be done from here at all. Logging in needs a human to type a
-code into claude's own screen, and starting an agent needs a terminal to start
-it in - so those return the command to run and let the caller hand the terminal
-over.
+Two halves. The acting half - unstall, message, answer, dismiss - is a line of
+glue each over the call the daemon or the CLI makes, and returns the one line to
+show for what happened. The reading half - messages and the details behind a
+row - asks the database the questions a screen asks.
 """
 
 from .routing import (HUMAN, _TEAM, routing, supervisor_of, listing_refusal, listable_agents, reach, agent_tree)  # noqa: F401
 from .task_timeout import task_timeout, timeout_text, timeout_lines  # noqa: F401
 from .dialogs import add_answer, dialog_of, standing_answers, remove_answer  # noqa: F401
 from .prompt_blocks import open_blocks, open_block_of, headline as block_headline, request_answer as request_block_answer, answer as answer_block  # noqa: F401
-from .control import (wake, close, restart, unstall, park, fold, start, terminal, login_argv, tail_of_typescript, move, can, ASYNC_VERBS, _IDLE_WAIT_S, _DELIVERY_S, WAITS, perform)  # noqa: F401
+from .control import unstall  # noqa: F401
 from .requests import (message, message_ok, answer, answer_ok, record_human_resolve, dismiss, waiting_ids, cancel_plan, cancel, send_now, check_human_resolve, _is_answer_to_human, mailbox_rows, unseen_rows, for_you_seen, mark_read, fold_key, messages, founder_waits, opened_by_human, message_detail, QUOTE_LINES, _clip, EXCHANGE_ROWS, EXCHANGE_WIDTH, _exchange, _gist, _at, first_line)  # noqa: F401
 from .task_tree import task_tree  # noqa: F401
 from .tasks import memos_of, task_timeline, memo_add, memo_edit, memo_delete, tell_memo_holder, memo_summary  # noqa: F401
@@ -30,7 +23,6 @@ from .tasks import (TASK_REF, task_ref, task_refs_in, parse_task_ref_error, pars
 from .schedule import schedule_rows, schedule_add, schedule_edit, schedule_fields, schedule_remove, next_run, schedule_cron, schedule_words, SCHEDULE_KINDS, WEEKDAYS  # noqa: F401
 from .paths import find_paths, open_path, path_bases  # noqa: F401
 from .say import (READONLY_BASH_ALLOWLIST, LOOKUP_BUDGET, is_lookup_bash)  # noqa: F401
-from .stuck import (STUCK_AFTER_S, _delivery_state, _WORLD, WORLD_FRESH_S, _delivery_block, queue_reason, _world, stuck)  # noqa: F401
 from .conversation import Row, Event, chat_reply, chat_reply_ok  # noqa: F401
 from .details import (idle_close_minutes, parse_idle_close, set_idle_close, agent_knows, agent_done, agent_where, agent_worktree, _config_line, account_facts, set_account_cap, save_account_settings, context_share, set_default_cap, set_cycle_on, set_cycle_end, GLOBAL_SWITCHES, global_switches, save_global_switches, weekly_outlook, agent_use, agent_overlay, daily_agent_cost, eligible_worktrees, trust_worktrees, trust_each, _trust_one_worktree)  # noqa: F401
 from .shell import command_of, cwd_for, ShellRun  # noqa: F401

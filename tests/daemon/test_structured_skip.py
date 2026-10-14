@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from handline.actions import stuck as stuckmod  # noqa: E402
 from handline.daemon import delivery, handoff, lifecycle, messaging  # noqa: E402
 from handline.daemon import agentview  # noqa: E402
 
@@ -131,14 +132,14 @@ def test_a_structured_agent_switched_with_its_terminal_open_is_a_stuck_finding(h
     con, _typed = _world(home)
     try:
         db.set_terminal(con, "frontend", "term_x", str(home / "frontend"))
-        word, why, clears = actions._delivery_state(con, "frontend", {}, {"term_x"})
+        word, why, clears = stuckmod._delivery_state(con, "frontend", {}, {"term_x"})
         check("stuck: a structured agent that still holds its terminal says so", word == "switched with its terminal open", word)
         check("stuck: and names the fix", "hl close frontend" in why and "remove `structured:`" in why and not clears, why)
         check("stuck: a terminal agent beside it does not",
-              actions._delivery_state(con, "backend", {}, {"term_x"})[0] != "switched with its terminal open")
+              stuckmod._delivery_state(con, "backend", {}, {"term_x"})[0] != "switched with its terminal open")
         db.set_closed(con, "frontend", "sess-frontend")
         check("stuck: once it is closed it is not the finding",
-              actions._delivery_state(con, "frontend", {}, {"term_x"})[0] != "switched with its terminal open")
+              stuckmod._delivery_state(con, "frontend", {}, {"term_x"})[0] != "switched with its terminal open")
     finally:
         con.close()
 

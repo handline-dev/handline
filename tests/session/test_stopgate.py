@@ -328,6 +328,7 @@ _HOOK_REACH = """
 import io, json, sys, types
 pkg = types.ModuleType("handline.daemon"); pkg.__path__ = []
 import handline; sys.modules["handline.daemon"] = pkg
+from handline.cli import parser  # noqa: F401 - what every Python hl command loads first
 from handline.session import events
 for ev in ("PreToolUse", "PostToolUse", "Stop", "SessionStart"):
     sys.stdin = io.StringIO(json.dumps({"hook_event_name": ev, "tool_name": "Bash", "tool_input": {"command": "ls"}}))
