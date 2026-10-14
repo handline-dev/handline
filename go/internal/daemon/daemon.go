@@ -77,9 +77,9 @@ type Config struct {
 	// OwnPrompts makes this daemon the one writer of prompt_blocks: it runs the screen watch. Without it the rows are only read.
 	// Every daemon but a gateway takes the daemon singleton, so none starts beside a Python daemon.
 	OwnPrompts bool
-	Terminal   term.Backend
+	Terminal   term.Backend // the host the screen watch reads; nil is the configured one (tests give a fake)
 	// Turns, when set, says whether a terminal agent is mid-turn from its hooks and transcript; nil reads its screen (-turns-from-hooks).
-	Turns *turns.Tracker // the host the screen watch reads; nil is the configured one (tests give a fake)
+	Turns *turns.Tracker
 
 	// EnsureFounderKey makes the founder key when there is none and reports whether the store could be written (the daemon main sets it
 	// to the home's tokens: the store is outside the home, so a test leaves it nil).
