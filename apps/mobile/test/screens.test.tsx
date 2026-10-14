@@ -70,25 +70,32 @@ const tab = (name: string) => press($(`nav-${name}`));
 const DECISION = 3; // the fake's seeded decision
 const RESULT = 5; // its unread result
 const item = (id: number) => $(`inbox-${id}`);
-const option = (id: number, which: string) => $(`inbox-option-${id}-${which}`);
+const done = (id: number) => $(`inbox-done-${id}`);
+const DECISION_TASK = 1684; // the founder's task the seeded decision belongs to
+const withDecisionTask = (s: Parameters<Parameters<typeof mount>[0] & {}>[0]) => {
+  s.daemon.tasks.verbs = true;
+  const decision = s.daemon.inbox['items'].find((i) => i.id === DECISION);
+  if (decision) decision.task = DECISION_TASK;
+};
 
 describe('the inbox tab', () => {
-  it('shows its skeleton while slow, then the waiting items, and an answered decision leaves the list and is answered at the daemon', async () => {
-    const m = await mount((s) => s.daemon.knobs.latency(600));
+  it('shows its skeleton while slow, then the waiting items, and a decision done leaves the list and ends its task at the daemon', async () => {
+    const m = await mount((s) => (withDecisionTask(s), s.daemon.knobs.latency(600)));
     await tab('inbox');
     await until(() => $('skeleton-inbox'), 'the skeleton');
     await until(() => item(DECISION), 'the decision', 5000);
     m.daemon.knobs.latency(0);
     expect($('unread-count')?.textContent).toMatch(/^[1-9]/);
     await press($(`inbox-open-${DECISION}`));
-    await press(option(DECISION, 'yes'));
-    await until(() => item(DECISION) === null, 'the answered question to leave');
-    await until(() => m.daemon.inbox.get(DECISION).answered, 'the daemon');
+    await press(done(DECISION));
+    await until(() => item(DECISION) === null, 'the decision to leave');
+    await until(() => m.daemon.tasks.get({ task: DECISION_TASK }).state === 'done', 'the daemon');
+    expect(m.daemon.inbox.get(DECISION).read).toBe(true);
     m.store.stop();
   });
 
-  it('marks a result read from its card, and Mark all read then the last answer empty the list into the empty sentence', async () => {
-    const m = await mount();
+  it('marks a result read from its card, and Mark all read then the last decision empty the list into the empty sentence', async () => {
+    const m = await mount(withDecisionTask);
     await tab('inbox');
     await until(() => item(RESULT), 'the items');
     await press($(`inbox-open-${RESULT}`));
@@ -98,32 +105,32 @@ describe('the inbox tab', () => {
     await press($('mark-all-read'));
     await until(() => $('unread-count')?.textContent === '0', 'the count to drop');
     await press($(`inbox-open-${DECISION}`));
-    await press(option(DECISION, 'yes'));
+    await press(done(DECISION));
     await until(() => $('empty'), 'the empty sentence');
     expect(text()).toContain('Nothing waits on you');
     m.store.stop();
   });
 
-  it('puts a refused answer back with its options and says why', async () => {
-    const m = await mount();
+  it('puts a refused Done back and says why', async () => {
+    const m = await mount(withDecisionTask);
     await tab('inbox');
     await until(() => item(DECISION), 'the items');
-    m.daemon.knobs.refuse('inbox.answer', 'state', 'Already answered by the founder.');
+    m.daemon.knobs.refuse('task.done', 'state', 'Already decided by the founder.');
     await press($(`inbox-open-${DECISION}`));
-    await press(option(DECISION, 'no'));
-    await until(() => text().includes('Already answered by the founder.'), 'the reason', 3000);
-    await until(() => item(DECISION) && option(DECISION, 'no'), 'the decision back with its options');
-    expect(m.daemon.inbox.get(DECISION).answered).toBe(false);
+    await press(done(DECISION));
+    await until(() => text().includes('Already decided by the founder.'), 'the reason', 3000);
+    await until(() => item(DECISION) && done(DECISION), 'the decision back with its Done');
+    expect(m.daemon.tasks.get({ task: DECISION_TASK }).state).not.toBe('done');
     m.store.stop();
   });
 
-  it('keeps a typed answer through a refusal, and clears it once the daemon accepts', async () => {
+  it('keeps a typed reply through a refusal, and clears it once the daemon accepts', async () => {
     const m = await mount();
     await tab('inbox');
-    await until(() => item(DECISION), 'the items');
-    m.daemon.knobs.refuse('inbox.answer', 'state', 'Already answered by the founder.');
-    await press($(`inbox-open-${DECISION}`));
-    await press($(`inbox-answer-${DECISION}`));
+    await until(() => item(RESULT), 'the items');
+    m.daemon.knobs.refuse('inbox.reply', 'state', 'That thread is closed.');
+    await press($(`inbox-open-${RESULT}`));
+    await press($(`inbox-reply-${RESULT}`));
     const type = async (v: string) =>
       act(async () => {
         const f = $('inbox-text') as unknown as HTMLTextAreaElement;
@@ -132,12 +139,12 @@ describe('the inbox tab', () => {
       });
     await type('Relay it, one socket.');
     await press($('inbox-send'));
-    await until(() => text().includes('Already answered by the founder.'), 'the reason', 3000);
+    await until(() => text().includes('That thread is closed.'), 'the reason', 3000);
     await until(() => ($('inbox-text') as unknown as HTMLTextAreaElement | null)?.value === 'Relay it, one socket.', 'the text kept');
     m.daemon.knobs.clear();
     await press($('inbox-send'));
-    await until(() => item(DECISION) === null, 'the card to leave');
-    await until(() => m.daemon.inbox.get(DECISION).answered, 'the daemon');
+    await until(() => item(RESULT) === null, 'the card to leave');
+    await until(() => m.daemon.inbox.get(RESULT).read, 'the daemon');
     m.store.stop();
   });
 
@@ -511,8 +518,8 @@ describe('the chat tab', () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await until(() => msgOf('Use the contract fixtures.'), 'the messages');
-    expect(msgOf('Use the contract fixtures.')!.textContent).toContain('Not answered');
-    expect(msgOf('Draft the web chat tab plan.')!.textContent).toContain('✓✓ Answered');
+    expect(msgOf('Use the contract fixtures.')!.textContent).toContain('Delivered');
+    expect(msgOf('Draft the web chat tab plan.')!.textContent).toContain('Delivered');
     expect(text()).toContain('Here is the plan: three units, chat first.'); // the agent's reply
     expect(msgOf('Review is done, see the notes.')).toBeUndefined();
     await press($('scope-all'));
@@ -566,7 +573,7 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
-  it('a picked open question is a reference: it is sent as a linked message, not an answer', async () => {
+  it('a picked message is a reference: it is sent as a linked message', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     const q = 'Which gap list should come first?';
@@ -576,18 +583,18 @@ describe('the chat tab', () => {
     await press($('chat-send'));
     await until(() => msgOf('web first'), 'the reply');
     expect(msgOf('web first')!.textContent).toContain('↩ #');
-    expect(msgOf(q)!.textContent).not.toContain('You: web first');
     m.store.stop();
   });
 
-  it('leaves answering a question to the Inbox: no answer box in the chat, Dismiss stays', async () => {
+  it('a question from the agent is an ordinary message: no answer box, no Dismiss, no waiting mark', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await until(() => msgOf('Which gap list should come first?'), 'the question');
-    const id = Number(msgOf('Which gap list should come first?')!.getAttribute('data-testid')!.slice(4));
+    const el = msgOf('Which gap list should come first?')!;
+    const id = Number(el.getAttribute('data-testid')!.slice(4));
     expect($(`answer-input-${id}`)).toBeNull();
-    expect($(`answer-send-${id}`)).toBeNull();
-    expect($(`dismiss-${id}`)).not.toBeNull();
+    expect($(`dismiss-${id}`)).toBeNull();
+    expect(el.textContent).not.toContain('Waiting for you');
     m.store.stop();
   });
 

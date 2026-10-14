@@ -1,5 +1,5 @@
 """Where a hook leaves an event when the daemon does not answer: one JSON line per event, which the daemon reads
-and removes at start (`daemon/spool.ingest`). It only records: nothing here decides or acts."""
+and removes (`go/internal/hooks/spool.go`). It only records: nothing here decides or acts."""
 from __future__ import annotations
 
 import fcntl

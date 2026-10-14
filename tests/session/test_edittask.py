@@ -15,7 +15,6 @@ from support import *  # noqa: E402,F401,F403
 from handline.session import edittask, stopgate  # noqa: E402
 from handline.team import memory as memorymod  # noqa: E402
 from handline.infra import protected  # noqa: E402
-from handline.daemon import handoff_note as dmn_handoff_note  # noqa: E402
 
 
 def _hook(event: str, agent: str = "backend", **fields) -> str:
@@ -202,7 +201,7 @@ def test_record_from_stdin_denies_through_claudes_own_format(home: Path) -> None
 
 
 def test_an_agent_with_no_task_may_write_its_own_handoff_note_and_nothing_else(home: Path) -> None:
-    """T806: the idle close's ask (T571) comes to an agent that holds no task."""
+    """The idle close asks for a handoff note even of an agent that holds no task."""
     _daemon_home(home, 20)
     edittask.set_enforced(True)
     agents.register("other")
@@ -238,8 +237,6 @@ def _the_note_gate(home: Path, mine: Path) -> None:
     target.write_text("x")
     mine.symlink_to(target)
     check("note: a link in its place is not a way to write somewhere else", verdict(mine) == "deny")
-    check("note: and the path is the one the ask names",
-          mine == dmn_handoff_note.note_path("backend"))
 
 
 def main() -> int:

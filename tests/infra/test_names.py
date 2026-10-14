@@ -122,8 +122,6 @@ def test_the_session_scan_reads_either_name_of_a_process_environment() -> None:
     src = (ROOT / "handline" / "session" / "observe.py").read_text()
     check("scan: live_sessions asks for the new name before the old",
           '_extract(env, "HANDLINE_AGENT") or _extract(env, "OCP_AGENT")' in src)
-    lock_src = (ROOT / "handline" / "daemon" / "locks.py").read_text()
-    check("scan: the daemon-lock check knows both home spellings", '"HANDLINE_HOME="' in lock_src)
 
 
 def test_a_name_set_for_a_child_wins_over_one_inherited_from_the_parent(home: Path) -> None:

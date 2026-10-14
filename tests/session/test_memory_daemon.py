@@ -7,46 +7,17 @@ import io
 import json
 import sys
 import threading
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
-from handline.session import handoff as handoffmod, launch as launchmod, memoryuse  # noqa: E402
+from handline.session import launch as launchmod, memoryuse  # noqa: E402
 from handline.team import memory as memorymod  # noqa: E402
 from handline.vendors import claude_hooks  # noqa: E402
 from handline.vendors.claude import Claude  # noqa: E402
 from handline.vendors.opencode import Opencode  # noqa: E402
-
-
-class _Status:
-    """Makes core's `memory.status` fail (or answer) for the length of a with-block."""
-
-    def __init__(self, fail=True):
-        self.fail = fail
-
-    def __enter__(self):
-        self.before = memorymod.status
-        if self.fail:
-            def broken(agent, now=None):
-                raise OSError("unreadable")
-            memorymod.status = broken
-        return self
-
-    def __exit__(self, *exc):
-        memorymod.status = self.before
-
-
-def _topic(agent: str, rel: str, age_days: float = 0) -> Path:
-    """A topic file in the agent's memory folder, last touched `age_days` ago."""
-    f = memorymod.memory_dir(agent) / rel
-    f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text("a memory\n")
-    then = time.time() - age_days * 86400
-    os.utime(f, (then, then))
-    return f
 
 
 def _index(n: int, pad: int = 0) -> str:
@@ -236,40 +207,6 @@ def test_install_reconciles_an_existing_groups_matcher(home: Path) -> None:
           not added and not pruned, str((added, pruned)))
 
 
-def test_the_handoff_and_the_wake_say_what_the_memory_needs(home: Path) -> None:
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        mem = memorymod.memory_dir("backend")
-        mem.mkdir(parents=True, exist_ok=True)
-        (mem / "MEMORY.md").write_text(_index(3))
-        for i in range(3):
-            _topic("backend", f"e{i}.md")
-        check("handoff: a memory in order adds nothing", handoffmod.memory_line("backend") == "")
-        (mem / "MEMORY.md").write_text(_index(22, pad=40))
-        _topic("backend", "a.md")
-        _topic("backend", "b.md", age_days=60)
-        line = handoffmod.memory_line("backend")
-        check("handoff: over budget, unindexed and unused files are named, with what to do",
-              "22/20 entries" in line and "over budget" in line
-              and "not in the index (never loaded): " in line and "a.md" in line and "b.md" in line
-              and "unused for 28+ days: b.md" in line and "merge, promote or delete" in line, line)
-        text, _ = handoffmod.capture(con, "backend")
-        check("handoff: the record carries it", line in text.splitlines(), text)
-        woken = dmn_lifecycle.wake_prompt("backend", resumed=False, was_closed=True, con=con)
-        check("wake: a fresh session with no handoff is told the same", line in woken, woken)
-        (mem / "MEMORY.md").write_text(_index(3))
-        for f in ("a.md", "b.md"):
-            (mem / f).unlink()
-        check("wake: nothing to tend, nothing said",
-              "memory:" not in dmn_lifecycle.wake_prompt("backend", resumed=False, was_closed=True, con=con))
-        (mem / "MEMORY.md").write_text(_index(30))
-        with _Status():
-            check("handoff: a memory that cannot be read is not worth a line", handoffmod.memory_line("backend") == "")
-    finally:
-        con.close()
-
-
 def main() -> int:
     def tests(td):
         run(lambda: test_the_claude_driver_points_one_settings_object_at_the_agents_memory(Path(td) / 'm0'))
@@ -280,7 +217,6 @@ def main() -> int:
         run(lambda: test_two_concurrent_hook_calls_do_not_drop_one_anothers_use(Path(td) / 'm4b'))
         run(lambda: test_the_pre_tool_hook_is_installed_for_file_writes_only(Path(td) / 'm5'))
         run(lambda: test_install_reconciles_an_existing_groups_matcher(Path(td) / 'm5b'))
-        run(lambda: test_the_handoff_and_the_wake_say_what_the_memory_needs(Path(td) / 'm6'))
     return run_area(tests)
 
 

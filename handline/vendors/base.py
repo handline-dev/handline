@@ -274,12 +274,6 @@ class Driver(Protocol):
     def prompt_argv(self, prompt: str) -> list[str]:
         """argv that submits `prompt` as the session's first message."""
 
-    def clear_command(self) -> str:
-        """Typed to start a fresh session in the same process."""
-
-    def exit_command(self) -> str:
-        """Typed to end the session and leave the shell standing."""
-
     # Whether Orca's tui-idle answer needs the screen's agreement. Orca reads
     # claude's working state; it reports an opencode turn idle throughout.
     idle_from_screen: bool
@@ -300,12 +294,6 @@ class Driver(Protocol):
         """Whether the rendered screen shows a turn in progress by this vendor's own status wording:
         what a host with no idle witness of its own reads the screen for. False when it shows none."""
 
-    def idle_with_background(self, tail: list[str]) -> bool:
-        """Whether the rendered screen shows the session idle at its prompt with
-        work still running behind it, which Orca's idle answer reads as a turn
-        in progress. True only on positive evidence of both; a screen that
-        shows a turn, or no background work, is False."""
-
     def screen_blocker(self, tail: list[str]):
         """What on this vendor's rendered screen a typed line would answer or
         merge into, as an `term.Blocker`, or None when its prompt is ready."""
@@ -318,18 +306,6 @@ class Driver(Protocol):
         "showing" from "not showing" checks `is not None`, never truthiness,
         or an unparseable screen reads as no dialog and a wake types blind
         into it."""
-
-    def bypass_screen(self, tail: list[str]) -> str | None:
-        """The option highlighted on this vendor's "bypass permissions" warning, when `tail`
-        shows it. None: not showing it, or this vendor has none. "": showing it, but the
-        highlighted option could not be told (a mid-redraw screen) - still showing, so check
-        `is not None`. The warning opens with its cursor on the option that exits."""
-
-    def bypass_accept(self) -> str:
-        """The label of the option that accepts the warning `bypass_screen` found."""
-
-    def bypass_next_key(self) -> str:
-        """The key that moves its cursor down one option."""
 
     def trust_answer(self) -> str:
         """Keys sent, then Enter, to accept the folder `trust_screen` named.

@@ -10,7 +10,6 @@ guessing at it or trying to route around it.
 from __future__ import annotations
 
 import json
-import os
 import sys
 import time
 from pathlib import Path
@@ -242,12 +241,7 @@ def _review_pingpong(con, chain_id: str | None, target: str, files: str | None) 
     return None
 
 
-# T292/T293: the `kind` overrides `ask` accepts for a task or a say, regardless
-# of what the routing edge itself carries. `enforce_edges` (daemon delivery)
-# must not treat that override as a changed edge, so it skips the kind half of
-# its re-check for these - it still checks relation and response.
 SAY_KIND = "say"
-OVERRIDE_KINDS = {"task", SAY_KIND}
 
 
 # `speaker=` left out means "whoever's environment this runs in" (OCP_AGENT);
@@ -346,13 +340,13 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             con.execute("BEGIN IMMEDIATE")
         try:
             rid = db.add_request(con, requester, target, body, files, decision.relation,
-                                 decision.response, kind or decision.kind,
+                                 decision.response, kind or ("task" if target == HUMAN else None),
                                  depth, parent_id,
                                  chain_id=chain_id)
             if send_now:
                 db.mark_send_now(con, rid)
-            if card and target == HUMAN and kind is None and decision.kind == "task":
-                # What is asked of the founder is a decision task, and this row its card;
+            if card and target == HUMAN and kind is None:
+                # What is asked of the founder is a decision task, whatever the edge says, and this row its card;
                 # `task new` opens its own task and says `card=False`.
                 tid = db.new_task(con, textsafe.oneline(body.strip().split("\n", 1)[0])[:80] or "a decision",
                                   HUMAN, requester, expects="decision")
@@ -433,16 +427,11 @@ def _close_replied(con, parent_id: int, reply_id: int, reply_body: str):
     return None
 
 
-# T408: True only in the daemon's own process. Every other process - an agent's sandbox has no
-# Orca and no process table - hands the start or wake to the daemon, which does it at once.
-IN_DAEMON = False
 _HAND_OFF_TIMEOUT_S = 10.0      # the verbs answer before they type, so a slow answer means no daemon
 
 
 def _hand_off(verb: str, **payload) -> str | None:
-    """What the daemon said, once it took `verb`; None when this is the daemon or it did not answer."""
-    if IN_DAEMON:
-        return None
+    """What the daemon said, once it took `verb`; None when it did not answer or refused."""
     from ..infra import daemonclient as client
 
     reply = client.send({"verb": verb, **payload}, timeout=_HAND_OFF_TIMEOUT_S)
@@ -452,115 +441,25 @@ def _hand_off(verb: str, **payload) -> str | None:
 
 
 def push(con, target: str, rid: int | None = None) -> str:
-    """Get the request to the agent now, rather than at the next daemon tick.
-
-    `rid`, when it names a message (anything but a task), is typed at once
-    (`messaging.tell_now`, T398), and so is a task marked send-now - a handoff (T596), or one the
-    founder pressed send now on; any other task goes out with the next batch (`delivery.BATCH_EVERY_S`).
-
-    One command has to do the whole job. An agent that asks a subordinate for
-    something and is told "queued" has not dispatched anything - it has left a
-    note for a daemon, and if that agent has no terminal the note is for a
-    human. Being unable to finish the job is what sends an agent looking for a
-    subagent instead.
-
-    Everything here is the daemon's own function, so a request delivered by the
-    sender and one delivered by the tick are the same delivery. The daemon
-    stays the safety net: anything this could not finish is still queued.
-    """
+    """Get the request to the agent now, rather than at the next daemon tick: the daemon's `push` verb types a
+    message, or a task marked send-now (a handoff), at once and starts or wakes the agent for anything else.
+    With the daemon down the request stays queued and goes out once it is back."""
     if target == HUMAN:
         return "it is on the founder's screen (`hl`)"
     if target not in paths.list_agents():
         return f"{target} is not registered with ocp - nothing can be started for it"
     handed = _hand_off("push", target=target, rid=rid)
-    return handed if handed is not None else push_here(con, target, rid)
-
-
-def push_here(con, target: str, rid: int | None = None) -> str:
-    """`push` done in this process - the daemon's socket verb calls this, never `push`, so it cannot hand the work back to itself."""
-    from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle, messaging
-
-    sent = db.get_request(con, rid) if rid is not None else None
-    if sent is not None and (sent["kind"] != "task" or sent["send_now"]):      # T596: a marked task is a handoff
-        told = messaging.tell_now(con, rid, lambda _m: None)
-        return f"  delivered to {target}" if told == "typed" else f"  {target}: {told}"
-    said = []
-    row = db.get_agent_state(con, target)
-    if not (row and row["terminal"]):
-        # No row at all is the same case as a row with no terminal: an agent
-        # that has never been started has nowhere to be told anything.
-        said.append(dmn_lifecycle._start_for_work(con, target, lambda _m: None))
-        row = db.get_agent_state(con, target)
-    if row and row["closed_at"]:
-        ok, why = dmn_lifecycle.wake_agent(con, target, lambda _m: None)
-        said.append(f"{target}: {why}")
-    if dmn_delivery.deliver_queued(con, target, lambda _m: None):
-        said.append(f"delivered to {target}")
-    elif not said:
-        why, _clears = _delivery_reason(con, target)
-        said.append(why or f"{target} has it; it will read it when it is free")
-    return "  " + "; ".join(x.strip() for x in said if x)
+    return handed if handed is not None else f"  queued for {target}; the daemon did not take it"
 
 
 def push_answer(con, requester: str) -> str:
-    """Put the answer in front of whoever asked, now.
-
-    The other half of `push`. An agent that finishes a job and resolves the
-    request has reported to its parent - and until this, that report sat on a
-    row until a daemon tick happened to read it out. Down and up are the same
-    loop, so they are finished the same way.
-    """
+    """Put the answer in front of whoever asked, now: the other half of `push`."""
     if requester == HUMAN:
         return "  the founder reads it on `hl`"
     if requester not in paths.list_agents():
         return f"  {requester} is not registered with ocp - nothing to tell"
     handed = _hand_off("push_answer", requester=requester)
-    return handed if handed is not None else push_answer_here(con, requester)
-
-
-def push_answer_here(con, requester: str) -> str:
-    """`push_answer` done in this process - see `push_here`."""
-    from ..daemon import delivery as dmn_delivery, lifecycle as dmn_lifecycle
-
-    row = db.get_agent_state(con, requester)
-    said = []
-    if row and row["closed_at"]:
-        ok, why = dmn_lifecycle.wake_agent(con, requester, lambda _m: None)
-        said.append(f"{requester}: {why}")
-    if dmn_delivery.deliver_answers(con, requester, lambda _m: None):
-        said.append(f"{requester} has been told")
-    elif not said:
-        said.append(f"{requester} will be told when it is free")
-    return "  " + "; ".join(x.strip() for x in said if x)
-
-
-def _delivery_reason(con, target: str) -> tuple[str, bool]:
-    """Why delivery did not happen, in the daemon's own words."""
-    from .. import actions
-
-    return actions._delivery_block(con, target, *actions._world())
-
-
-def inbox(agent: str, unread_only: bool = True) -> list[dict]:
-    """The one request currently waiting for `agent`, or with
-    unread_only=False, its whole history in every state - minus rows whose
-    edge nobody has checked yet, which `agent` is not to see."""
-    con = db.connect()
-    try:
-        if unread_only:
-            # The agent's effective head (T337, auditor #2028's sweep) - a
-            # true head blocked on record is not what is actually waiting
-            # for it; `effective_head_or_marked` falls back to a marked say
-            # (T293) with nothing else queued, never a head itself, still
-            # the one thing waiting.
-            from ..daemon import delivery  # local: daemon.delivery imports this module
-            head = delivery.effective_head_or_marked(con, agent)
-            return [dict(head)] if head else []
-        rows = con.execute(
-            "SELECT * FROM requests WHERE target = ? AND edge_ok ORDER BY id", (agent,)).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        con.close()
+    return handed if handed is not None else f"  {requester} will be told once the daemon takes it"
 
 
 def withdraw(rid: int, requester: str | None = None,
@@ -643,7 +542,7 @@ def _close_and_tell(con, rid: int, row, verdict: str, notify: bool, settle: bool
     """
     if not _close_write(con, rid, row, verdict, notify, settle):
         return None
-    return _close_tell(con, rid, row, verdict, notify)
+    return _close_tell(con, rid, row, notify)
 
 
 def _close_write(con, rid: int, row, verdict: str, notify: bool, settle: bool = True) -> bool:
@@ -655,17 +554,14 @@ def _close_write(con, rid: int, row, verdict: str, notify: bool, settle: bool = 
     return True
 
 
-def _close_tell(con, rid: int, row, verdict: str, notify: bool):
+def _close_tell(con, rid: int, row, notify: bool):
     """What follows `_close_write` once it has committed: the target told to stop, the requester told, the queue moved up."""
-    from ..daemon import delivery as dmn_delivery
-
     target = row["target"]
     said = []
     if row["delivered_at"]:
-        typed, why = dmn_delivery.notify_cancelled(con, row, verdict)
-        said.append(f"{target} was told to stop" if typed else
-                    f"{target} could not be told now ({why}); resolving #{rid} "
-                    f"is refused to it, so it cannot undo this")
+        told = _hand_off("notify_cancelled", rid=rid)
+        said.append(told.strip() if told is not None else
+                    f"{target} could not be told now; resolving #{rid} is refused to it, so it cannot undo this")
     msg = _after_close(con, rid, row, "rejected", notify)
     return target, msg, said
 
@@ -721,7 +617,7 @@ def cancel(rid: int, effect=None, guard=None) -> tuple[bool, str]:
             if db.is_still_queued(con, rid):
                 return False, f"#{rid} was not cancelled - it is still queued"
             return False, f"#{rid} was closed while this ran - nothing to cancel"
-        target, msg, said = _close_tell(con, rid, row, CANCEL_VERDICT, notify)
+        target, msg, said = _close_tell(con, rid, row, notify)
         return True, (f"#{rid} to {target} cancelled"
                       + (f" ({'; '.join(said)})" if said else "") + "\n" + msg)
     finally:
@@ -769,7 +665,7 @@ def retire_write(con, rid: int, verdict: str, notify: bool | None = None, settle
 def retire_tell(con, after) -> str:
     """What `retire_open` says once `retire_write` has committed."""
     rid, row, verdict, notify = after
-    target, msg, said = _close_tell(con, rid, row, verdict, notify)
+    target, msg, said = _close_tell(con, rid, row, notify)
     return (f"#{rid} to {target} retired"
             + (f" ({'; '.join(said)})" if said else "") + "\n" + msg)
 
@@ -789,8 +685,8 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
     # usage park: an answer is not evidence the window rolled over, and
     # queueing it would open the session to the very typing the park is
     # there to prevent.
-    from ..daemon import evaluate as dmn_evaluate
     from ..session import stopgate
+    from ..session.states import IDLE, QUEUED
 
     # A requester no agent directory backs has no state to queue: the write made `hl ps` list it as an agent.
     if row["response"] == "async" and row["requester"] != HUMAN and row["requester"] in paths.list_agents() \
@@ -802,7 +698,11 @@ def _after_close(con, rid: int, row, state: str, notify: bool) -> str:
         if outstanding == 0:
             # QUEUED only if something is queued or untold: a quiet dismissal
             # leaves neither, and the asker just goes back to idle.
-            dmn_evaluate.queued_or_idle(con, row["requester"], f"request {rid} resolved: {state}")
+            when = f"request {rid} resolved: {state}"
+            if db.unreached_count(con, row["requester"]):
+                db.set_agent_state(con, row["requester"], QUEUED, wake_at=None, detail=when)
+            else:
+                db.set_agent_state(con, row["requester"], IDLE, wake_at=None, detail=f"{when}; no requests waiting")
     forget_inbox(row["target"], rid)
     said = push_answer(con, row["requester"]) if notify else ""
     # T318: this row may have been what kept the target's current task (T292)

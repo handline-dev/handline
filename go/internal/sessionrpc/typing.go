@@ -40,6 +40,9 @@ func RegisterTyping(s *rpc.Server, e *Env) {
 		s.Register("session.type", rpc.Method{Role: "member", Write: true, Handler: e.sessionType})
 		s.Register("session.keys", rpc.Method{Role: "member", Write: true, Handler: e.sessionKeys})
 	}
+	if e.CloseTerminal != nil && e.SessionPresent != nil {
+		s.Register("terminal.close", rpc.Method{Role: "member", Write: true, Handler: e.terminalClose})
+	}
 }
 
 func holderKind(c *rpc.Conn) string {

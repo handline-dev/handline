@@ -32,7 +32,7 @@ from .. import db, vendors
 from ..vendors import opencode
 from ..infra import gitrun, names, paths, sessiontoken, textsafe
 from ..usage import status
-from . import events, triggers
+from . import events
 
 
 # `build` and `fingerprint` must name the same tools, or a change to one
@@ -129,25 +129,6 @@ def _wall(acct: str, assumed: bool = False) -> WakeWait | None:
     return None
 
 
-def _full(agent: str, row, reading, con) -> WakeWait | None:
-    """A resume goes back to its own account and is not moved, so it waits for a slot there: none
-    left once the others on it (the agent itself left out) fill its cap, or older closed agents
-    waiting for the same account would take what is free. Oldest waiter first."""
-    from ..daemon import lifecycle
-    from ..usage import load
-    acct = reading.account
-    cap, others = load.cap_of(acct), load.active_agents(con, exclude=agent).get(acct, 0)
-    older = sum(1 for r in db.all_agent_states(con)
-                if r["agent"] != agent and r["closed_at"] and r["resume_session"]
-                and r["state"] != lifecycle.STALLED and r["wake_failures"] < lifecycle.MAX_FAILED_ATTEMPTS
-                and (r["closed_at"], r["agent"]) < (row["closed_at"], agent)
-                and agents.current_account(r["agent"], con) == acct
-                and lifecycle.waiting_for(con, r["agent"]))
-    if others + older < cap:
-        return None
-    return WakeWait(acct, 0, None, reading.source == "assumed", window="slot", full=cap, busy=others, older=older)
-
-
 def frees_first(agent: str) -> WakeWait | None:
     """For an agent no account has room for: the walled account whose wall
     lifts first, or None when none is walled (capped, unreadable, or none
@@ -168,54 +149,6 @@ def no_room(agent: str) -> str:
     w = frees_first(agent)
     return ("no account can take one more agent"
             + (f" - {describe_wake_wait(w)}" if w else ""))
-
-
-def wake_wait(agent: str, row, con) -> WakeWait | None:
-    """Is a closed agent's wake walled behind its own account's 5h or weekly wall?
-
-    This is the check handline/daemon/ makes before it types anything into a closed
-    agent's terminal. A resume cannot follow an account change, but the
-    pinning rescue can start fresh elsewhere, so a wait is not final. It is factored out here, rather than
-    inlined at the call site, so the screens that show an agent can ask the
-    same question instead of restating the rule and drifting from it.
-
-    It answers only "is the account full", not "is anyone trying to wake this
-    agent" - the daemon's own call site (a move's wake included) needs the
-    former unconditionally, before it spends a wake attempt finding out the
-    hard way. A screen that means to show only the waits with something behind
-    them gates on `daemon.would_wake` first; this makes no such promise on its
-    own.
-
-    A start with no session to resume goes wherever `choose_account` finds
-    room; with none it waits on the account that frees up first
-    (`frees_first`). The resume branch is pinned to the account its session is
-    tied to and cannot follow an account change even when another account does
-    have room - nothing upstream ever checks 7d for it, walled or not.
-
-    A computed condition, not a stored one: called again a moment later, on an
-    account whose window has since rolled over, it returns None.
-    """
-    if not row or not row["closed_at"]:
-        return None
-    if row["resume_session"]:
-        reading = agents.account_reading(agent, con)
-        if not reading:
-            return None
-        return _wall(reading.account, reading.source == "assumed") or _full(agent, row, reading, con)
-    return None if choose_account(agent, resuming=False, con=con) else frees_first(agent)
-
-
-def wake_wait_reason(agent: str, row, con) -> str | None:
-    """The sentence ps, triggers and the daemon's own log line print for a
-    walled wake.
-
-    One wording, called from all three, so a screen can never say something
-    the daemon does not act on. The bridge draws the same `wake_wait` but
-    fits it to a fixed column instead of this sentence - it has no room for
-    the whole thing, not a different opinion of it.
-    """
-    w = wake_wait(agent, row, con)
-    return None if w is None else describe_wake_wait(w)
 
 
 def wait_clock(w: WakeWait, unknown: str = "?") -> str:

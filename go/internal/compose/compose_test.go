@@ -20,6 +20,7 @@ import (
 	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/testkill"
 	"github.com/handline/handline/go/internal/transcript"
 )
 
@@ -34,6 +35,7 @@ func TestMain(m *testing.M) {
 }
 
 func fakeClaude() {
+	testkill.ExitWithParent()
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
 		v := os.Getenv("FAKE_CLAUDE_VERSION")
 		if v == "" {

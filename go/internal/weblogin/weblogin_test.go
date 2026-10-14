@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/handline/handline/go/internal/testkill"
 )
 
 const fakeURL = "https://claude.example/oauth/authorize?state=abc"
@@ -80,7 +82,7 @@ func newRig(t *testing.T, script string) *rig {
 			r.mu.Unlock()
 		}}
 	t.Cleanup(r.noneSurvive) // cleanups run last first: this one runs after Close
-	t.Cleanup(r.m.Close)
+	testkill.OnEnd(t, r.m.Close)
 	return r
 }
 
