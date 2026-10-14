@@ -64,7 +64,7 @@ func (s *Store) Lines(q db.Q, rid int64) string {
 		if _, err := s.Lookup(in.ID); err != nil {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("[image %d: %s (%s, %s)]", i+1, s.Path(in), in.Mime, size(in.Bytes)))
+		lines = append(lines, s.line(i+1, in))
 	}
 	return strings.Join(lines, "\n")
 }

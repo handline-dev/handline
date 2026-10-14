@@ -266,3 +266,72 @@ func TestAnImageATaskNamesIsKeptWhileTheTaskIsOpenAndThirtyDaysAfter(t *testing.
 	sweep(KeepFor-time.Hour, true)
 	sweep(2*time.Hour, false)
 }
+
+func TestATaskHoldsOnlyWhatItsBriefMemosAndNotesName(t *testing.T) {
+	s, _, q := testStore(t)
+	said := putAll(t, s, q, "s.png", "image/png", pngOf(2, 2), 1000)
+	for _, stmt := range []string{
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 't', 'w', 'boss', 1)",
+		"INSERT INTO requests(id, requester, target, kind, state, ts, body) VALUES(10, 'boss', 'w', 'task', 'landed', 1, 'the brief')",
+		"INSERT INTO requests(id, requester, target, kind, state, ts, body) VALUES(11, 'w', 'boss', 'say', 'landed', 2, 'a say ![x](attachment:" + said.ID + ")')",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10), (1, 11)",
+	} {
+		if _, err := q.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	held, err := Held(q, 5)
+	if err != nil || len(held) != 0 {
+		t.Fatalf("a say linked to a task is not its brief: %v %v", held, err)
+	}
+}
+
+func TestPartsCutATextAtItsImagesAndSayWhichAreGone(t *testing.T) {
+	s, _, q := testStore(t)
+	kept := putAll(t, s, q, "k.png", "image/png", pngOf(2, 2), 1000)
+	gone := putAll(t, s, q, "g.png", "image/png", pngOf(3, 3), 1000)
+	s.remove(*gone)
+	text := "see ![one](attachment:" + kept.ID + ")![two](attachment:" + gone.ID + ") and wrap"
+	if s.Parts("plain", true) != nil {
+		t.Fatal("a text naming no image has no parts")
+	}
+	parts := s.Parts(text, false)
+	if len(parts) != 4 {
+		t.Fatalf("%v", parts)
+	}
+	words := ""
+	for _, p := range parts {
+		if w, ok := p.(map[string]any)["text"].(string); ok {
+			words += w
+		}
+	}
+	if words != "see  and wrap" {
+		t.Fatalf("the text parts joined are the text without its references: %q", words)
+	}
+	one, two := parts[1].(map[string]any), parts[2].(map[string]any)
+	if one["caption"] != "one" || one["image"].(map[string]any)["mime"] != "image/png" || one["path"] != nil || one["gone"] != nil {
+		t.Fatalf("a kept image, no path for a person: %v", one)
+	}
+	if two["gone"] != true || len(two["image"].(map[string]any)) != 1 || two["caption"] != "two" {
+		t.Fatalf("a gone image keeps its caption and id: %v", two)
+	}
+	if p := s.Parts(text, true)[1].(map[string]any)["path"]; p != s.Path(*kept) {
+		t.Fatalf("an agent gets the path: %v", p)
+	}
+	if lines := s.RefLines(1, text, text); len(lines) != 1 || !strings.HasPrefix(lines[0], "[image 2: "+s.Path(*kept)+" (image/png, ") {
+		t.Fatalf("one line per kept image, numbered on: %v", lines)
+	}
+}
+
+func TestKeepRefsPutsBackWhatACutLost(t *testing.T) {
+	whole := "words ![a](attachment:0000000000000001) more ![b](attachment:0000000000000002)"
+	if got := KeepRefs(whole[:12], whole); got != "words  ![a](attachment:0000000000000001) ![b](attachment:0000000000000002)" {
+		t.Fatalf("%q", got)
+	}
+	if got := KeepRefs(whole[:3], whole); got != "wor ![a](attachment:0000000000000001) ![b](attachment:0000000000000002)" {
+		t.Fatalf("every lost reference comes back: %q", got)
+	}
+	if KeepRefs(whole, whole) != whole {
+		t.Fatal("a cut that lost nothing is unchanged")
+	}
+}

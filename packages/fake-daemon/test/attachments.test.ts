@@ -108,8 +108,35 @@ test("a task's text names only finished, kept images; an agent only one a task a
   assert.equal((await fail(agent.call('task.memo.add', { task, text: ref(img), request_id: 'm3' })))?.gate, 'role');
   await s.client.call('task.edit', { task, body: `cut off ${ref(img)}`, request_id: 'e1' });
   await agent.call('task.memo.add', { task, text: `from the brief ${ref(img)}`, request_id: 'm4' });
+  const image = { id: img, name: 'a.png', mime: 'image/png', bytes: PNG.length };
+  const mine = await s.client.call('task.get', { task });
+  assert.deepEqual(mine.body_parts, [{ text: 'cut off ' }, { image, caption: 'the button' }]);
+  assert.deepEqual(mine.memos[0]!.parts, [{ text: 'from the brief ' }, { image, caption: 'the button' }]);
+  const theirs = await agent.call('task.get', { task });
+  assert.match(String((theirs.memos[0]!.parts![1] as { path?: string }).path), /^\/.*\.png$/);
   s.daemon.uploads.expire(img);
+  assert.deepEqual((await s.client.call('task.get', { task })).body_parts![1], { image: { id: img }, caption: 'the button', gone: true });
   await s.client.call('task.edit', { task, body: `still cut off ${ref(img)}`, request_id: 'e2' }); // a kept reference is not checked again
+  agent.close();
+  s.client.close();
+});
+
+test('a reject note with an image is a row of the timeline, cut into parts', async () => {
+  const s = setup();
+  s.daemon.tasks.verbs = true;
+  await s.client.start();
+  const agent = second(s.daemon, s.net, { role: 'agent', client: AUD });
+  await agent.start();
+  const img = (await put(s.client, PNG)).attachment!.id;
+  const task = (await s.client.call('task.new', { owner: AUD, title: 't', body: 'plain', request_id: 'n1' })).task as number;
+  await agent.call('task.done', { task, evidence: 'built', request_id: 'd1' });
+  await s.client.call('task.reject', { task, note: `the tests are missing\n![the run](attachment:${img})`, request_id: 'r1' });
+  const row = (await s.client.call('task.get', { task })).timeline.find((r) => r.kind === 'reject')!;
+  assert.equal(row.text, `the tests are missing\n![the run](attachment:${img})`);
+  assert.deepEqual(row.parts, [
+    { text: 'the tests are missing\n' },
+    { image: { id: img, name: 'a.png', mime: 'image/png', bytes: PNG.length }, caption: 'the run' },
+  ]);
   agent.close();
   s.client.close();
 });
