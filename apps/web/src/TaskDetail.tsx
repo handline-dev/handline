@@ -9,7 +9,7 @@ import { Button, Icon } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
 import { AssignSheet, ReplyBox } from './TaskPeople.tsx';
-import { CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
+import { AskBox, CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
 import { RichText } from './RichText.tsx';
 import { View } from './View.tsx';
 
@@ -275,6 +275,7 @@ function Body({ t }: { t: Detail }) {
         </>
       ) : null}
 
+      <AskBox t={t} />
       <ReplyBox t={t} me={me} box={replyBox} />
     </div>
   );
