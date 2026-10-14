@@ -1,6 +1,7 @@
 // What waits on the person, as one list of cards (docs/story9-my-turn.md 9-1): unread inbox items that need an answer, and agents that
 // say `needs_you`. Built only from fields the web client already reads; priority and deadline come from the item's task.
 import type { AgentView, InboxItem, Task } from '@handline/client';
+import { isPerson } from './chat.ts';
 
 export type CardKind = 'decision' | 'approval' | 'accept' | 'dialog' | 'attention';
 
@@ -37,6 +38,8 @@ export interface MyTurnInput {
   items: readonly InboxItem[];
   agents: readonly AgentView[];
   tasks: readonly Task[];
+  /** The caller's own name: a report is accepted by whoever it answers to, the founder (`human`) or this name. */
+  me?: string;
 }
 
 const KINDS: Record<string, CardKind> = { decision: 'decision', ask: 'decision' };
@@ -45,7 +48,7 @@ const ms = (iso: string | null | undefined) => (iso ? Date.parse(iso) : NaN);
 const at = (iso: string | null | undefined) => (Number.isFinite(ms(iso)) ? ms(iso) : 0);
 
 /** The cards, most urgent first: task priority, then the earliest deadline (none last), then the one waiting longest. */
-export function myTurn({ items, agents, tasks }: MyTurnInput): Card[] {
+export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
   const byTask = new Map(tasks.map((t) => [t.id, t]));
   const when = (task: number | null) => {
     const t = task == null ? undefined : byTask.get(task);
@@ -73,6 +76,7 @@ export function myTurn({ items, agents, tasks }: MyTurnInput): Card[] {
       { type: 'read', id: i.id },
     ];
     if (i.prompt && i.prompt.kind === 'permission') {
+      // Without yes/no options in the prompt the card has only Open terminal.
       const yes = i.prompt.options.find((o) => o.answer === 'yes');
       const no = i.prompt.options.find((o) => o.answer === 'no');
       if (i.agent) prompted.add(i.agent);
@@ -104,7 +108,7 @@ export function myTurn({ items, agents, tasks }: MyTurnInput): Card[] {
   }
 
   for (const t of tasks) {
-    if (t.state !== 'reported' || !t.report) continue;
+    if (t.state !== 'reported' || !t.report || !isPerson(t.from, me)) continue; // only the person it answers to can accept
     cards.push({
       key: `accept:${t.id}`,
       kind: 'accept',
@@ -124,7 +128,8 @@ export function myTurn({ items, agents, tasks }: MyTurnInput): Card[] {
   }
 
   for (const a of agents) {
-    const n = a.needs_you;
+    // A daemon that reads the screen sets has_dialog and serves no needs_you: the card is still a dialog.
+    const n = a.needs_you ?? (a.has_dialog ? { kind: 'dialog', since: a.state_since, text: a.state_detail || null } : null);
     if (!n) continue;
     if (n.kind !== 'dialog' && prompted.has(a.name)) continue; // its inbox item is the card
     const dialog = n.kind === 'dialog';
