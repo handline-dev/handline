@@ -101,7 +101,6 @@ const answersSeed: [Key, unknown][] = [[['d', D, 'answers'], { answers: [{ kind:
 /** [method, params, the cache it starts from, whether the cache must differ at once]. A verb the daemon decides leaves it as it was. */
 const AUTHORED: [string, object, [Key, unknown][], boolean][] = [
   ['chat.send', { agent: 'a', body: 'hello' }, chatSeed, true],
-  ['chat.dismiss', { request: 5 }, chatSeed, true],
   ['task.new', { owner: 'a', title: 'new', body: '', time_box: '1h' }, taskSeed, true],
   ['task.done', { task: 7, evidence: 'ok' }, taskSeed, true],
   ['task.queue', { tasks: [8] }, taskSeed, true],
@@ -116,7 +115,6 @@ const AUTHORED: [string, object, [Key, unknown][], boolean][] = [
   ['task.memo.edit', { task: 7, memo: 1, text: 'changed' }, memoSeed, true],
   ['task.memo.delete', { task: 7, memo: 1 }, memoSeed, true],
   ['inbox.mark_read', { ids: [1] }, inboxSeed, true],
-  ['inbox.answer', { id: 1, option: 'yes' }, inboxSeed, true],
   ['inbox.reply', { id: 1, text: 'ok' }, inboxSeed, true],
   ['agent.set', { agent: 'a', values: { model: 'opus' } }, [[qk.agent(D, 'a'), { name: 'a', settings: { model: 'sonnet' } }]], true],
   ['settings.set', { changes: { idle_close: '9' } }, settingsSeed, true],

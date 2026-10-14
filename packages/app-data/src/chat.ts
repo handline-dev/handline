@@ -81,7 +81,6 @@ export function useChatActions(agent: string) {
   const qc = useQueryClient();
   const { daemon } = useData();
   const send = useWrite('chat.send', agent);
-  const dismiss = useWrite('chat.dismiss', agent);
   const sendNow = useWrite('chat.send_now', agent);
   const cancel = useWrite('chat.cancel', agent);
   const seen = useWrite('chat.seen', agent);
@@ -143,7 +142,6 @@ export function useChatActions(agent: string) {
     cancel: (request: number, confirm = false) => cancel.mutateAsync({ request, ...(confirm ? { confirm: true } : {}) }),
     /** The agent's messages up to this number are in front of the person: they leave the FOR YOU list. */
     seen: (up_to: number) => seen.mutate({ agent, up_to }),
-    dismiss: (request: number) => dismiss.mutate({ request }),
     sending: send.isPending,
   };
 }

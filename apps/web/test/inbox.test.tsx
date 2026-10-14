@@ -41,6 +41,10 @@ const ids = () => $$('.inbox-card').map((c) => c.dataset.item);
 const key = (k: string) => act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })));
 
 async function mount(hash = '#/inbox', s = setup()) {
+  // The seeded decision is the founder's task (1684); a daemon without the inbox has no such item.
+  s.daemon.tasks.verbs = true;
+  const decision = s.daemon.inbox['items'].find((i) => i.id === 3);
+  if (decision) decision.task = 1684;
   location.hash = hash;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
@@ -72,18 +76,15 @@ describe('the page', () => {
     expect(document.title).toBe('(3) Handline');
   });
 
-  it('each kind shows its own verbs as icons: options and Answer on a decision, Reply on a result, none on a prompt', async () => {
+  it('each kind shows its own verbs as icons: Done on a decision, Reply on a result, none on a prompt', async () => {
     await mount();
     await until(() => $$('.inbox-card').length === 3, 'the cards');
-    expect(button(card(3), 'Yes')).toBeUndefined(); // a row is one line until it is opened
+    expect(button(card(3), 'Done')).toBeUndefined(); // a row is one line until it is opened
     await expand(3);
     expect([...card(3).querySelectorAll('button')].map((b) => text(b) || b.getAttribute('aria-label'))).toEqual([
       'Hide details',
       'Mark read',
-      'Dismiss',
-      'Yes',
-      'No',
-      'Answer',
+      'Done',
     ]);
     await expand(5);
     expect(button(card(5), 'Reply')).toBeTruthy();
@@ -176,13 +177,6 @@ describe('read = gone', () => {
     expect(s.daemon.inbox.get(5).read).toBe(false);
   });
 
-  it('Mark read turns the row mark to read', async () => {
-    await mount();
-    await until(() => $$('.inbox-card').length === 3, 'the cards');
-    await click(button(card(3), 'Mark read'));
-    await until(() => card(3).querySelector('.inbox-seen svg')!.getAttribute('data-icon') === 'read', 'the read mark');
-  });
-
   it('Enter on the cursor card opens it the same way: marks it read, goes to its task, and the card is gone on return', async () => {
     const s = await mount('#/inbox/5');
     await until(() => $$('.inbox-card').length === 3, 'the cards');
@@ -191,21 +185,6 @@ describe('read = gone', () => {
     await until(() => s.daemon.inbox.get(5).read, 'the daemon');
     location.hash = '#/inbox';
     await until(() => $('.inbox') && !card(5), 'the card to be gone');
-  });
-
-  it('a question that waits for its answer stays listed after it is opened, and leaves when answered', async () => {
-    const s = await mount();
-    await until(() => $$('.inbox-card').length === 3, 'the cards');
-    await click(card(3).querySelector('.inbox-title'));
-    await until(() => s.daemon.inbox.get(3).read, 'the daemon');
-    await until(() => s.daemon.inbox.get(5).read, 'the chat read the result'); // opening the architect's chat does that
-    location.hash = '#/inbox';
-    await until(() => $('.inbox') && card(3), 'the page again');
-    expect(card(3).classList.contains('read')).toBe(true);
-    expect(ids()).toEqual(['4', '3']); // the architect's chat read its result (5) on opening
-    await expand(3);
-    await click(button(card(3), 'Yes'));
-    await until(() => !card(3), 'the card to leave');
   });
 
   it('the Mark read icon takes the card off the list without navigating', async () => {
@@ -218,13 +197,10 @@ describe('read = gone', () => {
     await until(() => s.daemon.inbox.get(5).read, 'the daemon');
   });
 
-  it('Mark all read empties the page except the question that waits for its answer; when that is answered the page says nothing waits', async () => {
+  it('Mark all read empties the page, and the page says nothing waits', async () => {
     await mount();
     await until(() => $$('.inbox-card').length === 3, 'the cards');
     await click(button($('.inbox-top'), 'Mark all read'));
-    await until(() => ids().join() === '3', 'only the question left');
-    await expand(3);
-    await click(button(card(3), 'Yes'));
     await until(() => !ids().length, 'the page empty');
     expect(text($('.inbox'))).toContain('Nothing waits on you');
   });
@@ -267,40 +243,24 @@ describe('the verbs', () => {
     await until(() => s.daemon.inbox.unread() === 0, 'the daemon');
   });
 
-  it('answering a decision with an option marks it answered and read; the daemon holds it', async () => {
+  it("Done on a decision ends its task and reads the card; the daemon holds both", async () => {
     const s = await mount();
     await until(() => $$('.inbox-card').length === 3, 'the cards');
     await expand(3);
-    await click(button(card(3), 'Yes'));
+    await click(button(card(3), 'Done'));
     await until(() => !card(3), 'the card to leave');
-    await until(() => s.daemon.inbox.get(3).answered, 'the daemon');
+    await until(() => s.daemon.inbox.get(3).read, 'the daemon');
+    expect(s.daemon.tasks.get({ task: 1684 }).state).toBe('done');
   });
 
-  it('an answer in words goes as text, and the box leaves', async () => {
+  it("a refused Done shows the daemon's reason", async () => {
     const s = await mount();
     await until(() => $$('.inbox-card').length === 3, 'the cards');
+    s.daemon.knobs.refuse('task.done', 'state', 'Already decided by the founder.');
     await expand(3);
-    await click(button(card(3), 'Answer'));
-    const field = card(3).querySelector('textarea')!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(field, 'Relay it, one socket.');
-      field.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await click(button(card(3).querySelector('form'), 'Answer'));
-    await until(() => !card(3), 'the card to leave');
-    await until(() => s.daemon.inbox.get(3).answered, 'the daemon');
-  });
-
-  it("a refused answer puts the card back and shows the daemon's reason", async () => {
-    const s = await mount();
-    await until(() => $$('.inbox-card').length === 3, 'the cards');
-    s.daemon.knobs.refuse('inbox.answer', 'state', 'Already answered by the founder.');
-    await expand(3);
-    await click(button(card(3), 'No'));
+    await click(button(card(3), 'Done'));
     await until(() => $('.toast'), 'the toast');
-    expect(text($('.toast'))).toContain('Already answered by the founder.');
-    expect(card(3).querySelector('[aria-label="Answered"]')).toBeNull();
-    expect(button(card(3), 'No')).toBeTruthy();
+    expect(text($('.toast'))).toContain('Already decided by the founder.');
   });
 
   it('a reply to a result goes to the daemon and marks it read', async () => {
@@ -316,18 +276,6 @@ describe('the verbs', () => {
     await click(button(card(5), 'Send reply'));
     await until(() => s.daemon.inbox.get(5).read, 'the daemon');
     expect(card(5)).toBeNull();
-  });
-
-  it('dismiss takes the card off the list and a refusal brings it back', async () => {
-    const s = await mount();
-    await until(() => $$('.inbox-card').length === 3, 'the cards');
-    await click(button(card(5), 'Dismiss'));
-    expect(ids()).toEqual(['4', '3']);
-    await until(() => s.daemon.inbox.list({}).items.length === 4, 'the daemon');
-    s.daemon.knobs.refuse('chat.dismiss', 'state', 'it is gone');
-    await click(button(card(4), 'Dismiss'));
-    await until(() => $('.toast'), 'the toast');
-    expect($$('.inbox-card')).toHaveLength(2);
   });
 
   it('a card another client changed follows through the inbox topic', async () => {
@@ -373,17 +321,15 @@ describe('keys', () => {
 });
 
 describe('the a key', () => {
-  it('on a decision it opens the answer box and sends nothing', async () => {
+  it('on a decision it ends its task', async () => {
     const s = await mount('#/inbox/3');
     await until(() => $$('.inbox-card').length === 3, 'the cards');
     await key('a');
-    expect(card(3).querySelector('textarea')).not.toBeNull();
-    expect(card(3).querySelector('[aria-label="Answered"]')).toBeNull();
-    await wait(50);
-    expect(s.daemon.inbox.get(3).answered).toBe(false);
+    await until(() => !card(3), 'the card to leave');
+    expect(s.daemon.tasks.get({ task: 1684 }).state).toBe('done');
   });
 
-  it('on a prompt, which has no answer verb, it does nothing: no dismiss, no mark read', async () => {
+  it('on a prompt, which has no verb here, it does nothing: no mark read', async () => {
     const s = await mount('#/inbox/4');
     await until(() => $$('.inbox-card').length === 3, 'the cards');
     await key('a');

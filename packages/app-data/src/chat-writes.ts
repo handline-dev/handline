@@ -1,5 +1,5 @@
-// The three chat writes as cache edits. A send shows its row at once and, if refused, keeps it as `failed` with its text, so nothing typed is lost;
-// dismiss and answer change the message and are put back if refused.
+// The chat writes as cache edits. A send shows its row at once and, if refused, keeps it as `failed` with its text, so nothing typed is lost;
+// a refused one is put back.
 import type { ChatMessage, Receipt } from '@handline/client';
 import { knownAttachments } from './attachments.ts';
 import { classify, sentence } from './errors.ts';
@@ -30,8 +30,10 @@ export function waitingMessage(
     landing: 'queued',
     sending_reason: null,
     body,
+    // The contract still requires these three; they go with it.
     answer: null,
     dismissed: false,
+    is_task_question: false,
     delivered_at: null,
     typed_at: null,
     landed_at: null,
@@ -40,12 +42,10 @@ export function waitingMessage(
     ...(attachments.length ? { attachments: knownAttachments(attachments) } : {}),
     kind: 'message',
     tasks: [],
-    is_task_question: false,
   };
 }
 
 const editAll = (c: Ctx, f: (d: Pages<MsgPage>) => Pages<MsgPage>) => edit<Pages<MsgPage>>(c.qc, ['d', c.d, 'chat-messages'], f);
-const setRow = (c: Ctx, id: number, patch: Partial<ChatMessage>) => editAll(c, (d) => patchMessage(d, id, patch));
 
 /** The row a send shows is told apart from the daemon's by its negative id; keyed by the send's own text and agent. */
 const sendParams = (p: never) =>
@@ -148,17 +148,6 @@ export const chatWrites: Record<string, WriteSpec> = {
           ? mapPages(d, (page) => ({ ...page, messages: page.messages.filter((m) => m.id !== request) }))
           : d,
       );
-    },
-  },
-  'chat.dismiss': {
-    kind: 'authored',
-    label: 'dismiss',
-    touches: (d) => [...allChats(d), qk.inboxes(d)],
-    patch: (c, p) => {
-      const { request } = p as { request: number };
-      setRow(c, request, { landing: 'dismissed', state: 'dismissed', dismissed: true });
-      // An inbox item is a request under the same id; a dismissed one leaves the mailbox.
-      edit<{ items: { id: number }[] }>(c.qc, qk.inboxes(c.d), (l) => ({ ...l, items: l.items.filter((i) => i.id !== request) }));
     },
   },
 };

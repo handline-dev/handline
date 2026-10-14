@@ -3,10 +3,10 @@
 import { useState, type MouseEvent } from 'react';
 import type { InboxItem } from '@handline/client';
 import { InboxDetail, InboxRow, TextBox } from './InboxCardParts.tsx';
-import { answerable, cardClass, originOf, type Verbs } from './inboxKinds.ts';
+import { cardClass, originOf, type Verbs } from './inboxKinds.ts';
 
-/** An item that is on the page: a question that waits for its answer stays after it is read, anything else leaves when read. */
-export const waits = (i: InboxItem, readPending = false): boolean => (answerable(i) ? !i.answered : !i.read && !readPending);
+/** An item that is on the page: it leaves when read, and so does one whose mark-read is still on its way. */
+export const waits = (i: InboxItem, readPending = false): boolean => !i.read && !readPending;
 
 /** What opening an item does, by click or by Enter: mark it read, then go to its task or chat. */
 export function open(i: InboxItem, v: Verbs): void {
@@ -17,7 +17,7 @@ export function open(i: InboxItem, v: Verbs): void {
 
 export function InboxCard(props: { item: InboxItem; on: boolean; pending: boolean; verbs: Verbs }) {
   const { item: i, verbs: v } = props;
-  const [box, setBox] = useState<'answer' | 'reply' | null>(null);
+  const [box, setBox] = useState<'reply' | null>(null);
   const [whole, setWhole] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const done = (send: () => void) => {
@@ -42,16 +42,6 @@ export function InboxCard(props: { item: InboxItem; on: boolean; pending: boolea
       <InboxRow item={i} verbs={v} more={more} onToggle={() => setExpanded(!more)} />
       {more ? (
         <InboxDetail item={i} verbs={v} pending={props.pending} whole={whole} onWhole={() => setWhole(!whole)} onBox={setBox} />
-      ) : null}
-      {box === 'answer' ? (
-        <TextBox
-          label="Your answer"
-          submit="Answer"
-          icon="answer"
-          off={v.off.answer}
-          onCancel={() => setBox(null)}
-          onSend={(t) => done(() => v.answer(i.id, { text: t }))}
-        />
       ) : null}
       {box === 'reply' ? (
         <TextBox

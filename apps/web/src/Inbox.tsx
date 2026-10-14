@@ -12,8 +12,7 @@ import { View } from './View.tsx';
 const CONFIRM_ABOVE = 10;
 const KEYS: [string, string][] = [
   ['↵', 'open chat or task'],
-  ['a', 'answer'],
-  ['x', 'dismiss'],
+  ['a', 'done (a decision) or reply'],
   ['m', 'mark read'],
   ['M', 'mark all read'],
   ['j / k', 'next / previous'],
@@ -28,27 +27,23 @@ const typing = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closes
 
 function useVerbs(): Verbs {
   const read = useWrite('inbox.mark_read');
-  const dismiss = useWrite('chat.dismiss');
-  const answer = useWrite('inbox.answer');
+  const done = useWrite('task.done');
   const reply = useWrite('inbox.reply');
   const open = useConnection() === 'open';
   const served = {
     read: useServes('inbox.mark_read').served,
-    dismiss: useServes('chat.dismiss').served,
-    answer: useServes('inbox.answer').served,
+    decide: useServes('task.done').served,
     reply: useServes('inbox.reply').served,
   };
   const why = (verb: keyof typeof served, method: string) =>
     !open ? 'daemon not connected' : served[verb] ? null : `this daemon does not serve ${method}`;
   return {
     read: (id) => read.mutate({ ids: [id] }),
-    dismiss: (id) => dismiss.mutate({ request: id }),
-    answer: (id, how) => answer.mutate({ id, ...how }),
+    decide: (i) => (done.mutate({ task: i.task!, reason: true }), read.mutate({ ids: [i.id] })),
     reply: (id, text) => reply.mutate({ id, text }),
     off: {
       read: why('read', 'inbox.mark_read'),
-      dismiss: why('dismiss', 'chat.dismiss'),
-      answer: why('answer', 'inbox.answer'),
+      decide: why('decide', 'task.done'),
       reply: why('reply', 'inbox.reply'),
     },
   };
@@ -67,17 +62,17 @@ export function InboxPage({ item }: { item: number | null }) {
   const [confirm, setConfirm] = useState(false);
   const pending = {
     read: usePending('inbox.mark_read').flatMap((p) => p.ids),
-    answer: usePending('inbox.answer').map((p) => p.id),
+    decide: usePending('task.done').map((p) => ('task' in p ? p.task : 0)),
     reply: usePending('inbox.reply').map((p) => p.id),
   };
-  // Read items leave the list at once, those whose mark-read is still on its way too; a question waiting for its answer stays until answered.
+  // Read items leave the list at once, those whose mark-read is still on its way too.
   const all = useMemo(() => list.data?.items ?? [], [list.data]);
   const waiting = all.filter((i) => waits(i, pending.read.includes(i.id)));
   const shown = waiting.filter((i) => (!kind || i.kind === kind) && (!agent || i.agent === agent));
   const kinds = [...new Set(waiting.map((i) => i.kind))];
   const agents = [...new Set(waiting.flatMap((i) => (i.agent ? [i.agent] : [])))];
   const filtered = !!(kind || agent);
-  // A deep link that names an item the list no longer holds (read and gone, dismissed) says so instead of showing nothing.
+  // A deep link that names an item the list no longer holds (read and gone) says so instead of showing nothing.
   const missing = item != null && list.isSuccess && !waiting.some((i) => i.id === item);
 
   useEffect(() => setCursor(item), [item]);
@@ -111,8 +106,6 @@ export function InboxPage({ item }: { item: number | null }) {
         }
         case 'a':
           return void document.querySelector<HTMLElement>(`[data-item="${cursor}"] button[data-verb]:not(:disabled)`)?.click();
-        case 'x':
-          return void (cur && !verbs.off.dismiss && verbs.dismiss(cur.id));
         case 'm':
           return void (cur && !cur.read && !verbs.off.read && verbs.read(cur.id));
         case 'M':
@@ -214,7 +207,7 @@ export function InboxPage({ item }: { item: number | null }) {
                   <InboxCard
                     item={i}
                     on={i.id === cursor}
-                    pending={pending.read.includes(i.id) || pending.answer.includes(i.id) || pending.reply.includes(i.id)}
+                    pending={pending.read.includes(i.id) || (i.task != null && pending.decide.includes(i.task)) || pending.reply.includes(i.id)}
                     verbs={verbs}
                   />
                 </AnimatedItem>

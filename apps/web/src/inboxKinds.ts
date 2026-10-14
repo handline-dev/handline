@@ -21,14 +21,15 @@ export const kindIcon = (kind: string): IconName => {
 /** The verbs the page offers a card, each with the reason it is off (or null). */
 export interface Verbs {
   read: (id: number) => void;
-  dismiss: (id: number) => void;
-  answer: (id: number, how: { option: string } | { text: string }) => void;
+  /** Ends the decision's task, and reads the card. */
+  decide: (item: InboxItem) => void;
   reply: (id: number, text: string) => void;
   /** Why a verb is off: "daemon not connected", "this daemon does not serve inbox.reply"; null when it works. */
-  off: Record<'read' | 'dismiss' | 'answer' | 'reply', string | null>;
+  off: Record<'read' | 'decide' | 'reply', string | null>;
 }
 
-export const answerable = (i: InboxItem) => i.kind === 'decision' || i.kind === 'ask';
+/** A decision is the person's task: the card ends it with task.done. */
+export const decidable = (i: InboxItem) => i.kind === 'decision' && i.task != null;
 
 /** Where a click on a card goes: the task it is about, else the agent's chat. */
 export const originOf = (i: InboxItem): string | null =>

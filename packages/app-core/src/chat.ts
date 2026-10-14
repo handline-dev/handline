@@ -41,13 +41,10 @@ export function sideOf(m: ChatMessage, agent: string, me: string): 'person' | 'a
   if (m.from === agent) return 'agent';
   return isPerson(m.from, me) ? 'person' : 'other';
 }
-/** An agent's question that still waits for the person: the daemon keeps it queued until answered, so a report or reply that asked nothing is not one. */
-export const isOpenAsk = (m: ChatMessage, agent: string) =>
-  m.from === agent && m.state === 'queued' && !m.answer && !m.dismissed && m.landing !== 'withdrawn';
-/** A message of the person's that is not answered yet can be taken back; `confirm` when the agent already has it (it is told to stop). Null when it cannot. */
+/** A message of the person's can be taken back while it is not written or delivered; `confirm` when the agent already has it (it is told to stop). Null when it cannot. */
 export function takeBack(m: ChatMessage): { confirm: boolean } | null {
-  if (!['queued', 'typed', 'delivered', 'delivered_unanswered'].includes(m.landing)) return null;
-  return { confirm: m.receipt ? !waiting(m) : m.landing === 'delivered' || m.landing === 'delivered_unanswered' };
+  if (!['queued', 'typed', 'delivered'].includes(m.landing)) return null;
+  return { confirm: m.receipt ? !waiting(m) : m.landing === 'delivered' };
 }
 
 /** Queued behind a running turn: the agent has not been given it. */
@@ -64,9 +61,6 @@ const LABELS: Record<string, string> = {
   queued: 'Sending',
   typed: 'Typed',
   delivered: 'Delivered',
-  delivered_unanswered: 'Not answered',
-  answered: 'Answered',
-  dismissed: 'Dismissed',
   withdrawn: 'Withdrawn',
 };
 export const landingLabel = (l: Landing): string => LABELS[l] ?? l;

@@ -175,21 +175,6 @@ export function Message(props: {
             </button>
           </div>
         ) : null}
-        {side === 'agent' && m.answer ? (
-          <div className={bubbleClass('person', { nested: true })}>
-            <div className={MSG_BODY}>
-              <RichText text={m.answer.text} agent={agent} />
-            </div>
-            <div className={`${MSG_META} muted`}>
-              {clock(m.answer.at)} <Icon name="answered" size={13} label="Your answer" />
-            </div>
-          </div>
-        ) : null}
-        {side === 'agent' && m.dismissed ? (
-          <div className={`${MSG_META} muted`}>
-            <Icon name="dismissed" size={13} />
-          </div>
-        ) : null}
       </div>
       <Stamp left={side !== 'agent'}>
         <span>{clock(m.at)}</span>

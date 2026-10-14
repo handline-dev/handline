@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { Store, noticeOf, takeBack, isOpenAsk, landingLabel, tickLevel, sessionLine, sideOf, taskRow, timeline } from '../src/index.ts';
+import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, sideOf, taskRow, timeline } from '../src/index.ts';
 
 const A = 'handline.architect';
 const msg = (over: Partial<ChatMessage>): ChatMessage => ({
@@ -47,17 +47,12 @@ test("a reply with the same words as a message is still shown: the agent answeri
   );
 });
 
-test('who a message is from, whether an ask is open', () => {
+test('who a message is from', () => {
   const mine = msg({ landing: 'typed', from: 'Handline desktop' });
-  const ask = msg({ from: A, to: 'founder', state: 'queued', landing: 'delivered_unanswered' });
+  const ask = msg({ from: A, to: 'founder', state: 'queued', landing: 'delivered' });
   assert.equal(sideOf(mine, A, 'Handline desktop'), 'person');
   assert.equal(sideOf(ask, A, 'Handline desktop'), 'agent');
   assert.equal(sideOf(msg({ from: 'handline.auditor' }), A, 'Handline desktop'), 'other');
-  assert.equal(isOpenAsk(ask, A), true);
-  assert.equal(isOpenAsk({ ...ask, answer: { id: 9, text: 'x', at: '' } }, A), false);
-  assert.equal(isOpenAsk({ ...ask, dismissed: true }, A), false);
-  assert.equal(isOpenAsk({ ...ask, state: 'delivered' }, A), false); // a report that asked nothing: a reply is a say under it
-  assert.equal(landingLabel('delivered_unanswered'), 'Not answered');
   assert.equal(landingLabel('something_new' as never), 'something_new'); // an open set: unknown states show as sent
 });
 
@@ -120,12 +115,10 @@ test('the ticks: none until sent, one sent and not read, two read', () => {
   assert.equal(tickLevel(pm({ landing: 'delivered', receipt: { state: 'confirmed' } as ChatMessage['receipt'] })), 2);
 });
 
-test('a message can be taken back until it is answered, and the agent is asked first once it has it', () => {
+test('a message can be taken back until it is withdrawn, and the agent is asked first once it has it', () => {
   assert.deepEqual(takeBack(pm({ landing: 'queued' })), { confirm: false });
   assert.deepEqual(takeBack(pm({ landing: 'typed' })), { confirm: false });
   assert.deepEqual(takeBack(pm({ landing: 'delivered' })), { confirm: true });
-  assert.deepEqual(takeBack(pm({ landing: 'delivered_unanswered' })), { confirm: true });
-  assert.equal(takeBack(pm({ landing: 'answered' })), null);
   assert.equal(takeBack(pm({ landing: 'withdrawn' })), null);
   const r = (state: 'queued' | 'sent' | 'confirmed') => pm({ landing: 'typed', receipt: { state, uuid: 'u' } as never });
   assert.deepEqual(takeBack(r('queued')), { confirm: false });

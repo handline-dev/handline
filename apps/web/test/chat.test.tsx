@@ -85,12 +85,11 @@ describe('the Chat tab', () => {
     expect($('.chat-head')).toBeNull();
   });
 
-  it("draws every message state and transcript kind from the daemon, with the agent's question answerable", async () => {
+  it("draws every message state and transcript kind from the daemon", async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
     expect(landing('Draft the web chat tab plan.')).toBe('answered');
     expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
-    expect(icon(msg('Use the contract fixtures.')?.parentElement ?? undefined, 'Not answered')).not.toBeNull(); // the stamp hangs beside the bubble now, drawn as delivered
     expect(landing('Hold that, scope changed.')).toBe('withdrawn');
     expect(landing('Also add the list of gaps.')).toBe('typed');
     expect(link('Withdraw', msg('Also add the list of gaps.')!)).toBeUndefined(); // the chat has no Withdraw button
