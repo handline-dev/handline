@@ -23,21 +23,21 @@ appId: dev.handline.mobile
     selected: true
 - scrollUntilVisible:
     element:
-      id: skip_permissions-switch
+      id: sandbox-switch
 - tapOn:
-    id: skip_permissions-switch
+    id: sandbox-switch
 - assertVisible:
-    id: skip_permissions-ask
+    id: sandbox-ask
 - scrollUntilVisible:
     element:
-      id: skip_permissions-cancel
+      id: sandbox-cancel
 - tapOn:
-    id: skip_permissions-cancel
+    id: sandbox-cancel
 - assertNotVisible:
-    id: skip_permissions-ask
+    id: sandbox-ask
 - assertVisible:
-    id: skip_permissions-switch
-    checked: false
+    id: sandbox-switch
+    checked: true
 - tapOn:
     id: settings-back
 - assertVisible:

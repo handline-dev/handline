@@ -561,15 +561,27 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 			"reason": fmt.Sprintf("T%d (%s) %s", bl.i("id"), bl.str("owner"), bl.str("title"))})
 	}
 	task["blockers"] = bs
-	kids, err := query(e.DB, "SELECT id FROM tasks WHERE parent_task = ? ORDER BY id", *tid)
+	kids, err := query(e.DB, "SELECT * FROM tasks WHERE parent_task = ? ORDER BY id", *tid)
 	if err != nil {
 		return nil, err
 	}
-	cs := []any{}
+	cs, subs := []any{}, []any{}
 	for _, k := range kids {
 		cs = append(cs, k.i("id"))
+		subs = append(subs, map[string]any{"id": k.i("id"), "title": k.str("title"), "owner": k.str("owner"), "state": b.state(k)})
 	}
-	task["children"] = cs
+	task["children"], task["subtasks"] = cs, subs
+	task["merged_into"], task["parent_title"] = t.intOrNil("merged_into"), nil
+	if t.set("parent_task") {
+		if p, err := queryOne(e.DB, "SELECT title FROM tasks WHERE id = ?", t.i("parent_task")); err != nil {
+			return nil, err
+		} else if p != nil {
+			task["parent_title"] = p.str("title")
+		}
+	}
+	if task["people"], err = e.askable(t.str("owner")); err != nil {
+		return nil, err
+	}
 	hands, err := query(e.DB, "SELECT ts, payload FROM events WHERE kind = 'task_handoff' AND "+eventTask+" = ? ORDER BY id", *tid)
 	if err != nil {
 		return nil, err

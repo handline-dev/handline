@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { openTab, verbsOf, type Verb, taskRef } from '@handline/app-core';
 import type { AgentDetail, ChatMessage } from '@handline/client';
-import { useAgents, useServes, useTasks } from '@handline/app-data';
+import { useAgents, useChatRefs, useServes, useTasks } from '@handline/app-data';
 import type { IconName } from './ui/index.ts';
 import { useWorkspace } from './Workspace.tsx';
 
@@ -49,6 +49,8 @@ export function useEntries(
 ): Entry[] {
   const { served } = useServes('tasks.list');
   const tasks = useTasks({});
+  const refsServed = useServes('chat.refs').served;
+  const refs = useChatRefs(agent, kind === 'hash' && refsServed);
   const view = (useAgents().data?.agents ?? []).find((a) => a.name === agent);
   return useMemo(() => {
     const q = query.toLowerCase();
@@ -74,10 +76,13 @@ export function useEntries(
       const mine = (served ? (tasks.data?.items ?? []) : [])
         .filter((t) => t.to === agent)
         .map((t): Entry => ({ key: `t${t.id}`, icon: 'tasks', label: `${taskRef(t.id)}`, hint: t.title, insert: `${taskRef(t.id)} ` }));
-      const said = [...messages]
-        .reverse()
-        .slice(0, 8)
-        .map((m): Entry => ({ key: `m${m.id}`, icon: 'reference', label: `#${m.id}`, hint: m.body.slice(0, 50), insert: `#${m.id} ` }));
+      // The loaded messages show at once; chat.refs adds the requests the loaded page does not hold.
+      const rows = new Map<number, string>();
+      for (const m of [...messages].reverse().slice(0, 8)) rows.set(m.id, m.body.slice(0, 50));
+      for (const r of refs.data?.requests ?? []) if (!rows.has(r.request)) rows.set(r.request, r.line);
+      const said = [...rows]
+        .sort((x, y) => y[0] - x[0])
+        .map(([id, line]): Entry => ({ key: `m${id}`, icon: 'reference', label: `#${id}`, hint: line, insert: `#${id} ` }));
       return [...mine, ...said].filter((e) => !q || e.label.slice(1).startsWith(q));
     }
     if (kind === 'history') {
@@ -87,7 +92,7 @@ export function useEntries(
         .map((h, i): Entry => ({ key: `h${i}`, icon: 'typed', label: h.length > 70 ? `${h.slice(0, 70)}…` : h, insert: h }));
     }
     return [];
-  }, [kind, query, view, detail, served, tasks.data, agent, messages, history]);
+  }, [kind, query, view, detail, served, tasks.data, refs.data, agent, messages, history]);
 }
 
 /** Opens the agent's terminal (a structured agent's transcript) beside the chat, as the `/terminal` and `/transcript` verbs do. */

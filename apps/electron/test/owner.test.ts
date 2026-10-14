@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { grant } from '../src/grant.ts';
-import { commands, Owner, type Child, type Cmd } from '../src/owner.ts';
+import { commands, Owner, resolveClaude, type Child, type Cmd } from '../src/owner.ts';
 
 const DAEMON: Cmd = { file: 'daemon', args: ['-structured-tick'] };
 const GO: Cmd = { file: 'go', args: ['-gateway'] };
@@ -207,4 +207,37 @@ test('a listener hears every failure, with its reason, also a later one', async 
   await r.owner.start();
   r.owner.fail('the gateway stopped (exit 1)');
   assert.deepEqual(seen, ['the gateway stopped (exit 1)']);
+});
+
+test('resolveClaude: the override wins; else the first executable claude on the login PATH, then the app PATH; none is an error', () => {
+  const have = new Set(['/home/u/.local/bin/claude', '/usr/bin/claude']);
+  const isExec = (f: string) => have.has(f);
+  assert.equal(resolveClaude('/x/claude', ['/usr/bin'], isExec), '/x/claude');
+  assert.equal(resolveClaude(undefined, ['/home/u/.local/bin:/usr/bin', '/usr/bin'], isExec), '/home/u/.local/bin/claude');
+  assert.equal(resolveClaude(undefined, [undefined, '/usr/bin'], isExec), '/usr/bin/claude');
+  assert.throws(() => resolveClaude(undefined, ['/nowhere', undefined], isExec), /claude was not found/);
+});
+
+test('the daemon is resolved when it is spawned: a resolved path reaches the command, a missing claude fails with the reason and spawns nothing', async () => {
+  const run = async (daemon: () => Promise<Cmd>) => {
+    const spawned: Cmd[] = [];
+    const owner = new Owner({
+      socketUp: async () => spawned.length > 0,
+      gatewayUp: async () => true,
+      spawn: (cmd) => (spawned.push(cmd), { kill() {}, onExit() {} }),
+      daemon,
+      gateway: GO,
+      wait: async () => undefined,
+    });
+    await owner.start();
+    return { owner, spawned };
+  };
+  const ok = await run(async () => commands(() => undefined, '/repo', ':1', null, '/home/u/.local/bin/claude').daemon);
+  assert.equal(ok.owner.state, 'running');
+  assert.deepEqual(ok.spawned[0].args.slice(0, 2), ['-allow-real-home', '-structured-cli']);
+  assert.equal(ok.spawned[0].args[2], '/home/u/.local/bin/claude');
+  const none = await run(async () => resolveClaude(undefined, [], () => false) as never);
+  assert.equal(none.owner.state, 'failed');
+  assert.match(none.owner.reason, /claude was not found/);
+  assert.equal(none.spawned.length, 0);
 });

@@ -10,16 +10,15 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/handline/handline/go/internal/livetest"
 )
 
-// TestLiveCLI runs one short turn and one permission prompt against the real Claude CLI. It uses the account's usage, so it only
-// runs when LIVE_CLAUDE_CONFIG names the account's config dir: LIVE_CLAUDE_CONFIG=<dir> go test -run TestLiveCLI -v ./internal/structured.
+// TestLiveCLI runs one short turn and one permission prompt against the real Claude CLI. It spends the picked account's usage, so it only
+// runs when asked: HANDLINE_LIVE=1 go test -run TestLiveCLI -v ./internal/structured.
 // It logs every frame, which is the evidence for the design note's unverified list.
 func TestLiveCLI(t *testing.T) {
-	cfg := os.Getenv("LIVE_CLAUDE_CONFIG")
-	if cfg == "" {
-		t.Skip("LIVE_CLAUDE_CONFIG is not set")
-	}
+	cfg := livetest.Pick(t).ConfigDir
 	path, err := exec.LookPath("claude")
 	if err != nil {
 		t.Fatal(err)
@@ -83,12 +82,9 @@ func TestLiveCLI(t *testing.T) {
 }
 
 // TestLiveGetUsage asks a real CLI for an account's usage with the get_usage control request: no model turn, no session spoken in. It
-// is the live check for the usage port. LIVE_CLAUDE_CONFIG=<dir> go test -run TestLiveGetUsage -v ./internal/structured
+// is the live check for the usage port. HANDLINE_LIVE=1 go test -run TestLiveGetUsage -v ./internal/structured
 func TestLiveGetUsage(t *testing.T) {
-	cfg := os.Getenv("LIVE_CLAUDE_CONFIG")
-	if cfg == "" {
-		t.Skip("LIVE_CLAUDE_CONFIG is not set")
-	}
+	cfg := livetest.Pick(t).ConfigDir
 	path, err := exec.LookPath("claude")
 	if err != nil {
 		t.Fatal(err)
@@ -129,12 +125,9 @@ func TestLiveGetUsage(t *testing.T) {
 
 // TestLiveHooks checks two facts the composition root relies on: hooks in a --settings file load under --setting-sources project,
 // and under stream-json the Stop hook fires at the end of a turn and a PreToolUse hook fires and can refuse. The hooks are tiny
-// scripts that append a line to a temp file. LIVE_CLAUDE_CONFIG=<dir> go test -run TestLiveHooks -v ./internal/structured
+// scripts that append a line to a temp file. HANDLINE_LIVE=1 go test -run TestLiveHooks -v ./internal/structured
 func TestLiveHooks(t *testing.T) {
-	cfg := os.Getenv("LIVE_CLAUDE_CONFIG")
-	if cfg == "" {
-		t.Skip("LIVE_CLAUDE_CONFIG is not set")
-	}
+	cfg := livetest.Pick(t).ConfigDir
 	path, err := exec.LookPath("claude")
 	if err != nil {
 		t.Fatal(err)
