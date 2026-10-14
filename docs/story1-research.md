@@ -142,6 +142,18 @@ The same reason text is the edge label in the graph (1-6) and the grey stretch i
   To: [ new task ▾ ]  tags: [fe]                            [ Cancel ] [ Send ]
 ```
 
+### Stop and change work on the task (founder direction)
+
+The founder does not drive agents; stopping and changing work is done on the task.
+
+- **Pause**: the holder stops after its current step; Resume continues.
+- **Cancel**: the holder is told to stop, open requests are withdrawn, children are closed; the founder chooses to keep or drop the code and PR.
+- **Change**: edit the task; the holder works from the new text at its next step.
+- Killing an agent is an emergency action, only in the admin view (Story 2-2).
+- Saying "stop" in chat becomes one of these actions after confirming which task.
+- The daemon applies these itself, so they work when the agent is busy, stuck or dead: queued work is held by the daemon, and a change to a task nobody holds just edits it.
+- Batching: several changes (comments, circles, on one or more tasks) are collected and sent once, so the holder gets them together at its next step, not one message each.
+
 ## 4. Build order and what blocks what
 
 1. **1-1 PC capture** can start alone: Electron window capture and our own small annotation layer (no dependency), sent as a chat attachment first, so it works today; the "comment on a task with a picture" step waits on the daemon (1-2 and 1-4 share one change to the task's comments).
