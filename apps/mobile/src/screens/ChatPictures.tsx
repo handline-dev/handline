@@ -2,8 +2,7 @@
 // like the web does and drawn from a data URI (React Native has no object URLs).
 import { useEffect, useState } from 'react';
 import { Image, Modal, Pressable, Text, View } from 'react-native';
-import type { Attachment } from '@handline/client';
-import { RpcError } from '@handline/client';
+import { RpcError, type Attachment } from '@handline/client';
 import { readImage } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { radius, space } from '@handline/tokens';
@@ -17,16 +16,16 @@ const toBase64 = (bytes: Uint8Array) => {
   return btoa(s);
 };
 
+// Not cached: each mount reads again (the web keeps one read per image).
 function useImage(id: string, thumb: boolean): Read {
   const store = useStore();
   const [read, setRead] = useState<Read>({ state: 'loading' });
   useEffect(() => {
     let live = true;
     setRead({ state: 'loading' });
-    readImage((m, p) => store.client.call(m as never, p as never), id, thumb).then(
-      ({ mime, bytes }) => live && setRead({ state: 'ready', uri: `data:${mime};base64,${toBase64(bytes)}` }),
-      (e) => live && setRead({ state: e instanceof RpcError && e.code === 'not_found' ? 'gone' : 'failed' }),
-    );
+    readImage((m, p) => store.client.call(m as never, p as never), id, thumb)
+      .then(({ mime, bytes }) => live && setRead({ state: 'ready', uri: `data:${mime};base64,${toBase64(bytes)}` }))
+      .catch((e) => live && setRead({ state: e instanceof RpcError && e.code === 'not_found' ? 'gone' : 'failed' }));
     return () => {
       live = false;
     };
@@ -43,7 +42,7 @@ function Full({ a, onClose }: { a: Attachment; onClose: () => void }) {
   const [bad, setBad] = useState(false);
   const line = read.state === 'gone' ? GONE : read.state === 'failed' || bad ? FAILED : null;
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible animationType="fade" onRequestClose={onClose}>
       <View testID={`picture-full-${a.id}`} style={{ flex: 1, backgroundColor: c.bg, padding: space.md, gap: space.md }}>
         <Pressable testID="picture-close" accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={8}>
           <Text style={{ color: c.accent, fontWeight: '600' }}>Close</Text>

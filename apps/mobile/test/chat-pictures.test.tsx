@@ -22,7 +22,8 @@ const openChat = async () => {
   await until(() => $('tab-chat'), 'the page');
   await press($('tab-chat'));
 };
-const image = (id: string) => $(`picture-${id}`)?.querySelector('[role="img"], img, [style*="background-image"]') ?? null;
+/** The Image inside a thumbnail: react-native-web draws it as a div carrying the accessibilityLabel (the name); the button holds "Open <name>". */
+const image = (id: string) => $(`picture-${id}`)?.querySelector('div[aria-label]') ?? null;
 
 describe('the pictures of a message in Chat', () => {
   it('draws each as a thumbnail; a tap opens it full screen and Close shuts it', async () => {
@@ -58,6 +59,18 @@ describe('the pictures of a message in Chat', () => {
     await openChat();
     await until(() => $(`picture-${ids[0]}`)?.textContent?.includes('no longer kept'), 'the line');
     expect($(`picture-${ids[0]}`)?.textContent).toContain('old.png');
+    m.store.stop();
+  });
+
+  it('the full view says so when the original is gone', async () => {
+    let ids: string[] = [];
+    const m = await mount((s) => void (ids = seedPictures(s, 'kept as a thumbnail', ['t.png'])));
+    await openChat();
+    await until(() => image(ids[0]!), 'the thumbnail');
+    m.daemon.uploads.expire(ids[0]!);
+    await press($(`picture-${ids[0]}`));
+    await until(() => document.body.querySelector('[data-testid="picture-line"]')?.textContent?.includes('no longer kept'), 'the line');
+    expect(document.body.querySelector('[data-testid="picture-image"]')).toBeNull();
     m.store.stop();
   });
 
