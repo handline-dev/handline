@@ -1,6 +1,6 @@
 # Story 1: research and one UX frame
 
-Founder story T3846, "an agent Jira". This is 1-0: what similar tools do, what we borrow and under which licence, and one frame in which 1-1 to 1-6 are one flow. Nothing is built until the founder agrees the frame (§5).
+Founder story T3846, "an agent Jira". This is 1-0: what similar tools do, what we borrow and under which licence, and one frame in which 1-1 to 1-6 are one flow. The founder's answers are in §5; the annotation tool is still open (§6).
 
 Sources are each tool's own README or docs where the search found them, and third-party write-ups where it did not; a row says which. Licences are from the GitHub repository's licence field (2026-10-14). Closed tools give ideas only. AGPL code is not borrowed at all: a network service built on it would have to publish its source.
 
@@ -22,8 +22,8 @@ Sources are each tool's own README or docs where the search found them, and thir
 | | Linear | The activity feed under an issue (the search found no official page: checked by use, not by source) | History is under the task, not on another screen | closed (idea) |
 | **Time in status (1-5)** | Jira Time in Status apps (Tempo, Time and History) | Elapsed time between status changes from the change history, with working hours; a horizontal bar with one block per status sized to real time | One bar, a block per status, sized by time; the history is the source, nothing is timed twice | closed (idea) |
 | | Linear (through Screenful, Jellyfish) | Cycle and lead time by status per issue, trend over completed items | Estimate beside actual, and a trend over finished tasks | closed (idea) |
-| **Graph or canvas (1-6)** | React Flow (xyflow) | Node-based UI library: pan, zoom, custom nodes, edges, minimap | The canvas itself | MIT (use as a dependency) |
-| | Excalidraw | Whiteboard library, hand-drawn style | Its drawing tools, if the annotation of 1-1 outgrows our own | MIT |
+| **Graph or canvas (1-6)** | React Flow (xyflow) | Node-based UI library: pan, zoom, custom nodes, edges, minimap | Nothing: web only, so two renderers; the pick is dagre plus react-native-svg (§6) | MIT |
+| | Excalidraw | Whiteboard library, hand-drawn style | The annotation editor of 1-1, if the founder picks it (§6) | MIT |
 | | tldraw | Infinite canvas SDK | Nothing: the licence field is non-standard (licence key, watermark) | NOASSERTION (not used) |
 | | Jira Advanced Roadmaps, Linear project timeline | Bars on a time axis, dependency arrows | The arrow means "waits on"; time runs one way | closed (idea) |
 
@@ -77,12 +77,12 @@ The same reason text is the edge label in the graph (1-6) and the grey stretch i
 
 | Unit | PC app | Phone | Daemon work |
 |---|---|---|---|
-| 1-1 capture, circle, send | A Capture button in the title bar and ⌘⇧C: pick a window (the app, the simulator), draw on it (pen, arrow, box, text), write the order, send. It opens as a new task, or as a comment on the open one. The shot is the task's spec | Attach a screenshot (the picker is a native package, so a rebuilt dev client) and circle it in the same editor; the phone cannot capture the simulator, so it comments on a task | A comment of a task that carries attachments (memo with `attachments`); `attachment.put` exists |
+| 1-1 capture, circle, send | A Capture button in the title bar and ⌘⇧C: pick a window (the app, the simulator), draw on it (pen, arrow, box, text), write the order, send. It opens as a new task, or as a comment on the open one. The shot is the task's spec | Attach a screenshot (the picker is a native package, so a rebuilt dev client) and circle it in the same editor (the editor of §6); the phone cannot capture the simulator, so it comments on a task | A comment of a task that carries attachments (memo with `attachments`); `attachment.put` exists and takes an upload from any paired device (direction C) |
 | 1-2 review in the task | A Review card at the top of the task when it is `reported`: before and after pictures, the diff stat, Approve and Send back (circle and note) | The same card; Approve and Send back call `task.accept` and `task.reject` | Report carries before/after attachments; `task.accept`, `task.reject` exist |
 | 1-3 tags and filters | Chips on a row, a tag field in the task, a filter in the Tasks bar that saves a named view | A filter sheet; tags show as chips | `tags` on a task, a filter on `tasks.list`, saved views |
 | 1-4 history | A History tab on the task: who, field, was, now, when; a fix is a new row, not an erase | The same list under the task | An append-only `task.history`; every edit writes rows |
 | 1-5 where the time went | One segmented bar under the title: waiting on a person, working, agent started or restarted; the estimate is a tick on it; an overrun shows the agent's own review as text | A thin bar in the task row; the detail on tap | The segments come from state events and deliveries; the self-review is an agent message at the overrun |
-| 1-6 canvas | A Graph page beside the Tasks list: nodes are tasks, an arrow means waits on; top = done and mine-but-waiting, bottom = planned and blocked on me; pan and zoom; click opens the task | A read-only list sorted the same way (a canvas on a phone is not worth the build) | `blocked_by` and `state` exist; a single `tasks.graph` read avoids N task reads |
+| 1-6 canvas | A Graph page beside the Tasks list: nodes are tasks, an arrow means waits on; top = done and mine-but-waiting, bottom = planned and blocked on me; pan and zoom; click opens the task | The same graph, drawn from the same layout layer (founder answer 4); pan by scroll, zoom with buttons | `blocked_by` and `state` exist; a single `tasks.graph` read avoids N task reads |
 
 ### Chat to task
 
@@ -156,10 +156,11 @@ The founder does not drive agents; stopping and changing work is done on the tas
 
 ## 4. Build order and what blocks what
 
-1. **1-1 PC capture** can start alone: Electron window capture and our own small annotation layer (no dependency), sent as a chat attachment first, so it works today; the "comment on a task with a picture" step waits on the daemon (1-2 and 1-4 share one change to the task's comments).
+1. **1-1 PC capture** can start alone: Electron window capture, with the annotation editor chosen in §6, sent as a chat attachment first, so it works today; the "comment on a task with a picture" step waits on the daemon (1-2 and 1-4 share one change to the task's comments).
 2. **1-3 tags** and **1-4 history** are daemon units that unblock the views; the PC and phone parts follow them.
 3. **1-5 time bar** reads state events; it needs the segments from the daemon (T3853).
-4. **1-6 canvas** reads what exists (`blocked_by`, `state`); it can start on the fake and add `tasks.graph` later.
+4. **1-6 canvas** reads what exists (`blocked_by`, `state`); first cut is PR #126, and `tasks.graph` is added later.
+5. **Pause, Cancel, Change and batch send** (see "Stop and change work") need new daemon verbs: asked once the founder agrees to the frame.
 
 ## 5. The founder's answers (2026-10-14)
 
@@ -186,7 +187,7 @@ Licence, version, date and unpacked size are from `npm view` today. Everything u
 |---|---|---|---|---|
 | @excalidraw/excalidraw | MIT | 0.18.1, 2026-10-12 | 47 MB | web only (React DOM). Phone: only inside a WebView, unverified |
 | @shopify/react-native-skia | MIT | 2.14.0, 2026-10-01 | 10 MB | RN and web (CanvasKit wasm); needs reanimated 4 and worklets as peers, which mobile does not have |
-| react-native-svg | MIT | 15.15.5, 2026-05-20 | 3.7 MB | RN; web through react-native-web (mobile already has it) |
+| react-native-svg | MIT | 15.15.5, 2026-05-20 | 3.7 MB | RN; web through react-native-web (added to mobile by the task-graph branch, PR #126) |
 | @xyflow/react (React Flow) | MIT | 12.12.0, 2026-10-11 | 1.2 MB | web only |
 | @dagrejs/dagre | MIT | 3.1.1, 2026-08-08 | 1.4 MB | plain JS, any target (*checked*: laid out 3 nodes, 2 edges in node) |
 | elkjs | EPL-2.0 or GPL-3.0 | 0.12.0, 2026-07-17 | 8 MB | plain JS; licence is the question, skip |
