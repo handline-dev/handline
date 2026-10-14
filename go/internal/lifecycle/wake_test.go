@@ -70,7 +70,7 @@ func TestStartForWorkHandsSpawnTheRepoExpandedAndResolved(t *testing.T) {
 	m, _, _ := newManager(t)
 	sp := m.Spawn.(*fakeSpawn)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Setenv("HANDLINE_TEST_ROOT", home)
 	db.AddPending(m.Q, "a", "x", 1)
 	m.Agents = fakeAgents{repo: "~/code/x"}
 	m.StartForWork("a")

@@ -429,7 +429,8 @@ func (d *Daemon) typing() *sessionrpc.Env {
 		t = term.New(d.cfg.Terminal, nil)
 	}
 	return &sessionrpc.Env{DB: d.db, Home: d.cfg.Home, Holds: d.holds, Term: t, Marker: d.tchan.Marker, Structured: d.cfg.Structured,
-		Wall: func(agent string) string { why, _ := d.env().WallReason(d.db, agent, nil); return why }}
+		Wall:          func(agent string) string { why, _ := d.env().WallReason(d.db, agent, nil); return why },
+		CloseTerminal: t.CloseTerminal, SessionPresent: func(agent string) (bool, error) { return d.env().SessionPresent(agent) }}
 }
 
 // operationEvent sends an operation's progress to the operations topic.

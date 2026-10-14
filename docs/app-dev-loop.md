@@ -2,8 +2,8 @@
 
 Developing the desktop app — `apps/web` (the page) and `apps/electron` (the
 shell) — with edits reflected while you type, against the real daemon or the
-fake. The repo is two halves sharing one history: `ocp/` is the Python daemon
-and CLI, `apps/`, `packages/`, `go/` are the Handline app. Commands run from
+fake. The repo is two halves sharing one history: `ocp/` is the Python CLI
+and hooks, `apps/`, `packages/`, `go/` are the Handline app. Commands run from
 the repo root, `pnpm install` once. The old Textual bridge TUI (`ocp bridge`,
 `ocp/ui/`) is deprecated — leave it be. Never run `ocp` code with the real
 home (`~/.handline`) as `OCP_HOME`: opening the db applies migrations, and the
@@ -11,7 +11,7 @@ live db's schema has diverged.
 
 ## What runs where
 
-The Python daemon listens on a Unix socket only. The Go gateway (`handlined`,
+The daemon listens on a Unix socket only. The Go gateway (`handlined`,
 127.0.0.1:7443) fronts it for pages: the page reaches it by WebSocket at
 `/rpc` with a device token, and the gateway takes a page's socket only from
 its own origin — which is why the desktop shell rewrites the Origin of its

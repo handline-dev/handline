@@ -3,7 +3,7 @@
 The request row a decision is answered on lives in the db, which every agent
 can write, so a verdict read from it is no proof the founder gave it. The
 answer is therefore recorded here as it is given - by the founder's own
-session, in the protected store - and `hr.apply` and `trust.apply` act on this
+session, in the protected store - and the Go daemon's hr.decide and `trust.apply` act on this
 record, never on the row alone. A proposal answered before this record existed
 has none and is raised again.
 """

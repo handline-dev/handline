@@ -6,7 +6,8 @@ the requester - is decided here, deterministically, with no model involved
 (AGENTS.md rule 4).
 
 Unlisted edges are denied. That is the whole point: agents cannot spray
-requests around, and they cannot infer policy or route around it.
+requests around, and they cannot infer policy or route around it. An edge only
+allows: its relation, response and kind are not read.
 """
 from __future__ import annotations
 
@@ -59,12 +60,6 @@ class Decision:
     chain_depth: int = 0
 
 
-def _edge_kind(kind):
-    """An edge's kind as a Decision carries it. `escalate` (T628) is the old spelling of a request
-    to the founder, which is a task of theirs; a team.yaml that still says it keeps working."""
-    return "task" if kind == "escalate" else kind
-
-
 class Team:
     def __init__(self, data: dict):
         self.teams: dict[str, list[str]] = data.get("teams") or {}
@@ -97,12 +92,6 @@ class Team:
                 raise ConfigError(f"edges[{i}] is not a map")
             if "from" not in e or "to" not in e:
                 raise ConfigError(f"edges[{i}] needs both 'from' and 'to'")
-            resp = e.get("response", "async")
-            if resp not in VALID_RESPONSE:
-                raise ConfigError(
-                    f"edges[{i}].response={resp!r} is not one of {sorted(VALID_RESPONSE)}. "
-                    "'blocking' is intentionally not supported."
-                )
             self._check_pattern(f"edges[{i}].from", str(e["from"]))
             self._check_pattern(f"edges[{i}].to", str(e["to"]))
 
@@ -220,20 +209,10 @@ class Team:
                 why = d.get("reason") or "denied by policy"
                 return Decision(False, f"denied: {requester} -> {target}: {why}")
 
-        # First match wins, like firewall rules. Order in team.yaml is
-        # significant: the design's own policy depends on it, e.g. a verdict
-        # from `reviewer -> *` stays async even when a later `* -> archivist`
-        # edge would have made it fire_and_forget.
+        # First match wins, like firewall rules.
         for e in self.edges:
             if self.matches(str(e["from"]), requester) and self.matches(str(e["to"]), target):
-                return Decision(
-                    True,
-                    f"edge {e['from']} -> {e['to']}",
-                    relation=e.get("relation"),
-                    response=e.get("response", "async"),
-                    kind=_edge_kind(e.get("kind")),
-                    chain_depth=chain_depth,
-                )
+                return Decision(True, f"edge {e['from']} -> {e['to']}", chain_depth=chain_depth)
 
         default = self.default_link(requester, target)
         if default is not None:

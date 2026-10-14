@@ -32,7 +32,7 @@ import { Knobs } from './knobs.ts';
 import { Replies } from './replies.ts';
 import { FakeTranscript } from './transcript.ts';
 import { watcherNotice } from './watchers.ts';
-import { accountsReply, detail, statusReply, newSession, tid, view, type Attach, type Session } from './session.ts';
+import { accountsReply, byTerminal, detail, statusReply, newSession, tid, view, type Attach, type Session } from './session.ts';
 
 const TERMINAL_CAPS = { terminal_format: ['text', 'bytes', 'styled'], terminal_hosts: { fake: ['text', 'bytes', 'styled'] } };
 const TEXT_CAPS = { terminal_format: ['text'], terminal_hosts: { fake: ['text'] } };
@@ -114,6 +114,7 @@ export class FakeDaemon {
         if (a?.format === 'bytes') this.notify(c, method, { ...build(), seq: ++a.seq });
       }
     },
+    watched: (s) => [...this.conns].some((c) => c.attached.has(tid(s))),
   });
 
   constructor(opts: FakeDaemonOptions = {}) {
@@ -153,7 +154,7 @@ export class FakeDaemon {
     };
     this.conns.add(conn);
     transport.onmessage = (m) => this.onMessage(conn, m);
-    transport.onclose = () => void this.conns.delete(conn);
+    transport.onclose = () => void (this.conns.delete(conn), this.script.gone(conn.attached));
   }
 
   /** A connection through the network listener: anonymous until hello carries a device token. */
@@ -382,7 +383,7 @@ export class FakeDaemon {
         script: this.script,
         transcript: this.transcript,
         agent,
-        byTerminal: (id) => this.byTerminal(id),
+        byTerminal: (id) => byTerminal(this.sessions, id),
         iso: () => this.iso(),
       });
     switch (method as MethodName) {
@@ -447,12 +448,6 @@ export class FakeDaemon {
     if (method.startsWith('inbox.')) return { value: this.inbox.call(method, p, c.caller.name, ok) };
     if (this.tasks.serves(method)) return { value: taskCall(this.tasks, method, p, c.caller.name, this.script) };
     return null;
-  }
-
-  private byTerminal(id: unknown): Session {
-    const s = [...this.sessions.values()].find((x) => tid(x) === id);
-    if (!s) throw new Failure('not_found', `no terminal ${String(id)}`);
-    return s;
   }
 
   private mayCall(role: Role, lowest: Role): boolean {

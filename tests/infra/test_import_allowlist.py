@@ -19,10 +19,7 @@ from support import *  # noqa: E402,F401,F403
 # (file under handline/cli, module it imports) still to move onto the client library.
 MOVING = {
     ("account.py", "handline.db"),
-    ("agent.py", "handline.db"),
     ("ask.py", "handline.db"),
-    ("daemon.py", "handline.daemon.locks"),
-    ("daemon.py", "handline.daemon.loop"),
     ("daemon.py", "handline.db"),
     ("health.py", "handline.db"),
     ("health.py", "handline.db.schema"),

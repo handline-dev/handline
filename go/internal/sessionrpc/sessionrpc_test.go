@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -300,8 +299,7 @@ func TestFoldRunsOnceForARequestIdAndARejectedFoldIsRefused(t *testing.T) {
 }
 
 func TestTerminalCloseNeedsAStoppedSessionAndRefusesWhileTyping(t *testing.T) {
-	r := newRig(t)
-	c := r.dial(false)
+	r, _, c := typingRig(t)
 	if g := refused(c.call("terminal.close", map[string]any{"agent": "ann", "request_id": rid("1")})); g != "state" || len(r.closed) != 0 {
 		t.Fatalf("a session is running: %q", g)
 	}
@@ -311,10 +309,23 @@ func TestTerminalCloseNeedsAStoppedSessionAndRefusesWhileTyping(t *testing.T) {
 		t.Fatalf("typing elsewhere: %q", g)
 	}
 	h.Release()
+	r.e.Holds.Take("ann", "person", "sam")
+	if g := refused(c.call("terminal.close", map[string]any{"agent": "ann", "request_id": rid("4")})); g != "input_holder" || len(r.closed) != 0 {
+		t.Fatalf("another holds the input: %q", g)
+	}
+	r.e.Holds.Release("ann")
+	r.e.Holds.Take("ann", "person", c.name)
 	got := result(t, c.call("terminal.close", map[string]any{"agent": "ann", "request_id": rid("3")}))
 	row, _ := db.GetAgentState(r.e.DB, "ann")
 	if got["said"] != "ann: terminal closed" || len(r.closed) != 1 || r.closed[0] != "%1" || row.Terminal.String != "" {
 		t.Fatalf("%v %v %+v", got, r.closed, row)
+	}
+	if held, _ := r.e.Holds.Holder("ann"); held != nil {
+		t.Fatal("the hold on a closed terminal is over")
+	}
+	r.e.Holds = nil
+	if r.dialHas(r.dial(false), "terminal.close") {
+		t.Fatal("served with the typing methods, beside the input holds")
 	}
 }
 
@@ -385,54 +396,25 @@ func TestUnstallOfAnAgentThatIsNotStalledLeavesItsDialogMark(t *testing.T) {
 	}
 }
 
-// Python's control.unstall, run on a copy of the database Go unstalls, leaves the same state, counters and cursors.
-func TestUnstallLeavesWhatPythonsUnstallLeaves(t *testing.T) {
+// Unstall leaves the agent queued with the human's word as detail, its three failure counters at 0 and its own dialog marks gone.
+func TestUnstallLeavesTheAgentQueuedWithItsCountersAndDialogMarksCleared(t *testing.T) {
 	r := newRig(t)
 	seedStall(t, r.e.DB, "STALLED")
-	copyFile := filepath.Join(t.TempDir(), "py.sqlite")
-	if _, err := r.e.DB.Exec("VACUUM INTO '" + copyFile + "'"); err != nil {
+	cleared, said, err := r.e.Unstall("ann")
+	if err != nil || !cleared || said != "ann: STALLED -> QUEUED" {
+		t.Fatalf("%v %q %v", cleared, said, err)
+	}
+	var state, detail string
+	var failed, throttle, wake int
+	q := "SELECT state, detail, failed_attempts, throttle_count, wake_failures FROM agent_state WHERE agent = 'ann'"
+	if err := r.e.DB.QueryRow(q).Scan(&state, &detail, &failed, &throttle, &wake); err != nil {
 		t.Fatal(err)
 	}
-	const script = `
-import os, sqlite3, sys
-sys.path.insert(0, os.getcwd())
-from handline.actions import control
-con = sqlite3.connect(sys.argv[1]); con.row_factory = sqlite3.Row
-print(control.unstall(con, "ann")); con.commit()
-`
-	root, _ := filepath.Abs("../../..")
-	cmd := exec.Command("python3", "-I", "-c", script, copyFile)
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "OCP_HOME="+r.e.Home, "HANDLINE_HOME="+r.e.Home, "HANDLINE_TEST_ROOT="+filepath.Dir(r.e.Home), "OCP_TEST_ROOT="+filepath.Dir(r.e.Home))
-	out, err := cmd.CombinedOutput()
-	if errors.Is(err, exec.ErrNotFound) {
-		t.Skip("no python3")
+	if state != "QUEUED" || detail != "cleared by a human" || failed != 0 || throttle != 0 || wake != 0 {
+		t.Fatalf("%s %q %d %d %d", state, detail, failed, throttle, wake)
 	}
-	if err != nil {
-		t.Fatalf("the Python unstall did not run: %v: %s", err, out)
-	}
-	_, said, err := r.e.Unstall("ann")
-	if err != nil || strings.TrimSpace(string(out)) != said {
-		t.Fatalf("said %q (%v), Python %q", said, err, out)
-	}
-	py, err := sql.Open("sqlite", copyFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer py.Close()
-	const q = "SELECT state, detail, failed_attempts, throttle_count, wake_failures FROM agent_state WHERE agent = 'ann'"
-	var a, b [5]any
-	for i, d := range []*sql.DB{r.e.DB, py} {
-		got := &a
-		if i == 1 {
-			got = &b
-		}
-		if err := d.QueryRow(q).Scan(&got[0], &got[1], &got[2], &got[3], &got[4]); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if a != b || cursorNames(t, r.e.DB) != cursorNames(t, py) {
-		t.Fatalf("Go %v %s, Python %v %s", a, cursorNames(t, r.e.DB), b, cursorNames(t, py))
+	if got := cursorNames(t, r.e.DB); got != "dialog_since:bob" {
+		t.Fatalf("cursors: %s", got)
 	}
 }
 

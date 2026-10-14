@@ -116,8 +116,8 @@ func TestAFirstLookThatFailsIsTakenAgainAndStillSaysNothing(t *testing.T) {
 }
 
 func TestGoAndPythonWriteTheSameInboxEvents(t *testing.T) {
-	now := time.Now().Unix()
-	py, events := parity(t, "_inbox", func(d *sql.DB) Detector { return &Inbox{Reads: &reads.Env{DB: d}} },
+	now := int64(1_790_000_000) // fixed: the recorded rows carry the times
+	py, events := parity(t, func(d *sql.DB) Detector { return &Inbox{Reads: &reads.Env{DB: d}} },
 		func(run func(string, ...any)) {
 			run("INSERT INTO requests(id, ts, requester, target, body, state, edge_ok) VALUES(1, ?, 'amy', 'bob', 'old', 'queued', 1)", now-100)
 			run("INSERT INTO requests(id, ts, requester, target, body, state, edge_ok) VALUES(2, ?, 'amy', 'human', 'old for you', 'queued', 1)", now-100)

@@ -3,7 +3,7 @@
   {
    "name": "debug.terminals.refused_below_member",
    "spec": "debug.terminals",
-   "about": "NOT_YET_IN_PYTHON The pane list is a member's read: an anonymous caller is refused, gate role.",
+   "about": "The pane list is a member's read: an anonymous caller is refused, gate role.",
    "as": "anonymous",
    "steps": [
     {

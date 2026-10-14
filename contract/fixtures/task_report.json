@@ -3,7 +3,7 @@
   {
    "name": "task.accept.unknown_task_is_not_found",
    "spec": "task.accept",
-   "about": "NOT_YET_IN_PYTHON No such task: not_found.",
+   "about": "No such task: not_found.",
    "as": "founder",
    "steps": [
     {
@@ -41,7 +41,7 @@
   {
    "name": "task.reject.note_is_required",
    "spec": "task.reject",
-   "about": "NOT_YET_IN_PYTHON A reject with an empty note: bad_request naming note.",
+   "about": "A reject with an empty note: bad_request naming note.",
    "as": "founder",
    "steps": [
     {
@@ -85,7 +85,7 @@
    "with": {
     "boss": "founder"
    },
-   "about": "NOT_YET_IN_PYTHON A done by an owner the task does not answer to leaves it reported, the done its report; the opener's accept closes it with that evidence.",
+   "about": "A done by an owner the task does not answer to leaves it reported, the done its report; the opener's accept closes it with that evidence.",
    "steps": [
     {
      "send": {
@@ -240,7 +240,7 @@
    "with": {
     "boss": "founder"
    },
-   "about": "NOT_YET_IN_PYTHON A rejected report is dropped and the task is queued again for its owner.",
+   "about": "A rejected report is dropped and the task is queued again for its owner.",
    "steps": [
     {
      "send": {
@@ -373,7 +373,7 @@
    "name": "task.accept.nothing_to_accept_when_the_opener_closed_it",
    "spec": "task.accept",
    "as": "agent",
-   "about": "NOT_YET_IN_PYTHON A task its owner opened for itself answers to that owner: its done closes it at once, and there is no report to accept.",
+   "about": "A task its owner opened for itself answers to that owner: its done closes it at once, and there is no report to accept.",
    "steps": [
     {
      "send": {

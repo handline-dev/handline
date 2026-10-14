@@ -3,7 +3,7 @@
   {
    "name": "agent.create.an_agent_session_is_refused_by_role",
    "spec": "agent.create",
-   "about": "NOT_YET_IN_PYTHON Creating an agent is the founder's: a call from an agent session is refused, gate role.",
+   "about": "Creating an agent is the founder's: a call from an agent session is refused, gate role.",
    "as": "agent",
    "steps": [
     {
@@ -44,7 +44,7 @@
   {
    "name": "agent.create.needs_a_request_id",
    "spec": "agent.create",
-   "about": "NOT_YET_IN_PYTHON A write without a request_id is bad_request naming it.",
+   "about": "A write without a request_id is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -84,7 +84,7 @@
   {
    "name": "agent.create.needs_a_name",
    "spec": "agent.create",
-   "about": "NOT_YET_IN_PYTHON No name is bad_request naming it, before the repo is looked up.",
+   "about": "No name is bad_request naming it, before the repo is looked up.",
    "as": "founder",
    "steps": [
     {
@@ -124,7 +124,7 @@
   {
    "name": "agent.create.needs_a_role",
    "spec": "agent.create",
-   "about": "NOT_YET_IN_PYTHON No role is bad_request naming it, before the repo is looked up.",
+   "about": "No role is bad_request naming it, before the repo is looked up.",
    "as": "founder",
    "steps": [
     {
@@ -164,7 +164,7 @@
   {
    "name": "agent.create.effort_is_one_of_five",
    "spec": "agent.create",
-   "about": "NOT_YET_IN_PYTHON An effort outside low, medium, high, xhigh and max is bad_request naming it, before the repo is looked up.",
+   "about": "An effort outside low, medium, high, xhigh and max is bad_request naming it, before the repo is looked up.",
    "as": "founder",
    "steps": [
     {
@@ -206,7 +206,7 @@
   {
    "name": "agent.create.an_account_is_not_served",
    "spec": "agent.create",
-   "about": "NOT_YET_IN_PYTHON A named account is bad_request naming account, never dropped, before the repo is looked up.",
+   "about": "A named account is bad_request naming account, never dropped, before the repo is looked up.",
    "as": "founder",
    "steps": [
     {
@@ -248,7 +248,7 @@
   {
    "name": "agent.create.an_unknown_repo_is_not_found",
    "spec": "agent.create",
-   "about": "NOT_YET_IN_PYTHON A repo directory the daemon does not know is not_found, what repo; nothing is registered.",
+   "about": "A repo directory the daemon does not know is not_found, what repo; nothing is registered.",
    "as": "founder",
    "steps": [
     {
@@ -289,7 +289,7 @@
   {
    "name": "agent.create.an_unknown_parent_is_not_found",
    "spec": "agent.create",
-   "about": "NOT_YET_IN_PYTHON A parent that is not an agent is not_found, what agent. Needs --var create_repo.",
+   "about": "A parent that is not an agent is not_found, what agent. Needs --var create_repo.",
    "as": "founder",
    "steps": [
     {
@@ -332,7 +332,7 @@
   {
    "name": "agent.create.a_child_name_starts_with_its_parent",
    "spec": "agent.create",
-   "about": "NOT_YET_IN_PYTHON Under a parent the name must be <parent>.<rest>: any other is bad_request naming name. Needs --var create_repo and create_parent: an agent.",
+   "about": "Under a parent the name must be <parent>.<rest>: any other is bad_request naming name. Needs --var create_repo and create_parent: an agent.",
    "as": "founder",
    "steps": [
     {
@@ -375,7 +375,7 @@
   {
    "name": "agent.create.a_used_name_is_refused",
    "spec": "agent.create",
-   "about": "NOT_YET_IN_PYTHON A name an agent already has is refused, gate state; no operation starts. Needs --var create_repo and create_parent: an agent.",
+   "about": "A name an agent already has is refused, gate state; no operation starts. Needs --var create_repo and create_parent: an agent.",
    "as": "founder",
    "steps": [
     {
@@ -417,7 +417,7 @@
   {
    "name": "agent.create.runs_to_done",
    "spec": "agent.create",
-   "about": "NOT_YET_IN_PYTHON A good call replies with an operation id; the operations topic sends operation.progress until the operation is done, with the agent, and operation.get then says done. Needs --var create_repo, create_name (a name no agent has).",
+   "about": "A good call replies with an operation id; the operations topic sends operation.progress until the operation is done, with the agent, and operation.get then says done. Needs --var create_repo, create_name (a name no agent has).",
    "as": "founder",
    "steps": [
     {
@@ -527,7 +527,7 @@
   {
    "name": "agent.create.runs_to_failed",
    "spec": "agent.create",
-   "about": "NOT_YET_IN_PYTHON A base that does not exist fails the operation, not the call: the reply carries an operation id, the last operation.progress is failed with a message and a result that says whether the agent was registered, and nothing is cleaned up. Needs --var create_repo, create_name.",
+   "about": "A base that does not exist fails the operation, not the call: the reply carries an operation id, the last operation.progress is failed with a message and a result that says whether the agent was registered, and nothing is cleaned up. Needs --var create_repo, create_name.",
    "as": "founder",
    "steps": [
     {
@@ -624,7 +624,7 @@
   {
    "name": "agent.create.a_retried_request_id_starts_nothing_twice",
    "spec": "agent.create",
-   "about": "NOT_YET_IN_PYTHON The same request_id again replies with the same operation id and replayed true; no second operation. Needs --var create_repo, create_name.",
+   "about": "The same request_id again replies with the same operation id and replayed true; no second operation. Needs --var create_repo, create_name.",
    "as": "founder",
    "steps": [
     {

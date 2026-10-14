@@ -118,7 +118,7 @@ def socket_file() -> Path:
 
 
 def relay_socket_file() -> Path:
-    """Where the gateway, the process that fronts the daemon for paired devices, relays their calls (daemon/relay.py)."""
+    """Where the gateway, the process that fronts the daemon for paired devices, relays their calls (go/internal/daemon)."""
     return home() / "relay.sock"
 
 

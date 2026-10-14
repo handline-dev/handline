@@ -72,7 +72,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         journal.write_text(f"## Done\n- done {p}\n")
         service.out_log().parent.mkdir(parents=True, exist_ok=True)
         service.out_log().write_text(f"[12:00:00] reviewer: {p}\n")
-        repo = where / "repo"                  # for `spawn --dry-run`
+        repo = where / "repo"                  # for `spawn`
         repo.mkdir()
 
         # Every leaf of the CLI is one of these two, so a subcommand that is added
@@ -88,8 +88,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "hr list": [["hr", "list"]], "hr links": [(["hr", "links"], {"OCP_AGENT": "human"}, "hr links")], "service logs": [["service", "logs"]],
             "resume": [["resume", "reviewer"]], "fold": [["fold", "reviewer", "--no-model"]],
             "backup": [["backup"]],
-            "spawn": [(["spawn", "reviewer", "--repo", str(repo), "--prompt", f"p {p}", "--dry-run"],
-                       None, "spawn --dry-run")],
+            "spawn": [(["spawn", "reviewer", "--repo", str(repo), "--prompt", f"p {p}"], None, "spawn --prompt")],
             "hr apply": [(["hr", "apply", "poisontest"], None, "hr apply")],
             "hr withdraw": [(["hr", "withdraw", "withdrawtest"], {"OCP_AGENT": "reviewer"},
                              "hr withdraw")],
@@ -143,6 +142,11 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                 "more_waiting_line": f"1 more waiting {p}", "how_to_close": f"answer {p}"}}
         says = support.daemon_says("inbox.queue", queue)
         says.__enter__()
+        reads = support.daemon_says("request.read", support.request_read)
+        reads.__enter__()
+        picks = support.daemon_says("status.pick", {"picked": "alpha", "candidates": [{"account": "alpha", "reason": "room"}],
+                                                    "agent_costs": []})
+        picks.__enter__()
         try:
             run_it(["fold", "reviewer", "--account", "alpha"], key="fold reviewer (model lost a done item)")
             for leaf, runs in driven.items():
@@ -155,6 +159,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                 run_it(*driven["withdraw"][0][:2], key=driven["withdraw"][0][2])
             run_it(driven["unstall"][0])
         finally:
+            picks.__exit__(None, None, None)
+            reads.__exit__(None, None, None)
             says.__exit__(None, None, None)
             foldmod.run_model, handoffmod.record = real_model, real_record
         scene.driven = driven
@@ -222,7 +228,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "team init": "writes team.yaml",
         "cancel": "founder-only; it prints the Go daemon's words (request.cancel), which hold ids and names",
         "hook": "reads a hook payload on stdin and prints nothing",
-        "daemon": "runs forever", "service install": "launchd", "service uninstall": "launchd",
+        "service install": "launchd", "service uninstall": "launchd",
         "service status": "launchd; prints a pid",
         "service use": "writes the daemon_impl setting; driven in test_service_use_sets_the_daemon_the_next_install_runs "
                        "(tests/session/test_daemon_session.py), not this scene",

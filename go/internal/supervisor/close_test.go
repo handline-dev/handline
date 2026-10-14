@@ -80,6 +80,21 @@ func TestCancelOfTheFoundersUndeliveredRequestIsAWithdrawal(t *testing.T) {
 	}
 }
 
+// The edge human -> * says fire_and_forget, which is no longer read: the founder's request is async, and its close still wakes nobody.
+func TestTheFoundersRequestIsAsyncAndItsCloseWakesNobody(t *testing.T) {
+	r := newRig(t)
+	rid := r.ask("human", "bob", "do x", "")
+	if row, _ := db.GetRequest(r.DB, rid); row.Response.String != "async" {
+		t.Fatalf("%+v", row)
+	}
+	if ok, msg, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "done", Notify: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, msg, err)
+	}
+	if len(r.eval.calls) != 0 {
+		t.Fatalf("%v", r.eval.calls)
+	}
+}
+
 func TestCancelGuardRefusesInsideTheTransaction(t *testing.T) {
 	r := newRig(t)
 	rid := r.ask("alice", "bob", "job", "ask")

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -33,7 +34,11 @@ func TestALogOverTheLimitIsCopiedToABackupAndTruncatedInPlace(t *testing.T) {
 	if b, _ := os.ReadFile(p); string(b) != "next" {
 		t.Fatalf("the open writer lands at the start: %q", b)
 	}
-	zf, _ := os.Open(p + ".1.gz")
+	zf, err := os.Open(p + ".1.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zf.Close()
 	zr, err := gzip.NewReader(zf)
 	if err != nil {
 		t.Fatal(err)
@@ -49,31 +54,63 @@ func TestALogOverTheLimitIsCopiedToABackupAndTruncatedInPlace(t *testing.T) {
 	}
 }
 
+// listing stands in for /dev/fd with descriptors the test holds open, so the count is the test's own: the process's real count moves
+// whenever a finalizer closes a file some earlier test left open. Its directory, open, stands for the listing's own descriptor.
+type listing struct {
+	t         *testing.T
+	dir, held string
+}
+
+func newListing(t *testing.T) *listing {
+	l := &listing{t: t, dir: t.TempDir(), held: filepath.Join(t.TempDir(), "held")}
+	if err := os.WriteFile(l.held, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l.list(l.dir)
+	return l
+}
+
+// list opens p and names its descriptor in the listing.
+func (l *listing) list(p string) {
+	f, err := os.Open(p)
+	if err != nil {
+		l.t.Fatal(err)
+	}
+	l.t.Cleanup(func() { f.Close() })
+	if err := os.WriteFile(filepath.Join(l.dir, strconv.Itoa(int(f.Fd()))), nil, 0o644); err != nil {
+		l.t.Fatal(err)
+	}
+}
+
+func (l *listing) files(k int) {
+	for i := 0; i < k; i++ {
+		l.list(l.held)
+	}
+}
+
 func TestTheDescriptorCountIsLoggedOnFirstReadAndOnBigMovesAndNamedNearTheLimit(t *testing.T) {
+	if n := (&FDs{Log: func(string) {}}).Check(); n <= 0 {
+		t.Fatalf("the process's own /dev/fd is read: %d", n)
+	}
 	var lines []string
-	f := &FDs{Log: func(s string) { lines = append(lines, s) }, softLimit: func() uint64 { return 1 << 20 }}
-	n := f.Check()
-	if n <= 0 || len(lines) != 1 || !strings.HasPrefix(lines[0], "  fds: ") {
+	l := newListing(t)
+	l.files(6)
+	f := &FDs{Log: func(s string) { lines = append(lines, s) }, listDir: l.dir, softLimit: func() uint64 { return 1 << 20 }}
+	if n := f.Check(); n != 6 || len(lines) != 1 || lines[0] != "  fds: 6/1048576" {
 		t.Fatalf("%d %q", n, lines)
 	}
 	f.Check()
 	if len(lines) != 1 {
 		t.Fatalf("a steady count is not logged again: %q", lines)
 	}
-	f.softLimit = func() uint64 { return uint64(n + 1) } // past 80% of a limit this small
+	f.softLimit = func() uint64 { return 7 } // 6 is past 80% of it
 	f.Check()
 	f.Check()
-	near := 0
-	for _, l := range lines {
-		if strings.Contains(l, "near the limit") {
-			near++
-			if !strings.Contains(l, "file") && !strings.Contains(l, "char") {
-				t.Fatalf("the inventory names kinds: %q", l)
-			}
-		}
-	}
-	if near != 1 {
-		t.Fatalf("named once per crossing, not %d times: %q", near, lines)
+	l.files(1)
+	f.Check()
+	want := []string{"  fds: 6/1048576", "  fds: near the limit - file 6, dir 1", "  fds: 7/7"}
+	if strings.Join(lines, "|") != strings.Join(want, "|") {
+		t.Fatalf("named by kind once per crossing, and a move of a twentieth logged: %q", lines)
 	}
 }
 

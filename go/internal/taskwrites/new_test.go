@@ -100,6 +100,10 @@ func TestNewReturnsBeforeTheOwnerIsTold(t *testing.T) {
 	if said, _ := r[0]["result"].(map[string]any)["said"].(string); !strings.Contains(said, "it is on the founder's screen (`hl`)") {
 		t.Fatalf("a founder's task says where it is: %v", r[0])
 	}
+	// the delivery is a task's whoever the owner is: no edge's kind decides it
+	if count(t, db, "SELECT COUNT(*) FROM requests WHERE target = 'human' AND kind = 'task'") != 1 {
+		t.Fatal("the founder's task is not delivered as a task")
+	}
 	select {
 	case <-told:
 		t.Fatal("the call returned only after the owner was told")
@@ -126,5 +130,34 @@ func TestNewMarksAUITaskAndRefusesAUIThatIsNotTrueOrFalse(t *testing.T) {
 		if got, err := taskresult.IsUI(db, id); err != nil || got != want {
 			t.Errorf("T%d ui %v, want %v (%v)", id, got, want, err)
 		}
+	}
+}
+
+// A child's wait that would loop through its parent (the parent waits on every child) is refused, never dropped without a word; a
+// sibling's wait is kept.
+func TestNewRefusesAWaitThatWouldLoopThroughTheParent(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'parent', 'manager', 'manager', 1), (2, 'sibling', 'worker', 'manager', 1), "+
+			"(3, 'after the parent', 'other', 'manager', 1)",
+		"UPDATE tasks SET parent_task = 1 WHERE id = 2",
+		"INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(1, 2, 1), (3, 1, 1)")
+	open := func(rid string, blocker int) map[string]any {
+		return call(t, mk("manager", &fakeTeller{}), fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.new","params":`+
+			`{"owner":"worker","title":"t","body":"b","time_box":"1h","parent":1,"blocked_by":%d,"request_id":%q}}`, blocker, rid))[0]
+	}
+	for blocker, want := range map[int]string{
+		1: "a child of T1 cannot wait on T1: that would be a cycle, the new task -> T1 -> the new task",
+		3: "a child of T1 cannot wait on T3: that would be a cycle, the new task -> T3 -> T1 -> the new task",
+	} {
+		if got := errText(open(fmt.Sprintf("loop%d", blocker), blocker)); got != want {
+			t.Errorf("blocked by T%d: %q, want %q", blocker, got, want)
+		}
+	}
+	if n := count(t, db, "SELECT COUNT(*) FROM tasks"); n != 3 {
+		t.Fatalf("a refused task is not opened: %d tasks", n)
+	}
+	if r := open("sibling", 2); r["error"] != nil || count(t, db, "SELECT COUNT(*) FROM task_blocks WHERE task_id = 4 AND blocks_on = 2") != 1 {
+		t.Fatalf("a sibling's wait is kept: %v", r)
 	}
 }

@@ -5,14 +5,10 @@ import os
 import sys
 from pathlib import Path
 
-from .. import actions
 from ..team import agent_settings, agents, ask as askmod, hr
 from ..infra import daemonclient as dmn_client
-from ..session import states as dmn_states
-from .. import db
 from ..session import launch, term
 from ..infra import names, paths, protected
-from ..team import spawn as spawnmod
 
 from . import client
 
@@ -129,28 +125,18 @@ def cmd_launch(args) -> int:
 
 
 def cmd_spawn(args) -> int:
-    ok, msg = spawnmod.spawn(args.agent, Path(args.repo).resolve(), base=args.base,
-                             prompt=args.prompt, dry_run=args.dry_run)
-    print(msg)
-    return 0 if ok else 1
+    """session.start: the daemon gives the agent its worktree (the one it has, else a new one from --base) and starts it there. The
+    first task goes through the daemon's delivery, which types it once the agent is ready."""
+    ok, said = client.write("session.start", {"agent": args.agent, "repo": str(Path(args.repo).resolve()), "base": args.base})
+    print(said)
+    if not ok or not args.prompt:
+        return 0 if ok else 1
+    return client.said(*client.write("chat.send", {"agent": args.agent, "body": args.prompt}))
 
 
 def cmd_unstall(args) -> int:
-    """A human clearing a stall - every kind but a wake stall the sweep has
-    refuted by observing a session (section 8.6)."""
-    con = db.connect()
-    try:
-        row = db.get_agent_state(con, args.agent)
-        if not row:
-            print(f"no state for {args.agent}")
-            return 1
-        if row["state"] != dmn_states.STALLED:
-            print(f"{args.agent} is {row['state']}, not STALLED")
-            return 1
-        print(actions.unstall(con, args.agent))
-    finally:
-        con.close()
-    return 0
+    """agent.unstall: a stalled agent goes back to queued; one that is not stalled is refused."""
+    return client.said(*client.write("agent.unstall", {"agent": args.agent}))
 
 
 def cmd_agent_set(args) -> int:

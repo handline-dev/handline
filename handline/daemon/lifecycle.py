@@ -23,7 +23,7 @@ from ..usage import load, status
 from ..team import trust
 from .. import vendors
 
-from . import inputhold, delivery, handoff, handoff_note
+from . import inputhold, delivery, handoff, handoff_note, spawn as dmn_spawn
 from .states import HANDOFF_DEADLINE_S, IDLE_CLOSE_S, MAX_FAILED_ATTEMPTS, RESUME_WARM_S
 from ..session.states import DEGRADED, EVALUATED, HANDOFF, IDLE, PARKED, RUNNING, STALLED, THROTTLED
 
@@ -753,8 +753,8 @@ def _start_for_work(con, agent: str, log) -> str:
     # (T146 pt.2): they confirm a session actually started now, so a
     # terminal left standing with nothing in it counts as the failed wake
     # it is, not "started".
-    ok, said = (spawnmod.start_in(agent, wt) if wt
-                else spawnmod.spawn(agent, Path(repo).expanduser().resolve()))
+    ok, said = (dmn_spawn.start_in(agent, wt) if wt
+                else dmn_spawn.spawn(agent, Path(repo).expanduser().resolve()))
     if ok:
         db.reset_counter(con, agent, "wake_failures")
         db.add_event(con, agent, "started_for_work", {"repo": repo})
@@ -1187,7 +1187,7 @@ def _launch_in_pane(con, agent: str, handle: str | None, wt: str | None, cmd: st
     launch took."""
     if handle:
         return term.relaunch(handle, cmd, started=started)
-    ok, why = spawnmod.start_in(agent, wt, cmd)
+    ok, why = dmn_spawn.start_in(agent, wt, cmd)
     if ok and not started():
         return False, "the launch command was run but no session took its prompt"
     new = db.get_terminal(con, agent) if ok else None

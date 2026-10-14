@@ -29,7 +29,8 @@ func (c controls) status(agent string) lifecycle.SessionStatus {
 	return m.Status.ReadForAgent(agent, m.Agents.CurrentAccount(m.Q, agent))
 }
 
-// Start is control.start_result: an agent with a worktree is started in it. It makes no worktree.
+// Start is control.start_result: a closed agent with a session to resume is woken; any other is spawned, in the worktree it has or a
+// new one branched from base.
 func (c controls) Start(call sessionrpc.Call, agent, repo, base string) (bool, string, error) {
 	m := c.lc.Manager
 	if c.p.Run.Alive(agent) {

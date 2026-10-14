@@ -12,8 +12,6 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
 
-
-
 # ---------------------------------------------------------------- digest/fold
 def test_digest() -> None:
     d = digest.Digest(date="2026-09-15", agent="backend", updated="14:32 (handoff #3)",
@@ -49,19 +47,6 @@ def test_digest() -> None:
     check("rollover: done is emptied", rolled.items("done") == [])
     check("rollover: in_progress carries forward", rolled.items("in_progress") == ["rate limiter"])
     check("rollover: blocked/next carry forward", rolled.items("next") == ["write tests"])
-
-
-def test_event_allowlist() -> None:
-    raw = {"hook_event_name": "UserPromptSubmit", "session_id": "s1",
-           "prompt": "secret business plan text", "cwd": "/tmp",
-           "model": {"id": "claude-sonnet-5"}, "api_key": "sk-should-never-appear",
-           "transcript_path": "/tmp/t.jsonl"}
-    slim = evmod._slim(raw)
-    check("events: prompt text is not stored", "prompt" not in slim, str(slim))
-    check("events: prompt length is stored", slim.get("prompt_length") == len(raw["prompt"]))
-    check("events: unlisted fields are dropped", "api_key" not in slim, str(slim))
-    check("events: model is flattened to its id", slim.get("model") == "claude-sonnet-5")
-    check("events: PostToolUse is not captured", "PostToolUse" not in evmod.CAPTURED)
 
 
 def test_fold(home: Path) -> None:
@@ -386,132 +371,6 @@ def test_a_rejected_fold_still_records_what_it_spent(home: Path) -> None:
         con.close()
 
 
-def test_the_handoff_is_three_facts_read_without_a_model(home: Path) -> None:
-    """A handoff has to work when every account is walled, which is when a
-    model call cannot: it is the request in hand, the session's transcript path
-    and the worktree's state, read from disk, and it is degraded only when one
-    of those could not be read."""
-    _daemon_home(home, 50)
-    wt = _worktree_with_a_dirty_file(home / "wt-backend")
-    real = foldmod.run_model
-    foldmod.run_model = lambda *a, **k: (_ for _ in ()).throw(AssertionError("model called"))
-    con = db.connect()
-    try:
-        db.set_terminal(con, "backend", "term_x", str(wt))
-        rid = db.add_request(con, "marina", "backend", "fix the routing\nsecond line", None,
-                             "peer", "async", None, 0, None)
-        db.mark_delivered(con, rid)
-        write_agent_status("backend", "alpha", session_id="sess-1",
-                           transcript_path="/tmp/sess-1.jsonl")
-
-        missing = handoffmod.record(con, "backend")
-        text = db.get_handoff(con, "backend")
-        head = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=wt,
-                              capture_output=True, text=True).stdout.strip()
-        check("handoff: nothing is missing when the facts can be read",
-              missing == [], str(missing))
-        check("handoff: it names the request in hand, first line only",
-              f"#{rid} from marina - fix the routing" in text and "second line" not in text,
-              text)
-        check("handoff: it names the previous session's transcript",
-              "sess-1" in text and "/tmp/sess-1.jsonl" in text, text)
-        check("handoff: it gives the branch, HEAD and what is uncommitted",
-              f"branch: topic @ {head}" in text and "?? dirty.txt" in text, text)
-        check("handoff: and nothing else - no digest sections",
-              "진행중" not in text and "recent commits" not in text, text)
-
-        # A request nobody has been shown yet is not one in hand.
-        db.add_request(con, "marina", "backend", "later", None, "peer", "async", None, 0, None)
-        _set_request_state(con, rid, "landed", "ok")
-        check("handoff: no delivered request is a fact, not a gap",
-              handoffmod.record(con, "backend") == []
-              and "request: none in progress" in db.get_handoff(con, "backend"))
-
-        # Each fact that cannot be read degrades it, and says which.
-        paths.agent_status_file("backend").unlink()
-        gaps = handoffmod.record(con, "backend")
-        check("handoff: no snapshot of the session names the transcript as the gap",
-              gaps == ["the session's transcript path"], str(gaps))
-        check("handoff: and the record says so where the agent reads it",
-              "could not read the session's transcript path" in db.get_handoff(con, "backend")
-              and "branch: topic" in db.get_handoff(con, "backend"))
-        db.set_terminal(con, "backend", "term_x", str(home / "gone"))
-        gaps = handoffmod.record(con, "backend")
-        check("handoff: a worktree that is gone is the other gap",
-              len(gaps) == 2 and gaps[1].startswith("the worktree"), str(gaps))
-    finally:
-        foldmod.run_model = real
-        con.close()
-
-
-def test_the_handoff_carries_the_agents_progress_note_on_its_request(home: Path) -> None:
-    """T60: the agent writes what is done and what is left on the request in
-    hand (`hl progress`); the handoff carries it, and only for that request."""
-    _daemon_home(home, 50)
-    con = db.connect()
-    try:
-        db.set_terminal(con, "backend", "term_x", str(_worktree_with_a_dirty_file(home / "wt-backend")))
-        write_agent_status("backend", "alpha", session_id="sess-1",
-                           transcript_path="/tmp/sess-1.jsonl")
-        ok, said = handoffmod.set_progress(con, "backend", "deferred: waits on T9")
-        check("progress: no request in hand, the note is kept on the agent (T366)",
-              ok and handoffmod.get_progress(con, "backend") == "deferred: waits on T9", said)
-        handoffmod.record(con, "backend")
-        check("progress: the handoff of an agent with no request carries it",
-              "deferred: waits on T9" in db.get_handoff(con, "backend"))
-        rid = db.add_request(con, "marina", "backend", "fix it", None,
-                             "peer", "async", None, 0, None)
-        db.mark_delivered(con, rid)
-        _set_request_state(con, rid, "landed", "ok")
-        check("progress: an idle note does not resurface after a request came and went (T366)",
-              handoffmod.get_progress(con, "backend") is None)
-        rid = db.add_request(con, "marina", "backend", "fix it", None,
-                             "peer", "async", None, 0, None)
-        ok, said = handoffmod.set_progress(con, "backend", "x")
-        check("progress: a request not yet delivered is not one in hand; the note stays on the agent",
-              ok and said.startswith("you"), said)
-        t1 = db.new_task(con, "one", "backend", "marina")
-        t2 = db.new_task(con, "two", "backend", "marina")
-        db.set_current_task(con, "backend", t1)
-        ok, said = handoffmod.set_progress(con, "backend", "half of T1")
-        db.set_current_task(con, "backend", t2)
-        check("progress: with a task in hand the note is the task's, not the next task's (T366)",
-              ok and said.startswith(f"T{t1}") and handoffmod.get_progress(con, "backend") is None, said)
-        db.set_current_task(con, "backend", None)
-        db.mark_delivered(con, rid)
-        ok, said = handoffmod.set_progress(con, "backend", "done: parser\nleft: tests")
-        check("progress: kept on the delivered request", ok and said == f"#{rid}", said)
-        check("progress: the agent's own note is dropped once a request has one",
-              db.get_meta(con, "progress-agent:backend") is None)
-        handoffmod.record(con, "backend")
-        text = db.get_handoff(con, "backend")
-        check("progress: the handoff carries both lines, right after the request",
-              f"#{rid} from marina" in text and "  done: parser\n  left: tests" in text
-              and text.index("progress") > text.index(f"#{rid}"), text)
-        ok, _ = handoffmod.set_progress(con, "backend", "a\x1b[31mb\x9bc\u2028d")
-        kept = handoffmod.get_progress(con, "backend")
-        check("progress: ESC, a C1 control and U+2028 never reach the handoff; U+2028 is a line break",
-              ok and kept == "abc\nd" and "\x1b" not in db.get_meta(con, f"progress:{rid}"),
-              repr(kept))
-        handoffmod.set_progress(con, "backend", "done: parser\nleft: tests")
-        ok, said = handoffmod.set_progress(con, "backend", "y" * (handoffmod.PROGRESS_MAX + 1))
-        check("progress: a note past the cap is refused and the old one stays",
-              not ok and handoffmod.get_progress(con, "backend") == "done: parser\nleft: tests", said)
-        handoffmod.set_progress(con, "backend", "")
-        handoffmod.record(con, "backend")
-        check("progress: an empty note clears it", "progress" not in db.get_handoff(con, "backend"))
-        handoffmod.set_progress(con, "backend", "old")
-        _set_request_state(con, rid, "landed", "ok")
-        rid2 = db.add_request(con, "marina", "backend", "next", None,
-                              "peer", "async", None, 0, None)
-        db.mark_delivered(con, rid2)
-        handoffmod.record(con, "backend")
-        check("progress: the next request does not inherit the last one's note",
-              "progress" not in db.get_handoff(con, "backend"), db.get_handoff(con, "backend"))
-    finally:
-        con.close()
-
-
 def test_the_handoff_names_the_effective_head_not_a_blocked_one(home: Path) -> None:
     """T337 round 4, auditor #2028 finding 2: _request_line, set_progress and
     get_progress read db.head_of_queue directly - with a true head blocked
@@ -745,7 +604,6 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_digest())
-        run(lambda: test_event_allowlist())
         run(lambda: test_korean_digests_read_and_are_migrated_to_english_headings(Path(td) / 'enmig'))
         run(lambda: test_fold(Path(td) / 'foldhome'))
         run(lambda: test_build_prompt_tells_the_model_not_to_write_a_started_by_reference_as_hash_n(
@@ -755,8 +613,6 @@ def main() -> int:
         run(lambda: test_fold_is_not_rejected_over_a_header_it_overwrites(Path(td) / 'fhdr'))
         run(lambda: test_a_fold_is_a_process_not_a_session(Path(td) / 'foldproc'))
         run(lambda: test_a_rejected_fold_still_records_what_it_spent(Path(td) / 'spend'))
-        run(lambda: test_the_handoff_is_three_facts_read_without_a_model(Path(td) / 'hdhome'))
-        run(lambda: test_the_handoff_carries_the_agents_progress_note_on_its_request(Path(td) / 'hdprog'))
         run(lambda: test_the_handoff_names_the_effective_head_not_a_blocked_one(Path(td) / 'hdprogblocked'))
         run(lambda: test_the_digest_facts_do_not_repeat_one_event_kind(Path(td) / 'hdfacts'))
         run(lambda: test_fold_falls_back_to_claude_when_the_own_vendor_has_no_usable_account(Path(td) / 'foldfb'))

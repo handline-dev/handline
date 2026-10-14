@@ -391,7 +391,7 @@ def _move_to_room(con, agent: str, trigger: triggers.Trigger, log,
         return False, True
 
     # `_perform_handoff` put this agent in HANDOFF before calling here, and
-    # HANDOFF is one of events.PROTECTED_STATES - `_mark_activity` refuses to
+    # HANDOFF is a protected state of the hook (go/internal/hooks/apply.go), which refuses to
     # move an agent out of a protected state, so the new session's own
     # UserPromptSubmit could never set RUNNING while it stood. HANDOFF was
     # protecting the session that just ended; that session is gone now, and

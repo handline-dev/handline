@@ -3,7 +3,7 @@
   {
    "name": "chat.send.a_parent_that_asked_the_person_is_only_a_say",
    "spec": "chat.send",
-   "about": "NOT_YET_IN_PYTHON A parent that waits on the person is not answered by chat.send: the message is a new one under it (needs --var ask_agent: an agent with one open question to the person).",
+   "about": "A parent that waits on the person is not answered by chat.send: the message is a new one under it (needs --var ask_agent: an agent with one open question to the person).",
    "as": "founder",
    "steps": [
     {

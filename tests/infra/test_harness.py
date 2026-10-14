@@ -12,8 +12,6 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
 
-
-
 def test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed() -> None:
     """A test that starts `orca` itself is stopped and named; one that catches the error still fails the run,
     because the attempt is kept; and a child process that reaches `orca` reaches the stand-in on PATH, which

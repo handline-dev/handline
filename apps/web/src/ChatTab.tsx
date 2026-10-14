@@ -1,5 +1,5 @@
-// Chat tab: the conversation with the agent. The person's messages show how far they got (sending, delivered, not answered...), the agent's
-// replies, tool lines and task events follow in time, and a question from the agent can be answered or dismissed here.
+// Chat tab: the conversation with the agent. The person's messages show how far they got (sending, delivered...), the agent's
+// replies, tool lines and task events follow in time.
 // A daemon that does not serve chat gets an empty state; the permission card shows either way.
 import { motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';

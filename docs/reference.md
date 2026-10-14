@@ -23,7 +23,6 @@ One line each. `ocp <command> --help` has the options, and `hl guide <topic>` pr
 
 | | |
 |---|---|
-| `hl daemon` | Run the supervisor in the foreground. |
 | `hl service install` / `uninstall` / `status` / `logs` | Run the daemon as a launchd job. |
 | `hl launch <agent>` | Start Claude as that agent, on its account. Run it inside an Orca terminal. |
 | `hl spawn <agent> --repo <path>` | Give an agent its own worktree and start it there. |

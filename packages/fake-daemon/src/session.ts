@@ -1,7 +1,7 @@
 import { PROTOCOL } from '@handline/contract';
 import type { AgentDetail, AgentView, InputHolder, Methods, Notifications, Prompt, Row, Timestamp } from '@handline/contract';
 import { BANNER, type AgentFixture } from './fixtures.ts';
-import { refused } from './errors.ts';
+import { Failure, refused } from './errors.ts';
 import { defaultSettings } from './settings.ts';
 
 export const ROWS = 24,
@@ -41,6 +41,7 @@ export interface Session {
   buffer: string; // typed, Enter not yet pressed
   composing: boolean; // the last line shows the buffer
   holder: InputHolder;
+  unheld?: [number, number]; // the size before the viewers' first resize while nobody held the input
   prompt: Prompt | null;
   structured?: boolean; // played as a structured session by the transcript
   queue: (() => void)[]; // the scripted turn, one step per tick
@@ -57,6 +58,13 @@ export interface Attach {
 }
 
 export const tid = (s: Session) => `term:${s.fx.name}`;
+
+/** The session whose terminal is `id`; not_found when none is. */
+export function byTerminal(sessions: Map<string, Session>, id: unknown): Session {
+  const s = [...sessions.values()].find((x) => tid(x) === id);
+  if (!s) throw new Failure('not_found', `no terminal ${String(id)}`);
+  return s;
+}
 
 export function newSession(fx: AgentFixture, since: Timestamp): Session {
   const open = fx.session !== null;

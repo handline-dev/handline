@@ -175,7 +175,8 @@ def test_resize_by_the_holder_changes_the_pane_and_repaints() -> None:
     r = THE
     snap = (r.call("terminal.attach", {"agent": AGENT, "format": "styled"})).get("result") or {}
     handle = snap["terminal"]
-    check("resize without the input is refused", "error" in r.call("terminal.resize", {"terminal": handle, "cols": 90, "rows": 30}), "")
+    unheld = r.call("terminal.resize", {"terminal": handle, "cols": 85, "rows": 28})
+    check("with nobody holding the input, a viewer's resize is accepted", "result" in unheld, str(unheld)[:300])
     r.call("input.take", {"agent": AGENT})
     since = time.time()
     done = r.call("terminal.resize", {"terminal": handle, "cols": 90, "rows": 30})
