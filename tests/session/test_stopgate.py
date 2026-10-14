@@ -67,7 +67,7 @@ def test_a_roster_proposal_waiting_on_the_founder_is_a_recorded_wait(home: Path)
     check("setup: the worker raises a roster proposal", ok, said)
     check("a proposal of its own waiting on the founder lets its turn end",
           stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
-    hr.decide(said.split()[1], "rejected", askmod.HUMAN)
+    hr.save({**hr.load_proposal(said.split()[1]), "state": "rejected"})
     block, reason = stopgate.decide("worker", {"session_id": "s2"})
     check("once decided it is no wait: the current task needs its own", block is True and reason, (block, reason))
 

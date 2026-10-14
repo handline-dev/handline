@@ -2003,17 +2003,12 @@ edges:
               and not any("twoline" in (m["body"] or "") for m in actions.messages(con)), said2)
         check("hr: proposing raises it to the founder and changes nothing",
               ok and "dohyun" not in paths.list_agents(), said)
-        card = next((c for c in hr.pending() if c["id"] == pid), None)
+        card = hr.card(hr.load_proposal(pid))
         check("hr: and it is in front of the founder, with the words to decide it with",
-              card and f"hl hr approve {pid}" in card["text"], said)
+              f"hl hr approve {pid}" in card["text"], said)
 
-        # Not yet decided: nothing applies it.
-        ok, said = hr.apply(pid)
-        check("hr: it cannot be applied before it is approved",
-              not ok and "not approved" in said, said)
-
-        # Approved, and the two writes a human would have made.
-        ok, said = approve_hr(pid)
+        # Applied: the two writes a human would have made.
+        ok, said = apply_hr(pid)
         table = yamlcompat.load((home / "team.yaml").read_text())
         check("hr: an approved proposal registers the agent", ok and "dohyun" in paths.list_agents(), said)
         check("hr: and puts it in the team, which is what the routing is keyed on",
@@ -2021,13 +2016,12 @@ edges:
               str(table["teams"]))
         check("hr: the manager may now ask it, because the wildcard covers it",
               team.Team(table).route("manager", "dohyun").allowed)
-        check("hr: applying twice is refused", not hr.apply(pid)[0])
 
         # Retiring archives rather than deletes: the journal is the record of
         # work that was actually done.
         ok, said = hr.propose("retire", "dohyun", requester="hr", why="branch landed")
         pid2 = said.split()[1]
-        ok, said = approve_hr(pid2)
+        ok, said = apply_hr(pid2)
         table = yamlcompat.load((home / "team.yaml").read_text())
         archived = list((home / "agents" / "archive").glob("*dohyun*"))
         check("hr: retiring takes it out of the table", ok and "dohyun" not in table["agents"], said)
@@ -2046,11 +2040,11 @@ edges:
         ok, said = hr.propose("rename", "manager", requester="hr", to="harbor-manager",
                               why="it only ever runs the harbor project", team_name=None)
         pid_r = said.split()[1]
-        ok, said = approve_hr(pid_r)
+        ok, said = apply_hr(pid_r)
         check("hr: an identity does not change under a running session",
               not ok and "session running" in said, said)
         sessions_are()
-        ok, said = hr.apply(pid_r)
+        ok, said = apply_hr(pid_r)
         table = yamlcompat.load((home / "team.yaml").read_text())
         check("hr: with the session closed, the rename lands",
               ok and "harbor-manager" in paths.list_agents()
@@ -2095,15 +2089,6 @@ edges:
         check("hr: and the agent is left where it was",
               "harbor-manager" in paths.list_agents() and "boss" not in paths.list_agents())
 
-        # A rejection is recorded and never applied.
-        ok, said = hr.propose("add", "seoyun", repo="/repo", requester="hr", why="third lane", team_name="dev")
-        pid3 = said.split()[1]
-        hr.decide(pid3, "rejected", actions.HUMAN, "one lane at a time")
-        ok, said = hr.apply(pid3)
-        check("hr: a rejected proposal stays rejected",
-              not ok and "rejected" in said and "seoyun" not in paths.list_agents(), said)
-        check("hr: and the file says so",
-              hr.load_proposal(pid3)["state"] == "rejected", str(hr.load_proposal(pid3)))
     finally:
         con.close()
 
@@ -2155,7 +2140,7 @@ edges:
         rc = climod.main(hire)
         check("hr: an agent's request is a proposal, and changes nothing",
               rc == 0 and "dohyun" not in paths.list_agents()
-              and [c["agent"] for c in hr.pending()] == ["dohyun"], str(rc))
+              and [p_["agent"] for p_ in proposals.listing() if p_["state"] == "proposed"] == ["dohyun"], str(rc))
         del os.environ["OCP_AGENT"]
         for p_ in proposals.listing():
             hr.path_of(p_["id"]).unlink()
@@ -2197,76 +2182,6 @@ edges:
         if real_env is not None:
             os.environ["OCP_AGENT"] = real_env
         con.close()
-
-
-def test_a_withdraw_and_the_founders_decision_settle_to_one_outcome(home: Path) -> None:
-    """A withdraw and the founder's decision on one proposal end as exactly one outcome,
-    whichever lands first, and neither leaves the proposal stuck. The two are interleaved at
-    the two points a check-then-act withdraw could be overtaken: before it has taken its lock,
-    and after it has marked the proposal withdrawn."""
-    _daemon_home(home, 20)
-    accounts.register("beta")
-    agents.register("hr")
-    hand_edit_team("""
-agents:
-  hr: {}
-edges:
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: task }
-""")
-
-    def propose(name):
-        ok, said = hr.propose("add", name, repo="/repo", requester="hr", why="hands")
-        return said.split()[1]
-
-    def founder(pid, out):
-        out.append(approve_hr(pid))
-
-    orig_load, orig_save = hr.load_proposal, hr.save
-    try:
-        # 1. The founder approves after the withdraw has read the proposal.
-        pid = propose("racer")
-        got, fired = [], []
-
-        def load_then_decide(p):
-            r = orig_load(p)
-            if not fired:
-                fired.append(1)
-                founder(pid, got)
-            return r
-        hr.load_proposal = load_then_decide
-        ok, said = hr.withdraw(pid, "hr")
-        hr.load_proposal = orig_load
-        check("race 1: the founder's approve went through", got and got[0][0], str(got))
-        check("race 1: so the withdraw refuses and says so", not ok and "already" in said, said)
-        check("race 1: and the approve is enacted, not lost",
-              "racer" in paths.list_agents() and hr.load_proposal(pid)["state"] == "applied")
-
-        # 2. The founder decides while the withdraw is mid-way. The withdraw holds the write
-        # lock, so the decision can only land after it.
-        pid2 = propose("racer2")
-        got2, threads = [], []
-
-        def save_then_decide(prop):
-            r = orig_save(prop)
-            if not threads:
-                t = threading.Thread(target=founder, args=(pid2, got2))
-                threads.append(t)
-                t.start()
-                t.join(1.5)
-            return r
-        hr.save = save_then_decide
-        ok, said = hr.withdraw(pid2, "hr")
-        hr.save = orig_save
-        threads[0].join(15)
-        check("race 2: the withdraw won", ok and hr.load_proposal(pid2)["state"] == "withdrawn", said)
-        check("race 2: the founder's decision refuses and records nothing",
-              got2 and not got2[0][0] and "already withdrawn" in got2[0][1]
-              and decisions.get("hr", pid2) is None, str(got2))
-        ok, said = hr.apply(pid2)
-        check("race 2: apply enacts nothing", not ok and "racer2" not in paths.list_agents(), said)
-    finally:
-        hr.load_proposal, hr.save = orig_load, orig_save
 
 
 def test_classify_reads_the_screen_again_after_waiting_of_hides_a_wait_by_it(home: Path) -> None:
@@ -2357,12 +2272,12 @@ def test_a_proposal_and_an_decisionion_wait_on_the_founder_too(home: Path) -> No
         w = waits("proposal")
         check("hr wait: approved but not applied it stays, no longer red",
               len(w) == 1 and not w[0]["red"] and "not yet applied" in w[0]["what"], str(w))
-        ok, said = hr.apply(pid)
-        check("hr wait: applied, it is gone", ok and not waits("proposal"), said)
+        hr.save({**hr.load_proposal(pid), "state": "applied"})
+        check("hr wait: applied, it is gone", not waits("proposal"))
 
         agents.register("marina")
         ok, said = hr.propose("retire", "marina", requester="marina", why="w")
-        hr.decide(said.split()[1], "rejected", actions.HUMAN)
+        hr.save({**hr.load_proposal(said.split()[1]), "state": "rejected"})
         check("hr wait: refused, it is gone", not waits("proposal"), str(waits("proposal")))
 
         askmod.ask(actions.HUMAN, "which branch do we cut?", requester="marina")
@@ -5341,8 +5256,6 @@ def main() -> int:
         run(lambda: test_only_one_thing_types_at_an_agent_at_a_time(Path(td) / 'locking'))
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
-        run(lambda: test_a_withdraw_and_the_founders_decision_settle_to_one_outcome(
-            Path(td) / 'hrrace'))
         run(lambda: test_classify_reads_the_screen_again_after_waiting_of_hides_a_wait_by_it(
             Path(td) / 'classifyreuse'))
         run(lambda: test_a_stale_cached_read_does_not_hide_a_later_prompt(Path(td) / 'stalecache'))

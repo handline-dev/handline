@@ -7,11 +7,12 @@ from pathlib import Path
 
 from ..team import ask as askmod
 from .. import db
-from ..team import hr, proposals
+from ..team import hr
 from ..team import rehome
 from ..team import trust
-from ..infra import protected, textsafe
+from ..infra import daemonclient as dmn_client, protected, textsafe
 
+from . import client
 from .ask import _who_refusal
 from .health import _name_col
 
@@ -60,9 +61,49 @@ def propose_for_session(kind: str, name: str, sets: dict, why: str | None) -> in
     return 0 if ok else 1
 
 
-def _approve_many(ids: list[str], yes: bool, me: str) -> int:
+def _waiting() -> list[dict]:
+    """The proposals waiting on the founder, as hr.list serves them."""
+    return [p for p in client.call("hr.list")["proposals"] if p["state"] in ("open", "apply_failed")]
+
+
+def _wire_id(p: dict) -> str:
+    """A served proposal's id as its file and `hl hr` name it."""
+    return f"{p['id']:08x}"
+
+
+def _number(pid: str) -> int | None:
+    """The wire's number for a proposal's id (hex text), None for an id that is none."""
+    try:
+        return int(pid, 16)
+    except ValueError:
+        return None
+
+
+def _decide(pid: str, decision: str, subject: str = "", note: str = "") -> tuple[bool, str]:
+    """hr.decide on one proposal: the daemon applies an approve and tells the proposer."""
+    if _number(pid) is None:
+        return False, f"no proposal {pid}"
+    params = {"proposal": _number(pid), "decision": decision}
+    if subject:
+        params["subject"] = subject
+    if note:
+        params["note"] = note
+    return client.write("hr.decide", params)
+
+
+def _decide_each(entries: list[tuple[str, str]], decision: str, note: str = "") -> int:
+    """hr.decide on each (id, subject) in order, one line each; each proposer is told of each."""
+    oks = []
+    for pid, subject in entries:
+        ok, said = _decide(pid, decision, subject, note)
+        print(f"{pid}: {said.splitlines()[0] if said else ''}")
+        oks.append(ok)
+    return 0 if all(oks) else 1
+
+
+def _approve_many(ids: list[str], yes: bool) -> int:
     """The founder approving several proposals at once: each is read as it stands now, shown, and
-    confirmed once; they are applied one after another and each proposer gets one message."""
+    confirmed once; they are applied one after another."""
     entries = []
     for pid in ids:
         prop, err = hr._open(pid)
@@ -80,9 +121,7 @@ def _approve_many(ids: list[str], yes: bool, me: str) -> int:
         if input(f"approve all {len(entries)}? [y/N] ").strip().lower() not in ("y", "yes"):
             print("left alone")
             return 1
-    ok, lines = hr.decide_many(entries, "approved", me)
-    print("\n".join(lines))
-    return 0 if ok else 1
+    return _decide_each(entries, "approve")
 
 
 # ---------------------------------------------------------------- team / ask
@@ -96,20 +135,21 @@ def cmd_hr(args) -> int:
     """
     me = askmod.asking_agent()
     if args.hr_cmd == "list":
+        try:
+            rows = client.call("hr.list")["proposals"] if args.all or not args.json else _waiting()
+        except (dmn_client.DaemonDown, dmn_client.RpcError, OSError) as e:
+            print(f"the proposals cannot be read: {e}", file=sys.stderr)
+            return 1
         if args.json:
-            print(json.dumps(hr.pending() + (hr.decided() if args.all else []), indent=2))
+            print(json.dumps(rows, indent=2))
             return 0
-        skipped: list[str] = []
-        rows = proposals.listing(skipped)
-        for why in skipped:
-            print(f"skipped, cannot be read - {why}", file=sys.stderr)
         if not rows:
             print("no proposals")
             return 0
         for p_ in rows:
-            print(f"{p_['id']}  {p_['kind']:<7}"
+            print(f"{_wire_id(p_)}  {p_['kind']:<7}"
                   f"{textsafe.oneline(str(p_['agent'])):<{_name_col([r['agent'] for r in rows])}}"
-                  f"{p_.get('state', '?'):<10}"
+                  f"{p_['state']:<13}"
                   f"by {textsafe.oneline(str(p_.get('requested_by', '?')))}")
         return 0
     if args.hr_cmd == "relabel":
@@ -134,37 +174,43 @@ def cmd_hr(args) -> int:
         print(said)
         return 0 if ok else 1
     if args.hr_cmd == "apply":
-        ok, said = hr.apply(args.id)
-        print(said)
-        return 0 if ok else 1
+        prop, err = hr._open(args.id)
+        if err:
+            print(err)
+            return 1
+        if prop.get("state") != "approved":
+            print(f"proposal {args.id} is {prop.get('state')}, not approved - "
+                  f"the founder decides it with `hl hr approve {args.id}`")
+            return 1
+        return client.said(*_decide(args.id, "approve", hr.subject_of(prop)))
     if args.hr_cmd in ("approve", "reject"):
         if protected.in_agent_session() or me != askmod.HUMAN:
             print("approving or rejecting a proposal is the founder's, from a terminal or the "
                   "screen, not an agent's", file=sys.stderr)
             return 1
-        if args.hr_cmd == "approve":
-            ids = [c["id"] for c in hr.pending()] if args.all else list(args.ids)
-            if args.all and args.ids:
-                print("name proposals, or --all, not both", file=sys.stderr)
+        if args.all and (getattr(args, "ids", None) or getattr(args, "id", None)):
+            print(f"name {'proposals' if args.hr_cmd == 'approve' else 'a proposal'}, or --all, not both", file=sys.stderr)
+            return 1
+        if args.all:
+            try:
+                waiting = _waiting()
+            except (dmn_client.DaemonDown, dmn_client.RpcError, OSError) as e:
+                print(f"the proposals cannot be read: {e}", file=sys.stderr)
                 return 1
-            if not ids:
-                print("no proposals" if args.all else "name the proposals to approve, or --all", file=sys.stderr)
-                return 1 if not args.all else 0
-            if len(ids) > 1 or args.all:
-                return _approve_many(ids, args.yes, me)
-            args.id = ids[0]
-        elif args.all:
-            # A reject changes nothing, and its proposer may raise it again, so it is not asked twice.
-            if args.id:
-                print("name a proposal, or --all, not both", file=sys.stderr)
-                return 1
-            ids = [c["id"] for c in hr.pending()]
-            if not ids:
+            if not waiting:
                 print("no proposals")
                 return 0
-            ok, lines = hr.decide_many([(pid, "") for pid in ids], "rejected", me, args.all_reason)
-            print("\n".join(lines))
-            return 0 if ok else 1
+            if args.hr_cmd == "reject":
+                # A reject changes nothing, and its proposer may raise it again, so it is not asked twice.
+                return _decide_each([(_wire_id(p), "") for p in waiting], "reject", args.all_reason)
+            return _approve_many([_wire_id(p) for p in waiting], args.yes)
+        if args.hr_cmd == "approve":
+            if not args.ids:
+                print("name the proposals to approve, or --all", file=sys.stderr)
+                return 1
+            if len(args.ids) > 1:
+                return _approve_many(list(args.ids), args.yes)
+            args.id = args.ids[0]
         elif not args.id:
             print("name the proposal to reject, or --all", file=sys.stderr)
             return 1
@@ -183,10 +229,7 @@ def cmd_hr(args) -> int:
                 print("left alone")
                 return 1
             subject = shown["subject"]
-        ok, said = hr.decide(args.id, "approved" if args.hr_cmd == "approve" else "rejected",
-                             me, getattr(args, "reason", ""), subject)
-        print(said)
-        return 0 if ok else 1
+        return client.said(*_decide(args.id, args.hr_cmd, subject, getattr(args, "reason", "")))
     if args.hr_cmd == "diff":
         if not me:
             print(_who_refusal("propos"))
@@ -205,9 +248,10 @@ def cmd_hr(args) -> int:
         if not me:
             print(_who_refusal("withdraw"))
             return 1
-        ok, said = hr.withdraw(args.id, me)
-        print(said)
-        return 0 if ok else 1
+        if _number(args.id) is None:
+            print(f"no proposal {args.id}")
+            return 1
+        return client.said(*client.write("hr.withdraw", {"proposal": _number(args.id)}))
     if not me:
         print(_who_refusal("propos"))
         return 1

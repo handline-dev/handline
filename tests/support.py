@@ -453,9 +453,43 @@ def _set_request_state(con, rid: int, state: str, verdict: str | None = None,
     db.refresh_sent_of_request(con, rid)
 
 
-def approve_hr(pid: str):
-    """The founder approving a roster proposal as its card shows it now."""
-    return hr.decide(pid, "approved", askmod.HUMAN, subject=hr.subject_of(hr.load_proposal(pid)))
+def apply_hr(pid: str, con=None) -> tuple[bool, str]:
+    """A roster proposal's change made with the Python doers, which the founder's own change runs. Deciding a proposal
+    and applying it are the Go daemon's (go/internal/hrwrites)."""
+    own = con is None
+    con = con or db.connect()
+    try:
+        return hr._run(hr.load_proposal(pid), con)
+    finally:
+        if own:
+            con.close()
+
+
+_HR_WIRE = {"proposed": "open", "approved": "apply_failed", "applied": "approved", "rejected": "rejected", "withdrawn": "withdrawn"}
+
+
+@contextlib.contextmanager
+def go_hr():
+    """hr.list and hr.decide served from the proposal files, as far as `hl hr` reads them; an approve is apply_hr. The
+    gates and telling the proposer are the Go daemon's (go/internal/hrwrites)."""
+    def listed(params):
+        return {"proposals": [{"id": int(p["id"], 16), "kind": p["kind"], "agent": p["agent"], "state": _HR_WIRE[p["state"]],
+                               "requested_by": p.get("requested_by")}
+                              for p in proposals.listing() if p.get("state") in _HR_WIRE and p.get("requested_by") != "human"]}
+
+    def decided(params):
+        pid = f"{params['proposal']:08x}"
+        prop = hr.load_proposal(pid)
+        if prop is None:
+            raise dmn_client.RpcError({"message": f"no proposal {params['proposal']}"})
+        ok, said = (True, f"proposal {pid} rejected") if params["decision"] == "reject" else apply_hr(pid)
+        if not ok:
+            raise dmn_client.RpcError({"message": said})
+        hr.save({**prop, "state": "rejected" if params["decision"] == "reject" else "applied"})
+        return {"said": said}
+
+    with daemon_says("hr.list", listed), daemon_says("hr.decide", decided):
+        yield
 
 
 def answer_card(con, rid: int, verdict: str) -> None:
@@ -2367,7 +2401,8 @@ __all__ = [
     'TmuxStandIn',
     'SUITE_TMUX_SOCKET',
     'ORCA_UNMAINTAINED',
-    'approve_hr',
+    'apply_hr',
+    'go_hr',
     'GO_ARGUMENTS',
     'spooled',
     'answer_card',

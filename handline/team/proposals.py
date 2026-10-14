@@ -29,7 +29,7 @@ def listing(unreadable: list[str] | None = None) -> list[dict]:
     """Every proposal that can be read. A file that cannot be - it does not
     parse, it is not text, or it parses to something that is not a proposal -
     is left out and, when `unreadable` is given, named there with why: the
-    bridge's waiting list and `hl hr list` both read this, and one bad file
+    bridge's waiting list and the stop gate read this, and one bad file
     must not take either down."""
     out = []
     for f in sorted(dir_().glob("*.yaml")):

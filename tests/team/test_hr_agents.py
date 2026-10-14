@@ -362,7 +362,7 @@ def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(ho
 
 
 def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -> None:
-    """`proposals.listing()` feeds `hl hr list` and the bridge's waiting list. A file
+    """`proposals.listing()` feeds the bridge's waiting list. A file
     that does not parse used to raise out of both, and the parser refuses more
     than it did, so the same one file would have hidden every proposal. It is
     left out and named, and a file that parses to something that is not a
@@ -387,12 +387,6 @@ def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -
           and sum("not a proposal" in x for x in skipped) == 3, str(skipped))
     check("hr listing: asked for no report, it still returns the good ones",
           [r["id"] for r in proposals.listing()] == ["good"])
-    out, err = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = climod.main(["hr", "list"])
-    check("hr list: prints the good proposal and says what it skipped, and succeeds",
-          code == 0 and "good" in out.getvalue() and "skipped, cannot be read - broken.yaml" in err.getvalue()
-          and "Traceback" not in err.getvalue(), out.getvalue() + err.getvalue())
     con = db.connect()
     try:
         waits = actions.founder_waits(con)
@@ -400,14 +394,14 @@ def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -
               isinstance(waits, list))
     finally:
         con.close()
-    ok, said = hr.apply("broken")
-    check("hr apply: a proposal that cannot be read says so instead of raising",
-          not ok and "cannot be read" in said, said)
-    ok, said = hr.apply("other")
-    check("hr apply: a file that is not a proposal is said not to be one",
-          not ok and "not a proposal" in said, said)
-    ok, said = hr.apply("binary")
-    check("hr apply: one that is not text says so too", not ok and "cannot be read" in said, said)
+    prop, said = hr._open("broken")
+    check("hr open: a proposal that cannot be read says so instead of raising",
+          prop is None and "cannot be read" in said, said)
+    prop, said = hr._open("other")
+    check("hr open: a file that is not a proposal is said not to be one",
+          prop is None and "not a proposal" in said, said)
+    prop, said = hr._open("binary")
+    check("hr open: one that is not text says so too", prop is None and "cannot be read" in said, said)
     for f in d.glob("*.yaml"):
         if f.name != "good.yaml":
             f.unlink()
@@ -2316,7 +2310,7 @@ deny: []
 
 
 def test_hr_team_is_one_proposal_and_a_team_has_default_links(home: Path) -> None:
-    """T263: a manager and its members are proposed and approved once, and the
+    """A manager and its members are proposed and applied once, and the
     ordinary links (`team.DEFAULT_LINKS`) need no edge; an explicit deny still wins."""
     _daemon_home(home, 20)
     original = """# routing
@@ -2346,25 +2340,10 @@ deny:
               all(x in body for x in ("boat.sea", "boat.shore", "boat.reviewer", "/w/sea", "/w/boat"))
               and "its parent" in body and "hl hr approve" in body, body)
         check("team: one proposal for the whole team, and no task or request for it",
-              len(hr.pending()) == 1
+              len(proposals.listing()) == 1
               and con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'human'").fetchone()["c"] == 0
               and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == 0)
-        ok, said = hr.apply(pid, con)
-        check("team: refused until the founder approves", not ok, said)
-        decisions.record("hr", pid, 0, "approved", hr.subject_of(prop))
-        prop = {**prop, "state": "approved"}
-        hr.save(prop)
-        for label, key, value in [("a member added", "members", prop["members"] + ",boat.spy"),
-                                  ("a member's repo changed", "repo.boat.sea", "/elsewhere"),
-                                  ("the manager's repo changed", "repo", "/elsewhere")]:
-            edited = dict(prop)
-            edited[key] = value
-            hr.save(edited)
-            ok, said = hr.apply(pid, con)
-            check(f"team: {label} after the approval is refused", not ok
-                  and "boat.spy" not in team.Team.load().agents, said)
-        hr.save(prop)
-        ok, said = hr.apply(pid, con)
+        ok, said = apply_hr(pid, con)
         check("team: one approval creates the team", ok, said)
     finally:
         con.close()
@@ -2440,16 +2419,10 @@ edges:
 """
 
 
-def _told(con, who: str) -> list[str]:
-    """What the founder's session has said to `who`, oldest first."""
-    return [r["body"] for r in con.execute(
-        "SELECT body FROM requests WHERE target = ? AND requester = 'human' ORDER BY id", (who,))]
-
-
 def test_a_team_diff_is_one_proposal_applied_all_or_none(home: Path) -> None:
     """One proposal holds the whole change to the team: a link to an agent the same diff adds is judged against
-    the roster the steps before it leave; the founder decides once; the steps run in order with no agent step;
-    the proposer is told once; and a step that fails puts back every step before it."""
+    the roster the steps before it leave; the steps run in order with no agent step; and a step that fails puts
+    back every step before it."""
     _daemon_home(home, 20)
     hand_edit_team(_DIFF_TEAM)
     agents.register("orca")
@@ -2464,7 +2437,7 @@ def test_a_team_diff_is_one_proposal_applied_all_or_none(home: Path) -> None:
         ]
         ok, said = hr.propose_bundle(changes, "orca", "grow")
         check("diff: an agent proposes it, one proposal, nothing written yet",
-              ok and "orca.new" not in paths.list_agents() and len(hr.pending()) == 1, said)
+              ok and "orca.new" not in paths.list_agents() and len(proposals.listing()) == 1, said)
         pid = said.split()[1]
         prop = hr.load_proposal(pid)
         check("diff: stored in the order it is applied, kind bundle",
@@ -2474,18 +2447,13 @@ def test_a_team_diff_is_one_proposal_applied_all_or_none(home: Path) -> None:
         check("diff: the founder reads every step once and one approve line",
               all(x in text for x in ("1. add orca.new", "2. settings orca.new", "3. link orca -> orca.new",
                                       "4. context orca.new", "+build things")) and text.count("hl hr approve") == 1, text)
-        ok, said = hr.apply(pid, con)
-        check("diff: refused until the founder approves", not ok, said)
-        ok, said = approve_hr(pid)
-        check("diff: one approval applies every step", ok and "4 changes" in said, said)
+        ok, said = apply_hr(pid)
+        check("diff: applying it makes every step", ok and "4 changes" in said, said)
         t = team.Team.load()
         check("diff: the agent, its settings, the link and its context are all there",
               "orca.new" in paths.list_agents() and agents.read("orca.new").get("model") == "haiku"
               and t.route("orca", "orca.new").allowed
-              and (paths.agent_dir("orca.new") / "ROLE.md").read_text() == "# role\nbuild things\n"
-              and hr.load_proposal(pid)["state"] == "applied", said)
-        told = _told(con, "orca")
-        check("diff: the proposer is told once, with the whole result", len(told) == 1 and "applied" in told[0], str(told))
+              and (paths.agent_dir("orca.new") / "ROLE.md").read_text() == "# role\nbuild things\n", said)
 
         for label, bad in [("an unknown kind", [{"kind": "hire", "name": "x"}]),
                            ("nothing", []),
@@ -2515,7 +2483,7 @@ def test_a_team_diff_whose_step_fails_puts_back_every_step_before_it(home: Path)
             {"kind": "retire", "name": "orca.fresh"}], "orca", "reshuffle")
         pid = said.split()[1]
         obsmod.live_sessions = lambda: {"loner": True}
-        ok, said = approve_hr(pid)
+        ok, said = apply_hr(pid)
         check("rollback: the diff is not applied, naming the step and that nothing changed",
               not ok and "step 2 of 4 (rename loner)" in said and "Nothing was changed" in said, said)
         check("rollback: team.yaml is as it was, byte for byte", (home / "team.yaml").read_text() == before_team)
@@ -2523,48 +2491,13 @@ def test_a_team_diff_whose_step_fails_puts_back_every_step_before_it(home: Path)
               sorted(paths.list_agents()) == before_agents and not (paths.agent_dir("orca.fresh")).exists()
               and (paths.agent_dir("loner") / "journal" / "keep.md").read_text() == "mine"
               and sealed.state(sealed.TEAM, (home / "team.yaml").read_text()) == "ok")
-        check("rollback: it is still the founder's to retry, with the error on it",
-              hr.load_proposal(pid)["state"] == "approved" and "step 2" in hr.load_proposal(pid)["error"])
-        told = _told(con, "orca")
-        check("rollback: the proposer is told once what failed", len(told) == 1 and "step 2 of 4" in told[0], str(told))
         obsmod.live_sessions = lambda: {}
-        ok, said = approve_hr(pid)
-        check("rollback: approving again, with nothing in the way, applies all of it",
+        ok, said = apply_hr(pid)
+        check("rollback: run again, with nothing in the way, it applies all of it",
               ok and "solo" in paths.list_agents() and "orca.fresh" not in paths.list_agents()
               and (paths.agent_dir("solo") / "journal" / "keep.md").exists(), said)
     finally:
         obsmod.live_sessions = real_live
-        con.close()
-
-
-def test_the_founder_approves_several_proposals_at_once_and_each_proposer_hears_once(home: Path) -> None:
-    _daemon_home(home, 20)
-    hand_edit_team(_DIFF_TEAM)
-    agents.register("orca")
-    (home / "w").mkdir()
-    for n in ("a", "b", "c"):
-        agents.register(f"orca.{n}", repo=str(home / "w"))
-    con = db.connect()
-    try:
-        pids = []
-        for n in ("a", "b", "c"):
-            ok, said = hr.propose("settings", f"orca.{n}", requester="orca", why="talk", sets={"model": "haiku"})
-            check(f"many: orca.{n} is proposed", ok, said)
-            pids.append(said.split()[1])
-        ok, said = hr.propose("settings", "orca.a", requester="orca.b", why="w", sets={"effort": "high"})
-        pids.append(said.split()[1])
-        check("many: four proposals wait", len(hr.pending()) == len(pids) == 4, str((len(hr.pending()), pids)))
-        entries = [(c["id"], c["subject"]) for c in hr.pending()]
-        ok, lines = hr.decide_many(entries, "approved", askmod.HUMAN)
-        check("many: all applied by one action", ok and all(hr.load_proposal(p)["state"] == "applied" for p in pids),
-              str(lines))
-        told = _told(con, "orca")
-        check("many: the proposer of three hears once, listing all three",
-              len(told) == 1 and all(p in told[0] for p in pids[:3]) and "applied" in told[0], str(told))
-        check("many: the proposer of one hears once", len(_told(con, "orca.b")) == 1)
-        ok, lines = hr.decide_many([("nosuch", "x")], "approved", askmod.HUMAN)
-        check("many: an id that is not a proposal fails the action and says so", not ok and "no proposal" in lines[0], str(lines))
-    finally:
         con.close()
 
 
@@ -2581,24 +2514,24 @@ def test_hr_diff_and_approve_all_from_the_command_line(home: Path) -> None:
           and "orca.cli" not in paths.list_agents(), out)
     rc, out = _cli(["hr", "diff", "--file", str(home / "nope.yaml"), "--why", "x"], as_agent="orca")
     check("cli: a file that is not there is refused", rc == 1, out)
-    rc, out = _cli(["hr", "approve", "--all"], as_agent="orca")
-    check("cli: an agent cannot approve", rc == 1 and "orca.cli" not in paths.list_agents(), out)
-    rc, out = _cli(["hr", "approve", "--all"], as_agent=askmod.HUMAN)
-    check("cli: with no terminal, several need --yes", rc == 1 and "orca.cli" not in paths.list_agents(), out)
-    rc, out = _cli(["hr", "approve", "--all", "--yes"], as_agent=askmod.HUMAN)
-    check("cli: approve --all --yes applies them", rc == 0 and "orca.cli" in paths.list_agents()
-          and (paths.agent_dir("orca.cli") / "ROLE.md").read_text() == "# role\nfrom a file\n", out)
-    rc, out = _cli(["hr", "approve", "--all", "--yes"], as_agent=askmod.HUMAN)
-    check("cli: nothing waiting is not an error", rc == 0, out)
+    with go_hr():
+        rc, out = _cli(["hr", "approve", "--all"], as_agent="orca")
+        check("cli: an agent cannot approve", rc == 1 and "orca.cli" not in paths.list_agents(), out)
+        rc, out = _cli(["hr", "approve", "--all"], as_agent=askmod.HUMAN)
+        check("cli: with no terminal, several need --yes", rc == 1 and "orca.cli" not in paths.list_agents(), out)
+        rc, out = _cli(["hr", "approve", "--all", "--yes"], as_agent=askmod.HUMAN)
+        check("cli: approve --all --yes applies them", rc == 0 and "orca.cli" in paths.list_agents()
+              and (paths.agent_dir("orca.cli") / "ROLE.md").read_text() == "# role\nfrom a file\n", out)
+        rc, out = _cli(["hr", "approve", "--all", "--yes"], as_agent=askmod.HUMAN)
+        check("cli: nothing waiting is not an error", rc == 0, out)
     f.write_text("changes:\n  - { kind: add, name: orca.direct, team: orca, repo: /w/d }\n")
     rc, out = _cli(["hr", "diff", "--file", str(f), "--why", "direct"], as_agent=askmod.HUMAN)
     check("cli: the founder's own `hr diff` is made, not proposed", rc == 0 and "orca.direct" in paths.list_agents(), out)
 
 
 def test_a_proposal_is_its_own_record_the_founder_decides(home: Path) -> None:
-    """A roster proposal is not a task: raising it opens no task and no request, it is listed
-    for the founder as a card (`hr.pending`), and `hr.decide` is the one way it is approved
-    (applied at once, the proposer told) or rejected."""
+    """A roster proposal is not a task: raising it opens no task and no request, and its card says who
+    asked for what and why. Deciding it is the Go daemon's hr.decide."""
     _daemon_home(home, 20)
     hand_edit_team("""
 teams:
@@ -2619,49 +2552,11 @@ edges:
         check("proposal: no task and no request to the founder was made for it",
               con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == 0
               and con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'human'").fetchone()["c"] == 0)
-        cards = hr.pending()
+        card = hr.card(hr.load_proposal(pid))
         check("proposal: it is a card with who, what, why and the words the founder reads",
-              len(cards) == 1 and cards[0]["id"] == pid and cards[0]["kind"] == "add"
-              and cards[0]["agent"] == "newbie" and cards[0]["requested_by"] == "orca"
-              and cards[0]["why"] == "more hands" and cards[0]["state"] == "proposed"
-              and f"hl hr approve {pid}" in cards[0]["text"], str(cards))
-        ok, said = hr.apply(pid, con)
-        check("proposal: nothing applies it before the founder approves", not ok and "newbie" not in paths.list_agents(), said)
-        ok, said = hr.decide(pid, "approved", "orca")
-        check("proposal: an agent cannot decide it", not ok and "founder's" in said
-              and hr.load_proposal(pid)["state"] == "proposed", said)
-        ok, said = hr.decide(pid, "approved", askmod.HUMAN)
-        check("proposal: an approve without the digest that was read is refused",
-              not ok and "subject" in said and hr.load_proposal(pid)["state"] == "proposed", said)
-        ok, said = hr.decide(pid, "maybe", askmod.HUMAN)
-        check("proposal: a decision is approved or rejected, nothing else", not ok, said)
-        ok, said = approve_hr(pid)
-        check("proposal: the founder's approve applies it", ok and hr.load_proposal(pid)["state"] == "applied"
-              and "newbie" in paths.list_agents() and hr.pending() == [], said)
-        told = con.execute("SELECT body FROM requests WHERE requester = 'human' AND target = 'orca'").fetchall()
-        check("proposal: the proposer is told how it went", any(f"proposal {pid} applied" in r["body"] for r in told),
-              [r["body"] for r in told])
-        ok, said = approve_hr(pid)
-        check("proposal: a second decision is refused", not ok and "already applied" in said, said)
-
-        ok, said = hr.propose("add", "nope", repo="/repo", requester="orca", why="one more")
-        pid2 = said.split()[1]
-        ok, said = hr.decide(pid2, "rejected", askmod.HUMAN, "not now")
-        told = con.execute("SELECT body FROM requests WHERE requester = 'human' AND target = 'orca'").fetchall()
-        check("proposal: a reject is recorded with its reason and told to the proposer",
-              ok and hr.load_proposal(pid2)["state"] == "rejected"
-              and hr.load_proposal(pid2)["verdict"] == "not now" and "nope" not in paths.list_agents()
-              and any(f"proposal {pid2} was rejected: not now" in r["body"] for r in told), said)
-        ok, said = hr.apply(pid2, con)
-        check("proposal: a rejected one is never applied", not ok and "nope" not in paths.list_agents(), said)
-
-        ok, said = hr.propose("add", "taken", repo="/repo", requester="orca", why="changed my mind")
-        pid3 = said.split()[1]
-        ok, said = hr.withdraw(pid3, "orca")
-        check("withdraw: the author takes it back and it leaves the founder's list",
-              ok and hr.load_proposal(pid3)["state"] == "withdrawn" and hr.pending() == [], said)
-        ok, said = approve_hr(pid3)
-        check("withdraw: a withdrawn proposal cannot be approved", not ok and "taken" not in paths.list_agents(), said)
+              card["kind"] == "add" and card["agent"] == "newbie" and card["requested_by"] == "orca"
+              and card["why"] == "more hands" and card["state"] == "proposed"
+              and f"hl hr approve {pid}" in card["text"], str(card))
     finally:
         con.close()
 
@@ -2735,96 +2630,6 @@ edges:
         con.close()
 
 
-def test_an_approve_is_recorded_where_no_agent_writes_and_applied_once(home: Path) -> None:
-    """The founder's approve is recorded in the protected store and applied by the same call;
-    a draft changed after it, a state written into the file by hand, and an agent's session
-    each apply or decide nothing; an approve whose apply failed is told and retried."""
-    _daemon_home(home, 20)
-    hand_edit_team("""
-teams:
-  orca: [orca]
-agents:
-  orca: {}
-edges:
-  - { from: "orca", to: "orca.*", relation: supervisor, response: async }
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: task }
-""")
-    agents.register("orca")
-    con = db.connect()
-    try:
-        ok, said = hr.propose("team", "crew", requester="orca", why="a crew", repo="/w",
-                              members=["a", "b"], repos={"crew.a": "/w/a"})
-        pid = said.split()[1]
-        ok, said = approve_hr(pid)
-        check("team answer: the approve is applied by the decision itself", ok, said)
-        check("team answer: it is recorded, and the team exists",
-              (decisions.get("hr", pid) or {}).get("call") == "approved"
-              and hr.load_proposal(pid)["state"] == "applied"
-              and team.Team.load().teams.get("crew") == ["crew", "crew.a", "crew.b"]
-              and "crew.b" in paths.list_agents())
-
-        ok, said = hr.propose("team", "old", requester="orca", why="forged", repo="/w", members=["x"])
-        pid = said.split()[1]
-        prop = hr.load_proposal(pid)
-        hr.save({**prop, "state": "approved"})
-        ok, said = hr.apply(pid, con)
-        check("forged: a state written into the file with no recorded approval applies nothing",
-              not ok and "no approval from the founder is on record" in said
-              and "old.x" not in paths.list_agents(), said)
-        os.environ["OCP_AGENT"] = "orca"
-        try:
-            ok, said = approve_hr(pid)
-            rc, out = _cli(["hr", "approve", pid], as_agent="orca")
-        finally:
-            os.environ.pop("OCP_AGENT", None)
-        check("forged: an agent's session cannot record the founder's approval", not ok
-              and rc == 1 and decisions.get("hr", pid) is None, said + out)
-        hr.save(prop)
-
-        kinds = proposals.KINDS
-        proposals.KINDS = tuple(k for k in kinds if k != "team")
-        try:
-            ok, said = approve_hr(pid)
-        finally:
-            proposals.KINDS = kinds
-        check("stale: a process that does not know the kind decides nothing",
-              not ok and "knows" in said and hr.load_proposal(pid)["state"] == "proposed"
-              and decisions.get("hr", pid) is None, said)
-
-        subject = hr.subject_of(prop)
-        edited = dict(prop)
-        edited["members"] = "old.x,old.spy"
-        hr.save(edited)
-        ok, said = hr.decide(pid, "approved", askmod.HUMAN, subject=subject)
-        check("bind: a draft edited after the founder read it is not approved unseen",
-              not ok and "changed after you read it" in said and decisions.get("hr", pid) is None
-              and "old.spy" not in paths.list_agents(), said)
-        hr.save(prop)
-
-        # An approve whose apply fails: told to the proposer, kept approved, and retried by approving again.
-        ok, said = hr.propose("add", "latecomer", repo="/repo", requester="orca", why="w")
-        pid = said.split()[1]
-        real = hr._DOERS["add"]
-        hr._DOERS["add"] = lambda prop, con: (False, "orca is not answering")
-        try:
-            ok, said = approve_hr(pid)
-        finally:
-            hr._DOERS["add"] = real
-        told = [r["body"] for r in con.execute(
-            "SELECT body FROM requests WHERE requester = 'human' AND target = 'orca'").fetchall()]
-        check("failed apply: the founder is told why, the proposal stays approved and listed with the error",
-              not ok and "not answering" in said and hr.load_proposal(pid)["state"] == "approved"
-              and next(c for c in hr.pending() if c["id"] == pid)["error"] == "orca is not answering"
-              and any(f"proposal {pid} was approved but could not be applied" in b for b in told), said)
-        ok, said = approve_hr(pid)
-        check("failed apply: approving again retries it, without a second decision",
-              ok and hr.load_proposal(pid)["state"] == "applied" and "latecomer" in paths.list_agents()
-              and pid not in {c["id"] for c in hr.pending()}, said)
-    finally:
-        con.close()
-
-
 def test_hr_link_and_unlink_edit_one_edge_and_nothing_else(home: Path) -> None:
     """An ask edge is added or removed through hr, as text so the file's comments
     survive, validated before it is written, and gated like any roster change."""
@@ -2894,10 +2699,8 @@ deny:
         text = hr.card(prop)["text"]
         check("link: the founder is told which edge and how to decide",
               "marina -> keeper" in text and "hl hr approve" in text, text)
-        ok, said = hr.apply(pid, con)
-        check("link: apply refuses until the founder has approved", not ok, said)
-        ok, said = approve_hr(pid)
-        check("link: the approval adds the edge",
+        ok, said = apply_hr(pid)
+        check("link: applying it adds the edge",
               ok and team.Team.load().route("marina", "keeper").allowed, said)
 
         agents.register("late")
@@ -2976,7 +2779,7 @@ def test_an_agents_role_and_base_change_only_by_a_proposal_the_founder_approves(
     before = (paths.agent_dir("worker") / "ROLE.md").read_text()
     rc, out = _cli(["hr", "context", "worker", "--role-file", str(big_role), "--why", "a long role"], as_agent="other")
     big = next((x["id"] for x in proposals.listing() if x["kind"] == "context"), None)
-    check("context: a 3KB ROLE.md is raised as a proposal", rc == 0 and big and hr.withdraw(big, "other")[0], out)
+    check("context: a 3KB ROLE.md is raised as a proposal", rc == 0 and big, out)
     rc, out = _cli(["hr", "context", "worker", "--role-file", str(role_file), "--why", "tighten"], as_agent="other")
     pid = next((x["id"] for x in proposals.listing() if x["kind"] == "context" and x["id"] != big), None)
     check("context: an agent's proposal is raised, and nothing is written",
@@ -2987,22 +2790,8 @@ def test_an_agents_role_and_base_change_only_by_a_proposal_the_founder_approves(
           "-the old role" in text and "+The new role." in text and "ROLE.md (proposed)" in text, text)
     rc, out = _cli(["hr", "context", "nobody", "--role-file", str(role_file), "--why", "w"], as_agent="other")
     check("context: for an agent that is not one, refused", rc == 1 and "not an agent" in out, out)
-    con = db.connect()
-    try:
-        ok, said = hr.apply(pid, con)
-        check("context: nothing applies before the founder answers",
-              not ok and (paths.agent_dir("worker") / "ROLE.md").read_text() == before, said)
-        decisions.record("hr", pid, 0, "approved", hr.subject_of(prop))
-        edited = {**prop, "state": "approved", "set.ROLE.md": json.dumps("# worker\n\nSomething else.\n")}
-        hr.save(edited)
-        ok, said = hr.apply(pid, con)
-        check("context: a proposal edited after the approval is refused",
-              not ok and (paths.agent_dir("worker") / "ROLE.md").read_text() == before, said)
-        hr.save({**prop, "state": "approved"})
-        ok, said = hr.apply(pid, con)
-    finally:
-        con.close()
-    check("context: the approval writes exactly the proposed text, and not the other file",
+    ok, said = apply_hr(pid)
+    check("context: applying it writes exactly the proposed text, and not the other file",
           ok and (paths.agent_dir("worker") / "ROLE.md").read_text() == role_file.read_text()
           and "base.md" not in said, said)
     check("context: the file still loads as the agent's standing context",
@@ -3050,38 +2839,19 @@ edges:
         text = hr.card(prop)["text"]
         check("hr add: the decision names the vendor to the founder",
               "vendor opencode" in text, text)
-        ok, said = approve_hr(pid)
-        check("hr add: approving the proposal applies it", ok, said)
+        ok, said = apply_hr(pid)
+        check("hr add: the proposal applies", ok, said)
         cfg = yamlcompat.load(agents.agent_file("glm2").read_text())
         check("hr add: apply writes the vendor the proposal recorded",
               cfg.get("vendor") == "opencode", str(cfg))
 
-        # T182: the founder's answer is for the draft as they were shown it.
-        # An approve whose first apply did not go through leaves the proposal
-        # open, and a draft an agent edits before the retry is not what was
-        # approved.
-        ok, said = hr.propose("add", "glm3", repo="/repo", requester="marina", why="w", vendor="opencode")
-        pid3 = said.split()[1]
-        decisions.record("hr", pid3, 0, "approved", hr.subject_of(hr.load_proposal(pid3)))
-        hr.save({**hr.load_proposal(pid3), "state": "approved"})
-        edited = hr.load_proposal(pid3)
-        edited["repo"] = "/somewhere/else"
-        hr.save(edited)
-        ok, said = hr.apply(pid3, con)
-        check("hr bind: a draft edited after the answer is refused, not applied",
-              not ok and "changed after the founder approved" in said, said)
-        edited["repo"] = "/repo"        # as it was approved
-        hr.save(edited)
-        ok, said = hr.apply(pid3, con)
-        check("hr bind: put back as approved, it gets past the answer check to its own",
-              "changed after" not in said, said)
     finally:
         con.close()
 
 
 def test_hr_cli_lists_cards_and_only_the_founder_decides(home: Path) -> None:
-    """`hl hr list --json` is the cards the founder's chat shows; `approve` and `reject` are the
-    founder's, from a terminal, and an agent's session is refused."""
+    """`hl hr list` and the decisions go to the Go daemon; `approve` and `reject` are the founder's, from a
+    terminal, and an agent's session is refused before anything is sent."""
     _daemon_home(home, 20)
     hand_edit_team("""
 agents:
@@ -3095,67 +2865,77 @@ edges:
     pid = said.split()[1]
     ok, said = hr.propose("add", "kit", repo="/repo", requester="orca", why="a kit")
     pid2 = said.split()[1]
-    rc, out = _cli(["hr", "list", "--json"], as_agent=askmod.HUMAN)
-    cards = json.loads(out)
-    check("hr list --json: one card per waiting proposal, with what the chat card needs",
-          rc == 0 and {c["id"] for c in cards} == {pid, pid2}
-          and all(k in cards[0] for k in ("id", "kind", "agent", "requested_by", "why", "ts",
-                                            "state", "text", "subject")), out)
-    rc, out = _cli(["hr", "approve", pid], as_agent="orca")
-    check("hr approve: an agent's session is refused and nothing is applied",
-          rc == 1 and "pup" not in paths.list_agents(), out)
-    rc, out = _cli(["hr", "approve", pid], as_agent=askmod.HUMAN)
-    check("hr approve: without a terminal or --subject it shows the proposal and applies nothing",
-          rc == 1 and "[roster] add pup" in out and "pup" not in paths.list_agents(), out)
-    prop = hr.load_proposal(pid)
-    hr.save({**prop, "repo": "/elsewhere"})
-    rc, out = _cli(["hr", "approve", pid, "--subject", cards[0]["subject"] if cards[0]["id"] == pid
-                    else cards[1]["subject"]], as_agent=askmod.HUMAN)
-    check("hr approve: a draft edited after it was read is refused", rc == 1 and "changed after you read it" in out
-          and "pup" not in paths.list_agents(), out)
-    hr.save(prop)
-    subject = next(c["subject"] for c in cards if c["id"] == pid)
-    class Tty:
-        def __init__(self, answer: str) -> None:
-            self.answer = answer
-
-        def isatty(self) -> bool:
-            return True
-
-        def readline(self) -> str:
-            return self.answer + "\n"
-    real_in = sys.stdin
-    try:
-        raw = hr.path_of(pid).read_text()
-        hr.path_of(pid).write_text(raw.replace("a pup", "'fine\x1b[8mHIDDEN\x1b[0m and \x9b2K'", 1))   # an agent's hand
-        sys.stdin = Tty("n")
+    with go_hr():
+        rc, out = _cli(["hr", "list", "--json"], as_agent=askmod.HUMAN)
+        check("hr list --json: what hr.list serves as waiting",
+              rc == 0 and {f"{c['id']:08x}" for c in json.loads(out)} == {pid, pid2}, out)
+        rc, out = _cli(["hr", "list"], as_agent=askmod.HUMAN)
+        check("hr list: one line per proposal, named by its file's id",
+              rc == 0 and pid in out and pid2 in out and "open" in out, out)
+        rc, out = _cli(["hr", "approve", pid], as_agent="orca")
+        check("hr approve: an agent's session is refused and nothing is applied",
+              rc == 1 and "pup" not in paths.list_agents(), out)
         rc, out = _cli(["hr", "approve", pid], as_agent=askmod.HUMAN)
-        check("hr approve: a terminal's n leaves it alone, and what is drawn has no escape bytes",
-              rc == 1 and "left alone" in out and "pup" not in paths.list_agents()
-              and "\x1b" not in out and "\x9b" not in out and "fine" in out, repr(out))
-        hr.save(prop)
-        sys.stdin = Tty("y")
-        rc, out = _cli(["hr", "approve", pid], as_agent=askmod.HUMAN)
-        check("hr approve: a terminal's y approves what was shown and applies it",
-              rc == 0 and "pup" in paths.list_agents(), out)
-    finally:
-        sys.stdin = real_in
-    subject2 = next(c["subject"] for c in cards if c["id"] == pid2)
-    rc, out = _cli(["hr", "approve", pid2, "--subject", subject2], as_agent=askmod.HUMAN)
-    check("hr approve: with the digest of what was read it applies without a terminal",
-          rc == 0 and "kit" in paths.list_agents(), out)
-    ok = rc == 0
-    check("hr: list --json --all adds the settled ones, with how and when they ended",
-          ok and any(c["id"] == pid and c["state"] == "applied" and c["at"] for c in
-                     json.loads(_cli(["hr", "list", "--json", "--all"], as_agent=askmod.HUMAN)[1]))
-          and {c["id"] for c in hr.decided()} == {pid, pid2}, said)
-    hr.save({**hr.load_proposal(pid2), "state": "proposed"})
-    rc, out = _cli(["hr", "reject", pid2, "too many already"], as_agent=askmod.HUMAN)
-    check("hr reject: the founder's reject is recorded with its reason",
-          rc == 0 and hr.load_proposal(pid2)["state"] == "rejected"
-          and hr.load_proposal(pid2)["verdict"] == "too many already", out)
-    rc, out = _cli(["hr", "list", "--json"], as_agent=askmod.HUMAN)
-    check("hr list --json: nothing left waiting once both are decided", rc == 0 and json.loads(out) == [], out)
+        check("hr approve: without a terminal or --subject it shows the proposal and applies nothing",
+              rc == 1 and "[roster] add pup" in out and "pup" not in paths.list_agents(), out)
+        prop = hr.load_proposal(pid)
+
+        class Tty:
+            def __init__(self, answer: str) -> None:
+                self.answer = answer
+
+            def isatty(self) -> bool:
+                return True
+
+            def readline(self) -> str:
+                return self.answer + "\n"
+        real_in = sys.stdin
+        try:
+            raw = hr.path_of(pid).read_text()
+            hr.path_of(pid).write_text(raw.replace("a pup", "'fine\x1b[8mHIDDEN\x1b[0m and \x9b2K'", 1))   # an agent's hand
+            sys.stdin = Tty("n")
+            rc, out = _cli(["hr", "approve", pid], as_agent=askmod.HUMAN)
+            check("hr approve: a terminal's n leaves it alone, and what is drawn has no escape bytes",
+                  rc == 1 and "left alone" in out and "pup" not in paths.list_agents()
+                  and "\x1b" not in out and "\x9b" not in out and "fine" in out, repr(out))
+            hr.save(prop)
+            sys.stdin = Tty("y")
+            rc, out = _cli(["hr", "approve", pid], as_agent=askmod.HUMAN)
+            check("hr approve: a terminal's y approves what was shown and applies it",
+                  rc == 0 and "pup" in paths.list_agents(), out)
+        finally:
+            sys.stdin = real_in
+        rc, out = _cli(["hr", "list", "--json", "--all"], as_agent=askmod.HUMAN)
+        check("hr list --json --all: the settled ones too",
+              rc == 0 and any(f"{c['id']:08x}" == pid and c["state"] == "approved" for c in json.loads(out)), out)
+    sent: list[dict] = []
+    with support.daemon_says("hr.decide", lambda params: sent.append(params) or {"said": "done"}):
+        rc, out = _cli(["hr", "apply", pid2], as_agent=askmod.HUMAN)
+        check("hr apply: one not yet approved is refused, and nothing is sent",
+              rc == 1 and "not approved" in out and not sent, out)
+        hr.save({**hr.load_proposal(pid2), "state": "approved"})
+        rc, out = _cli(["hr", "apply", pid2], as_agent=askmod.HUMAN)
+        check("hr apply: an approved one that did not apply is approved again, as it reads now",
+              rc == 0 and {k: v for k, v in sent.pop().items() if k != "request_id"}
+              == {"proposal": int(pid2, 16), "decision": "approve", "subject": hr.subject_of(hr.load_proposal(pid2))}, out)
+        hr.save({**hr.load_proposal(pid2), "state": "proposed"})
+        rc, out = _cli(["hr", "approve", pid2, "--subject", "the digest"], as_agent=askmod.HUMAN)
+        rc2, out2 = _cli(["hr", "reject", pid2, "too many already"], as_agent=askmod.HUMAN)
+    check("hr approve and reject: one hr.decide each, with the subject and the reason as given",
+          rc == rc2 == 0 and [{k: v for k, v in p.items() if k != "request_id"} for p in sent]
+          == [{"proposal": int(pid2, 16), "decision": "approve", "subject": "the digest"},
+              {"proposal": int(pid2, 16), "decision": "reject", "note": "too many already"}]
+          and all(p["request_id"] for p in sent), str(sent))
+    sent.clear()
+    with go_hr(), support.daemon_says("hr.decide", lambda params: sent.append(params) or {"said": "rejected"}):
+        hr.save({**hr.load_proposal(pid), "state": "proposed"})
+        rc, out = _cli(["hr", "reject", "--all", "--reason", "not now"], as_agent=askmod.HUMAN)
+    check("hr reject --all: one hr.decide per waiting proposal, each with the reason",
+          rc == 0 and sorted(p["proposal"] for p in sent) == sorted([int(pid, 16), int(pid2, 16)])
+          and all(p["decision"] == "reject" and p["note"] == "not now" for p in sent), out + str(sent))
+    with support.daemon_says("hr.withdraw", lambda params: sent.append(params) or {"said": f"proposal {pid} withdrawn"}):
+        rc, out = _cli(["hr", "withdraw", pid], as_agent="orca")
+    check("hr withdraw: hr.withdraw with the proposal's number", rc == 0 and sent[-1]["proposal"] == int(pid, 16), out)
 
 
 def test_proposals_raised_as_tasks_leave_the_task_board(home: Path) -> None:
@@ -3192,10 +2972,9 @@ edges:
               db.get_task(con, open_tid)["discarded_by"] and db.get_request(con, open_rid)["state"] != "queued")
         check("migrate: it stays a proposal, waiting on the founder, with no task key",
               hr.load_proposal(open_["id"])["state"] == "proposed" and "task" not in hr.load_proposal(open_["id"])
-              and "request" not in hr.load_proposal(open_["id"])
-              and open_["id"] in {c["id"] for c in hr.pending()})
+              and "request" not in hr.load_proposal(open_["id"]))
         check("migrate: an approve on record is kept, and applying it works",
-              hr.load_proposal(answered["id"])["state"] == "approved" and hr.apply(answered["id"], con)[0]
+              hr.load_proposal(answered["id"])["state"] == "approved" and apply_hr(answered["id"], con)[0]
               and "answeredone" in paths.list_agents())
         check("migrate: an answer with no record is decided again",
               hr.load_proposal(unrecorded["id"])["state"] == "proposed")
@@ -3949,16 +3728,6 @@ def cliteam_seal() -> tuple[int, str]:
     return rc, buf.getvalue()
 
 
-def _approve(pid: str) -> tuple[bool, str]:
-    """The founder approving `pid` as it reads now."""
-    was = os.environ.pop("OCP_AGENT", None)
-    try:
-        return hr.decide(pid, "approved", askmod.HUMAN, subject=hr.subject_of(hr.load_proposal(pid)))
-    finally:
-        if was is not None:
-            os.environ["OCP_AGENT"] = was
-
-
 def _new_props(seen: set[str]) -> list[dict]:
     got = [p for p in proposals.listing() if p["id"] not in seen and p.get("state") == "proposed"]
     seen |= {p["id"] for p in got}
@@ -3990,7 +3759,7 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
     card = hr.card(props[0])["text"]
     check("schedule: the card says when, in words", schedmod.schedule_words("0 9 * * 1-5") in card
           and "standup" in card, card)
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("schedule: approved, it is written", ok and schedules.load("worker") == [{"cron": "0 9 * * 1-5",
                                                                                      "message": "standup"}], said)
     rc, out = _cli(["schedule", "add", "--agent", "worker", "--cron", "not a cron", "--message", "x", "--why", "y"],
@@ -4000,7 +3769,7 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
                    as_agent="worker")
     props = _new_props(seen)
     check("schedule: a remove is a proposal too", rc == 0 and [p["kind"] for p in props] == ["schedule"], out)
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("schedule: approved, it is removed", ok and schedules.load("worker") == [], said)
 
     before = autoaccept.enabled()
@@ -4009,7 +3778,7 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
     check("global: an agent setting a global switch raises a global proposal and changes nothing",
           rc == 0 and [(p["kind"], p["agent"]) for p in props] == [("global", "auto-accept")]
           and autoaccept.enabled() == before, out)
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("global: approved, the switch is set", ok and autoaccept.enabled() != before, said)
     ok, said = hr.propose("global", "dev-mode", "worker", "x", sets={"value": "maybe"})
     check("global: a value the switch does not take is refused", not ok and "on or off" in said, said)
@@ -4021,7 +3790,7 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
     props = _new_props(seen)
     check("register: a new agent with the browser on is one diff, the agent and its setting, nothing written",
           rc == 0 and [p["kind"] for p in props] == ["bundle"] and "helper" not in paths.list_agents(), out)
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("register: approved, the agent exists with the browser on",
           ok and "helper" in paths.list_agents() and agents.chrome(agents.read("helper")), said)
     rc, out = _cli(["agent", "register", "worker", "--skip-permissions", "on", "--why", "long unattended runs"],
@@ -4045,25 +3814,20 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
     props = _new_props(seen)
     check("batch: several changes under one reason are one proposal",
           rc == 0 and [p["kind"] for p in props] == ["bundle"], out)
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("batch: one approval applies them all",
           ok and schedules.load("worker")[-1]["message"] == "check the queue" and devmode.dev_mode_enabled(), said)
 
     for why in ("one", "two"):
         _cli(["schedule", "add", "--agent", "worker", "--cron", "0 8 * * *", "--message", why, "--why", why],
              as_agent="worker")
-    pending = [c["id"] for c in hr.pending()]
-    told = []
-    real_say = askmod.say
-    askmod.say = lambda to, text, requester=None, **kw: (told.append((to, text)), (True, "", None))[1]
-    try:
+    waiting = lambda: [p for p in proposals.listing() if p.get("state") == "proposed"]
+    pending = waiting()
+    with go_hr():
         rc, out = _cli(["hr", "reject", "--all", "--reason", "not tonight"], as_agent="human")
-    finally:
-        askmod.say = real_say
     check("batch: the founder rejects every waiting proposal at once",
-          rc == 0 and len(pending) >= 2 and not hr.pending() and len(schedules.load("worker")) == 1,
-          f"rc={rc} {out} pending={pending} left={hr.pending()}")
-    check("batch: and each proposer is told once", [t for t, _ in told] == ["worker"], str(told))
+          rc == 0 and len(pending) >= 2 and not waiting() and len(schedules.load("worker")) == 1,
+          f"rc={rc} {out} pending={len(pending)} left={waiting()}")
     rc, out = _cli(["hr", "reject", "--all"], as_agent="worker")
     check("batch: an agent cannot reject", rc == 1, out)
 
@@ -4074,7 +3838,7 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
                     "  - kind: schedule\n    name: worker\n    sets:\n      action: remove\n      index: \"2\"\n")
     rc, out = _cli(["hr", "diff", "--file", str(diff), "--why", "tidy up"], as_agent="worker")
     props = _new_props(seen)
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("schedule: two removes by number remove exactly the two that were shown",
           rc == 0 and ok and [s["message"] for s in schedules.load("worker")] == ["three"],
           f"{out} {said} {schedules.load('worker')}")
@@ -4086,7 +3850,7 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
           hr.card(props[0])["text"])
     schedmod.schedule_remove("worker", 1)
     schedmod.schedule_add("worker", "0 7 * * *", "five")
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("schedule: when what was shown has moved, the proposal is refused, not applied to another",
           not ok and [s["message"] for s in schedules.load("worker")] == ["four", "five"], said)
 
@@ -4102,7 +3866,6 @@ def main() -> int:
         run(lambda: test_the_decisionion_shows_the_effort_of_an_add_and_the_team_of_a_rename(Path(td) / 'esceffort'))
         run(lambda: test_a_team_diff_is_one_proposal_applied_all_or_none(Path(td) / 'diffall'))
         run(lambda: test_a_team_diff_whose_step_fails_puts_back_every_step_before_it(Path(td) / 'diffback'))
-        run(lambda: test_the_founder_approves_several_proposals_at_once_and_each_proposer_hears_once(Path(td) / 'diffmany'))
         run(lambda: test_hr_diff_and_approve_all_from_the_command_line(Path(td) / 'diffcli'))
         run(lambda: test_seals_begin_once_and_only_from_a_founder_read(Path(td) / 'sealbegin'))
         run(lambda: test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(Path(td) / 'plantedyaml'))
@@ -4152,7 +3915,6 @@ def main() -> int:
         run(lambda: test_hr_unlink_says_when_a_wildcard_still_allows_it_and_link_wants_team_yaml(Path(td) / 'hrunl'))
         run(lambda: test_a_proposal_is_its_own_record_the_founder_decides(Path(td) / 'propdecide'))
         run(lambda: test_a_plain_decision_task_is_settled_however_its_card_closes(Path(td) / 'propsettle'))
-        run(lambda: test_an_approve_is_recorded_where_no_agent_writes_and_applied_once(Path(td) / 'teamanswer'))
         run(lambda: test_the_name_gives_the_links_between_agents())
         run(lambda: test_hr_links_moves_team_yaml_onto_the_name_links(Path(td) / 'hrlinks'))
         run(lambda: test_hr_team_is_one_proposal_and_a_team_has_default_links(Path(td) / 'teamhrlink'))
