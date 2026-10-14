@@ -27,21 +27,7 @@ export const FIELDS: Field[] = [
   { key: 'context_k', label: 'hand off at', section: 'model', kind: 'number', unit: 'k tokens' },
   { key: 'handoff_note', label: 'handoff note', section: 'model', kind: 'select', options: ['default', 'on', 'off'] },
   { key: 'repo', label: 'repo', section: 'work', kind: 'text' },
-  {
-    key: 'mode',
-    label: 'mode',
-    section: 'session',
-    kind: 'select',
-    options: MODES,
-    note: 'from the next launch; skip prompts overrides it',
-  },
-  {
-    key: 'skip_permissions',
-    label: 'skip prompts',
-    section: 'session',
-    kind: 'switch',
-    note: 'claude --dangerously-skip-permissions, from the next launch',
-  },
+  { key: 'mode', label: 'mode', section: 'session', kind: 'select', options: MODES, note: 'from the next launch' },
   { key: 'sandbox', label: 'sandbox', section: 'session', kind: 'switch', note: 'off stays off until turned on again' },
   { key: 'browser', label: 'browser', section: 'browser', kind: 'select', options: BROWSERS, note: 'from the next launch' },
   { key: 'browser_sites', label: 'sites', section: 'browser', kind: 'sites' },
@@ -65,14 +51,8 @@ export function problemWith(f: Field, raw: string): string | null {
   return null;
 }
 
-/** The two switches that ask first, and the words they ask in (the bridge's). Turning either the safe way asks nothing. */
+/** The switch that asks first, and the words it asks in (the bridge's). Turning it the safe way asks nothing. */
 export const DANGER: Partial<Record<FieldKey, { to: string; title: string; text: string; go: string }>> = {
-  skip_permissions: {
-    to: 'on',
-    title: 'Stop asking before this agent runs tools',
-    text: 'skip prompts runs claude --dangerously-skip-permissions: it will act without asking, from the next launch.',
-    go: 'Turn on',
-  },
   sandbox: {
     to: 'off',
     title: 'Run this agent without its sandbox',

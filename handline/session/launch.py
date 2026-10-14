@@ -420,13 +420,12 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     preamble = context_for(agent)
     memory_dir = paths.agent_dir(agent) / "memory"
     memory_dir.mkdir(parents=True, exist_ok=True)
-    # A vendor with no auto mode (auto_mode_argv() empty, e.g. opencode) or an
-    # agent whose skip-permissions is in effect never reads `trusted`, so the
-    # git calls that build it are skipped rather than run and thrown away.
+    # A vendor with no auto mode (auto_mode_argv() empty, e.g. opencode) never
+    # reads `trusted`, so the git calls that build it are skipped rather than
+    # run and thrown away.
     chosen = agents.mode_of(agent, cfg)
-    mode = ([] if chosen == "bypass" else drv.auto_mode_argv() if chosen == agents.DEFAULT_MODE
-            else drv.permission_mode_argv(chosen))
-    if chosen not in ("bypass", agents.DEFAULT_MODE) and not mode:
+    mode = drv.auto_mode_argv() if chosen == agents.DEFAULT_MODE else drv.permission_mode_argv(chosen)
+    if chosen != agents.DEFAULT_MODE and not mode:
         print(f"warning: agent '{agent}' has mode {chosen}, but {drv.name} has no such mode - "
               f"starting it as usual", file=sys.stderr)
     approved = trust.mcp_approved(Path.cwd())
@@ -445,16 +444,6 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     # value left behind would be read as the opening prompt.
     if mode and not any(x == mode[0] or x.startswith(mode[0] + "=") for x in extra or []):
         argv += mode
-    if agents.skip_permissions(cfg) and not agents.skip_permissions_granted(agent):
-        print(f"warning: agent '{agent}' has skip_permissions in its agent.yaml, but the "
-              f"founder never turned it on (`hl agent register {agent} --skip-permissions on`, "
-              f"from a terminal) - ignoring it", file=sys.stderr)
-    elif agents.skip_permissions(cfg):
-        flags = drv.skip_permissions_argv()
-        if not flags:
-            print(f"warning: agent '{agent}' has skip_permissions on, but {drv.name} "
-                  f"has no such switch - starting it as usual", file=sys.stderr)
-        argv += [f for f in flags if f not in (extra or [])]
     argv += list(extra or [])
 
     env = accounts.env_for(acct, agent)
@@ -600,9 +589,7 @@ def _your_team(agent: str) -> str:
 def fingerprint(agent: str) -> str:
     """What `build()` would launch this agent with right now, boiled down to
     the pieces a running session cannot pick up on its own: the model, the
-    effort level, the disallowed-tools list, the shared mcp.json, whether
-    skip-permissions is in effect (T448: a session started without the flag
-    kept running as if the setting were still off), and the static preamble (team line, ROLE.md, base.md, the rules file of each
+    effort level, the disallowed-tools list, the shared mcp.json, and the static preamble (team line, ROLE.md, base.md, the rules file of each
     team it is in). Never the account or the
     handoff - the account is chosen fresh on every real launch regardless of
     what last time picked, and the handoff is supposed to be different every
@@ -620,16 +607,14 @@ def fingerprint(agent: str) -> str:
     effort = str(cfg.get("effort") or agents.DEFAULT_EFFORT)
     material = "\x1e".join([model, effort, DISALLOWED_TOOLS, _mcp_config_material(),
                             _static_preamble(agent)])
-    if agents.skip_permissions_in_effect(agent, cfg):
-        material += "\x1eskip-permissions"     # only when on: turning it off returns to the old hash
-    if agents.mode_of(agent, cfg) not in ("bypass", agents.DEFAULT_MODE):
+    if agents.mode_of(agent, cfg) != agents.DEFAULT_MODE:
         material += "\x1emode:" + agents.mode_of(agent, cfg)    # only when not the default, like chrome
     if not agents.sandbox_on(agent, cfg):
         material += "\x1esandbox-off"
     if agents.mcp_config_args(cfg):
         material += "\x1emcp:" + agents.mcp_config_args(cfg)[1]   # only when set, like chrome
     if agents.chrome(cfg):
-        material += "\x1echrome"                # only when on, like skip-permissions
+        material += "\x1echrome"                # only when on, like the mcp config
     return hashlib.sha256(material.encode()).hexdigest()[:16]
 
 
@@ -663,7 +648,7 @@ def launched_at(row) -> str | None:
 def fingerprint_parts(agent: str) -> dict[str, str]:
     """What a launch reads from the settings a person edits, one short hash each, named for the person:
     the model, the effort level, the agent's own mcp config and the shared mcp.json, whether the browser
-    is on, the permission switches (skip-permissions and the disallowed-tools list), ROLE.md, base.md and
+    is on, the permission mode and the disallowed-tools list, ROLE.md, base.md and
     the team line and rules. Recorded at launch beside `fingerprint`, and compared by the daemon to name
     what a running session has not picked up. Not here: what `build` reads from the machine (the account,
     the handoff, hidden transcripts, the main-ref files) and the fixed text of the preamble."""
@@ -683,9 +668,8 @@ def fingerprint_parts(agent: str) -> dict[str, str]:
         "effort": h(str(cfg.get("effort") or agents.DEFAULT_EFFORT)),
         "mcp config": h(_mcp_config_material() + "\x1e" + (mcp[1] if mcp else "")),
         "browser": h("on" if agents.chrome(cfg) else ""),
-        "permissions": h(DISALLOWED_TOOLS + ("\x1eskip-permissions" if agents.skip_permissions_in_effect(agent, cfg) else "")
-                         + ("" if agents.mode_of(agent, cfg) in ("bypass", agents.DEFAULT_MODE)
-                            else "\x1emode:" + agents.mode_of(agent, cfg))),
+        "permissions": h(DISALLOWED_TOOLS + ("" if agents.mode_of(agent, cfg) == agents.DEFAULT_MODE
+                                             else "\x1emode:" + agents.mode_of(agent, cfg))),
         "sandbox": SANDBOX_OFF_PART if not agents.sandbox_on(agent, cfg) else h(""),
         "ROLE.md": h(file("ROLE.md")),
         "base.md": h(file("base.md")),
