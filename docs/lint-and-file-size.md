@@ -154,7 +154,7 @@ These repeat what `docs/turborepo-layout.md` says in words; the rule makes it fa
    lint reads sources only, so packages run in parallel and cache independently.
 2. Every package gets `"lint": "eslint ."` and the root gets `"format:check": "prettier --check ."`.
 3. The merge gate in `docs/turborepo-layout.md` is `pnpm turbo test typecheck`; it becomes `pnpm turbo test typecheck lint` plus the format check.
-   The Python side of the gate (`tools/land.sh`, `tools/suite.sh`) already runs outside turbo and does not change.
+   The Python side of the gate (`tools/suite.sh`) already runs outside turbo and does not change.
 4. Agents run `pnpm turbo lint` before asking for review; one line in `AGENTS.md` says that a `max-lines` error means *split the file by
    responsibility*, not raise the limit or add a disable.
 5. No pre-commit hook for lint: agents commit often on branches, and the gate is the place that counts.

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# The tests a change needs, from what it changes against <base> (default main): the one run `land.sh` makes on a
-# merge and the auditor makes on a sha.
+# The tests a change needs, from what it changes against <base> (default main): the one run the auditor makes on a sha.
 #   tools/check.sh [<base>]
 # - nothing changed, or documentation only (docs/, design/, *.md, but not contract/ or skill/): nothing.
 # - only the Go daemon and the apps (go/, apps/, web/, packages/, the JS workspace files, the tools that serve only

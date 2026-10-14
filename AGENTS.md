@@ -26,8 +26,8 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   `hl task handoff T<n> <its opener> "merged <sha>"`. A wrong result is
   reopened by its asker. An auditor or merger never hands a review or merge task
   back: it finishes it.
-- Before you ask for a review, merge current main into the branch and run the
-  check the merger runs, `tools/land.sh --check <sha>`; the review request
+- Before you ask for a review, merge current main into the branch and run
+  `tools/check.sh main`; the review request
   carries its result line. The auditor sends a request without it back,
   unreviewed.
 - A task or a say can be refused; the refusal says why, and the policy behind
@@ -70,13 +70,12 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
    data or an id that only means something on this machine: no email, real name, home
    path (`/Users/<name>`), token or key; no task id (`T<n>`), chat message number (`#<n>`)
    or internal agent name. Write the why in words instead, so a stranger reading the
-   repo can follow it. The task board keeps the ids; `tools/land.sh --note` records a
-   landing's ids locally, outside git. A real need (a fixture that must hold one) gets
+   repo can follow it. The task board keeps the ids. A real need (a fixture that must hold one) gets
    `local-ref-ok` on its line, or its file an entry in `tools/localrefs.allow`. In a Markdown
    file an id that is an argument of an `hl` command is the product's own syntax and passes.
    A commit's author and committer email must be a noreply address too
    (`git config user.email <id>+<name>@users.noreply.github.com`).
-   `tools/localrefs.py` enforces it in `tools/land.sh` and in the git hooks
+   `tools/localrefs.py` enforces it in the git hooks
    (`tools/install-git-hooks.sh`), and a review runs it too:
    `tools/localrefs.py diff main...<sha>` and `tools/localrefs.py log main..<sha>`.
 
@@ -106,9 +105,9 @@ agent (ROLE.md, base.md); this file does not repeat them.
   tests you touched (`tools/test.sh -k <name>`, or `tools/test.sh tests/<group>/test_<area>.py`); do not run the
   whole suite before you hand the task to the auditor. The auditor runs the tests once at the
   exact sha (`HANDLINE_GO_RACE=1 tools/check.sh main`: the variable adds `-race` to the Go tests, and only this run sets it; in the foreground with a 600000 ms Bash timeout, never in the
-  background); a count you quote is not a verdict. `tools/check.sh` is also what `tools/land.sh --check` runs:
-  the Go suite and the Python files that test only Go (its GO_FILES) for a change to go/ or the apps only, the whole suite
-  (`tools/suite.sh`) for anything else, nothing for documentation.
+  background); a count you quote is not a verdict. `tools/check.sh` runs nothing for documentation; for anything else
+  it runs `pnpm --dir packages/app-data test` first, then the Go suite and the Python files that test only Go
+  (its GO_FILES) for a change to go/ or the apps only, the whole suite (`tools/suite.sh`) otherwise.
 - Lighter review: a docs-only change, or a re-merge of main onto an already PASSed sha with no
   conflict, lands without a new review round. The auditor records the PASS on the new sha at once
   and the merger lands it.

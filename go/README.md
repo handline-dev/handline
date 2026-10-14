@@ -1,7 +1,7 @@
 # The Go daemon (`handlined`)
 
 One binary, built from `go/`. Run it with `-home DIR`; on the default home it refuses to start unless `-allow-real-home` says so.
-`tools/test-go.sh` runs `go test -race`, a cgo-free build and the contract fixtures against the built binary.
+`tools/test-go.sh` runs `go test` (with `-race` when `HANDLINE_GO_RACE=1`, as the auditor's run sets it), a cgo-free build and the contract fixtures against the built binary.
 
 ## The `hl` command (`go/cmd/hl`)
 

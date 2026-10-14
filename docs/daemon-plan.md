@@ -161,8 +161,8 @@ the gate's own reason; nothing is silently dropped or queued behind the caller's
 | Routing table (`enforce_edges`) | no | no | no | no | no |
 
 The last row is deliberate: the routing table governs requests between agents, not a person typing.
-`land` and `land_pass` keep their session token check unchanged. A person who needs to type at a
-wall or past a dialog uses `keys` or `prompt.answer`, which do not start a turn.
+A person who needs to type at a wall or past a dialog uses `keys` or `prompt.answer`, which do not
+start a turn.
 
 - **The daemon never interrupts by itself.** Esc happens only on an explicit `session.interrupt`.
 - **Input holder.** Each terminal has one holder: `daemon` (the default) or a named person or

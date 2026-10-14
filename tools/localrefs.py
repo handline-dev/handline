@@ -51,8 +51,8 @@ SAFE_EMAIL_LOCALS = {"noreply", "no-reply", "git"}
 SAFE_USERS = {"user", "you", "me", "name", "username", "runner", "shared", "guest", "example"}
 GENERIC_LOGINS = {"root", "admin", "user", "dev", "runner", "ubuntu", "ec2-user", "git", "nobody"}
 
-HINT = ("say what changed and why in words; task and chat ids stay on the task board, and "
-        "tools/land.sh --note records them locally. An email, name or home path goes as a "
+HINT = ("say what changed and why in words; task and chat ids stay on the task board. "
+        "An email, name or home path goes as a "
         "placeholder (<user>, user@example.com). A personal author or committer email: "
         "`git config user.email <id>+<name>@users.noreply.github.com`. Real need (a fixture): "
         "add `local-ref-ok` to the line, or the file to tools/localrefs.allow.")

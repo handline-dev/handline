@@ -174,7 +174,7 @@ session, D = dropped (and, where already ported, deleted after the cutover), T =
 | G3 backends: tmux and orca drivers, term.Backend | landed (`term/backend`, `drivers`) | **T**. Frozen. |
 | G3 screen reading: `promptparse`, `screen`, `session/blocked`, `waiting`, `observe`, `autoaccept`, `screensamples` | landed (~2.0k) | **D** for structured agents. `autoaccept` rules become the policy step of the permission callback (**R**, small). |
 | G3 `prompts` (block store, `prompt.list`, `prompt.answer`) | landed | **R**: the source of a prompt is `can_use_tool`, not a screen; the store, the RPC and the apps' cards stay (**S**). |
-| G3 `shellguard`, `landgate`, `bgjobs` | landed | **S**: they guard commands and landing, not the screen. Move to the policy step where they read a command. |
+| G3 `shellguard`, `bgjobs` | landed | **S**: they guard commands, not the screen. Move to the policy step where they read a command. |
 | G4 terminal channel: attach, detach, history, bytes link, ansi, tmux extras | branch, split out for review | **T**: lands as reviewed, for terminal mode and for a person who attaches. |
 | G4 input hold, `terminal.input`, `terminal.resize` | branch (held) | **D**. |
 | G5 ask routing, tasks, holds, digest, push, memos, queue | landed | **S**. |
