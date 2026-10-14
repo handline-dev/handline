@@ -57,6 +57,19 @@ What the table says in a line: nobody does all six together. The agent IDEs (Orc
 
 One rule: **a thing the person says about the work lands on a task as a comment, and a comment can carry a picture.** Chat stays what it is; "make this a task" is one action on a message or a capture. Each of 1-1 to 1-6 is a view or a verb of the task, not a new place.
 
+### One picture of what waits and why
+
+Handline schedules three scarce things: the founder's attention, agent accounts (plan and usage limits), and the machine (CPU, memory, disk). Work starts only when its resources are free, and the reason it waits is always shown, in one vocabulary:
+
+| Waiting on | Shown as | Source |
+|---|---|---|
+| The founder | `waiting on you` | open human request |
+| Another task | `blocked by T<n>` | `blocked_by` |
+| An account limit | `account at its cap` | account cap |
+| The machine | `host full: n of H` | host cap (Story 2, `docs/story2-load-research.md`) |
+
+The same reason text is the edge label in the graph (1-6) and the grey stretch in the time bar (1-5), and the task page shows it as one line under the title. The machine side comes from Story 2 (2-1 limits, 2-2 admin view); this frame only fixes that the reason is a field of the task, not a screen of its own.
+
 ### Where each lives
 
 | Unit | PC app | Phone | Daemon work |
@@ -141,3 +154,4 @@ One rule: **a thing the person says about the work lands on a task as a comment,
 4. React Flow (MIT) for the canvas, the phone gets a sorted list?
 5. History is append-only and visible to everyone: no delete, a fix is a new row?
 6. Approve is `task.accept` and Send back is `task.reject` with the circled picture, no new verbs?
+7. Waiting reasons (founder, task, account, machine) are one field of the task, shown the same on the task page, the graph edge and the time bar?
