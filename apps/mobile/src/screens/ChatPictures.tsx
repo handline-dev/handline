@@ -39,26 +39,28 @@ function Full({ a, onClose }: { a: Attachment; onClose: () => void }) {
   return (
     <Modal visible animationType="fade" onRequestClose={onClose}>
       {/* The safe area keeps Close out from under the status bar, where it could not be tapped. */}
-      <SafeAreaView testID={`picture-full-${a.id}`} style={{ flex: 1, backgroundColor: c.bg, padding: space.md, gap: space.md }}>
-        <Pressable testID="picture-close" accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={8}>
-          <Text style={{ color: c.accent, fontWeight: '600' }}>Close</Text>
-        </Pressable>
-        {line ? (
-          <Text testID="picture-line" accessibilityRole="alert" style={{ color: c.block }}>
-            {line}
-          </Text>
-        ) : read.state === 'ready' ? (
-          <Image
-            testID="picture-image"
-            accessibilityLabel={a.name}
-            source={{ uri: read.uri }}
-            resizeMode="contain"
-            onError={() => setBad(true)}
-            style={{ flex: 1 }}
-          />
-        ) : (
-          <Text style={{ color: c.muted }}>Loading…</Text>
-        )}
+      <SafeAreaView testID={`picture-full-${a.id}`} style={{ flex: 1, backgroundColor: c.bg }}>
+        <View style={{ flex: 1, padding: space.md, gap: space.md }}>
+          <Pressable testID="picture-close" accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={8}>
+            <Text style={{ color: c.accent, fontWeight: '600' }}>Close</Text>
+          </Pressable>
+          {line ? (
+            <Text testID="picture-line" accessibilityRole="alert" style={{ color: c.block }}>
+              {line}
+            </Text>
+          ) : read.state === 'ready' ? (
+            <Image
+              testID="picture-image"
+              accessibilityLabel={a.name}
+              source={{ uri: read.uri }}
+              resizeMode="contain"
+              onError={() => setBad(true)}
+              style={{ flex: 1 }}
+            />
+          ) : (
+            <Text style={{ color: c.muted }}>Loading…</Text>
+          )}
+        </View>
       </SafeAreaView>
     </Modal>
   );
