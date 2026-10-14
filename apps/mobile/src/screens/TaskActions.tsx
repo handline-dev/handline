@@ -12,6 +12,7 @@ import { useConnection } from '@handline/app-react';
 import { usePalette } from '../theme.ts';
 import { Button } from './parts.tsx';
 import { AskAbout } from './TaskAsk.tsx';
+import { MergeTasks, ReleaseTask } from './TaskReleaseMerge.tsx';
 
 const CLOSED = ['done', 'discarded'];
 
@@ -155,7 +156,7 @@ function ReasonSheet(props: {
   );
 }
 
-type Ask = null | 'ask' | 'done' | 'reopen' | 'withdraw' | 'cancel' | 'discard' | 'edit';
+type Ask = null | 'ask' | 'done' | 'reopen' | 'withdraw' | 'cancel' | 'discard' | 'edit' | 'release' | 'merge';
 
 /** The verbs of one task; each is shown only when it applies, and disabled with its reason when the daemon does not serve it. */
 export function TaskVerbs({ t }: { t: TaskDetail }) {
@@ -179,6 +180,8 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
     discard: useWhyNot('task.discard'),
     edit: useWhyNot('task.edit'),
     ask: useWhyNot('task.ask'),
+    release: useWhyNot('task.release'),
+    merge: useWhyNot('task.merge'),
   };
   const open = !CLOSED.includes(t.state);
   const mine = t.from === me;
@@ -217,6 +220,8 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
           />
         )}
         {verb('ask', 'Ask', off.ask, 'ask')}
+        {running && verb('release', 'Release', off.release, 'release')}
+        {open && verb('merge', 'Merge…', off.merge, 'merge')}
         {open && verb('edit', 'Edit', off.edit, 'edit')}
         {open && verb('discard', 'Discard', off.discard, 'discard')}
       </View>
@@ -271,6 +276,8 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
         />
       )}
       {ask === 'ask' && <AskAbout t={t} onClose={() => setAsk(null)} />}
+      {ask === 'release' && <ReleaseTask t={t} onClose={() => setAsk(null)} />}
+      {ask === 'merge' && <MergeTasks t={t} onClose={() => setAsk(null)} />}
       {ask === 'edit' && <EditTask t={t} onClose={() => setAsk(null)} />}
     </View>
   );
@@ -289,6 +296,8 @@ export function useTaskPending(id: number): boolean {
     ...usePending('task.discard'),
     ...usePending('task.edit'),
     ...usePending('task.ask'),
+    ...usePending('task.release'),
+    ...usePending('task.merge'),
     ...usePending('task.memo.add'),
     ...usePending('task.memo.edit'),
     ...usePending('task.memo.delete'),
