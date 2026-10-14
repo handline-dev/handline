@@ -113,17 +113,15 @@ func (l *Launcher) Build(agent string, extra []string, force bool, account strin
 	if err := os.MkdirAll(memoryDir, 0o755); err != nil {
 		return nil, nil, err
 	}
-	// A vendor with no auto mode, or an agent whose skip-permissions is in effect, never reads `trusted`.
+	// A vendor with no auto mode never reads `trusted`.
 	chosen := l.Roster.ModeOf(agent, cfg)
 	var mode []string
-	switch chosen {
-	case "bypass":
-	case team.DefaultMode:
+	if chosen == team.DefaultMode {
 		mode = drv.AutoModeArgv()
-	default:
+	} else {
 		mode = drv.PermissionModeArgv(chosen)
 	}
-	if chosen != "bypass" && chosen != team.DefaultMode && len(mode) == 0 {
+	if chosen != team.DefaultMode && len(mode) == 0 {
 		l.warn("warning: agent '%s' has mode %s, but %s has no such mode - starting it as usual", agent, chosen, drv.Name())
 	}
 	cwd := l.cwd()
@@ -162,19 +160,6 @@ func (l *Launcher) Build(agent string, extra []string, force bool, account strin
 		}
 		if !own {
 			argv = append(argv, mode...)
-		}
-	}
-	if team.SkipPermissions(cfg) && !l.Roster.SkipPermissionsGranted(agent) {
-		l.warn("warning: agent '%s' has skip_permissions in its agent.yaml, but the founder never turned it on (`hl agent register %s --skip-permissions on`, from a terminal) - ignoring it", agent, agent)
-	} else if team.SkipPermissions(cfg) {
-		flags := drv.SkipPermissionsArgv()
-		if len(flags) == 0 {
-			l.warn("warning: agent '%s' has skip_permissions on, but %s has no such switch - starting it as usual", agent, drv.Name())
-		}
-		for _, f := range flags {
-			if !slices.Contains(extra, f) {
-				argv = append(argv, f)
-			}
 		}
 	}
 	argv = append(argv, extra...)

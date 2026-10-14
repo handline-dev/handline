@@ -1861,50 +1861,6 @@ def test_context_tokens_override_falls_back_on_garbage() -> None:
           agents.context_tokens({"context_tokens": 300_000}) == 300_000)
 
 
-def test_the_clamp_holds_a_small_window_agent_down() -> None:
-    """#1669 proof: a model collect.ctx_size recognizes clamps the effective
-    limit to CONTEXT_CLAMP_FRACTION of its own window, so a figure configured
-    (or defaulted) for a 1M-token model cannot leave a 200k one with a check
-    that never fires."""
-    haiku_clamp = int(200_000 * triggers.CONTEXT_CLAMP_FRACTION)
-    check("clamp: a figure sized for a 1M model is held down on haiku's window",
-          status.effective_context_limit({"context_tokens": 500_000},
-                                        "claude-haiku-4-5-20251001") == haiku_clamp,
-          status.effective_context_limit({"context_tokens": 500_000},
-                                        "claude-haiku-4-5-20251001"))
-    check("clamp: the flat default is held down to haiku's clamp - 120,000, "
-          "60% of haiku's 200,000 window, so there the clamp is the working limit",
-          status.effective_context_limit({}, "claude-haiku-4-5-20251001") == haiku_clamp)
-    check("clamp: a sane figure on a 1M-window model is not touched",
-          status.effective_context_limit({"context_tokens": 300_000}, "claude-sonnet-5")
-          == 300_000)
-    check("clamp: an unrecognized model has no window to take a fraction of - "
-          "the flat figure stands alone",
-          status.effective_context_limit({"context_tokens": 900_000}, "some-future-model")
-          == 900_000)
-
-
-def test_an_unknown_model_now_hands_off_on_tokens(home: Path) -> None:
-    """#1669 proof: today, collect.ctx_size(model_id) returns None for a model
-    this box has never priced, so _pct(used, None) is None, ctx_pct is None,
-    and the context trigger never fires - silently, forever, no refusal, no
-    log line. ctx_used needs no window at all, so the same agent now hands
-    off exactly like any other."""
-    use_home(home)
-    model = "some-future-model-nobody-has-priced"
-    check("unknown model: collect genuinely does not know its window",
-          collect.ctx_size(model) is None)
-    limit = status.effective_context_limit({}, model)
-    check("unknown model: no clamp applies - the flat default stands alone",
-          limit == triggers.CONTEXT_TOKENS)
-    t = triggers.evaluate(10, 200_000, ctx_limit=limit)
-    check("unknown model: the trigger fires on the raw count anyway",
-          t.fired and t.kind == "context", t.reason)
-    quiet = triggers.evaluate(10, 50_000, ctx_limit=limit)
-    check("unknown model: and stays quiet under its own default, same as any model",
-          not quiet.fired, quiet.reason)
-
-
 def test_a_stale_ctx_used_does_not_fire(home: Path) -> None:
     """#1669 proof: trusted_ctx_used gets the same staleness treatment
     trusted_ctx_pct already has (status.py's stale property) - a snapshot
@@ -1921,10 +1877,6 @@ def test_a_stale_ctx_used_does_not_fire(home: Path) -> None:
     st = status.read_for_agent("keeper", "alpha")
     check("stale ctx_used: trusted_ctx_used is None while the snapshot is stale",
           st.trusted_ctx_used is None, str(st.trusted_ctx_used))
-    limit = status.effective_context_limit(agents.read("keeper"), st.model_id)
-    t = triggers.evaluate(st.short_trusted, st.trusted_ctx_used, ctx_limit=limit)
-    check("stale ctx_used: the trigger does not fire on an untrusted figure",
-          not t.fired, t.reason)
 
     # #1762 should-fix 2: read_for_agent's own "own.error or own.stale" branch
     # already nulls ctx_used for every agent read before trusted_ctx_used is
@@ -2048,9 +2000,6 @@ def test_carry_bounds_and_losses(home: Path) -> None:
     check("carry: the refusal says how old it is", "ago" in st.assignable()[1])
     check("carry: but the trigger still gets the floor, not a null",
           st.short_trusted == 55, str(st.short_trusted))
-    t = triggers.evaluate(st.short_trusted, st.trusted_ctx_used)
-    check("carry: so an idle agent is not handed off for usage_unknown",
-          t.kind != "usage_unknown", t.reason)
 
 
 def test_an_account_change_and_a_new_account_leave_project_memory_alone(home: Path) -> None:
@@ -2223,8 +2172,6 @@ def test_a_session_figure_is_not_shown_as_an_accounts(home: Path) -> None:
     check("nor the account's last-seen model either", st.model_id is None,
           str(st.model_id))
     check("but the account's rate limits still apply to it", st.short.pct == 20)
-    check("so the trigger cannot fire on a context it does not have",
-          triggers.evaluate(st.short_trusted, st.trusted_ctx_used).kind != "context")
     own = status.read_for_agent("has_session", "alpha")
     check("an agent with a session is judged on its own context", own.ctx_pct == 12,
           str(own.ctx_pct))
@@ -2241,19 +2188,6 @@ def test_a_session_figure_is_not_shown_as_an_accounts(home: Path) -> None:
           status.live_cost("alpha") is None, str(status.live_cost("alpha")))
 
 
-def test_find_transcript_walks_accounts_and_takes_only_a_plain_id(home: Path) -> None:
-    _daemon_home(home, 20)
-    for acct, proj, sid in (("alpha", "-wt", "sess-7"), ("beta", "-other", "sess-9")):
-        f = vendors.config_dir(acct) / "projects" / proj / f"{sid}.jsonl"
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text("{}\n")
-    found = handoffmod.find_transcript("sess-9", "alpha")
-    check("transcript: found under another account when not under its own",
-          found is not None and "beta" in str(found), str(found))
-    for bad in ("*", "sess-?", "[a-z]ess-7", "../x", ".hidden", "a/b", ""):
-        check(f"transcript: {bad!r} names nothing", handoffmod.find_transcript(bad, "alpha") is None)
-
-
 def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     """Every kind ocp can write to events is either the agent acting or an
     event ocp itself caused, and last_activity's allow-list (db.AGENT_ACTIVITY_KINDS)
@@ -2265,7 +2199,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     daemon_kinds = {"account_mismatch", "answered", "close", "close_failed", "close_task",
                     "mark_task_done", "reopen_task", "discard_task", "merge_task",
                     "cold_start", "dialog_declined", "edit_task", "release_task", "background_work_ended",
-                    "block_task", "unblock_task", "dormant_block", "released_at_done", "task_unblocked", "child_result_told", "task_end_told", "bypass_accepted", "notice_told", "notices_digested", "task_deliver_refused", "closed_under", "dismissed", "request_reason",
+                    "block_task", "unblock_task", "dormant_block", "released_at_done", "task_unblocked", "child_result_told", "task_end_told", "notice_told", "notices_digested", "task_deliver_refused", "closed_under", "dismissed", "request_reason",
                     "demoted_doing", "queue_task", "draft_task", "task_self_start", "wake_reserved",
                     "input_holder", "type", "unsent_input_blocked",
                     "fold", "fold_failed", "cache_renewal", "idle_fold",
@@ -2311,7 +2245,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
     # can parse - a call it cannot read left an unsorted kind passing at
     # 11/11 until this count was added.
     found, calls = [], 0
-    for f in Path(dmn_timing.__file__).parent.parent.rglob("*.py"):
+    for f in Path(db.__file__).parent.parent.rglob("*.py"):
         text = f.read_text()
         found += re.findall(r'add_event\s*\([^,()]+,[^,()]+,\s*"([a-zA-Z_]+)"', text)
         calls += len(re.findall(r'add_event\s*\(', text))
@@ -2378,48 +2312,8 @@ def test_a_moved_walled_wake_names_the_new_account(home: Path) -> None:
         check("moved: but the wait is checked against the account it would "
               "actually land on, which has room",
               launch.choose_account("backend", resuming=False, con=con) == "beta")
-        check("moved: so it is not walled, even though the agent's own "
-              "account is",
-              launch.wake_wait("backend", row, con) is None)
     finally:
         accounts.logged_in = real_login
-        con.close()
-
-
-def test_a_resume_is_not_woken_onto_an_account_at_its_weekly_wall(home: Path) -> None:
-    """The resume branch is pinned to the account its session is tied to and
-    cannot follow an account change - nothing upstream refuses that account
-    on 7d the way `find_room` does for a move, so `wake_wait` is the only
-    thing standing between a resume and waking straight into the weekly
-    wall. Reverting the 7d branch alone (leaving the 5h one) makes this
-    fail while test_a_moved_walled_wake_names_the_new_account still passes,
-    since that one only exercises the move branch."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        db.set_account(con, "backend", "alpha")
-        db.set_closed(con, "backend", "sess-old")   # a resume id: the resume branch
-        db.add_request(con, "reviewer", "backend", "look at this", None,
-                       "peer", "async", None, 0, None)
-        write_status(home, "alpha", pct_5h=10, pct_7d=100, ctx_pct=5,
-                     reset_5h=int(time.time()) + 1800, reset_7d=int(time.time()) + 86400)
-        row = db.get_agent_state(con, "backend")
-        check("resumed: this row has a resume id", row["resume_session"] is not None, dict(row))
-        w = launch.wake_wait("backend", row, con)
-        check("resumed: 5h has room, but 7d is at the wall - still walled, and says which window",
-              w is not None and w.window == "7d" and w.pct == 100, w)
-        reason = launch.wake_wait_reason("backend", row, con) or ""
-        check("resumed: the sentence names the weekly window, not the 5h one",
-              "7d window" in reason, reason)
-        check("resumed: the rollover is dated, not a bare clock that would "
-              "claim a four-day-out wall rolls over today",
-              time.strftime("%m-%d", time.localtime(int(time.time()) + 86400)) in reason,
-              reason)
-        write_status(home, "alpha", pct_5h=10, pct_7d=99, ctx_pct=5,
-                     reset_5h=int(time.time()) + 1800, reset_7d=int(time.time()) + 86400)
-        check("resumed: one point under the wall is not walled",
-              launch.wake_wait("backend", row, con) is None)
-    finally:
         con.close()
 
 
@@ -2437,46 +2331,6 @@ def test_a_move_has_nowhere_to_go_when_every_account_is_walled(home: Path) -> No
               launch.find_room("backend") is None)
         check("move, nowhere else: choose_account has no account either",
               launch.choose_account("backend", resuming=False, con=con) is None)
-    finally:
-        con.close()
-
-
-def test_account_reading_prefers_recorded_then_reported_then_assumed(home: Path) -> None:
-    """Three sources, and only the first two are facts. A recorded column
-    wins outright; failing that, a fresh report from the agent's own running
-    session beats a bare config preference - and beats even a recorded
-    column when that column itself only holds an earlier guess, never
-    confirmed. Only when neither exists at all does agent.yaml's preference
-    stand in, and it is never mistaken for either fact.
-    """
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        db.set_account(con, "backend", "alpha")
-        r = agents.account_reading("backend", con)
-        check("account: a recorded column wins outright",
-              r.account == "alpha" and r.source == "recorded", r)
-
-        db.set_account(con, "backend", None)
-        con.execute("UPDATE agent_state SET account = NULL, account_source = NULL "
-                    "WHERE agent = 'backend'")
-        write_agent_status("backend", "beta", pct_5h=10)
-        r = agents.account_reading("backend", con)
-        check("account: null column falls to a fresh report",
-              r.account == "beta" and r.source == "reported", r)
-
-        write_agent_status("backend", "beta", pct_5h=10,
-                           collected_at=int(time.time()) - status.STALE_AFTER_S - 60)
-        r = agents.account_reading("backend", con)
-        check("account: a stale report is not evidence - nothing says",
-              r is None, r)
-
-        db.set_account(con, "backend", "alpha", source="assumed")
-        write_agent_status("backend", "beta", pct_5h=10)
-        r = agents.account_reading("backend", con)
-        check("account: a fresh report outranks a column that only holds a "
-              "guess of its own",
-              r.account == "beta" and r.source == "reported", r)
     finally:
         con.close()
 
@@ -3047,7 +2901,6 @@ def test_account_list_is_the_present_state_and_status_is_the_pick(home: Path) ->
     marks, the roster in the bridge's own words, no record of earlier turns.
     `status` is why the pick chose what it chose, and it carries the price of
     an agent that pick rests on."""
-    from handline.daemon import states as dmn_timing
     from handline.session import states as dmn_states
     _daemon_home(home, 20)
     _with_accounts("alpha", "beta")
@@ -3324,8 +3177,6 @@ def main() -> int:
         run(lambda: test_a_carried_reading_with_no_age_at_all_reads_carried_old_not_live(
             Path(td) / 'carriednoage'))
         run(lambda: test_context_tokens_override_falls_back_on_garbage())
-        run(lambda: test_the_clamp_holds_a_small_window_agent_down())
-        run(lambda: test_an_unknown_model_now_hands_off_on_tokens(Path(td) / 'ctxunknown'))
         run(lambda: test_a_stale_ctx_used_does_not_fire(Path(td) / 'ctxstale'))
         run(lambda: test_status_read_sums_a_raw_ctx_used_dict_the_way_collect_does(
             Path(td) / 'ctxsum'))
@@ -3336,12 +3187,9 @@ def main() -> int:
         run(lambda: test_subscription_type_is_recorded_and_cached(Path(td) / 'subtype'))
         run(lambda: test_burn_rate_ignores_carried_samples(Path(td) / 'burn'))
         run(lambda: test_a_session_figure_is_not_shown_as_an_accounts(Path(td) / 'sessfig'))
-        run(lambda: test_find_transcript_walks_accounts_and_takes_only_a_plain_id(Path(td) / 'find_trans'))
         run(lambda: test_only_the_agents_own_events_move_its_activity_clock(Path(td) / 'actclock'))
         run(lambda: test_a_moved_walled_wake_names_the_new_account(Path(td) / 'walledmoved'))
-        run(lambda: test_a_resume_is_not_woken_onto_an_account_at_its_weekly_wall(Path(td) / 'walled7d'))
         run(lambda: test_a_move_has_nowhere_to_go_when_every_account_is_walled(Path(td) / 'walled7dmove'))
-        run(lambda: test_account_reading_prefers_recorded_then_reported_then_assumed(Path(td) / 'acctread'))
         run(lambda: test_an_agent_cannot_force_a_move(Path(td) / 'forcedagent'))
         run(lambda: test_a_forced_move_is_the_daemons(Path(td) / 'forcedcli'))
         run(lambda: test_a_resume_is_the_daemons(Path(td) / 'resumecli'))

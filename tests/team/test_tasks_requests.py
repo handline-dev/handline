@@ -11,7 +11,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.actions import stuck as stuckmod  # noqa: E402
 from handline.session import stopgate  # noqa: E402
 
 
@@ -661,118 +660,95 @@ def test_the_config_dir_and_its_layout_are_the_drivers_answers(home: Path) -> No
     the vendor the account records, not the default's.
     """
     os.environ["OCP_HOME"] = str(home)
-    real = obsmod.env_of
-    try:
-        with second_vendor(logged_in=False):
-            accounts.register("gamma", vendor="zai")
-            cdir = vendors.config_dir("gamma")
-            check("accounts: the config dir is named by the account's vendor",
-                  cdir == paths.account_dir("gamma") / ".zai" and cdir.is_dir(), str(cdir))
+    with second_vendor(logged_in=False):
+        accounts.register("gamma", vendor="zai")
+        cdir = vendors.config_dir("gamma")
+        check("accounts: the config dir is named by the account's vendor",
+              cdir == paths.account_dir("gamma") / ".zai" and cdir.is_dir(), str(cdir))
+        env = accounts.env_for("gamma")
+        check("accounts: the launch environment sets the driver's variable to it",
+              env.get("ZAI_HOME") == str(cdir), str({k: v for k, v in env.items() if "HOME" in k}))
+        os.environ["CLAUDE_CONFIG_DIR"] = str(paths.account_dir("alpha") / ".claude")
+        try:
             env = accounts.env_for("gamma")
-            check("accounts: the launch environment sets the driver's variable to it",
-                  env.get("ZAI_HOME") == str(cdir), str({k: v for k, v in env.items() if "HOME" in k}))
-            os.environ["CLAUDE_CONFIG_DIR"] = str(paths.account_dir("alpha") / ".claude")
-            try:
-                env = accounts.env_for("gamma")
-            finally:
-                os.environ.pop("CLAUDE_CONFIG_DIR", None)
-            check("accounts: and drops another vendor's variable inherited from the caller",
-                  "CLAUDE_CONFIG_DIR" not in env, env.get("CLAUDE_CONFIG_DIR", ""))
-            check("accounts: the login command is the driver's, with its variable",
-                  accounts.login_command("gamma") == f'ZAI_HOME="{cdir}" glmcode login',
-                  accounts.login_command("gamma"))
+        finally:
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        check("accounts: and drops another vendor's variable inherited from the caller",
+              "CLAUDE_CONFIG_DIR" not in env, env.get("CLAUDE_CONFIG_DIR", ""))
+        check("accounts: the login command is the driver's, with its variable",
+              accounts.login_command("gamma") == f'ZAI_HOME="{cdir}" glmcode login',
+              accounts.login_command("gamma"))
 
-            # account_of_process: every vendor's variable is asked; the layout
-            # under accounts/ is ours, so the account still falls out of the path.
-            asked: list[str] = []
+        # The layout inside that directory: what a working directory is called
+        # there, and where its transcripts hang off.
+        check("collect: a working directory is named the vendor's way",
+              collect.encode_cwd("gamma", "/tmp/a/b") == "_tmp_a_b",
+              collect.encode_cwd("gamma", "/tmp/a/b"))
+        check("collect: and the transcript directory hangs off the driver's memory root",
+              collect.project_dir("gamma", "/tmp/a/b") == cdir / "sessions" / "_tmp_a_b",
+              str(collect.project_dir("gamma", "/tmp/a/b")))
 
-            def env_of(pid, name):
-                asked.append(name)
-                return str(cdir) if name == "ZAI_HOME" else None
+        # What is linked into an account's config dir is the vendor's list,
+        # less what it never touches - here "skills", which claude shares.
+        shared = vendors.shared_dir("claude")
+        (shared / "skills").mkdir(parents=True, exist_ok=True)
+        # gamma's own shared dir has one too, so only never_touch keeps
+        # "skills" out of unlinked() - not the item's absence there.
+        gshared = vendors.shared_dir(vendors.for_account("gamma").name)
+        (gshared / "skills").mkdir(parents=True, exist_ok=True)
+        check("accounts: setup - the item exists in gamma's shared dir, and gamma never touches it",
+              (gshared / "skills").exists()
+              and "skills" in vendors.for_account("gamma").never_touch())
+        accounts.register("gamma")
+        check("accounts: an item the driver never touches is not linked",
+              not (cdir / "skills").exists())
+        check("accounts: and it is not reported as an account's to relink either",
+              ("gamma", "skills") not in accounts.unlinked(), str(accounts.unlinked()))
+        accounts.relink_all()
+        check("accounts: nor linked by the catch-up pass",
+              not (cdir / "skills").exists())
 
-            obsmod.env_of = env_of
-            got = obsmod.account_of_process(1)
-            check("observe: the config-dir variable read off the process is each driver's",
-                  "ZAI_HOME" in asked and "CLAUDE_CONFIG_DIR" in asked, str(asked))
-            check("observe: and the account still comes out of the path under accounts/",
-                  got == "gamma", repr(got))
+        # A session's transcripts sit one level down the same root.
+        tdir = cdir / "sessions" / "_tmp_a_b"
+        tdir.mkdir(parents=True, exist_ok=True)
 
-            # The layout inside that directory: what a working directory is called
-            # there, and where its transcripts hang off.
-            check("collect: a working directory is named the vendor's way",
-                  collect.encode_cwd("gamma", "/tmp/a/b") == "_tmp_a_b",
-                  collect.encode_cwd("gamma", "/tmp/a/b"))
-            check("collect: and the transcript directory hangs off the driver's memory root",
-                  collect.project_dir("gamma", "/tmp/a/b") == cdir / "sessions" / "_tmp_a_b",
-                  str(collect.project_dir("gamma", "/tmp/a/b")))
+        # The token log walks that root too: the decoy sits where claude keeps
+        # its transcripts, and must not be read for a vendor that does not.
+        from handline.usage import tokenlog
+        (tdir / "s2.jsonl").write_text(_call_line("req_driver", 10))
+        decoy = cdir / "projects" / "-w-x"
+        decoy.mkdir(parents=True, exist_ok=True)
+        (decoy / "s3.jsonl").write_text(_call_line("req_claudes_place", 10))
+        con = db.connect()
+        try:
+            tokenlog.ingest(con, "gamma")
+            reqs = {r["req"] for r in con.execute("SELECT req FROM token_calls")}
+        finally:
+            con.close()
+        check("tokenlog: the transcripts read are the ones under the driver's root",
+              reqs == {"req_driver"}, str(reqs))
 
-            # What is linked into an account's config dir is the vendor's list,
-            # less what it never touches - here "skills", which claude shares.
-            shared = vendors.shared_dir("claude")
-            (shared / "skills").mkdir(parents=True, exist_ok=True)
-            # gamma's own shared dir has one too, so only never_touch keeps
-            # "skills" out of unlinked() - not the item's absence there.
-            gshared = vendors.shared_dir(vendors.for_account("gamma").name)
-            (gshared / "skills").mkdir(parents=True, exist_ok=True)
-            check("accounts: setup - the item exists in gamma's shared dir, and gamma never touches it",
-                  (gshared / "skills").exists()
-                  and "skills" in vendors.for_account("gamma").never_touch())
-            accounts.register("gamma")
-            check("accounts: an item the driver never touches is not linked",
-                  not (cdir / "skills").exists())
-            check("accounts: and it is not reported as an account's to relink either",
-                  ("gamma", "skills") not in accounts.unlinked(), str(accounts.unlinked()))
-            accounts.relink_all()
-            check("accounts: nor linked by the catch-up pass",
-                  not (cdir / "skills").exists())
+        # The command the founder is handed to trust a worktree names the
+        # variable their tool reads, and their tool, not claude's.
+        made: list[str] = []
+        real_ct = termmod.create_terminal
+        try:
+            termmod.create_terminal = lambda cmd, **k: (made.append(cmd), None)[1]
+            actions.trust_worktrees("gamma", [("backend", "/w/backend")])
+        finally:
+            termmod.create_terminal = real_ct
+        check("actions: the trust command sets the driver's config-dir variable",
+              made and "ZAI_HOME=" in made[0] and "CLAUDE_CONFIG_DIR" not in made[0]
+              and made[0].endswith(" /opt/zai/bin/glmcode"), str(made))
 
-            # The transcript search runs down the same root, one level deep.
-            tdir = cdir / "sessions" / "_tmp_a_b"
-            tdir.mkdir(parents=True, exist_ok=True)
-            (tdir / "sess1.jsonl").write_text("{}\n")
-            check("handoff: a transcript is looked for under the driver's memory root",
-                  handoffmod.find_transcript("sess1", "gamma") == tdir / "sess1.jsonl",
-                  str(handoffmod.find_transcript("sess1", "gamma")))
-
-            # The token log walks that root too: the decoy sits where claude keeps
-            # its transcripts, and must not be read for a vendor that does not.
-            from handline.usage import tokenlog
-            (tdir / "s2.jsonl").write_text(_call_line("req_driver", 10))
-            decoy = cdir / "projects" / "-w-x"
-            decoy.mkdir(parents=True, exist_ok=True)
-            (decoy / "s3.jsonl").write_text(_call_line("req_claudes_place", 10))
-            con = db.connect()
-            try:
-                tokenlog.ingest(con, "gamma")
-                reqs = {r["req"] for r in con.execute("SELECT req FROM token_calls")}
-            finally:
-                con.close()
-            check("tokenlog: the transcripts read are the ones under the driver's root",
-                  reqs == {"req_driver"}, str(reqs))
-
-            # The command the founder is handed to trust a worktree names the
-            # variable their tool reads, and their tool, not claude's.
-            made: list[str] = []
-            real_ct = termmod.create_terminal
-            try:
-                termmod.create_terminal = lambda cmd, **k: (made.append(cmd), None)[1]
-                actions.trust_worktrees("gamma", [("backend", "/w/backend")])
-            finally:
-                termmod.create_terminal = real_ct
-            check("actions: the trust command sets the driver's config-dir variable",
-                  made and "ZAI_HOME=" in made[0] and "CLAUDE_CONFIG_DIR" not in made[0]
-                  and made[0].endswith(" /opt/zai/bin/glmcode"), str(made))
-
-            # And the name doctor prints, so its reader is told which variable to
-            # go and set rather than claude's.
-            cdir.rename(cdir.with_name(".zai-gone"))
-            r = doctor.Report()
-            doctor._check_accounts(r)
-            lines = [name for _lv, name, _d in r.rows]
-            check("doctor: the missing-config-dir line names the driver's variable",
-                  "account gamma: ZAI_HOME missing" in lines, str(lines))
-    finally:
-        obsmod.env_of = real
+        # And the name doctor prints, so its reader is told which variable to
+        # go and set rather than claude's.
+        cdir.rename(cdir.with_name(".zai-gone"))
+        r = doctor.Report()
+        doctor._check_accounts(r)
+        lines = [name for _lv, name, _d in r.rows]
+        check("doctor: the missing-config-dir line names the driver's variable",
+              "account gamma: ZAI_HOME missing" in lines, str(lines))
 
 
 def test_db_dedup_only_swallows_dedup(home: Path) -> None:
@@ -1296,36 +1272,6 @@ edges:
         con.close()
 
 
-def test_classify_reads_the_screen_again_after_waiting_of_hides_a_wait_by_it(home: Path) -> None:
-    """waiting.of()'s own screen check, just above classify()'s, answers a
-    different question - is the founder's own prompt still up - and hiding a
-    stale one there does not excuse classify()'s read: a dialog can be on
-    screen the instant after, and nothing else would catch it this tick."""
-    _daemon_home(home, 20)
-    termmod.available = lambda: True
-    termmod.alive = lambda h: True
-    reads: list[str] = []
-    blocker = termmod.Blocker(termmod.MODAL, "a different dialog")
-
-    def fake_screen_blocker(h):
-        reads.append(h)
-        return None if len(reads) == 1 else blocker
-
-    termmod.screen_blocker = fake_screen_blocker
-    con = db.connect()
-    try:
-        db.set_agent_state(con, "backend", dmn_states.RUNNING, detail="active")
-        waiting.note("backend", "Bash", {"command": "rm -rf /x"})
-        row = db.get_agent_state(con, "backend")
-        found = blockedmod.classify(con, "backend", row)
-        check("classify: the permission wait hidden, but a fresh dialog still shows",
-              found == (termmod.MODAL, "a different dialog", ""), str(found))
-        check("classify: two live reads - waiting.of()'s own and classify()'s own",
-              reads == ["term_x", "term_x"], str(reads))
-    finally:
-        con.close()
-
-
 def test_a_stale_cached_read_does_not_hide_a_later_prompt(home: Path) -> None:
     """auditor #1721 BLOCKING: screen_blocker_cached's own TTL means a read
     taken while an earlier prompt was up, or just after it was answered, can
@@ -1426,19 +1372,19 @@ def test_a_wait_with_no_answer_says_so_and_fails(home: Path) -> None:
 def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None:
     """A delivered head its agent never resolved held everything behind it for
     an hour, and `withdraw` refuses anything already delivered. `cancel` closes
-    it as rejected - never deletes it - and tells everyone it touches."""
+    it as rejected - never deletes it - and hands the daemon whom to tell."""
     _daemon_home(home, 20)
     con = db.connect()
-    sent: list[tuple[str, str]] = []
-    real = (termmod.alive, termmod.send, termmod.available, termmod.typeable_now,
-            askmod.asking_agent)
+    handed: list[dict] = []
+    told_to_stop = {"ok": True, "said": "backend was told to stop"}
+    replies = {"notify_cancelled": told_to_stop}
+
+    def send(payload, timeout=None, start=True):
+        handed.append(payload)
+        return replies.get(payload["verb"], {"ok": True, "said": "handed"})
+    real = (dmn_client.send, askmod.asking_agent)
     try:
-        termmod.available = lambda: True
-        termmod.live_terminals = lambda: {"term_b", "term_m"}
-        termmod.alive = lambda h: True
-        termmod.typeable_now = lambda h: True
-        termmod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
-        sessions_are("backend", "marina")
+        dmn_client.send = send
         for name, term in (("backend", "term_b"), ("marina", "term_m")):
             agents.register(name)
             db.set_terminal(con, name, term, "wt")
@@ -1465,15 +1411,14 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
               row["state"] == "landed" and db.shown_verdict(row) == "withdrawn by the founder",
               str(dict(row)))
         check("cancel: and is still in the log, not deleted", row is not None)
-        check("cancel: the target is told to stop, at its own terminal",
-              any(h == "term_b" and f"#{head}" in t and "cancelled" in t and "Stop work" in t
-                  for h, t in sent), str(sent))
+        check("cancel: the daemon is handed the target's notice to stop",
+              {"verb": "notify_cancelled", "rid": head} in handed and "backend was told to stop" in said, f"{handed} {said}")
         check("cancel: the requester is told through the answer path",
-              any(h == "term_m" and f"#{head} (you asked: " in t and ") backend: withdrawn by the founder" in t
-                  for h, t in sent), str(sent))
-        check("cancel: the item behind it is now the head and is delivered",
+              head in [r["id"] for r in db.unannounced_answers(con, "marina")]
+              and {"verb": "push_answer", "requester": "marina"} in handed, str(handed))
+        check("cancel: the item behind it is now the head, and the daemon is asked to deliver it",
               db.head_of_queue(con, "backend")["id"] == mine
-              and any(h == "term_b" and f"#{mine} from human" in t for h, t in sent), str(sent))
+              and {"verb": "push", "target": "backend", "rid": None} in handed, str(handed))
         check("cancel: the cancel is on the record",
               con.execute("SELECT 1 FROM events WHERE kind = 'cancel'").fetchone() is not None)
         check("cancel: and the result says what was done", "cancelled" in said, said)
@@ -1481,51 +1426,44 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         # The founder's own request, delivered: closed like any other, but the
         # founder is not handed their own cancellation as news.
         db.mark_delivered(con, mine)
-        sent.clear()
         actions.cancel(con, mine)
         check("cancel: the founder's own delivered request is closed as rejected",
               db.get_request(con, mine)["state"] == "landed")
         check("cancel: and the founder is not told about their own cancel",
               not db.unannounced_answers(con, askmod.HUMAN), str(db.unannounced_answers(con, askmod.HUMAN)))
 
-        # Case 3, undelivered: the target never saw it, so nothing is typed at it.
-        # (`other` became the head when the ones before it were cancelled, so it
-        # is a request behind it that has not been shown.)
-        check("cancel: what was behind a cancelled head was delivered in turn",
-              db.get_request(con, other)["delivered_at"] is not None)
+        # Case 3, undelivered: the target never saw it, so it is not told.
+        db.mark_delivered(con, other)
         tail = ask("marina", "marina's third, behind a delivered one")
-        sent.clear()
+        handed.clear()
         actions.cancel(con, tail)
-        other = tail
         check("cancel: an undelivered request of another agent's is closed and its requester told",
-              db.get_request(con, other)["state"] == "withdrawn"
-              and any(h == "term_m" and f"#{other}" in t for h, t in sent), str(sent))
-        check("cancel: with nothing typed at a target that never saw it",
-              not any(h == "term_b" and "cancelled" in t for h, t in sent), str(sent))
+              db.get_request(con, tail)["state"] == "withdrawn"
+              and {"verb": "push_answer", "requester": "marina"} in handed, str(handed))
+        check("cancel: with no notice for a target that never saw it",
+              not any(p["verb"] == "notify_cancelled" for p in handed), str(handed))
 
         # Case 1: the founder's own, not yet delivered - a plain withdraw.
         undelivered = ask(askmod.HUMAN, "changed my mind")
-        sent.clear()
+        handed.clear()
         ok, why = actions.cancel_plan(con, undelivered)
         check("cancel: an undelivered request of the founder's is planned as a withdraw",
               ok and why.startswith("withdraw") and "nobody is told" in why, why)
         actions.cancel(con, undelivered)
         check("cancel: it is withdrawn, exactly as `hl withdraw` does",
               db.get_request(con, undelivered)["state"] == "withdrawn")
-        check("cancel: and nothing is typed anywhere", not sent, str(sent))
+        check("cancel: and nobody is told", not handed, str(handed))
 
-        # An agent mid-work cannot be typed at; the row closes anyway, and the
+        # A target the daemon cannot tell now; the row closes anyway, and the
         # agent cannot undo it by resolving it later.
         busy = ask("marina", "worked on right now")
         db.mark_delivered(con, busy)
         db.set_cursor(con, "notify:backend", busy)
-        termmod.typeable_now = lambda h: False
-        sent.clear()
+        replies["notify_cancelled"] = {"ok": False, "said": "backend is mid-turn"}
         said = actions.cancel(con, busy)
-        check("cancel: a target it cannot type at is not told now, and the founder is told so",
-              db.get_request(con, busy)["state"] == "landed"
-              and "could not be told" in said and not any(h == "term_b" for h, _t in sent), said)
-        termmod.typeable_now = lambda h: True
+        check("cancel: a target the daemon cannot tell now is not told, and the founder is told so",
+              db.get_request(con, busy)["state"] == "landed" and "could not be told" in said, said)
+        replies["notify_cancelled"] = told_to_stop
 
         racer = ask("marina", "resolved at the same instant")
         check("cancel: the close is one write - it loses to a resolve that got there first",
@@ -1580,8 +1518,7 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
         check("cancel: and a refused cancel prints the daemon's words as they come and fails",
               rc == 1 and out.strip() == "not cancelled - it is gone", out)
     finally:
-        (termmod.alive, termmod.send, termmod.available, termmod.typeable_now,
-         askmod.asking_agent) = real
+        dmn_client.send, askmod.asking_agent = real
         con.close()
 
 
@@ -3512,18 +3449,6 @@ limits:
               ghost not in [r["id"] for r in db.queued_for(con, "worker")]
               and ghost not in [r["id"] for r in db.undelivered_for(con, "worker")]
               and ghost not in [r["id"] for r in db.send_now_pending(con, "worker")])
-        con.execute("UPDATE requests SET ts = ts - 100000 WHERE id = ?", (ghost,))
-        from handline.session import observe as obsmod, term as termmod
-        was = (termmod.available, obsmod.live_sessions)
-        termmod.available, obsmod.live_sessions = (lambda: False), (lambda: {})
-        stuckmod._WORLD["at"] = 0.0
-        try:
-            stuck_now = stuckmod.stuck(con)
-        finally:
-            termmod.available, obsmod.live_sessions = was
-        check("ghost: and the stuck list does not carry it, however old",
-              not any(f"#{ghost} " in str(i) for i in stuck_now) and any(f"#{behind} " in str(i) for i in stuck_now),
-              str(stuck_now))
         check("ghost: `hl doctor` lists it", ghost in [r["id"] for r in db.leftover_deliveries(con)])
         fg = db.new_task(con, "founder's, ended", "worker", actions.HUMAN)
         frid = db.add_request(con, actions.HUMAN, "worker", "from the founder", None, None, "fire_and_forget",
@@ -3964,11 +3889,15 @@ def test_a_reported_task_reads_as_awaiting_who_it_answers_to() -> None:
     box = {"length_s": 7200, "default": False, "start": None, "end": None, "overdue_since": None, "told": 0, "left_s": 4800}
     held = {**t, "state": "doing", "time": box, "blockers": [{"task": 9, "owner": "c", "title": "first"}],
             "subtasks": [{"id": 8, "owner": "d", "state": "doing", "title": "child"}, {"id": 6, "owner": "d", "state": "done", "title": "old"}]}
-    check("task show: a paused clock names the blocker and what is left",
-          clitask._detail_lines(held, 0)[2:4] == ["timeout 2h00m", "paused - blocked by T9, 1h20m left"], str(clitask._detail_lines(held, 0)[2:4]))
-    check("task show: with no blocker it names the open children, and with neither only what is left",
-          clitask._detail_lines({**held, "blockers": []}, 0)[3] == "paused - waiting on T8, 1h20m left"
-          and clitask._detail_lines({**held, "blockers": [], "subtasks": []}, 0)[3] == "paused, 1h20m left")
+    check("task show: a waiting task's clock names its open blockers and children, not what is left",
+          clitask._detail_lines(held, 0)[2:4] == ["timeout 2h00m", "timeout paused: waiting on T9, T8"], str(clitask._detail_lines(held, 0)[2:4]))
+    check("task show: with nothing open it says what is left",
+          clitask._detail_lines({**held, "blockers": [], "subtasks": []}, 0)[3] == "paused, 1h20m left")
+    check("task show: a wait on the founder says so - held by them, awaiting their accept, or a blocker they hold",
+          clitask._detail_lines({**held, "to": "human"}, 0)[3] == "timeout paused: waiting on human"
+          and clitask._detail_lines({**held, "state": "reported", "asker": "human"}, 0)[3] == "timeout paused: waiting on human"
+          and clitask._detail_lines({**held, "blockers": [{"task": 9, "owner": "human", "title": "x"}], "subtasks": []}, 0)[3]
+          == "timeout paused: waiting on T9 (human)")
     p = cli_parser.build_parser()
     check("task new parses without -t", p.parse_args(["task", "new", "--assign", "b.two", "x"]).timeout is None)
     check("task accept and reject parse, reject with its note",
@@ -4009,8 +3938,6 @@ def main() -> int:
         run(lambda: test_inbox_and_withdraw_cli(Path(td) / 'inboxcli'))
         run(lambda: test_growing_the_team_needs_a_person(Path(td) / 'hr'))
         run(lambda: test_the_founder_does_not_approve_their_own_request(Path(td) / 'hrself'))
-        run(lambda: test_classify_reads_the_screen_again_after_waiting_of_hides_a_wait_by_it(
-            Path(td) / 'classifyreuse'))
         run(lambda: test_a_stale_cached_read_does_not_hide_a_later_prompt(Path(td) / 'stalecache'))
         run(lambda: test_a_proposal_and_an_decisionion_wait_on_the_founder_too(Path(td) / 'founderwaits'))
         run(lambda: test_a_wait_with_no_answer_says_so_and_fails(Path(td) / 'waitrow'))

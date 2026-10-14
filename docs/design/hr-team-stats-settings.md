@@ -151,7 +151,7 @@ States: **loading**: field-shaped skeleton (label and control bars, four section
 2. Approve all is N calls in order, so the bridge's one summary message per proposer is not promised (no batch call in the contract).
 3. Withdraw is on the web for the founder (the contract allows it) with the bridge's danger confirm; §8.5 still lists `hr.withdraw` as "not from the UI", so the architect must move it to decided before the page ships. If the founder does not want it, the row is dropped.
 4. Remove on a standing answer: the bridge removes at once with no confirm; the web adds a 6 s Undo that delays the write. If delaying is not wanted, the row is removed at once as the bridge does.
-5. Auto-accept and the other switches save with no confirmation, as the bridge does, although auto-accept lets the daemon answer dialogs by rule. Whether it deserves a danger confirm like skip prompts is the founder's call.
+5. Auto-accept and the other switches save with no confirmation, as the bridge does, although auto-accept lets the daemon answer dialogs by rule. Whether it deserves a danger confirm like the sandbox switch is the founder's call.
 6. Team stays read-only; role and base files are shown by path and update time and are not opened in the web.
 7. `stats.get` keeps 24 h and 7 d for the tiles; the outlook ranges are `stats.outlook`'s own. The bridge's team-to-agent cost drill is dropped (no team field in `cost_per_day`).
 8. The tab dot is live through the `hr` topic; nothing polls.

@@ -528,11 +528,9 @@ def enact_bundle(changes: list[dict], why: str, con=None) -> tuple[bool, str]:
 class _Snapshot:
     """What a change to the roster can touch, kept so a step that fails puts all of it back: the routing
     table and its backup, the config, the folder of each agent a step names (and what lands in the
-    archive), the seals and grants kept for them in the protected store. The database is put back by
+    archive), the seals kept for them in the protected store. The database is put back by
     the savepoint the steps run in. Orca (a repo, a label) is done after the last step, so a failure
     never reaches it."""
-
-    GRANTS = (agents._SKIP_NS,)
 
     def __init__(self, names: set[str]):
         self.dir = Path(tempfile.mkdtemp(prefix="hr-snapshot-", dir=paths.home()))
@@ -548,8 +546,7 @@ class _Snapshot:
         archive = paths.home() / "agents" / "archive"
         self.archived = {c.name for c in archive.iterdir()} if archive.is_dir() else set()
         self.kept = {(ns, key): self._get(ns, key)
-                     for ns, key in [(sealed.NS, sealed.TEAM), *((sealed.NS, sealed.agent_key(n)) for n in self.names),
-                                     *((g, n) for g in self.GRANTS for n in self.names)]}
+                     for ns, key in [(sealed.NS, sealed.TEAM), *((sealed.NS, sealed.agent_key(n)) for n in self.names)]}
 
     @staticmethod
     def _get(ns: str, key: str):
@@ -589,7 +586,7 @@ class _Snapshot:
 
 
 def _names_of(items: list[dict]) -> set[str]:
-    """The agents whose folders and grants a step may change."""
+    """The agents whose folders a step may change."""
     out: set[str] = set()
     for it in items:
         if it["kind"] == "global":

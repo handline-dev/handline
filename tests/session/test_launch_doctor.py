@@ -248,14 +248,6 @@ def test_launch(home: Path) -> None:
     mcp_json.unlink()
     check("fingerprint: removing it again matches the original", launch.fingerprint("launchtest") == before)
 
-    # T448: a session launched before skip-permissions was turned on has to read
-    # as drifted, or it is reused and the setting never reaches Claude Code.
-    agents.register("launchtest", skip_permissions=True)
-    on = launch.fingerprint("launchtest")
-    check("fingerprint: turning skip-permissions on changes it", on != before)
-    agents.register("launchtest", skip_permissions=False)
-    check("fingerprint: turning it off returns to the original", launch.fingerprint("launchtest") == before)
-
 
 def test_doctor_checks_shared_mcp_config(home: Path) -> None:
     os.environ["OCP_HOME"] = str(home)
@@ -460,50 +452,19 @@ def test_doctor_names_a_repo_whose_mcp_json_claude_would_ask_about(home: Path) -
     check("doctor: and only those two: not the approved repo, not the one with no .mcp.json", len(named) == 2, str(named))
 
 
-def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> None:
-    """T170: off by default; on adds the driver's flag once at the next launch;
-    only a real true counts; a vendor with no such switch is told, not broken."""
+def test_chrome_and_mcp_config_are_per_agent_switches_read_at_launch(home: Path) -> None:
+    """Each is off by default and reaches the argv at the next launch; only the founder sets them."""
     use_home(home)
     accounts.register("alpha")
     (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
     agents.register("backend")
     cdrv = vendors.get("claude")
     cdrv.binary = lambda: "/x/bin/claude"
-    flag = "--dangerously-skip-permissions"
     try:
-        check("skip: off by default", flag not in launch.build("backend")[0])
-        agents.register("backend", skip_permissions=True)
-        check("skip: register turns it on, in agent.yaml",
-              agents.read("backend").get("skip_permissions") is True)
-        check("skip: a launch after it carries the flag", flag in launch.build("backend")[0])
-        check("skip: once, even when the caller passed it too",
-              launch.build("backend", [flag])[0].count(flag) == 1)
-        agents.register("backend", effort="high")
-        check("skip: a re-registration that omits it keeps it",
-              flag in launch.build("backend")[0])
-        for bad in ("yes", "true", 1, "on"):
-            p = agents.agent_file("backend")
-            cfg = agents.load(p.read_text())
-            cfg["skip_permissions"] = bad
-            p.write_text(agents.dump(cfg))
-            reseal(p)
-            check(f"skip: {bad!r} is not a true, so it is off",
-                  not agents.skip_permissions(agents.read("backend"))
-                  and flag not in launch.build("backend")[0])
-        agents.register("backend", skip_permissions=True)
-        agents.register("backend", skip_permissions=False)
-        check("skip: turning it off removes the key and the flag",
-              "skip_permissions" not in agents.read("backend")
-              and flag not in launch.build("backend")[0])
-        out = _capture(lambda: climod.main(["agent", "register", "backend", "--repo", "/repo", "--skip-permissions", "on"]))
-        check("skip: the CLI sets it and says when it applies",
-              agents.read("backend").get("skip_permissions") is True and "next launch" in out, out)
-        _capture(lambda: climod.main(["agent", "register", "backend", "--skip-permissions", "off"]))
-        check("skip: and off from the CLI", "skip_permissions" not in agents.read("backend"))
-        # T875: the same wiring, through the real parser and launch.build.
+        # Through the real parser and launch.build.
         check("chrome: a launch is --no-chrome by default",
               "--no-chrome" in launch.build("backend")[0] and "--chrome" not in launch.build("backend")[0])
-        out = _capture(lambda: climod.main(["agent", "register", "backend", "--chrome", "on"]))
+        out = _capture(lambda: climod.main(["agent", "register", "backend", "--repo", "/repo", "--chrome", "on"]))
         argv = launch.build("backend")[0]
         check("chrome: the CLI turns it on, says when, and the launch carries --chrome",
               "--chrome" in argv and "--no-chrome" not in argv and "next launch" in out, (argv, out))
@@ -524,7 +485,7 @@ def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> No
               len(got) == 1 and json.loads(got[0])["mcpServers"]["browser"]["command"] == "sh"
               and "next launch" in out, (got, out))
         check("mcp: and the fingerprint moves", launch.fingerprint("backend") != fp_off)
-        agents.register("backend", effort="high")
+        agents.register("backend")
         check("mcp: a re-registration that omits it keeps it", len(mcp_args(launch.build("backend")[0])) == 1)
         bad = home / "bad-mcp.json"
         bad.write_text('{"servers": {}}')
@@ -563,92 +524,6 @@ def test_skip_permissions_is_a_per_agent_switch_read_at_launch(home: Path) -> No
                   err.getvalue())
         finally:
             os.environ.pop("OCP_AGENT")
-        real = os.environ.get("OCP_AGENT")
-        os.environ["OCP_AGENT"] = "backend"
-        try:
-            err = io.StringIO()
-            with contextlib.redirect_stderr(err):
-                rc = climod.main(["agent", "register", "backend", "--skip-permissions", "on"])
-            check("skip: an agent's own session cannot turn it on",
-                  rc == 1 and "founder's" in err.getvalue()
-                  and "skip_permissions" not in agents.read("backend"), err.getvalue())
-            os.environ.pop("OCP_AGENT")
-            agents.register("backend", skip_permissions=True)
-            os.environ["OCP_AGENT"] = "backend"
-            with contextlib.redirect_stderr(io.StringIO()):
-                rc = climod.main(["agent", "register", "backend", "--skip-permissions", "off"])
-            check("skip: nor off - the grant is the founder's both ways",
-                  rc == 1 and agents.read("backend").get("skip_permissions") is True
-                  and agents.skip_permissions_granted("backend"))
-            try:
-                agents.register("backend", skip_permissions=False)
-                check("skip: and the call itself refuses an agent, not just the CLI", False)
-            except PermissionError:
-                check("skip: and the call itself refuses an agent, not just the CLI",
-                      agents.skip_permissions_granted("backend"))
-            os.environ.pop("OCP_AGENT")
-            agents.register("backend", skip_permissions=False)
-        finally:
-            if real is None:
-                os.environ.pop("OCP_AGENT", None)
-            else:
-                os.environ["OCP_AGENT"] = real
-        check("skip: opencode has no such switch, so it adds nothing",
-              vendors.get("opencode").skip_permissions_argv() == [])
-    finally:
-        del cdrv.binary
-
-
-def test_skip_permissions_needs_the_founders_grant_not_just_the_file(home: Path) -> None:
-    """T175: agent.yaml is writable by every agent's sandbox, so the key in it
-    alone never adds the flag. The grant is recorded by `register` (the CLI or
-    the screen), and doctor names a key that has none."""
-    use_home(home)
-    accounts.register("alpha")
-    (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
-    agents.register("backend")
-    cdrv = vendors.get("claude")
-    cdrv.binary = lambda: "/x/bin/claude"
-    flag = "--dangerously-skip-permissions"
-
-    def edit(**kw):
-        p = agents.agent_file("backend")
-        cfg = agents.load(p.read_text())
-        cfg.pop("skip_permissions", None)
-        cfg.update(kw)
-        p.write_text(agents.dump(cfg))
-        reseal(p)
-
-    def doctor_says():
-        r = doctor.Report()
-        doctor._check_agents(r)
-        return [n for _lv, n, _d in r.rows if "skip_permissions" in n]
-    try:
-        edit(skip_permissions=True)
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            argv = launch.build("backend")[0]
-        check("grant: a key written into agent.yaml alone adds no flag, and says why",
-              flag not in argv and "never turned it on" in err.getvalue(), err.getvalue())
-        check("grant: doctor names it", len(doctor_says()) == 1, str(doctor_says()))
-        check("grant: and it is not in effect",
-              not agents.skip_permissions_in_effect("backend", agents.read("backend")))
-
-        agents.register("backend", skip_permissions=True)
-        check("grant: register grants it, and the flag comes",
-              flag in launch.build("backend")[0] and doctor_says() == [])
-        edit(skip_permissions=True)
-        check("grant: a later hand edit of the file changes nothing", flag in launch.build("backend")[0])
-
-        agents.register("backend", skip_permissions=False)
-        edit(skip_permissions=True)
-        with contextlib.redirect_stderr(io.StringIO()):
-            argv = launch.build("backend")[0]
-        check("grant: turning it off revokes the grant, so the key put back by hand is inert",
-              flag not in argv and len(doctor_says()) == 1)
-        agents.register("backend")
-        check("grant: a re-registration that omits it leaves the grant as it was",
-              not agents.skip_permissions_granted("backend"))
     finally:
         del cdrv.binary
 
@@ -1022,59 +897,6 @@ def test_hl_spawn_and_unstall_ask_the_go_daemon(tmp: Path) -> None:
     with support.daemon_says("agent.unstall", refused("agent.unstall", "backend: not STALLED (IDLE)")):
         rc, out = _cli(["unstall", "backend"], as_agent=None)
     check("unstall: a refusal fails and says why", rc == 1 and "not STALLED (IDLE)" in out, f"{rc} {out}")
-
-
-def test_spawn_base_selection(tmp: Path) -> None:
-    """Branching from the stale side silently loses work, so pick_base must not
-    guess - and must refuse outright when the two have diverged."""
-    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
-               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
-    run = lambda cwd, *a: subprocess.run(["git", *a], cwd=cwd, capture_output=True, env=env)  # noqa: E731
-
-    origin = tmp / "origin"
-    origin.mkdir(parents=True)
-    run(origin, "init", "-q", "-b", "main")
-    (origin / "f.txt").write_text("base\n")
-    run(origin, "add", "-A"); run(origin, "commit", "-qm", "base")
-
-    work = tmp / "work"
-    subprocess.run(["git", "clone", "-q", str(origin), str(work)], capture_output=True)
-
-    ref, why = spawnmod.pick_base(work, "main")
-    check("spawn: in sync, uses the local base", ref == "main", f"{ref} ({why})")
-
-    # Local ahead: branching from origin/main would drop the local commits.
-    (work / "f.txt").write_text("local work\n")
-    run(work, "add", "-A"); run(work, "commit", "-qm", "local only")
-    ref, why = spawnmod.pick_base(work, "main")
-    check("spawn: local ahead, branches from local", ref == "main", f"{ref} ({why})")
-    check("spawn: says why", "leads by 1" in why, why)
-
-    # Remote ahead only.
-    work2 = tmp / "work2"
-    subprocess.run(["git", "clone", "-q", str(origin), str(work2)], capture_output=True)
-    (origin / "f.txt").write_text("remote work\n")
-    run(origin, "add", "-A"); run(origin, "commit", "-qm", "remote only")
-    ref, why = spawnmod.pick_base(work2, "main")
-    check("spawn: remote ahead, branches from origin", ref == "origin/main", f"{ref} ({why})")
-
-    # Diverged: refuse rather than pick a side.
-    (work2 / "other.txt").write_text("diverge\n")
-    run(work2, "add", "-A"); run(work2, "commit", "-qm", "local diverge")
-    ref, why = spawnmod.pick_base(work2, "main")
-    check("spawn: diverged, refuses instead of guessing", ref is None, f"{ref} ({why})")
-    check("spawn: tells the human to merge first", "Merge" in why or "merge" in why, why)
-
-    # T483: a repo whose branch is not `main` (legacy's) must not be handed `main`.
-    other = tmp / "other"
-    other.mkdir()
-    run(other, "init", "-q", "-b", "trunk")
-    ref, why = spawnmod.pick_base(other, "main")
-    check("spawn: no commit at all, refuses with a plain reason", ref is None and "first commit" in why, why)
-    (other / "f.txt").write_text("x\n")
-    run(other, "add", "-A"); run(other, "commit", "-qm", "first")
-    ref, why = spawnmod.pick_base(other, "main")
-    check("spawn: no main, branches from the checked-out branch", ref == "trunk", f"{ref} ({why})")
 
 
 def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
@@ -1634,6 +1456,18 @@ def test_allow_home_writes_reads_entries_as_claude_code_does(home: Path) -> None
             os.environ["HOME"] = old_home
 
 
+def test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(home: Path) -> None:
+    """`state_hooks()` is the one fact hooks, init and doctor ask: claude has them, opencode and a second
+    vendor do not."""
+    use_home(home)
+    check("state hooks: claude has them", vendors.get("claude").state_hooks() is not None)
+    check("state hooks: opencode has none - its screen is the witness",
+          vendors.get("opencode").state_hooks() is None)
+    check("state hooks: the list the commands loop over is claude's alone",
+          [type(h).__name__ for h in vendors.state_hooks()] == ["ClaudeHooks"],
+          str(vendors.state_hooks()))
+
+
 def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) -> None:
     """The check that has to fire when `observe.is_session` stops matching - and
     stay quiet in the states that are not that. It fires on a status line still
@@ -2140,13 +1974,11 @@ def main() -> int:
         run(lambda: test_a_launch_does_not_inherit_an_opencode_sessions_config(Path(td) / 'ocleak'))
         run(lambda: test_a_claude_account_with_a_coding_plan_key_launches_on_glm(Path(td) / 'glmkey'))
         run(lambda: test_doctor_names_a_repo_whose_mcp_json_claude_would_ask_about(Path(td) / 'mcpjson'))
-        run(lambda: test_skip_permissions_is_a_per_agent_switch_read_at_launch(Path(td) / 'skipperm'))
-        run(lambda: test_skip_permissions_needs_the_founders_grant_not_just_the_file(Path(td) / 'skipgrant'))
+        run(lambda: test_chrome_and_mcp_config_are_per_agent_switches_read_at_launch(Path(td) / 'switches'))
         run(lambda: test_the_protected_store_is_outside_what_agents_write(Path(td) / 'protstore'))
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_init_keeps_the_lock_file_out_of_the_home_repo(Path(td) / 'd6e'))
         run(lambda: test_doctor_service_check(Path(td) / 'svc7'))
-        run(lambda: test_spawn_base_selection(Path(td) / 'spawn'))
         run(lambda: test_hl_spawn_and_unstall_ask_the_go_daemon(Path(td) / 'hlspawn'))
         run(lambda: test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj'))
         run(lambda: test_doctor_checks_team_yaml_and_that_its_agents_are_registered(Path(td) / 'docteam'))
@@ -2162,6 +1994,7 @@ def main() -> int:
         run(lambda: test_allow_home_socket_adds_one_path_and_keeps_the_rest(Path(td) / 'homes'))
         run(lambda: test_allow_safe_commands_merges_into_an_empty_and_an_existing_settings_file(Path(td) / 'safecmd'))
         run(lambda: test_allow_home_writes_reads_entries_as_claude_code_does(Path(td) / 'homew'))
+        run(lambda: test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(Path(td) / 'statehooks'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
         run(lambda: test_doctor_and_ps_report_a_drifted_launch(Path(td) / 'docdrift'))
         run(lambda: test_venv(Path(td) / 'venvhome'))

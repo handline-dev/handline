@@ -9,7 +9,6 @@ export const defaultSettings = (model: string, effort: string): Record<string, s
   effort,
   weight: 'heavy',
   repo: '',
-  skip_permissions: 'off',
   browser: 'off',
   browser_sites: '',
   context_k: '300',
@@ -24,7 +23,6 @@ export const OWN_KEYS = new Set(['model', 'effort', 'context_k', 'handoff_note']
 const ONE_OF: Record<string, string[]> = {
   effort: ['low', 'medium', 'high', 'xhigh', 'max'],
   weight: ['light', 'heavy'],
-  skip_permissions: ['on', 'off'],
   sandbox: ['on', 'off'],
   browser: ['off', 'chrome', 'playwright'],
   handoff_note: ['default', 'on', 'off'],

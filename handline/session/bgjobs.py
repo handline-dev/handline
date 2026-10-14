@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import json
 import re
-import time
-from pathlib import Path
 
 from .. import db
 
@@ -20,7 +18,6 @@ KIND = "background_started"
 _OUTPUT = re.compile(r"(/[^\s\"'\\]+/tasks/([A-Za-z0-9]+)\.output)")
 _ID = re.compile(r"(?:backgroundTaskId|shellId|bash_id|task_id)\"\s*:\s*\"([A-Za-z0-9]+)\"|ID:\s*([A-Za-z0-9]+)")
 _EXIT = "[exited with code"
-_COUNT = re.compile(r"\d+")
 COMMAND_WIDTH = 100
 
 
@@ -44,11 +41,6 @@ def note(agent: str, raw: dict) -> None:
         db.add_event(con, agent, "background_started", payload)
     finally:
         con.close()
-
-
-def footer_count(text: str | None) -> int:
-    """How many things the footer says are running: "2 shells, 1 monitor" is 3."""
-    return sum(int(n) for n in _COUNT.findall(text or ""))
 
 
 def _ended(output: str | None) -> bool:
