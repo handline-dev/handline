@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/handline/handline/go/internal/housekeeping"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/taskresult"
@@ -188,10 +189,21 @@ func TestADoneTasksScreenshotIsServedByTaskAndNumber(t *testing.T) {
 	}
 }
 
+// outsideShotRoots is a folder under no place an agent's screenshot may come from. The scratch root holds a Claude session's $TMPDIR, so
+// t.TempDir() can be inside it: a folder beside the scratch root cannot. Where none can be made there, $TMPDIR is not under it either.
+func outsideShotRoots(t *testing.T) string {
+	dir, err := os.MkdirTemp(filepath.Dir(housekeeping.ScratchRoot()), "shots-elsewhere-")
+	if err != nil {
+		return t.TempDir()
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
 func TestAnAgentsScreenshotsAreReadOnlyFromItsOwnPlaces(t *testing.T) {
 	home, _, _, _, done, ui := newResultRig(t)
 	ui(2)
-	elsewhere := pngFile(t, t.TempDir(), "other.png", 100) // any PNG on the host: not the agent's to hand over
+	elsewhere := pngFile(t, outsideShotRoots(t), "other.png", 100) // any PNG on the host: not the agent's to hand over
 	if got := errText(done("w", "p1", 2, fmt.Sprintf(`,"evidence":"built","shots":[%q]`, elsewhere))); !strings.Contains(got, "outside the places a screenshot may be taken from") {
 		t.Fatalf("%q", got)
 	}

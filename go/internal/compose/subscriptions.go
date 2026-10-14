@@ -60,8 +60,9 @@ func (c founderCloser) MarkDoneByFounder(_ db.Q, tid int64, reason string) (bool
 	return true, res.Said, nil
 }
 
-// vendorPlans is subscriptions.Plans: the plan on disk, and `claude auth status --json` for the one asked again.
-type vendorPlans struct{ home string }
+// vendorPlans is subscriptions.Plans: the plan on disk, and `claude auth status --json` for the one asked again, run with cli, the claude
+// binary the daemon runs ("claude" when none is set).
+type vendorPlans struct{ home, cli string }
 
 func (p vendorPlans) Recorded(acct string) (string, bool) {
 	return team.Accounts{Home: p.home}.RecordedSubscriptionType(acct)
@@ -79,7 +80,11 @@ func (p vendorPlans) Refresh(acct string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), authStatusTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "claude", "auth", "status", "--json")
+	cli := p.cli
+	if cli == "" {
+		cli = "claude"
+	}
+	cmd := exec.CommandContext(ctx, cli, "auth", "status", "--json")
 	cmd.Env = append(os.Environ(), team.ConfigDirEnv(team.DefaultVendor)+"="+dir)
 	out, err := cmd.Output()
 	var data struct {
