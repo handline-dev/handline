@@ -70,8 +70,7 @@ export const NOT_QUERIES = [
   // Reads no screen draws yet: the terminal's address (member) and the next account pick (agent).
   'terminal.open',
   'status.pick',
-  // No screen draws an attachment or a task screenshot yet.
-  'attachment.get',
+  // No screen draws a task screenshot yet.
   'task.shot',
   // `hl inbox` and `hl read`: an agent's queue and one request whole. The app draws the founder's inbox from inbox.list.
   'inbox.queue',

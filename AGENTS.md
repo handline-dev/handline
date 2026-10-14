@@ -106,8 +106,9 @@ agent (ROLE.md, base.md); this file does not repeat them.
   whole suite before you hand the task to the auditor. The auditor runs the tests once at the
   exact sha (`HANDLINE_GO_RACE=1 tools/check.sh main`: the variable adds `-race` to the Go tests, and only this run sets it; in the foreground with a 600000 ms Bash timeout, never in the
   background); a count you quote is not a verdict. `tools/check.sh` runs nothing for documentation; for anything else
-  it runs `pnpm --dir packages/app-data test` first, then the Go suite and the Python files that test only Go
-  (its GO_FILES) for a change to go/ or the apps only, the whole suite (`tools/suite.sh`) otherwise.
+  it runs, in order: the app checks (`pnpm turbo test typecheck lint` when an app or JS workspace file changed, else
+  `pnpm --dir packages/app-data test`), then the Go suite and the Python files that test only Go (its GO_FILES) for
+  a change to go/ or the apps only, the whole suite (`tools/suite.sh`) otherwise.
 - Lighter review: a docs-only change, or a re-merge of main onto an already PASSed sha with no
   conflict, lands without a new review round. The auditor records the PASS on the new sha at once
   and the merger lands it.
