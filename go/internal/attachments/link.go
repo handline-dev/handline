@@ -3,7 +3,6 @@ package attachments
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/handline/handline/go/internal/db"
 )
@@ -32,19 +31,6 @@ func Of(q db.Q, rid int64) ([]Info, error) {
 	return infos, nil
 }
 
-// Maps is Of as the members of ChatMessage.attachments; nil for none.
-func Maps(q db.Q, rid int64) ([]any, error) {
-	infos, err := Of(q, rid)
-	if err != nil || len(infos) == 0 {
-		return nil, err
-	}
-	out := make([]any, len(infos))
-	for i, in := range infos {
-		out[i] = in.Map()
-	}
-	return out, nil
-}
-
 // size is a file's size as the path line says it.
 func size(n int64) string {
 	switch {
@@ -56,15 +42,23 @@ func size(n int64) string {
 	return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
 }
 
-// Lines is what the agent is told of the images of message rid: one line `[image N: /path (type, size)]` each. An image the store no longer holds is left out. "" for a message with none.
-func (s *Store) Lines(q db.Q, rid int64) string {
-	infos, _ := Of(q, rid)
-	var lines []string
-	for i, in := range infos {
-		if _, err := s.Lookup(in.ID); err != nil {
+// allSent is the images every message was sent with.
+func allSent(q db.Q) ([]Info, error) {
+	rows, err := q.Query("SELECT value FROM meta WHERE name LIKE 'attachments:%'")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Info
+	for rows.Next() {
+		var v string
+		if rows.Scan(&v) != nil {
 			continue
 		}
-		lines = append(lines, s.line(i+1, in))
+		var infos []Info
+		if json.Unmarshal([]byte(v), &infos) == nil {
+			out = append(out, infos...)
+		}
 	}
-	return strings.Join(lines, "\n")
+	return out, rows.Err()
 }

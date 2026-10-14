@@ -2794,7 +2794,8 @@
      "name": "body",
      "required": true,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts), with or without `task`; with `task` it is the task's brief."
      }
     },
     {
@@ -2833,7 +2834,7 @@
       },
       "maxItems": 6,
       "uniqueItems": true,
-      "description": "Images from attachment.put to send with this message, drawn in this order. Then body may be empty. An id that is unknown, expired or already sent is bad_request, field attachments. Not with task (bad_request)."
+      "description": "Images from attachment.put to send with this message, drawn after those the body names (x-attachments, flow); an id the body names too counts once, and the two together are at most 6 (bad_request, field attachments when the list goes over). Then body may be empty. An id may be sent again. A malformed id or an unfinished upload is bad_request, field attachments; an image never put or no longer kept is not_found, what attachment. Not with task (bad_request): a brief names its images in its text."
      }
     },
     {
@@ -4244,6 +4245,20 @@
         }
        ],
        "description": "Set when the request was dismissed: who did it and why, each null when not recorded."
+      },
+      "parts": {
+       "type": "array",
+       "items": {
+        "oneOf": [
+         {
+          "$ref": "#/components/schemas/TextPart"
+         },
+         {
+          "$ref": "#/components/schemas/ImagePart"
+         }
+        ]
+       },
+       "description": "`body` cut at the images it names, in order, then one part per image sent with it in `attachments` that the body does not name (an empty caption); present only when the message has an image. The text parts joined give `body` with each reference left out."
       }
      },
      "required": [
@@ -4514,7 +4529,8 @@
      "name": "text",
      "required": true,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts)."
      }
     },
     {
@@ -4813,7 +4829,7 @@
      "required": false,
      "schema": {
       "type": "string",
-      "description": "The brief, Markdown. It may name images (x-attachments, tasks)."
+      "description": "The brief, Markdown. It may name images (x-attachments, texts)."
      }
     },
     {
@@ -4962,7 +4978,8 @@
      "name": "note",
      "required": true,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts); they are the task's while it is open."
      }
     },
     {
@@ -5145,7 +5162,7 @@
      "required": true,
      "schema": {
       "type": "string",
-      "description": "One line: what is missing. It is told to the owner. It may then name images (x-attachments, tasks), each on a line of its own after the words; nothing else may follow them."
+      "description": "One line: what is missing. It is told to the owner. It may then name images (x-attachments, texts), each on a line of its own after the words; nothing else may follow them."
      }
     },
     {
@@ -5497,7 +5514,7 @@
      "required": true,
      "schema": {
       "type": "string",
-      "description": "Markdown. It may name images (x-attachments, tasks)."
+      "description": "Markdown. It may name images (x-attachments, texts)."
      }
     },
     {
@@ -5568,7 +5585,7 @@
      "required": true,
      "schema": {
       "type": "string",
-      "description": "Markdown. It may name images (x-attachments, tasks)."
+      "description": "Markdown. It may name images (x-attachments, texts)."
      }
     },
     {
@@ -6058,7 +6075,7 @@
      "required": false,
      "schema": {
       "type": "string",
-      "description": "The new brief, Markdown. It may name images (x-attachments, tasks)."
+      "description": "The new brief, Markdown. It may name images (x-attachments, texts)."
      }
     },
     {
@@ -6203,7 +6220,8 @@
      "name": "body",
      "required": true,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts)."
      }
     },
     {
@@ -9903,7 +9921,7 @@
              }
             ]
            },
-           "description": "`text` cut at the images it names, for a memo, an edit or a reject; present only when it names one."
+           "description": "`text` cut at the images it names, for a memo, a handoff, an edit or a reject; present only when it names one."
           }
          },
          "required": [
@@ -11853,7 +11871,21 @@
       "items": {
        "$ref": "#/components/schemas/Attachment"
       },
-      "description": "The images sent with the message, in order. Absent when it has none."
+      "description": "Every image of the message, in order: those the body names that are still kept, then those sent in `attachments`. Absent when it has none."
+     },
+     "parts": {
+      "type": "array",
+      "items": {
+       "oneOf": [
+        {
+         "$ref": "#/components/schemas/TextPart"
+        },
+        {
+         "$ref": "#/components/schemas/ImagePart"
+        }
+       ]
+      },
+      "description": "`body` cut at the images it names, in order, then one part per image sent with it in `attachments` that the body does not name (an empty caption); present only when the message has an image. The text parts joined give `body` with each reference left out."
      },
      "parent_item": {
       "oneOf": [
@@ -13938,12 +13970,12 @@
   "never": "A client does not send session.input, session.keys, session.type, input.take, input.release or terminal.attach for a structured agent, and shows no terminal tab, holder, key strip or Take control. The Go daemon does not serve the first five at all; a daemon that does refuses a structured agent (gate unsupported). terminal.attach with agent is not_found (terminal): it has no terminal."
  },
  "x-attachments": {
-  "what": "Images the person attaches to a chat message. One mechanism for every agent, structured or terminal: the file is stored on the daemon's machine and the agent is told its path, which it reads with its own file tool.",
-  "flow": "attachment.put sends the file in chunks and ends with the Attachment (an id); chat.send then names up to 6 ids in `attachments`. The message is delivered like any other, with one line per image added after the body: `[image N: /absolute/path.png (image/png, 184 KB)]`. ChatMessage.attachments and turn_start.attachments carry the ids for a client to draw; the body the client stored stays as typed (the path lines are added at delivery only), so a client that shows an agent's echo of a user turn may drop lines of that shape.",
-  "tasks": "A task's text names an image with Markdown image syntax and the attachment: scheme, `![caption](attachment:ID)`, in task.new and task.edit `body`, task.memo.add and task.memo.edit `text`, and task.reject `note`. The text is stored as written; only that exact form is a reference, anything else is plain text. At most 6 per text. The write checks each image it names in its own transaction: a malformed id or an upload not yet finished is bad_request (the field, a reason naming the id); an image no longer kept is not_found, what attachment; more than 6 is bad_request. An edit that keeps a reference the text already had is never refused for it, even when the image is gone. A write that names an image claims it, as a message does; an image a task names (its brief, a memo or a reject note) is not removed while that task is open, and is kept 30 days after the last such task is done or discarded. The id is the daemon's, not a device's: one device may upload it and another write the task that names it. task.get cuts each such text at its references so a client need not parse it: TaskDetail.body_parts, Memo.parts and a timeline row's parts (a reject is a row of its own), each a list of TextPart and ImagePart; an image no longer kept is a part with gone: true and only its id. Wherever the daemon types a task's brief, a memo or a reject note to an agent, it adds the path lines after the text, as for a message; an agent's task.get carries the path in each ImagePart, so hl task show prints the same lines.",
+  "what": "Images a person attaches to a chat message, a task's brief, a memo or a note: one path for all of them, and one mechanism for every agent, structured or terminal: the file is stored on the daemon's machine and the agent is told its path, which it reads with its own file tool.",
+  "flow": "attachment.put sends the file in chunks and ends with the Attachment (an id). A text names it as `![caption](attachment:ID)` (texts); chat.send may also list up to 6 ids in `attachments`. A message's images are those its body names, in order, then the listed ids it does not name, each once, at most 6 in all. The message is delivered like any other, with one line per image added after the body, in that order: `[image N: /absolute/path.png (image/png, 184 KB)]`. ChatMessage.attachments and turn_start.attachments list every image of the message for a client to draw, and ChatMessage.parts cuts the body at its images; the body the client stored stays as typed (the path lines are added at delivery only), so a client that shows an agent's echo of a user turn may drop lines of that shape.",
+  "texts": "A text names an image with Markdown image syntax and the attachment: scheme, `![caption](attachment:ID)`, in chat.send and say `body`, inbox.reply `text`, task.new and task.edit `body`, task.memo.add and task.memo.edit `text`, and task.handoff and task.reject `note`. The text is stored as written; only that exact form is a reference, anywhere in the text, anything else is plain text: a client draws the rest as Markdown. At most 6 per text. The write checks each image it names in its own transaction: a malformed id or an upload not yet finished is bad_request (the field, a reason naming the id); an image never put or no longer kept is not_found, what attachment; more than 6 is bad_request. chat.send's `attachments` are checked the same way, with field attachments. An edit that keeps a reference the text already had is never refused for it, even when the image is gone. A write that names an image claims it, as a message does; an image a task names (its brief, a memo, a handoff or a reject note) is not removed while that task is open, and is kept 30 days after the last such task is done or discarded. The id is the daemon's, not a device's: one device may upload it and another write the text that names it. task.get cuts each task text at its references so a client need not parse it: TaskDetail.body_parts, Memo.parts and a timeline row's parts (a reject is a row of its own); chat reads and request.read do the same for a message in `parts`. Each is a list of TextPart and ImagePart; an image no longer kept is a part with gone: true and only its id. Wherever the daemon types a message, a task's brief, a memo or a note to an agent, it adds the path lines after the text, the message's own images first, then those its task's memos name, numbered on; an agent's reads carry the path in each ImagePart, so hl task show and hl read print the same lines.",
   "limits": "Types: PNG, JPEG, GIF, WebP, checked by the file's first bytes, not by the mime the client says (a mismatch is bad_request, field data). SVG and everything else is refused. At most 10 MiB per image and 6 per message; chunks of at most 512 KiB of file (a 700 KiB base64 string) so a frame stays under the 1 MiB line. More than 20 unsent uploads open at once, or more than 100 MiB unsent, is refused, gate limit.",
-  "storage": "The daemon's attachments folder under its home (mode 0700; files 0600, owner the daemon's user), one file per image named by its id and the extension of its type: the name the client gave is never part of the path. An upload not finished within 1 hour is dropped with its partial file; a finished image no message names is dropped after 24 hours; one a message names is kept 30 days after that message, then removed: attachment.get for it is not_found and the client shows the name without the picture.",
+  "storage": "The daemon's attachments folder under its home (mode 0700; files 0600, owner the daemon's user), one file per image named by its id and the extension of its type: the name the client gave is never part of the path. An upload not finished within 1 hour is dropped with its partial file; a finished image no message names is dropped after 24 hours; one a message names is kept 30 days after the last message naming it, and one a task names as texts says; then it is removed: attachment.get for it is not_found and the client shows the name without the picture.",
   "reach": "The daemon makes the folder readable by the agent without a prompt (a session setting that allows reads of that folder), so an agent in any worktree can Read the path. A client never sees the path.",
-  "roles": "member and founder may put and get, and name any kept image in a task's text; an agent may not put or get (refused, gate role) in v1, and names only an image a task's brief, memo or reject note already names (else refused, gate role), so it can carry a picture into a child task or a handoff."
+  "roles": "member and founder may put and get, and name any kept image in a text; an agent may not put or get (refused, gate role) in v1, and names only an image a task's text or a message already names or was sent with (else refused, gate role), so it can pass on a picture it was shown."
  }
 }

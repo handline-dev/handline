@@ -89,7 +89,7 @@ func Register(s *rpc.Server, home string, tell Teller) {
 	s.Register("task.memo.delete", rpc.Method{Role: "agent", Write: true, Handler: memoDelete(tell)})
 }
 
-// claimImages checks the images text names, where it replaces was, and claims them (contract x-attachments, Tasks). by is the writer: an
+// claimImages checks the images text names, where it replaces was, and claims them (contract x-attachments, texts). by is the writer: an
 // agent names only images a task already shows.
 func claimImages(tx *sql.Tx, home, by, text, was, field string) error {
 	s := attachments.New(home)

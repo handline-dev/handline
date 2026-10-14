@@ -69,10 +69,14 @@ func (w *writes) say(c *rpc.Conn, p map[string]any) (any, error) {
 		noTask = &s
 	}
 	me, speaker := sender(c)
+	body = textsafe.Text(body)
 	var out *supervisor.SayVerbOut
 	res, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+		if _, err := w.images.CheckMessage(tx, body, "body", nil, c.Caller.Role == "agent"); err != nil {
+			return nil, err
+		}
 		var err error
-		out, err = w.e.SayVerb(tx, supervisor.SayVerbIn{Requester: me, Speaker: speaker, Target: target, Body: textsafe.Text(body), Task: task, NoTask: noTask,
+		out, err = w.e.SayVerb(tx, supervisor.SayVerbIn{Requester: me, Speaker: speaker, Target: target, Body: body, Task: task, NoTask: noTask,
 			Parent: parent, Effect: func(_ db.Q, _ string, _ int64) error { return nil }})
 		if err != nil {
 			return nil, err

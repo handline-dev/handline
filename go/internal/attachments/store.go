@@ -1,5 +1,6 @@
-// Package attachments keeps the images a person attaches to a chat message (contract x-attachments): uploaded in chunks, stored under the
-// daemon's home, and named to the agent by path. All state is in files, so a restart loses nothing and the database has no new table.
+// Package attachments keeps the images a person attaches to a chat message or a task's text (contract x-attachments): uploaded in chunks,
+// stored under the daemon's home, and named to the agent by path. All state is in files, so a restart loses nothing and the database has no
+// new table.
 package attachments
 
 import (

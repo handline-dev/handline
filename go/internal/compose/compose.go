@@ -142,7 +142,7 @@ func New(cfg Config) *Parts {
 		kind = KindFromYAML(cfg.Home)
 	}
 	run := &Runner{cfg: cfg, kind: kind}
-	sink := &transcript.Sink{Now: cfg.Now}
+	sink := &transcript.Sink{Now: cfg.Now, Home: cfg.Home}
 	peer := cfg.Peer
 	if peer == nil {
 		peer = PeerFromYAML(cfg.Home)
