@@ -580,3 +580,39 @@ func TestAPairedDeviceDecidesAndAnAgentSessionIsRefused(t *testing.T) {
 		t.Fatalf("a paired device decides: %v %s", res, r.state("aaaa0003"))
 	}
 }
+
+func (r *rig) told(who string) []string {
+	r.t.Helper()
+	rows, err := r.db.Query("SELECT body FROM requests WHERE target = ? AND requester = 'human' ORDER BY id", who)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var b string
+		rows.Scan(&b)
+		out = append(out, b)
+	}
+	return out
+}
+
+func TestTheProposerIsToldHowEachDecisionWentInTheWordsHrPyUsed(t *testing.T) {
+	r := newRig(t)
+	_, id := r.propose("aaaa0011", "kind", "link", "agent", "alice", "to", "bob")
+	r.call("hr.decide", fmt.Sprintf(`{"proposal":%d,"decision":"reject","note":"not now","request_id":"t1"}`, id))
+	_, id = r.propose("aaaa0012", "kind", "link", "agent", "alice", "to", "bob")
+	r.decide(id, "reject", "", "t2")
+	p, id := r.propose("aaaa0013", "kind", "link", "agent", "alice", "to", "bob")
+	r.decide(id, "approve", p.subject(), "t3")
+	p, id = r.propose("aaaa0014", "kind", "bundle", "agent", "2 changes",
+		"i1.kind", "add", "i1.agent", "dave", "i1.team", "eng",
+		"i2.kind", "link", "i2.agent", "dave", "i2.to", "nobody")
+	r.decide(id, "approve", p.subject(), "t4")
+	got := r.told("alice")
+	if len(got) != 4 || got[0] != "proposal aaaa0011 was rejected: not now" || got[1] != "proposal aaaa0012 was rejected." ||
+		!strings.HasPrefix(got[2], "proposal aaaa0013 applied: alice may now ask bob.") ||
+		!strings.HasPrefix(got[3], "proposal aaaa0014 was approved but could not be applied: step 2 of 2 (link dave) failed") {
+		t.Fatalf("%q", got)
+	}
+}

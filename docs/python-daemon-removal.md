@@ -82,16 +82,22 @@ imported from outside, and `cmd_daemon*`, `cmd_dev_mode` are names of `cli/daemo
      Slices, in landing order, each one review:
      1. Done: the parser loads nothing of the package. `actions/control` keeps `unstall`, the only function a command
         calls; the rest was the old bridge's. `session/autoaccept` loses the tick's sweep. `actions` no longer
-        re-exports `stuck`; the package's `agentview` and `team/ask`'s in-process push import it themselves. `tests/session/test_stopgate.py` imports the parser with the package emptied.
-     2. `hl hr` calls `hr.propose`, `hr.decide`, `hr.withdraw` and `hr.list`. Go tells the proposer, so `team/hr`
-        no longer calls `team/ask`.
+        re-exports `stuck`; the package's `agentview` and `team/ask`'s in-process push import it themselves.
+        `tests/session/test_stopgate.py` imports the parser with the package emptied.
+     2. Done: `hl hr approve`, `reject`, `apply`, `withdraw` and `list` call `hr.decide`, `hr.withdraw` and `hr.list`,
+        and Go tells the proposer, so `team/hr` no longer calls `team/ask`. A bulk decision is one `hr.decide` per
+        proposal, so a proposer hears once per proposal, not once in all. Proposing and the founder's own change stay
+        in Python: Go has no `hr.propose` yet, and neither reaches the package. Porting them is later work, after
+        step 4.
      3. `hl agent spawn` calls `session.start` with `repo` and `base`, and `hl agent unstall` calls `agent.unstall`.
         First check that `session.start` makes the worktree that `spawn` makes, and decide what `--prompt` and
         `--dry-run` become.
      4. Delete `handline/daemon` and everything only it reaches: the list under "Nothing else" above,
         `actions/control`, `autoaccept.answer_by_rule`, and the tests that exercise only these (`tests/daemon`,
         most of `tests/session/test_daemon_session.py` and `test_session_io.py`). If the diff is too big for one
-        review, split it by test area.
+        review, split it by test area. Two loose ends from slice 1: `answer_by_rule` lost its six tests, a gap
+        accepted until this deletes it; `TestUnstallLeavesWhatPythonsUnstallLeaves`
+        (`go/internal/sessionrpc/sessionrpc_test.go`) runs Python's `control.unstall`, so it goes or stops comparing.
 
 ## The Python hook
 
