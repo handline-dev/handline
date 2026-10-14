@@ -2,6 +2,8 @@ import { FlatList, Pressable, Text, View } from 'react-native';
 import { useAgents, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { rowHeight, space } from '@handline/tokens';
+import { ago } from '@handline/app-core';
+import { KIND } from './NeedsYouCard.tsx';
 import { usePalette } from '../theme.ts';
 import { StateMark } from './StateMark.tsx';
 import { Button } from './parts.tsx';
@@ -12,7 +14,8 @@ export function AgentList(props: { onUnpair: () => void; onPage: (page: 'worktre
   const store = useStore();
   const query = useAgents();
   const { served } = useServes('agents.list');
-  const agents = query.data?.agents ?? [];
+  // Who needs the person comes first; the daemon's order otherwise.
+  const agents = [...(query.data?.agents ?? [])].sort((a, b) => Number(!!b.needs_you) - Number(!!a.needs_you));
   const founder = store.client.hello?.role === 'founder';
   const create = useServes('agent.create').served;
   return (
@@ -37,6 +40,7 @@ export function AgentList(props: { onUnpair: () => void; onPage: (page: 'worktre
           keyExtractor={(a) => a.name}
           renderItem={({ item: a }) => {
             const sub = [a.task?.title, a.account && `acct ${a.account}`, a.model].filter(Boolean).join(' · ');
+            const need = a.needs_you ? `${a.needs_you.text ?? KIND[a.needs_you.kind]} · ${ago(a.needs_you.since)}` : '';
             return (
               <Pressable
                 testID={`agent-${a.name}`}
@@ -54,9 +58,8 @@ export function AgentList(props: { onUnpair: () => void; onPage: (page: 'worktre
                 <StateMark agent={a} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: c.ink, fontWeight: '600' }}>{a.name}</Text>
-                  <Text style={{ color: c.muted, fontSize: 12 }}>
-                    {a.state}
-                    {sub ? ` · ${sub}` : ''}
+                  <Text testID={need ? `needs-${a.name}` : undefined} style={{ color: need ? c.wait : c.muted, fontSize: 12 }}>
+                    {need || `${a.state}${sub ? ` · ${sub}` : ''}`}
                   </Text>
                 </View>
                 {a.has_dialog ? (

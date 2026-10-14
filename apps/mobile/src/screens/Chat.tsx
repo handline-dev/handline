@@ -15,6 +15,7 @@ import { usePalette } from '../theme.ts';
 import { Line, clock } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
 import { ChatFind } from './ChatFind.tsx';
+import { NeedsYouCard } from './NeedsYouCard.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { Button, Row } from './parts.tsx';
 
@@ -252,6 +253,7 @@ export function Chat(props: { detail: AgentDetail }) {
           </Text>
         )}
       </ScrollView>
+      {props.detail.needs_you && <NeedsYouCard agent={agent} needs={props.detail.needs_you} prompt={props.detail.prompt ?? null} />}
       {picked && (
         <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
           <Text testID="replying" numberOfLines={1} style={{ color: c.muted, fontSize: 12, flex: 1 }}>
