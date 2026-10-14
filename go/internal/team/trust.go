@@ -1,6 +1,7 @@
 package team
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -19,7 +20,7 @@ import (
 
 // Standing consent for folders (handline/team/trust.py): which folders hl may answer the vendor's trust prompt for, on the
 // founder's own say-so, never inferred from the roster. The declared roots live in the protected store, which no agent can
-// write. Raising a proposal and applying an approved one need the decision tasks and are not here.
+// write. Proposing raises the decision through the caller's Raise; applying an approved one is not here.
 
 const (
 	trustNS   = "trust"
@@ -59,6 +60,33 @@ func (t *Trust) ListRoots() []string {
 				out = append(out, s)
 			}
 		}
+	}
+	return out
+}
+
+// Declared is a declared root with why and who added it.
+type Declared struct{ Root, Why, AddedBy string }
+
+// Declared is every declared root with its why and who added it, in order (trust.list's declared).
+func (t *Trust) Declared() []Declared {
+	var out []Declared
+	for _, r := range t.roots() {
+		o, ok := r.(*jobj)
+		if !ok {
+			continue
+		}
+		root, ok := o.vals["root"].(string)
+		if !ok {
+			continue
+		}
+		d := Declared{Root: root, AddedBy: "?"}
+		if v, has := o.vals["why"]; has {
+			d.Why = pyStr(v)
+		}
+		if v, has := o.vals["added_by"]; has {
+			d.AddedBy = pyStr(v)
+		}
+		out = append(out, d)
 	}
 	return out
 }
@@ -343,6 +371,46 @@ func SubjectOf(p Proposal) string {
 		return r
 	}
 	return root
+}
+
+// Raise opens the founder's decision on a proposal and answers its card (the request) and its decision task; ok is false, with the
+// reason, when it could not be raised.
+type Raise func(title, text string) (ok bool, said string, request, task int64, err error)
+
+// Propose asks the founder to add root to standing consent: the decision is raised and the proposal saved; nothing changes yet. id is
+// the proposal's when one was raised.
+func (t *Trust) Propose(root, why, requester string, raise Raise) (ok bool, said, id string, err error) {
+	why = strings.TrimSpace(why)
+	if why == "" {
+		return false, "say why: the founder is deciding, not rubber-stamping", "", nil
+	}
+	res, resolvedOK := resolved(root)
+	if !resolvedOK {
+		res = expand(root)
+	}
+	if t.IsDeclared(res) {
+		return false, res + " is already inside a declared root", "", nil
+	}
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return false, "", "", err
+	}
+	id = hex.EncodeToString(b)
+	text := DecisionText(res, why, requester, id)
+	title := []rune(textsafe.Oneline(strings.SplitN(text, "\n", 2)[0]))
+	if len(title) > 80 {
+		title = title[:80]
+	}
+	raised, reason, rid, tid, err := raise(string(title), text)
+	if err != nil || !raised {
+		return false, "could not raise it: " + reason, "", err
+	}
+	p := Proposal{{Key: "id", Val: id}, {Key: "root", Val: res}, {Key: "why", Val: why}, {Key: "requested_by", Val: requester},
+		{Key: "created", Val: time.Now().Unix()}, {Key: "state", Val: "proposed"}, {Key: "request", Val: rid}, {Key: "task", Val: tid}}
+	if err := t.SaveProposal(p); err != nil {
+		return false, "", "", err
+	}
+	return true, fmt.Sprintf("proposal %s raised as #%d. Nothing changes until the founder answers it; an approve is applied then, and you are told how it went.", id, rid), id, nil
 }
 
 // Enact is the founder adding a root directly, with no proposal to approve.

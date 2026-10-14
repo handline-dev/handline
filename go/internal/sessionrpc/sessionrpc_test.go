@@ -300,8 +300,7 @@ func TestFoldRunsOnceForARequestIdAndARejectedFoldIsRefused(t *testing.T) {
 }
 
 func TestTerminalCloseNeedsAStoppedSessionAndRefusesWhileTyping(t *testing.T) {
-	r := newRig(t)
-	c := r.dial(false)
+	r, _, c := typingRig(t)
 	if g := refused(c.call("terminal.close", map[string]any{"agent": "ann", "request_id": rid("1")})); g != "state" || len(r.closed) != 0 {
 		t.Fatalf("a session is running: %q", g)
 	}
@@ -311,10 +310,23 @@ func TestTerminalCloseNeedsAStoppedSessionAndRefusesWhileTyping(t *testing.T) {
 		t.Fatalf("typing elsewhere: %q", g)
 	}
 	h.Release()
+	r.e.Holds.Take("ann", "person", "sam")
+	if g := refused(c.call("terminal.close", map[string]any{"agent": "ann", "request_id": rid("4")})); g != "input_holder" || len(r.closed) != 0 {
+		t.Fatalf("another holds the input: %q", g)
+	}
+	r.e.Holds.Release("ann")
+	r.e.Holds.Take("ann", "person", c.name)
 	got := result(t, c.call("terminal.close", map[string]any{"agent": "ann", "request_id": rid("3")}))
 	row, _ := db.GetAgentState(r.e.DB, "ann")
 	if got["said"] != "ann: terminal closed" || len(r.closed) != 1 || r.closed[0] != "%1" || row.Terminal.String != "" {
 		t.Fatalf("%v %v %+v", got, r.closed, row)
+	}
+	if held, _ := r.e.Holds.Holder("ann"); held != nil {
+		t.Fatal("the hold on a closed terminal is over")
+	}
+	r.e.Holds = nil
+	if r.dialHas(r.dial(false), "terminal.close") {
+		t.Fatal("served with the typing methods, beside the input holds")
 	}
 }
 

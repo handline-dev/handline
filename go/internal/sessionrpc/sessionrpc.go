@@ -111,9 +111,6 @@ func Register(s *rpc.Server, e *Env) {
 	if e.Procs != nil {
 		s.Register("session.interrupt", rpc.Method{Role: "member", Write: true, Handler: e.interrupt})
 	}
-	if e.CloseTerminal != nil && e.SessionPresent != nil {
-		s.Register("terminal.close", rpc.Method{Role: "member", Write: true, Handler: e.terminalClose})
-	}
 }
 
 func bad(msg, field string) error { return rpc.BadRequestError(msg, field, rpc.InvalidParams) }
@@ -371,6 +368,9 @@ func (e *Env) interrupt(c *rpc.Conn, params map[string]any) (any, error) {
 
 func (e *Env) terminalClose(c *rpc.Conn, params map[string]any) (any, error) {
 	return e.run(c, "terminal.close", params, true, func(_ Call, agent string) (map[string]any, error) {
+		if err := e.holderGate(c, agent); err != nil {
+			return nil, err
+		}
 		row, err := db.GetAgentState(e.DB, agent)
 		if err != nil {
 			return nil, err
@@ -393,6 +393,9 @@ func (e *Env) terminalClose(c *rpc.Conn, params map[string]any) (any, error) {
 			return nil, err
 		}
 		if _, err := db.AddEvent(e.DB, agent, "terminal_closed", db.KV{K: "handle", V: handle}); err != nil {
+			return nil, err
+		}
+		if err := e.Holds.Release(agent); err != nil { // a hold on a terminal that is gone is over
 			return nil, err
 		}
 		return map[string]any{"accepted": true, "said": agent + ": terminal closed"}, nil

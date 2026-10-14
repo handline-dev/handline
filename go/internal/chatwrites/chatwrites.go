@@ -34,6 +34,7 @@ func Register(s *rpc.Server, e *supervisor.Env, tell taskwrites.Teller) {
 	w.registerMessages(s)
 	w.registerAnswers(s)
 	w.registerRequests(s)
+	w.registerTrust(s)
 }
 
 type writes struct {
