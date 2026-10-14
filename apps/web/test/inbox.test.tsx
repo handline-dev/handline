@@ -84,7 +84,7 @@ describe('the page', () => {
     expect(document.title).toBe('(3) Handline');
   });
 
-  it('each kind shows its own verbs as icons: Done on a decision, Reply on a result, none on a prompt', async () => {
+  it('each kind shows its own verbs as icons: Done and Reply on a decision, Reply on a result, none on a prompt', async () => {
     await mount();
     await until(() => $$('.inbox-card').length === 3, 'the cards');
     expect(button(card(3), 'Done')).toBeUndefined(); // a row is one line until it is opened
@@ -93,6 +93,7 @@ describe('the page', () => {
       'Hide details',
       'Mark read',
       'Done',
+      'Reply',
     ]);
     await expand(5);
     expect(button(card(5), 'Reply')).toBeTruthy();
@@ -121,6 +122,32 @@ describe('the page', () => {
     await click($('.inbox-fyi h3 button'));
     expect(ids()).toEqual(['3', '4', '5']);
     await click(button($('.inbox-fyi h3'), 'Mark all FYI read'));
+    await until(() => s.daemon.inbox.get(5).read, 'the daemon');
+    expect(s.daemon.inbox.get(3).read).toBeFalsy();
+  });
+
+  it('a deep link holds FYI open, and the header can still close it', async () => {
+    await mount('#/inbox/5', setup(), false);
+    await until(() => $$('.inbox-card').some((c) => c.dataset.item === '5'), 'the deep-linked FYI card');
+    expect($('.inbox-fyi h3 button')!.getAttribute('aria-expanded')).toBe('true');
+    await click($('.inbox-fyi h3 button'));
+    expect($('.inbox-fyi h3 button')!.getAttribute('aria-expanded')).toBe('false');
+    expect(ids()).toEqual(['3', '4']);
+  });
+
+  it('Mark all FYI read marks every unread FYI item, whatever the filters hide', async () => {
+    const s = await mount('#/inbox', setup(), false);
+    await until(() => $('.inbox-fyi'), 'the groups');
+    await act(async () => void s.daemon.inbox.add({ kind: 'result', title: 'Other agent', agent: 'handline.auditor' }));
+    await until(() => text($('.inbox-fyi h3')).includes('2'), 'the second FYI item');
+    const pick = $('select[aria-label="Agent"]') as HTMLSelectElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(pick, 'handline.auditor');
+      pick.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const all = button($('.inbox-fyi h3'), 'Mark all FYI read')!;
+    expect(all.getAttribute('title')).toBe('Mark all FYI read, filters ignored');
+    await click(all);
     await until(() => s.daemon.inbox.get(5).read, 'the daemon');
     expect(s.daemon.inbox.get(3).read).toBeFalsy();
   });
