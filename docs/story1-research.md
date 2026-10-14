@@ -149,12 +149,19 @@ The same reason text is the edge label in the graph (1-6) and the grey stretch i
 3. **1-5 time bar** reads state events; it needs the segments from the daemon (T3853).
 4. **1-6 canvas** reads what exists (`blocked_by`, `state`); it can start on the fake and add `tasks.graph` later.
 
-## 5. To agree with the founder before any child starts
+## 5. The founder's answers (2026-10-14)
 
-1. Is "a comment can carry a picture, and a task's spec is its first comment" the right rule (§3)?
-2. Capture on PC only, the phone attaches and circles (no window capture on the phone)?
-3. Our own annotation layer (pen, arrow, box, text) rather than Excalidraw (MIT, bigger)?
-4. React Flow (MIT) for the canvas, the phone gets a sorted list?
-5. History is append-only and visible to everyone: no delete, a fix is a new row?
-6. Approve is `task.accept` and Send back is `task.reject` with the circled picture, no new verbs?
-7. Waiting reasons (founder, task, account, machine) are one field of the task, shown the same on the task page, the graph edge and the time bar?
+1. Yes. A picture goes in a comment or in the task body, and the task body is Markdown.
+2. Changed: PC and phone are the same. Circle, pen, box and text on both; capture of a window stays PC only.
+3. Changed: no drawing tools of our own. Use a library as far as possible, MIT or another compatible licence.
+4. Changed: the list and the graph share one logic layer (nodes, edges, order, waiting reasons) in packages/app-core; the phone gets the graph too, drawn from that layer.
+5. Yes. History cannot be deleted; a fix is a new row.
+6. Yes. Approve is `task.accept`, Send back is `task.reject` with the circled picture.
+7. Yes. Waiting reasons are one field of the task.
+
+New directions:
+- A. A full test run (root `pnpm turbo test`) happens only on the verifying side, the auditor. Everyone else runs the tests of what they touch. This replaces the machine-wide test slot of Story 2.
+- B. PC and phone share a common UI package; shared components move there as they grow.
+- C. The daemon accepts an image uploaded from a different device than the one the task or capture came from.
+
+Story 2 questions 8, 9 and 11 are asked again in a separate task.
