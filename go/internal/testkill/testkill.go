@@ -4,7 +4,6 @@ package testkill
 
 import (
 	"os"
-	"os/exec"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -39,23 +38,6 @@ func take(id int) func() {
 		return func() {}
 	}
 	return k
-}
-
-// Group starts cmd as the leader of a process group of its own, and kills that whole group when t ends: whatever cmd started goes too.
-func Group(t testing.TB, cmd *exec.Cmd) error {
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	cmd.SysProcAttr.Setpgid = true
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	pgid := cmd.Process.Pid
-	OnEnd(t, func() {
-		syscall.Kill(-pgid, syscall.SIGKILL)
-		cmd.Wait()
-	})
-	return nil
 }
 
 // onSignal kills everything still tracked, then lets the signal end the binary as it would have.

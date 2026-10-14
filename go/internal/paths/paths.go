@@ -26,7 +26,7 @@ func Getenv(suffix string) (string, bool) {
 }
 
 // UserHome is the user's home, or the test suite's stand-in for it. A test binary never gets the real one: with no TEST_ROOT set it gets
-// a temporary root of its own, so a test that forgets to set one writes nothing under the real ~/.config or ~/.claude.
+// a folder beside itself, in the build folder `go test` removes after the run, so a test that forgets to set one leaves nothing behind.
 func UserHome() string {
 	if t, ok := Getenv("TEST_ROOT"); ok && t != "" {
 		return t
@@ -39,9 +39,13 @@ func UserHome() string {
 }
 
 var testRoot = sync.OnceValue(func() string {
-	d, err := os.MkdirTemp("", "handline-test-root-")
+	exe, err := os.Executable()
 	if err != nil {
-		panic(fmt.Sprintf("a test binary needs a temporary user home: %v", err))
+		panic(fmt.Sprintf("a test binary needs a stand-in user home: %v", err))
+	}
+	d := filepath.Join(filepath.Dir(exe), "user-home")
+	if err := os.MkdirAll(d, 0o700); err != nil {
+		panic(fmt.Sprintf("a test binary needs a stand-in user home: %v", err))
 	}
 	return d
 })
