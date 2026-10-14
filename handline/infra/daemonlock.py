@@ -14,14 +14,6 @@ def running_elsewhere() -> int | None:
 
     Asked of the lock that refuses a second daemon (`lock.holder`), so a daemon
     is reported exactly when it is the one holding it. One that holds the lock
-    without having written its pid - started before the lock recorded it - is
-    named from the process table instead; only one that is in neither reads as
-    None.
+    without a readable pid reads as None.
     """
-    pid = lock.holder(DAEMON_LOCK)
-    if pid is None:
-        return None
-    if pid:
-        return pid
-    from ..daemon import locks       # the process table knows only the Python daemon; it goes with it
-    return next(iter(locks.processes()), None)
+    return lock.holder(DAEMON_LOCK) or None

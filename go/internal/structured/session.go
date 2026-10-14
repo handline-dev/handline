@@ -90,6 +90,9 @@ type Launch struct {
 	Env       []string         // NAME=value pairs the daemon sets on purpose (the agent's name, say), after the allowlisted ones
 	Now       func() time.Time // the clock for RetryingSince; nil is time.Now
 	Ledger    Ledger           // where sends are recorded before they are written; nil keeps them in memory
+	// Started is told the CLI's pid once it runs, before initialize; an error stops it. Ended is told the same pid once it has exited.
+	Started func(pid int) error
+	Ended   func(pid int)
 }
 
 // Args are the protocol's arguments: stream-json both ways, the user messages replayed for confirmation, permission prompts on stdio.
@@ -137,11 +140,12 @@ func CheckVersion(ctx context.Context, path, want string) error {
 
 // Session is one running CLI.
 type Session struct {
-	cmd *exec.Cmd
-	in  io.WriteCloser
-	h   Handlers
-	led Ledger
-	now func() time.Time
+	cmd   *exec.Cmd
+	in    io.WriteCloser
+	h     Handlers
+	led   Ledger
+	now   func() time.Time
+	ended func(pid int)
 
 	wmu sync.Mutex // one writer at a time
 
@@ -197,6 +201,13 @@ func Open(ctx context.Context, l Launch, h Handlers, timeout time.Duration) (*Se
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start claude: %w", err)
 	}
+	if l.Started != nil {
+		if err := l.Started(cmd.Process.Pid); err != nil {
+			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			cmd.Wait()
+			return nil, err
+		}
+	}
 	led := l.Ledger
 	if led == nil {
 		led = &MemLedger{}
@@ -205,7 +216,7 @@ func Open(ctx context.Context, l Launch, h Handlers, timeout time.Duration) (*Se
 	if now == nil {
 		now = time.Now
 	}
-	s := &Session{cmd: cmd, in: in, h: h, led: led, now: now, ledger: map[string]*entry{}, byUUID: map[string]*entry{}, waiting: map[string]chan map[string]any{},
+	s := &Session{cmd: cmd, in: in, h: h, led: led, now: now, ended: l.Ended, ledger: map[string]*entry{}, byUUID: map[string]*entry{}, waiting: map[string]chan map[string]any{},
 		prompts: map[string]context.CancelFunc{}, done: make(chan struct{}), exited: make(chan struct{}), initDone: make(chan struct{})}
 	go s.read(out)
 	ictx, cancel := context.WithTimeout(ctx, timeout)
@@ -593,6 +604,9 @@ func (s *Session) read(out io.Reader) {
 		s.handle(m)
 	}
 	err := s.cmd.Wait()
+	if s.ended != nil {
+		s.ended(s.cmd.Process.Pid)
+	}
 	s.mu.Lock()
 	if s.exitErr == nil {
 		if err == nil {

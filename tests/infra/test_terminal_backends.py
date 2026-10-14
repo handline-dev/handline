@@ -17,7 +17,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.actions import control as actions_control  # noqa: E402
 from handline.team import guide as guidemod  # noqa: E402
 
 
@@ -103,15 +102,15 @@ def test_the_idle_wait_is_given_the_looked_up_drivers_screen_reading(home: Path)
         def wait_idle(self, handle, timeout_ms, turn_on_screen=None):
             self.reading = turn_on_screen
             return True
-    host, real = Watching(), termmod._lookup_driver
+    host, real = Watching(), termmod._driver_for
     claude = vendors.get("claude")
     backends.use(host)
-    termmod._lookup_driver = lambda handle: claude
+    termmod._driver_for = lambda handle: claude
     try:
         check("idle: the layer hands the host the driver's own turn_on_screen",
               termmod.wait_idle("h1", 1000) is True and host.reading == claude.turn_on_screen)
     finally:
-        termmod._lookup_driver = real
+        termmod._driver_for = real
     oc = vendors.get("opencode")
     check("idle: opencode reads a turn on its own screen, and none on an idle or a missing one",
           oc.turn_on_screen(OC_WORKING) is True and oc.turn_on_screen(OC_IDLE) is False
@@ -154,28 +153,6 @@ def test_the_launch_guide_is_worded_by_the_host_with_no_placeholder_left(home: P
         check(f"guide: under {host.name}, the launch and memory topics say {title} runs the launch command, and hl launch "
               f"sets the config dir", f"{title} runs the launch command" in shown and f"because {title} runs our" in shown
               and "hl launch sets CLAUDE_CONFIG_DIR itself" in shown, shown)
-
-
-def test_a_missing_host_is_named_by_that_host_in_each_message(home: Path) -> None:
-    use_home(home)
-
-    class Gone(FakeHost):
-        def available(self):
-            return False
-    backends.use(Gone())
-    agents.register("lost")
-    con = db.connect()
-    try:
-        db.set_terminal(con, "lost", "h1", str(home))
-        reclaim = dmn_delivery._reclaim_context(con, "lost", lambda _m: None)[1]
-        typed = dmn_messaging.can_type_now(con, "lost", "h1")[1]
-        focus = actions_control.terminal(con, "lost")
-        check("missing: the context reclaim, the typing check and the switch all name the host, not Orca",
-              "fake is not on PATH" in reclaim and typed == "fake is not on PATH"
-              and "fake is not on PATH" in focus and "orca" not in (reclaim + typed + focus).lower(),
-              f"{reclaim} | {typed} | {focus}")
-    finally:
-        con.close()
 
 
 def _record(replies: dict | None = None):
@@ -359,23 +336,18 @@ def test_the_terminal_layer_reaches_the_host_only_through_the_backend(home: Path
     backends.use(host)
     check("layer: available, handles and live terminals come from the backend",
           termmod.available() and termmod.terminal_handle() == "h-own" and termmod.worktree_id() == "/wt/own"
-          and termmod.live_terminals() == {"h1", "h2"} and termmod.alive("h1") and not termmod.alive("h3"))
-    check("layer: a new terminal's handle, and with the reason",
+          and termmod.live_terminals() == {"h1", "h2"})
+    check("layer: a new terminal's handle",
           termmod.create_terminal("cmd", cwd="/w", title="t") == "h-new"
-          and termmod.open_terminal("cmd", cwd="/w", title="t") == ("h-new", "")
           and host.calls[-1] == ("create", "cmd", "/w", "t"))
     ok, _ = termmod.send("h1", "hello")
-    ok2, _ = termmod.submit("h1", "task", 30)
-    check("layer: send and submit are the backend's send",
-          ok and ok2 and ("send", "h1", "hello", True, None) in host.calls
-          and ("send", "h1", "task", True, 30) in host.calls, str(host.calls))
+    check("layer: send is the backend's send", ok and ("send", "h1", "hello", True, None) in host.calls, str(host.calls))
     check("layer: a screen read and its text come from the backend",
           termmod._screen("h1", 12) == host.screen and ("read", "h1", 12) in host.calls
           and termmod.screen_text("h1") == "> ")
     check("layer: focus and close are the backend's", termmod.focus("h1")[0]
           and termmod.close_terminal("h1", tab=False) == (True, "") and ("close", "h1", False) in host.calls)
-    check("layer: repos and worktrees too", termmod.ensure_repo("/r") == ("known", "ok")
-          and ("repo", "/r", True) in host.calls and termmod.create_worktree("/r", "n", "main") == ("/wt/new", ""))
+    check("layer: repos too", termmod.ensure_repo("/r") == ("known", "ok") and ("repo", "/r", True) in host.calls)
     check("layer: runs and tasks too",
           termmod.run_create("o") == "run-1" and termmod.run_current() == "run-0" and termmod.run_exists("run-1")
           and termmod.task_create("s", "t", "d", "run-1") == "task-1" and termmod.dispatch("task-1", "h1", "run-1") == "disp-1"
@@ -410,33 +382,6 @@ def test_the_terminal_layer_reaches_the_host_only_through_the_backend(home: Path
               hr.label(con, "labelled") == (True, ""))
     finally:
         con.close()
-
-
-def test_spawn_runs_an_agent_on_any_backend(home: Path) -> None:
-    """The whole of `hl spawn` over a backend that is not Orca: a worktree, a terminal, the first task."""
-    use_home(home)
-    agents.register("spawny")
-    host = FakeHost()
-    host.supports_runs = False
-    backends.use(host)
-    real = (spawnmod._run, spawnmod.prompt_landed, dmn_delivery.wait_for_session)
-    try:
-        spawnmod._run = lambda args, cwd=None: (0, "", "")
-        spawnmod.prompt_landed = lambda agent, since, timeout_s=0: True
-        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
-        ok, msg = spawnmod.spawn("spawny", ROOT, base="main", prompt="do the thing")
-        kinds = [c[0] for c in host.calls]
-        check("spawn: on a fake host it makes the worktree, then the terminal in it, then waits and sends",
-              ok and kinds[:2] == ["worktree", "create"] and ("create", launch.command_for("spawny"), "/wt/new", "spawny") in host.calls
-              and ("send", "h-new", "do the thing", True, 30) in host.calls, f"{msg} {host.calls}")
-        row = db.get_agent_state(db.connect(), "spawny")
-        check("spawn: and records the terminal and the worktree it got",
-              row["terminal"] == "h-new" and row["worktree"] == "/wt/new", str(dict(row)))
-        ok, msg = spawnmod.spawn("spawny", ROOT, base="main", dry_run=True)
-        check("spawn: a dry run names the host, not Orca's commands",
-              ok and "fake:" in msg and "orca terminal" not in msg and "orca worktree" not in msg, msg)
-    finally:
-        spawnmod._run, spawnmod.prompt_landed, dmn_delivery.wait_for_session = real
 
 
 class Bare(FakeHost):
@@ -928,58 +873,6 @@ def test_a_real_tmux_runs_the_same_calls(home: Path) -> None:
         os.environ.pop("OCP_TMUX_SOCKET", None)
 
 
-def test_a_real_tmux_keeps_every_scrolled_line_once_in_the_channels_history(home: Path) -> None:
-    """Output that scrolls far more than a screen at once is in the channel's history whole, in order, once each and styled as the live rows
-    are, because the history is tmux's own and not inferred from polled screens. Skipped where tmux cannot start."""
-    from handline.daemon import termchannel
-    use_home(home)
-    if shutil.which("tmux") is None:
-        print("SKIPPED  real tmux history: tmux is not installed")
-        return
-    sock = f"handline-test-hist-{os.getpid()}"
-    os.environ["OCP_TMUX_SOCKET"] = sock
-    os.environ["HANDLINE_TEST_REAL_TMUX"] = "1"
-    tm = tmuxbackend.TmuxBackend()
-    sock_file = Path(os.environ.get("TMUX_TMPDIR") or "/tmp").resolve() / f"tmux-{os.getuid()}" / sock
-    try:
-        pane, why = tm.create_terminal("clear", cwd=str(home), title="h1")
-        if pane is None and "not permitted" in str(why).lower():
-            print(f"SKIPPED  real tmux history: it cannot start a terminal here ({str(why).strip()[:100]})")
-            return
-        check("real tmux history: a terminal starts", pane is not None, why)
-        if pane is None:
-            return
-        check("real tmux history: a fresh pane has none, not its top row", tm.read_history(pane, None, 10, False) == (0, []), str(tm.read_history(pane, None, 10, False)))
-        tm.send(pane, "for i in $(seq 1 300); do printf '\\033[31mline-%d\\033[0m\\n' $i; done; echo burst-$((1+1))")
-        deadline = time.time() + 20
-        while time.time() < deadline and "burst-2" not in "\n".join((tm.read_screen(pane) or {}).get("tail", [])):
-            time.sleep(0.2)
-        for fmt in ("text", "styled"):
-            ch = termchannel.Channel(pane, None, fmt)
-            ch._offer(ch._read())           # the first frame, as an attach reads it
-            snap = ch.snapshot(1000, [{}])
-            rows = snap["history"]["lines"]
-            names = [r["text"] if isinstance(r, dict) else r for r in rows]
-            live = [(r["text"] if isinstance(r, dict) else r) for r in snap["lines"]]
-            ours = [n for n in names + live if n.startswith("line-")]       # the history, then the rows still on the screen
-            check(f"real tmux history ({fmt}): the channel reads the host's scrollback", ch.host_history)
-            check(f"real tmux history ({fmt}): every line that scrolled past is there once, in order",
-                  ours == [f"line-{i}" for i in range(1, 301)], f"{len(ours)}: {ours[:3]}...{ours[-3:]}")
-            page = ch.history_page(snap["history"]["first"] + 10, 5)
-            check(f"real tmux history ({fmt}): an older page ends where the snapshot's rows begin plus the offset",
-                  [r.get("text") for r in page["lines"]] == names[:10][-5:] and page["first"] == snap["history"]["first"] + 5, str(page))
-            if fmt == "styled":
-                first = next(r for r in rows if r["text"].startswith("line-"))
-                check("real tmux history (styled): the scrolled rows carry their spans", first.get("spans") and first["spans"][0]["style"] == {"fg": 1}, str(first))
-    finally:
-        subprocess.run(["tmux", "-L", sock, "kill-server"], capture_output=True, timeout=20)
-        try:
-            sock_file.unlink()
-        except OSError:
-            pass
-        os.environ.pop("OCP_TMUX_SOCKET", None)
-
-
 def test_tmux_history_is_read_in_one_call_so_a_scrolling_pane_cannot_shift_a_page(home: Path) -> None:
     """A stand-in tmux server that scrolls five lines at every call it gets: a page read in two calls (the size, then the rows) came back
     labelled with rows newer than it held. The pane on the alternate screen has no history."""
@@ -1025,11 +918,9 @@ def main() -> int:
         run(lambda: test_the_idle_wait_is_given_the_looked_up_drivers_screen_reading(Path(td) / "b15"))
         skip(lambda: test_orcas_own_words_for_the_manual_fallbacks_are_pinned(Path(td) / "b16"), ORCA_UNMAINTAINED)
         run(lambda: test_the_launch_guide_is_worded_by_the_host_with_no_placeholder_left(Path(td) / "b17"))
-        run(lambda: test_a_missing_host_is_named_by_that_host_in_each_message(Path(td) / "b18"))
         skip(lambda: test_the_orca_backend_makes_the_same_cli_calls_it_always_did(Path(td) / "b2"), ORCA_UNMAINTAINED)
         skip(lambda: test_the_orca_backend_makes_worktrees_and_registers_repos_as_before(Path(td) / "b3"), ORCA_UNMAINTAINED)
         run(lambda: test_the_terminal_layer_reaches_the_host_only_through_the_backend(Path(td) / "b4"))
-        run(lambda: test_spawn_runs_an_agent_on_any_backend(Path(td) / "b5"))
         run(lambda: test_no_module_outside_the_backends_starts_an_orca_process())
         run(lambda: test_a_rename_on_a_host_without_labels_succeeds_and_asks_it_nothing(Path(td) / "b11"))
         run(lambda: test_a_doctor_run_on_tmux_names_tmux(Path(td) / "b12"))
@@ -1042,7 +933,6 @@ def main() -> int:
         run(lambda: test_tmux_makes_a_git_worktree_and_knows_a_repo_by_its_dot_git(Path(td) / "b9"))
         run(lambda: test_a_real_tmux_runs_the_same_calls(Path(td) / "b10"))
         run(lambda: test_tmux_history_is_read_in_one_call_so_a_scrolling_pane_cannot_shift_a_page(Path(td) / "b10g"))
-        run(lambda: test_a_real_tmux_keeps_every_scrolled_line_once_in_the_channels_history(Path(td) / "b10h"))
     return run_area(tests)
 
 

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
@@ -359,7 +360,7 @@ func (e *Env) TellMemoHolder(q db.Q, tid int64, by, what, text string) (err erro
 	if text != "" {
 		t := textsafe.Oneline(text)
 		if r := []rune(t); len(r) > 400 {
-			t = string(r[:400])
+			t = attachments.KeepRefs(string(r[:400]), t)
 		}
 		body += ": " + t
 	}

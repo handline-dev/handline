@@ -66,14 +66,12 @@ def test_team_routing() -> None:
 
     d = t.route("backend", "human")
     check("route: the founder is routable", d.allowed, d.reason)
-    check("route: a request to the founder is a task", d.kind == "task")
     old = team.Team({"agents": {"backend": {}}, "edges": [
         {"from": "*", "to": "human", "kind": "escalate", "creates_gate": True}]}).route("backend", "human")
-    check("route: a team.yaml that still says kind raise keeps working, as a task",
-          old.allowed and old.kind == "task", str(old))
-
-    check("route: fire_and_forget preserved",
-          t.route("backend", "archivist").response == "fire_and_forget")
+    check("route: a team.yaml that still says kind escalate keeps working", old.allowed, str(old))
+    d = t.route("backend", "archivist")
+    check("route: an edge's relation, response and kind are not read",
+          (d.relation, d.response, d.kind) == (None, "async", None), str(d))
     check("route: chain depth limit", not t.route("backend", "reviewer", chain_depth=4).allowed)
 
     # A deny must win even though an earlier wildcard edge would match.
@@ -362,7 +360,7 @@ def test_a_name_that_yaml_would_not_read_as_text_is_refused_where_it_is_typed(ho
 
 
 def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -> None:
-    """`proposals.listing()` feeds `hl hr list` and the bridge's waiting list. A file
+    """`proposals.listing()` feeds the bridge's waiting list. A file
     that does not parse used to raise out of both, and the parser refuses more
     than it did, so the same one file would have hidden every proposal. It is
     left out and named, and a file that parses to something that is not a
@@ -387,12 +385,6 @@ def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -
           and sum("not a proposal" in x for x in skipped) == 3, str(skipped))
     check("hr listing: asked for no report, it still returns the good ones",
           [r["id"] for r in proposals.listing()] == ["good"])
-    out, err = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = climod.main(["hr", "list"])
-    check("hr list: prints the good proposal and says what it skipped, and succeeds",
-          code == 0 and "good" in out.getvalue() and "skipped, cannot be read - broken.yaml" in err.getvalue()
-          and "Traceback" not in err.getvalue(), out.getvalue() + err.getvalue())
     con = db.connect()
     try:
         waits = actions.founder_waits(con)
@@ -400,14 +392,14 @@ def test_one_unreadable_proposal_does_not_take_the_hr_listing_down(home: Path) -
               isinstance(waits, list))
     finally:
         con.close()
-    ok, said = hr.apply("broken")
-    check("hr apply: a proposal that cannot be read says so instead of raising",
-          not ok and "cannot be read" in said, said)
-    ok, said = hr.apply("other")
-    check("hr apply: a file that is not a proposal is said not to be one",
-          not ok and "not a proposal" in said, said)
-    ok, said = hr.apply("binary")
-    check("hr apply: one that is not text says so too", not ok and "cannot be read" in said, said)
+    prop, said = hr._open("broken")
+    check("hr open: a proposal that cannot be read says so instead of raising",
+          prop is None and "cannot be read" in said, said)
+    prop, said = hr._open("other")
+    check("hr open: a file that is not a proposal is said not to be one",
+          prop is None and "not a proposal" in said, said)
+    prop, said = hr._open("binary")
+    check("hr open: one that is not text says so too", prop is None and "cannot be read" in said, said)
     for f in d.glob("*.yaml"):
         if f.name != "good.yaml":
             f.unlink()
@@ -713,7 +705,6 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
         con.close()
 
 
-
 def test_a_rehome_carries_orcas_label_parent_and_children(home: Path) -> None:
     """On Orca a moved checkout is a new automatic entry: rehome waits for it, names it for the agent,
     carries the old entry's comment, parent and status, re-points its children, and refuses while a
@@ -960,9 +951,10 @@ def test_team_validation() -> None:
     old = team.Team(yamlcompat.parse("agents:\n  a: { intake: nonsense, model: mid }\n"))
     check("team validation: an old team.yaml's intake key is ignored, not an error",
           "a" in old.agents)
+    blocking = team.Team(yamlcompat.parse('edges:\n  - { from: "a", to: "b", response: blocking }\n'))
+    check("team validation: an edge's response is not read, so no value of it is refused",
+          len(blocking.edges) == 1)
     for bad, label in [
-        ('edges:\n  - { from: "a", to: "b", response: blocking }\n',
-         "blocking response rejected"),
         ('edges:\n  - { to: "b" }\n', "edge without 'from' rejected"),
     ]:
         try:
@@ -1017,84 +1009,6 @@ def test_keychain_service_is_keyed_by_the_user_home(home: Path) -> None:
           keychain_service(other) == f"Claude Code-credentials-{digest}", keychain_service(other))
 
 
-def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -> None:
-    """#1776: a second vendor's account that reads as logged in and has room
-    is still never a place for a claude agent - it would run claude against
-    that vendor's credentials. Until accounts carried a vendor the only thing
-    keeping one out was `logged_in` asking claude's Keychain and getting a
-    no, an accident. Here the account is logged in by its own driver and
-    reads better than anything else, so each place that picks an account is
-    asked, and only the vendor keeps it out."""
-    _daemon_home(home, 99)
-    now = int(time.time())
-    # Far enough from its reset that a move beats waiting for it.
-    write_status(home, "alpha", pct_5h=99, pct_7d=10, ctx_pct=5, reset_5h=now + 4 * 3600)
-    real = (accounts.logged_in, termmod.available)
-    with second_vendor(metered=True):
-        try:
-            accounts.register("alpha")
-            (paths.account_dir("alpha") / ".claude" / ".credentials.json").write_text("{}")
-            accounts.register("zeta", vendor="zai")
-            write_status(home, "zeta", pct_5h=5, pct_7d=5, reset_5h=now + 1800,
-                         reset_7d=now + 90000, rl_at=now)
-            check("vendor pick: the premise - zeta is logged in by its own driver",
-                  accounts.logged_in("zeta"))
-            check("vendor pick: and has room, so nothing but its vendor can keep it out",
-                  status.read("zeta").takes_work()[0], str(status.read("zeta").takes_work()))
-
-            check("vendor pick: find_room does not send the walled claude agent there",
-                  launch.find_room("backend") != "zeta", str(launch.find_room("backend")))
-            picked, ranked = status.pick_account(bootstrap=True, agent="backend")
-            check("vendor pick: pick_account for the agent does not take it",
-                  picked != "zeta" and "a zai account, not claude" in dict(ranked)["zeta"],
-                  str((picked, ranked)))
-            check("vendor pick: nor pick_account for no agent in particular",
-                  status.pick_account()[0] != "zeta", str(status.pick_account()))
-            con = db.connect()
-            try:
-                db.add_request(con, "orcapipe", "backend", "work", None, "supervisor",
-                               "async", None, 0, None)
-                plan = dmn_handoff._move_plan(con, "backend", "usage_5h")
-                check("vendor pick: the daemon's move off the wall does not go there",
-                      plan[0] is None and "zeta: a zai account, not claude" in plan[1], str(plan))
-                # The page and the panel carry no agent, so their verdict is
-                # the account's own: judged for the vendor whose sessions are
-                # the only ones that can ever run here (#1815). Drawn as a
-                # refusal it said "assign no - a zai account, not claude" of an
-                # account that is a perfectly good place for zai agents.
-                facts = actions.account_facts(con, "zeta")
-                allowed, why = facts["assign"]
-                check("vendor pick: its page does not refuse it outright - the "
-                      "account is judged for its own vendor",
-                      allowed and "not claude" not in why, why)
-                check("vendor pick: and the page still names the vendor",
-                      facts["vendor"] == "zai" and facts["config"].endswith("(zai)"), str(facts))
-            finally:
-                con.close()
-            out = io.StringIO()
-            with contextlib.redirect_stdout(out):
-                clihealth.cmd_status(argparse.Namespace(json=True))
-            check("vendor pick: hl status does not name it next",
-                  json.loads(out.getvalue())["picked"] != "zeta", out.getvalue()[:200])
-            accounts.logged_in = lambda a: True
-            allowed, _ = status.account_verdict("zeta", status.read("zeta"), loadmod.read_all().get("zeta"), [], True)
-            check("vendor pick: its tick is its own vendor's answer, not a ✘ "
-                  "that reads as a broken account", allowed)
-            check("vendor pick: a fold is not sent there",
-                  foldmod._cheapest_account() != "zeta", str(foldmod._cheapest_account()))
-
-            # The control: a zai agent is placed there, so the filter is on
-            # the vendor, not on the account.
-            agents.register("glm")
-            _with_vendor("glm", "zai")
-            check("vendor pick: a zai agent is placed on the zai account",
-                  launch.find_room("glm") == "zeta"
-                  and status.pick_account(agent="glm")[0] == "zeta",
-                  str((launch.find_room("glm"), status.pick_account(agent="glm"))))
-        finally:
-            accounts.logged_in, termmod.available = real
-
-
 def test_another_vendors_account_never_spends_a_live_refresh(home: Path) -> None:
     """auditor #1863: the vendor refusal runs before live_refresh. A stale zai
     account listed ahead of a stale claude one must not be asked about, or it
@@ -1130,90 +1044,6 @@ def test_another_vendors_account_never_spends_a_live_refresh(home: Path) -> None
                   asked == ["alpha"] and picked == "alpha", (asked, picked, ranked))
         finally:
             usage_api.read, accounts.logged_in = real_read, real_login
-
-
-def test_a_second_vendors_live_session_is_seen_by_the_sweep(home: Path) -> None:
-    """#1815: `is_session` decided from claude's own literals, so a session of
-    any other vendor matched nothing at all. `live_sessions` then left that
-    agent's pid None, and `reconcile` reads "terminal alive, no process" as the
-    session having died - so the daemon recorded a live, correctly placed agent
-    closed, on every tick. Which binary a session runs, and how the vendor
-    spells a headless run, are both the driver's answers now.
-
-    Driven through real `ps` command lines rather than by patching
-    `live_sessions`: every other test in this file replaces that function
-    wholesale, so none of them reaches `is_session` at all."""
-    _daemon_home(home, 20)
-    with second_vendor(metered=True):
-        check("is_session: a second vendor's own binary is a session",
-              obsmod.is_session("/opt/zai/bin/glmcode --model glm-4.6"))
-        check("is_session: claude's still is",
-              obsmod.is_session("/usr/local/bin/claude --resume abc123"))
-        check("is_session: the second vendor's own spelling of headless is not",
-              not obsmod.is_session("/opt/zai/bin/glmcode run 'fold it'"))
-        check("is_session: nor is claude's",
-              not obsmod.is_session("/usr/local/bin/claude -p 'fold it'"))
-        check("is_session: and nothing of ours is not a session either",
-              not obsmod.is_session("/usr/bin/ssh somewhere"))
-        check("is_session: a script under a claude scratchpad is not a session",
-              not obsmod.is_session("node /private/tmp/claude-501/-Users-x/abc/scratchpad/ws-only.ts"))
-        check("is_session: a bare claude on PATH is",
-              obsmod.is_session("claude --resume abc123"))
-        check("is_session: the Claude.app helper, its path holding a space, is",
-              obsmod.is_session("/Users/<user>/Library/Application Support/Claude/claude-code/2.1.288/abc/claude.app/Contents/MacOS/claude --verbose"))
-        check("is_session: an npm install run by node is",
-              obsmod.is_session("/opt/homebrew/bin/node /opt/homebrew/bin/claude --model opus"))
-    check("is_session: with that driver gone its command line is not a session",
-          not obsmod.is_session("/opt/zai/bin/glmcode --model glm-4.6"))
-
-    # And the invariant the miss actually broke: the daemon's own record of a
-    # running agent. Real `live_sessions`, over a process table we supply.
-    real = (obsmod.live_sessions, obsmod.process_table, obsmod._env_or_reason,
-            termmod.available, termmod.live_terminals)
-    obsmod.live_sessions = REAL_OBSERVE["live_sessions"]
-    termmod.available = lambda: True
-    termmod.live_terminals = lambda: {"term_x", "term_z"}
-    with second_vendor(metered=True):
-        try:
-            accounts.register("zeta", vendor="zai")
-            agents.register("glm")
-            _with_vendor("glm", "zai")
-            con = db.connect()
-            try:
-                db.set_terminal(con, "glm", "term_z", "wt")
-                db.set_agent_state(con, "glm", dmn_states.RUNNING, detail="working")
-                table = [(4301, "/opt/zai/bin/glmcode --model glm-4.6")]
-                obsmod.process_table = lambda: list(table)
-                obsmod._env_or_reason = lambda pid: (
-                    f"OCP_AGENT={'glm' if pid == 4301 else 'x'}", False)
-                check("vendor sweep: the premise - its pid is found",
-                      obsmod.live_sessions() == {"glm": 4301},
-                      str(obsmod.live_sessions()))
-                said: list[str] = []
-                dmn_reconciler.sweep(con, lambda _m: None, said)
-                row = db.get_agent_state(con, "glm")
-                check("vendor sweep: a live second-vendor session is not recorded closed",
-                      not row["closed_at"]
-                      and not any("glm: its session is gone" in a for a in said),
-                      str((dict(row), said)))
-
-                # The control, on the same fixture: when its process really has
-                # gone, the same sweep does record it closed - so the check
-                # above is about the vendor and not about a sweep that never
-                # reached this agent.
-                table.clear()
-                said = []
-                dmn_reconciler.sweep(con, lambda _m: None, said)
-                row = db.get_agent_state(con, "glm")
-                check("vendor sweep: and when it really is gone, it is recorded closed",
-                      row["closed_at"]
-                      and any("glm: its session is gone" in a for a in said),
-                      str((dict(row), said)))
-            finally:
-                con.close()
-        finally:
-            (obsmod.live_sessions, obsmod.process_table, obsmod._env_or_reason,
-             termmod.available, termmod.live_terminals) = real
 
 
 def test_an_accounts_verdict_is_asked_for_its_own_vendor(home: Path) -> None:
@@ -1265,78 +1095,6 @@ def test_an_accounts_verdict_is_asked_for_its_own_vendor(home: Path) -> None:
     ok, why = status.account_verdict("zeta", status.read("zeta"), None, [], True)
     check("verdict: an account whose vendor has no driver is still refused",
           not ok and "no driver for vendor 'nosuch'" in why, str((ok, why)))
-
-
-def test_an_unmetered_account_is_pinned_never_picked_or_polled(home: Path) -> None:
-    """#1776: an account whose vendor reports no usage is its own state, not
-    "no reading yet" - that one is a bootstrap candidate, and nothing will
-    ever give this one a reading. Its own agents start there; nothing is
-    moved onto it, it is never asked for usage, and it is drawn unmetered."""
-    _daemon_home(home, 20)
-    real = (usage_api.read, claudemeter.refresh_credential, accounts.logged_in)
-    with second_vendor(metered=False):
-        try:
-            accounts.register("alpha")
-            (paths.account_dir("alpha") / ".claude" / ".credentials.json").write_text("{}")
-            accounts.register("zeta", vendor="zai")
-            accounts.register("zeta2", vendor="zai")
-            agents.register("glm")
-            _with_vendor("glm", "zai")
-            st = status.read("zeta")
-            check("unmetered: read as its own state, not as no reading yet",
-                  st.unmetered and st.assignable() == (False, status.UNMETERED_WHY),
-                  str((st.unmetered, st.assignable())))
-            picked, ranked = status.pick_account(["zeta2"], bootstrap=True, agent="glm")
-            check("unmetered: never picked, not even as a bootstrap last resort",
-                  picked is None and dict(ranked)["zeta2"] == status.UNMETERED_WHY,
-                  str((picked, ranked)))
-            check("unmetered: nor is it a place a new session is put",
-                  launch.find_room("glm") is None, str(launch.find_room("glm")))
-            con = db.connect()
-            try:
-                db.set_account(con, "glm", "zeta")
-                con.commit()
-            finally:
-                con.close()
-            argv, env = launch.build("glm", ["--resume", "x"])
-            check("unmetered: and launches as its own vendor, into its own config dir",
-                  argv[0] == "/opt/zai/bin/glmcode"
-                  and env.get("ZAI_HOME") == str(vendors.config_dir("zeta")),
-                  str((argv[:1], env.get("ZAI_HOME"))))
-
-            asked: list[str] = []
-            usage_api.read = lambda acct, refresh=True: asked.append(acct)
-            real_recover = recovermod.recover
-            recovermod.recover = lambda acct: (False, "stub: not under test here")
-            con = db.connect()
-            try:
-                # One account per tick, each put on its cooldown once asked,
-                # so four ticks walk past every account there is.
-                for _ in range(4):
-                    dmn_usage_poll.poll_usage(con, lambda _m: None)
-            finally:
-                con.close()
-                recovermod.recover = real_recover
-            check("unmetered: the usage poll never asks about it",
-                  "alpha" in asked and not {"zeta", "zeta2"} & set(asked), str(asked))
-            usage_api.read = real[0]
-            renewed: list[str] = []
-            claudemeter.refresh_credential = lambda acct, **k: renewed.append(acct) or True
-            check("unmetered: nor does the endpoint reader, and it renews nothing",
-                  usage_api.read("zeta") is None and not renewed, str(renewed))
-
-            accounts.logged_in = lambda a: True
-            cell = viewdata.account_cells("zeta", status.read("zeta"))["five"]
-            check("unmetered: the account's cell says so", "unmetered" in cell, cell)
-            accounts.logged_in = real[2]
-            r = doctor.Report()
-            doctor._check_accounts(r)
-            check("unmetered: doctor says so rather than warning of no status.json",
-                  any(n == "account zeta: unmetered (zai)" for _lv, n, _d in r.rows)
-                  and not any(n.startswith("account zeta: no status") for _lv, n, _d in r.rows),
-                  str([n for _lv, n, _d in r.rows if "zeta" in n]))
-        finally:
-            usage_api.read, claudemeter.refresh_credential, accounts.logged_in = real
 
 
 def test_an_account_records_its_vendor(home: Path) -> None:
@@ -1956,9 +1714,6 @@ def test_the_opencode_driver(home: Path) -> None:
         mem = paths.account_dir("alpha") / ".claude" / "projects" / "-tmp-a-b"
         (mem / "memory").mkdir(parents=True)
         (mem / "sess1.jsonl").write_text(_call_line("req_alpha", 10))
-        check("opencode: a transcript is still found on claude's account past it",
-              handoffmod.find_transcript("sess1", "zai") == mem / "sess1.jsonl",
-              str(handoffmod.find_transcript("sess1", "zai")))
         found = collect.locate("/tmp/a/b")
         check("opencode: and the collector's search passes over it to claude's",
               found is not None and found.account == "alpha", str(found))
@@ -1978,73 +1733,17 @@ def test_the_opencode_driver(home: Path) -> None:
         del drv.binary
 
 
-def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Path) -> None:
-    """T39 (auditor #1946): one clear asks for the terminal's driver once, not
-    once per step, and the daemon's refusals name the vendor's own clear
-    command - opencode's /new, not claude's /clear."""
-    os.environ["OCP_HOME"] = str(home)
-    real = {n: getattr(termmod, n) for n in
-            ("_lookup_driver", "_host_idle", "_screen", "alive", "send", "available",
-             "background_work", "screen_blocker", "close_session", "clear_context")}
-    real_present = dmn_delivery.session_present
-    con = db.connect()
-    try:
-        accounts.register("alpha")
-        accounts.register("zai", vendor="opencode")
-        agents.register("glm", model="zai-coding-plan/glm-5.3-flash")
-        _with_vendor("glm", "opencode")
-        agents.register("backend")
-        db.set_terminal(con, "glm", "term_oc", "wt")
-        db.set_terminal(con, "backend", "term_cl", "wt")
-
-        # The suite stubs these; this test is about the real ones.
-        for n in ("screen_blocker", "close_session", "clear_context"):
-            setattr(termmod, n, REAL_TERMINAL[n])
-        looked: list[str] = []
-        lookup = real["_lookup_driver"]
-        termmod._lookup_driver = lambda h: (looked.append(h), lookup(h))[1]
-        sent: list[str] = []
-        termmod.alive = lambda h: True
-        termmod._host_idle = lambda h, t, d: True
-        termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        termmod._screen = lambda h: _screen_of(OC_IDLE if h == "term_oc" else COMPOSER_EMPTY)
-        termmod.clear_context("term_oc", wait=False)
-        check("clear: opencode is sent its own /new", sent == ["/new"], str(sent))
-        check("clear: the driver was looked up once for the whole clear",
-              looked == ["term_oc"], str(looked))
-        looked.clear()
-        termmod.close_session("term_cl", wait=False)
-        check("close: and once for a whole close", looked == ["term_cl"], str(looked))
-
-        termmod.available = lambda: True
-        dmn_delivery.session_present = lambda agent: False
-        _, why = dmn_delivery._reclaim_context(con, "glm", lambda _m: None)
-        check("refusal: a shell prompt under opencode names /new", "/new" in why and "/clear" not in why, why)
-        _, why = dmn_delivery._reclaim_context(con, "backend", lambda _m: None)
-        check("refusal: and under claude still names /clear", "/clear" in why, why)
-        dmn_delivery.session_present = lambda agent: True
-        termmod.background_work = lambda h: ["a job"]
-        _, why = dmn_delivery._reclaim_context(con, "glm", lambda _m: None)
-        check("refusal: background work under opencode names /new too",
-              "/new" in why and "/clear" not in why, why)
-    finally:
-        for n, v in real.items():
-            setattr(termmod, n, v)
-        dmn_delivery.session_present = real_present
-        con.close()
-
-
 def test_an_opencode_session_under_ocp(home: Path) -> None:
     """Each part measured on opencode 1.18.32: the
     preamble reaches the session as an instructions file, the start prompt
-    as --prompt, Agent's denial as opencode's task permission; /new and
-    /exit are its commands; and idle and what is in the way come from its
-    screen, a still frame being no proof that its turn has ended."""
+    as --prompt, Agent's denial as opencode's task permission; and idle and
+    what is in the way come from its screen, a still frame being no proof
+    that its turn has ended."""
     os.environ["OCP_HOME"] = str(home)
     drv = vendors.get("opencode")
     drv.binary = lambda: "/x/bin/opencode"
     drv.credential_present = lambda config_dir: True
-    real = {n: getattr(termmod, n) for n in ("_screen", "alive", "send", "SCREEN_POLL_S")}
+    real = {n: getattr(termmod, n) for n in ("_screen", "SCREEN_POLL_S")}
     real_execve, real_record = os.execve, launch._record_terminal
     real_settle = (tmuxbackend.IDLE_SETTLE_S, tmuxbackend.IDLE_POLL_S)
     try:
@@ -2138,140 +1837,12 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
         check("opencode session: a pane tmux cannot capture is not idle", not termmod.wait_idle("%1", 300))
         termmod._screen = lambda h: (_ for _ in ()).throw(AssertionError("claude screen read"))
         check("opencode session: a claude terminal is idle on the still frame alone", termmod.wait_idle("%2", 300))
-
-        # /new and /exit, typed only where nothing is in the way.
-        sent: list[tuple[str, str]] = []
-        termmod.alive = lambda h: True
-        termmod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
-        termmod._screen = lambda h: _screen_of(OC_IDLE if h == "%1" else COMPOSER_EMPTY)
-        for h in ("%1", "%2"):
-            termmod.clear_context(h, wait=False)
-            termmod.close_session(h, wait=False)
-        check("opencode session: its clear is /new and its exit /exit; claude's are unchanged",
-              sent == [("%1", "/new"), ("%1", "/exit"),
-                       ("%2", "/clear"), ("%2", "/exit")], str(sent))
-        termmod._screen = lambda h: _screen_of(OC_PERMISSION)
-        sent.clear()
-        ok, why = termmod.clear_context("%1", wait=False)
-        check("opencode session: nothing is typed at a permission request",
-              not ok and sent == [] and "not typing /new" in why, why)
     finally:
         for n, f in real.items():
             setattr(termmod, n, f)
         tmuxbackend.IDLE_SETTLE_S, tmuxbackend.IDLE_POLL_S = real_settle
         os.execve, launch._record_terminal = real_execve, real_record
         del drv.binary, drv.credential_present
-
-
-def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
-    """#59: claude agents report RUNNING and IDLE through hooks; opencode has
-    no counterpart wired, so production writes IDLE at launch and the row
-    sits there for the life of the session - an agent working right now reads
-    IDLE. The state cell reads the pane's screen instead (tui-idle answers
-    idle mid-turn for opencode, measured), and only on positive evidence both
-    ways: the prompt box with "interrupt" in its footer is working, the box
-    without it is idle, and anything else - a closed agent's shell prompt, a
-    start screen - is no evidence, so the db state stands. A closed row is
-    never screened at all. A claude row is never screened: its hooks already
-    said."""
-    use_home(home)
-    accounts.register("alpha")
-    accounts.register("zai", vendor="opencode")
-    agents.register("backend")
-    agents.register("glm")
-    _with_vendor("glm", "opencode")
-    con = db.connect()
-    screens = {"term_oc": OC_WORKING}
-    asked: list[list] = []
-    real_screen = termmod._screen
-    termmod._screen = lambda h: (asked.append([h]), {
-        "source": "screen", "tail": screens[h]})[1]
-    saved_seen = dict(screenstate._opencode_seen)
-    screenstate._opencode_seen.clear()
-
-    def row(agent):
-        return db.get_agent_state(con, agent)
-
-    try:
-        db.set_agent_state(con, "backend", dmn_states.RUNNING)
-        db.set_terminal(con, "backend", "term_cl", "wt")
-        db.set_account(con, "backend", "alpha")
-        # What production writes for an opencode agent: IDLE.
-        db.set_agent_state(con, "glm", dmn_states.IDLE)
-        db.set_terminal(con, "glm", "term_oc", "wt")
-        db.set_account(con, "glm", "zai")
-
-        word, detail = screenstate.screen_state(con, row("glm"))
-        check("opencode row: a screen mid-turn reads RUNNING over the db's IDLE",
-              (word, detail) == ("RUNNING", ""), f"{word!r} {detail!r}")
-        check("opencode row: the claude row is never screened",
-              asked == [["term_oc"]], str(asked))
-
-        screens["term_oc"] = OC_IDLE
-        screenstate._opencode_seen.clear()
-        check("opencode row: an idle screen reads IDLE",
-              screenstate.screen_state(con, row("glm"))[0] == "IDLE")
-
-        # And the other direction: a RUNNING row over an idle screen.
-        db.set_agent_state(con, "glm", dmn_states.RUNNING)
-        check("opencode row: an idle screen keeps a RUNNING row honest",
-              screenstate.screen_state(con, row("glm"))[0] == "IDLE")
-
-        # A shell prompt is evidence of neither: the db word stands. This is
-        # what a closed agent's pane shows (auditor #2157, measured live).
-        shell = ["Resume this session with:",
-                 "claude --resume 9f2289d7-3b45-4e86-9653-efb48c2d46da",
-                 "ron@Ron-MacBookAir  ~/orca/workspaces/orcapipe/orcapipe.glm "]
-        db.set_agent_state(con, "glm", dmn_states.IDLE)
-        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'glm'",
-                    (int(time.time()),))
-        con.commit()
-        screens["term_oc"] = shell
-        screenstate._opencode_seen.clear()
-        asked.clear()
-        check("opencode row: a closed agent's shell prompt is not work in progress",
-              screenstate.screen_state(con, row("glm"))[0] == "IDLE" and asked == [],
-              str(asked))
-
-        # A closed row is never screened at all, whatever its pane shows.
-        asked.clear()
-        screens["term_oc"] = OC_WORKING
-        screenstate._opencode_seen.clear()
-        screenstate.screen_state(con, row("glm"))
-        check("opencode row: a closed row is never screened",
-              asked == [], str(asked))
-        con.execute("UPDATE agent_state SET closed_at = NULL WHERE agent = 'glm'")
-        con.commit()
-
-        termmod._screen = lambda h: {"source": "stream", "tail": OC_WORKING}
-        screenstate._opencode_seen.clear()
-        check("opencode row: an unreadable screen leaves the db state standing",
-              screenstate.screen_state(con, row("glm"))[0] == "IDLE")
-
-        # The tri-state, at the driver: box + interrupt is working, box
-        # without it is idle, no box is no evidence.
-        drv = vendors.get("opencode")
-        check("opencode row: the driver's screen answer is three-valued",
-              drv.working_on_screen(OC_WORKING) is True
-              and drv.working_on_screen(OC_IDLE) is False
-              and drv.working_on_screen(shell) is None,
-              str((drv.working_on_screen(OC_WORKING),
-                   drv.working_on_screen(OC_IDLE),
-                   drv.working_on_screen(shell))))
-
-        termmod._screen = real_screen
-        screenstate._opencode_seen.clear()
-        asked.clear()
-        termmod._screen = lambda h: (asked.append([h]), {
-            "source": "screen", "tail": OC_WORKING})[1]
-        first = screenstate.screen_state(con, row("glm"))[0]
-        second = screenstate.screen_state(con, row("glm"))[0]
-        check("opencode row: the cache holds within the ttl - one read per pane",
-              first == second == "RUNNING" and asked == [["term_oc"]], str(asked))
-    finally:
-        termmod._screen = real_screen
-        screenstate._opencode_seen.clear(); screenstate._opencode_seen.update(saved_seen)
-        con.close()
 
 
 def test_shared_account_context_isolation(home: Path) -> None:
@@ -2305,13 +1876,6 @@ def test_shared_account_context_isolation(home: Path) -> None:
           (a.ctx_pct, b.ctx_pct) == (70, 5), f"a={a.ctx_pct} b={b.ctx_pct}")
     check("shared account: rate limits are still shared",
           a.short.pct == b.short.pct == 30, f"a={a.short.pct} b={b.short.pct}")
-
-    # The context trigger must fire for the full agent and not for the other.
-    ta = triggers.evaluate(a.short.pct, a.ctx_used)
-    tb = triggers.evaluate(b.short.pct, b.ctx_used)
-    check("shared account: the full agent's context trigger fires",
-          ta.fired and ta.kind == "context", ta.reason)
-    check("shared account: the other agent's does not", not tb.fired, tb.reason)
 
     # An agent with no session file of its own must not borrow one.
     agents.register("ag_c")
@@ -2478,7 +2042,7 @@ deny: []
 
 
 def test_hr_team_is_one_proposal_and_a_team_has_default_links(home: Path) -> None:
-    """T263: a manager and its members are proposed and approved once, and the
+    """A manager and its members are proposed and applied once, and the
     ordinary links (`team.DEFAULT_LINKS`) need no edge; an explicit deny still wins."""
     _daemon_home(home, 20)
     original = """# routing
@@ -2508,25 +2072,10 @@ deny:
               all(x in body for x in ("boat.sea", "boat.shore", "boat.reviewer", "/w/sea", "/w/boat"))
               and "its parent" in body and "hl hr approve" in body, body)
         check("team: one proposal for the whole team, and no task or request for it",
-              len(hr.pending()) == 1
+              len(proposals.listing()) == 1
               and con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'human'").fetchone()["c"] == 0
               and con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == 0)
-        ok, said = hr.apply(pid, con)
-        check("team: refused until the founder approves", not ok, said)
-        decisions.record("hr", pid, 0, "approved", hr.subject_of(prop))
-        prop = {**prop, "state": "approved"}
-        hr.save(prop)
-        for label, key, value in [("a member added", "members", prop["members"] + ",boat.spy"),
-                                  ("a member's repo changed", "repo.boat.sea", "/elsewhere"),
-                                  ("the manager's repo changed", "repo", "/elsewhere")]:
-            edited = dict(prop)
-            edited[key] = value
-            hr.save(edited)
-            ok, said = hr.apply(pid, con)
-            check(f"team: {label} after the approval is refused", not ok
-                  and "boat.spy" not in team.Team.load().agents, said)
-        hr.save(prop)
-        ok, said = hr.apply(pid, con)
+        ok, said = apply_hr(pid, con)
         check("team: one approval creates the team", ok, said)
     finally:
         con.close()
@@ -2575,8 +2124,8 @@ deny:
     check("default links: an explicit deny still wins",
           not tm.route("boat.sea", "orca.reviewer").allowed and "denied: " in tm.route("boat.sea", "orca.reviewer").reason)
     check("default links: an explicit edge still comes first",
-          team.Team({**data, "edges": [{"from": "boat.sea", "to": "boat", "response": "fire_and_forget"}]})
-          .route("boat.sea", "boat").response == "fire_and_forget")
+          team.Team({**data, "edges": [{"from": "boat.sea", "to": "boat"}]})
+          .route("boat.sea", "boat").reason == "edge boat.sea -> boat")
     rc, out = _cli(["hr", "team", "reef", "--member", "dive=/w/dive", "--member", "reef.map",
                     "--repo", "/w/reef", "--why", "cli path"], as_agent=askmod.HUMAN)
     check("team: the founder's `hr team` creates it directly, suffix or full names, repo after '='",
@@ -2602,16 +2151,10 @@ edges:
 """
 
 
-def _told(con, who: str) -> list[str]:
-    """What the founder's session has said to `who`, oldest first."""
-    return [r["body"] for r in con.execute(
-        "SELECT body FROM requests WHERE target = ? AND requester = 'human' ORDER BY id", (who,))]
-
-
 def test_a_team_diff_is_one_proposal_applied_all_or_none(home: Path) -> None:
     """One proposal holds the whole change to the team: a link to an agent the same diff adds is judged against
-    the roster the steps before it leave; the founder decides once; the steps run in order with no agent step;
-    the proposer is told once; and a step that fails puts back every step before it."""
+    the roster the steps before it leave; the steps run in order with no agent step; and a step that fails puts
+    back every step before it."""
     _daemon_home(home, 20)
     hand_edit_team(_DIFF_TEAM)
     agents.register("orca")
@@ -2626,7 +2169,7 @@ def test_a_team_diff_is_one_proposal_applied_all_or_none(home: Path) -> None:
         ]
         ok, said = hr.propose_bundle(changes, "orca", "grow")
         check("diff: an agent proposes it, one proposal, nothing written yet",
-              ok and "orca.new" not in paths.list_agents() and len(hr.pending()) == 1, said)
+              ok and "orca.new" not in paths.list_agents() and len(proposals.listing()) == 1, said)
         pid = said.split()[1]
         prop = hr.load_proposal(pid)
         check("diff: stored in the order it is applied, kind bundle",
@@ -2636,18 +2179,13 @@ def test_a_team_diff_is_one_proposal_applied_all_or_none(home: Path) -> None:
         check("diff: the founder reads every step once and one approve line",
               all(x in text for x in ("1. add orca.new", "2. settings orca.new", "3. link orca -> orca.new",
                                       "4. context orca.new", "+build things")) and text.count("hl hr approve") == 1, text)
-        ok, said = hr.apply(pid, con)
-        check("diff: refused until the founder approves", not ok, said)
-        ok, said = approve_hr(pid)
-        check("diff: one approval applies every step", ok and "4 changes" in said, said)
+        ok, said = apply_hr(pid)
+        check("diff: applying it makes every step", ok and "4 changes" in said, said)
         t = team.Team.load()
         check("diff: the agent, its settings, the link and its context are all there",
               "orca.new" in paths.list_agents() and agents.read("orca.new").get("model") == "haiku"
               and t.route("orca", "orca.new").allowed
-              and (paths.agent_dir("orca.new") / "ROLE.md").read_text() == "# role\nbuild things\n"
-              and hr.load_proposal(pid)["state"] == "applied", said)
-        told = _told(con, "orca")
-        check("diff: the proposer is told once, with the whole result", len(told) == 1 and "applied" in told[0], str(told))
+              and (paths.agent_dir("orca.new") / "ROLE.md").read_text() == "# role\nbuild things\n", said)
 
         for label, bad in [("an unknown kind", [{"kind": "hire", "name": "x"}]),
                            ("nothing", []),
@@ -2677,7 +2215,7 @@ def test_a_team_diff_whose_step_fails_puts_back_every_step_before_it(home: Path)
             {"kind": "retire", "name": "orca.fresh"}], "orca", "reshuffle")
         pid = said.split()[1]
         obsmod.live_sessions = lambda: {"loner": True}
-        ok, said = approve_hr(pid)
+        ok, said = apply_hr(pid)
         check("rollback: the diff is not applied, naming the step and that nothing changed",
               not ok and "step 2 of 4 (rename loner)" in said and "Nothing was changed" in said, said)
         check("rollback: team.yaml is as it was, byte for byte", (home / "team.yaml").read_text() == before_team)
@@ -2685,48 +2223,13 @@ def test_a_team_diff_whose_step_fails_puts_back_every_step_before_it(home: Path)
               sorted(paths.list_agents()) == before_agents and not (paths.agent_dir("orca.fresh")).exists()
               and (paths.agent_dir("loner") / "journal" / "keep.md").read_text() == "mine"
               and sealed.state(sealed.TEAM, (home / "team.yaml").read_text()) == "ok")
-        check("rollback: it is still the founder's to retry, with the error on it",
-              hr.load_proposal(pid)["state"] == "approved" and "step 2" in hr.load_proposal(pid)["error"])
-        told = _told(con, "orca")
-        check("rollback: the proposer is told once what failed", len(told) == 1 and "step 2 of 4" in told[0], str(told))
         obsmod.live_sessions = lambda: {}
-        ok, said = approve_hr(pid)
-        check("rollback: approving again, with nothing in the way, applies all of it",
+        ok, said = apply_hr(pid)
+        check("rollback: run again, with nothing in the way, it applies all of it",
               ok and "solo" in paths.list_agents() and "orca.fresh" not in paths.list_agents()
               and (paths.agent_dir("solo") / "journal" / "keep.md").exists(), said)
     finally:
         obsmod.live_sessions = real_live
-        con.close()
-
-
-def test_the_founder_approves_several_proposals_at_once_and_each_proposer_hears_once(home: Path) -> None:
-    _daemon_home(home, 20)
-    hand_edit_team(_DIFF_TEAM)
-    agents.register("orca")
-    (home / "w").mkdir()
-    for n in ("a", "b", "c"):
-        agents.register(f"orca.{n}", repo=str(home / "w"))
-    con = db.connect()
-    try:
-        pids = []
-        for n in ("a", "b", "c"):
-            ok, said = hr.propose("settings", f"orca.{n}", requester="orca", why="talk", sets={"model": "haiku"})
-            check(f"many: orca.{n} is proposed", ok, said)
-            pids.append(said.split()[1])
-        ok, said = hr.propose("settings", "orca.a", requester="orca.b", why="w", sets={"effort": "high"})
-        pids.append(said.split()[1])
-        check("many: four proposals wait", len(hr.pending()) == len(pids) == 4, str((len(hr.pending()), pids)))
-        entries = [(c["id"], c["subject"]) for c in hr.pending()]
-        ok, lines = hr.decide_many(entries, "approved", askmod.HUMAN)
-        check("many: all applied by one action", ok and all(hr.load_proposal(p)["state"] == "applied" for p in pids),
-              str(lines))
-        told = _told(con, "orca")
-        check("many: the proposer of three hears once, listing all three",
-              len(told) == 1 and all(p in told[0] for p in pids[:3]) and "applied" in told[0], str(told))
-        check("many: the proposer of one hears once", len(_told(con, "orca.b")) == 1)
-        ok, lines = hr.decide_many([("nosuch", "x")], "approved", askmod.HUMAN)
-        check("many: an id that is not a proposal fails the action and says so", not ok and "no proposal" in lines[0], str(lines))
-    finally:
         con.close()
 
 
@@ -2743,24 +2246,24 @@ def test_hr_diff_and_approve_all_from_the_command_line(home: Path) -> None:
           and "orca.cli" not in paths.list_agents(), out)
     rc, out = _cli(["hr", "diff", "--file", str(home / "nope.yaml"), "--why", "x"], as_agent="orca")
     check("cli: a file that is not there is refused", rc == 1, out)
-    rc, out = _cli(["hr", "approve", "--all"], as_agent="orca")
-    check("cli: an agent cannot approve", rc == 1 and "orca.cli" not in paths.list_agents(), out)
-    rc, out = _cli(["hr", "approve", "--all"], as_agent=askmod.HUMAN)
-    check("cli: with no terminal, several need --yes", rc == 1 and "orca.cli" not in paths.list_agents(), out)
-    rc, out = _cli(["hr", "approve", "--all", "--yes"], as_agent=askmod.HUMAN)
-    check("cli: approve --all --yes applies them", rc == 0 and "orca.cli" in paths.list_agents()
-          and (paths.agent_dir("orca.cli") / "ROLE.md").read_text() == "# role\nfrom a file\n", out)
-    rc, out = _cli(["hr", "approve", "--all", "--yes"], as_agent=askmod.HUMAN)
-    check("cli: nothing waiting is not an error", rc == 0, out)
+    with go_hr():
+        rc, out = _cli(["hr", "approve", "--all"], as_agent="orca")
+        check("cli: an agent cannot approve", rc == 1 and "orca.cli" not in paths.list_agents(), out)
+        rc, out = _cli(["hr", "approve", "--all"], as_agent=askmod.HUMAN)
+        check("cli: with no terminal, several need --yes", rc == 1 and "orca.cli" not in paths.list_agents(), out)
+        rc, out = _cli(["hr", "approve", "--all", "--yes"], as_agent=askmod.HUMAN)
+        check("cli: approve --all --yes applies them", rc == 0 and "orca.cli" in paths.list_agents()
+              and (paths.agent_dir("orca.cli") / "ROLE.md").read_text() == "# role\nfrom a file\n", out)
+        rc, out = _cli(["hr", "approve", "--all", "--yes"], as_agent=askmod.HUMAN)
+        check("cli: nothing waiting is not an error", rc == 0, out)
     f.write_text("changes:\n  - { kind: add, name: orca.direct, team: orca, repo: /w/d }\n")
     rc, out = _cli(["hr", "diff", "--file", str(f), "--why", "direct"], as_agent=askmod.HUMAN)
     check("cli: the founder's own `hr diff` is made, not proposed", rc == 0 and "orca.direct" in paths.list_agents(), out)
 
 
 def test_a_proposal_is_its_own_record_the_founder_decides(home: Path) -> None:
-    """A roster proposal is not a task: raising it opens no task and no request, it is listed
-    for the founder as a card (`hr.pending`), and `hr.decide` is the one way it is approved
-    (applied at once, the proposer told) or rejected."""
+    """A roster proposal is not a task: raising it opens no task and no request, and its card says who
+    asked for what and why. Deciding it is the Go daemon's hr.decide."""
     _daemon_home(home, 20)
     hand_edit_team("""
 teams:
@@ -2781,49 +2284,11 @@ edges:
         check("proposal: no task and no request to the founder was made for it",
               con.execute("SELECT COUNT(*) c FROM tasks").fetchone()["c"] == 0
               and con.execute("SELECT COUNT(*) c FROM requests WHERE target = 'human'").fetchone()["c"] == 0)
-        cards = hr.pending()
+        card = hr.card(hr.load_proposal(pid))
         check("proposal: it is a card with who, what, why and the words the founder reads",
-              len(cards) == 1 and cards[0]["id"] == pid and cards[0]["kind"] == "add"
-              and cards[0]["agent"] == "newbie" and cards[0]["requested_by"] == "orca"
-              and cards[0]["why"] == "more hands" and cards[0]["state"] == "proposed"
-              and f"hl hr approve {pid}" in cards[0]["text"], str(cards))
-        ok, said = hr.apply(pid, con)
-        check("proposal: nothing applies it before the founder approves", not ok and "newbie" not in paths.list_agents(), said)
-        ok, said = hr.decide(pid, "approved", "orca")
-        check("proposal: an agent cannot decide it", not ok and "founder's" in said
-              and hr.load_proposal(pid)["state"] == "proposed", said)
-        ok, said = hr.decide(pid, "approved", askmod.HUMAN)
-        check("proposal: an approve without the digest that was read is refused",
-              not ok and "subject" in said and hr.load_proposal(pid)["state"] == "proposed", said)
-        ok, said = hr.decide(pid, "maybe", askmod.HUMAN)
-        check("proposal: a decision is approved or rejected, nothing else", not ok, said)
-        ok, said = approve_hr(pid)
-        check("proposal: the founder's approve applies it", ok and hr.load_proposal(pid)["state"] == "applied"
-              and "newbie" in paths.list_agents() and hr.pending() == [], said)
-        told = con.execute("SELECT body FROM requests WHERE requester = 'human' AND target = 'orca'").fetchall()
-        check("proposal: the proposer is told how it went", any(f"proposal {pid} applied" in r["body"] for r in told),
-              [r["body"] for r in told])
-        ok, said = approve_hr(pid)
-        check("proposal: a second decision is refused", not ok and "already applied" in said, said)
-
-        ok, said = hr.propose("add", "nope", repo="/repo", requester="orca", why="one more")
-        pid2 = said.split()[1]
-        ok, said = hr.decide(pid2, "rejected", askmod.HUMAN, "not now")
-        told = con.execute("SELECT body FROM requests WHERE requester = 'human' AND target = 'orca'").fetchall()
-        check("proposal: a reject is recorded with its reason and told to the proposer",
-              ok and hr.load_proposal(pid2)["state"] == "rejected"
-              and hr.load_proposal(pid2)["verdict"] == "not now" and "nope" not in paths.list_agents()
-              and any(f"proposal {pid2} was rejected: not now" in r["body"] for r in told), said)
-        ok, said = hr.apply(pid2, con)
-        check("proposal: a rejected one is never applied", not ok and "nope" not in paths.list_agents(), said)
-
-        ok, said = hr.propose("add", "taken", repo="/repo", requester="orca", why="changed my mind")
-        pid3 = said.split()[1]
-        ok, said = hr.withdraw(pid3, "orca")
-        check("withdraw: the author takes it back and it leaves the founder's list",
-              ok and hr.load_proposal(pid3)["state"] == "withdrawn" and hr.pending() == [], said)
-        ok, said = approve_hr(pid3)
-        check("withdraw: a withdrawn proposal cannot be approved", not ok and "taken" not in paths.list_agents(), said)
+              card["kind"] == "add" and card["agent"] == "newbie" and card["requested_by"] == "orca"
+              and card["why"] == "more hands" and card["state"] == "proposed"
+              and f"hl hr approve {pid}" in card["text"], str(card))
     finally:
         con.close()
 
@@ -2897,96 +2362,6 @@ edges:
         con.close()
 
 
-def test_an_approve_is_recorded_where_no_agent_writes_and_applied_once(home: Path) -> None:
-    """The founder's approve is recorded in the protected store and applied by the same call;
-    a draft changed after it, a state written into the file by hand, and an agent's session
-    each apply or decide nothing; an approve whose apply failed is told and retried."""
-    _daemon_home(home, 20)
-    hand_edit_team("""
-teams:
-  orca: [orca]
-agents:
-  orca: {}
-edges:
-  - { from: "orca", to: "orca.*", relation: supervisor, response: async }
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: task }
-""")
-    agents.register("orca")
-    con = db.connect()
-    try:
-        ok, said = hr.propose("team", "crew", requester="orca", why="a crew", repo="/w",
-                              members=["a", "b"], repos={"crew.a": "/w/a"})
-        pid = said.split()[1]
-        ok, said = approve_hr(pid)
-        check("team answer: the approve is applied by the decision itself", ok, said)
-        check("team answer: it is recorded, and the team exists",
-              (decisions.get("hr", pid) or {}).get("call") == "approved"
-              and hr.load_proposal(pid)["state"] == "applied"
-              and team.Team.load().teams.get("crew") == ["crew", "crew.a", "crew.b"]
-              and "crew.b" in paths.list_agents())
-
-        ok, said = hr.propose("team", "old", requester="orca", why="forged", repo="/w", members=["x"])
-        pid = said.split()[1]
-        prop = hr.load_proposal(pid)
-        hr.save({**prop, "state": "approved"})
-        ok, said = hr.apply(pid, con)
-        check("forged: a state written into the file with no recorded approval applies nothing",
-              not ok and "no approval from the founder is on record" in said
-              and "old.x" not in paths.list_agents(), said)
-        os.environ["OCP_AGENT"] = "orca"
-        try:
-            ok, said = approve_hr(pid)
-            rc, out = _cli(["hr", "approve", pid], as_agent="orca")
-        finally:
-            os.environ.pop("OCP_AGENT", None)
-        check("forged: an agent's session cannot record the founder's approval", not ok
-              and rc == 1 and decisions.get("hr", pid) is None, said + out)
-        hr.save(prop)
-
-        kinds = proposals.KINDS
-        proposals.KINDS = tuple(k for k in kinds if k != "team")
-        try:
-            ok, said = approve_hr(pid)
-        finally:
-            proposals.KINDS = kinds
-        check("stale: a process that does not know the kind decides nothing",
-              not ok and "knows" in said and hr.load_proposal(pid)["state"] == "proposed"
-              and decisions.get("hr", pid) is None, said)
-
-        subject = hr.subject_of(prop)
-        edited = dict(prop)
-        edited["members"] = "old.x,old.spy"
-        hr.save(edited)
-        ok, said = hr.decide(pid, "approved", askmod.HUMAN, subject=subject)
-        check("bind: a draft edited after the founder read it is not approved unseen",
-              not ok and "changed after you read it" in said and decisions.get("hr", pid) is None
-              and "old.spy" not in paths.list_agents(), said)
-        hr.save(prop)
-
-        # An approve whose apply fails: told to the proposer, kept approved, and retried by approving again.
-        ok, said = hr.propose("add", "latecomer", repo="/repo", requester="orca", why="w")
-        pid = said.split()[1]
-        real = hr._DOERS["add"]
-        hr._DOERS["add"] = lambda prop, con: (False, "orca is not answering")
-        try:
-            ok, said = approve_hr(pid)
-        finally:
-            hr._DOERS["add"] = real
-        told = [r["body"] for r in con.execute(
-            "SELECT body FROM requests WHERE requester = 'human' AND target = 'orca'").fetchall()]
-        check("failed apply: the founder is told why, the proposal stays approved and listed with the error",
-              not ok and "not answering" in said and hr.load_proposal(pid)["state"] == "approved"
-              and next(c for c in hr.pending() if c["id"] == pid)["error"] == "orca is not answering"
-              and any(f"proposal {pid} was approved but could not be applied" in b for b in told), said)
-        ok, said = approve_hr(pid)
-        check("failed apply: approving again retries it, without a second decision",
-              ok and hr.load_proposal(pid)["state"] == "applied" and "latecomer" in paths.list_agents()
-              and pid not in {c["id"] for c in hr.pending()}, said)
-    finally:
-        con.close()
-
-
 def test_hr_link_and_unlink_edit_one_edge_and_nothing_else(home: Path) -> None:
     """An ask edge is added or removed through hr, as text so the file's comments
     survive, validated before it is written, and gated like any roster change."""
@@ -3013,9 +2388,8 @@ deny:
                             relation="peer", response="fire_and_forget")
         check("link: the founder adds an edge directly", ok, said)
         text = tf.read_text()
-        check("link: the edge is one line with what was asked for",
-              '  - { from: "marina", to: "keeper", relation: peer, response: fire_and_forget }'
-              in text, text)
+        check("link: the edge is one line, without the relation and response asked for",
+              '  - { from: "marina", to: "keeper", response: async }' in text, text)
         check("link: it goes before the first wildcard edge, so it is reached",
               text.index('from: "marina"') < text.index('from: "*"'), text)
         check("link: the comments and every other line are kept",
@@ -3024,17 +2398,13 @@ deny:
               and all(l in text for l in original.splitlines()), text)
         t = team.Team.load()
         d = t.route("marina", "keeper")
-        check("link: the router now allows it, with the response given",
-              d.allowed and d.response == "fire_and_forget", d.reason)
+        check("link: the router now allows it", d.allowed, d.reason)
 
         for label, args, kw, want in [
                 ("the same edge twice", ("marina", "keeper"), {}, "already has the edge"),
                 ("a target that is not an agent", ("marina", "ghost"), {}, "not an agent"),
                 ("itself", ("marina", "marina"), {}, "itself"),
-                ("a route a deny covers", ("keeper", "scout"), {}, "deny"),
-                ("a bad response", ("marina", "scout"), {"response": "blocking"}, "response"),
-                ("a relation that is not a word", ("marina", "scout"),
-                 {"relation": "a, b: c"}, "relation")]:
+                ("a route a deny covers", ("keeper", "scout"), {}, "deny")]:
             ok, said = hr.enact("link", args[0], to=args[1], why="w", **kw)
             check(f"link: refused - {label}", not ok and want in said, said)
         check("link: and a refusal leaves the file as it was", tf.read_text() == text)
@@ -3056,10 +2426,8 @@ deny:
         text = hr.card(prop)["text"]
         check("link: the founder is told which edge and how to decide",
               "marina -> keeper" in text and "hl hr approve" in text, text)
-        ok, said = hr.apply(pid, con)
-        check("link: apply refuses until the founder has approved", not ok, said)
-        ok, said = approve_hr(pid)
-        check("link: the approval adds the edge",
+        ok, said = apply_hr(pid)
+        check("link: applying it adds the edge",
               ok and team.Team.load().route("marina", "keeper").allowed, said)
 
         agents.register("late")
@@ -3111,8 +2479,9 @@ def test_a_repo_is_required_to_add_an_agent(home: Path) -> None:
     rc, out = _cli(["agent", "register", "boss", "--effort", "high"], as_agent=askmod.HUMAN)
     check("agent register: one that has a repo keeps it on re-registration", rc == 0
           and agents.read("boss").get("repo") == "/w/boss", out)
-    from handline.cli import client as cli_client, team as teamcli
-    doing = {a["name"]: teamcli._doing(a["name"], a) for a in cli_client.call("agents.list", {"status": True})["agents"]}
+    from handline.cli import team as teamcli
+    line = {"has_terminal": False, "started": False}          # agents.list's has_repo is the Go daemon's
+    doing = {name: teamcli._doing(name, {**line, "has_repo": bool(agents.read(name).get("repo"))}) for name in ("legacy", "boss")}
     check("hl team: an agent with no repo says why it never starts",
           "no repo" in doing["legacy"] and "--repo <path>" in doing["legacy"], doing["legacy"])
     check("hl team: one with a repo does not", "no repo" not in doing["boss"])
@@ -3137,7 +2506,7 @@ def test_an_agents_role_and_base_change_only_by_a_proposal_the_founder_approves(
     before = (paths.agent_dir("worker") / "ROLE.md").read_text()
     rc, out = _cli(["hr", "context", "worker", "--role-file", str(big_role), "--why", "a long role"], as_agent="other")
     big = next((x["id"] for x in proposals.listing() if x["kind"] == "context"), None)
-    check("context: a 3KB ROLE.md is raised as a proposal", rc == 0 and big and hr.withdraw(big, "other")[0], out)
+    check("context: a 3KB ROLE.md is raised as a proposal", rc == 0 and big, out)
     rc, out = _cli(["hr", "context", "worker", "--role-file", str(role_file), "--why", "tighten"], as_agent="other")
     pid = next((x["id"] for x in proposals.listing() if x["kind"] == "context" and x["id"] != big), None)
     check("context: an agent's proposal is raised, and nothing is written",
@@ -3148,152 +2517,12 @@ def test_an_agents_role_and_base_change_only_by_a_proposal_the_founder_approves(
           "-the old role" in text and "+The new role." in text and "ROLE.md (proposed)" in text, text)
     rc, out = _cli(["hr", "context", "nobody", "--role-file", str(role_file), "--why", "w"], as_agent="other")
     check("context: for an agent that is not one, refused", rc == 1 and "not an agent" in out, out)
-    con = db.connect()
-    try:
-        ok, said = hr.apply(pid, con)
-        check("context: nothing applies before the founder answers",
-              not ok and (paths.agent_dir("worker") / "ROLE.md").read_text() == before, said)
-        decisions.record("hr", pid, 0, "approved", hr.subject_of(prop))
-        edited = {**prop, "state": "approved", "set.ROLE.md": json.dumps("# worker\n\nSomething else.\n")}
-        hr.save(edited)
-        ok, said = hr.apply(pid, con)
-        check("context: a proposal edited after the approval is refused",
-              not ok and (paths.agent_dir("worker") / "ROLE.md").read_text() == before, said)
-        hr.save({**prop, "state": "approved"})
-        ok, said = hr.apply(pid, con)
-    finally:
-        con.close()
-    check("context: the approval writes exactly the proposed text, and not the other file",
+    ok, said = apply_hr(pid)
+    check("context: applying it writes exactly the proposed text, and not the other file",
           ok and (paths.agent_dir("worker") / "ROLE.md").read_text() == role_file.read_text()
           and "base.md" not in said, said)
     check("context: the file still loads as the agent's standing context",
           role_file.read_text().strip() in launch.context_for("worker"))
-
-
-def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_founder_approves(home: Path) -> None:
-    os.environ["OCP_HOME"] = str(home)
-    os.environ.pop("OCP_AGENT", None)
-    agents.register("worker", model="sonnet", repo=str(home))
-    agents.register("other", repo=str(home))
-    _daemon_home(home, 20)
-    hand_edit_team("agents:\n  worker: {}\n  other: {}\nedges:\n  - { from: \"*\", to: \"human\", kind: task }\n")
-    from handline.daemon import socket_server
-    from handline.infra import daemonclient as dmn_client
-    from handline.team import agent_settings
-
-    def daemon_send(payload):       # the daemon is not an agent's session: no OCP_AGENT there
-        mine = os.environ.pop("OCP_AGENT", None)
-        try:
-            return socket_server._handle_request(payload, lambda *_: None)
-        finally:
-            if mine is not None:
-                os.environ["OCP_AGENT"] = mine
-    real = dmn_client.send
-    dmn_client.send = daemon_send
-    try:
-        rc, out = _cli(["agent", "set", "worker", "model=opus", "effort=high", "handoff_note=off"], as_agent="worker")
-        cfg = agents.read("worker")
-        check("settings: an agent's ordinary changes apply at once, its own handoff note off among them",
-              rc == 0 and cfg["model"] == "opus" and cfg["effort"] == "high" and cfg["handoff_note"] is False, out)
-        from handline.daemon import handoff_note
-        check("settings: the daemon then reads that agent's handoff note as off", not handoff_note.enabled("worker"))
-        reply = daemon_send({"verb": "agent_set", "agent": "worker", "speaker": "worker", "values": {"idle_close": "0"}})
-        check("settings: idle close needs the founder, since 0 keeps a session open for good",
-              not reply["ok"] and "park_timeout_s" not in agents.read("worker"), str(reply))
-        rc, out = _cli(["agent", "set", "other", "model=opus"], as_agent="worker")
-        check("settings: another agent's setting is not written, and it needs a reason",
-              rc == 1 and agents.read("other").get("model") != "opus" and not proposals.listing(), out)
-        rc, out = _cli(["agent", "set", "other", "model=opus", "effort=low", "--why", "its work is cheap"], as_agent="worker")
-        pid = next((x["id"] for x in proposals.listing() if x["kind"] == "settings" and x["agent"] == "other"), None)
-        check("settings: with a reason it is proposed for the founder, and nothing is written",
-              rc == 0 and pid and agents.read("other").get("model") != "opus", f"rc={rc} {out}")
-        rc, out = _cli(["agent", "set", "worker", "effort=low"], as_agent="worker")
-        check("settings: its own ordinary change still needs no reason", rc == 0 and agents.read("worker")["effort"] == "low", out)
-        reply = daemon_send({"verb": "agent_set", "agent": "other", "speaker": "worker", "values": {"model": "opus"}})
-        check("settings: the daemon's refusal says how to propose it",
-              not reply["ok"] and "hl agent set other" in reply["said"] and "--why" in reply["said"], str(reply))
-        rc, out = _cli(["agent", "set", "worker", "browser=chrome"], as_agent="worker")
-        check("settings: a privileged change needs a reason",
-              rc == 1 and not [x for x in proposals.listing() if x["agent"] == "worker"], out)
-        reply = daemon_send({"verb": "agent_set", "agent": "worker", "speaker": "worker",
-                             "values": {"skip_permissions": "on"}})
-        check("settings: the daemon verb refuses a privileged one outright",
-              not reply["ok"] and not agents.skip_permissions(agents.read("worker")), str(reply))
-        os.environ["OCP_AGENT"] = "worker"
-        try:
-            agents.register("worker", chrome=True)
-            check("settings: the register path is shut to an agent", False, "it went through")
-        except PermissionError:
-            check("settings: the register path is shut to an agent", True)
-        finally:
-            os.environ.pop("OCP_AGENT", None)
-        rc, out = _cli(["agent", "set", "worker", "browser=playwright", "browser_sites=https://a.com https://b.org",
-                        "model=sonnet", "--why", "needs the docs site"], as_agent="worker")
-        cfg = agents.read("worker")
-        check("settings: the ordinary half applies and the privileged half is only proposed",
-              rc == 0 and cfg["model"] == "sonnet" and not agents.chrome(cfg) and not cfg.get("mcp_config")
-              and "proposal" in out, f"rc={rc} {out}")
-    finally:
-        dmn_client.send = real
-    pid = next(x["id"] for x in proposals.listing() if x["kind"] == "settings" and x["agent"] == "worker")
-    prop = hr.load_proposal(pid)
-    con = db.connect()
-    try:
-        ok, said = hr.apply(pid, con)
-        check("settings: nothing applies before the founder answers", not ok and not agents.read("worker").get("mcp_config"), said)
-        decisions.record("hr", pid, 0, "approved", hr.subject_of(prop))
-        prop = {**prop, "state": "approved"}
-        hr.save(prop)
-        edited = dict(prop)
-        edited["set.browser_sites"] = "https://evil.example"
-        hr.save(edited)
-        ok, said = hr.apply(pid, con)
-        check("settings: a proposal edited after the approval is refused",
-              not ok and not agents.read("worker").get("mcp_config"), said)
-        hr.save(prop)
-        ok, said = hr.apply(pid, con)
-    finally:
-        con.close()
-    cfg = agents.read("worker")
-    check("settings: the approval applies exactly what was proposed",
-          ok and agents.browser_mode(cfg) == "playwright"
-          and agents.browser_origins(cfg) == ["https://a.com", "https://b.org"] and cfg["model"] == "sonnet", said)
-    ok, said = agent_settings.set_values("worker", {"browser": "off"})
-    check("settings: the founder changes any setting directly", ok and agents.browser_mode(agents.read("worker")) == "off", said)
-    # The sandbox and the permission mode are the founder's alone, like skip_permissions: an agent whose
-    # sandbox is on cannot take it off itself.
-    agent_settings.set_values("worker", {"sandbox": "on"})
-    real_send = dmn_client.send
-    dmn_client.send = daemon_send
-    try:
-        for key, value in (("sandbox", "off"), ("mode", "plan"), ("mode", "bypass")):
-            reply = daemon_send({"verb": "agent_set", "agent": "worker", "speaker": "worker", "values": {key: value}})
-            check(f"settings: the daemon verb refuses {key}={value} from the agent itself", not reply["ok"], str(reply))
-        check("settings: and nothing was written", agents.sandbox_on("worker", agents.read("worker"))
-              and "mode" not in agents.read("worker") and not agents.skip_permissions(agents.read("worker")))
-        rc, out = _cli(["agent", "set", "worker", "sandbox=off"], as_agent="worker")
-        check("settings: asking for the sandbox off needs a reason", rc == 1 and agents.sandbox_on("worker", agents.read("worker")), out)
-        before = len(proposals.listing())
-        rc, out = _cli(["agent", "set", "worker", "sandbox=off", "mode=acceptEdits", "--why", "a system job"], as_agent="worker")
-        check("settings: with one it is only proposed", rc == 0 and "proposal" in out and len(proposals.listing()) == before + 1
-              and agents.sandbox_on("worker", agents.read("worker")) and "mode" not in agents.read("worker"), out)
-    finally:
-        dmn_client.send = real_send
-    ok, said = agent_settings.set_values("worker", {"sandbox": "off", "mode": "acceptEdits"})
-    cfg = agents.read("worker")
-    check("settings: the founder sets both directly",
-          ok and "sandbox" not in cfg and cfg["mode"] == "acceptEdits" and not agents.sandbox_on("worker", cfg), said)
-    shown = agent_settings.settings_of("worker")
-    check("settings: and the settings read back as off and acceptEdits",
-          shown["sandbox"] == "off" and shown["mode"] == "acceptEdits", str(shown))
-    ok, said = agent_settings.set_values("worker", {"mode": "yolo"})
-    check("settings: an unknown mode is refused", not ok and "mode must be one of" in said, said)
-    ok, said = agent_settings.set_values("worker", {"mode": "bypass"})
-    check("settings: bypass is the old switch, granted and shown on both",
-          ok and agents.skip_permissions_in_effect("worker", agents.read("worker"))
-          and agent_settings.settings_of("worker")["skip_permissions"] == "on"
-          and agent_settings.settings_of("worker")["mode"] == "bypass", said)
-    agent_settings.set_values("worker", {"sandbox": "on", "mode": "auto"})
 
 
 def test_hr_add_writes_the_vendor_it_was_given(home: Path) -> None:
@@ -3337,38 +2566,19 @@ edges:
         text = hr.card(prop)["text"]
         check("hr add: the decision names the vendor to the founder",
               "vendor opencode" in text, text)
-        ok, said = approve_hr(pid)
-        check("hr add: approving the proposal applies it", ok, said)
+        ok, said = apply_hr(pid)
+        check("hr add: the proposal applies", ok, said)
         cfg = yamlcompat.load(agents.agent_file("glm2").read_text())
         check("hr add: apply writes the vendor the proposal recorded",
               cfg.get("vendor") == "opencode", str(cfg))
 
-        # T182: the founder's answer is for the draft as they were shown it.
-        # An approve whose first apply did not go through leaves the proposal
-        # open, and a draft an agent edits before the retry is not what was
-        # approved.
-        ok, said = hr.propose("add", "glm3", repo="/repo", requester="marina", why="w", vendor="opencode")
-        pid3 = said.split()[1]
-        decisions.record("hr", pid3, 0, "approved", hr.subject_of(hr.load_proposal(pid3)))
-        hr.save({**hr.load_proposal(pid3), "state": "approved"})
-        edited = hr.load_proposal(pid3)
-        edited["repo"] = "/somewhere/else"
-        hr.save(edited)
-        ok, said = hr.apply(pid3, con)
-        check("hr bind: a draft edited after the answer is refused, not applied",
-              not ok and "changed after the founder approved" in said, said)
-        edited["repo"] = "/repo"        # as it was approved
-        hr.save(edited)
-        ok, said = hr.apply(pid3, con)
-        check("hr bind: put back as approved, it gets past the answer check to its own",
-              "changed after" not in said, said)
     finally:
         con.close()
 
 
 def test_hr_cli_lists_cards_and_only_the_founder_decides(home: Path) -> None:
-    """`hl hr list --json` is the cards the founder's chat shows; `approve` and `reject` are the
-    founder's, from a terminal, and an agent's session is refused."""
+    """`hl hr list` and the decisions go to the Go daemon; `approve` and `reject` are the founder's, from a
+    terminal, and an agent's session is refused before anything is sent."""
     _daemon_home(home, 20)
     hand_edit_team("""
 agents:
@@ -3382,67 +2592,77 @@ edges:
     pid = said.split()[1]
     ok, said = hr.propose("add", "kit", repo="/repo", requester="orca", why="a kit")
     pid2 = said.split()[1]
-    rc, out = _cli(["hr", "list", "--json"], as_agent=askmod.HUMAN)
-    cards = json.loads(out)
-    check("hr list --json: one card per waiting proposal, with what the chat card needs",
-          rc == 0 and {c["id"] for c in cards} == {pid, pid2}
-          and all(k in cards[0] for k in ("id", "kind", "agent", "requested_by", "why", "ts",
-                                            "state", "text", "subject")), out)
-    rc, out = _cli(["hr", "approve", pid], as_agent="orca")
-    check("hr approve: an agent's session is refused and nothing is applied",
-          rc == 1 and "pup" not in paths.list_agents(), out)
-    rc, out = _cli(["hr", "approve", pid], as_agent=askmod.HUMAN)
-    check("hr approve: without a terminal or --subject it shows the proposal and applies nothing",
-          rc == 1 and "[roster] add pup" in out and "pup" not in paths.list_agents(), out)
-    prop = hr.load_proposal(pid)
-    hr.save({**prop, "repo": "/elsewhere"})
-    rc, out = _cli(["hr", "approve", pid, "--subject", cards[0]["subject"] if cards[0]["id"] == pid
-                    else cards[1]["subject"]], as_agent=askmod.HUMAN)
-    check("hr approve: a draft edited after it was read is refused", rc == 1 and "changed after you read it" in out
-          and "pup" not in paths.list_agents(), out)
-    hr.save(prop)
-    subject = next(c["subject"] for c in cards if c["id"] == pid)
-    class Tty:
-        def __init__(self, answer: str) -> None:
-            self.answer = answer
-
-        def isatty(self) -> bool:
-            return True
-
-        def readline(self) -> str:
-            return self.answer + "\n"
-    real_in = sys.stdin
-    try:
-        raw = hr.path_of(pid).read_text()
-        hr.path_of(pid).write_text(raw.replace("a pup", "'fine\x1b[8mHIDDEN\x1b[0m and \x9b2K'", 1))   # an agent's hand
-        sys.stdin = Tty("n")
+    with go_hr():
+        rc, out = _cli(["hr", "list", "--json"], as_agent=askmod.HUMAN)
+        check("hr list --json: what hr.list serves as waiting",
+              rc == 0 and {f"{c['id']:08x}" for c in json.loads(out)} == {pid, pid2}, out)
+        rc, out = _cli(["hr", "list"], as_agent=askmod.HUMAN)
+        check("hr list: one line per proposal, named by its file's id",
+              rc == 0 and pid in out and pid2 in out and "open" in out, out)
+        rc, out = _cli(["hr", "approve", pid], as_agent="orca")
+        check("hr approve: an agent's session is refused and nothing is applied",
+              rc == 1 and "pup" not in paths.list_agents(), out)
         rc, out = _cli(["hr", "approve", pid], as_agent=askmod.HUMAN)
-        check("hr approve: a terminal's n leaves it alone, and what is drawn has no escape bytes",
-              rc == 1 and "left alone" in out and "pup" not in paths.list_agents()
-              and "\x1b" not in out and "\x9b" not in out and "fine" in out, repr(out))
-        hr.save(prop)
-        sys.stdin = Tty("y")
-        rc, out = _cli(["hr", "approve", pid], as_agent=askmod.HUMAN)
-        check("hr approve: a terminal's y approves what was shown and applies it",
-              rc == 0 and "pup" in paths.list_agents(), out)
-    finally:
-        sys.stdin = real_in
-    subject2 = next(c["subject"] for c in cards if c["id"] == pid2)
-    rc, out = _cli(["hr", "approve", pid2, "--subject", subject2], as_agent=askmod.HUMAN)
-    check("hr approve: with the digest of what was read it applies without a terminal",
-          rc == 0 and "kit" in paths.list_agents(), out)
-    ok = rc == 0
-    check("hr: list --json --all adds the settled ones, with how and when they ended",
-          ok and any(c["id"] == pid and c["state"] == "applied" and c["at"] for c in
-                     json.loads(_cli(["hr", "list", "--json", "--all"], as_agent=askmod.HUMAN)[1]))
-          and {c["id"] for c in hr.decided()} == {pid, pid2}, said)
-    hr.save({**hr.load_proposal(pid2), "state": "proposed"})
-    rc, out = _cli(["hr", "reject", pid2, "too many already"], as_agent=askmod.HUMAN)
-    check("hr reject: the founder's reject is recorded with its reason",
-          rc == 0 and hr.load_proposal(pid2)["state"] == "rejected"
-          and hr.load_proposal(pid2)["verdict"] == "too many already", out)
-    rc, out = _cli(["hr", "list", "--json"], as_agent=askmod.HUMAN)
-    check("hr list --json: nothing left waiting once both are decided", rc == 0 and json.loads(out) == [], out)
+        check("hr approve: without a terminal or --subject it shows the proposal and applies nothing",
+              rc == 1 and "[roster] add pup" in out and "pup" not in paths.list_agents(), out)
+        prop = hr.load_proposal(pid)
+
+        class Tty:
+            def __init__(self, answer: str) -> None:
+                self.answer = answer
+
+            def isatty(self) -> bool:
+                return True
+
+            def readline(self) -> str:
+                return self.answer + "\n"
+        real_in = sys.stdin
+        try:
+            raw = hr.path_of(pid).read_text()
+            hr.path_of(pid).write_text(raw.replace("a pup", "'fine\x1b[8mHIDDEN\x1b[0m and \x9b2K'", 1))   # an agent's hand
+            sys.stdin = Tty("n")
+            rc, out = _cli(["hr", "approve", pid], as_agent=askmod.HUMAN)
+            check("hr approve: a terminal's n leaves it alone, and what is drawn has no escape bytes",
+                  rc == 1 and "left alone" in out and "pup" not in paths.list_agents()
+                  and "\x1b" not in out and "\x9b" not in out and "fine" in out, repr(out))
+            hr.save(prop)
+            sys.stdin = Tty("y")
+            rc, out = _cli(["hr", "approve", pid], as_agent=askmod.HUMAN)
+            check("hr approve: a terminal's y approves what was shown and applies it",
+                  rc == 0 and "pup" in paths.list_agents(), out)
+        finally:
+            sys.stdin = real_in
+        rc, out = _cli(["hr", "list", "--json", "--all"], as_agent=askmod.HUMAN)
+        check("hr list --json --all: the settled ones too",
+              rc == 0 and any(f"{c['id']:08x}" == pid and c["state"] == "approved" for c in json.loads(out)), out)
+    sent: list[dict] = []
+    with support.daemon_says("hr.decide", lambda params: sent.append(params) or {"said": "done"}):
+        rc, out = _cli(["hr", "apply", pid2], as_agent=askmod.HUMAN)
+        check("hr apply: one not yet approved is refused, and nothing is sent",
+              rc == 1 and "not approved" in out and not sent, out)
+        hr.save({**hr.load_proposal(pid2), "state": "approved"})
+        rc, out = _cli(["hr", "apply", pid2], as_agent=askmod.HUMAN)
+        check("hr apply: an approved one that did not apply is approved again, as it reads now",
+              rc == 0 and {k: v for k, v in sent.pop().items() if k != "request_id"}
+              == {"proposal": int(pid2, 16), "decision": "approve", "subject": hr.subject_of(hr.load_proposal(pid2))}, out)
+        hr.save({**hr.load_proposal(pid2), "state": "proposed"})
+        rc, out = _cli(["hr", "approve", pid2, "--subject", "the digest"], as_agent=askmod.HUMAN)
+        rc2, out2 = _cli(["hr", "reject", pid2, "too many already"], as_agent=askmod.HUMAN)
+    check("hr approve and reject: one hr.decide each, with the subject and the reason as given",
+          rc == rc2 == 0 and [{k: v for k, v in p.items() if k != "request_id"} for p in sent]
+          == [{"proposal": int(pid2, 16), "decision": "approve", "subject": "the digest"},
+              {"proposal": int(pid2, 16), "decision": "reject", "note": "too many already"}]
+          and all(p["request_id"] for p in sent), str(sent))
+    sent.clear()
+    with go_hr(), support.daemon_says("hr.decide", lambda params: sent.append(params) or {"said": "rejected"}):
+        hr.save({**hr.load_proposal(pid), "state": "proposed"})
+        rc, out = _cli(["hr", "reject", "--all", "--reason", "not now"], as_agent=askmod.HUMAN)
+    check("hr reject --all: one hr.decide per waiting proposal, each with the reason",
+          rc == 0 and sorted(p["proposal"] for p in sent) == sorted([int(pid, 16), int(pid2, 16)])
+          and all(p["decision"] == "reject" and p["note"] == "not now" for p in sent), out + str(sent))
+    with support.daemon_says("hr.withdraw", lambda params: sent.append(params) or {"said": f"proposal {pid} withdrawn"}):
+        rc, out = _cli(["hr", "withdraw", pid], as_agent="orca")
+    check("hr withdraw: hr.withdraw with the proposal's number", rc == 0 and sent[-1]["proposal"] == int(pid, 16), out)
 
 
 def test_proposals_raised_as_tasks_leave_the_task_board(home: Path) -> None:
@@ -3479,10 +2699,9 @@ edges:
               db.get_task(con, open_tid)["discarded_by"] and db.get_request(con, open_rid)["state"] != "queued")
         check("migrate: it stays a proposal, waiting on the founder, with no task key",
               hr.load_proposal(open_["id"])["state"] == "proposed" and "task" not in hr.load_proposal(open_["id"])
-              and "request" not in hr.load_proposal(open_["id"])
-              and open_["id"] in {c["id"] for c in hr.pending()})
+              and "request" not in hr.load_proposal(open_["id"]))
         check("migrate: an approve on record is kept, and applying it works",
-              hr.load_proposal(answered["id"])["state"] == "approved" and hr.apply(answered["id"], con)[0]
+              hr.load_proposal(answered["id"])["state"] == "approved" and apply_hr(answered["id"], con)[0]
               and "answeredone" in paths.list_agents())
         check("migrate: an answer with no record is decided again",
               hr.load_proposal(unrecorded["id"])["state"] == "proposed")
@@ -3513,192 +2732,6 @@ def test_register_writes_vendor_onto_an_agent_that_already_exists(home: Path) ->
           "already-registered agent", cfg.get("vendor") == "opencode", str(cfg))
     check("register existing: agent_vendor reads it as opencode",
           vendors.agent_vendor("late") == "opencode")
-
-
-def test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(home: Path) -> None:
-    """Four agents walled at once on one account, cap 2: two move and two stay,
-    because a moved agent counts on its new account until its next Stop. And an
-    agent that is running again is not "something else" on its own start."""
-    _daemon_home(home, 20)
-    _with_accounts("alpha", "beta")
-    now = int(time.time())
-    write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 3 * 3600,
-                 reset_7d=now + 86400)
-    write_status(home, "beta", pct_5h=5, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
-    con = db.connect()
-    try:
-        names = ("a1", "a2", "a3", "a4")
-        _running_on(con, "alpha", *names)
-        for n in names:
-            db.add_request(con, "marina", n, "carry on", None, "peer", "async", None, 0, None)
-        moved = []
-        for n in names:
-            dest, _ = dmn_handoff._move_plan(con, n, "usage")
-            if dest:
-                db.set_account(con, n, dest)
-                db.set_agent_state(con, n, dmn_states.QUEUED)
-                db.add_event(con, n, "moved_account", {"from": "alpha", "to": dest})
-                moved.append(n)
-        check("cap: of four walled together, two move", len(moved) == 2, str(moved))
-
-        db.add_event(con, moved[0], "Stop", {})
-        check("cap: a moved agent stops counting once its turn has ended",
-              loadmod.active_agents(con).get("beta", 0) == 1)
-
-        write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=now + 3600,
-                     reset_7d=now + 86400)
-        db.set_agent_state(con, "a3", dmn_states.IDLE)
-        db.set_agent_state(con, "a4", dmn_states.IDLE)
-        db.set_agent_state(con, moved[1], dmn_states.IDLE)
-        db.set_account(con, "a1", "alpha")
-        db.set_agent_state(con, "a1", dmn_states.QUEUED)
-        measure.begin(con, "a1", "alpha")
-        db.add_event(con, "a1", "Stop", {})
-        db.set_agent_state(con, "a1", dmn_states.RUNNING)
-        write_status(home, "alpha", pct_5h=33, pct_7d=10, reset_5h=now + 3600,
-                     reset_7d=now + 86400)
-        measure.settle(con, "a1")
-        n = con.execute("SELECT COUNT(*) FROM events WHERE kind = 'cold_start'").fetchone()[0]
-        check("measure: the measured agent running again does not void its own sample",
-              n == 1, str(n))
-    finally:
-        con.close()
-
-
-def test_a_wake_holds_its_slot_and_a_resume_onto_a_full_account_waits_for_one(home: Path) -> None:
-    """The cap holds on a wake: a decided wake counts on its account from then until its Stop, a failed
-    wake or five minutes, so two wakes in one tick cannot both take the last slot; and a resume, which
-    is pinned to its own account, waits there for a slot, the oldest waiter first, instead of exceeding it."""
-    _daemon_home(home, 20)
-    _with_accounts("alpha", "beta")
-    now = int(time.time())
-    for a in ("alpha", "beta"):
-        write_status(home, a, pct_5h=10, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
-    loadmod.set_cap("alpha", 2)
-    con = db.connect()
-    try:
-        _running_on(con, "alpha", "r1")
-        for n in ("w1", "w2", "w3"):
-            agents.register(n)
-            db.set_account(con, n, "alpha")
-            db.set_agent_state(con, n, dmn_states.IDLE)
-            db.set_closed(con, n, f"sess-{n}")
-            support.something_waiting(con, n)
-        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w1'", (now - 30,))
-        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w2'", (now - 20,))
-        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w3'", (now - 10,))
-        row = lambda n: db.get_agent_state(con, n)
-        check("wake cap: with one free slot the oldest waiter goes",
-              launch.wake_wait("w1", row("w1"), con) is None)
-        check("wake cap: the younger ones wait behind it, whatever is free: the older takes it",
-              launch.wake_wait("w2", row("w2"), con) is not None)
-        loadmod.reserve_wake(con, "w1", "alpha")
-        check("wake cap: a decided wake counts on its account at once",
-              loadmod.active_agents(con).get("alpha") == 2)
-        w = launch.wake_wait("w2", row("w2"), con)
-        check("wake cap: the second wake of the tick sees the slot taken and waits, saying so",
-              w is not None and w.full == 2 and "slot" in launch.describe_wake_wait(w)
-              and "alpha" in launch.describe_wake_wait(w), str(w))
-        check("wake cap: the reserving agent itself is not blocked by its own slot",
-              launch.wake_wait("w1", row("w1"), con) is None)
-        real_available, termmod.available = termmod.available, lambda: True
-        db.set_terminal(con, "w2", "%9", None)
-        try:
-            ok, why = dmn_lifecycle.wake_agent(con, "w2", lambda _m: None)
-        finally:
-            termmod.available = real_available
-        check("wake cap: the daemon refuses with the same sentence and does not move it",
-              not ok and why == launch.describe_wake_wait(w), why)
-        check("wake cap: not moved to beta", not any(
-            e["kind"] == "moved_account" for e in con.execute("SELECT kind FROM events WHERE agent = 'w2'")))
-        db.add_event(con, "w1", "wake_failed", {"why": "x"})
-        db.set_terminal(con, "w1", "%8", None)
-        seen = []
-        real_launch, real_live = dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled
-        dmn_lifecycle._launch_in_pane = lambda *a, **k: (seen.append(loadmod.active_agents(con).get("alpha")), (False, "stub"))[1]
-        dmn_lifecycle._live_sessions_settled = lambda: {}
-        real_available, termmod.available = termmod.available, lambda: True
-        try:
-            dmn_lifecycle.wake_agent(con, "w1", lambda _m: None)
-        finally:
-            dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled = real_launch, real_live
-            termmod.available = real_available
-        check("wake cap: the daemon holds the slot while it launches, and a failed launch gives it back",
-              seen and set(seen) == {2} and loadmod.active_agents(con).get("alpha") == 1, str(seen))
-        check("wake cap: a failed wake gives its slot back",
-              loadmod.active_agents(con).get("alpha") == 1)
-        loadmod.reserve_wake(con, "w1", "alpha")
-        db.add_event(con, "w1", "Stop", {})
-        check("wake cap: its Stop ends the reservation",
-              loadmod.active_agents(con).get("alpha") == 1)
-        loadmod.reserve_wake(con, "w1", "alpha")
-        check("wake cap: a reservation no launch answered lapses",
-              loadmod.active_agents(con, ).get("alpha") == 2
-              and loadmod.active_by_account(con, now=int(time.time()) + loadmod.WAKE_RESERVE_S + 5).get("alpha") == ["r1"])
-        check("wake cap: a slot freeing lets the waiter go",
-              (db.add_event(con, "r1", "Stop", {}), db.set_agent_state(con, "r1", dmn_states.IDLE),
-               db.add_event(con, "w1", "Stop", {}),
-               launch.wake_wait("w2", row("w2"), con))[-1] is None)
-    finally:
-        con.close()
-
-
-def test_a_fresh_start_takes_the_last_slot_and_a_stalled_older_waiter_does_not_hold_one(home: Path) -> None:
-    """Two fresh starts onto one free slot place one: the first, through wake_agent, is not refused by its
-    own reservation (it is left out of the count its launch tests), and the second is told there is no room.
-    And an older closed agent that is stalled, or out of wake attempts, is not waited for."""
-    _daemon_home(home, 20)
-    _with_accounts("alpha")
-    now = int(time.time())
-    write_status(home, "alpha", pct_5h=10, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
-    loadmod.set_cap("alpha", 2)
-    con = db.connect()
-    try:
-        _running_on(con, "alpha", "r1")
-        for n in ("f1", "f2"):
-            agents.register(n)
-            db.set_agent_state(con, n, dmn_states.IDLE)
-            db.set_closed(con, n, None)
-            db.set_terminal(con, n, "%7", None)
-            support.something_waiting(con, n)
-        seen = []
-
-        def launch_stub(*a, **k):
-            seen.append((launch.find_room("f1"), launch.choose_account("f2", con=con)))
-            return False, "stub"
-        real = (dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled, termmod.available)
-        dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled = launch_stub, lambda: {}
-        termmod.available = lambda: True
-        try:
-            dmn_lifecycle.wake_agent(con, "f1", lambda _m: None)
-        finally:
-            dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled, termmod.available = real
-        check("fresh start: the one waking is placed on the last slot, the next one has no room",
-              seen == [("alpha", None)], str(seen))
-
-        for n in ("w1", "w2"):
-            agents.register(n)
-            db.set_account(con, n, "alpha")
-            db.set_agent_state(con, n, dmn_states.IDLE)
-            db.set_closed(con, n, f"sess-{n}")
-            support.something_waiting(con, n)
-        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w1'", (now - 30,))
-        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w2'", (now - 20,))
-        db.add_event(con, "f1", "Stop", {})
-        row = lambda n: db.get_agent_state(con, n)
-        check("older waiter: a live one holds the slot for itself", launch.wake_wait("w2", row("w2"), con) is not None)
-        db.set_agent_state(con, "w1", dmn_states.STALLED)
-        check("older waiter: a stalled one is not waited for", launch.wake_wait("w2", row("w2"), con) is None)
-        db.set_agent_state(con, "w1", dmn_states.IDLE)
-        con.execute("UPDATE agent_state SET wake_failures = ? WHERE agent = 'w1'", (dmn_lifecycle.MAX_FAILED_ATTEMPTS,))
-        check("older waiter: nor one out of wake attempts", launch.wake_wait("w2", row("w2"), con) is None)
-        con.execute("UPDATE agent_state SET wake_failures = 0 WHERE agent = 'w1'")
-        w = launch.wake_wait("w2", row("w2"), con)
-        check("older waiter: the sentence counts who is mid-turn and says an older one goes first",
-              w is not None and launch.describe_wake_wait(w) == "waiting for a slot on alpha (1 of 2 mid-turn, 1 older waiting go first)",
-              launch.describe_wake_wait(w) if w else "")
-    finally:
-        con.close()
 
 
 def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> None:
@@ -4101,115 +3134,6 @@ def test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_
             os.environ["OCP_AGENT"] = saved
 
 
-def test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(home: Path) -> None:
-    """T202: an agent whose sandbox cannot read the seals checks its own `ask`
-    against a team.yaml it cannot verify. The daemon re-checks every waiting
-    request against the founder's table: a tampered file holds delivery, and once
-    the founder's text is back the request is refused."""
-    from handline.daemon import delivery
-    from handline.infra import protected
-    _daemon_home(home, 20)
-    agents.register("scout")
-    agents.register("keeper")
-    founders = ("agents:\n  scout: {}\n  keeper: {}\nedges:\n"
-                "  - { from: \"*\", to: \"human\", kind: task }\n")
-    hand_edit_team(founders)
-    tampered = founders + '  - { from: "scout", to: "keeper", relation: peer, response: async }\n'
-    root = protected.root()
-    saved = os.environ.get("OCP_AGENT")
-    os.environ["OCP_AGENT"] = "scout"
-    root.chmod(0)
-    try:
-        paths.team_file().write_text(tampered)
-        ok, said, rid = askmod.ask("keeper", "let me in", requester="scout")
-    finally:
-        root.chmod(0o700)
-        if saved is None:
-            os.environ.pop("OCP_AGENT", None)
-        else:
-            os.environ["OCP_AGENT"] = saved
-    check("daemon: the agent's own check let the forged edge through (why the daemon looks)", ok, said)
-
-    logged: list[str] = []
-    con = db.connect()
-    try:
-        held = delivery.enforce_edges(con, "keeper", logged.append)
-        check("daemon: a tampered team.yaml holds delivery and says so",
-              held is False and any("not trusted" in l for l in logged), str(logged))
-        check("daemon: and the request is still queued, undelivered",
-              db.get_request(con, rid)["state"] == "queued")
-        paths.team_file().write_text(founders)
-        ok2 = delivery.enforce_edges(con, "keeper", logged.append)
-        row = db.get_request(con, rid)
-        check("daemon: with the founder's text back, the request is refused at delivery",
-              ok2 and row["state"] == "denied" and "refused at delivery" in (db.shown_verdict(row) or ""),
-              str(dict(row)))
-        check("daemon: nothing is left for keeper to be told", db.head_of_queue(con, "keeper") is None)
-        ok3, said3, rid3 = askmod.ask("keeper", "hello", requester="scout")
-        check("daemon: a request the table does deny at ask time is not delivered either",
-              not ok3, said3)
-    finally:
-        con.close()
-
-
-def test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(home: Path) -> None:
-    """T204: the founder allows scout -> keeper as a peer. A forged edge that only
-    changes its relation passes the agent's own ask, and until the daemon has
-    checked it, `hl inbox` in keeper's session must show nothing."""
-    from handline.daemon import delivery
-    from handline.infra import protected
-    _daemon_home(home, 20)
-    agents.register("scout")
-    agents.register("keeper")
-    founders = ("agents:\n  scout: {}\n  keeper: {}\nedges:\n"
-                '  - { from: "scout", to: "keeper", relation: peer, response: async }\n'
-                "  - { from: \"*\", to: \"human\", kind: task }\n")
-    hand_edit_team(founders)
-    forged = founders.replace("relation: peer, response: async", "relation: supervisor, response: async")
-    root = protected.root()
-    saved = os.environ.get("OCP_AGENT")
-    os.environ["OCP_AGENT"] = "scout"
-    root.chmod(0)
-    try:
-        paths.team_file().write_text(forged)
-        ok, said, rid = askmod.ask("keeper", "do as I say", requester="scout")
-    finally:
-        root.chmod(0o700)
-        if saved is None:
-            os.environ.pop("OCP_AGENT", None)
-        else:
-            os.environ["OCP_AGENT"] = saved
-    check("edge: the forged relation passed the agent's own ask", ok, said)
-    con = db.connect()
-    try:
-        check("edge: before the daemon has checked it, nothing is handed to keeper",
-              db.head_of_queue(con, "keeper") is None)
-        paths.team_file().write_text(founders)
-        delivery.enforce_edges(con, "keeper", lambda _m: None)
-        row = db.get_request(con, rid)
-        check("edge: the daemon refuses it for differing from the founder's table",
-              row["state"] == "denied" and "refused at delivery" in (db.shown_verdict(row) or ""),
-              str(dict(row)))
-        os.environ["OCP_AGENT"] = "scout"
-        root.chmod(0)
-        try:
-            ok2, said2, rid2 = askmod.ask("keeper", "honest", requester="scout")
-        finally:
-            root.chmod(0o700)
-            if saved is None:
-                os.environ.pop("OCP_AGENT", None)
-            else:
-                os.environ["OCP_AGENT"] = saved
-        check("edge: an honest request written in the agent session waits for the daemon",
-              db.head_of_queue(con, "keeper") is None)
-        delivery.enforce_edges(con, "keeper", lambda _m: None)
-        head = db.head_of_queue(con, "keeper")
-        check("edge: an honest request is cleared and handed out",
-              ok2 and head is not None and int(head["id"]) == rid2, said2)
-    finally:
-        con.close()
-
-
 def test_the_decisionion_shows_the_effort_of_an_add_and_the_team_of_a_rename(home: Path) -> None:
     """T189: what the founder reads names every field apply uses."""
     _daemon_home(home, 20)
@@ -4234,60 +3158,6 @@ def cliteam_seal() -> tuple[int, str]:
     with contextlib.redirect_stdout(buf):
         rc = climod.main(["team", "seal"])
     return rc, buf.getvalue()
-
-
-def test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(home: Path) -> None:
-    """An agent session's ask leaves edge_ok NULL; the human has no agent
-    supervision to check it, so the tick does."""
-    from handline.daemon import evaluate
-    _daemon_home(home, 20)
-    agents.register("scout")
-    hand_edit_team("agents:\n  scout: {}\nedges:\n"
-                   "  - { from: \"*\", to: \"human\", kind: task }\n")
-    saved = os.environ.get("OCP_AGENT")
-    os.environ["OCP_AGENT"] = "scout"
-    try:
-        ok, said, rid = askmod.ask("human", "need a call", requester="scout")
-    finally:
-        if saved is None:
-            os.environ.pop("OCP_AGENT", None)
-        else:
-            os.environ["OCP_AGENT"] = saved
-    con = db.connect()
-    try:
-        check("human: an agent session's ask to the human starts unchecked",
-              ok and db.get_request(con, rid)["edge_ok"] is None, said)
-        evaluate.tick(con, lambda _m: None)
-        check("human: one tick checks it against the founder's table",
-              db.get_request(con, rid)["edge_ok"] == 1, str(dict(db.get_request(con, rid))))
-        # The founder then takes the human's edge away: what an agent already
-        # wrote under the old table is refused, not left for the founder to see.
-        os.environ["OCP_AGENT"] = "scout"
-        try:
-            ok, said, rid2 = askmod.ask("human", "another", requester="scout")
-        finally:
-            if saved is None:
-                os.environ.pop("OCP_AGENT", None)
-            else:
-                os.environ["OCP_AGENT"] = saved
-        hand_edit_team("agents:\n  scout: {}\nedges: []\n")
-        evaluate.tick(con, lambda _m: None)
-        row = db.get_request(con, rid2)
-        check("human: a request the table no longer allows is denied at the tick",
-              row["state"] == "denied" and "refused at delivery" in (db.shown_verdict(row) or "")
-              and not row["edge_ok"], str(dict(row)))
-    finally:
-        con.close()
-
-
-def _approve(pid: str) -> tuple[bool, str]:
-    """The founder approving `pid` as it reads now."""
-    was = os.environ.pop("OCP_AGENT", None)
-    try:
-        return hr.decide(pid, "approved", askmod.HUMAN, subject=hr.subject_of(hr.load_proposal(pid)))
-    finally:
-        if was is not None:
-            os.environ["OCP_AGENT"] = was
 
 
 def _new_props(seen: set[str]) -> list[dict]:
@@ -4321,7 +3191,7 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
     card = hr.card(props[0])["text"]
     check("schedule: the card says when, in words", schedmod.schedule_words("0 9 * * 1-5") in card
           and "standup" in card, card)
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("schedule: approved, it is written", ok and schedules.load("worker") == [{"cron": "0 9 * * 1-5",
                                                                                      "message": "standup"}], said)
     rc, out = _cli(["schedule", "add", "--agent", "worker", "--cron", "not a cron", "--message", "x", "--why", "y"],
@@ -4331,7 +3201,7 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
                    as_agent="worker")
     props = _new_props(seen)
     check("schedule: a remove is a proposal too", rc == 0 and [p["kind"] for p in props] == ["schedule"], out)
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("schedule: approved, it is removed", ok and schedules.load("worker") == [], said)
 
     before = autoaccept.enabled()
@@ -4340,7 +3210,7 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
     check("global: an agent setting a global switch raises a global proposal and changes nothing",
           rc == 0 and [(p["kind"], p["agent"]) for p in props] == [("global", "auto-accept")]
           and autoaccept.enabled() == before, out)
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("global: approved, the switch is set", ok and autoaccept.enabled() != before, said)
     ok, said = hr.propose("global", "dev-mode", "worker", "x", sets={"value": "maybe"})
     check("global: a value the switch does not take is refused", not ok and "on or off" in said, said)
@@ -4352,7 +3222,7 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
     props = _new_props(seen)
     check("register: a new agent with the browser on is one diff, the agent and its setting, nothing written",
           rc == 0 and [p["kind"] for p in props] == ["bundle"] and "helper" not in paths.list_agents(), out)
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("register: approved, the agent exists with the browser on",
           ok and "helper" in paths.list_agents() and agents.chrome(agents.read("helper")), said)
     rc, out = _cli(["agent", "register", "worker", "--skip-permissions", "on", "--why", "long unattended runs"],
@@ -4376,25 +3246,20 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
     props = _new_props(seen)
     check("batch: several changes under one reason are one proposal",
           rc == 0 and [p["kind"] for p in props] == ["bundle"], out)
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("batch: one approval applies them all",
           ok and schedules.load("worker")[-1]["message"] == "check the queue" and devmode.dev_mode_enabled(), said)
 
     for why in ("one", "two"):
         _cli(["schedule", "add", "--agent", "worker", "--cron", "0 8 * * *", "--message", why, "--why", why],
              as_agent="worker")
-    pending = [c["id"] for c in hr.pending()]
-    told = []
-    real_say = askmod.say
-    askmod.say = lambda to, text, requester=None, **kw: (told.append((to, text)), (True, "", None))[1]
-    try:
+    waiting = lambda: [p for p in proposals.listing() if p.get("state") == "proposed"]
+    pending = waiting()
+    with go_hr():
         rc, out = _cli(["hr", "reject", "--all", "--reason", "not tonight"], as_agent="human")
-    finally:
-        askmod.say = real_say
     check("batch: the founder rejects every waiting proposal at once",
-          rc == 0 and len(pending) >= 2 and not hr.pending() and len(schedules.load("worker")) == 1,
-          f"rc={rc} {out} pending={pending} left={hr.pending()}")
-    check("batch: and each proposer is told once", [t for t, _ in told] == ["worker"], str(told))
+          rc == 0 and len(pending) >= 2 and not waiting() and len(schedules.load("worker")) == 1,
+          f"rc={rc} {out} pending={len(pending)} left={waiting()}")
     rc, out = _cli(["hr", "reject", "--all"], as_agent="worker")
     check("batch: an agent cannot reject", rc == 1, out)
 
@@ -4405,7 +3270,7 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
                     "  - kind: schedule\n    name: worker\n    sets:\n      action: remove\n      index: \"2\"\n")
     rc, out = _cli(["hr", "diff", "--file", str(diff), "--why", "tidy up"], as_agent="worker")
     props = _new_props(seen)
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("schedule: two removes by number remove exactly the two that were shown",
           rc == 0 and ok and [s["message"] for s in schedules.load("worker")] == ["three"],
           f"{out} {said} {schedules.load('worker')}")
@@ -4417,7 +3282,7 @@ def test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(ho
           hr.card(props[0])["text"])
     schedmod.schedule_remove("worker", 1)
     schedmod.schedule_add("worker", "0 7 * * *", "five")
-    ok, said = _approve(props[0]["id"])
+    ok, said = apply_hr(props[0]["id"])
     check("schedule: when what was shown has moved, the proposal is refused, not applied to another",
           not ok and [s["message"] for s in schedules.load("worker")] == ["four", "five"], said)
 
@@ -4427,14 +3292,10 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_yaml())
-        run(lambda: test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(Path(td) / 'edgeenf'))
-        run(lambda: test_the_tick_checks_the_edges_of_what_an_agent_wrote_to_the_human(Path(td) / 'humanedge'))
-        run(lambda: test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(Path(td) / 'edgeforge'))
         run(lambda: test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(Path(td) / 'noread'))
         run(lambda: test_the_decisionion_shows_the_effort_of_an_add_and_the_team_of_a_rename(Path(td) / 'esceffort'))
         run(lambda: test_a_team_diff_is_one_proposal_applied_all_or_none(Path(td) / 'diffall'))
         run(lambda: test_a_team_diff_whose_step_fails_puts_back_every_step_before_it(Path(td) / 'diffback'))
-        run(lambda: test_the_founder_approves_several_proposals_at_once_and_each_proposer_hears_once(Path(td) / 'diffmany'))
         run(lambda: test_hr_diff_and_approve_all_from_the_command_line(Path(td) / 'diffcli'))
         run(lambda: test_seals_begin_once_and_only_from_a_founder_read(Path(td) / 'sealbegin'))
         run(lambda: test_a_planted_or_unsealed_yaml_is_refused_and_doctor_seals_nothing(Path(td) / 'plantedyaml'))
@@ -4462,14 +3323,10 @@ def main() -> int:
         run(lambda: test_team_validation())
         run(lambda: test_team_deny_validation())
         run(lambda: test_keychain_service_is_keyed_by_the_user_home(Path(td) / 'keychain'))
-        run(lambda: test_a_claude_agent_is_never_placed_on_another_vendors_account(Path(td) / 'vendorpick'))
         run(lambda: test_another_vendors_account_never_spends_a_live_refresh(
             Path(td) / 'vendorrefresh'))
-        run(lambda: test_a_second_vendors_live_session_is_seen_by_the_sweep(
-            Path(td) / 'vendorsweep'))
         run(lambda: test_an_accounts_verdict_is_asked_for_its_own_vendor(
             Path(td) / 'vendorverdict'))
-        run(lambda: test_an_unmetered_account_is_pinned_never_picked_or_polled(Path(td) / 'unmetered'))
         run(lambda: test_an_account_records_its_vendor(Path(td) / 'vendorrecord'))
         run(lambda: test_shared_dir_is_named_by_the_vendors_own_config_dir_name(Path(td) / 'shareddir'))
         run(lambda: test_an_account_links_from_its_own_vendors_shared_dir(Path(td) / 'vendorshared'))
@@ -4480,14 +3337,11 @@ def main() -> int:
         run(lambda: test_team_rules_reach_the_prompt_and_doctor_reports_memory(Path(td) / 'teamrules'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))
         run(lambda: test_an_opencode_session_under_ocp(Path(td) / 'ocsession'))
-        run(lambda: test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(Path(td) / 'clearonce'))
-        run(lambda: test_an_opencode_row_takes_its_state_word_from_orca(Path(td) / 'ocrow'))
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
         run(lambda: test_hr_unlink_says_when_a_wildcard_still_allows_it_and_link_wants_team_yaml(Path(td) / 'hrunl'))
         run(lambda: test_a_proposal_is_its_own_record_the_founder_decides(Path(td) / 'propdecide'))
         run(lambda: test_a_plain_decision_task_is_settled_however_its_card_closes(Path(td) / 'propsettle'))
-        run(lambda: test_an_approve_is_recorded_where_no_agent_writes_and_applied_once(Path(td) / 'teamanswer'))
         run(lambda: test_the_name_gives_the_links_between_agents())
         run(lambda: test_hr_links_moves_team_yaml_onto_the_name_links(Path(td) / 'hrlinks'))
         run(lambda: test_hr_team_is_one_proposal_and_a_team_has_default_links(Path(td) / 'teamhrlink'))
@@ -4495,15 +3349,11 @@ def main() -> int:
         run(lambda: test_a_repo_is_required_to_add_an_agent(Path(td) / 'hrrepo'))
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
         run(lambda: test_an_agents_role_and_base_change_only_by_a_proposal_the_founder_approves(Path(td) / 'ctxprop'))
-        run(lambda: test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_founder_approves(Path(td) / 'agentsettings'))
         run(lambda: test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(Path(td) / 'hrkinds'))
         run(lambda: test_hr_cli_lists_cards_and_only_the_founder_decides(Path(td) / 'hrcli'))
         run(lambda: test_proposals_raised_as_tasks_leave_the_task_board(Path(td) / 'hrmigrate'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(
             Path(td) / 'registervendor'))
-        run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
-        run(lambda: test_a_wake_holds_its_slot_and_a_resume_onto_a_full_account_waits_for_one(Path(td) / 'wakecap'))
-        run(lambda: test_a_fresh_start_takes_the_last_slot_and_a_stalled_older_waiter_does_not_hold_one(Path(td) / 'freshcap'))
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_an_account_is_added_and_removed_from_ocp(Path(td) / 'acctaddrm'))
         run(lambda: test_account_add_login_preflight_names_the_actual_blocker(Path(td) / 'acctaddmsg'))

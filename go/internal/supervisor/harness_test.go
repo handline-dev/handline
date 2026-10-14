@@ -255,6 +255,15 @@ var (
 	templateErr  error
 )
 
+// TestMain removes the template database once every test has copied it.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if templatePath != "" {
+		os.RemoveAll(filepath.Dir(templatePath))
+	}
+	os.Exit(code)
+}
+
 // copyTemplateDB gives each test a migrated database without migrating it again: the migrations are most of a test's time.
 func copyTemplateDB(dst string) error {
 	templateOnce.Do(func() {
@@ -301,8 +310,10 @@ func (f *flipTerm) ScreenBlocker(h string) *term.Blocker {
 
 type fakeProposals struct{}
 
-func (fakeProposals) OpenProposalOf(int64) string                       { return "" }
-func (fakeProposals) Answered(db.Q, string, *db.Request, string) string { return "" }
+func (fakeProposals) OpenProposalOf(int64) string { return "" }
+func (fakeProposals) Answered(db.Q, string, *db.Request, string) (string, string, error) {
+	return "", "", nil
+}
 
 func team0() team.Decision { return team.Decision{Allowed: true, Response: "async"} }
 

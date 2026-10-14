@@ -1,11 +1,11 @@
 // Chat tab of the agent page: the conversation with the agent on `useChat`, like the web's Chat. The person's messages show how far they
-// got (a glyph and a word), a tap picks one to reply to, an unanswered one can be taken back, a question from the agent can be answered,
+// got (a glyph and a word), a tap picks one to reply to, an undelivered one can be taken back,
 // and a refused send stays as a failed row with Retry. A message to a structured agent shows its receipt (queued, sent, confirmed, or unknown:
 // lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message, in the
 // chat that shows it. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { isOpenAsk, landingLabel, sideOf, timeline } from '@handline/app-core';
+import { landingLabel, takeBack as canTakeBack, sideOf, timeline } from '@handline/app-core';
 import { classify, sentence, useAgents, useChat, useChatActions, useInbox, useWrite, type ChatScope } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, Landing, TranscriptItem } from '@handline/client';
@@ -16,6 +16,7 @@ import { Line, clock } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
 import { ChatFind } from './ChatFind.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
+import { useChatImages } from './ChatImages.tsx';
 import { Button, Row } from './parts.tsx';
 
 /** A shape for each stage, so the stage does not rest on colour. */
@@ -23,9 +24,6 @@ const GLYPH: Record<string, string> = {
   queued: '…',
   typed: '⌨',
   delivered: '✓',
-  delivered_unanswered: '✓?',
-  answered: '✓✓',
-  dismissed: '⊘',
   withdrawn: '✕',
 };
 const glyph = (l: Landing) => GLYPH[l] ?? '✓';
@@ -62,6 +60,7 @@ export function Chat(props: { detail: AgentDetail }) {
   const [scope, setScope] = useState<ChatScope>('mine');
   const chat = useChat(agent, scope);
   const act = useChatActions(agent);
+  const img = useChatImages(canSend);
   const [picked, setPicked] = useState<ChatMessage | null>(null);
   const [item, setItem] = useState<TranscriptItem | null>(null); // one of the agent's replies; never together with a picked message
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
@@ -129,12 +128,16 @@ export function Chat(props: { detail: AgentDetail }) {
 
   if (chat.status === 'off') return <ChatEmpty />;
 
+  // Words or pictures to send, and none still on its way up.
+  const empty = (!text.trim() && !img.ids.length) || img.busy;
   const send = (delivery?: 'now' | 'queue') => {
-    if (!text.trim()) return;
+    if (empty) return;
+    const attachments = img.ids;
     // A picked message is a reference: a linked message to whoever said it, whatever it asked.
-    if (picked) act.send(text, { parent: picked.id, to: names.has(picked.from) ? picked.from : picked.to, delivery });
-    else if (item) act.send(text, { parent_item: item.id, delivery });
-    else act.send(text, { delivery });
+    if (picked) act.send(text, { parent: picked.id, to: names.has(picked.from) ? picked.from : picked.to, delivery, attachments });
+    else if (item) act.send(text, { parent_item: item.id, delivery, attachments });
+    else act.send(text, { delivery, attachments });
+    img.clear();
     setPicked(null);
     setItem(null);
     setText('');
@@ -272,7 +275,9 @@ export function Chat(props: { detail: AgentDetail }) {
           </Pressable>
         </Row>
       )}
+      {img.chips}
       <Row style={{ padding: space.sm }}>
+        {img.button}
         <TextInput
           testID="chat-input"
           value={text}
@@ -293,11 +298,11 @@ export function Chat(props: { detail: AgentDetail }) {
         />
         {working && props.detail.structured ? (
           <View style={{ gap: space.xs }}>
-            <Button testID="chat-send-now" label="Send now" disabled={!canSend || !text.trim()} onPress={() => send('now')} />
-            <Button testID="chat-send" label="Queue" disabled={!canSend || !text.trim()} onPress={() => send('queue')} />
+            <Button testID="chat-send-now" label="Send now" disabled={!canSend || empty} onPress={() => send('now')} />
+            <Button testID="chat-send" label="Queue" disabled={!canSend || empty} onPress={() => send('queue')} />
           </View>
         ) : (
-          <Button testID="chat-send" label="Send" disabled={!canSend || !text.trim()} onPress={() => send()} />
+          <Button testID="chat-send" label="Send" disabled={!canSend || empty} onPress={() => send()} />
         )}
       </Row>
     </View>
@@ -317,15 +322,11 @@ function Bubble(props: {
   const c = usePalette();
   const { m, agent } = props;
   const act = useChatActions(agent);
-  const can = useSelector((s) => ({ dismiss: s.can('chat.dismiss') }));
   const side = sideOf(m, agent, useStore().me);
   const unnumbered = m.id < 0; // shown before the daemon numbered it, or refused
   const failed = m.state === 'failed';
-  const open = isOpenAsk(m, agent);
   const mine = side === 'person' && !unnumbered && !failed;
-  const undoable = mine && ['queued', 'typed', 'delivered', 'delivered_unanswered'].includes(m.landing);
-  // A sent, confirmed or unknown message is the agent's: taking it back asks first, as for a delivered one.
-  const got = m.receipt ? m.receipt.state !== 'queued' : m.landing === 'delivered' || m.landing === 'delivered_unanswered';
+  const back = mine ? canTakeBack(m) : null;
   // The words come back to the box only once the daemon has taken the message back; a refusal leaves everything as it was.
   const takeBack = (confirm = false) =>
     act
@@ -387,7 +388,6 @@ function Bubble(props: {
             {m.receipt ? (RECEIPT[m.receipt.state] ?? RECEIPT.sent) : `${glyph(m.landing)} ${landingLabel(m.landing)}`}
           </Text>
         )}
-        {open && '  ? Waiting for you'}
         {m.tasks.map((t) => `  T${t.id}`).join('')}
       </Text>
       {failed && (
@@ -404,16 +404,14 @@ function Bubble(props: {
           Lost after it was written. It may or may not have run, and it is not sent again. Send it as a new message if you want it repeated.
         </Text>
       )}
-      {undoable && (
+      {back && (
         <Row>
           {(m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued' && props.working) && (
             <Button testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />
           )}
-          <Button testID={`takeback-${m.id}`} label="Take back" onPress={() => (got ? ask() : void takeBack())} />
+          <Button testID={`takeback-${m.id}`} label="Take back" onPress={() => (back.confirm ? ask() : void takeBack())} />
         </Row>
       )}
-      {side === 'agent' && m.answer && <Text style={{ color: c.muted, fontSize: 12 }}>✓✓ You: {m.answer.text}</Text>}
-      {open && can.dismiss && <Button testID={`dismiss-${m.id}`} label="Dismiss" onPress={() => act.dismiss(m.id)} />}
     </Pressable>
   );
 }

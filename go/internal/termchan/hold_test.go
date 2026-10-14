@@ -182,7 +182,7 @@ func TestWithNobodyHoldingTheInputAnAttachedViewerResizesAndTheLastResizeWins(t 
 	toldSize(t, toSam, 90, 25)
 }
 
-func TestAViewerMayNotResizeUnder80By24AndTheLastDetachGivesTheFirstSizeBack(t *testing.T) {
+func TestNobodyMayResizeUnder80By24AndTheLastDetachGivesTheFirstSizeBack(t *testing.T) {
 	r := holdRig(t)
 	pat, sam := person("pat"), person("sam")
 	r.viewer(t, pat)
@@ -221,13 +221,16 @@ func TestAViewerMayNotResizeUnder80By24AndTheLastDetachGivesTheFirstSizeBack(t *
 	if won, err := r.e.Holds.Take("ann", "person", "sam"); !won || err != nil {
 		t.Fatalf("take %v %v", won, err)
 	}
-	if err := sized(sam, 40, 10); err != nil {
-		t.Fatalf("the holder goes under the floor: %v", err)
+	if err := sized(sam, 79, 30); gate(t, err) != "input_holder" {
+		t.Fatalf("not even the holder goes under the floor, got %v", err)
+	}
+	if err := sized(sam, 120, 40); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := r.e.detach(sam, map[string]any{"terminal": "%1"}); err != nil {
 		t.Fatal(err)
 	}
-	if size() != [2]int{40, 10} {
+	if size() != [2]int{120, 40} {
 		t.Fatalf("held, the size stays: %v", size())
 	}
 	if err := r.e.Holds.Release("ann"); err != nil {

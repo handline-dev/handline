@@ -35,7 +35,7 @@
  "x-gates": {
   "role": "Caller's role is agent: a person-at-the-terminal method.",
   "terminal_lock": "The agent's terminal lock, the one the tick holds.",
-  "input_holder": "Someone else holds the input. A daemon holder is a short hold, not a refusal. terminal.resize with no holder: the caller has not attached the terminal, or asked for less than 80 by 24.",
+  "input_holder": "Someone else holds the input. A daemon holder is a short hold, not a refusal. terminal.resize: under 80 by 24, whoever asks; with no holder, from a caller that has not attached the terminal.",
   "wall": "The usage limit (wall_reason): typing would only spend quota.",
   "screen_blocker": "A dialog is open, so a typed line would answer it. Use keys or prompt.answer.",
   "state": "The state checks the legacy verb has today; this protocol adds none.",
@@ -138,7 +138,7 @@
    "hl service ..."
   ],
   "needs_a_decision": [
-   "hl spawn (a founder's act; agent.create serves it to the founder's apps, and no agent-role method serves it)",
+   "hl spawn (a founder's act; it calls session.start, and agent.create serves it to the founder's apps)",
    "hl agent register (a roster change, founder)"
   ],
   "not_daemon_methods": [
@@ -149,7 +149,6 @@
    "hl hooks",
    "hl go",
    "hl install-hooks",
-   "hl daemon",
    "hl backup",
    "hl venv",
    "hl bridge",
@@ -3457,8 +3456,8 @@
   },
   {
    "name": "terminal.resize",
-   "summary": "Resize: the input holder's while there is one, any attached connection's down to 80 by 24 while there is none.",
-   "description": "While a person holds the input, only they resize, and the size from before their first resize is restored when they leave; anyone else is refused, gate `input_holder`, and scales its own view. While nobody holds it (the daemon's own hold included), any connection that has the terminal attached, in any format, may resize it to at least 80 columns by 24 rows, and the last resize wins; when the last attach goes and nobody holds the input, the size from before the first of these resizes is restored. Under 80 by 24, or from a connection that has not attached it, the resize is refused, gate `input_holder`, and the viewer scales its own view: the daemon reads the screen line by line, and narrower, Claude Code wraps a dialog's footer and options so the daemon no longer recognises the dialog. A holder may go under it. Every attach is told of the change: a `resize` notice for text and styled, a `snapshot` notice, reason `resize`, for bytes. A handle no agent has is never resized.",
+   "summary": "Resize, never under 80 by 24: the input holder's while there is one, any attached connection's while there is none.",
+   "description": "While a person holds the input, only they resize, and the size from before their first resize is restored when they leave; anyone else is refused, gate `input_holder`, and scales its own view. While nobody holds it (the daemon's own hold included), any connection that has the terminal attached, in any format, may resize it to at least 80 columns by 24 rows, and the last resize wins; when the last attach goes and nobody holds the input, the size from before the first of these resizes is restored. From a connection that has not attached it, the resize is refused, gate `input_holder`. Under 80 by 24 any resize is refused, the holder's included, gate `input_holder`, and the caller keeps its grid and scales its own view: the daemon reads the screen line by line, and narrower, Claude Code wraps a dialog's footer and options so the daemon no longer recognises the dialog. Every attach is told of the change: a `resize` notice for text and styled, a `snapshot` notice, reason `resize`, for bytes. A handle no agent has is never resized.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -4813,7 +4812,8 @@
      "name": "body",
      "required": false,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "The brief, Markdown. It may name images (x-attachments, tasks)."
      }
     },
     {
@@ -5145,7 +5145,7 @@
      "required": true,
      "schema": {
       "type": "string",
-      "description": "One line: what is missing. It is told to the owner."
+      "description": "One line: what is missing. It is told to the owner. It may then name images (x-attachments, tasks), each on a line of its own after the words; nothing else may follow them."
      }
     },
     {
@@ -5496,7 +5496,8 @@
      "name": "text",
      "required": true,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, tasks)."
      }
     },
     {
@@ -5566,7 +5567,8 @@
      "name": "text",
      "required": true,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, tasks)."
      }
     },
     {
@@ -6055,7 +6057,8 @@
      "name": "body",
      "required": false,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "The new brief, Markdown. It may name images (x-attachments, tasks)."
      }
     },
     {
@@ -9605,6 +9608,20 @@
        "body": {
         "type": "string"
        },
+       "body_parts": {
+        "type": "array",
+        "items": {
+         "oneOf": [
+          {
+           "$ref": "#/components/schemas/TextPart"
+          },
+          {
+           "$ref": "#/components/schemas/ImagePart"
+          }
+         ]
+        },
+        "description": "`body` cut at the images it names, in order; present only when it names one. The text parts joined give `body` with each reference left out."
+       },
        "deliveries": {
         "type": "array",
         "items": {
@@ -9844,9 +9861,10 @@
             "handoff",
             "request",
             "edit",
-            "state"
+            "state",
+            "reject"
            ],
-           "description": "memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`)."
+           "description": "memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note)."
           },
           "text": {
            "type": "string",
@@ -9872,6 +9890,20 @@
              "type": "null"
             }
            ]
+          },
+          "parts": {
+           "type": "array",
+           "items": {
+            "oneOf": [
+             {
+              "$ref": "#/components/schemas/TextPart"
+             },
+             {
+              "$ref": "#/components/schemas/ImagePart"
+             }
+            ]
+           },
+           "description": "`text` cut at the images it names, for a memo, an edit or a reject; present only when it names one."
           }
          },
          "required": [
@@ -9883,7 +9915,7 @@
           "edited_at"
          ]
         },
-        "description": "What happened on the task as one list, oldest first: its memos, its handoffs (a handoff's note is its entry, not a second one) and the requests linked to it. Overlaps `events`, `memos`, `handoffs` and `deliveries`, which stay."
+        "description": "What happened on the task as one list, oldest first: its memos, its handoffs (a handoff's note is its entry, not a second one), the requests linked to it, the edits of its brief, its marks done and each time it was sent back. Overlaps `events`, `memos`, `handoffs` and `deliveries`, which stay."
        },
        "people": {
         "type": "object",
@@ -11574,6 +11606,20 @@
        }
       ],
       "description": "When the memo's text was last changed; null if never."
+     },
+     "parts": {
+      "type": "array",
+      "items": {
+       "oneOf": [
+        {
+         "$ref": "#/components/schemas/TextPart"
+        },
+        {
+         "$ref": "#/components/schemas/ImagePart"
+        }
+       ]
+      },
+      "description": "`text` cut at the images it names, as TaskDetail.body_parts; present only when it names one."
      }
     },
     "required": [
@@ -13762,6 +13808,67 @@
      "cache_until",
      "orca_terminal"
     ]
+   },
+   "TextPart": {
+    "type": "object",
+    "description": "Words of a task's text between its image references.",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "text"
+    ]
+   },
+   "ImagePart": {
+    "type": "object",
+    "description": "An image a task's text names, where it names it.",
+    "properties": {
+     "image": {
+      "type": "object",
+      "description": "The Attachment; only `id` when the image is gone.",
+      "properties": {
+       "id": {
+        "$ref": "#/components/schemas/AttachmentId"
+       },
+       "name": {
+        "type": "string"
+       },
+       "mime": {
+        "type": "string",
+        "enum": [
+         "image/png",
+         "image/jpeg",
+         "image/gif",
+         "image/webp"
+        ]
+       },
+       "bytes": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "id"
+      ]
+     },
+     "caption": {
+      "type": "string",
+      "description": "The words in the reference's brackets; what a client shows when it cannot draw the image."
+     },
+     "gone": {
+      "type": "boolean",
+      "description": "true when the image is no longer kept: the client shows the caption without a picture."
+     },
+     "path": {
+      "type": "string",
+      "description": "Where the image is stored. Only for an agent caller, which reads it by path; a member or founder client never gets it."
+     }
+    },
+    "required": [
+     "image",
+     "caption"
+    ]
    }
   },
   "errors": {
@@ -13833,9 +13940,10 @@
  "x-attachments": {
   "what": "Images the person attaches to a chat message. One mechanism for every agent, structured or terminal: the file is stored on the daemon's machine and the agent is told its path, which it reads with its own file tool.",
   "flow": "attachment.put sends the file in chunks and ends with the Attachment (an id); chat.send then names up to 6 ids in `attachments`. The message is delivered like any other, with one line per image added after the body: `[image N: /absolute/path.png (image/png, 184 KB)]`. ChatMessage.attachments and turn_start.attachments carry the ids for a client to draw; the body the client stored stays as typed (the path lines are added at delivery only), so a client that shows an agent's echo of a user turn may drop lines of that shape.",
+  "tasks": "A task's text names an image with Markdown image syntax and the attachment: scheme, `![caption](attachment:ID)`, in task.new and task.edit `body`, task.memo.add and task.memo.edit `text`, and task.reject `note`. The text is stored as written; only that exact form is a reference, anything else is plain text. At most 6 per text. The write checks each image it names in its own transaction: a malformed id or an upload not yet finished is bad_request (the field, a reason naming the id); an image no longer kept is not_found, what attachment; more than 6 is bad_request. An edit that keeps a reference the text already had is never refused for it, even when the image is gone. A write that names an image claims it, as a message does; an image a task names (its brief, a memo or a reject note) is not removed while that task is open, and is kept 30 days after the last such task is done or discarded. The id is the daemon's, not a device's: one device may upload it and another write the task that names it. task.get cuts each such text at its references so a client need not parse it: TaskDetail.body_parts, Memo.parts and a timeline row's parts (a reject is a row of its own), each a list of TextPart and ImagePart; an image no longer kept is a part with gone: true and only its id. Wherever the daemon types a task's brief, a memo or a reject note to an agent, it adds the path lines after the text, as for a message; an agent's task.get carries the path in each ImagePart, so hl task show prints the same lines.",
   "limits": "Types: PNG, JPEG, GIF, WebP, checked by the file's first bytes, not by the mime the client says (a mismatch is bad_request, field data). SVG and everything else is refused. At most 10 MiB per image and 6 per message; chunks of at most 512 KiB of file (a 700 KiB base64 string) so a frame stays under the 1 MiB line. More than 20 unsent uploads open at once, or more than 100 MiB unsent, is refused, gate limit.",
   "storage": "The daemon's attachments folder under its home (mode 0700; files 0600, owner the daemon's user), one file per image named by its id and the extension of its type: the name the client gave is never part of the path. An upload not finished within 1 hour is dropped with its partial file; a finished image no message names is dropped after 24 hours; one a message names is kept 30 days after that message, then removed: attachment.get for it is not_found and the client shows the name without the picture.",
   "reach": "The daemon makes the folder readable by the agent without a prompt (a session setting that allows reads of that folder), so an agent in any worktree can Read the path. A client never sees the path.",
-  "roles": "member and founder may put and get; an agent may not (refused, gate role) in v1."
+  "roles": "member and founder may put and get, and name any kept image in a task's text; an agent may not put or get (refused, gate role) in v1, and names only an image a task's brief, memo or reject note already names (else refused, gate role), so it can carry a picture into a child task or a handoff."
  }
 }

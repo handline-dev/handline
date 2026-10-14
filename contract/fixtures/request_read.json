@@ -3,7 +3,7 @@
   {
    "name": "request.read.a_reply_names_both_ends_and_its_parent",
    "spec": "request.read",
-   "about": "NOT_YET_IN_PYTHON A reply is read whole: both ends, its state, and the first line of what it answers (needs --var ask_agent: an agent with one open question to the person, `which one?`).",
+   "about": "A reply is read whole: both ends, its state, and the first line of what it answers (needs --var ask_agent: an agent with one open question to the person, `which one?`).",
    "as": "founder",
    "steps": [
     {
@@ -134,7 +134,7 @@
   {
    "name": "request.read.unknown_request_is_not_found",
    "spec": "request.read",
-   "about": "NOT_YET_IN_PYTHON A request that does not exist is not_found.",
+   "about": "A request that does not exist is not_found.",
    "as": "founder",
    "steps": [
     {
@@ -171,7 +171,7 @@
   {
    "name": "request.read.id_is_a_number",
    "spec": "request.read",
-   "about": "NOT_YET_IN_PYTHON An id that is not a number is invalid params naming id.",
+   "about": "An id that is not a number is invalid params naming id.",
    "as": "founder",
    "steps": [
     {
@@ -212,7 +212,7 @@
   {
    "name": "request.read.wait_is_bounded",
    "spec": "request.read",
-   "about": "NOT_YET_IN_PYTHON wait_s over 600 is invalid params naming wait_s.",
+   "about": "wait_s over 600 is invalid params naming wait_s.",
    "as": "founder",
    "steps": [
     {

@@ -308,6 +308,8 @@ export type Task = {
 
 export type TaskDetail = Task & {
   body: string;
+  /** `body` cut at the images it names, in order; present only when it names one. The text parts joined give `body` with each reference left out. */
+  body_parts?: (TextPart | ImagePart)[];
   deliveries: {
     at: Timestamp;
     how: string;
@@ -356,17 +358,19 @@ export type TaskDetail = Task & {
     owner: string;
     state: string;
   }[];
-  /** What happened on the task as one list, oldest first: its memos, its handoffs (a handoff's note is its entry, not a second one) and the requests linked to it. Overlaps `events`, `memos`, `handoffs` and `deliveries`, which stay. */
+  /** What happened on the task as one list, oldest first: its memos, its handoffs (a handoff's note is its entry, not a second one), the requests linked to it, the edits of its brief, its marks done and each time it was sent back. Overlaps `events`, `memos`, `handoffs` and `deliveries`, which stay. */
   timeline: {
     at: Timestamp;
     /** The author, or `from → to` for a handoff. */
     who: string;
-    /** memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`). */
-    kind: "memo" | "handoff" | "request" | "edit" | "state";
+    /** memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note). */
+    kind: "memo" | "handoff" | "request" | "edit" | "state" | "reject";
     /** Already stripped of control characters: a client draws it as it is. */
     text: string;
     memo: number | null;
     edited_at: Timestamp | null;
+    /** `text` cut at the images it names, for a memo, an edit or a reject; present only when it names one. */
+    parts?: (TextPart | ImagePart)[];
   }[];
   /** Whom the founder can ask about the task (task.ask), each agent once. */
   people: {
@@ -758,6 +762,8 @@ export type Memo = {
   text: string;
   /** When the memo's text was last changed; null if never. */
   edited_at?: Timestamp | null;
+  /** `text` cut at the images it names, as TaskDetail.body_parts; present only when it names one. */
+  parts?: (TextPart | ImagePart)[];
 };
 
 export type TaskBoardRow = {
@@ -1306,6 +1312,28 @@ export type DebugTerminalPane = {
   cache_until: Timestamp | null;
   /** Always null: the daemon keeps no link from a tmux pane to an Orca terminal. */
   orca_terminal: null;
+};
+
+/** Words of a task's text between its image references. */
+export type TextPart = {
+  text: string;
+};
+
+/** An image a task's text names, where it names it. */
+export type ImagePart = {
+  /** The Attachment; only `id` when the image is gone. */
+  image: {
+    id: AttachmentId;
+    name?: string;
+    mime?: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+    bytes?: number;
+  };
+  /** The words in the reference's brackets; what a client shows when it cannot draw the image. */
+  caption: string;
+  /** true when the image is no longer kept: the client shows the caption without a picture. */
+  gone?: boolean;
+  /** Where the image is stored. Only for an agent caller, which reads it by path; a member or founder client never gets it. */
+  path?: string;
 };
 
 export interface Methods {
@@ -1925,6 +1953,7 @@ export interface Methods {
   /** Who the task answers to: told when it ends, and may edit or reassign it. Default: the caller. */
   reporter?: string;
   title: string;
+  /** The brief, Markdown. It may name images (x-attachments, tasks). */
   body?: string;
   time_box?: Duration;
   relation?: string;
@@ -1975,7 +2004,7 @@ export interface Methods {
 }; result: Accepted };
   "task.reject": { params: {
   task: number;
-  /** One line: what is missing. It is told to the owner. */
+  /** One line: what is missing. It is told to the owner. It may then name images (x-attachments, tasks), each on a line of its own after the words; nothing else may follow them. */
   note: string;
   request_id: RequestId;
 }; result: Accepted };
@@ -2017,6 +2046,7 @@ export interface Methods {
   } };
   "task.memo.add": { params: {
   task: number;
+  /** Markdown. It may name images (x-attachments, tasks). */
   text: string;
   request_id: RequestId;
 }; result: Accepted & {
@@ -2025,6 +2055,7 @@ export interface Methods {
   "task.memo.edit": { params: {
   task: number;
   memo: number;
+  /** Markdown. It may name images (x-attachments, tasks). */
   text: string;
   request_id: RequestId;
 }; result: Accepted };
@@ -2079,6 +2110,7 @@ export interface Methods {
   /** A new reporter (who the task answers to); by its opener, its reporter or the founder. */
   reporter?: string;
   title?: string;
+  /** The new brief, Markdown. It may name images (x-attachments, tasks). */
   body?: string;
   time_box?: Duration;
   /** Owner only: what the task waits on. */

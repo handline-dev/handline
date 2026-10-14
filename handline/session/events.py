@@ -3,8 +3,8 @@
 Events are inserted by hooks at a few coarse moments, never on a timer and
 never from PostToolUse: that fires constantly and its signal-to-noise is poor.
 
-Nothing here uses a model. The hook reads the JSON Claude Code puts on stdin,
-takes an allowlisted handful of fields, and inserts one row.
+Nothing here uses a model. The hook reads the JSON Claude Code puts on stdin and
+hands it to the daemon's hook.record, which keeps an allowlisted handful of fields in one row.
 """
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ import uuid
 from ..usage import collect
 from .. import db
 from ..infra import names, sessiontoken
-from ..team import agents
 from . import bgjobs, memoryuse, shellguard, waiting
 
 # Which hook events we record. PostToolUse is deliberately absent.
@@ -44,50 +43,6 @@ ANSWERS = {"PostToolUse", "PostToolUseFailure"}
 # double quotes (`shellguard.guard`) and the edit gate, matched to the
 # tools they look at rather than firing on every call.
 GUARDS = {"PreToolUse"}
-
-# The events after which no prompt can still be pending: a new prompt, or the
-# turn or the session ending.
-ENDS_WAIT = {"UserPromptSubmit", "Stop", "StopFailure", "SessionStart", "SessionEnd"}
-
-# Per event, the stdin fields worth keeping.
-ALLOWLIST = (
-    "session_id", "hook_event_name", "source", "reason", "cwd",
-    "prompt_length", "transcript_path", "model", "trigger",
-    "tool_name", "error", "error_details",
-)
-
-
-def _slim(raw: dict) -> dict:
-    out = {}
-    for k in ALLOWLIST:
-        v = raw.get(k)
-        if v is None:
-            continue
-        if k == "transcript_path":
-            out[k] = str(v)
-        elif isinstance(v, (str, int, float, bool)):
-            out[k] = v if not isinstance(v, str) else v[:200 if k == "error_details" else 400]
-        elif isinstance(v, dict) and k == "model":
-            out[k] = v.get("id")
-    # A prompt's text is never stored; its length is enough signal.
-    if "prompt" in raw and isinstance(raw["prompt"], str):
-        out["prompt_length"] = len(raw["prompt"])
-    return out
-
-
-# StopFailure's `error` is the error type claude reports; a usage limit is
-# this one. Classified on that field only - never on text, which on this team
-# is full of talk about usage limits.
-LIMIT_ERROR = "rate_limit"
-
-
-def limit_reason(raw: dict) -> tuple[str, str] | None:
-    """(text, where it was read from) when this StopFailure is a usage limit."""
-    if raw.get("error") != LIMIT_ERROR:
-        return None
-    details = raw.get("error_details")
-    text = details if isinstance(details, str) and details else LIMIT_ERROR
-    return text[:200], "payload.error"
 
 
 def at_limit(con, agent: str) -> dict | None:
@@ -128,75 +83,6 @@ def _record(agent: str, event: str, raw: dict) -> None:
             hookspool.append(agent, event, raw, request_id, at)
     except Exception:  # noqa: BLE001 - a hook must never break the session
         pass
-
-
-HOOK_KEEP_S = 24 * 3600
-
-
-def apply_hook(con, agent: str, event: str, raw: dict, request_id: str, at: int) -> None:
-    """What the daemon does with a hook event: the one writer of what a hook records. Once per request id: the id
-    is taken first, in the same transaction as every effect, so a line already applied does nothing at all and a
-    crash part-way leaves nothing applied for the retry to repeat or to skip.
-
-    An event older than the newest already applied for this agent is recorded but moves nothing: it arrived late
-    (a kept spool line, two hooks that raced), and acting on it would put the agent back where a newer event has
-    already taken it. A time ahead of the daemon's clock is taken as the time of arrival, so a hook with a clock set
-    ahead makes late only what was stamped before it arrived. On equal times the one that arrives later wins: hook
-    times are whole seconds and the daemon's order of arrival is the only order left to go by."""
-    con.execute("BEGIN IMMEDIATE")
-    try:
-        now = int(time.time())
-        at = min(at, now)               # an event cannot have happened after it arrived
-        from ..daemon import spool
-        if not spool.pending():         # a file left by a crash may still replay lines older than a day
-            # Ids older than a day go, except each agent's newest row: the lateness check below reads it.
-            con.execute("DELETE FROM hook_applied WHERE ts < ? AND rowid NOT IN "
-                        "(SELECT rowid FROM hook_applied WHERE agent IS NOT NULL AND at IS NOT NULL "
-                        "GROUP BY agent HAVING at = MAX(at))", (now - HOOK_KEEP_S,))
-        newest = con.execute("SELECT MAX(at) FROM hook_applied WHERE agent = ?", (agent,)).fetchone()[0]
-        if con.execute("INSERT OR IGNORE INTO hook_applied(request_id, ts, agent, at) VALUES(?, ?, ?, ?)",
-                       (request_id, now, agent, at)).rowcount == 0:
-            con.execute("ROLLBACK")
-            return
-        _apply(con, agent, event, raw, request_id, at, late=newest is not None and at < newest)
-        con.execute("COMMIT")
-    except BaseException:
-        if con.in_transaction:
-            con.execute("ROLLBACK")
-        raise
-
-
-def _apply(con, agent: str, event: str, raw: dict, request_id: str, at: int, late: bool = False) -> None:
-    if event in ANSWERS:
-        if not late:
-            _note_tool_use(agent, con)
-    if event not in CAPTURED:
-        return
-    account = agents.current_account(agent, con)
-    payload = _slim(raw)
-    if event == "StopFailure":
-        lim = limit_reason(raw)
-        if lim:
-            payload["limit"], payload["limit_source"] = lim
-    if event == "PermissionRequest":
-        payload["command"] = waiting.summary(raw.get("tool_input"))
-        # Observation only: what a permission hook is told, so a later hook that answers can be designed on
-        # it. Key names, no values.
-        if isinstance(raw.get("permission_mode"), str):
-            payload["permission_mode"] = raw["permission_mode"][:40]
-        payload["input_keys"] = sorted(str(k)[:40] for k in raw)[:40]
-    elif event in ENDS_WAIT and not late:
-        waiting.clear(agent)
-    eid = db.add_event(con, agent, event, payload, account=account, ts=at)
-    if late:
-        return              # recorded, and nothing it would change is changed: a newer event has been applied
-    if event == "SessionStart" and raw.get("source") == "startup" and raw.get("session_id"):
-        db.bind_session_start(con, agent, str(raw["session_id"]))
-    if event == "PermissionRequest":
-        # After its own row exists, so the id `of()` later compares other activity against is this exact
-        # prompt's, not the one before it.
-        waiting.note(agent, raw.get("tool_name"), raw.get("tool_input"), eid)
-    _mark_activity(con, agent, event, payload)
 
 
 def record_from_stdin(argv: list[str] | None = None) -> int:
@@ -296,13 +182,6 @@ def record_from_stdin(argv: list[str] | None = None) -> int:
 COLLECT_EVENTS = {"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "PostCompact"}
 
 
-# What counts as "this agent is working".
-#
-# Only a prompt does. A session starting does not: /clear ends one session and
-# starts another, so treating SessionStart as activity let the daemon's own
-# context reclaim look like the agent waking up. That cleared the park it had
-# just set, the usage trigger fired again on the unchanged number, and the
-# agent handed off in a loop - 42 folds in seven minutes before it was caught.
 # The hook events that only mark the edges of a turn. `hl` counts these
 # rather than drawing them: the agent's own state column says which side of a
 # turn it is on, and they crowd out the rows that say what was decided. What is
@@ -315,61 +194,6 @@ TURN_BOUNDARIES = {"SessionStart", "SessionEnd", "Stop", "StopFailure",
 # Records kept for audit, not anything an agent did or a turn's edge: hidden from `hl events` unless
 # --all, and left out of what a fold tells.
 AUDIT_KINDS = {"verb_chain"}
-
-ACTIVE_EVENTS = {"UserPromptSubmit"}
-
-# And which one says it stopped. Stop fires when the agent has finished
-# responding and is back at its prompt; SubagentStop is deliberately absent,
-# because a subagent finishing says nothing about what the agent itself is doing.
-QUIET_EVENTS = {"Stop"}
-
-# The daemon owns these; an agent must not move itself out of them.
-PROTECTED_STATES = {"STALLED", "HANDOFF"}
-
-
-def _mark_activity(con, agent: str, event: str, payload: dict | None = None) -> None:
-    """Let the daemon know whether the agent is working.
-
-    Without this, agent_state only ever changes when the daemon itself changes
-    it, so an agent that was parked and then given work directly still reads as
-    PARKED - and the daemon would "wake" it mid-task by injecting a handoff it
-    never needed. The hooks already fire on every turn; they just have to say so.
-
-    Both ends matter, and only one of them was recorded. RUNNING is the state
-    that stops work being delivered and stops the session being closed, so an
-    agent that entered it and never left was silently taken out of service: it
-    was never told about a single request again and never gave its memory back.
-    Three agents sat that way for over two hours.
-    """
-    row = db.get_agent_state(con, agent)
-    if row and row["state"] in PROTECTED_STATES:
-        return
-    if event in ACTIVE_EVENTS:
-        if row and row["state"] == "RUNNING" and not row["wake_at"]:
-            return  # already correct; do not rewrite on every prompt
-        db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail=f"active ({event})")
-    elif event == "StopFailure" and payload and payload.get("limit"):
-        # Out of usage is not working: the turn ended and nothing will run.
-        if row and row["state"] == "RUNNING":
-            db.set_agent_state(con, agent, "IDLE", wake_at=None,
-                               detail=f"at its usage limit: {payload['limit'][:80]}")
-    elif event in QUIET_EVENTS and row and row["state"] == "RUNNING":
-        db.set_agent_state(con, agent, "IDLE", wake_at=None,
-                           detail="finished its turn")
-
-
-def _note_tool_use(agent: str, con) -> None:
-    """A tool just ran, so the agent is mid-turn. A prompt the daemon typed while it was busy is
-    queued by the session and run inside the same turn: no UserPromptSubmit fires for it and no Stop
-    until the whole turn ends, so the row stayed QUEUED (drawn PENDING) or IDLE for as long as that
-    turn lasted - an hour for an agent that kept finding more work. Only a row the daemon is not
-    steering (QUEUED not moving, IDLE, session not closed) is moved; the turn's Stop sets IDLE again."""
-    row = db.get_agent_state(con, agent)
-    if not row or row["closed_at"] or row["state"] not in ("QUEUED", "IDLE"):
-        return
-    if (row["detail"] or "").startswith("moving"):
-        return
-    db.set_agent_state(con, agent, "RUNNING", wake_at=None, detail="active (tool use)")
 
 
 def record_commit(agent: str, repo: str, sha: str, subject: str, diffstat: str) -> None:

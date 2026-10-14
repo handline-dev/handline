@@ -277,3 +277,21 @@ assignee and owner changes
 		t.Fatalf("calls\n got  %v\n want %v", got, want)
 	}
 }
+
+func TestTaskShowPrintsWhereTheImagesOfItsTextsAre(t *testing.T) {
+	img := func(path string) obj {
+		return obj{"image": obj{"id": "0123456789abcdef", "mime": "image/png", "bytes": float64(2048)}, "caption": "x", "path": path}
+	}
+	shot := "[image 1: /h/attachments/a.png (image/png, 2 KB)]"
+	got := strings.Join(detailLines(obj{
+		"id": float64(7), "title": "t", "body": "see ![x](attachment:0123456789abcdef)",
+		"body_parts": []any{obj{"text": "see "}, img("/h/attachments/a.png"), obj{"image": obj{"id": "1"}, "caption": "gone", "gone": true}},
+		"memos":      []any{obj{"id": float64(1), "author": "w", "text": "m", "parts": []any{img("/h/attachments/a.png")}}},
+		"timeline":   []any{obj{"kind": "reject", "who": "human", "text": "no", "parts": []any{img("/h/attachments/a.png")}}},
+	}, 0, ""), "\n")
+	for _, want := range []string{"brief\nsee ![x](attachment:0123456789abcdef)\n" + shot + "\n", "    m\n    " + shot, "sent back\n", "    no\n    " + shot} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("no %q in\n%s", want, got)
+		}
+	}
+}

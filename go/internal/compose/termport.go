@@ -40,13 +40,11 @@ func (p termPort) TypeableNow(handle string) bool              { return p.t.Type
 func (p termPort) ScreenBlocker(handle string) *term.Blocker   { return p.t.ScreenBlocker(handle) }
 func (p termPort) BackgroundWork(handle string) (string, bool) { return p.t.BackgroundWork(handle) }
 
-// The routine dialogs, answered at launch: the folder-trust screen and the bypass-permissions warning. The lifecycle decides whether to
-// press (a folder the founder declared, an agent whose skip-permissions is granted); these only read and press.
+// The routine dialog, answered at launch: the folder-trust screen. The lifecycle decides whether to press (a folder the founder declared);
+// these only read and press.
 func (p termPort) TrustPromptShowing(handle string) bool     { return p.t.TrustPromptShowing(handle) }
 func (p termPort) TrustPromptFolder(handle string) string    { return p.t.TrustPromptFolder(handle) }
 func (p termPort) ConfirmTrust(handle string) (bool, string) { return p.t.ConfirmTrust(handle) }
-func (p termPort) BypassPromptShowing(handle string) bool    { return p.t.BypassPromptShowing(handle) }
-func (p termPort) AcceptBypass(handle string) (bool, string) { return p.t.AcceptBypass(handle) }
 func (p termPort) WaitForTrustPrompt(handle string, showing bool) {
 	p.t.WaitForTrustPrompt(handle, showing)
 }

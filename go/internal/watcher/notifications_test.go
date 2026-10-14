@@ -117,7 +117,7 @@ func TestAFailedEmitDoesNotRepeatTheRowsBeforeIt(t *testing.T) {
 }
 
 func TestGoAndPythonWriteTheSameNotifications(t *testing.T) {
-	py, events := parity(t, "_notifications", func(d *sql.DB) Detector { return &Notifications{Reads: &reads.Env{DB: d}} },
+	py, events := parity(t, func(d *sql.DB) Detector { return &Notifications{Reads: &reads.Env{DB: d}} },
 		func(run func(string, ...any)) {
 			run("INSERT INTO events(ts, agent, kind, payload) VALUES(1, 'bob', 'mark_task_done', '{\"task_id\": 1}')")
 			run("INSERT INTO prompt_blocks(agent, kind, fingerprint, title, panel, detail, first_seen, last_seen) VALUES('bob', 'permission', 'old', 'old', '[]', '{}', 1, 1)")

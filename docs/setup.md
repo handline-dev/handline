@@ -106,8 +106,7 @@ edit `team.yaml` or any `agent.yaml` by hand, run `hl team seal` to accept your 
 ## Run the daemon
 
 ```bash
-hl daemon           # in the foreground, stops with the terminal
-hl service install  # as a launchd job: starts at login, restarts after a crash
+hl service install --allow-live-home  # as a launchd job: starts at login, restarts after a crash
 hl service status
 hl service logs
 ```

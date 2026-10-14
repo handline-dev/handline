@@ -118,7 +118,7 @@ def socket_file() -> Path:
 
 
 def relay_socket_file() -> Path:
-    """Where the gateway, the process that fronts the daemon for paired devices, relays their calls (daemon/relay.py)."""
+    """Where the gateway, the process that fronts the daemon for paired devices, relays their calls (go/internal/daemon)."""
     return home() / "relay.sock"
 
 
@@ -167,7 +167,7 @@ def agent_dir(name: str) -> Path:
 
 
 def handoff_note_file(agent: str) -> Path:
-    """The one file an agent writes for its handoff note (T571, `daemon.handoff_note`)."""
+    """The one file an agent writes for its handoff note."""
     return agent_dir(agent) / "handoff.md"
 
 
