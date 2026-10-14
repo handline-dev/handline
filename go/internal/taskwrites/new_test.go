@@ -100,6 +100,10 @@ func TestNewReturnsBeforeTheOwnerIsTold(t *testing.T) {
 	if said, _ := r[0]["result"].(map[string]any)["said"].(string); !strings.Contains(said, "it is on the founder's screen (`hl`)") {
 		t.Fatalf("a founder's task says where it is: %v", r[0])
 	}
+	// the delivery is a task's whoever the owner is: no edge's kind decides it
+	if count(t, db, "SELECT COUNT(*) FROM requests WHERE target = 'human' AND kind = 'task'") != 1 {
+		t.Fatal("the founder's task is not delivered as a task")
+	}
 	select {
 	case <-told:
 		t.Fatal("the call returned only after the owner was told")

@@ -231,12 +231,10 @@ def test_a_line_already_in_the_transcript_is_landed_without_typing(home: Path) -
 def test_a_head_the_transcript_already_holds_is_landed_not_typed(home: Path) -> None:
     sent = _world(home)
     termmod.typeable_now = lambda h: True
-    hand_edit_team(DESIGN_TEAM.replace(
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }'))
+    hand_edit_team(DESIGN_TEAM)
     _ask_row(
         {"verb": "ask", "requester": "product", "speaker": "product", "target": "backend",
-         "body": "look at the retry loop"}, lambda _m: None)
+         "body": "look at the retry loop", "kind": "task"}, lambda _m: None)
     con = db.connect()
     real = dmn_delivery._live_session
     dmn_delivery._live_session = lambda con, agent: SESSION
@@ -328,12 +326,10 @@ def test_a_landing_further_back_than_the_tail_is_found_before_the_line_is_typed_
 def test_a_task_head_is_told_again_when_it_never_landed(home: Path) -> None:
     sent = _world(home)
     termmod.typeable_now = lambda h: True
-    hand_edit_team(DESIGN_TEAM.replace(
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }'))
+    hand_edit_team(DESIGN_TEAM)
     _ask_row(
         {"verb": "ask", "requester": "product", "speaker": "product", "target": "backend",
-         "body": "a piece of work"}, lambda _m: None)
+         "body": "a piece of work", "kind": "task"}, lambda _m: None)
     con = db.connect()
     try:
         rid = int(con.execute("SELECT id FROM requests WHERE target = 'backend'").fetchone()["id"])

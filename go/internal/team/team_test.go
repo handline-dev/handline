@@ -39,15 +39,15 @@ func TestRouteAnswersAsThePythonPolicyDoes(t *testing.T) {
 		from, to string
 		want
 	}{
-		{"backend", "reviewer", want{true, "edge * -> reviewer", str("peer"), nil, "async"}},
-		{"reviewer", "backend", want{true, "edge reviewer -> *", nil, str("verdict"), "async"}},
-		{"backend", "archivist", want{true, "edge * -> archivist", str("peer"), nil, "fire_and_forget"}},
-		{"backend", "human", want{true, "edge * -> human", nil, str("task"), "async"}},
-		{"human", "backend", want{true, "edge human -> *", str("supervisor"), nil, "fire_and_forget"}},
+		{"backend", "reviewer", want{true, "edge * -> reviewer", nil, nil, "async"}},
+		{"reviewer", "backend", want{true, "edge reviewer -> *", nil, nil, "async"}},
+		{"backend", "archivist", want{true, "edge * -> archivist", nil, nil, "async"}},
+		{"backend", "human", want{true, "edge * -> human", nil, nil, "async"}},
+		{"human", "backend", want{true, "edge human -> *", nil, nil, "async"}},
 		{"backend", "backend", want{false, "an agent cannot ask itself", nil, nil, "async"}},
 		{"backend", "ghost", want{false, "unknown target 'ghost'", nil, nil, "async"}},
 		{"harbor.sea", "harbor", want{false, "unknown target 'harbor'", nil, nil, "async"}},
-		{"harbor.sea", "human", want{true, "edge * -> human", nil, str("task"), "async"}},
+		{"harbor.sea", "human", want{true, "edge * -> human", nil, nil, "async"}},
 	} {
 		d := starter.Route(c.from, c.to, 0, false)
 		got := want{d.Allowed, d.Reason, d.Relation, d.Kind, d.Response}
@@ -72,10 +72,10 @@ limits:
 		reply    bool
 		want
 	}{
-		{"backend", "harbor", 0, false, want{true, "edge eng.* -> harbor", str("peer"), str("task"), "fire_and_forget"}},
+		{"backend", "harbor", 0, false, want{true, "edge eng.* -> harbor", nil, nil, "async"}},
 		{"front?end", "harbor", 0, false, want{false, "denied: front?end -> harbor: no way", nil, nil, "async"}},
 		{"harbor.sea", "harbor", 2, false, want{false, "chain depth 2 reached the limit 2 (loop guard)", nil, nil, "async"}},
-		{"backend", "human", 0, false, want{true, "edge bac* -> human", nil, str("task"), "async"}},
+		{"backend", "human", 0, false, want{true, "edge bac* -> human", nil, nil, "async"}},
 		{"harbor", "human", 0, false, want{true, "default link: harbor may ask the founder", nil, str("task"), "async"}},
 		{"zzz", "backend", 0, true, want{true, "reply: backend asked zzz", nil, nil, "fire_and_forget"}},
 		{"zzz", "backend", 0, false, want{false, "denied: no edge declares zzz -> backend (unlisted edges are denied by default)", nil, nil, "async"}},
@@ -97,12 +97,11 @@ limits:
 
 func TestADenyOrEdgeThatCouldSilentlyAllowIsRefusedAtLoad(t *testing.T) {
 	for src, want := range map[string]string{
-		"deny:\n  - {from: a}\n":                             "deny[0] is missing to (keys present: from)",
-		"deny:\n  - plain\n":                                 "deny[0] is not a map: 'plain'",
-		"edges:\n  - {from: a, to: b, response: blocking}\n": "'blocking' is intentionally not supported",
-		"edges:\n  - {from: a}\n":                            "edges[0] needs both 'from' and 'to'",
-		"edges:\n  - {from: 'x.*', to: b}\n":                 "refers to team 'x', which is not in teams (none)",
-		"agents:\n  a: 1\n":                                  "agents.a is not a map",
+		"deny:\n  - {from: a}\n":             "deny[0] is missing to (keys present: from)",
+		"deny:\n  - plain\n":                 "deny[0] is not a map: 'plain'",
+		"edges:\n  - {from: a}\n":            "edges[0] needs both 'from' and 'to'",
+		"edges:\n  - {from: 'x.*', to: b}\n": "refers to team 'x', which is not in teams (none)",
+		"agents:\n  a: 1\n":                  "agents.a is not a map",
 	} {
 		v, err := yamlcompat.ParseOrdered(src)
 		if err != nil {
@@ -111,6 +110,33 @@ func TestADenyOrEdgeThatCouldSilentlyAllowIsRefusedAtLoad(t *testing.T) {
 		if _, err := NewTeam(v.(*yamlcompat.OMap)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: %v, want %q", src, err, want)
 		}
+	}
+}
+
+// The answer-model removal drops these keys from team.yaml last, so until then a table with them routes as one without.
+// SupervisorOf still reads a supervisor edge's relation.
+func TestAnEdgesRelationResponseAndKindAreIgnored(t *testing.T) {
+	const roster = "teams:\n  eng: [eng, lead, dev]\nagents:\n  lead: {}\n  dev: {}\nedges:\n"
+	old := parseTeam(t, roster+`  - { from: lead, to: dev, relation: peer, response: blocking }
+  - { from: "*", to: "human", kind: escalate, creates_gate: true }
+  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: dev, to: lead, relation: [odd], response: 7, kind: verdict }
+`)
+	bare := parseTeam(t, roster+`  - { from: lead, to: dev }
+  - { from: "*", to: "human" }
+  - { from: "human", to: "*" }
+  - { from: dev, to: lead }
+`)
+	names := []string{"lead", "dev", "eng", "human"}
+	for _, a := range names {
+		for _, b := range names {
+			if got, want := old.Route(a, b, 0, false), bare.Route(a, b, 0, false); !reflect.DeepEqual(got, want) {
+				t.Errorf("%s -> %s: %+v, want %+v", a, b, got, want)
+			}
+		}
+	}
+	if d := old.Route("eng", "human", 0, false); d.Kind != nil || d.Response != "async" {
+		t.Errorf("an edge's kind is not read: %+v", d)
 	}
 }
 

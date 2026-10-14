@@ -157,7 +157,7 @@ func (f *fakeTeller) TaskAsk(tx *sql.Tx, in AskReq) (*Asked, error) {
 		rid, err := db.AddRequest(tx, db.NewRequest{Requester: from, Target: to, Body: body, Kind: "task", State: "denied", Verdict: f.deny})
 		return &Asked{Msg: f.deny, RID: rid}, err
 	}
-	rid, err := db.AddRequest(tx, db.NewRequest{Requester: from, Target: to, Body: body, Kind: "task"})
+	rid, err := db.AddRequest(tx, db.NewRequest{Requester: from, Target: to, Body: body, Kind: in.Kind})
 	if err != nil {
 		return nil, err
 	}

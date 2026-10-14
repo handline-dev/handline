@@ -159,8 +159,8 @@ def _draft(kind: str, name: str, requester: str, why: str,
         return {}, f"{name} is already an agent"
     if kind in ("retire", "rename", "settings", "context", "schedule") + EDGE_KINDS and name not in registered:
         return {}, f"{name} is not an agent"
-    if kind in EDGE_KINDS:
-        err = _edge_refusal(kind, name, to, response, relation, registered, coming)
+    if kind in EDGE_KINDS:     # an edge only allows: its response and relation are not asked for
+        err = _edge_refusal(kind, name, to, None, None, registered, coming)
         if err:
             return {}, err
     if kind == "rename":
@@ -225,8 +225,7 @@ def _draft(kind: str, name: str, requester: str, why: str,
         "state": "proposed",
     }
     for key, value in (("team", team_name), ("repo", repo), ("model", model),
-                       ("effort", effort), ("to", to), ("vendor", vendor),
-                       ("response", response), ("relation", relation)):
+                       ("effort", effort), ("to", to), ("vendor", vendor)):
         if value:
             prop[key] = value
     for key, value in (sets or {}).items():

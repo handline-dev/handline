@@ -1207,7 +1207,6 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
                 return False, f"no task T{parent}", None
         finally:
             con.close()
-    kind = None if owner == HUMAN else "task"
     opened: list[int] = []
 
     def together(con, rid: int, _note: str) -> None:
@@ -1239,7 +1238,7 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
             con.close()
         ok, msg = True, f"a todo of your own, #{rid}"
     else:
-        ok, msg, _rid = askmod.ask(owner, body, requester=me, kind=kind, card=False, within=together)
+        ok, msg, _rid = askmod.ask(owner, body, requester=me, kind="task", card=False, within=together)
     if not ok:
         return False, msg, None
     tid = opened[0]

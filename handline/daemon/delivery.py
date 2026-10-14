@@ -520,17 +520,11 @@ def enforce_edges(con, agent: str, log) -> bool:
         reply = askmod.replies_to(db.get_request(con, r["parent_id"]) if r["parent_id"] else None,
                                   r["requester"], r["target"])
         d = t.route(r["requester"], r["target"], chain_depth=int(r["chain_depth"] or 0), reply=reply)
-        kind = r["kind"] if r["kind"] in askmod.OVERRIDE_KINDS else d.kind
-        if not d.allowed:
-            why = d.reason
-        elif (r["relation"], r["response"], r["kind"]) != (d.relation, d.response, kind):
-            why = (f"the routing table says {d.relation}/{d.response}/{kind}, the request "
-                   f"says {r['relation']}/{r['response']}/{r['kind']}")
-        else:
+        if d.allowed:
             db.clear_edge(con, int(r["id"]))
             continue
-        db.retire_queued(con, int(r["id"]), "denied", f"refused at delivery: {why}")
-        log(f"  {agent}: #{r['id']} from {r['requester']} refused - {why}")
+        db.retire_queued(con, int(r["id"]), "denied", f"refused at delivery: {d.reason}")
+        log(f"  {agent}: #{r['id']} from {r['requester']} refused - {d.reason}")
     return True
 
 
