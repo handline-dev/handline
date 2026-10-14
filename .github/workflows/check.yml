@@ -102,6 +102,11 @@ jobs:
           python-version: '3.14'
       - name: tmux for the terminal tests
         run: sudo apt-get install -y -qq tmux
+      - name: debug fixture diff
+        continue-on-error: true
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: python3 tests/fixtures/regen_claude_driver.py && git diff tests/fixtures | head -80
       - run: tools/suite.sh
         env:
           TMPDIR: ${{ runner.temp }} # the suite checks that a sandboxed run has one
