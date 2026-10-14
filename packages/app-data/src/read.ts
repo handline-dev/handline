@@ -129,8 +129,6 @@ export function useAgentTasks(agent: string) {
   return { query, items, capped: !!(held.data?.more || opened.data?.more) };
 }
 export const useAgentStrip = (agent: string) => useRead('agent.strip', { agent }, { enabled: agent !== '' });
-/** What a # in the composer can point at: the agent's newest requests, read only while the menu is open. */
-export const useChatRefs = (agent: string, enabled: boolean) => useRead('chat.refs', { agent }, { enabled: enabled && agent !== '' });
 export const useTask = (task: number) => useRead('task.get', { task });
 export const useMemos = (task: number) => useRead('task.memo.list', { task });
 export const useTaskBoard = () => useRead('task.board', {});
