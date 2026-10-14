@@ -92,15 +92,15 @@ SQLite file through `modernc.org/sqlite` (pure Go, no cgo; `go/go.mod`).
 | `hashicorp/raft` | MPL-2.0 (file-level copyleft; fine to link unmodified) | Raft library for Go: leader election, a replicated log, snapshots, your own state machine | Closest to "leader writes, followers replicate": the log entries would be the daemon's writes |
 | `etcd-io/raft` | Apache-2.0 | Raft core only: the caller supplies network, storage and timers | More work than hashicorp/raft; the same model |
 | `lni/dragonboat` | Apache-2.0 | Multi-group Raft library; last push 2025-07 | Heavier than we need; slower upstream |
-| `rqlite/rqlite` | MIT | A server: SQLite replicated with Raft, SQL over HTTP, leader writes, reads tunable (README) | Gives leader/follower for free, but the daemon would talk to rqlite instead of opening its own file: the whole db layer changes |
-| `canonical/dqlite` | LICENSE file states its own terms (API: NOASSERTION; LGPL with an exception is general knowledge, unverified) | SQLite replicated with Raft, a C library (README) | Needs cgo; the daemon is pure Go today |
+| `rqlite/rqlite` | MIT | A server: SQLite replicated with Raft, SQL over HTTP, leader writes, read consistency tunable (README, "Tunable Consistency") | Gives leader/follower for free, but the daemon would talk to rqlite instead of opening its own file: the whole db layer changes |
+| `canonical/dqlite` | LGPLv3 plus a special exception allowing static or dynamic linking in a Combined Work (its LICENSE file; API: NOASSERTION) | SQLite replicated with Raft, a C library (README) | Needs cgo; the daemon is pure Go today |
 | `nats-io/nats-server` (JetStream) | Apache-2.0 | Messaging with replicated streams, Raft inside (general knowledge) | Good for events, not for SQL state |
 | `superfly/litefs`, `benbjohnson/litestream` | Apache-2.0 both | Replicate or back up a SQLite file; LiteFS has a leader lease (general knowledge); Litestream is backup | Whole-file shipping; no election of its own in Litestream |
 | `hashicorp/memberlist`, `serf` | MPL-2.0 | Gossip membership and failure detection | Useful for "who is alive" only |
 
-What the survey in section 1 adds: nobody there elects a leader; Nomad and Consul use hashicorp/raft
+What the survey in section 1 adds: no coding-agent tool in it elects a leader; Nomad and Consul use hashicorp/raft
 and are the shape the founder describes (a Raft server set, workers that join), but Nomad is BUSL
-and Consul's licence is NOASSERTION, so we use ideas and not code.
+and Consul's licence is NOASSERTION, so we use ideas and not code (Nomad's BUSL is from its `LICENSE` file, read in section 1).
 
 **Recommendation (a choice, not built):** do not write consensus. Pick between two:
 
