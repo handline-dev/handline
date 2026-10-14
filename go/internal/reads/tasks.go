@@ -197,6 +197,10 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	under, err := optInt(params, "under")
+	if err != nil {
+		return nil, err
+	}
 	before, err := optInt(params, "before")
 	if err != nil {
 		return nil, err
@@ -224,10 +228,14 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 			return nil, rpc.Refused(fmt.Sprintf("%s is not you or one of your reports: everyone shows every team's tasks", *name), "", "")
 		}
 	}
-	showEnded := withEnded || (state != nil && (*state == "done" || *state == "discarded"))
+	showEnded := withEnded || under != nil || (state != nil && (*state == "done" || *state == "discarded"))
 	shown, open, err := e.boardRows(showEnded)
 	if err != nil {
 		return nil, err
+	}
+	var story map[int64]bool
+	if under != nil {
+		story = below(shown, *under)
 	}
 	b, err := e.loadBoard(open)
 	if err != nil {
@@ -251,7 +259,7 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 		st := b.state(t)
 		if (owner != nil && t.str("owner") != *owner) ||
 			(state != nil && st != *state) || (opener != nil && t.str("opened_by") != *opener) ||
-			(parent != nil && (!t.set("parent_task") || t.i("parent_task") != *parent)) ||
+			(parent != nil && (!t.set("parent_task") || t.i("parent_task") != *parent)) || (story != nil && !story[t.i("id")]) ||
 			(before != nil && t.i("id") >= *before) {
 			continue
 		}
@@ -270,6 +278,28 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 		items = append(items, task)
 	}
 	return map[string]any{"items": items, "more": len(rows) > limit}, nil
+}
+
+// below is the task top and every task under it, at any depth.
+func below(tasks []row, top int64) map[int64]bool {
+	kids := map[int64][]int64{}
+	for _, t := range tasks {
+		if t.set("parent_task") {
+			kids[t.i("parent_task")] = append(kids[t.i("parent_task")], t.i("id"))
+		}
+	}
+	in, todo := map[int64]bool{top: true}, []int64{top}
+	for len(todo) > 0 {
+		id := todo[len(todo)-1]
+		todo = todo[:len(todo)-1]
+		for _, k := range kids[id] {
+			if !in[k] {
+				in[k] = true
+				todo = append(todo, k)
+			}
+		}
+	}
+	return in
 }
 
 func (e *Env) firstRequest(tid int64) (row, error) {
@@ -305,14 +335,16 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	blockers, err := e.blockers(t.i("id"))
+	waits, err := query(e.DB, "SELECT b.blocks_on AS task, b.created_at, t.discarded_by IS NULL AND t.done_evidence IS NULL AS open "+
+		"FROM task_blocks b JOIN tasks t ON t.id = b.blocks_on WHERE b.task_id = ? AND b.dormant = 0 ORDER BY b.created_at, b.blocks_on", t.i("id"))
 	if err != nil {
 		return nil, err
 	}
-	hold, err := e.waitLine(t, state)
+	rec, err := e.holdRec(t.i("id"))
 	if err != nil {
 		return nil, err
 	}
+	hold := waitLine(rec, state)
 	clock, err := e.taskClock(t, state)
 	if err != nil {
 		return nil, err
@@ -327,12 +359,20 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	blockedBy := make([]int64, len(blockers))
-	for i, b := range blockers {
-		blockedBy[i] = b.i("id")
+	blockedBy, waitList := []int64{}, make([]any, len(waits))
+	for i, w := range waits {
+		waitList[i] = map[string]any{"task": w.i("task"), "open": w.i("open") == 1}
+		if w.i("open") == 1 {
+			blockedBy = append(blockedBy, w.i("task"))
+		}
+	}
+	sort.Slice(blockedBy, func(i, j int) bool { return blockedBy[i] < blockedBy[j] })
+	waiting, err := e.waitingOf(t, state, waits, rec)
+	if err != nil {
+		return nil, err
 	}
 	task := map[string]any{
-		"blocked_by": blockedBy, "time": clock,
+		"blocked_by": blockedBy, "waits": waitList, "waiting": waiting, "time": clock,
 		"asker": asker, "id": t.i("id"), "from": t.str("opened_by"), "to": t.str("owner"), "title": t.str("title"), "state": state,
 		"relation": first.str("relation"), "response": first.str("response"), "time_box": nil,
 		"parent": t.intOrNil("parent_task"), "created": ts(t["created_at"]), "delivered": ts(t["delivered_at"]),
@@ -357,14 +397,67 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	if t.i("timeout_s") != 0 {
 		task["time_box"] = duration(t.i("timeout_s"))
 	}
-	if len(blockers) > 0 {
-		ids := make([]string, len(blockers))
-		for i, b := range blockers {
-			ids[i] = fmt.Sprintf("T%d", b.i("id"))
-		}
-		task["block_reason"] = "waiting on " + strings.Join(ids, ", ")
+	if len(blockedBy) > 0 {
+		task["block_reason"] = "waiting on " + tids(blockedBy)
 	}
 	return task, nil
+}
+
+func tids(ids []int64) string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = fmt.Sprintf("T%d", id)
+	}
+	return strings.Join(out, ", ")
+}
+
+// waitingOf is the spec's Task.waiting for an open task: behind its open blockers (a child blocks its parent), else on an open request to
+// the founder, else the cause the supervisor's sweep stored with its reason. nil when nothing waits.
+func (e *Env) waitingOf(t row, state string, waits []row, rec map[string]any) (any, error) {
+	if state != "queued" && state != "doing" {
+		return nil, nil
+	}
+	var on []int64
+	var since int64
+	for _, w := range waits {
+		if w.i("open") == 1 {
+			on = append(on, w.i("task"))
+			if since == 0 || w.i("created_at") < since {
+				since = w.i("created_at")
+			}
+		}
+	}
+	if len(on) > 0 {
+		sort.Slice(on, func(i, j int) bool { return on[i] < on[j] })
+		return map[string]any{"on": "task", "text": "blocked by " + tids(on), "tasks": on, "since": ts(since)}, nil
+	}
+	asked, err := queryOne(e.DB, "SELECT MIN(r.ts) AS since FROM requests r JOIN task_requests l ON l.request_id = r.id "+
+		"WHERE l.task_id = ? AND r.target = ? AND "+founderOpen, t.i("id"), human)
+	if err != nil {
+		return nil, err
+	}
+	if asked.set("since") {
+		return map[string]any{"on": "founder", "text": "waiting on you", "tasks": []int64{}, "since": ts(asked.i("since"))}, nil
+	}
+	if len(rec) == 0 {
+		return nil, nil
+	}
+	cause, _ := rec["on"].(string)
+	if cause == "" {
+		cause = "owner" // kept before the sweep stored a cause
+	}
+	since, _ = recInt(rec["since"])
+	return map[string]any{"on": cause, "text": pyStr(rec["why"]), "tasks": []int64{}, "since": ts(since)}, nil
+}
+
+// recInt is a whole number of a decoded record.
+func recInt(v any) (int64, bool) {
+	n, ok := v.(interface{ Int64() (int64, error) })
+	if !ok {
+		return 0, false
+	}
+	i, err := n.Int64()
+	return i, err == nil
 }
 
 // taskMismatch is where a task's state and its delivery disagree, or nil, as actions.task_mismatch has it.
@@ -387,29 +480,33 @@ func taskMismatch(t row, state string, reqs []row) any {
 	return nil
 }
 
-// waitLine is what shows beside a waiting task: the reason the Python daemon's tick recorded for it and how long it
-// has stood. This daemon is the one running, so a task nothing has recorded a reason for says it is not looked at yet.
-func (e *Env) waitLine(t row, state string) (any, error) {
-	if state != "queued" && state != "doing" {
-		return nil, nil
-	}
-	m, err := queryOne(e.DB, "SELECT value FROM meta WHERE name = ?", fmt.Sprintf("taskhold:%d", t.i("id")))
+// holdRec is the record the supervisor's sweep keeps of why a waiting task waits (supervisor/holds.go); empty when there is none.
+func (e *Env) holdRec(tid int64) (map[string]any, error) {
+	m, err := queryOne(e.DB, "SELECT value FROM meta WHERE name = ?", fmt.Sprintf("taskhold:%d", tid))
 	if err != nil {
 		return nil, err
 	}
-	rec := decodeObject(m.str("value"))
+	return decodeObject(m.str("value")), nil
+}
+
+// waitLine is what shows beside a waiting task: the reason the sweep recorded for it and how long it has stood. A queued task nothing has
+// recorded a reason for says it is not looked at yet.
+func waitLine(rec map[string]any, state string) any {
+	if state != "queued" && state != "doing" {
+		return nil
+	}
 	if len(rec) == 0 {
 		if state != "queued" {
-			return nil, nil
+			return nil
 		}
-		return "waiting: the daemon has not looked at it yet - it does on its next tick", nil
+		return "waiting: the daemon has not looked at it yet - it does on its next tick"
 	}
-	since := time.Now().Unix()
-	if n, ok := rec["since"].(interface{ Int64() (int64, error) }); ok {
-		since, _ = n.Int64()
+	since, ok := recInt(rec["since"])
+	if !ok {
+		since = time.Now().Unix()
 	}
 	secs := max(time.Now().Unix()-since, 0)
-	return fmt.Sprintf("waiting: %s (for %s)", pyStr(rec["why"]), ago(secs)), nil
+	return fmt.Sprintf("waiting: %s (for %s)", pyStr(rec["why"]), ago(secs))
 }
 
 // ago is a duration in the largest unit that still says something, as infra/timefmt.ago has it.

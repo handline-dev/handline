@@ -296,6 +296,13 @@ export type Task = {
   }[];
   /** The ids of the open tasks that hold this one (block_reason names them as text); empty when nothing does. Absent from a daemon that does not send it. */
   blocked_by?: number[];
+  /** Every task this one has waited on, oldest first, with whether it is still open: blocked_by keeps only the open ones, this keeps a done one too (a discarded blocker's wait ends with it and drops out). A child task is one its parent waits on. Absent from a daemon that does not send it. */
+  waits?: {
+    task: number;
+    open: boolean;
+  }[];
+  /** Why the open task waits, as one field every view shows the same way; null when nothing waits, and for a task that is not queued or doing. hold_reason and block_reason stay until the apps read this. Absent from a daemon that does not send it. */
+  waiting?: TaskWaiting | null;
   /** The task's clock, the same object task.get gives; null once it is done or discarded. Absent from a daemon that does not send it. */
   time?: TaskClock | null;
   /** The done that waits on acceptance while the task is reported; null otherwise. Absent from a daemon that does not send it. */
@@ -304,6 +311,17 @@ export type Task = {
     evidence: string;
     at: Timestamp;
   } | null;
+};
+
+/** Why a task waits (Task.waiting). */
+export type TaskWaiting = {
+  /** The cause, one word of an open set (a client shows text for a word it does not know): task (behind its open blockers, tasks names them), founder (an open request to the founder on the task), cap (the owner's account has no free slot), wall (the owner's account is at a usage limit), owner (the owner is busy: mid-turn, a dialog, closed, another task ahead), host (reserved: the host is full; not sent until the host cap exists). */
+  on: string;
+  /** The line every view shows for it: `blocked by T<n>`, `waiting on you`, else the daemon's own reason. */
+  text: string;
+  /** The tasks it waits on, for on task (by id, also one outside the caller's scope); empty otherwise. */
+  tasks: number[];
+  since: Timestamp;
 };
 
 export type TaskDetail = Task & {
@@ -1909,6 +1927,8 @@ export interface Methods {
   from?: string;
   state?: string;
   parent?: number;
+  /** That task and every task below it, at any depth, done and discarded included (all is implied); still within the caller's scope, newest first and paged as without it. */
+  under?: number;
   /** Return rows older than this id. */
   before?: number;
   /** Default 50, at most 200. */

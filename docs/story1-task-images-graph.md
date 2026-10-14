@@ -67,7 +67,7 @@ Who may name an image: a member or the founder, any kept id (they may `attachmen
 Three things are missing, each a small addition:
 
 1. **One story in one call.** `parent` filters direct children only, so a story of three levels takes a call per level. Add `tasks.list` param `under` (task id): that task and every task below it, any depth, done and discarded included (`all` is implied), still within the caller's scope, newest first and paged as today. 1-6 reads a story with `under`, or the caller's whole board with today's params.
-2. **Waits that are over.** `blocked_by` drops a blocker once it closes, but the graph draws a done blocker too, as a ticked node with its arrow (story1-research, "The graph on PC"). The waits stay recorded (`task_blocks`), so add `Task.waits`: every task this one has waited on, `[{task, open}]`, oldest first; `blocked_by` stays as it is.
+2. **Waits that are over.** `blocked_by` drops a blocker once it closes, but the graph draws a done blocker too, as a ticked node with its arrow (story1-research, "The graph on PC"). A done blocker's wait stays recorded (`task_blocks`; a discarded blocker's wait is dropped with it), so add `Task.waits`: every task this one has waited on, `[{task, open}]`, oldest first; `blocked_by` stays as it is.
 3. **The waiting reason as one field.** Answer 7. Today it is free text in two fields plus the board's `now`. Add `Task.waiting`, `null` when nothing waits, else:
 
    ```jsonc
@@ -78,10 +78,10 @@ Three things are missing, each a small addition:
 
 **Scope** is the caller's, as for every task read: an agent sees itself and its reports, a member and the founder everything (with `everyone`). A blocker outside the caller's scope still appears in `waits` and `waiting.tasks` by id, without its row.
 
-**Fixtures.** `tasks.list` with `under` on a three-level story (every level, a done child included, and a task outside the story left out); `waits` with one open and one closed blocker; `waiting` for a task behind a blocker (`task`) and one waiting on a founder's answer (`founder`).
+**Fixtures** (`contract/fixtures/task_graph.json`). `tasks.list` with `under` on a three-level story (every level, a done child included, and a task outside the story left out); `waits` with one open and one done blocker; `waiting` for a task behind a blocker (`task`) and one waiting on a founder's answer (`founder`). `cap`, `wall` and `owner` come from the supervisor's sweep and are covered by Go tests.
 
 ## Build slices that follow
 
 1. Go: `body_parts` and the `parts` fields, the reject row of the timeline, the reference checks, keeping, path lines to agents. hl prints the path lines in `hl task show`.
-2. Go: `tasks.list` `under`, `Task.waits`, `Task.waiting` (with the stored cause). The fake daemon follows each slice.
+2. Go: `tasks.list` `under`, `Task.waits`, `Task.waiting` (with the stored cause). The fake daemon follows each slice. Done: in `contract/protocol.json`.
 3. Apps (handline.pc, phone): the image picker in the task body and memo editor, `task.reject` with the circled picture, and the graph on `under` + `waits` + `waiting`.
