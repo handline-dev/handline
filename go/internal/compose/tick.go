@@ -142,7 +142,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
 		{Name: "attachment sweep", Run: func(db.Q, int64) error { attachments.New(home).Sweep(); return nil }},
-		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Tell: tellFounder}).Check},
+		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Tell: tellFounder, Free: cfg.DiskFree}).Check},
 	}, Signalled: func() bool {
 		select {
 		case <-tc.Stop:

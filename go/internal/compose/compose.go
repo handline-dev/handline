@@ -51,6 +51,8 @@ type Config struct {
 	ConfirmTimeout time.Duration
 	// Term is the terminal host agents run in; nil is the one config.yaml names (tmux by default). Tests give a fake one.
 	Term *term.Term
+	// DiskFree is the free and total bytes of the volume holding a path, for the disk watch; nil is statfs. Tests give a low one.
+	DiskFree func(path string) (free, total int64, err error)
 }
 
 // Parts is what New builds. Sink goes to daemon.Config.Transcript, Kind to daemon.Config.Structured, Run to lifecycle.Manager.Run, Agents to
