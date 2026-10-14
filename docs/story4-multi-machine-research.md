@@ -80,6 +80,49 @@ on the worker, and moving agents between machines mid-turn (nobody in the survey
 heartbeat), a placement test beside the account cap, a "lost" state with a reason, and the queue
 reason "no machine with `<tag>` free". The admin view of story 2 gains a machine column.
 
+## 5. Leader and follower: building blocks
+
+The founder's direction: the leader writes, its state is replicated to followers, a follower is
+elected leader when the leader dies, and work goes by each node's load. Licences and archive status
+from `gh api` (2026-10-14); "general knowledge" is not checked in a doc. Today's daemon keeps one
+SQLite file through `modernc.org/sqlite` (pure Go, no cgo; `go/go.mod`).
+
+| Block | Licence | What it is | Fit |
+|---|---|---|---|
+| `hashicorp/raft` | MPL-2.0 (file-level copyleft; fine to link unmodified) | Raft library for Go: leader election, a replicated log, snapshots, your own state machine | Closest to "leader writes, followers replicate": the log entries would be the daemon's writes |
+| `etcd-io/raft` | Apache-2.0 | Raft core only: the caller supplies network, storage and timers | More work than hashicorp/raft; the same model |
+| `lni/dragonboat` | Apache-2.0 | Multi-group Raft library; last push 2025-07 | Heavier than we need; slower upstream |
+| `rqlite/rqlite` | MIT | A server: SQLite replicated with Raft, SQL over HTTP, leader writes, reads tunable (README) | Gives leader/follower for free, but the daemon would talk to rqlite instead of opening its own file: the whole db layer changes |
+| `canonical/dqlite` | LICENSE file states its own terms (API: NOASSERTION; LGPL with an exception is general knowledge, unverified) | SQLite replicated with Raft, a C library (README) | Needs cgo; the daemon is pure Go today |
+| `nats-io/nats-server` (JetStream) | Apache-2.0 | Messaging with replicated streams, Raft inside (general knowledge) | Good for events, not for SQL state |
+| `superfly/litefs`, `benbjohnson/litestream` | Apache-2.0 both | Replicate or back up a SQLite file; LiteFS has a leader lease (general knowledge); Litestream is backup | Whole-file shipping; no election of its own in Litestream |
+| `hashicorp/memberlist`, `serf` | MPL-2.0 | Gossip membership and failure detection | Useful for "who is alive" only |
+
+What the survey in section 1 adds: nobody there elects a leader; Nomad and Consul use hashicorp/raft
+and are the shape the founder describes (a Raft server set, workers that join), but Nomad is BUSL
+and Consul's licence is NOASSERTION, so we use ideas and not code.
+
+**Recommendation (a choice, not built):** do not write consensus. Pick between two:
+
+1. **`hashicorp/raft` inside the daemon.** The log carries the daemon's write calls (the same
+   `rpc` write methods apps already send), each node applies them to its own SQLite. Keeps pure Go
+   and the single-binary daemon. Cost: every write path must be a deterministic replayable command;
+   anything that touches the machine (spawning an agent, a clock) must stay outside the log.
+2. **rqlite under the daemon.** Least consensus code, but the db layer moves from a file to HTTP
+   and `modernc.org/sqlite` is replaced: a rewrite of every query site.
+
+Option 1 is the smaller rewrite of behaviour and keeps what we have; option 2 is the smaller amount
+of new concurrency code. Neither makes agents move: a running agent is a process on one machine, so a
+leader's death means its agents are lost and their tasks re-queued (section 2, point 4).
+
+**Load balancing** stays our own and small: each node reports cores, memory and slots (the story 2
+numbers) through the log or a heartbeat; the leader places new work on the node with the most free
+slots that has the task's tags. A rule, not a model.
+
+**Open for the founder:** how many nodes (Raft wants an odd number, three at least to survive one
+loss; with two machines a failed leader leaves no majority and no automatic election)? That one
+question may decide the whole shape, so ask it before choosing between 1 and 2.
+
 ## Sources
 
 `gh api repos/<r>` for every repository in the table (licence and description), and
