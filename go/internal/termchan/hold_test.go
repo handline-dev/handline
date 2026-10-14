@@ -159,8 +159,8 @@ func TestWithNobodyHoldingTheInputAnAttachedViewerResizesAndTheLastResizeWins(t 
 	}
 	toldSize(t, toPat, 90, 25)
 	toldSize(t, toSam, 90, 25)
-	if cols, rows, _ := r.h.Size("%1"); cols != 90 || rows != 25 || len(r.e.restore) != 0 {
-		t.Fatalf("the last resize wins and nothing is owed back: %dx%d %v", cols, rows, r.e.restore)
+	if cols, rows, _ := r.h.Size("%1"); cols != 90 || rows != 25 || len(r.e.restore) != 0 || r.e.unheld["%1"] != [2]int{80, 24} {
+		t.Fatalf("the last resize wins and the viewers owe back the first size: %dx%d %v %v", cols, rows, r.e.restore, r.e.unheld)
 	}
 
 	// Once someone holds the input, only they resize, and their leaving gives back the size the viewers left.
@@ -180,4 +180,60 @@ func TestWithNobodyHoldingTheInputAnAttachedViewerResizesAndTheLastResizeWins(t 
 		t.Fatalf("the holder's leaving restores 90x25, got %dx%d", cols, rows)
 	}
 	toldSize(t, toSam, 90, 25)
+}
+
+func TestAViewerMayNotResizeUnder80By24AndTheLastDetachGivesTheFirstSizeBack(t *testing.T) {
+	r := holdRig(t)
+	pat, sam := person("pat"), person("sam")
+	r.viewer(t, pat)
+	r.viewer(t, sam)
+	sized := func(c *rpc.Conn, cols, rows int) error {
+		_, err := r.e.resize(c, map[string]any{"terminal": "%1", "cols": json.Number(itoa(cols)), "rows": json.Number(itoa(rows))})
+		return err
+	}
+	size := func() [2]int { cols, rows, _ := r.h.Size("%1"); return [2]int{cols, rows} }
+	for _, wh := range [][2]int{{79, 30}, {100, 23}} {
+		if err := sized(pat, wh[0], wh[1]); gate(t, err) != "input_holder" {
+			t.Fatalf("a viewer's %dx%d, got %v", wh[0], wh[1], err)
+		}
+	}
+	if err := sized(pat, 100, 30); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.e.detach(pat, map[string]any{"terminal": "%1"}); err != nil {
+		t.Fatal(err)
+	}
+	if size() != [2]int{100, 30} {
+		t.Fatalf("sam still watches, so the size stays: %v", size())
+	}
+	if _, err := r.e.detach(sam, map[string]any{"terminal": "%1"}); err != nil {
+		t.Fatal(err)
+	}
+	if size() != [2]int{80, 24} || len(r.e.unheld) != 0 {
+		t.Fatalf("the last detach gives back 80x24: %v %v", size(), r.e.unheld)
+	}
+
+	// A holder still holding when the last attach goes keeps the size; their leaving gives back theirs, then the viewers'.
+	r.viewer(t, sam)
+	if err := sized(sam, 100, 30); err != nil {
+		t.Fatal(err)
+	}
+	if won, err := r.e.Holds.Take("ann", "person", "sam"); !won || err != nil {
+		t.Fatalf("take %v %v", won, err)
+	}
+	if err := sized(sam, 40, 10); err != nil {
+		t.Fatalf("the holder goes under the floor: %v", err)
+	}
+	if _, err := r.e.detach(sam, map[string]any{"terminal": "%1"}); err != nil {
+		t.Fatal(err)
+	}
+	if size() != [2]int{40, 10} {
+		t.Fatalf("held, the size stays: %v", size())
+	}
+	if err := r.e.Holds.Release("ann"); err != nil {
+		t.Fatal(err)
+	}
+	if size() != [2]int{80, 24} {
+		t.Fatalf("the holder's leaving with nobody attached gives back 80x24: %v", size())
+	}
 }

@@ -1,7 +1,8 @@
 """A tmux-hosted terminal for the bytes fixtures: one agent (a.bytes) at a shell prompt that understands the few commands the
 fixtures type (an echo with arithmetic, printf of the alternate-screen switch, a flood of x). It keeps what the spec asks of a
 daemon: one seq counter per attach, a snapshot that holds what was printed, output notices after the reply, a holder, a
-resize told to watchers as a snapshot, and a backlog over 1 MiB replaced by a snapshot. a.orca is a terminal whose host
+resize told to watchers as a snapshot, the size owed back to a holder and to
+the viewers, and a backlog over 1 MiB replaced by a snapshot. a.orca is a terminal whose host
 serves text only. The state is per FakeDaemon, so one test's terminal is not another's."""
 from __future__ import annotations
 
@@ -41,6 +42,7 @@ class World:
     def __init__(self):
         self.lock, self.attaches, self.holder = threading.RLock(), [], None
         self.size, self.before, self.alt, self.line = (80, 24), None, False, ""
+        self.unheld = None      # the size before the viewers' first resize, given back when the last attach goes unheld
         self.rows, self.scroll = ["$ "], ["\x1b[32mwelcome\x1b[0m"]
 
     def snapshot_fields(self):
@@ -153,6 +155,14 @@ def leave(w, ctx):
     detach(w, ctx)
     if w.holder == ctx.id:
         take(ctx, "input.release")
+    last_left(w)
+
+
+def last_left(w):
+    """With no attach left and nobody holding the input, the size from before the viewers' first resize comes back."""
+    with w.lock:
+        if not w.attaches and w.holder is None and w.unheld:
+            w.size, w.unheld = w.unheld, None
 
 
 def detach(w, ctx, fmt=None):
@@ -181,6 +191,7 @@ def take(ctx, method):
                 w.tell("snapshot", reason="resize", **w.snapshot_fields())
                 w.tell("resize", cols=w.size[0], rows=w.size[1])
             w.tell("holder", holders=w.holders())
+            last_left(w)
     return "ok", {"accepted": True, "said": "done"}
 
 
@@ -190,6 +201,7 @@ def terminal(ctx, method, params):
     with w.lock:
         if method == "terminal.detach":
             detach(w, ctx, params.get("format"))
+            last_left(w)
             return "ok", {}
         if method == "terminal.history":
             if params.get("format") not in ("bytes", "styled"):
@@ -202,7 +214,11 @@ def terminal(ctx, method, params):
         if w.holder != ctx.id and not free:
             return "fail", REFUSED
         if method == "terminal.resize":
-            if w.before is None and not free:       # a size set while nobody holds is kept: no restore
+            if free and (params["cols"] < 80 or params["rows"] < 24):
+                return "fail", REFUSED
+            if free and w.unheld is None:
+                w.unheld = w.size
+            elif not free and w.before is None:
                 w.before = w.size
             w.size = (params["cols"], params["rows"])
             w.tell("snapshot", reason="resize", **w.snapshot_fields())
