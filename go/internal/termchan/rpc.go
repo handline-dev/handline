@@ -230,6 +230,24 @@ type attaches struct {
 	m  map[[2]string]func()
 }
 
+// attached is whether c watches handle in any format.
+func (e *Env) attached(c *rpc.Conn, handle string) bool {
+	e.mu.Lock()
+	a := e.conns[c]
+	e.mu.Unlock()
+	if a == nil {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for k := range a.m {
+		if k[0] == handle {
+			return true
+		}
+	}
+	return false
+}
+
 func (e *Env) hold(c *rpc.Conn, handle, format string, leave func()) {
 	e.mu.Lock()
 	a := e.conns[c]
