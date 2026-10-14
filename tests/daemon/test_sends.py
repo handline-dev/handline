@@ -80,11 +80,9 @@ def test_an_ask_at_a_blocked_screen_waits_as_a_pending_row_and_is_typed_once_cle
 
 def test_a_task_kind_ask_keeps_the_one_at_a_time_rule(home: Path) -> None:
     sent = _world(home)
-    hand_edit_team(DESIGN_TEAM.replace(
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }'))
+    hand_edit_team(DESIGN_TEAM)
     reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-                   "target": "backend", "body": "a piece of work"})
+                   "target": "backend", "body": "a piece of work", "kind": "task"})
     check("ask: a task-kind ask is accepted", reply["ok"], str(reply))
     check("ask: but not typed at once - it waits for an agent that is free", sent == [], str(sent))
 
@@ -94,9 +92,7 @@ def test_a_task_handed_to_an_agent_holding_a_doing_task_is_typed_on_arrival(home
     with a doing task sat queued behind it for good - the one-at-a-time rule that keeps a plain task
     waiting for a free agent, and a screen that is never idle. It is typed at once, like a say."""
     sent = _world(home)
-    hand_edit_team(DESIGN_TEAM.replace(
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }'))
+    hand_edit_team(DESIGN_TEAM)
     con = db.connect()
     try:
         ok, msg, held = actions.task_new("product", "backend", "the one it holds", "the one it holds")
@@ -237,21 +233,19 @@ def test_an_agent_with_no_terminal_is_started_and_told_once_by_tell_now(home: Pa
 
 def test_only_what_has_not_reached_the_agent_counts(home: Path) -> None:
     sent = _world(home)
-    hand_edit_team(DESIGN_TEAM.replace(
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }')
+    hand_edit_team(DESIGN_TEAM
         .replace('  - { from: "*",         to: "archivist",', '  - { from: "reviewer",  to: "eng.*",        relation: peer,  response: async }\n  - { from: "*",         to: "archivist",'))
     con = db.connect()
     try:
         agents.register("reviewer")
         first = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-                       "target": "backend", "body": "a task"})
+                       "target": "backend", "body": "a task", "kind": "task"})
         check("in: a task is told when the agent is free - one at a time",
               first["ok"] and db.unreached_count(con, "backend") == 1 and sent == [], str((first, sent)))
         termmod.typeable_now = lambda h: True
         dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
         second = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-                        "target": "backend", "body": "another task"})
+                        "target": "backend", "body": "another task", "kind": "task"})
         check("in: the task told is not counted, the one waiting behind it is",
               second["ok"] and len(sent) == 1 and db.unreached_count(con, "backend") == 1,
               str((sent, db.unreached_count(con, "backend"))))

@@ -242,12 +242,7 @@ def _review_pingpong(con, chain_id: str | None, target: str, files: str | None) 
     return None
 
 
-# T292/T293: the `kind` overrides `ask` accepts for a task or a say, regardless
-# of what the routing edge itself carries. `enforce_edges` (daemon delivery)
-# must not treat that override as a changed edge, so it skips the kind half of
-# its re-check for these - it still checks relation and response.
 SAY_KIND = "say"
-OVERRIDE_KINDS = {"task", SAY_KIND}
 
 
 # `speaker=` left out means "whoever's environment this runs in" (OCP_AGENT);
@@ -346,13 +341,13 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
             con.execute("BEGIN IMMEDIATE")
         try:
             rid = db.add_request(con, requester, target, body, files, decision.relation,
-                                 decision.response, kind or decision.kind,
+                                 decision.response, kind or ("task" if target == HUMAN else None),
                                  depth, parent_id,
                                  chain_id=chain_id)
             if send_now:
                 db.mark_send_now(con, rid)
-            if card and target == HUMAN and kind is None and decision.kind == "task":
-                # What is asked of the founder is a decision task, and this row its card;
+            if card and target == HUMAN and kind is None:
+                # What is asked of the founder is a decision task, whatever the edge says, and this row its card;
                 # `task new` opens its own task and says `card=False`.
                 tid = db.new_task(con, textsafe.oneline(body.strip().split("\n", 1)[0])[:80] or "a decision",
                                   HUMAN, requester, expects="decision")
