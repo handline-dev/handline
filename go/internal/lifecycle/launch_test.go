@@ -23,7 +23,6 @@ func (fakeDriver) Binary() string                     { return "/bin/vendor" }
 func (fakeDriver) Hooks() Hooks                       { return nil }
 func (fakeDriver) AutoModeArgv() []string             { return []string{"--permission-mode", "auto"} }
 func (fakeDriver) PermissionModeArgv(string) []string { return nil }
-func (fakeDriver) SkipPermissionsArgv() []string      { return []string{"--skip"} }
 func (fakeDriver) LaunchArgv(exe string, o LaunchArgs) []string {
 	return []string{exe, "--effort", o.Effort, "--disallowed", o.Disallowed}
 }
