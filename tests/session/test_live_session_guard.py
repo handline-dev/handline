@@ -1,5 +1,5 @@
-"""Tests: an exited session whose composer is still drawn is not a session, a process whose environment `ps` withholds
-is only "not ours" when it is another user's, and what the diagnosis and an unreadable process table say.
+"""Tests: a process whose environment `ps` withholds is only "not ours" when it is another user's, and what the
+diagnosis and an unreadable process table say.
 
 Run on its own: tools/test.sh tests/session/test_live_session_guard.py   (all areas: tools/suite.sh)
 """
@@ -13,28 +13,6 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
 SHELL = ["$ "]
-
-
-# What was seen on one agent: claude has exited, its composer is still drawn above its
-# exit banner and the shell that is left. Rebuilt from the report, not captured.
-EXITED = [*COMPOSER_EMPTY, "", "Resume this session with:", "claude --resume cddd4094-e2a3-4f90-9ac2-c3b43d630f3d",
-          "user@host work % "]
-IF_CONTINUATION = [*EXITED, "if> "]
-
-
-def test_an_exited_session_whose_composer_is_still_drawn_is_not_a_session(home: Path) -> None:
-    _daemon_home(home, 20)
-    for name, rows, want in (
-            ("the exit banner and a prompt under the old composer", EXITED, False),
-            ("only the exit banner under it", [*COMPOSER_EMPTY, "Resume this session with:"], False),
-            ("a prompt under it and no banner", [*COMPOSER_EMPTY, "user@host work % "], False),
-            ("zsh waiting on an unclosed quote", IF_CONTINUATION, False),
-            ("dquote> continuation", [*COMPOSER_EMPTY, "dquote> "], False),
-            ("a live composer with its statusline ending in a percent", COMPOSER_EMPTY, True),
-            ("a live composer typed into", _composer_typed("echo $ HOME %"), True)):
-        termmod._screen = lambda h, limit=40, r=rows: _screen_of(r)
-        check(f"exited: {name} reads as {'a session' if want else 'no session'}",
-              termmod.session_on_screen("term_x") is want, str(rows[-2:]))
 
 
 def test_a_process_whose_environment_ps_withholds_is_not_ours_only_if_it_is_not_ours(home: Path) -> None:
@@ -200,7 +178,6 @@ def test_a_process_table_that_cannot_be_read_says_why_once_per_episode(home: Pat
 
 def main() -> int:
     def tests(td):
-        run(lambda: test_an_exited_session_whose_composer_is_still_drawn_is_not_a_session(Path(td) / "g12"))
         run(lambda: test_a_process_whose_environment_ps_withholds_is_not_ours_only_if_it_is_not_ours(Path(td) / "g6"))
         run(lambda: test_the_diagnosis_names_each_session_looking_process_and_leaks_no_environment(Path(td) / "g10"))
         run(lambda: test_a_preamble_with_a_dash_p_in_it_does_not_make_a_session_headless(Path(td) / "g11"))

@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import re
 import shlex
-from dataclasses import dataclass
 from pathlib import Path
 
 from ..infra import paths, protected, sealed, textsafe
@@ -240,30 +239,6 @@ def kind(cfg: dict) -> str:
     return out if vendor == DEFAULT_VENDOR else f"{vendor} {out}"
 
 
-def is_structured(name: str) -> bool:
-    """Is this agent a structured session, driven by the Go daemon (agent.yaml `structured: true`)?
-
-    The Python daemon does not act on such an agent: no tick, delivery, wake, close or handoff. Everything that only reads or lists
-    agents still sees it. The key is not `mode`, which is the permission mode (auto, plan, ...) a person sets and changes: a structured
-    switch under that name would be overwritten by choosing a mode. Read the same way go/internal/compose KindFromYAML reads it, so the
-    two daemons agree on whose the agent is: the first top-level `structured:` line, a trailing comment and quotes dropped, true or not.
-    An agent.yaml that cannot be read is not structured."""
-    try:
-        text = (paths.agents_dir() / name / "agent.yaml").read_text()
-    except (OSError, UnicodeDecodeError):
-        return False
-    for line in text.split("\n"):
-        if line.startswith("structured:"):
-            value = line[len("structured:"):].split("#", 1)[0].strip().strip("\"'")
-            return value.lower() == "true"
-    return False
-
-
-def driven() -> list[str]:
-    """The registered agents this daemon acts on: every one but the structured ones, which the Go daemon drives."""
-    return [a for a in paths.list_agents() if not is_structured(a)]
-
-
 def agent_file(name: str) -> Path:
     return paths.agent_dir(name) / "agent.yaml"
 
@@ -449,66 +424,3 @@ def current_account(name: str, con=None) -> str | None:
         return current_account(name, own)
     finally:
         own.close()
-
-
-@dataclass
-class AccountReading:
-    account: str
-    # "recorded" - a launch, or the process check wrote it (the tick
-    # reconciles it with the process); "reported" - the agent's own
-    # fresh snapshot named it, better evidence than a merely assumed value;
-    # "assumed" - a guess written before a launch had a chance to confirm it,
-    # never a destination, never a fact.
-    source: str
-
-
-def account_reading(name: str, con=None) -> AccountReading | None:
-    """Which account this agent's usage is actually landing on right now,
-    and how sure of it we are - for reading, never for choosing where a
-    launch or a resume goes (`choose_account`, `current_account` do that).
-    None when nothing says.
-
-    Three sources, tried in order: the db column when it is itself recorded
-    rather than merely assumed there; failing that, the agent's own status
-    snapshot, which reports where its running session actually is - fresher
-    evidence than a column nothing has confirmed yet, and unavailable in
-    exactly the way `reported_account` already refuses a stale or absent one
-    (a closed agent's snapshot among them, stale by construction); failing
-    that, whatever the column already holds if something is there at all.
-    Only the first counts as fact.
-    """
-    from .. import db
-    from ..usage import status
-    if con is not None:
-        row = db.get_agent_state(con, name)
-    else:
-        own = db.connect()
-        try:
-            row = db.get_agent_state(own, name)
-        finally:
-            own.close()
-    if row and row["account"] and row["account_source"] != "assumed":
-        return AccountReading(row["account"], "recorded")
-    reported = status.reported_account(name)
-    if reported:
-        return AccountReading(reported, "reported")
-    if row and row["account"]:
-        return AccountReading(row["account"], "assumed")
-    return None
-
-
-def repo_of(name: str) -> str | None:
-    """Where this agent works, when it has been told.
-
-    The one fact the daemon is missing to start an agent that has none: it can
-    make a worktree and a terminal, but not choose the repository. Without it,
-    work sent to an agent with no terminal waits for a human to press a key,
-    which is the one thing an agent cannot do for another agent.
-    """
-    try:
-        repo = (read(name) or {}).get("repo")
-    except Exception:  # noqa: BLE001
-        return None
-    return str(repo) if repo else None
-
-

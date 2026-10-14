@@ -10,7 +10,7 @@ agent is a clean sample; several are their mean, and are filed under a model or
 an effort only when all of them share it, because a rise cannot be split between
 kinds. A stretch is dropped when a window rolled over inside it, or when it
 held an agent's first turn since a SessionStart or moved_account - that turn's
-cold start is `measure.py`'s to price, not a rate to fold into steady work.
+cold start is the daemon's cold-start measure to price, not a rate to fold into steady work.
 Whether it rose is never a reason to drop one: keeping only the busy stretches
 would price every agent higher than it is.
 
@@ -116,7 +116,7 @@ def observe(con, acct: str, active: list[str], st, firsts: "set[str]" = frozense
     """One tick's look at an account: `active` are the agents mid-turn on it,
     `st` its reading, and `firsts` those of them in their very first turn since
     a SessionStart or moved_account (`load.first_turn_agents`) - a cold start
-    `measure.py` already prices, so it must not also be priced here as steady
+    the daemon's cold-start measure already prices, so it must not also be priced here as steady
     work. Extends the open stretch, or closes it when who is working changed or
     the window rolled over, and files a sample when it was long enough and
     none of it was a cold start."""

@@ -156,9 +156,6 @@ def test_daemon_ignores_stale_status(home: Path) -> None:
     check("stale snapshot: assignable() refuses", not st.assignable()[0])
     check("stale snapshot: pct is not trusted for triggers", st.short_trusted is None,
           str(st.short_trusted))
-    t = triggers.evaluate(st.short_trusted, st.trusted_ctx_used)
-    check("stale snapshot: an unreadable figure is not a wall, so nothing fires on it",
-          not t.fired, t.reason)
 
 
 def test_ocp_presses_only_the_key_that_declines(home: Path) -> None:
@@ -933,47 +930,6 @@ def test_every_session_start_is_kept_with_its_cause_and_what_it_was_given(home: 
         con.close()
 
 
-def test_the_previous_sessions_transcript_path_can_come_from_its_own_hook_event(home: Path) -> None:
-    """T169: when the status snapshot names no path, the newest hook event of a session that was
-    talked to supplies it - but only for the very session that is being restarted."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    f = paths.agent_status_file("backend")
-    f.parent.mkdir(parents=True, exist_ok=True)
-
-    def snapshot(**fields) -> None:
-        f.write_text(json.dumps({"account": "beta", "collected_at": int(time.time()), **fields}))
-
-    try:
-        db.add_event(con, "backend", "SessionStart",
-                     {"session_id": "sess-0", "transcript_path": "/tmp/sess-0.jsonl"})
-        check("previous session: a session that was never talked to is not the one restarted from",
-              handoffmod.previous_session(con, "backend", "beta") == (None, None),
-              str(handoffmod.previous_session(con, "backend", "beta")))
-
-        db.add_event(con, "backend", "Stop", {"session_id": "sess-1", "transcript_path": "/tmp/sess-1.jsonl"})
-        check("previous session: with no snapshot, id and path both come from the event",
-              handoffmod.previous_session(con, "backend", "beta") == ("sess-1", "/tmp/sess-1.jsonl"),
-              str(handoffmod.previous_session(con, "backend", "beta")))
-
-        snapshot(session_id="sess-1")
-        check("previous session: a snapshot with the id but no path takes the event's path for that id",
-              handoffmod.previous_session(con, "backend", "beta") == ("sess-1", "/tmp/sess-1.jsonl"),
-              str(handoffmod.previous_session(con, "backend", "beta")))
-
-        snapshot(session_id="sess-2")
-        got = handoffmod.previous_session(con, "backend", "beta")
-        check("previous session: the event's path is never lent to a different session",
-              got[0] == "sess-2" and got[1] != "/tmp/sess-1.jsonl", str(got))
-
-        snapshot(session_id="sess-2", transcript_path="/tmp/sess-2.jsonl")
-        check("previous session: a snapshot that names both is used as it is",
-              handoffmod.previous_session(con, "backend", "beta") == ("sess-2", "/tmp/sess-2.jsonl"),
-              str(handoffmod.previous_session(con, "backend", "beta")))
-    finally:
-        con.close()
-
-
 def test_orca_failing_to_list_terminals_reads_as_unknown() -> None:
     """The sweep's unknown-versus-empty distinction has to survive into the implementation, not only the fake."""
     real_run = orcacli._run
@@ -1018,25 +974,6 @@ def test_a_refused_launch_leaves_its_prompt(home: Path) -> None:
         check("launch: a launch that goes ahead takes it", not f.exists())
     finally:
         launch.build, os.execve, launch._record_terminal = realb, realx, realr
-
-
-def test_a_walled_wake_with_no_reset_reads_unknown(home: Path) -> None:
-    """A snapshot with no `reset_5h` still reports a wall - the account read
-    95% either way - it just cannot say when that clears."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        db.set_closed(con, "backend", "sess-wall")
-        support.something_waiting(con, "backend")
-        db.add_request(con, "reviewer", "backend", "look at this", None,
-                       "peer", "async", None, 0, None)
-        write_status(home, "alpha", pct_5h=100, pct_7d=10, ctx_pct=5)
-        row = db.get_agent_state(con, "backend")
-        reason = launch.wake_wait_reason("backend", row, con)
-        check("walled: no reset_5h in the snapshot reads as unknown, not a crash",
-              reason == "waiting for alpha's 5h window (100%, rolls over unknown)", reason)
-    finally:
-        con.close()
 
 
 def test_the_claude_driver_reads_when_a_keychain_credential_changed(home: Path) -> None:
@@ -1264,10 +1201,8 @@ def main() -> int:
         run(lambda: test_service_log_rotation(Path(td) / 'svc6'))
         run(lambda: test_a_config_that_will_not_parse_is_never_overwritten_by_a_setting(Path(td) / 'cfgguard'))
         run(lambda: test_every_session_start_is_kept_with_its_cause_and_what_it_was_given(Path(td) / 'keephand'))
-        run(lambda: test_the_previous_sessions_transcript_path_can_come_from_its_own_hook_event(Path(td) / 'prevsess'))
         skip(lambda: test_orca_failing_to_list_terminals_reads_as_unknown(), ORCA_UNMAINTAINED)
         run(lambda: test_a_refused_launch_leaves_its_prompt(Path(td) / 'launchrefused'))
-        run(lambda: test_a_walled_wake_with_no_reset_reads_unknown(Path(td) / 'walledunknown'))
         run(lambda: test_the_claude_driver_reads_when_a_keychain_credential_changed(Path(td) / 'mdat'))
         run(lambda: test_who_is_asking_is_not_guessed(Path(td) / 'whoasks'))
         run(lambda: test_a_launch_records_its_fingerprint_and_says_when_it_cannot(Path(td) / 'recfp'))

@@ -200,6 +200,45 @@ def test_record_from_stdin_denies_through_claudes_own_format(home: Path) -> None
           _hook("PreToolUse", agent="", **call) == "{}")
 
 
+def test_an_agent_with_no_task_may_write_its_own_handoff_note_and_nothing_else(home: Path) -> None:
+    """The idle close asks for a handoff note even of an agent that holds no task."""
+    _daemon_home(home, 20)
+    edittask.set_enforced(True)
+    agents.register("other")
+    mine = paths.handoff_note_file("backend")
+    # The test home is under $TMPDIR, which is exempt by itself: point it elsewhere, or
+    # every case below would pass for that reason and prove nothing about the note.
+    real_tmp = os.environ.get("TMPDIR")
+    os.environ["TMPDIR"] = str(home.parent / "not-the-home")
+    try:
+        _the_note_gate(home, mine)
+    finally:
+        if real_tmp is None:
+            os.environ.pop("TMPDIR", None)
+        else:
+            os.environ["TMPDIR"] = real_tmp
+
+
+def _the_note_gate(home: Path, mine: Path) -> None:
+
+    def verdict(path: Path, tool: str = "Write") -> str:
+        out = json.loads(_hook("PreToolUse", tool_name=tool, tool_input={"file_path": str(path)}) or "{}")
+        return out.get("hookSpecificOutput", {}).get("permissionDecision", "allowed")
+
+    check("note: through the hook, its own handoff.md is let through", verdict(mine) == "allowed", verdict(mine))
+    check("note: so is an Edit of it", verdict(mine, "Edit") == "allowed")
+    check("note: another agent's handoff.md is not", verdict(paths.handoff_note_file("other")) == "deny")
+    for name in ("agent.yaml", "handoff.md.bak", "sub/handoff.md", "notes.md"):
+        check(f"note: nor is {name} in its own folder", verdict(mine.parent / name) == "deny", name)
+    check("note: nor any other file", verdict(home / "agents" / "handoff.md") == "deny"
+          and verdict(Path("/repo/real/handoff.md")) == "deny")
+    mine.parent.mkdir(parents=True, exist_ok=True)
+    target = home / "elsewhere.txt"
+    target.write_text("x")
+    mine.symlink_to(target)
+    check("note: a link in its place is not a way to write somewhere else", verdict(mine) == "deny")
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_no_current_task_is_a_reason_only_once_enforced(Path(td) / 'et0'))
@@ -209,6 +248,7 @@ def main() -> int:
         run(lambda: test_the_plan_mode_folder_is_exempt_but_no_name_match_elsewhere(Path(td) / 'et2b'))
         run(lambda: test_the_edit_gate_enforce_switch_is_the_founders_to_flip(Path(td) / 'et3'))
         run(lambda: test_record_from_stdin_denies_through_claudes_own_format(Path(td) / 'et4'))
+        run(lambda: test_an_agent_with_no_task_may_write_its_own_handoff_note_and_nothing_else(Path(td) / 'et6'))
         run(lambda: _check_hook_guard_fixture(Path(td) / 'et7'))
         run(lambda: test_the_go_switches_are_the_founders_and_off_until_set(Path(td) / 'et8'))
     return run_area(tests)

@@ -1714,9 +1714,6 @@ def test_the_opencode_driver(home: Path) -> None:
         mem = paths.account_dir("alpha") / ".claude" / "projects" / "-tmp-a-b"
         (mem / "memory").mkdir(parents=True)
         (mem / "sess1.jsonl").write_text(_call_line("req_alpha", 10))
-        check("opencode: a transcript is still found on claude's account past it",
-              handoffmod.find_transcript("sess1", "zai") == mem / "sess1.jsonl",
-              str(handoffmod.find_transcript("sess1", "zai")))
         found = collect.locate("/tmp/a/b")
         check("opencode: and the collector's search passes over it to claude's",
               found is not None and found.account == "alpha", str(found))
@@ -1739,14 +1736,14 @@ def test_the_opencode_driver(home: Path) -> None:
 def test_an_opencode_session_under_ocp(home: Path) -> None:
     """Each part measured on opencode 1.18.32: the
     preamble reaches the session as an instructions file, the start prompt
-    as --prompt, Agent's denial as opencode's task permission; /new and
-    /exit are its commands; and idle and what is in the way come from its
-    screen, a still frame being no proof that its turn has ended."""
+    as --prompt, Agent's denial as opencode's task permission; and idle and
+    what is in the way come from its screen, a still frame being no proof
+    that its turn has ended."""
     os.environ["OCP_HOME"] = str(home)
     drv = vendors.get("opencode")
     drv.binary = lambda: "/x/bin/opencode"
     drv.credential_present = lambda config_dir: True
-    real = {n: getattr(termmod, n) for n in ("_screen", "alive", "send", "SCREEN_POLL_S")}
+    real = {n: getattr(termmod, n) for n in ("_screen", "SCREEN_POLL_S")}
     real_execve, real_record = os.execve, launch._record_terminal
     real_settle = (tmuxbackend.IDLE_SETTLE_S, tmuxbackend.IDLE_POLL_S)
     try:
@@ -1840,23 +1837,6 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
         check("opencode session: a pane tmux cannot capture is not idle", not termmod.wait_idle("%1", 300))
         termmod._screen = lambda h: (_ for _ in ()).throw(AssertionError("claude screen read"))
         check("opencode session: a claude terminal is idle on the still frame alone", termmod.wait_idle("%2", 300))
-
-        # /new and /exit, typed only where nothing is in the way.
-        sent: list[tuple[str, str]] = []
-        termmod.alive = lambda h: True
-        termmod.send = lambda h, text, enter=True: (sent.append((h, text)), (True, ""))[1]
-        termmod._screen = lambda h: _screen_of(OC_IDLE if h == "%1" else COMPOSER_EMPTY)
-        for h in ("%1", "%2"):
-            termmod.clear_context(h, wait=False)
-            termmod.close_session(h, wait=False)
-        check("opencode session: its clear is /new and its exit /exit; claude's are unchanged",
-              sent == [("%1", "/new"), ("%1", "/exit"),
-                       ("%2", "/clear"), ("%2", "/exit")], str(sent))
-        termmod._screen = lambda h: _screen_of(OC_PERMISSION)
-        sent.clear()
-        ok, why = termmod.clear_context("%1", wait=False)
-        check("opencode session: nothing is typed at a permission request",
-              not ok and sent == [] and "not typing /new" in why, why)
     finally:
         for n, f in real.items():
             setattr(termmod, n, f)
@@ -1896,13 +1876,6 @@ def test_shared_account_context_isolation(home: Path) -> None:
           (a.ctx_pct, b.ctx_pct) == (70, 5), f"a={a.ctx_pct} b={b.ctx_pct}")
     check("shared account: rate limits are still shared",
           a.short.pct == b.short.pct == 30, f"a={a.short.pct} b={b.short.pct}")
-
-    # The context trigger must fire for the full agent and not for the other.
-    ta = triggers.evaluate(a.short.pct, a.ctx_used)
-    tb = triggers.evaluate(b.short.pct, b.ctx_used)
-    check("shared account: the full agent's context trigger fires",
-          ta.fired and ta.kind == "context", ta.reason)
-    check("shared account: the other agent's does not", not tb.fired, tb.reason)
 
     # An agent with no session file of its own must not borrow one.
     agents.register("ag_c")

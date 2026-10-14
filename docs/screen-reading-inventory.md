@@ -130,7 +130,7 @@ The screen key is `Resume this session with` (`term/composer.go:81`), or a shell
 
 ## Python path left on main
 
-The Python hook path (`handline/session/events.py`, for every event but Pre/PostToolUse) reads no screen. The `hl` verbs the Go `hl` does not answer still reach Python code that does, with the same patterns as above (`handline/session/term.py:456` and on): trust and idle in `handline/actions/details.py:321`; the trust dialog in `handline/actions/dialogs.py:42`; prompts in `handline/actions/prompt_blocks.py:114`; blockers and the usage limit in `handline/session/blocked.py:201`-`:357`; readiness in `handline/team/spawn.py:326`. The modules under `handline/daemon/` also read the screen, but nothing runs them once the Python daemon is gone; they are listed only to be deleted.
+The Python hook path (`handline/session/events.py`, for every event but Pre/PostToolUse) reads no screen. The `hl` verbs the Go `hl` does not answer still reach Python code that does, with the same patterns as above (`handline/session/term.py:456` and on): trust and idle in `handline/actions/details.py:321`; the trust dialog in `handline/actions/dialogs.py:42`; prompts in `handline/actions/prompt_blocks.py:114`. The Python daemon's modules that read it are deleted.
 
 ## No replacement yet
 

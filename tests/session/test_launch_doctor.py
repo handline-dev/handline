@@ -1024,59 +1024,6 @@ def test_hl_spawn_and_unstall_ask_the_go_daemon(tmp: Path) -> None:
     check("unstall: a refusal fails and says why", rc == 1 and "not STALLED (IDLE)" in out, f"{rc} {out}")
 
 
-def test_spawn_base_selection(tmp: Path) -> None:
-    """Branching from the stale side silently loses work, so pick_base must not
-    guess - and must refuse outright when the two have diverged."""
-    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
-               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
-    run = lambda cwd, *a: subprocess.run(["git", *a], cwd=cwd, capture_output=True, env=env)  # noqa: E731
-
-    origin = tmp / "origin"
-    origin.mkdir(parents=True)
-    run(origin, "init", "-q", "-b", "main")
-    (origin / "f.txt").write_text("base\n")
-    run(origin, "add", "-A"); run(origin, "commit", "-qm", "base")
-
-    work = tmp / "work"
-    subprocess.run(["git", "clone", "-q", str(origin), str(work)], capture_output=True)
-
-    ref, why = spawnmod.pick_base(work, "main")
-    check("spawn: in sync, uses the local base", ref == "main", f"{ref} ({why})")
-
-    # Local ahead: branching from origin/main would drop the local commits.
-    (work / "f.txt").write_text("local work\n")
-    run(work, "add", "-A"); run(work, "commit", "-qm", "local only")
-    ref, why = spawnmod.pick_base(work, "main")
-    check("spawn: local ahead, branches from local", ref == "main", f"{ref} ({why})")
-    check("spawn: says why", "leads by 1" in why, why)
-
-    # Remote ahead only.
-    work2 = tmp / "work2"
-    subprocess.run(["git", "clone", "-q", str(origin), str(work2)], capture_output=True)
-    (origin / "f.txt").write_text("remote work\n")
-    run(origin, "add", "-A"); run(origin, "commit", "-qm", "remote only")
-    ref, why = spawnmod.pick_base(work2, "main")
-    check("spawn: remote ahead, branches from origin", ref == "origin/main", f"{ref} ({why})")
-
-    # Diverged: refuse rather than pick a side.
-    (work2 / "other.txt").write_text("diverge\n")
-    run(work2, "add", "-A"); run(work2, "commit", "-qm", "local diverge")
-    ref, why = spawnmod.pick_base(work2, "main")
-    check("spawn: diverged, refuses instead of guessing", ref is None, f"{ref} ({why})")
-    check("spawn: tells the human to merge first", "Merge" in why or "merge" in why, why)
-
-    # T483: a repo whose branch is not `main` (legacy's) must not be handed `main`.
-    other = tmp / "other"
-    other.mkdir()
-    run(other, "init", "-q", "-b", "trunk")
-    ref, why = spawnmod.pick_base(other, "main")
-    check("spawn: no commit at all, refuses with a plain reason", ref is None and "first commit" in why, why)
-    (other / "f.txt").write_text("x\n")
-    run(other, "add", "-A"); run(other, "commit", "-qm", "first")
-    ref, why = spawnmod.pick_base(other, "main")
-    check("spawn: no main, branches from the checked-out branch", ref == "trunk", f"{ref} ({why})")
-
-
 def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
     """Inside a window usage only rises, so a carried figure is a floor - and a
     floor at the wall is at the wall. Reading the raw field let a launch start
@@ -1634,6 +1581,18 @@ def test_allow_home_writes_reads_entries_as_claude_code_does(home: Path) -> None
             os.environ["HOME"] = old_home
 
 
+def test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(home: Path) -> None:
+    """`state_hooks()` is the one fact hooks, init and doctor ask: claude has them, opencode and a second
+    vendor do not."""
+    use_home(home)
+    check("state hooks: claude has them", vendors.get("claude").state_hooks() is not None)
+    check("state hooks: opencode has none - its screen is the witness",
+          vendors.get("opencode").state_hooks() is None)
+    check("state hooks: the list the commands loop over is claude's alone",
+          [type(h).__name__ for h in vendors.state_hooks()] == ["ClaudeHooks"],
+          str(vendors.state_hooks()))
+
+
 def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) -> None:
     """The check that has to fire when `observe.is_session` stops matching - and
     stay quiet in the states that are not that. It fires on a status line still
@@ -2146,7 +2105,6 @@ def main() -> int:
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_init_keeps_the_lock_file_out_of_the_home_repo(Path(td) / 'd6e'))
         run(lambda: test_doctor_service_check(Path(td) / 'svc7'))
-        run(lambda: test_spawn_base_selection(Path(td) / 'spawn'))
         run(lambda: test_hl_spawn_and_unstall_ask_the_go_daemon(Path(td) / 'hlspawn'))
         run(lambda: test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj'))
         run(lambda: test_doctor_checks_team_yaml_and_that_its_agents_are_registered(Path(td) / 'docteam'))
@@ -2162,6 +2120,7 @@ def main() -> int:
         run(lambda: test_allow_home_socket_adds_one_path_and_keeps_the_rest(Path(td) / 'homes'))
         run(lambda: test_allow_safe_commands_merges_into_an_empty_and_an_existing_settings_file(Path(td) / 'safecmd'))
         run(lambda: test_allow_home_writes_reads_entries_as_claude_code_does(Path(td) / 'homew'))
+        run(lambda: test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(Path(td) / 'statehooks'))
         run(lambda: test_doctor_says_when_the_record_and_the_process_table_disagree(Path(td) / 'docsess'))
         run(lambda: test_doctor_and_ps_report_a_drifted_launch(Path(td) / 'docdrift'))
         run(lambda: test_venv(Path(td) / 'venvhome'))

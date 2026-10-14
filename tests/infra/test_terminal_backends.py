@@ -102,15 +102,15 @@ def test_the_idle_wait_is_given_the_looked_up_drivers_screen_reading(home: Path)
         def wait_idle(self, handle, timeout_ms, turn_on_screen=None):
             self.reading = turn_on_screen
             return True
-    host, real = Watching(), termmod._lookup_driver
+    host, real = Watching(), termmod._driver_for
     claude = vendors.get("claude")
     backends.use(host)
-    termmod._lookup_driver = lambda handle: claude
+    termmod._driver_for = lambda handle: claude
     try:
         check("idle: the layer hands the host the driver's own turn_on_screen",
               termmod.wait_idle("h1", 1000) is True and host.reading == claude.turn_on_screen)
     finally:
-        termmod._lookup_driver = real
+        termmod._driver_for = real
     oc = vendors.get("opencode")
     check("idle: opencode reads a turn on its own screen, and none on an idle or a missing one",
           oc.turn_on_screen(OC_WORKING) is True and oc.turn_on_screen(OC_IDLE) is False
@@ -336,23 +336,18 @@ def test_the_terminal_layer_reaches_the_host_only_through_the_backend(home: Path
     backends.use(host)
     check("layer: available, handles and live terminals come from the backend",
           termmod.available() and termmod.terminal_handle() == "h-own" and termmod.worktree_id() == "/wt/own"
-          and termmod.live_terminals() == {"h1", "h2"} and termmod.alive("h1") and not termmod.alive("h3"))
-    check("layer: a new terminal's handle, and with the reason",
+          and termmod.live_terminals() == {"h1", "h2"})
+    check("layer: a new terminal's handle",
           termmod.create_terminal("cmd", cwd="/w", title="t") == "h-new"
-          and termmod.open_terminal("cmd", cwd="/w", title="t") == ("h-new", "")
           and host.calls[-1] == ("create", "cmd", "/w", "t"))
     ok, _ = termmod.send("h1", "hello")
-    ok2, _ = termmod.submit("h1", "task", 30)
-    check("layer: send and submit are the backend's send",
-          ok and ok2 and ("send", "h1", "hello", True, None) in host.calls
-          and ("send", "h1", "task", True, 30) in host.calls, str(host.calls))
+    check("layer: send is the backend's send", ok and ("send", "h1", "hello", True, None) in host.calls, str(host.calls))
     check("layer: a screen read and its text come from the backend",
           termmod._screen("h1", 12) == host.screen and ("read", "h1", 12) in host.calls
           and termmod.screen_text("h1") == "> ")
     check("layer: focus and close are the backend's", termmod.focus("h1")[0]
           and termmod.close_terminal("h1", tab=False) == (True, "") and ("close", "h1", False) in host.calls)
-    check("layer: repos and worktrees too", termmod.ensure_repo("/r") == ("known", "ok")
-          and ("repo", "/r", True) in host.calls and termmod.create_worktree("/r", "n", "main") == ("/wt/new", ""))
+    check("layer: repos too", termmod.ensure_repo("/r") == ("known", "ok") and ("repo", "/r", True) in host.calls)
     check("layer: runs and tasks too",
           termmod.run_create("o") == "run-1" and termmod.run_current() == "run-0" and termmod.run_exists("run-1")
           and termmod.task_create("s", "t", "d", "run-1") == "task-1" and termmod.dispatch("task-1", "h1", "run-1") == "disp-1"

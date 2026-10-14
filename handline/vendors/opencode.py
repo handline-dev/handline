@@ -289,12 +289,6 @@ class Opencode:
         # A positional is the project directory; --prompt submits on start.
         return ["--prompt", prompt]
 
-    def clear_command(self) -> str:
-        return "/new"
-
-    def exit_command(self) -> str:
-        return "/exit"
-
     idle_from_screen = True
 
     def _footer(self, tail: list[str]) -> list[str] | None:
@@ -324,9 +318,6 @@ class Opencode:
     def turn_on_screen(self, tail: list[str]) -> bool:
         return self.working_on_screen(tail) is True
 
-    def idle_with_background(self, tail: list[str]) -> bool:
-        return False        # opencode's screen carries no background count
-
     def screen_blocker(self, tail: list[str]):
         """A permission request replaces the prompt box with its choices, the
         first already selected, so Enter answers it. Anything without the box
@@ -353,16 +344,6 @@ class Opencode:
 
     def trust_answer(self) -> str:
         # Never called: trust_screen never names a folder to accept.
-        return ""
-
-    def bypass_screen(self, tail: list[str]) -> str | None:
-        # No bypass-permissions warning of its own; the other two are never called.
-        return None
-
-    def bypass_accept(self) -> str:
-        return ""
-
-    def bypass_next_key(self) -> str:
         return ""
 
     def accepts_tool(self, tool: str | None) -> bool:
