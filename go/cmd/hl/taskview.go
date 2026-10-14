@@ -219,15 +219,30 @@ func resultLines(r obj, tid int64, home string) []string {
 	return out
 }
 
-// waitsOn is what holds a task's clock (cli/task._waits_on): its open blockers and open children, "" for none.
+// waitsOn is what holds a task's clock (cli/task._waits_on): the founder when they hold it or must accept it, else its open blockers and
+// open children, each the founder holds marked so; "" for none.
 func waitsOn(t obj) string {
+	asker := str(t, "asker")
+	if asker == "" {
+		asker = str(t, "from")
+	}
+	if str(t, "to") == "human" || str(t, "state") == "reported" && asker == "human" {
+		return "human"
+	}
 	var on []string
+	name := func(id int64, owner string) {
+		if owner == "human" {
+			on = append(on, fmt.Sprintf("T%d (human)", id))
+		} else {
+			on = append(on, fmt.Sprintf("T%d", id))
+		}
+	}
 	for _, b := range list(t, "blockers") {
-		on = append(on, fmt.Sprintf("T%d", num(b, "task")))
+		name(num(b, "task"), str(b, "owner"))
 	}
 	for _, k := range list(t, "subtasks") {
 		if s := str(k, "state"); s != "done" && s != "discarded" {
-			on = append(on, fmt.Sprintf("T%d", num(k, "id")))
+			name(num(k, "id"), str(k, "owner"))
 		}
 	}
 	return strings.Join(on, ", ")

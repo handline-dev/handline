@@ -482,3 +482,66 @@ func TestATaskGivenNoTimeoutRunsFourHoursBeforeItsOpenerIsTold(t *testing.T) {
 		t.Fatalf("not told at 4h01m: %v", p.sent)
 	}
 }
+
+func TestATaskTheFounderHoldsRemindsNoAgentAndItsClockStartsFreshWhenItLeavesThem(t *testing.T) {
+	tk, _, b, p := timebox(t)
+	b.Cutover = true // a founder's task is clocked only here
+	tid := newTask(t, tk, db.Human, "boss", 100)
+	p.doing[tid] = true
+	b.SweepTaskTimeouts(tk, 1000)
+	(&Timebox{Ports: p, Cutover: true}).SweepTaskTimeouts(tk, 9000) // a restart in between
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Valid || len(p.sent) != 0 || countEvents(t, tk, "boss", "task_timeout_exceeded") != 0 {
+		t.Fatalf("the founder's task reminded its opener: %+v %v", task, p.sent)
+	}
+	if _, err := tk.Q.Exec("UPDATE tasks SET owner = 'a' WHERE id = ?", tid); err != nil {
+		t.Fatal(err)
+	}
+	b.SweepTaskTimeouts(tk, 9000)
+	b.SweepTaskTimeouts(tk, 9100)
+	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "boss: T") {
+		t.Fatalf("back with an agent, a full stretch then one notice: %v", p.sent)
+	}
+}
+
+func TestATaskReportedToTheFounderRunsNoClock(t *testing.T) {
+	tk, _, b, p := timebox(t)
+	tid := newTask(t, tk, "a", "boss", 100)
+	p.doing[tid] = true
+	b.SweepTaskTimeouts(tk, 1000)
+	if _, err := tk.Q.Exec("UPDATE tasks SET reporter = ?, reported_at = 1010, report = 'shipped', report_via = 'reason' WHERE id = ?", db.Human, tid); err != nil {
+		t.Fatal(err)
+	}
+	b.SweepTaskTimeouts(tk, 1050)
+	b.SweepTaskTimeouts(tk, 9000)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Valid || len(p.sent) != 0 || countEvents(t, tk, db.Human, "task_timeout_exceeded") != 0 {
+		t.Fatalf("a task awaiting the founder's accept ran its clock: %+v %v", task, p.sent)
+	}
+}
+
+func TestATaskWaitingOnTheFounderThroughAChainOrACycleIsNotReminded(t *testing.T) {
+	tk, _, b, p := timebox(t)
+	b.Cutover = true
+	top := newTask(t, tk, "a", "boss", 100)
+	mid := newTask(t, tk, "c", "boss", 100)
+	founders, err := db.NewTask(tk.Q, "decide", db.Human, "c", mid, db.DefaultPriority, "report", 100, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddBlock(tk.Q, top, mid); err != nil {
+		t.Fatal(err)
+	}
+	p.doing[top], p.doing[mid], p.doing[founders] = true, true, true
+	b.SweepTaskTimeouts(tk, 1000)
+	b.SweepTaskTimeouts(tk, 9000)
+	if len(p.sent) != 0 {
+		t.Fatalf("a chain ending at the founder reminded: %v", p.sent)
+	}
+	// blockers that wait on each other: each sweep still ends, and nothing is sent
+	if err := db.AddBlock(tk.Q, mid, top); err != nil {
+		t.Fatal(err)
+	}
+	b.SweepTaskTimeouts(tk, 20000)
+	if len(p.sent) != 0 {
+		t.Fatalf("a cycle reminded: %v", p.sent)
+	}
+}
