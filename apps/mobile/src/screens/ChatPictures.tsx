@@ -1,14 +1,11 @@
 // The pictures of a sent message: thumbnails in the bubble, and one full screen behind a tap. The bytes are read with attachment.get
 // like the web does and drawn from a data URI (React Native has no object URLs).
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Image, Modal, Pressable, Text, View } from 'react-native';
-import { RpcError, type Attachment } from '@handline/client';
-import { readImage } from '@handline/app-data';
-import { useStore } from '@handline/app-react';
+import type { Attachment } from '@handline/client';
+import { useAttachmentBytes } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
-
-type Read = { state: 'loading' } | { state: 'ready'; uri: string } | { state: 'gone' } | { state: 'failed' };
 
 const toBase64 = (bytes: Uint8Array) => {
   let s = '';
@@ -16,21 +13,19 @@ const toBase64 = (bytes: Uint8Array) => {
   return btoa(s);
 };
 
-// Not cached: each mount reads again (the web keeps one read per image).
+type Read = { state: 'loading' } | { state: 'ready'; uri: string } | { state: 'gone' } | { state: 'failed' };
+
+// The bytes are not cached: each mount reads again (the web keeps one read per image).
 function useImage(id: string, thumb: boolean): Read {
-  const store = useStore();
-  const [read, setRead] = useState<Read>({ state: 'loading' });
-  useEffect(() => {
-    let live = true;
-    setRead({ state: 'loading' });
-    readImage((m, p) => store.client.call(m as never, p as never), id, thumb)
-      .then(({ mime, bytes }) => live && setRead({ state: 'ready', uri: `data:${mime};base64,${toBase64(bytes)}` }))
-      .catch((e) => live && setRead({ state: e instanceof RpcError && e.code === 'not_found' ? 'gone' : 'failed' }));
-    return () => {
-      live = false;
-    };
-  }, [store, id, thumb]);
-  return read;
+  const read = useAttachmentBytes(id, thumb);
+  return useMemo((): Read => {
+    if (read.state !== 'ready') return read;
+    try {
+      return { state: 'ready', uri: `data:${read.mime};base64,${toBase64(read.bytes)}` };
+    } catch {
+      return { state: 'failed' }; // an original too large to encode
+    }
+  }, [read]);
 }
 
 const GONE = 'This image is no longer kept.';
