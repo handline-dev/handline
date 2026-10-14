@@ -147,6 +147,7 @@ const BASE: Record<string, (h: Call) => unknown> = {
     s.holder = DAEMON_HOLDER;
     script.control(s, actor, 'input.release', `${actor.name} released the input`);
     script.holderChanged(s);
+    script.lastLeft(s);
     return script.accepted('The daemon holds the input again.');
   },
   'terminal.attach': (h) => {
@@ -196,8 +197,10 @@ const BASE: Record<string, (h: Call) => unknown> = {
     return script.accepted('Terminal closed.');
   },
   'terminal.detach': (h) => {
-    const { c, p } = h;
-    c.attached.delete(String(p.terminal));
+    const { c, p, script, byTerminal } = h;
+    const s = byTerminal(p.terminal);
+    c.attached.delete(tid(s));
+    script.lastLeft(s);
     return {};
   },
   'terminal.history': (h) => {
@@ -213,9 +216,12 @@ const BASE: Record<string, (h: Call) => unknown> = {
   'terminal.resize': (h) => {
     const { c, p, script, byTerminal } = h;
     const s = byTerminal(p.terminal);
-    // With nobody holding the input, any connection watching the terminal resizes it; otherwise the holder alone.
-    if (s.holder.kind === 'daemon' ? !c.attached.has(tid(s)) : s.holder.name !== c.caller.name)
-      throw refused('input_holder', s.holder.kind === 'daemon' ? 'attach the terminal to resize it' : 'only the input holder may resize');
+    // With nobody holding the input, any connection watching the terminal resizes it down to 80 by 24; otherwise the holder alone.
+    const free = s.holder.kind === 'daemon';
+    if (free ? !c.attached.has(tid(s)) : s.holder.name !== c.caller.name)
+      throw refused('input_holder', free ? 'attach the terminal to resize it' : 'only the input holder may resize');
+    if (free && (Number(p.cols) < 80 || Number(p.rows) < 24)) throw refused('input_holder', 'under 80 by 24 only the input holder may resize');
+    if (free) s.unheld ??= [s.cols, s.rows];
     s.cols = Number(p.cols);
     s.rows = Number(p.rows);
     script.pushTerminal(s, 'resize', (seq): Notifications['resize'] => ({ terminal: tid(s), seq, cols: s.cols, rows: s.rows }));

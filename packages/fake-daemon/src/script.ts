@@ -18,6 +18,8 @@ export interface Host {
   broadcast(s: Session, method: string, params: unknown): void;
   /** Sends a notice to the connections watching in bytes, each with its own seq. */
   broadcastBytes(s: Session, method: 'output' | 'snapshot', build: () => object): void;
+  /** Whether any connection still has the session's terminal attached. */
+  watched(s: Session): boolean;
 }
 type Who = { caller: Caller };
 const KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
@@ -61,6 +63,16 @@ export class Script {
       const { terminal, cols, rows, data, alt_screen, cursor, cursor_visible } = snapshotOf(s, 0, [s.holder]);
       return { terminal, reason, cols, rows, data, alt_screen, cursor, cursor_visible };
     });
+  }
+  /** With no attach left and nobody holding the input, the size from before the viewers' first resize comes back. */
+  lastLeft(s: Session): void {
+    if (!s.unheld || s.holder.kind !== 'daemon' || this.host.watched(s)) return;
+    [s.cols, s.rows] = s.unheld;
+    s.unheld = undefined;
+  }
+  /** A connection closed: each terminal it watched may have lost its last attach. */
+  gone(attached: Map<string, unknown>): void {
+    for (const s of this.sessions.values()) if (attached.has(tid(s))) this.lastLeft(s);
   }
   pushTerminal(s: Session, method: 'frame' | 'resize' | 'marker' | 'holder', build: (seq: number) => object): void {
     const params = build(++s.seq);

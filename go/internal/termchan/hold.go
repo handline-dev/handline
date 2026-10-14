@@ -11,13 +11,17 @@ import (
 )
 
 // terminal.input, the input holder's alone (handline/daemon/rpc_terminal.py); terminal.resize, the holder's while there is one and any
-// attached connection's while there is none; and the holder notice with the size given back when the holder leaves.
+// attached connection's while there is none, down to the floor the screen reader needs; and the holder notice. The size before a holder's
+// first resize is given back when they leave, and the size before the viewers' first when the last attach goes and nobody holds the input.
 
 const (
 	// MaxInput is the most bytes one terminal.input carries.
 	MaxInput         = 16384
 	maxCols, maxRows = 500, 200
-	typingElsewhere  = "someone else is typing at this agent"
+	// The screen reader matches whole lines: narrower than this, Claude Code wraps a dialog's footer and options and the daemon no
+	// longer recognises the dialog. Only a holder may go under it.
+	unheldCols, unheldRows = 80, 24
+	typingElsewhere        = "someone else is typing at this agent"
 )
 
 // HoldersChanged tells every client of agent's terminal who holds its input now, and when the daemon does again, puts back the size a
@@ -35,16 +39,47 @@ func (e *Env) HoldersChanged(agent string, holders []map[string]any) {
 	if holders[0]["kind"] != "daemon" {
 		return
 	}
+	e.giveBack(e.restore, handle, open)
+	e.lastLeft(handle)
+}
+
+// giveBack puts back the size owed[handle] keeps, if any.
+func (e *Env) giveBack(owed map[string][2]int, handle string, open []*Channel) {
 	e.mu.Lock()
-	size, owed := e.restore[handle]
-	delete(e.restore, handle)
+	size, ok := owed[handle]
+	delete(owed, handle)
 	e.mu.Unlock()
-	if !owed {
+	if !ok {
 		return
 	}
 	if ok, _ := e.host().Resize(handle, size[0], size[1]); ok {
 		e.resized(handle, open, size[0], size[1])
 	}
+}
+
+// lastLeft gives back the size from before the viewers' first resize once no connection watches handle and nobody holds its input.
+func (e *Env) lastLeft(handle string) {
+	e.mu.Lock()
+	for _, a := range e.conns {
+		a.mu.Lock()
+		for k := range a.m {
+			if k[0] == handle {
+				a.mu.Unlock()
+				e.mu.Unlock()
+				return
+			}
+		}
+		a.mu.Unlock()
+	}
+	e.mu.Unlock()
+	_, agent, err := e.handleOf(map[string]any{"terminal": handle})
+	if err != nil || agent == "" || e.Holds == nil {
+		return
+	}
+	if row, err := e.Holds.Holder(agent); err != nil || row != nil {
+		return
+	}
+	e.giveBack(e.unheld, handle, e.Hub.OpenAll(handle))
 }
 
 // resized tells the watchers of handle its size changed: a text client a resize notice, a bytes client a snapshot.
@@ -150,16 +185,23 @@ func (e *Env) resize(c *rpc.Conn, params map[string]any) (any, error) {
 		}
 	} else if !e.attached(c, handle) {
 		return nil, rpc.Refused("attach "+agent+"'s terminal to resize it", "input_holder", "")
+	} else if cols < unheldCols || rows < unheldRows {
+		return nil, rpc.Refused("under "+strconv.Itoa(unheldCols)+" by "+strconv.Itoa(unheldRows)+" only whoever holds "+agent+
+			"'s input may resize it: the daemon cannot read its dialogs narrower", "input_holder", "")
 	}
 	h := e.host()
 	beforeCols, beforeRows, known := h.Size(handle)
 	if ok, why := h.Resize(handle, cols, rows); !ok {
 		return nil, rpc.Refused(agent+"'s terminal host cannot resize it: "+why, "unsupported", "")
 	}
-	if known && holder != nil { // a size set with no holder is kept until the next resize
+	if known {
+		owed := e.restore
+		if holder == nil {
+			owed = e.unheld
+		}
 		e.mu.Lock()
-		if _, kept := e.restore[handle]; !kept {
-			e.restore[handle] = [2]int{beforeCols, beforeRows}
+		if _, kept := owed[handle]; !kept {
+			owed[handle] = [2]int{beforeCols, beforeRows}
 		}
 		e.mu.Unlock()
 	}
