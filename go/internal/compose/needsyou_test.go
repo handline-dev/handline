@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/team"
 )
@@ -190,5 +191,47 @@ func TestNeedsYouFindsTheSessionOfAWorktreeRecordedAsRepoAndPath(t *testing.T) {
 	put("waiting", "permission prompt")
 	if n := needs("worker"); n == nil || n.Source != "session" {
 		t.Fatalf("a session waiting is reported: %+v", n)
+	}
+}
+
+func TestAPromptTheNotificationHookReportsNeedsAPersonOnlyBehindTheSwitch(t *testing.T) {
+	home := t.TempDir()
+	d, err := store.Open(filepath.Join(home, "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Exec("INSERT INTO agent_state(agent, state, updated) VALUES('worker', 'RUNNING', 1)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := hooks.Apply(d, home, "worker", "Notification", map[string]any{"notification_type": "permission_prompt"}, "n1", 1700); err != nil {
+		t.Fatal(err)
+	}
+	if n := (&Parts{db: d, home: home}).needsYou()("worker"); n != nil {
+		t.Fatalf("the switch is off, and the notification raised a card: %+v", n)
+	}
+	needs := (&Parts{db: d, home: home, notified: true}).needsYou()
+	n := needs("worker")
+	if n == nil || n.Kind != "permission" || n.Source != "notification" || n.Since != 1700 || n.Text != "handle this in the terminal" {
+		t.Fatalf("%+v", n)
+	}
+	os.MkdirAll(filepath.Join(home, "waiting"), 0o755)
+	os.WriteFile(filepath.Join(home, "waiting", "worker.json"), []byte(`{"tool": "Bash", "command": "make", "since": 1690}`), 0o644)
+	if n := needs("worker"); n == nil || n.Source != "notification" {
+		t.Fatalf("the permission hook's card stands over a prompt nobody answered: %+v", n)
+	}
+	os.WriteFile(filepath.Join(home, "waiting", "worker.json"), []byte(`{"tool": "AskUserQuestion", "since": 1690}`), 0o644)
+	if _, err := d.Exec("UPDATE agent_state SET state = 'IDLE'"); err != nil {
+		t.Fatal(err)
+	}
+	if n := needs("worker"); n != nil {
+		t.Fatalf("a question is left to its own card: %+v", n)
+	}
+	os.Remove(filepath.Join(home, "waiting", "worker.json"))
+	if err := hooks.Apply(d, home, "worker", "PostToolUse", map[string]any{"tool_name": "Bash"}, "n2", 1710); err != nil {
+		t.Fatal(err)
+	}
+	if n := needs("worker"); n != nil {
+		t.Fatalf("the tool ran, and the card is still up: %+v", n)
 	}
 }

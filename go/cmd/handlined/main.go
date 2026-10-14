@@ -137,6 +137,7 @@ func main() {
 	cutover := flag.Bool("cutover", false, "with -structured-tick: the Python daemon no longer ticks or watches, so this tick owns the usage poll and every agent_view row, and the stream rows of the topics whose detector is here; off, it writes the rows of structured agents only and leaves the usage tables to Python")
 	flag.String("land-repo", "", "ignored: the daemon no longer lands; accepted so a service plist written before still starts (hl service install drops it)")
 	terminalTick := flag.Bool("terminal-tick", false, "run the policy tick over the terminal agents too, reading their sessions from <config dir>/sessions/<pid>.json (it wakes, closes, restarts and hands off their sessions); needs -structured-cli, and the Python daemon must not tick beside it on the same home")
+	notifiedNeedsYou := flag.Bool("notification-needs-you", false, "with -structured-cli: a permission prompt Claude Code's Notification hook reports as unanswered raises the agent's needs-you card, until the agent moves on")
 	showVersion := flag.Bool("version", false, "print the git sha this binary was built from")
 	flag.Parse()
 	if *showVersion {
@@ -152,7 +153,7 @@ func main() {
 	var tk *compose.Tick                                     // the policy tick, once built
 	var startTick func(stop <-chan struct{}) <-chan struct{} // set when the policy tick is on: runs it until stop closes, answers when it has returned
 	if *structuredCLI != "" && !*gateway {
-		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, CLIVersion: *claudeVersion, Args: []string{"--setting-sources", "project"}, Policy: compose.SharedPolicy(homeDir)}
+		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, CLIVersion: *claudeVersion, Args: []string{"--setting-sources", "project"}, Policy: compose.SharedPolicy(homeDir), NotifiedNeedsYou: *notifiedNeedsYou}
 		parts := compose.New(ccfg)
 		cfg.Watch = *structuredTick && *cutover
 		cfg.Delivery = parts.Delivery()

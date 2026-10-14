@@ -53,6 +53,8 @@ type Config struct {
 	Term *term.Term
 	// DiskFree is the free and total bytes of the volume holding a path, for the disk watch; nil is statfs. Tests give a low one.
 	DiskFree func(path string) (free, total int64, err error)
+	// NotifiedNeedsYou has an unanswered prompt that Claude Code's Notification hook reports raise the needs-you card.
+	NotifiedNeedsYou bool
 }
 
 // Parts is what New builds. Sink goes to daemon.Config.Transcript, Kind to daemon.Config.Structured, Run to lifecycle.Manager.Run, Agents to
@@ -68,10 +70,11 @@ type Parts struct {
 	// LC is the lifecycle, once Lifecycle has built it.
 	LC *Lifecycle
 
-	db   *sql.DB
-	home string
-	tell Telling
-	log  func(format string, args ...any)
+	db       *sql.DB
+	home     string
+	notified bool // Config.NotifiedNeedsYou
+	tell     Telling
+	log      func(format string, args ...any)
 
 	openedMu sync.Mutex
 	opened   map[string]string // the account each agent's last session was opened under
@@ -147,7 +150,7 @@ func New(cfg Config) *Parts {
 	if peer == nil {
 		peer = PeerFromYAML(cfg.Home)
 	}
-	p := &Parts{Sink: sink, Run: run, Locks: &lifecycle.AgentLocks{}, Kind: kind, Peer: peer, log: cfg.Log, home: cfg.Home}
+	p := &Parts{Sink: sink, Run: run, Locks: &lifecycle.AgentLocks{}, Kind: kind, Peer: peer, log: cfg.Log, home: cfg.Home, notified: cfg.NotifiedNeedsYou}
 	broker := &structured.Broker{Policy: cfg.Policy, Events: sink}
 	mgr := &structured.Manager{Broker: broker, Events: events{p}, Now: cfg.Now, CLIVersion: cfg.CLIVersion}
 	run.mgr, run.parts = mgr, p

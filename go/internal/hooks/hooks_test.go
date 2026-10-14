@@ -127,3 +127,34 @@ func TestAnIngestThatFailsKeepsTheLinesItDidNotApply(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestAnUnansweredPermissionPromptIsNotedUntilTheAgentMovesOn(t *testing.T) {
+	h := testRecorder(t)
+	now := time.Now().Unix()
+	rid := 0
+	apply := func(kind string, raw map[string]any) {
+		t.Helper()
+		rid++
+		if err := Apply(h.DB, h.Home, "w", kind, raw, strconv.Itoa(rid), now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prompt := map[string]any{"notification_type": "permission_prompt", "message": "Claude needs your permission"}
+	apply("Notification", map[string]any{"notification_type": "idle_prompt"})
+	if _, ok := Notified(h.Home, "w"); ok {
+		t.Fatal("an idle notification is no prompt")
+	}
+	for _, next := range []string{"PostToolUse", "PostToolUseFailure", "Stop", "StopFailure", "UserPromptSubmit", "SessionEnd"} {
+		apply("Notification", prompt)
+		if since, ok := Notified(h.Home, "w"); !ok || since != now {
+			t.Fatalf("a permission prompt left unanswered is noted: %d %v", since, ok)
+		}
+		apply(next, map[string]any{"tool_name": "Bash"})
+		if _, ok := Notified(h.Home, "w"); ok {
+			t.Errorf("%s: the agent moved on, and the prompt is still noted", next)
+		}
+	}
+	if n := count(t, h.DB, "SELECT COUNT(*) FROM events WHERE agent = 'w' AND kind = 'Notification' AND payload LIKE '%permission_prompt%'"); n != 6 {
+		t.Errorf("%d permission_prompt events recorded, want 6", n)
+	}
+}

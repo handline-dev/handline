@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/handline/handline/go/internal/atomicfile"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -118,4 +119,32 @@ func ReadWait(home, agent string) map[string]any {
 func WaitID(held map[string]any) (int64, bool) {
 	f, ok := held["after_event_id"].(float64)
 	return int64(f), ok
+}
+
+// A Notification of type permission_prompt says Claude Code drew a prompt that went unanswered for some seconds: a person is needed at
+// the terminal. home/needs-you/<agent>.json holds when it came, taken away when the agent moves on (a tool ran, or the turn ended).
+
+func notifiedFile(home, agent string) string { return filepath.Join(home, "needs-you", agent+".json") }
+
+func noteNotified(home, agent string, at int64) {
+	f := notifiedFile(home, agent)
+	b, _ := json.Marshal(map[string]any{"since": at})
+	if os.MkdirAll(filepath.Dir(f), 0o755) == nil {
+		_ = atomicfile.Write(f, string(b))
+	}
+}
+
+func clearNotified(home, agent string) { os.Remove(notifiedFile(home, agent)) }
+
+// Notified is when Claude Code last said the agent's prompt waits on a person, if it still does.
+func Notified(home, agent string) (since int64, ok bool) {
+	b, err := os.ReadFile(notifiedFile(home, agent))
+	if err != nil {
+		return 0, false
+	}
+	var m struct{ Since int64 }
+	if json.Unmarshal(b, &m) != nil || m.Since == 0 {
+		return 0, false
+	}
+	return m.Since, true
 }
