@@ -16,14 +16,14 @@ type fakeInbox struct {
 	mu      sync.Mutex
 	texts   []string
 	outcome map[string]peerinbox.Result
-	modes   []string
+	froms   []string
 }
 
 func (f *fakeInbox) Deliver(_ context.Context, _ peerinbox.Session, text string, from peerinbox.From) peerinbox.Result {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.texts = append(f.texts, text)
-	f.modes = append(f.modes, from.Name+"/"+from.Mode)
+	f.froms = append(f.froms, from.Name)
 	if r, ok := f.outcome[text]; ok {
 		return r
 	}
@@ -108,18 +108,18 @@ func TestAMessageTheInboxTookCannotBeWithdrawn(t *testing.T) {
 	}
 }
 
-func TestAMessageIsDeliveredWithTheModeThePortSaysForIt(t *testing.T) {
+func TestAMessageIsDeliveredFromWhomThePortSaysForIt(t *testing.T) {
 	in, ev := &fakeInbox{}, &events{}
 	p := rigOf(in, ev)
-	p.From = func(agent, op string) peerinbox.From { return peerinbox.From{Name: agent, Mode: op} }
+	p.From = func(agent, op string) peerinbox.From { return peerinbox.From{Name: agent + "/" + op} }
 	if _, err := p.Send("bob", "request:7", "hi", structured.Queue); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, ev, 1)
 	in.mu.Lock()
 	defer in.mu.Unlock()
-	if len(in.modes) != 1 || in.modes[0] != "bob/request:7" {
-		t.Fatalf("%v", in.modes)
+	if len(in.froms) != 1 || in.froms[0] != "bob/request:7" {
+		t.Fatalf("%v", in.froms)
 	}
 }
 

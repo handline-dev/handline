@@ -80,7 +80,6 @@ type Driver interface {
 	Hooks() Hooks
 	AutoModeArgv() []string
 	PermissionModeArgv(mode string) []string
-	SkipPermissionsArgv() []string
 	LaunchArgv(exe string, o LaunchArgs) []string
 	LaunchEnv(preamble, disallowed, agentDir string) map[string]string
 	PromptArgv(prompt string) []string
@@ -794,12 +793,11 @@ func modelOf(cfg team.Config) string {
 
 func (l *Launcher) plainMode(agent string, cfg team.Config) bool {
 	m := l.Roster.ModeOf(agent, cfg)
-	return m == "bypass" || m == team.DefaultMode
+	return m == team.DefaultMode
 }
 
 // Fingerprint is what Build would launch this agent with right now, boiled down to the pieces a running session cannot pick up on its
-// own: the model, the effort level, the disallowed-tools list, the shared mcp.json, whether skip-permissions is in effect, and the
-// static preamble. Never the account or the handoff - the account is chosen fresh on every real launch, and the handoff is supposed to
+// own: the model, the effort level, the disallowed-tools list, the shared mcp.json, and the static preamble. Never the account or the handoff - the account is chosen fresh on every real launch, and the handoff is supposed to
 // be different every time this agent is parked. Recorded at launch time and compared by Drifted before typing a handoff into a session
 // that is still open: a row with nothing recorded disagrees too.
 func (l *Launcher) Fingerprint(agent string) (string, error) {
@@ -812,9 +810,6 @@ func (l *Launcher) Fingerprint(agent string) (string, error) {
 		return "", err
 	}
 	material := strings.Join([]string{modelOf(cfg), l.effortOf(cfg), DisallowedTools, l.mcpConfigMaterial(), static}, "\x1e")
-	if l.Roster.SkipPermissionsInEffect(agent, cfg) {
-		material += "\x1eskip-permissions" // only when on: turning it off returns to the old hash
-	}
 	if !l.plainMode(agent, cfg) {
 		material += "\x1emode:" + l.Roster.ModeOf(agent, cfg) // only when not the default, like chrome
 	}
@@ -825,7 +820,7 @@ func (l *Launcher) Fingerprint(agent string) (string, error) {
 		material += "\x1emcp:" + mcp[1] // only when set, like chrome
 	}
 	if team.Chrome(cfg) {
-		material += "\x1echrome" // only when on, like skip-permissions
+		material += "\x1echrome" // only when on, like the mcp config
 	}
 	return sha256Hex(material)[:16], nil
 }
@@ -867,9 +862,6 @@ func (l *Launcher) FingerprintParts(agent string) (map[string]string, error) {
 		browser = "on"
 	}
 	perm := DisallowedTools
-	if l.Roster.SkipPermissionsInEffect(agent, cfg) {
-		perm += "\x1eskip-permissions"
-	}
 	if !l.plainMode(agent, cfg) {
 		perm += "\x1emode:" + l.Roster.ModeOf(agent, cfg)
 	}

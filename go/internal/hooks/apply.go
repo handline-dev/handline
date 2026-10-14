@@ -280,6 +280,25 @@ func markActivity(tx *sql.Tx, agent, event string, payload map[string]any) error
 	return nil
 }
 
+// MarkInterrupted is what a Stop would have done for a turn Esc ended, which fires no hook: no prompt is still pending, and a
+// working agent is idle.
+func MarkInterrupted(db *sql.DB, home, agent string) error {
+	clearWait(home, agent)
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	row, err := getState(tx, agent)
+	if err != nil || !row.found || row.state != "RUNNING" {
+		return err
+	}
+	if err := setState(tx, agent, "IDLE", "interrupted its turn"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // noteToolUse: a tool just ran, so the agent is mid-turn. Only a row the daemon is not steering (QUEUED not
 // moving, IDLE, session not closed) is moved; the turn's Stop sets IDLE again.
 func noteToolUse(tx *sql.Tx, agent string) error {

@@ -75,10 +75,9 @@ type Asker interface {
 	OpenDecisionsOf(agent string) int
 }
 
-// Lifecycle is daemon/lifecycle.py's two standing consents, for a dialog the daemon may accept on its own.
+// Lifecycle is daemon/lifecycle.py's standing consent, for a dialog the daemon may accept on its own.
 type Lifecycle interface {
 	AutoTrust(agent string) bool
-	AutoBypass(agent string) bool
 }
 
 // Config is config.yaml's global settings.
