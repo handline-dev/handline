@@ -251,6 +251,25 @@ func TestAnswerOnADecisionCardDecidesItsTask(t *testing.T) {
 	}
 }
 
+// task.done decides through the card only on a task the founder owns: an agent's task delivered to the founder is ended by task.done itself.
+func TestDecideCardLeavesATaskTheFounderDoesNotOwnToTaskDone(t *testing.T) {
+	r := newRig(t)
+	card := r.request("alice", "human", "please look")
+	tid, err := dbpkg.NewTask(r.db, "please look", "alice", "alice", 0, dbpkg.DefaultPriority, "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbpkg.LinkRequest(r.db, tid, card)
+	tx, err := r.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if handled, _, _, err := DecideCard(r.env, r.env)(tx, tid, "looked"); handled || err != nil {
+		t.Fatal(handled, err)
+	}
+}
+
 func TestDecideMarksATaskDoneWhenItsCardWasClosedSomeOtherWay(t *testing.T) {
 	r := newRig(t)
 	gone := r.request("alice", "human", "which one?")

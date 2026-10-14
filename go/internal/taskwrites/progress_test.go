@@ -27,7 +27,7 @@ func TestProgressIsKeptOnTheTaskTheAgentHoldsOrTheAgentAndReadBack(t *testing.T)
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, t.TempDir(), nil)
+		Register(s, t.TempDir(), nil, nil)
 		return s
 	}
 	prog := func(id int, params, rid string) string {

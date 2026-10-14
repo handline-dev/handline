@@ -64,7 +64,7 @@ type Teller interface {
 	Notified(told []db.Notice)
 }
 
-func Register(s *rpc.Server, home string, tell Teller) {
+func Register(s *rpc.Server, home string, tell Teller, decide CardDecider) {
 	s.Register("task.discard", rpc.Method{Role: "agent", Write: true, Handler: discardMethod(home, tell)})
 	s.Register("task.withdraw", rpc.Method{Role: "agent", Write: true, Handler: withdrawMethod(home, tell)})
 	s.Register("task.queue", rpc.Method{Role: "agent", Write: true, Handler: queueMethod(home, tell, true)})
@@ -78,7 +78,7 @@ func Register(s *rpc.Server, home string, tell Teller) {
 	s.Register("task.ask", rpc.Method{Role: "member", Write: true, Handler: askMethod(home, tell)})
 	s.Register("task.start", rpc.Method{Role: "agent", Write: true, Handler: start})
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopenMethod(home, tell)})
-	s.Register("task.done", rpc.Method{Role: "agent", Write: true, Handler: doneMethod(home, tell)})
+	s.Register("task.done", rpc.Method{Role: "agent", Write: true, Handler: doneMethod(home, tell, decide)})
 	s.Register("task.accept", rpc.Method{Role: "agent", Write: true, Handler: acceptMethod(home, tell)})
 	s.Register("task.reject", rpc.Method{Role: "agent", Write: true, Handler: rejectMethod(home, tell)})
 	s.Register("task.cancel", rpc.Method{Role: "member", Write: true, Handler: cancelMethod(home, tell)})
