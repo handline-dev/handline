@@ -197,9 +197,9 @@ func TestTaskShowReadsAPausedClock(t *testing.T) {
 	box := obj{"length_s": float64(7200), "default": false, "left_s": float64(4800)}
 	held := obj{"blockers": []any{obj{"task": float64(9)}}, "subtasks": []any{obj{"id": float64(8), "state": "doing"}, obj{"id": float64(6), "state": "done"}}}
 	for want, t2 := range map[string]obj{
-		"paused - blocked by T9, 1h20m left": held,
-		"paused - waiting on T8, 1h20m left": {"subtasks": held["subtasks"]},
-		"paused, 1h20m left":                 {},
+		"timeout paused: waiting on T9, T8": held,
+		"timeout paused: waiting on T8":     {"subtasks": held["subtasks"]},
+		"paused, 1h20m left":                {},
 	} {
 		if got := timeoutLines(box, 0, waitsOn(t2)); len(got) != 2 || got[0] != "timeout 2h00m" || got[1] != want {
 			t.Errorf("%q, want %q", got, want)
@@ -231,7 +231,8 @@ func TestTaskShowListAndBoardRead(t *testing.T) {
 	})
 	show := `T7  Fix it
 state done   assignee b.two   owner a.one   P1   parent T3   created 2026-10-01 10:00
-timeout 1h00m - counts while the task is doing
+timeout 1h00m
+timeout paused: waiting on T9, T8
 done 2026-10-02 11:30: abc123
 commit abc1234def (not on main)
 shot ` + r.home + `/shots/T7/1.png (2048 bytes)

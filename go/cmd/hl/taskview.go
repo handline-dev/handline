@@ -219,24 +219,18 @@ func resultLines(r obj, tid int64, home string) []string {
 	return out
 }
 
-// waitsOn is what holds a task's clock (cli/task._waits_on): its open blockers, else its open children.
+// waitsOn is what holds a task's clock (cli/task._waits_on): its open blockers and open children, "" for none.
 func waitsOn(t obj) string {
-	var bs, ks []string
+	var on []string
 	for _, b := range list(t, "blockers") {
-		bs = append(bs, fmt.Sprintf("T%d", num(b, "task")))
+		on = append(on, fmt.Sprintf("T%d", num(b, "task")))
 	}
 	for _, k := range list(t, "subtasks") {
 		if s := str(k, "state"); s != "done" && s != "discarded" {
-			ks = append(ks, fmt.Sprintf("T%d", num(k, "id")))
+			on = append(on, fmt.Sprintf("T%d", num(k, "id")))
 		}
 	}
-	if len(bs) > 0 {
-		return " - blocked by " + strings.Join(bs, ", ")
-	}
-	if len(ks) > 0 {
-		return " - waiting on " + strings.Join(ks, ", ")
-	}
-	return ""
+	return strings.Join(on, ", ")
 }
 
 // timeoutLines is the wire's `time` as the task page's lines (cli/task._clock, then actions.timeout_lines); waits is waitsOn.
@@ -245,8 +239,11 @@ func timeoutLines(box obj, now float64, waits string) []string {
 	if box["default"] == true {
 		line += " (the default)"
 	}
+	if waits != "" && !given(box, "start") {
+		return []string{line, "timeout paused: waiting on " + waits}
+	}
 	if given(box, "left_s") {
-		return []string{line, fmt.Sprintf("paused%s, %s left", waits, timefmt.Span(num(box, "left_s"), false))}
+		return []string{line, fmt.Sprintf("paused, %s left", timefmt.Span(num(box, "left_s"), false))}
 	}
 	if !given(box, "start") {
 		return []string{line + " - counts while the task is doing"}

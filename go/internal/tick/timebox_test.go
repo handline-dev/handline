@@ -213,7 +213,7 @@ func TestATaskThatStopsBeingDoneHasItsClockPausedAndANoticeThatCannotBeSentIsRet
 	}
 }
 
-func TestAWaitingTaskStopsItsClockAndResumesWithTheTimeItHadLeft(t *testing.T) {
+func TestAWaitingTaskStopsItsClockAndStartsAgainFromZeroWhenTheWaitEnds(t *testing.T) {
 	tk, _, b, p := timebox(t)
 	tid := newTask(t, tk, "a", "boss", 100)
 	blocker := newTask(t, tk, "c", "boss", 0)
@@ -231,31 +231,72 @@ func TestAWaitingTaskStopsItsClockAndResumesWithTheTimeItHadLeft(t *testing.T) {
 		t.Fatal(err)
 	}
 	b.SweepTaskTimeouts(tk, 1500)
-	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 1100+460 {
-		t.Fatalf("the deadline did not move by the 460s blocked: %+v", task)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 1600 {
+		t.Fatalf("the clock did not start again from zero: %+v", task)
 	}
-	b.SweepTaskTimeouts(tk, 1559)
-	if len(p.sent) != 0 {
-		t.Fatalf("told before the moved deadline: %v", p.sent)
-	}
-	b.SweepTaskTimeouts(tk, 1560)
+	b.SweepTaskTimeouts(tk, 1600)
 	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "boss: T") {
-		t.Fatalf("the opener is told at the moved deadline: %v", p.sent)
+		t.Fatalf("the opener is told a full stretch after the wait: %v", p.sent)
 	}
 
-	// an open child of its own stops it the same way, and a full stretch is re-armed after the notice
+	// overdue, then an open child of its own: no reminder while it is open, a full stretch once it closes
 	child, err := db.NewTask(tk.Q, "part", "c", "a", tid, db.DefaultPriority, "report", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.SweepTaskTimeouts(tk, 1600) // re-armed to 1660 at 1560: 60 left
 	b.SweepTaskTimeouts(tk, 9000)
 	if _, err := tk.Q.Exec("UPDATE tasks SET done_evidence = 'x' WHERE id = ?", child); err != nil {
 		t.Fatal(err)
 	}
 	b.SweepTaskTimeouts(tk, 9000)
-	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 9060 || len(p.sent) != 1 {
-		t.Fatalf("a task waiting on its child resumes with what it had left: %+v %v", task, p.sent)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 9100 || len(p.sent) != 1 {
+		t.Fatalf("a task waiting on its child starts again from zero: %+v %v", task, p.sent)
+	}
+}
+
+func TestAWaitAcrossADaemonRestartNeitherLosesNorRepeatsAReminder(t *testing.T) {
+	tk, _, b, p := timebox(t)
+	tid := newTask(t, tk, "a", "boss", 100)
+	blocker := newTask(t, tk, "c", "boss", 0)
+	p.doing[tid] = true
+	b.SweepTaskTimeouts(tk, 1000)
+	if err := db.AddBlock(tk.Q, tid, blocker); err != nil {
+		t.Fatal(err)
+	}
+	b.SweepTaskTimeouts(tk, 1050)
+	// a new daemon: nothing carried but the db
+	b2 := &Timebox{Ports: p}
+	b2.SweepTaskTimeouts(tk, 5000)
+	if len(p.sent) != 0 {
+		t.Fatalf("reminded while waiting: %v", p.sent)
+	}
+	if _, err := tk.Q.Exec("UPDATE tasks SET done_evidence = 'x' WHERE id = ?", blocker); err != nil {
+		t.Fatal(err)
+	}
+	b2.SweepTaskTimeouts(tk, 5000)
+	b3 := &Timebox{Ports: p}
+	b3.SweepTaskTimeouts(tk, 5099)
+	if len(p.sent) != 0 {
+		t.Fatalf("told before a full stretch: %v", p.sent)
+	}
+	b3.SweepTaskTimeouts(tk, 5100)
+	b3.SweepTaskTimeouts(tk, 5100+NoticeRetryS)
+	if len(p.sent) != 1 {
+		t.Fatalf("told once, a full stretch after the wait: %v", p.sent)
+	}
+}
+
+func TestATaskOffDoingResumesWithWhatItHadLeft(t *testing.T) {
+	tk, _, b, p := timebox(t)
+	tid := newTask(t, tk, "a", "boss", 100)
+	p.doing[tid] = true
+	b.SweepTaskTimeouts(tk, 1000)
+	p.doing[tid] = false
+	b.SweepTaskTimeouts(tk, 1040)
+	p.doing[tid] = true
+	b.SweepTaskTimeouts(tk, 2000)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 2060 {
+		t.Fatalf("only a wait restarts the clock: %+v", task)
 	}
 }
 
