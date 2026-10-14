@@ -5,7 +5,7 @@ somewhere that is not the drawing code: a screen that decided anything for
 itself would be a second opinion, and this file exists so there is only ever
 one.
 
-Two halves. The acting half - unstall, message, answer, dismiss - is a line of
+Two halves. The acting half - message, answer, dismiss - is a line of
 glue each over the call the daemon or the CLI makes, and returns the one line to
 show for what happened. The reading half - messages and the details behind a
 row - asks the database the questions a screen asks.
@@ -15,7 +15,6 @@ from .routing import (HUMAN, _TEAM, routing, supervisor_of, listing_refusal, lis
 from .task_timeout import task_timeout, timeout_text, timeout_lines  # noqa: F401
 from .dialogs import add_answer, dialog_of, standing_answers, remove_answer  # noqa: F401
 from .prompt_blocks import open_blocks, open_block_of, headline as block_headline, request_answer as request_block_answer, answer as answer_block  # noqa: F401
-from .control import unstall  # noqa: F401
 from .requests import (message, message_ok, answer, answer_ok, record_human_resolve, dismiss, waiting_ids, cancel_plan, cancel, send_now, check_human_resolve, _is_answer_to_human, mailbox_rows, unseen_rows, for_you_seen, mark_read, fold_key, messages, founder_waits, opened_by_human, message_detail, QUOTE_LINES, _clip, EXCHANGE_ROWS, EXCHANGE_WIDTH, _exchange, _gist, _at, first_line)  # noqa: F401
 from .task_tree import task_tree  # noqa: F401
 from .tasks import memos_of, task_timeline, memo_add, memo_edit, memo_delete, tell_memo_holder, memo_summary  # noqa: F401

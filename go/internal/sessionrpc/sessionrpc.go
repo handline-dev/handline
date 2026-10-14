@@ -242,7 +242,7 @@ func (e *Env) wake(c *rpc.Conn, params map[string]any) (any, error) {
 	})
 }
 
-// Unstall clears a stall, the one state the daemon will not leave alone (control.unstall). cleared is false when the agent was not STALLED.
+// Unstall clears a stall, the one state the daemon will not leave alone. cleared is false when the agent was not STALLED.
 func (e *Env) Unstall(agent string) (cleared bool, said string, err error) {
 	row, err := db.GetAgentState(e.DB, agent)
 	if err != nil {

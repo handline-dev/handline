@@ -981,6 +981,49 @@ def test_doctor_service_check(home: Path) -> None:
         service.crash_loop_detected = orig_loop
 
 
+def test_hl_spawn_and_unstall_ask_the_go_daemon(tmp: Path) -> None:
+    """`hl spawn` is session.start with the repo and base, then the first task through chat.send; `hl unstall` is agent.unstall.
+    What the daemon does with them is tested in Go (go/internal/lifecycle, go/internal/sessionrpc)."""
+    calls: list[tuple[str, dict]] = []
+
+    def took(method: str, said: str):
+        return lambda p: (calls.append((method, p)), {"accepted": True, "said": said})[1]
+
+    def refused(method: str, said: str):
+        def reply(p):
+            calls.append((method, p))
+            raise dmn_client.RpcError({"message": said, "data": {"code": "refused"}})
+        return reply
+
+    with support.daemon_says("session.start", took("session.start", "backend: worktree /w")), \
+            support.daemon_says("chat.send", took("chat.send", "queued for backend")):
+        rc, out = _cli(["spawn", "backend", "--repo", str(tmp), "--prompt", "first job"], as_agent=None)
+    start, send = (calls + [("", {})] * 2)[:2]
+    check("spawn: session.start gets the agent, the repo as an absolute path and the default base",
+          start[0] == "session.start" and start[1]["agent"] == "backend" and start[1]["repo"] == str(tmp.resolve())
+          and start[1]["base"] == "main", str(calls))
+    check("spawn: the first task goes to chat.send after the start",
+          send[0] == "chat.send" and send[1]["agent"] == "backend" and send[1]["body"] == "first job", str(calls))
+    check("spawn: both replies are printed", rc == 0 and "backend: worktree /w" in out and "queued for backend" in out, out)
+
+    calls.clear()
+    with support.daemon_says("session.start", refused("session.start", "backend: not started - no account has room")):
+        rc, out = _cli(["spawn", "backend", "--repo", str(tmp), "--base", "dev", "--prompt", "first job"], as_agent=None)
+    check("spawn: a refused start fails, says why, and sends no first task",
+          rc == 1 and "no account has room" in out and [m for m, _ in calls] == ["session.start"] and calls[0][1]["base"] == "dev",
+          f"{rc} {out} {calls}")
+
+    calls.clear()
+    with support.daemon_says("agent.unstall", took("agent.unstall", "backend: STALLED -> QUEUED")):
+        rc, out = _cli(["unstall", "backend"], as_agent=None)
+    check("unstall: agent.unstall gets the agent and its words are printed",
+          rc == 0 and calls[0][0] == "agent.unstall" and calls[0][1]["agent"] == "backend" and "STALLED -> QUEUED" in out,
+          f"{rc} {out} {calls}")
+    with support.daemon_says("agent.unstall", refused("agent.unstall", "backend: not STALLED (IDLE)")):
+        rc, out = _cli(["unstall", "backend"], as_agent=None)
+    check("unstall: a refusal fails and says why", rc == 1 and "not STALLED (IDLE)" in out, f"{rc} {out}")
+
+
 def test_spawn_base_selection(tmp: Path) -> None:
     """Branching from the stale side silently loses work, so pick_base must not
     guess - and must refuse outright when the two have diverged."""
@@ -1233,13 +1276,13 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
     repo = home / "repo"
     (repo / ".git").mkdir(parents=True)
 
-    real = (spawnmod._run, spawnmod.prompt_landed, termmod.wait_idle, termmod.available,
+    real = (spawnmod._run, dmn_spawn.prompt_landed, termmod.wait_idle, termmod.available,
            dmn_delivery.wait_for_session)
     try:
         host = TmuxStandIn()
         termmod.available = lambda: True
         spawnmod._run = lambda args, cwd=None: (0, "", "")
-        spawnmod.prompt_landed = lambda agent, since, timeout_s=0: True
+        dmn_spawn.prompt_landed = lambda agent, since, timeout_s=0: True
         termmod.wait_idle = lambda h, timeout_ms=0: True
         termmod.run_current = lambda: None       # register_worker looks for a Run to join;
         termmod.run_create = lambda objective: None    # there is none, so the worker is not registered
@@ -1247,7 +1290,7 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
         # T146 pt.2) - not this test's own concern, so it is not made to wait.
         dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
 
-        ok, msg = spawnmod.spawn("spawny", repo, base="main", prompt="do the thing")
+        ok, msg = dmn_spawn.spawn("spawny", repo, base="main", prompt="do the thing")
         check("spawn: the command's main path runs to the end", ok, msg)
         check("spawn: and the task is actually sent",
               any(a[0] == "send-keys" and "do the thing" in " ".join(a) for a in host.calls), str(host.calls))
@@ -1257,10 +1300,10 @@ def test_spawn_survives_its_own_main_path(home: Path) -> None:
         # answer must read the right way round: it warned on success and was
         # silent on failure, which is worse than not warning at all.
         termmod.wait_idle = lambda h, timeout_ms=0: False
-        ok, msg = spawnmod.spawn("spawny", repo, base="main", prompt="do the thing")
+        ok, msg = dmn_spawn.spawn("spawny", repo, base="main", prompt="do the thing")
         check("spawn: a wait that did not succeed warns", "WARNING" in msg, msg)
     finally:
-        (spawnmod._run, spawnmod.prompt_landed, termmod.wait_idle, termmod.available,
+        (spawnmod._run, dmn_spawn.prompt_landed, termmod.wait_idle, termmod.available,
          dmn_delivery.wait_for_session) = real
 
 
@@ -1291,13 +1334,13 @@ def test_spawn_and_start_in_refuse_to_say_started_with_no_session(home: Path) ->
         termmod.run_create = lambda objective: None
         dmn_delivery.wait_for_session = lambda agent, timeout_s=0: False
 
-        ok, msg = spawnmod.spawn("spawny", repo, base="main")
+        ok, msg = dmn_spawn.spawn("spawny", repo, base="main")
         check("spawn: no session confirmed is not started",
               not ok and "no session is running" in msg, msg)
 
         wt = home / "keep-wt"
         wt.mkdir()
-        ok, msg = spawnmod.start_in("spawny", str(wt))
+        ok, msg = dmn_spawn.start_in("spawny", str(wt))
         check("start_in: no session confirmed is not started either",
               not ok and "no session is running" in msg, msg)
 
@@ -1360,7 +1403,7 @@ def test_spawn_registers_a_repo_orca_lacks_and_tries_again(home: Path) -> None:
         orcacli._run = add_then_ready
         real_rc, real_rcr = termmod.run_current, termmod.run_create
         termmod.run_current, termmod.run_create = (lambda: None), (lambda objective: None)
-        ok, msg = spawnmod.spawn("regy", ROOT, base="main")
+        ok, msg = dmn_spawn.spawn("regy", ROOT, base="main")
         check("spawn: repo_not_found registers the repo, then the worktree is made",
               len(creates) == 2 and fake.repos == [str(ROOT)], f"{msg} {creates} {fake.repos}")
 
@@ -1369,7 +1412,7 @@ def test_spawn_registers_a_repo_orca_lacks_and_tries_again(home: Path) -> None:
         creates.clear()
         have_repo["ok"] = False
         n = len(fake.calls)
-        ok, msg = spawnmod.spawn("regy2", ROOT, base="main")
+        ok, msg = dmn_spawn.spawn("regy2", ROOT, base="main")
         check("spawn: a repo Orca already lists is not added again, and the failure is shown",
               not ok and len(creates) == 1 and "repo_not_found" in msg
               and all(c[:2] != ["repo", "add"] for c in fake.calls[n:]), f"{msg} {fake.calls[n:]}")
@@ -1408,11 +1451,11 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
         # The selector `hl launch` records, not a plain path.
         db.set_terminal(con, "keeper", None, f"abc123::{wt}")
 
-        ok, msg = spawnmod.spawn("keeper", repo, base="main", dry_run=True)
+        ok, msg = dmn_spawn.spawn("keeper", repo, base="main", dry_run=True)
         check("spawn: a dry run names the worktree it would keep", ok and str(wt) in msg, msg)
         check("spawn: and plans no worktree create", "worktree create" not in msg, msg)
 
-        ok, msg = spawnmod.spawn("keeper", repo, base="main")
+        ok, msg = dmn_spawn.spawn("keeper", repo, base="main")
         check("spawn: an agent with a worktree and no terminal starts", ok, msg)
         check("spawn: no second worktree is created", host.worktrees_made() == [], str(host.git))
         check("spawn: the terminal opens in the worktree it had",
@@ -1420,7 +1463,7 @@ def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
 
         # Gone from disk, there is nothing to keep: a fresh one is made.
         db.set_terminal(con, "keeper", None, f"abc123::{wt}-missing")
-        ok, msg = spawnmod.spawn("keeper", repo, base="main")
+        ok, msg = dmn_spawn.spawn("keeper", repo, base="main")
         check("spawn: a worktree that is gone is made anew", len(host.worktrees_made()) == 1, str(host.git))
     finally:
         con.close()
@@ -2333,6 +2376,7 @@ def main() -> int:
         run(lambda: test_init_keeps_the_lock_file_out_of_the_home_repo(Path(td) / 'd6e'))
         run(lambda: test_doctor_service_check(Path(td) / 'svc7'))
         run(lambda: test_spawn_base_selection(Path(td) / 'spawn'))
+        run(lambda: test_hl_spawn_and_unstall_ask_the_go_daemon(Path(td) / 'hlspawn'))
         run(lambda: test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj'))
         run(lambda: test_doctor_checks_team_yaml_and_that_its_agents_are_registered(Path(td) / 'docteam'))
         run(lambda: test_an_agent_is_told_its_team_from_team_yaml(Path(td) / 'teamprompt'))

@@ -72,7 +72,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         journal.write_text(f"## Done\n- done {p}\n")
         service.out_log().parent.mkdir(parents=True, exist_ok=True)
         service.out_log().write_text(f"[12:00:00] reviewer: {p}\n")
-        repo = where / "repo"                  # for `spawn --dry-run`
+        repo = where / "repo"                  # for `spawn`
         repo.mkdir()
 
         # Every leaf of the CLI is one of these two, so a subcommand that is added
@@ -88,8 +88,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
             "hr list": [["hr", "list"]], "hr links": [(["hr", "links"], {"OCP_AGENT": "human"}, "hr links")], "service logs": [["service", "logs"]],
             "resume": [["resume", "reviewer"]], "fold": [["fold", "reviewer", "--no-model"]],
             "backup": [["backup"]],
-            "spawn": [(["spawn", "reviewer", "--repo", str(repo), "--prompt", f"p {p}", "--dry-run"],
-                       None, "spawn --dry-run")],
+            "spawn": [(["spawn", "reviewer", "--repo", str(repo), "--prompt", f"p {p}"], None, "spawn --prompt")],
             "hr apply": [(["hr", "apply", "poisontest"], None, "hr apply")],
             "hr withdraw": [(["hr", "withdraw", "withdrawtest"], {"OCP_AGENT": "reviewer"},
                              "hr withdraw")],

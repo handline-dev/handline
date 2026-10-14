@@ -77,7 +77,7 @@ from handline.view import viewdata  # noqa: E402
 from handline.infra import daemonclient as dmn_client, daemonlock, devmode as devsetting  # noqa: E402
 from handline.session import states as dmn_states  # noqa: E402
 from handline.daemon import (delivery as dmn_delivery, handoff as dmn_handoff, lifecycle as dmn_lifecycle,  # noqa: E402
-                        messaging as dmn_messaging, states as dmn_timing)
+                        messaging as dmn_messaging, spawn as dmn_spawn, states as dmn_timing)
 from handline.vendors import opencode as ocmod  # noqa: E402
 
 PASS, FAIL = [], []
@@ -2458,6 +2458,7 @@ __all__ = [
     'dmn_handoff',
     'dmn_lifecycle',
     'dmn_messaging',
+    'dmn_spawn',
     'dmn_states',
     'dmn_timing',
     'daemonlock',

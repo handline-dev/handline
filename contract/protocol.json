@@ -138,7 +138,7 @@
    "hl service ..."
   ],
   "needs_a_decision": [
-   "hl spawn (a founder's act; agent.create serves it to the founder's apps, and no agent-role method serves it)",
+   "hl spawn (a founder's act; it calls session.start, and agent.create serves it to the founder's apps)",
    "hl agent register (a roster change, founder)"
   ],
   "not_daemon_methods": [

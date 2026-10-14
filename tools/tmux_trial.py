@@ -32,7 +32,7 @@ os.environ.setdefault("OCP_TERMINAL", "tmux")
 from handline import db  # noqa: E402
 from handline.infra import daemonlock  # noqa: E402
 from handline.session import backends, term  # noqa: E402
-from handline.team import spawn  # noqa: E402
+from handline.daemon import spawn  # noqa: E402
 
 RESULTS: list[tuple[str, bool, str]] = []
 
