@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, BackHandler, Pressable, ScrollView, Text, View } from 'react-native';
-import { controlsOf, needsConfirm, type StopMode } from '@handline/app-core';
+import { badgesOf, controlsOf, needsConfirm, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView, TerminalView } from '@handline/client';
@@ -12,6 +12,7 @@ import { StateMark } from './StateMark.tsx';
 import { AgentSettings } from './AgentSettings.tsx';
 import { AgentStrip } from './AgentStrip.tsx';
 import { AgentTasks } from './AgentTasks.tsx';
+import { AgentTimeline } from './AgentTimeline.tsx';
 import { AgentVerbs } from './AgentVerbs.tsx';
 import { Chat } from './Chat.tsx';
 import { Loadable } from './Loadable.tsx';
@@ -86,9 +87,12 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const { detail, agent: row, tab: current } = props;
   const name = detail.name;
   const ctl = controlsOf(detail, me);
-  const [tasks, setTasks] = useState(false); // the Tasks tab sits beside the store's two tabs
+  const [extra, setExtra] = useState<'tasks' | 'timeline' | null>(null); // the Tasks and Timeline tabs sit beside the store's two tabs
   const hasTasks = useServes('tasks.list').served;
-  const showTasks = tasks && hasTasks;
+  const hasTimeline = useServes('agent.timeline').served;
+  const showTasks = extra === 'tasks' && hasTasks;
+  const showTimeline = extra === 'timeline' && hasTimeline;
+  const stalled = badgesOf(detail, me).find((b) => b.kind === 'stalled');
   const verbMark = useVerbMark(name, ['close']);
   const mark = useAgentMark(name) ?? verbMark;
   const start = useWrite('session.start', name);
@@ -127,8 +131,8 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
     </Pressable>
   );
   const pageTab = (t: 'chat' | 'terminal', label: string) =>
-    tab(t, label, !showTasks && current === t, () => {
-      setTasks(false);
+    tab(t, label, !showTasks && !showTimeline && current === t, () => {
+      setExtra(null);
       store.setTab(t);
     });
   const busy = mark !== null;
@@ -152,13 +156,19 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       </Row>
       <View style={{ paddingHorizontal: space.md }}>
         <AgentVerbs detail={detail} row={row} onSettings={props.onSettings} />
+        {stalled && hasTimeline && (
+          <Button testID="badge-stalled" label={`${stalled.label}: ${stalled.tip}`} kind="no" onPress={() => setExtra('timeline')} />
+        )}
       </View>
       <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }}>
         {pageTab('chat', 'Chat')}
         {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
-        {hasTasks && tab('tasks', 'Tasks', showTasks, () => setTasks(true))}
+        {hasTasks && tab('tasks', 'Tasks', showTasks, () => setExtra('tasks'))}
+        {hasTimeline && tab('timeline', 'Timeline', showTimeline, () => setExtra('timeline'))}
       </Row>
-      {showTasks ? (
+      {showTimeline ? (
+        <AgentTimeline agent={name} />
+      ) : showTasks ? (
         <AgentTasks agent={name} />
       ) : (
         <>
