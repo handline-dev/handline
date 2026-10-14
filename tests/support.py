@@ -63,6 +63,7 @@ from handline.cli import (account as cliaccount, ask as cliask, bridge as clibri
                      health as clihealth, setup as clisetup, task as clitask)
 from handline.team import accounts, agents, ask as askmod, decisions, hr, proposals, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
 from handline import actions, cli as climod, db, vendors  # noqa: E402
+from handline.actions import stuck as stuckmod  # noqa: E402
 from handline.session import blocked as blockedmod, digest, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, term as termmod, triggers, waiting  # noqa: E402
 from handline.vendors import claude_meter as claudemeter  # noqa: E402
 from handline.session import backends  # noqa: E402
@@ -398,7 +399,7 @@ def restore_world() -> None:
     dmn_delivery._seen_at["t"] = 0.0
     dmn_delivery._NOTED.clear()
     dmn_delivery._FAILED.clear()
-    actions._WORLD["at"] = 0.0
+    stuckmod._WORLD["at"] = 0.0
 
 
 def upgrade(path: Path | None = None):

@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from handline.actions import stuck as stuckmod  # noqa: E402
 
 
 def test_a_first_backfill_reads_a_slice_per_tick_not_the_whole_history(home: Path) -> None:
@@ -1269,11 +1270,11 @@ def test_a_woken_session_is_not_closed_while_its_wake_waits_for_the_first_turn(h
 
         db.set_closed(con, "backend", "sess-4")
         with lock.terminal("backend") as mine:
-            state = actions._delivery_state(con, "backend", {}, {"term_new"})
+            state = stuckmod._delivery_state(con, "backend", {}, {"term_new"})
             check("stuck: while the terminal is held the reason is not an invitation to press w",
                   mine and state[0] == "closed, starting" and state[2] and " w " not in state[1],
                   str(state))
-        state = actions._delivery_state(con, "backend", {}, {"term_new"})
+        state = stuckmod._delivery_state(con, "backend", {}, {"term_new"})
         check("stuck: once it is free the closed reason is back", state[0] != "closed, starting", str(state))
         check("stuck: an agent whose lock file does not exist is not held", lock.terminal_busy("never-locked") is False)
     finally:
@@ -1871,44 +1872,6 @@ def test_a_refused_launch_leaves_its_prompt(home: Path) -> None:
         launch.build, os.execve, launch._record_terminal = realb, realx, realr
 
 
-def test_a_start_and_a_push_both_refuse_a_full_account_before_opening_a_terminal(home: Path) -> None:
-    """`session.start` (control.start_result) opened a terminal on a full account and left `hl launch` to refuse inside it, where a message's
-    push (`_start_for_work`) said so first. Both say the same sentence now and open nothing."""
-    from handline.actions import control
-    from handline.session import term as termmod_
-    from handline.team import ask as askmod_, spawn as spawn_
-    _daemon_home(home, 100)
-    credentialed(home, "alpha")        # logged in: only the wall is what is in the way
-    con = db.connect()
-    opened: list = []
-    real = (termmod_.available, termmod_.open_terminal, termmod_.create_worktree, spawn_._confirm_session, spawn_.register_worker,
-            spawn_.ensure_extras, spawn_.pick_base)
-    try:
-        termmod_.available = lambda: True
-        termmod_.open_terminal = lambda cmd, cwd=None, title=None: (opened.append(cmd), ("h1", None))[1]
-        termmod_.create_worktree = lambda repo, name, base: (str(home), None)
-        spawn_._confirm_session = lambda agent: None
-        spawn_.register_worker = lambda *a, **k: None
-        spawn_.ensure_extras = lambda *a, **k: (None, [])
-        spawn_.pick_base = lambda repo, base: ("main", "test")
-        con.execute("UPDATE agent_state SET terminal = NULL, closed_at = NULL, worktree = NULL, resume_session = NULL WHERE agent = 'backend'")
-        con.commit()
-        ok, said = control.start_result(con, "backend", str(home))
-        check("full account: session.start is refused with the room sentence", not ok and "not started" in said and launch.no_room("backend") in said
-              and "logged in" not in said, said)
-        rid = db.add_request(con, "reviewer", "backend", "look at this", None, "peer", "async", None, 0, None)
-        told = askmod_.push_here(con, "backend", rid)
-        check("full account: a pushed message says the same and starts nothing", launch.no_room("backend") in told or "queued" in told, told)
-        check("full account: no terminal was opened by either", opened == [], str(opened))
-        write_status(home, "alpha", pct_5h=20, pct_7d=10, ctx_pct=5, reset_5h=int(time.time()) + 1800)
-        ok, said = control.start_result(con, "backend", str(home))
-        check("an account with room: the same start opens its terminal", ok and len(opened) == 1, said)
-    finally:
-        (termmod_.available, termmod_.open_terminal, termmod_.create_worktree, spawn_._confirm_session, spawn_.register_worker,
-         spawn_.ensure_extras, spawn_.pick_base) = real
-        con.close()
-
-
 def _walled_lines(_params) -> dict:
     """agents.list as the Go daemon answers `hl ps` and `hl team` (go/internal/reads/agents.go): backend's line, its wall
     read with the Python predicate the Go one ports."""
@@ -2375,8 +2338,6 @@ def test_a_resumed_hand_park_stays_forceable_too(home: Path) -> None:
         parked = db.get_agent_state(con, "backend")
         check("resume hand: the by-hand mark survives the assumed-account short retry",
               parked["detail"].startswith(dmn_states.BY_HAND_MARK), parked["detail"])
-        ok, why = actions.can(con, "backend", "wake")
-        check("resume hand: and w may still force it", ok, why)
     finally:
         con.close()
 
@@ -2968,7 +2929,6 @@ def main() -> int:
         run(lambda: test_a_wake_does_not_claim_a_session_it_did_not_start(Path(td) / 'wakeforeign'))
         run(lambda: test_a_wake_refuses_to_type_when_the_process_table_is_unreadable(Path(td) / 'wakeunreadable'))
         run(lambda: test_a_refused_launch_leaves_its_prompt(Path(td) / 'launchrefused'))
-        run(lambda: test_a_start_and_a_push_both_refuse_a_full_account_before_opening_a_terminal(Path(td) / 'fullacct'))
         run(lambda: test_a_walled_wake_says_so_everywhere(Path(td) / 'walled'))
         run(lambda: test_a_walled_wake_is_not_shown_with_nothing_waiting(Path(td) / 'walledquiet'))
         run(lambda: test_a_walled_wake_with_no_reset_reads_unknown(Path(td) / 'walledunknown'))

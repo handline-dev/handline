@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from handline.actions import stuck as stuckmod  # noqa: E402
 
 
 def _say_world(home: Path) -> None:
@@ -158,8 +159,8 @@ def test_stuck_never_reads_a_send_now_row_as_waiting_behind_the_head(home: Path)
         ok, msg, rid = askmod.say("backend", "quick one", requester="product")
         check("setup: the say opens behind the real head, by id", ok, msg)
         con.execute("UPDATE requests SET ts = ? WHERE id = ?",
-                    (int(time.time()) - actions.STUCK_AFTER_S - 60, rid))
-        rows = [r for r in actions.stuck(con) if r["agent"] == "backend" and f"#{rid}" in r["what"]]
+                    (int(time.time()) - stuckmod.STUCK_AFTER_S - 60, rid))
+        rows = [r for r in stuckmod.stuck(con) if r["agent"] == "backend" and f"#{rid}" in r["what"]]
         check("stuck: a send_now row is never read as waiting behind the head",
               rows and all("waiting behind" not in r["why"] for r in rows), str(rows))
     finally:

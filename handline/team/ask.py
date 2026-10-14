@@ -536,9 +536,9 @@ def push_answer_here(con, requester: str) -> str:
 
 def _delivery_reason(con, target: str) -> tuple[str, bool]:
     """Why delivery did not happen, in the daemon's own words."""
-    from .. import actions
+    from ..actions import stuck
 
-    return actions._delivery_block(con, target, *actions._world())
+    return stuck._delivery_block(con, target, *stuck._world())
 
 
 def inbox(agent: str, unread_only: bool = True) -> list[dict]:

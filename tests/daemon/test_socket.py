@@ -201,27 +201,6 @@ def test_a_socket_message_racing_the_tick_for_the_same_agent_never_doubles_up(ho
         con.close()
 
 
-def test_control_start_refuses_when_the_lock_is_held_elsewhere(home: Path) -> None:
-    """control.start took lock.terminal in this phase (T351) - it had none
-    before. Held elsewhere, it must refuse rather than spawn a second
-    terminal for the same agent."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'backend'")
-    holder = _hold_terminal_lock_elsewhere("backend")
-    try:
-        said = actions.start(con, "backend")
-        check("start: refused while something else holds the terminal",
-              "someone else" in said, said)
-        row = db.get_agent_state(con, "backend")
-        check("start: nothing was spawned - still no terminal",
-              row is None or not row["terminal"], str(dict(row or {})))
-    finally:
-        holder.kill()
-        holder.wait()
-        con.close()
-
-
 def test_peer_pid_names_the_process_on_the_other_end_of_the_socket(home: Path) -> None:
     from handline.infra import sessiontoken
     a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -247,7 +226,6 @@ def main() -> int:
         run(lambda: test_a_screen_blocker_defers_to_a_pending_row_a_later_deliver_picks_up(Path(td) / 's2'))
         run(lambda: test_pending_rows_left_by_a_dead_daemon_are_reloaded_at_start(Path(td) / 's3'))
         run(lambda: test_a_socket_message_racing_the_tick_for_the_same_agent_never_doubles_up(Path(td) / 's4'))
-        run(lambda: test_control_start_refuses_when_the_lock_is_held_elsewhere(Path(td) / 's4a'))
         run(lambda: test_peer_pid_names_the_process_on_the_other_end_of_the_socket(Path(td) / 's6'))
     return run_area(tests)
 

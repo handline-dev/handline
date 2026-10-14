@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from handline.actions import stuck as stuckmod  # noqa: E402
 from handline import actions  # noqa: E402
 from handline.daemon import landing  # noqa: E402
 
@@ -178,7 +179,7 @@ def test_a_line_the_transcript_never_shows_is_typed_again_without_end(home: Path
     try:
         _age(rid, landing.LANDING_WAIT_S + 5)
         con.execute("UPDATE requests SET ts = ts - 3600 WHERE id = ?", (rid,))
-        why = [s for s in actions.stuck(con) if s["what"].startswith(f"#{rid} ")]
+        why = [s for s in stuckmod.stuck(con) if s["what"].startswith(f"#{rid} ")]
         check("never lands: it stays queued and is on the stuck list", bool(why), str(why))
         check("never lands: and nothing is said as lost", con.execute(
             "SELECT COUNT(*) FROM events WHERE kind = 'landing_lost'").fetchone()[0] == 0)

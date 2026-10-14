@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from handline.actions import stuck as stuckmod  # noqa: E402
 from handline.daemon import agentview, delivery, handoff_note, lifecycle  # noqa: E402
 from handline.infra import sessiontoken  # noqa: E402
 from handline.session import states as dmn_states, idle_close, observe as obs, stopgate, term  # noqa: E402
@@ -315,7 +316,7 @@ def test_a_database_made_before_the_view_gets_it_from_a_plain_connect(home: Path
 
 def test_a_running_agent_whose_session_died_is_stuck_in_the_view_as_on_the_screen(home: Path) -> None:
     """The view is built from the tick's reading of the process table, not from none: queued work for a RUNNING agent with no session
-    in its terminal is a stuck delivery to actions.stuck, and the view says the same, before the sweep has reconciled the row."""
+    in its terminal is a stuck delivery to stuckmod.stuck, and the view says the same, before the sweep has reconciled the row."""
     support._daemon_home(home, 20)
     con = db.connect()
     try:
@@ -327,8 +328,8 @@ def test_a_running_agent_whose_session_died_is_stuck_in_the_view_as_on_the_scree
             {"backend": obs.Observed(terminal_alive=alive, session_pid=None, session_seen=True)}) or delivery._seen_at.update(t=time.time())
         sees(True)
         agentview.refresh(con, int(time.time()))
-        want = next((b for b in actions.stuck(con) if b["agent"] == "backend"), None)
-        check("actions.stuck finds the delivery stuck: no session", want is not None and want["what"] and "no session" in want["why"], str(want))
+        want = next((b for b in stuckmod.stuck(con) if b["agent"] == "backend"), None)
+        check("stuckmod.stuck finds the delivery stuck: no session", want is not None and want["what"] and "no session" in want["why"], str(want))
         check("the view's attention says the same", agentview.stored(con, "backend")["attention"] == "stuck", str(agentview.stored(con, "backend")))
         delivery._seen_at["t"] = 0.0
         agentview.refresh(con, int(time.time()))

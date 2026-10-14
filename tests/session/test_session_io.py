@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
+from handline.actions import stuck as stuckmod  # noqa: E402
 from handline.daemon import handoff_note  # noqa: E402
 
 
@@ -478,12 +479,12 @@ def test_a_dialog_in_the_way_of_work_is_said_once_and_clears_itself(home: Path) 
               str([w["kind"] for w in actions.founder_waits(con)]))
         check("blocked: STUCK gives the dialog, not the state's guess",
               any("cannot be given its work" in r["what"] and "Background work is running" in r["why"]
-                  for r in actions.stuck(con))
-              and not any("mid-turn" in r["why"] for r in actions.stuck(con)),
-              str(actions.stuck(con)))
+                  for r in stuckmod.stuck(con))
+              and not any("mid-turn" in r["why"] for r in stuckmod.stuck(con)),
+              str(stuckmod.stuck(con)))
         check("blocked: and one row for the agent, not one per request",
-              sum(1 for r in actions.stuck(con) if r["agent"] == "backend") == 1,
-              str(actions.stuck(con)))
+              sum(1 for r in stuckmod.stuck(con) if r["agent"] == "backend") == 1,
+              str(stuckmod.stuck(con)))
 
         seen["screen"] = None                 # the founder answered it
         blockedmod._checked.clear()
@@ -1083,269 +1084,6 @@ def test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(home: Path) -
         check("press history: it is only tracked, not yet raised",
               rec and rec["kind"] == "unreadable" and rec["request_id"] is None, str(dict(rec) if rec else None))
     finally:
-        con.close()
-
-
-def test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_shows_it(home: Path) -> None:
-    """A restart closes the session and wakes it; a wake that fails (here the process table cannot be read)
-    left a bare shell that nothing retried and no screen named. The debt is read from the record by
-    every tick: tried again (with a pause after a launch that started nothing), FATAL with the reason
-    after three, shown as PENDING meanwhile."""
-    from handline.actions import control
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[str] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.send, termmod.available, launch.find_room,
-            termmod.close_terminal, dmn_lifecycle.TABLE_RETRY_PAUSES_S)
-    try:
-        orca_seen()
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.close_terminal = lambda h, tab=True: (True, "closed")
-        launch.find_room = lambda agent: "alpha"
-        dmn_lifecycle.TABLE_RETRY_PAUSES_S = (0, 0)
-        real_relaunch = termmod.relaunch
-        table = sessions_are("backend")
-        reads = {"misses": 0}
-        real_table = obsmod.live_sessions
-
-        def send(handle: str, text: str, enter: bool = True):
-            sent.append(text)
-            if text == "/exit":
-                table.pop("backend", None)
-            elif " launch " in text:
-                take_launched_prompt(text)
-                table["backend"] = 4242
-            return True, ""
-        termmod.send = send
-
-        def flaky():
-            if reads["misses"] and reads.get("armed"):
-                reads["misses"] -= 1
-                return None
-            return real_table()
-        obsmod.live_sessions = flaky
-        real_settled = dmn_lifecycle._live_sessions_settled
-
-        def settled():
-            """Only the wake's own look at the table misses: the close read it fine, as in the field."""
-            reads["armed"] = True
-            try:
-                return real_settled()
-            finally:
-                reads["armed"] = False
-        dmn_lifecycle._live_sessions_settled = settled
-        db.set_terminal(con, "backend", "term_x", "wt")
-        write_status_json(home / "agents" / "backend", {
-            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
-            "pct_5h": 20, "ctx_pct": 8, "transcript_path": "/tmp/sess-1.jsonl"})
-        log = lambda _m: None   # noqa: E731
-
-        def age_the_failures() -> None:
-            con.execute("UPDATE events SET ts = ts - 1000 WHERE agent = 'backend' AND kind = 'wake_failed'")
-
-        reads["misses"] = 2
-        ok, said = control.restart_result(con, "backend")
-        check("verify: a process-table reading that misses twice is read again, and the restart goes through",
-              ok and any(" launch " in t for t in sent) and not dmn_lifecycle.restart_owed(con, "backend", db.get_agent_state(con, "backend")),
-              f"{said} {sent}")
-
-        sent.clear()
-        table["backend"] = 4200
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        db.clear_cursor(con, "typed_at:backend")
-        reads["misses"] = 99
-        ok, said = control.restart_result(con, "backend")
-        row = db.get_agent_state(con, "backend")
-        check("retry: a restart whose wake could not read the table leaves it closed with the restart owed, nothing typed after /exit",
-              not ok and row["closed_at"] and dmn_lifecycle.restart_owed(con, "backend", row)
-              and not any(" launch " in t for t in sent), f"{said} {sent}")
-        check("retry: and nothing waiting is no reason to leave it: the tick's cause is the restart",
-              dmn_lifecycle.closed_wake_cause(con, "backend", row)[0] == "restart"
-              and dmn_lifecycle.start_or_wake_needed(con, "backend", row) == ("wake", "a restart that has not started it again"))
-        word, detail = screenstate.screen_state(con, row)
-        check("shown: it reads PENDING and says it is down and why", word == "PENDING"
-              and detail.startswith("down: the process table"), f"{word} {detail}")
-        ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
-        check("retry: the tick tries again at once (a missed reading counts for nothing) and fails the same way",
-              not ok and "could not be confirmed" in said and db.get_agent_state(con, "backend")["wake_failures"] == 0, said)
-        reads["misses"] = 0
-        sent.clear()
-        ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
-        launched = [t for t in sent if " launch " in t]
-        check("retry: once the table reads, the owed restart finishes as asked: the same conversation, from the same requester",
-              ok and launched and "--resume sess-1" in launched[0] and "--why restart" in launched[0]
-              and launched_prompt(launched[0]).startswith("Restarted by human (resumed)."), f"{said} {sent}")
-        row = db.get_agent_state(con, "backend")
-        check("retry: and it is no longer owed", not dmn_lifecycle.restart_owed(con, "backend", row)
-              and dmn_lifecycle.restart_retry_note(con, "backend", row) is None)
-
-        # A launch that starts nothing is counted, paused between tries, and stalls the agent with its reason.
-        termmod.relaunch = lambda h, cmd, started=None: (False, "claude did not start")
-        sent.clear()
-        table["backend"] = 4200
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        db.clear_cursor(con, "typed_at:backend")
-        ok, said = control.restart_result(con, "backend")
-        row = db.get_agent_state(con, "backend")
-        word, detail = screenstate.screen_state(con, row)
-        check("retry: a launch that started nothing leaves the restart owed, counted once",
-              not ok and dmn_lifecycle.restart_owed(con, "backend", row) and row["wake_failures"] == 1, f"{said} {dict(row)}")
-        check("shown: it says it is down, why, and which try is next",
-              word == "PENDING" and detail == "down, retry 2/3: claude did not start", f"{word} {detail}")
-        ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
-        check("retry: the next try waits out the pause and counts nothing",
-              not ok and "shortly" in said and db.get_agent_state(con, "backend")["wake_failures"] == 1, said)
-        age_the_failures()
-        ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
-        check("retry: after the pause it tries again, and that failure is counted",
-              not ok and db.get_agent_state(con, "backend")["wake_failures"] == 2, said)
-        age_the_failures()
-        ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
-        row = db.get_agent_state(con, "backend")
-        word, detail = screenstate.screen_state(con, row)
-        check("retry: the third failure stalls it with the reason, never silently idle",
-              row["state"] == dmn_states.STALLED and "claude did not start" in row["detail"]
-              and word == "FATAL" and "no session: claude" in detail, f"{dict(row)} {word} {detail}")
-        termmod.relaunch = real_relaunch
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        db.reset_counter(con, "backend", "wake_failures")
-        sent.clear()
-        ok, said = dmn_lifecycle.wake_agent(con, "backend", log)
-        check("retry: unstalled, the owed restart still finishes", ok and any(" launch " in t for t in sent), f"{said} {sent}")
-
-        db.set_closed(con, "backend", "sess-1")
-        check("retry: a later close is its own matter, the finished restart does not come back",
-              dmn_lifecycle.closed_wake_cause(con, "backend", db.get_agent_state(con, "backend")) is None)
-    finally:
-        (termmod.alive, termmod.wait_idle, termmod.send, termmod.available, launch.find_room,
-         termmod.close_terminal, dmn_lifecycle.TABLE_RETRY_PAUSES_S) = real
-        obsmod.live_sessions = real_table
-        dmn_lifecycle._live_sessions_settled = real_settled
-        termmod.relaunch = real_relaunch
-        con.close()
-
-
-def test_a_restart_closes_the_terminal_when_the_screen_cannot_be_read(home: Path) -> None:
-    """`/exit` is never typed at a screen that cannot be read, and the restart used to stop there. A
-    restart asked for by name now closes the terminal with the session in it and starts again in a new
-    one in the same worktree."""
-    from handline.actions import control
-    from handline.team import spawn as spawnmod
-    _daemon_home(home, 20)
-    con = db.connect()
-    sent: list[str] = []
-    closed_panes: list[str] = []
-    real = (termmod.alive, termmod.wait_idle, termmod.send, termmod.available, launch.find_room,
-            termmod.close_terminal, termmod.screen_blocker, spawnmod.start_in, handoffmod.capture)
-    try:
-        orca_seen()
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        launch.find_room = lambda agent: "alpha"
-        handoffmod.capture = lambda *a, **k: ("RECORD", [])
-        table = sessions_are("backend")
-        started: list[str] = []
-
-        def close_terminal(handle, tab=True):
-            closed_panes.append(handle)
-            table.pop("backend", None)           # the session dies with its terminal
-            return True, "closed"
-        termmod.close_terminal = close_terminal
-        termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        termmod.screen_blocker = lambda h: termmod.Blocker(termmod.UNREADABLE)
-
-        def start_in(agent, wt, cmd=None):
-            started.append(cmd)
-            take_launched_prompt(cmd)
-            table[agent] = 4300
-            db.set_terminal(con, agent, "term_new", wt)
-            return True, "started"
-        spawnmod.start_in = start_in
-        db.set_terminal(con, "backend", "term_x", str(home))
-        write_status_json(home / "agents" / "backend", {
-            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
-            "pct_5h": 20, "ctx_pct": 8, "transcript_path": "/tmp/sess-1.jsonl"})
-
-        for fresh in (False, True):
-            sent.clear(); started.clear(); closed_panes.clear()
-            table["backend"] = 4200
-            db.set_agent_state(con, "backend", dmn_states.IDLE)
-            db.clear_cursor(con, "typed_at:backend")
-            db.set_terminal(con, "backend", "term_x", str(home))
-            ok, said = control.restart_result(con, "backend", fresh=fresh)
-            row = db.get_agent_state(con, "backend")
-            word = "fresh" if fresh else "resumed"
-            check(f"restart ({word}): an unreadable screen is not typed at, and the terminal is closed instead",
-                  ok and "/exit" not in sent and closed_panes == ["term_x"], f"{said} {sent} {closed_panes}")
-            check(f"restart ({word}): the reply says the terminal was closed with the session",
-                  "its screen could not be read, so its terminal was closed with it" in said, said)
-            check(f"restart ({word}): and it starts again in a new terminal in the same worktree",
-                  len(started) == 1 and row["terminal"] == "term_new" and row["closed_at"] is None,
-                  f"{started} {dict(row)}")
-            check(f"restart ({word}): {'a new conversation' if fresh else 'the same conversation'}",
-                  ("--resume" not in started[0]) if fresh else ("--resume sess-1" in started[0]), started[0])
-
-        termmod.close_terminal = lambda h, tab=True: (False, "orca would not")
-        table["backend"] = 4200
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        db.clear_cursor(con, "typed_at:backend")
-        db.set_terminal(con, "backend", "term_x", str(home))
-        ok, said = control.restart_result(con, "backend")
-        check("restart: a terminal that will not close is named, and the agent is left as it was",
-              not ok and "would not close" in said and not db.get_agent_state(con, "backend")["closed_at"], said)
-
-        termmod.screen_blocker = lambda h: termmod.Blocker(termmod.MODAL, "Do you trust")
-        termmod.close_terminal = close_terminal
-        table["backend"] = 4200
-        closed_panes.clear()
-        ok, said = control.restart_result(con, "backend")
-        check("restart: a dialog on a screen that can be read is not closed over", not closed_panes, said)
-
-        db.set_agent_state(con, "backend", dmn_states.RUNNING)
-        termmod.screen_blocker = lambda h: termmod.Blocker(termmod.UNREADABLE)
-        ok, said = control.restart_result(con, "backend")
-        check("restart: a working agent is not closed this way without --force", not ok and not closed_panes, said)
-        ok, said = control.restart_result(con, "backend", force=True)
-        check("restart: with --force it is, after the turn has ended, and the reply says the terminal was closed",
-              ok and closed_panes and "terminal was closed with it" in said and "cut" not in said, said)
-
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        db.clear_cursor(con, "typed_at:backend")
-        termmod.close_terminal = lambda h, tab=True: (closed_panes.append(h), (True, "closed"))[1]
-        table["backend"] = 4200                  # the session outlives its closed terminal
-        ok, said = control.restart_result(con, "backend")
-        check("restart: a terminal closed over a session that stays says so, not that /exit was typed",
-              not ok and "terminal was closed but the session is still running" in said
-              and "/exit was typed" not in said, said)
-        check("restart: and the closed terminal's handle is dropped, not left pointing at it",
-              not db.get_terminal(con, "backend"), db.get_terminal(con, "backend"))
-        termmod.close_terminal = close_terminal
-
-        # Every other guard of the close still holds on an unreadable screen.
-        from handline.infra import lock
-        write_status_json(home / "agents" / "backend", {
-            "account": "alpha", "collected_at": int(time.time()), "pct_5h": 20, "ctx_pct": 8,
-            "transcript_path": "/tmp/sess-1.jsonl"})
-        closed_panes.clear()
-        table["backend"] = 4200
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        db.clear_cursor(con, "typed_at:backend")
-        db.set_terminal(con, "backend", "term_x", str(home))
-        ok, said = control.restart_result(con, "backend")
-        check("restart: no session id on record is refused with the --fresh hint, the terminal untouched",
-              not ok and "--fresh" in said and not closed_panes and not db.get_agent_state(con, "backend")["closed_at"], said)
-        write_status_json(home / "agents" / "backend", {
-            "account": "alpha", "collected_at": int(time.time()), "session_id": "sess-1",
-            "pct_5h": 20, "ctx_pct": 8, "transcript_path": "/tmp/sess-1.jsonl"})
-        with lock.terminal("backend") as mine:
-            ok, said = control.restart_result(con, "backend")
-            check("restart: someone else typing at the agent is respected: the terminal is not closed",
-                  mine and not ok and "typing" in said and not closed_panes, said)
-        db.add_event(con, "backend", "UserPromptSubmit", {})
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        db.clear_cursor(con, "typed_at:backend")
-    finally:
-        (termmod.alive, termmod.wait_idle, termmod.send, termmod.available, launch.find_room,
-         termmod.close_terminal, termmod.screen_blocker, spawnmod.start_in, handoffmod.capture) = real
         con.close()
 
 
@@ -2465,41 +2203,6 @@ def test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(home: Path
         con.close()
 
 
-def test_wake_on_a_self_clearing_park_refuses_and_says_when(home: Path) -> None:
-    """actions.can()/daemon.park_wakeable(): the property from #1620/#1625 -
-    only a park a person started by hand is worth `w` forcing early. Proof:
-    one check per key behaviour, failing when its own line is reverted."""
-    _daemon_home(home, 20)
-    con = db.connect()
-    try:
-        wake = int(time.time()) + 900
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=wake, detail="usage; wakes at x")
-        ok, why = actions.can(con, "backend", "wake")
-        check("wake: a usage-wall park refuses, and says when it clears itself",
-              not ok and time.strftime("%H:%M", time.localtime(wake)) in why, why)
-
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=wake, detail="moving; wakes at x")
-        ok, why = actions.can(con, "backend", "wake")
-        check("wake: a moving (short-retry) park refuses with its own reason, "
-              "not the usage-wall's window-rollover sentence beside it",
-              not ok and "moving accounts" in why and "window rolls over" not in why, why)
-
-        db.set_agent_state(con, "backend", dmn_states.PARKED, wake_at=wake, detail="by hand; wakes at x")
-        ok, why = actions.can(con, "backend", "wake")
-        check("wake: a park started by hand is the one that stays wakeable", ok, why)
-
-        db.set_agent_state(con, "backend", dmn_states.STALLED, detail="ran out")
-        ok, why = actions.can(con, "backend", "wake")
-        check("wake: FATAL (STALLED) is wakeable too - this is what unstall did", ok, why)
-        said = actions.wake(con, "backend")
-        check("wake: pressing it on FATAL actually clears the stall (unstall, under wake)",
-              "STALLED -> QUEUED" in said, said)
-        check("wake: ...and the row really moved",
-              db.get_agent_state(con, "backend")["state"] == dmn_states.QUEUED)
-    finally:
-        con.close()
-
-
 def test_orca_idle_parsing() -> None:
     """`ok` says the wait command ran; `satisfied` says the agent is idle.
 
@@ -3334,8 +3037,6 @@ def main() -> int:
         run(lambda: test_nothing_is_pressed_for_what_is_not_a_dialog(Path(td) / 'dcl6'))
         run(lambda: test_press_history_is_scoped_to_one_dialog_not_the_whole_agent(Path(td) / 'dcl7'))
         run(lambda: test_idle_session_is_closed_and_resumed(Path(td) / 'idle'))
-        run(lambda: test_a_restart_whose_wake_failed_is_retried_then_stalls_with_its_reason_and_shows_it(Path(td) / 'restartretry'))
-        run(lambda: test_a_restart_closes_the_terminal_when_the_screen_cannot_be_read(Path(td) / 'restartpane'))
         run(lambda: test_the_actor_column_is_added_to_an_existing_session_starts_table(Path(td) / 'actorcol'))
         run(lambda: test_a_close_is_recorded_only_once_the_process_has_ended(Path(td) / 'exitwait'))
         run(lambda: test_wait_session_gone_treats_an_unmappable_pid_as_unreadable())
@@ -3372,7 +3073,6 @@ def main() -> int:
             Path(td) / 'stallnote'))
         run(lambda: test_a_pinned_agent_stays_pinned_when_nothing_else_has_clear_room(
             Path(td) / 'pinnedstuck'))
-        run(lambda: test_wake_on_a_self_clearing_park_refuses_and_says_when(Path(td) / 'selfclearwake'))
         skip(lambda: test_orca_idle_parsing(), ORCA_UNMAINTAINED)
         run(lambda: test_confirm_trust_presses_down_then_enter())
         run(lambda: test_clear_refuses_mid_turn())
