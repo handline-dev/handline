@@ -15,6 +15,8 @@ The tests live in `tests/<group>/test_<area>.py` over the shared fixtures in
 `tests/support.py`; `tests/test_ocp.py` runs every area file (`-j N` sets how
 many at once) and adds their counts.
 
+`tools/prune_worktrees.py` lists the worktrees that are merged into main, clean and no agent's; `--remove` removes them.
+
 Design notes are in `design/` and `docs/`.
 
 Working on the desktop app itself — the page with hot reload, a dev Electron
