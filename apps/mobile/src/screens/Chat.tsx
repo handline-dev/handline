@@ -250,7 +250,7 @@ export function Chat(props: { detail: AgentDetail }) {
           </Text>
         )}
       </ScrollView>
-      {props.detail.needs_you && <NeedsYouCard agent={agent} needs={props.detail.needs_you} prompt={props.detail.prompt ?? null} />}
+      <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
       {picked && (
         <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
           <Text testID="replying" numberOfLines={1} style={{ color: c.muted, fontSize: 12, flex: 1 }}>

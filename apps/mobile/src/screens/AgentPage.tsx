@@ -177,9 +177,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         <AgentTasks agent={name} />
       ) : (
         <>
-          {!(structured && current === 'terminal') && !(current === 'chat' && detail.needs_you) && (
-            <PromptSlot agent={name} prompt={detail.prompt ?? null} />
-          )}
+          {!(structured && current === 'terminal') && current !== 'chat' && <PromptSlot agent={name} prompt={detail.prompt ?? null} />}
           {current === 'chat' ? <Chat detail={detail} /> : structured ? <TranscriptTab detail={detail} /> : <Terminal detail={detail} />}
         </>
       )}
