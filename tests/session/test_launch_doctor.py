@@ -1024,59 +1024,6 @@ def test_hl_spawn_and_unstall_ask_the_go_daemon(tmp: Path) -> None:
     check("unstall: a refusal fails and says why", rc == 1 and "not STALLED (IDLE)" in out, f"{rc} {out}")
 
 
-def test_spawn_base_selection(tmp: Path) -> None:
-    """Branching from the stale side silently loses work, so pick_base must not
-    guess - and must refuse outright when the two have diverged."""
-    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t",
-               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
-    run = lambda cwd, *a: subprocess.run(["git", *a], cwd=cwd, capture_output=True, env=env)  # noqa: E731
-
-    origin = tmp / "origin"
-    origin.mkdir(parents=True)
-    run(origin, "init", "-q", "-b", "main")
-    (origin / "f.txt").write_text("base\n")
-    run(origin, "add", "-A"); run(origin, "commit", "-qm", "base")
-
-    work = tmp / "work"
-    subprocess.run(["git", "clone", "-q", str(origin), str(work)], capture_output=True)
-
-    ref, why = spawnmod.pick_base(work, "main")
-    check("spawn: in sync, uses the local base", ref == "main", f"{ref} ({why})")
-
-    # Local ahead: branching from origin/main would drop the local commits.
-    (work / "f.txt").write_text("local work\n")
-    run(work, "add", "-A"); run(work, "commit", "-qm", "local only")
-    ref, why = spawnmod.pick_base(work, "main")
-    check("spawn: local ahead, branches from local", ref == "main", f"{ref} ({why})")
-    check("spawn: says why", "leads by 1" in why, why)
-
-    # Remote ahead only.
-    work2 = tmp / "work2"
-    subprocess.run(["git", "clone", "-q", str(origin), str(work2)], capture_output=True)
-    (origin / "f.txt").write_text("remote work\n")
-    run(origin, "add", "-A"); run(origin, "commit", "-qm", "remote only")
-    ref, why = spawnmod.pick_base(work2, "main")
-    check("spawn: remote ahead, branches from origin", ref == "origin/main", f"{ref} ({why})")
-
-    # Diverged: refuse rather than pick a side.
-    (work2 / "other.txt").write_text("diverge\n")
-    run(work2, "add", "-A"); run(work2, "commit", "-qm", "local diverge")
-    ref, why = spawnmod.pick_base(work2, "main")
-    check("spawn: diverged, refuses instead of guessing", ref is None, f"{ref} ({why})")
-    check("spawn: tells the human to merge first", "Merge" in why or "merge" in why, why)
-
-    # T483: a repo whose branch is not `main` (legacy's) must not be handed `main`.
-    other = tmp / "other"
-    other.mkdir()
-    run(other, "init", "-q", "-b", "trunk")
-    ref, why = spawnmod.pick_base(other, "main")
-    check("spawn: no commit at all, refuses with a plain reason", ref is None and "first commit" in why, why)
-    (other / "f.txt").write_text("x\n")
-    run(other, "add", "-A"); run(other, "commit", "-qm", "first")
-    ref, why = spawnmod.pick_base(other, "main")
-    check("spawn: no main, branches from the checked-out branch", ref == "trunk", f"{ref} ({why})")
-
-
 def test_launch_judges_on_the_figure_it_may_act_on(home: Path) -> None:
     """Inside a window usage only rises, so a carried figure is a floor - and a
     floor at the wall is at the wall. Reading the raw field let a launch start
@@ -1262,213 +1209,6 @@ def test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
               and ("assignable" in msg))
     check("doctor: agrees - not assignable, not the pick's blind spot",
           "not assignable" in row, row)
-
-
-def test_spawn_survives_its_own_main_path(home: Path) -> None:
-    """`hl spawn <agent> --prompt "..."` is the command's main path, and it
-    raised there - after the worktree and the terminal were already made, so it
-    left a real worktree and a live terminal with no task in it. Nothing drove
-    spawn() past terminal-create, so the suite walked around the crash."""
-    os.environ["OCP_HOME"] = str(home)
-    home.mkdir(parents=True, exist_ok=True)
-    agents.register("spawny")
-
-    repo = home / "repo"
-    (repo / ".git").mkdir(parents=True)
-
-    real = (spawnmod._run, dmn_spawn.prompt_landed, termmod.wait_idle, termmod.available,
-           dmn_delivery.wait_for_session)
-    try:
-        host = TmuxStandIn()
-        termmod.available = lambda: True
-        spawnmod._run = lambda args, cwd=None: (0, "", "")
-        dmn_spawn.prompt_landed = lambda agent, since, timeout_s=0: True
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.run_current = lambda: None       # register_worker looks for a Run to join;
-        termmod.run_create = lambda objective: None    # there is none, so the worker is not registered
-        # spawn() confirms a session came up before it says "started" (#1976,
-        # T146 pt.2) - not this test's own concern, so it is not made to wait.
-        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
-
-        ok, msg = dmn_spawn.spawn("spawny", repo, base="main", prompt="do the thing")
-        check("spawn: the command's main path runs to the end", ok, msg)
-        check("spawn: and the task is actually sent",
-              any(a[0] == "send-keys" and "do the thing" in " ".join(a) for a in host.calls), str(host.calls))
-        check("spawn: a ready agent draws no warning", "WARNING" not in msg, msg)
-
-        # The wait is the guard against typing into a booting TUI, so its
-        # answer must read the right way round: it warned on success and was
-        # silent on failure, which is worse than not warning at all.
-        termmod.wait_idle = lambda h, timeout_ms=0: False
-        ok, msg = dmn_spawn.spawn("spawny", repo, base="main", prompt="do the thing")
-        check("spawn: a wait that did not succeed warns", "WARNING" in msg, msg)
-    finally:
-        (spawnmod._run, dmn_spawn.prompt_landed, termmod.wait_idle, termmod.available,
-         dmn_delivery.wait_for_session) = real
-
-
-def test_spawn_and_start_in_refuse_to_say_started_with_no_session(home: Path) -> None:
-    """A terminal the host made is not a session
-    running in it - `spawn`/`start_in` must say so (`ok=False`, the "no
-    session is running" text), not warn while still claiming success. The
-    daemon's own auto-start (`_start_for_work`) decides on that same `ok` now,
-    not on the terminal the row still holds (the terminal is real; only the
-    session inside it is missing), so it must not reset the wake-failure
-    streak or log "started" over one either."""
-    os.environ["OCP_HOME"] = str(home)
-    home.mkdir(parents=True, exist_ok=True)
-    credentialed(home, "alpha")
-    agents.register("spawny", repo=str(home / "checkout"))
-    con = db.connect()
-
-    repo = home / "repo"
-    (repo / ".git").mkdir(parents=True)
-
-    real = (spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
-           dmn_delivery.wait_for_session)
-    try:
-        TmuxStandIn()
-        termmod.available = lambda: True
-        spawnmod._run = lambda args, cwd=None: (0, "", "")
-        termmod.run_current = lambda: None
-        termmod.run_create = lambda objective: None
-        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: False
-
-        ok, msg = dmn_spawn.spawn("spawny", repo, base="main")
-        check("spawn: no session confirmed is not started",
-              not ok and "no session is running" in msg, msg)
-
-        wt = home / "keep-wt"
-        wt.mkdir()
-        ok, msg = dmn_spawn.start_in("spawny", str(wt))
-        check("start_in: no session confirmed is not started either",
-              not ok and "no session is running" in msg, msg)
-
-        # The daemon's own auto-start of an agent with work waiting.
-        db.add_request(con, "manager", "spawny", "do it", None,
-                       "peer", "async", None, 0, None)
-        said = dmn_lifecycle._start_for_work(con, "spawny", lambda _m: None)
-        row = db.get_agent_state(con, "spawny")
-        check("dispatch: a spawn with no session confirmed is not 'started'",
-              "could not be started" in said, said)
-        check("dispatch: and it counts as a failed wake, not a fresh streak",
-              row["wake_failures"] == 1, str(dict(row)))
-    finally:
-        (spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
-         dmn_delivery.wait_for_session) = real
-        con.close()
-
-
-def test_spawn_registers_a_repo_orca_lacks_and_tries_again(home: Path) -> None:
-    """A worktree create that fails with repo_not_found gets one retry, after the
-    repo is put in Orca - never for one Orca already has, and never twice."""
-    os.environ["OCP_HOME"] = str(home)
-    home.mkdir(parents=True, exist_ok=True)
-    credentialed(home, "alpha")
-    agents.register("regy", repo=str(ROOT))
-    creates: list[list[str]] = []
-    have_repo = {"ok": False}
-    not_found = json.dumps({"ok": False, "error": {"code": "repo_not_found"}})
-
-    def fake_run(args, cwd=None):
-        if args[:3] == ["orca", "worktree", "create"]:
-            creates.append(args)
-            if not have_repo["ok"]:
-                return 1, not_found, ""
-            return 0, json.dumps({"result": {"worktree": {"path": str(home / "wt")}}}), ""
-        if args[:3] == ["orca", "terminal", "create"]:
-            return 0, json.dumps({"result": {"terminal": {"handle": "term_r"}}}), ""
-        return 0, "", ""
-
-    fake = FakeOrca({})
-    real = (orcacli._exec, spawnmod._run, termmod.available, orcacli._run, termmod.available,
-            termmod.wait_idle, dmn_delivery.wait_for_session)
-    try:
-        termmod.available = lambda: True
-        spawnmod._run = fake_run
-        orcacli._exec = lambda argv, timeout=120: fake_run(argv)
-        orcacli._run, termmod.available = fake.run, lambda: True
-        termmod.wait_idle = lambda *_a, **_k: True
-        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
-
-        real_add = fake.run
-
-        def add_then_ready(args, timeout=180):
-            if args[0] != "repo":
-                return True, "{}"
-            r = real_add(args, timeout)
-            if args[:2] == ["repo", "add"]:
-                have_repo["ok"] = True
-            return r
-        orcacli._run = add_then_ready
-        real_rc, real_rcr = termmod.run_current, termmod.run_create
-        termmod.run_current, termmod.run_create = (lambda: None), (lambda objective: None)
-        ok, msg = dmn_spawn.spawn("regy", ROOT, base="main")
-        check("spawn: repo_not_found registers the repo, then the worktree is made",
-              len(creates) == 2 and fake.repos == [str(ROOT)], f"{msg} {creates} {fake.repos}")
-
-        # Orca already has it: repo_not_found is not ours to fix by adding it again.
-        agents.register("regy2", repo=str(ROOT))
-        creates.clear()
-        have_repo["ok"] = False
-        n = len(fake.calls)
-        ok, msg = dmn_spawn.spawn("regy2", ROOT, base="main")
-        check("spawn: a repo Orca already lists is not added again, and the failure is shown",
-              not ok and len(creates) == 1 and "repo_not_found" in msg
-              and all(c[:2] != ["repo", "add"] for c in fake.calls[n:]), f"{msg} {fake.calls[n:]}")
-    finally:
-        (orcacli._exec, spawnmod._run, termmod.available, orcacli._run, termmod.available,
-         termmod.wait_idle, dmn_delivery.wait_for_session) = real
-        termmod.run_current, termmod.run_create = real_rc, real_rcr
-
-
-def test_spawn_keeps_the_worktree_an_agent_still_has(home: Path) -> None:
-    """`worktree create --name keeper` on a name already taken makes keeper-2
-    beside it, stranding the branch and whatever is uncommitted in the first.
-    With the terminal record gone but the checkout on disk, spawn must start
-    the agent in the checkout it has and create nothing."""
-    os.environ["OCP_HOME"] = str(home)
-    home.mkdir(parents=True, exist_ok=True)
-    agents.register("keeper", "alpha")
-    wt = home / "keeper-wt"
-    wt.mkdir()
-
-    repo = home / "repo"
-    (repo / ".git").mkdir(parents=True)
-
-    real = (spawnmod._run, termmod.available, termmod.run_current, termmod.run_create,
-           dmn_delivery.wait_for_session)
-    con = db.connect()
-    try:
-        host = TmuxStandIn()
-        termmod.available = lambda: True
-        spawnmod._run = lambda args, cwd=None: (0, "", "")
-        termmod.run_current = lambda: None
-        termmod.run_create = lambda objective: None
-        # spawn() confirms a session came up before it says "started" (#1976,
-        # T146 pt.2) - not this test's own concern, so it is not made to wait.
-        dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
-        # The selector `hl launch` records, not a plain path.
-        db.set_terminal(con, "keeper", None, f"abc123::{wt}")
-
-        ok, msg = dmn_spawn.spawn("keeper", repo, base="main", dry_run=True)
-        check("spawn: a dry run names the worktree it would keep", ok and str(wt) in msg, msg)
-        check("spawn: and plans no worktree create", "worktree create" not in msg, msg)
-
-        ok, msg = dmn_spawn.spawn("keeper", repo, base="main")
-        check("spawn: an agent with a worktree and no terminal starts", ok, msg)
-        check("spawn: no second worktree is created", host.worktrees_made() == [], str(host.git))
-        check("spawn: the terminal opens in the worktree it had",
-              [str(wt)] == [a[a.index("-c") + 1] for a in host.windows()], str(host.windows()))
-
-        # Gone from disk, there is nothing to keep: a fresh one is made.
-        db.set_terminal(con, "keeper", None, f"abc123::{wt}-missing")
-        ok, msg = dmn_spawn.spawn("keeper", repo, base="main")
-        check("spawn: a worktree that is gone is made anew", len(host.worktrees_made()) == 1, str(host.git))
-    finally:
-        con.close()
-        (spawnmod._run, termmod.available, termmod.run_current,
-         termmod.run_create, dmn_delivery.wait_for_session) = real
 
 
 def test_installing_hooks_twice_does_not_double_them(home: Path) -> None:
@@ -1842,10 +1582,8 @@ def test_allow_home_writes_reads_entries_as_claude_code_does(home: Path) -> None
 
 
 def test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(home: Path) -> None:
-    """`state_hooks()` is the one fact hooks, init, doctor and the state word
-    ask: claude has them, opencode and a second vendor do not, and a vendor
-    without them is one whose row state is read off its screen."""
-    from handline.daemon import screenstate
+    """`state_hooks()` is the one fact hooks, init and doctor ask: claude has them, opencode and a second
+    vendor do not."""
     use_home(home)
     check("state hooks: claude has them", vendors.get("claude").state_hooks() is not None)
     check("state hooks: opencode has none - its screen is the witness",
@@ -1853,14 +1591,6 @@ def test_only_a_vendor_with_state_hooks_is_installed_into_and_read_from_them(hom
     check("state hooks: the list the commands loop over is claude's alone",
           [type(h).__name__ for h in vendors.state_hooks()] == ["ClaudeHooks"],
           str(vendors.state_hooks()))
-    accounts.register("clacct")
-    accounts.register("ocacct", vendor="opencode")
-    check("state hooks: a claude account's state comes from its hooks",
-          screenstate._state_from_screen("clacct") is False)
-    check("state hooks: an opencode account's is read off its screen",
-          screenstate._state_from_screen("ocacct") is True)
-    check("state hooks: an account whose vendor has no driver is neither",
-          screenstate._state_from_screen("nosuch") is False)
 
 
 def test_doctor_says_when_the_record_and_the_process_table_disagree(home: Path) -> None:
@@ -2375,7 +2105,6 @@ def main() -> int:
         run(lambda: test_launch_refuses_stale(Path(td) / 'stale'))
         run(lambda: test_init_keeps_the_lock_file_out_of_the_home_repo(Path(td) / 'd6e'))
         run(lambda: test_doctor_service_check(Path(td) / 'svc7'))
-        run(lambda: test_spawn_base_selection(Path(td) / 'spawn'))
         run(lambda: test_hl_spawn_and_unstall_ask_the_go_daemon(Path(td) / 'hlspawn'))
         run(lambda: test_launch_judges_on_the_figure_it_may_act_on(Path(td) / 'lj'))
         run(lambda: test_doctor_checks_team_yaml_and_that_its_agents_are_registered(Path(td) / 'docteam'))
@@ -2383,10 +2112,6 @@ def main() -> int:
         run(lambda: test_doctor_says_one_thing_per_account(Path(td) / 'doc2'))
         run(lambda: test_doctor_agrees_with_the_pick_about_an_account_with_an_agent_mid_turn(
             Path(td) / 'docactive'))
-        run(lambda: test_spawn_survives_its_own_main_path(Path(td) / 'spawnmain'))
-        run(lambda: test_spawn_and_start_in_refuse_to_say_started_with_no_session(Path(td) / 'spawnnosess'))
-        skip(lambda: test_spawn_registers_a_repo_orca_lacks_and_tries_again(Path(td) / 'spawnrepo'), ORCA_UNMAINTAINED)
-        run(lambda: test_spawn_keeps_the_worktree_an_agent_still_has(Path(td) / 'spawnkeep'))
         run(lambda: test_installing_hooks_twice_does_not_double_them(Path(td) / 'hookdup'))
         run(lambda: test_a_launch_installs_a_hook_event_added_since_the_last_install(Path(td) / 'hookgrow'))
         run(lambda: test_doctor_catches_a_wanted_event_installed_before_it_existed(Path(td) / 'hookgap'))

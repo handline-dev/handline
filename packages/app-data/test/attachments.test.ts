@@ -24,6 +24,24 @@ describe('uploadImage', () => {
     expect(seen).toEqual([CHUNK, CHUNK + 10]);
   });
 
+  it('reads a Blob that has no arrayBuffer, as React Native\'s does', async () => {
+    const blob = file(7);
+    Object.defineProperty(blob, 'arrayBuffer', { value: undefined });
+    const real = blob.slice.bind(blob);
+    blob.slice = (...a) => {
+      const part = real(...a);
+      Object.defineProperty(part, 'arrayBuffer', { value: undefined });
+      return part;
+    };
+    const lens: number[] = [];
+    const call = async (_m: string, p: Record<string, unknown>) => {
+      lens.push(atob(p.data as string).length);
+      return { upload: 'u', received: 7, attachment: A };
+    };
+    await uploadImage(call, blob, 'x.png', 'image/png');
+    expect(lens).toEqual([7]);
+  });
+
   it('sends a chunk whose reply was lost again under the same operation id, and gives up after three tries', async () => {
     const ids: unknown[] = [];
     let n = 0;

@@ -30,16 +30,14 @@ const (
 	BrowserServer      = "browser"
 	DefaultBrowserProf = "Profile 17"
 	DefaultMode        = "auto"
-
-	skipNS = "skip_permissions"
 )
 
 var (
 	ValidEffort = []string{"low", "medium", "high", "xhigh", "max"}
 	// EffortShort are the effort names short enough for a column; an unknown value is shown whole.
 	EffortShort = map[string]string{"low": "low", "medium": "mid", "high": "high", "xhigh": "xhi", "max": "max"}
-	// Modes are Claude's permission modes. bypass is the old skip_permissions switch.
-	Modes = []string{"default", "auto", "acceptEdits", "plan", "bypass"}
+	// Modes are Claude's permission modes.
+	Modes = []string{"default", "auto", "acceptEdits", "plan"}
 
 	// NotText is said wherever a name is refused for what YAML would make of it.
 	NotText = "It would not be read back as text from the YAML files it is written into (no, on, null, numbers and dates are not); choose another."
@@ -119,9 +117,6 @@ func ExtraWorktrees(cfg Config) int64 {
 	}
 	return 0
 }
-
-// SkipPermissions is whether this agent's sessions start without asking before they act. Only a real true turns it on.
-func SkipPermissions(cfg Config) bool { return cfg["skip_permissions"] == true }
 
 // Chrome is whether this agent's sessions start with the browser integration. Only a real true turns it on.
 func Chrome(cfg Config) bool { return cfg["chrome"] == true }
@@ -350,25 +345,10 @@ func NewRoster(home string) *Roster {
 	return &Roster{Home: home, Store: s.Store, Seals: s}
 }
 
-// SkipPermissionsGranted is whether the founder turned it on, through Register from a terminal or the screen. agent.yaml alone
-// never does: the grant is kept in the protected store, where an agent cannot write.
-func (r *Roster) SkipPermissionsGranted(agent string) bool {
-	v, ok := r.Store.Get(skipNS, agent)
-	return ok && v == "granted"
-}
-
-// SkipPermissionsInEffect is what a launch will do: configured, and granted.
-func (r *Roster) SkipPermissionsInEffect(agent string, cfg Config) bool {
-	return SkipPermissions(cfg) && r.SkipPermissionsGranted(agent)
-}
-
-// ModeOf is the permission mode a launch will use: bypass when skipping is configured and granted, else the agent.yaml mode
-// when it names one, else auto. Anything else reads as the default, never as more than was asked.
+// ModeOf is the permission mode a launch will use: the agent.yaml mode when it names one, else auto. Anything else reads as the
+// default, never as more than was asked.
 func (r *Roster) ModeOf(agent string, cfg Config) string {
-	if r.SkipPermissionsInEffect(agent, cfg) {
-		return "bypass"
-	}
-	if v, ok := cfg["mode"].(string); ok && v != "bypass" && contains(Modes, v) {
+	if v, ok := cfg["mode"].(string); ok && contains(Modes, v) {
 		return v
 	}
 	return DefaultMode
@@ -505,7 +485,7 @@ type RegisterOpts struct {
 	Role, Weight, RoleFile, Repo           string
 	Model, Effort, Vendor, Mode, MCPConfig *string
 	ContextTokens, ExtraWorktrees          *int64
-	SkipPermissions, Chrome, Sandbox       *bool
+	Chrome, Sandbox                        *bool
 }
 
 func strp(s string) *string { return &s }
@@ -533,22 +513,8 @@ func (r *Roster) Register(name string, o RegisterOpts) (string, error) {
 	if err := r.Seals.RequireFounder(); err != nil {
 		return "", err
 	}
-	skip := o.SkipPermissions
-	if o.Mode != nil {
-		if !contains(Modes, *o.Mode) {
-			return "", fmt.Errorf("mode must be one of %s, not %s", strings.Join(Modes, ", "), pyQuote(*o.Mode))
-		}
-		b := *o.Mode == "bypass" // bypass is the old switch; any other mode turns it off
-		skip = &b
-	}
-	if skip != nil && *skip {
-		if err := r.Store.Put(skipNS, name, "granted"); err != nil {
-			return "", err
-		}
-	} else if skip != nil {
-		if err := r.Store.Delete(skipNS, name); err != nil {
-			return "", err
-		}
+	if o.Mode != nil && !contains(Modes, *o.Mode) {
+		return "", fmt.Errorf("mode must be one of %s, not %s", strings.Join(Modes, ", "), pyQuote(*o.Mode))
 	}
 	d := paths.AgentDir(r.Home, name)
 	f := r.AgentFile(name)
@@ -569,10 +535,7 @@ func (r *Roster) Register(name string, o RegisterOpts) (string, error) {
 		if present(o.Vendor) && *o.Vendor != DefaultVendor {
 			pairs = append(pairs, yamlcompat.Pair{Key: "vendor", Val: *o.Vendor})
 		}
-		if skip != nil && *skip {
-			pairs = append(pairs, yamlcompat.Pair{Key: "skip_permissions", Val: true})
-		}
-		if o.Mode != nil && *o.Mode != "bypass" && *o.Mode != DefaultMode {
+		if o.Mode != nil && *o.Mode != DefaultMode {
 			pairs = append(pairs, yamlcompat.Pair{Key: "mode", Val: *o.Mode})
 		}
 		if o.Sandbox != nil && *o.Sandbox {
@@ -608,7 +571,7 @@ func (r *Roster) Register(name string, o RegisterOpts) (string, error) {
 		if err := r.Seals.Seal(sealed.AgentKey(name), text); err != nil {
 			return "", err
 		}
-	} else if err := r.update(name, f, o, skip); err != nil {
+	} else if err := r.update(name, f, o); err != nil {
 		return "", err
 	}
 	rolePath := filepath.Join(d, "ROLE.md")
@@ -655,7 +618,7 @@ func expandUser(p string) string {
 
 // update changes what was asked for in an agent.yaml that exists and leaves the rest of the map alone: re-serialized from the
 // parsed document rather than spliced.
-func (r *Roster) update(name, f string, o RegisterOpts, skip *bool) error {
+func (r *Roster) update(name, f string, o RegisterOpts) error {
 	b, err := os.ReadFile(f)
 	if err != nil {
 		return err
@@ -693,15 +656,8 @@ func (r *Roster) update(name, f string, o RegisterOpts, skip *bool) error {
 			cfg = pairsPop(cfg, "extra_worktrees")
 		}
 	}
-	if skip != nil {
-		if *skip {
-			cfg = pairsSet(cfg, "skip_permissions", true)
-		} else {
-			cfg = pairsPop(cfg, "skip_permissions")
-		}
-	}
 	if o.Mode != nil {
-		if *o.Mode == "bypass" || *o.Mode == DefaultMode {
+		if *o.Mode == DefaultMode {
 			cfg = pairsPop(cfg, "mode")
 		} else {
 			cfg = pairsSet(cfg, "mode", *o.Mode)

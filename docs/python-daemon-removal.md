@@ -30,7 +30,7 @@ rows: the module goes once the command calls the Go method.
 | `screenstate` | 193 | - | delete | The word a row shows. `hl ps` and `hl team` read `screen_word` of `agents.list` with `status: true`. Done: `handline/ui` and the functions of `viewdata` that read it are deleted; `viewdata` keeps what `hl account list` and `hl daemon` draw. |
 | `agentview` | 195 | - | switch | As `screenstate`. |
 | `handoff_note` | 220 | `actions/details`, `session/handoff` | delete | The on/off toggle is `handoff_note` of the Go `settings.get` and `settings.set`; the note itself is Go's (`go/internal/handoff`). Both importers are reached only by the Python daemon. |
-| `landing` | 172 | `actions/stuck` | delete | `state` reads a session's transcript to say whether a request landed: the Go daemon records `landed_at`, which the chat reads carry. Done: `agent_detail` and the conversation it drew are deleted. `actions/stuck` stays until step 4: the Python daemon's `agentview`, `taskholds` and `chat.list` call it, and so does `team/ask`'s push. |
+| `landing` | 172 | `actions/stuck` | delete | `state` reads a session's transcript to say whether a request landed: the Go daemon records `landed_at`, which the chat reads carry. Done: `agent_detail` and the conversation it drew are deleted, and `actions/stuck` with the package (step 4c). |
 | `spool` | 112 | `session/events` | move | The Go daemon reads the spool (`go/internal/hooks/spool.go`). Done: `hl doctor` takes the two file names from `handline/infra/paths.py`. Moved: the Python `hl hook` writes it with `infra/hookspool.append`. `ingest` and `pending` are the Python daemon's. |
 | `inputhold` | 100 | `actions/control`, `session/autoaccept` | delete | Who may type at a terminal: only the daemon asks. |
 | `messaging` | 245 | `team/ask` | delete | `tell_now` types a message at once; `say` is the Go `hl`'s. |
@@ -51,7 +51,7 @@ imported from outside, and `cmd_daemon*`, `cmd_dev_mode` are names of `cli/daemo
    `reconciler` or `spool`. Every import left in the table is reached only by the Python daemon (see
    [The Python hook](#the-python-hook)). Deleted: `handline/ui` and the half of `view/viewdata` only it and the tests
    read.
-4. Delete `handline/daemon`, `hl daemon`, and the tests that only exercise it.
+4. Done: delete `handline/daemon`, `hl daemon`, and the tests that only exercise it.
    - a. Done: `hl daemon` and the tick (`loop`, `evaluate`, `reconciler`, `usage_poll`, `devmode`, `prompts`,
      `applysettings`, `costpilot`, `login_expired`, `noticedigest`, `schedules`, `subscriptions`, `taskqueue`, `waitfor`,
      `locks`) with their tests. `hl service install` installs only the Go daemon. `tools/gateway_smoke.py` runs on the
@@ -60,7 +60,7 @@ imported from outside, and `cmd_daemon*`, `cmd_dev_mode` are names of `cli/daemo
      `timebox`, `actions/chatreads`, `events.apply_hook`) and the Python fake of the daemon (`tests/infra/fake_methods`;
      conformance runs against Go only). The tests of commands the Go `hl` runs went with it; the rest get the Go
      method's reply canned (`support.daemon_says`). 1,362 Python tests before, 954 after.
-   - c. What is left, 13 modules, 5,799 lines, all reached from the Python `hl` through `actions`, `session` and
+   - c. Done: the last 13 modules, 5,799 lines, all reached from the Python `hl` through `actions`, `session` and
      `team`: `delivery` (`actions/stuck`, `session/blocked`, `session/handoff`, `team/ask`, `team/spawn`),
      `lifecycle` (`actions/control`, `actions/stuck`, `session/blocked`, `session/launch`, `team/ask`), `handoff`
      (`actions/control`), `handoff_note` (`actions/details`, `session/handoff`), `inputhold` (`actions/control`,
@@ -74,7 +74,8 @@ imported from outside, and `cmd_daemon*`, `cmd_dev_mode` are names of `cli/daemo
      - `hl hr approve`, `reject`, `apply`: `team/hr` tells the proposer with `team/ask.say`, which writes the request
        row itself and pushes it. When the Go daemon does not take the `push` verb, it delivers in its own process
        (`delivery`, `lifecycle`, `messaging`).
-     - `hl spawn`: `team/spawn` waits for the session with `delivery.wait_for_session`.
+     - `hl spawn`: the Python daemon's own start waits for the session with `delivery.wait_for_session`; it moved to
+       `daemon/spawn` in slice 3.
      - Nothing else. Only the package itself calls these: `session/blocked`'s sweep half, `session/handoff`,
        `session/launch.wake_wait`, the `handoff_note` switch in `actions/details`, `team/ask.inbox`, the rest of
        `team/ask`'s writes (the Go `hl` runs `task`, `say`, `cancel` and `withdraw`), and `actions/stuck`.
@@ -93,11 +94,14 @@ imported from outside, and `cmd_daemon*`, `cmd_dev_mode` are names of `cli/daemo
         (`lifecycle.SpawnWith`, a port of it); `--prompt` then goes through `chat.send`, and `--dry-run` is gone, as
         `session.start` has none. `hl unstall` calls `agent.unstall`; `actions/control` is gone. The Python daemon's
         own start moved to `daemon/spawn`, so `team/spawn` no longer reaches the package.
-     4. Delete `handline/daemon` and everything only it reaches: the list under "Nothing else" above,
-        `autoaccept.answer_by_rule`, and the tests that exercise only these (`tests/daemon`,
-        most of `tests/session/test_daemon_session.py` and `test_session_io.py`). If the diff is too big for one
-        review, split it by test area. A loose end from slice 1: `answer_by_rule` lost its six tests, a gap
-        accepted until this deletes it.
+     4. Done, in three parts: the tests that exercise only the package, then `handline/daemon` itself with what only
+        it reached: the list under "Nothing else" above, `autoaccept.answer_by_rule` (which closes slice 1's loose end
+        of its six lost tests), `usage/measure`, `session/cachettl`, `infra/waits`, and the `session/term` helpers
+        and vendor driver methods only the package called. With the Go daemon down, `team/ask`'s push, answer push
+        and cancel notice leave the request queued for it rather than delivering in-process.
+        `tests/infra/test_import_allowlist.py` pins that nothing imports the package. Left for later: the `db`
+        writers only the package called (`mark_delivered`, `set_closed` and about 40 more), which tests use as
+        fixtures, and the terminal backends' `create_worktree`, `read_history`, `read_screen_ansi` and `resize`.
 
 ## The Python hook
 

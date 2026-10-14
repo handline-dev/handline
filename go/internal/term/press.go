@@ -39,6 +39,8 @@ type Term struct {
 	// Sleep and Now are the clock the waits on a screen run on; nil is the time package's. A test gives them a fake one.
 	Sleep func(time.Duration)
 	Now   func() time.Time
+	// Turns, when set, is asked first whether a session is mid-turn or has background work; where it does not know, the screen is read.
+	Turns Turns
 
 	cacheMu sync.Mutex
 	cache   map[string]cachedBlocker // ScreenBlockerCached's reads, by handle
@@ -441,7 +443,7 @@ func (t *Term) AnswerQuestion(handle string, seen []string, choices []int, text 
 	return StillOpen, found.Header, "the question is still on screen after its answer"
 }
 
-// ---- trust and bypass screens
+// ---- trust screens
 
 func (t *Term) trustFolder(handle string) (string, bool) {
 	text, ok := t.ScreenText(handle)
@@ -529,6 +531,11 @@ func (t *Term) ScreenBlocker(handle string) *Blocker {
 // BackgroundWork is what the session itself says is still running behind its prompt ("2 monitors"), "" when it says nothing; ok
 // is false when its screen could not be read.
 func (t *Term) BackgroundWork(handle string) (string, bool) {
+	if t.Turns != nil {
+		if running, known := t.Turns.Background(handle); known {
+			return running, true
+		}
+	}
 	scr := t.screen(handle, 40)
 	if scr == nil {
 		return "", false
@@ -538,6 +545,11 @@ func (t *Term) BackgroundWork(handle string) (string, bool) {
 
 // IdleWithBackground is whether the screen shows a session idle at its prompt with work running behind it.
 func (t *Term) IdleWithBackground(handle string) bool {
+	if t.Turns != nil {
+		if running, known := t.Turns.Background(handle); known {
+			return running != ""
+		}
+	}
 	scr := t.screen(handle, 40)
 	return scr != nil && t.driver(handle).IdleWithBackground(scr.Tail)
 }
@@ -573,13 +585,31 @@ const (
 	IdleProbeMs   = 3_000
 )
 
+// Turns is what a session's hooks say of its turn (package turns); known false leaves the question to the screen.
+type Turns interface {
+	WaitIdle(handle string, timeout time.Duration) (idle, known bool)
+	Background(handle string) (running string, known bool)
+}
+
 // WaitIdle is whether the agent at handle is idle within timeoutMs.
 func (t *Term) WaitIdle(handle string, timeoutMs int) bool {
+	if t.Turns != nil {
+		if idle, known := t.Turns.WaitIdle(handle, time.Duration(timeoutMs)*time.Millisecond); known {
+			return idle
+		}
+	}
 	return t.Backend.WaitIdle(handle, timeoutMs, t.driver(handle).TurnOnScreen)
 }
 
 // IdleNow is whether the agent is idle right now, without blocking the caller.
-func (t *Term) IdleNow(handle string) bool { return t.WaitIdle(handle, IdleProbeMs) }
+func (t *Term) IdleNow(handle string) bool {
+	if t.Turns != nil {
+		if idle, known := t.Turns.WaitIdle(handle, 0); known {
+			return idle
+		}
+	}
+	return t.WaitIdle(handle, IdleProbeMs)
+}
 
 // TypeableNow is idle and nothing on screen that a typed line would answer.
 func (t *Term) TypeableNow(handle string) bool {

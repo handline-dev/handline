@@ -446,7 +446,7 @@ export class FakeDaemon {
     if (this.work.owns(method)) return { value: this.work.call(method, p, ok) };
     if (method.startsWith('attachment.')) return { value: this.uploads.call(method, p, ok) };
     if (method.startsWith('inbox.')) return { value: this.inbox.call(method, p, c.caller.name, ok) };
-    if (this.tasks.serves(method)) return { value: taskCall(this.tasks, method, p, c.caller.name, this.script) };
+    if (this.tasks.serves(method)) return { value: taskCall(this.tasks, method, p, c.caller.name, c.role === 'agent', this.script) };
     return null;
   }
 

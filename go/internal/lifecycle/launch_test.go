@@ -23,7 +23,6 @@ func (fakeDriver) Binary() string                     { return "/bin/vendor" }
 func (fakeDriver) Hooks() Hooks                       { return nil }
 func (fakeDriver) AutoModeArgv() []string             { return []string{"--permission-mode", "auto"} }
 func (fakeDriver) PermissionModeArgv(string) []string { return nil }
-func (fakeDriver) SkipPermissionsArgv() []string      { return []string{"--skip"} }
 func (fakeDriver) LaunchArgv(exe string, o LaunchArgs) []string {
 	return []string{exe, "--effort", o.Effort, "--disallowed", o.Disallowed}
 }
@@ -92,7 +91,6 @@ type launchRig struct {
 func newLaunchRig(t *testing.T) *launchRig {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", t.TempDir()) // the protected store lives under the user home
 	t.Setenv("OCP_AGENT", "")
 	t.Setenv("HANDLINE_AGENT", "")
 	t.Setenv("OCP_HOME", home)

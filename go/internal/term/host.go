@@ -253,63 +253,10 @@ func (t *Term) terminalNote(handle string) string {
 	return "; the terminal is alive (screen: " + cut(strings.Join(rows, " | "), 240) + ")"
 }
 
-// BypassPromptShowing is whether this session sits at its vendor's bypass-permissions warning: the cursor starts on the option that
-// exits, and an Enter typed there would take it.
-func (t *Term) BypassPromptShowing(handle string) bool {
-	_, shown := t.bypassState(handle)
-	return shown
-}
-
-func (t *Term) bypassState(handle string) (option string, shown bool) {
-	text, ok := t.ScreenText(handle)
-	if !ok {
-		return "", false
-	}
-	return t.driver(handle).BypassScreen(strings.Split(text, "\n"))
-}
-
 const (
 	promptWait = 5 * time.Second
 	promptPoll = 500 * time.Millisecond
 )
-
-// AcceptBypass accepts the bypass-permissions warning this terminal shows, callers having decided that they may. Enter is pressed only with
-// the cursor on the accepting option, read off the screen: from the exiting one a single Down is sent first and the screen read again, and a
-// cursor anywhere else, or unreadable, presses nothing. True once the warning is gone.
-func (t *Term) AcceptBypass(handle string) (bool, string) {
-	drv := t.driver(handle)
-	accept := drv.BypassAccept()
-	state, shown := t.bypassState(handle)
-	if !shown {
-		return false, "the bypass-permissions warning is not on screen"
-	}
-	if state != accept {
-		if ok, out := t.Send(handle, drv.BypassNextKey(), false); !ok {
-			return false, "could not move to " + pyRepr(accept) + ": " + cut(out, 200)
-		}
-		deadline := t.now().Add(promptWait)
-		for {
-			if state, _ := t.bypassState(handle); state == accept {
-				break
-			}
-			if !t.now().Before(deadline) {
-				return false, "the cursor did not reach " + pyRepr(accept) + "; nothing was confirmed"
-			}
-			t.sleep(promptPoll)
-		}
-	}
-	if ok, out := t.Send(handle, "", true); !ok {
-		return false, "could not confirm the bypass warning: " + cut(out, 200)
-	}
-	deadline := t.now().Add(promptWait)
-	for t.BypassPromptShowing(handle) {
-		if !t.now().Before(deadline) {
-			return false, "the bypass warning is still on screen after Enter"
-		}
-		t.sleep(promptPoll)
-	}
-	return true, "accepted"
-}
 
 // WaitForTrustPrompt polls until the trust prompt shows (or, with showing false, is gone) or gives up: the vendor's redraw after
 // the answer is not instant, and reading on the very next line risks the screen it was still drawing.
