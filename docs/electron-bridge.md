@@ -30,7 +30,7 @@ One object, `window.handline`, made by a preload with `contextBridge`. No other 
 | `unsent` | page → shell | E4 | no call; a reload asks nothing |
 | `onNavigate` | shell → page | E2 | none; a deep link is the URL itself |
 | `openPath`, `cancelCompose`, `compose` | page → shell | E3 | §4 |
-| `mode`, `setMode`, `pairRemote`, `phone` | page → shell | modes | the pairing screen shows no mode section |
+| `mode`, `useLocal`, `pairRemote`, `phone` | page → shell | which daemon | the pairing screen shows no connection section |
 
 ## 3. Badge, notices, update, and the notice's click
 
@@ -140,9 +140,9 @@ cancelCompose(): Promise<{ ok: true } | Fail<'bad_request'>>
 
 **Plain browser:** there is no editor to run; the page offers its own multi-line box in the same place (a larger textarea in a dialog, the compose box's own keys). The page no longer offers the "In editor" round-trip — the box itself is the editor — but the shell keeps the `compose` API for anything that asks for it.
 
-### 4.3 `mode`, `setMode`, `pairRemote`
+### 4.3 `mode`, `useLocal`, `pairRemote`
 
-The pairing screen's part in the app's two modes (Connect to a daemon, Run its own). `mode()` gives `{ mode, remote, phone }` (`remote` the paired device's address in connect mode, else null; `phone` true when this app has a gateway of its own to pair a phone with, i.e. `remote` is null). `phone()` opens the one-time pairing QR window, the same as the tray's “Pair a phone…”; `cannot_pair` carries the reason (no network listener, no key). The sidebar's “Pair a phone” row calls it. `setMode('connect' | 'own')` saves the choice and relaunches. `pairRemote({ link })` or `pairRemote({ address, code })` pairs with another device's gateway, saves it and relaunches in connect mode; `cannot_pair` carries the sentence the person reads (nothing answered, not a Handline gateway, an untrusted address). Same sender and argument checks as the rest.
+Which daemon the app is on: this Mac's service or a paired device (there is no mode to choose). `mode()` gives `{ remote, phone }` (`remote` the paired device's address, else null; `phone` true when this app has a gateway of its own to pair a phone with, i.e. `remote` is null). `phone()` opens the one-time pairing QR window, the same as the tray's “Pair a phone…”; `cannot_pair` carries the reason (no network listener, no key). The sidebar's “Pair a phone” row calls it. `useLocal()` forgets the paired device and relaunches on this Mac's daemon. `pairRemote({ link })` or `pairRemote({ address, code })` pairs with another device's gateway, saves it and relaunches; `cannot_pair` carries the sentence the person reads (nothing answered, not a Handline gateway, an untrusted address). Same sender and argument checks as the rest.
 
 ## 5. Tests
 

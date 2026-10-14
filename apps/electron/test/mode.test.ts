@@ -3,32 +3,32 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { helloOf, Link, offerFrom, parseMode, pairRemote, plainRemoteHost, SettingsFile, type Open } from '../src/mode.ts';
+import { helloOf, Link, offerFrom, pairRemote, plainRemoteHost, SettingsFile, type Open } from '../src/mode.ts';
 import { trayMenu } from '../src/tray.ts';
 
 const tmp = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mode-')), 'settings.json');
 const remote = { host: 'mac.tail1.ts.net:7443', fingerprint: null, token: 't0k', device: 'd1' };
 
-test('the default mode is connect, a kept choice stays, and HANDLINE_MODE wins without being kept', () => {
-  const f = new SettingsFile(tmp());
-  assert.deepEqual(f.read(), { mode: 'connect', remote: null });
-  f.write({ mode: 'own', remote });
-  assert.equal(f.read().mode, 'own');
-  assert.equal(f.read('connect').mode, 'connect');
-  assert.equal(f.read().mode, 'own');
-  assert.equal(parseMode('nonsense'), undefined);
+test('the default is this Mac, a kept pairing stays, and a mode an older file holds is ignored', () => {
+  const file = tmp();
+  const f = new SettingsFile(file);
+  assert.deepEqual(f.read(), { remote: null });
+  f.write({ remote });
+  assert.deepEqual(f.read(), { remote });
+  fs.writeFileSync(file, JSON.stringify({ mode: 'own', remote: null }));
+  assert.deepEqual(f.read(), { remote: null });
 });
 
 test('the file holds a token, so only this user reads it', () => {
   const file = tmp();
-  new SettingsFile(file).write({ mode: 'connect', remote });
+  new SettingsFile(file).write({ remote });
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
 
 test('a broken settings file gives the defaults', () => {
   const file = tmp();
   fs.writeFileSync(file, '{nope');
-  assert.deepEqual(new SettingsFile(file).read(), { mode: 'connect', remote: null });
+  assert.deepEqual(new SettingsFile(file).read(), { remote: null });
 });
 
 test('an address and a code make an offer; a plain address that is not Tailscale is refused', () => {
@@ -60,51 +60,51 @@ test('a refused connection says why', async () => {
   await assert.rejects(pairRemote({ address: 'mac.tail1.ts.net', code: 'abc' }, { open, name: 'x' }), /ECONNREFUSED/);
 });
 
-const actions = { open() {}, startDaemon() {}, quit() {} };
-const tray = (m: 'connect' | 'own', link: Partial<Link>) => {
+const actions = { open() {}, startDaemon() {}, stopDaemon() {}, quit() {} };
+const tray = (state: Parameters<typeof trayMenu>[0], link: Partial<Link>, remote = false) => {
   const calls: string[] = [];
-  const items = trayMenu('stopped', '', actions, undefined, {
-    mode: m,
+  const items = trayMenu(state, '', actions, undefined, {
     link: { status: 'connected', address: null, version: null, reason: '', ...link },
-    switchTo: () => calls.push('switch'),
     pair: () => calls.push('pair'),
+    useLocal: remote ? () => calls.push('local') : undefined,
   });
   return { items, calls, labels: items.map((i) => i.label ?? '-') };
 };
 
-test('connect mode shows the daemon it talks to and never offers to start one', () => {
-  const { labels } = tray('connect', { address: '127.0.0.1:7443', version: 'abc1234' });
-  assert.ok(labels.includes('Mode: Connect to a daemon'));
+test('the tray shows the daemon it talks to, pairs from the clipboard and offers Stop only while it runs', () => {
+  const { labels, items, calls } = tray('running', { address: '127.0.0.1:7443', version: 'abc1234' });
   assert.ok(labels.includes('Daemon: 127.0.0.1:7443 · abc1234'));
-  assert.ok(labels.includes('Connected'));
-  assert.ok(!labels.includes('Start daemon'));
-  assert.ok(labels.includes('Switch to Own daemon'));
+  assert.ok(labels.includes('Daemon: running'));
+  assert.ok(labels.includes('Stop daemon…'));
+  assert.ok(!labels.some((l) => /mode/i.test(l)));
+  items.find((i) => i.label === 'Pair with the link on the clipboard')!.click!();
+  assert.deepEqual(calls, ['pair']);
+  assert.ok(!tray('stopped', {}).labels.includes('Stop daemon…'));
+  assert.ok(tray('stopped', {}).labels.includes('Start daemon'));
 });
 
-test('connect mode with nothing running says so and offers pairing and the switch', () => {
-  const { labels, items, calls } = tray('connect', { status: 'no-daemon' });
-  assert.ok(labels.includes('Daemon: none'));
-  assert.ok(labels.some((l) => /No daemon is running/.test(l)));
-  items.find((i) => i.label === 'Pair with the link on the clipboard')!.click!();
-  items.find((i) => i.label === 'Switch to Own daemon')!.click!();
-  assert.deepEqual(calls, ['pair', 'switch']);
+test('quit is the last item and is not the stop item', () => {
+  const stops: string[] = [];
+  const items = trayMenu('running', '', { ...actions, stopDaemon: () => stops.push('stop'), quit: () => stops.push('quit') });
+  assert.equal(items.at(-1)!.label, 'Quit Handline');
+  items.at(-1)!.click!();
+  assert.deepEqual(stops, ['quit']);
+});
+
+test('paired with another device, the tray goes back to this Mac and offers no Stop', () => {
+  const { labels, items, calls } = tray('running', { address: 'mac.ts.net:7443' }, true);
+  assert.ok(!labels.includes('Stop daemon…'));
+  items.find((i) => i.label === "Use this Mac's daemon")!.click!();
+  assert.deepEqual(calls, ['local']);
 });
 
 test('a pairing failure shows its reason', () => {
   assert.ok(
-    tray('connect', { status: 'cannot-pair', reason: 'not a Handline gateway' }).labels.includes('Cannot pair: not a Handline gateway'),
+    tray('running', { status: 'cannot-pair', reason: 'not a Handline gateway' }, true).labels.includes(
+      'Cannot pair: not a Handline gateway',
+    ),
   );
 });
-
-test('own mode keeps the daemon status and Start, and switches back to connect', () => {
-  const { labels } = tray('own', { address: '127.0.0.1:7443' });
-  assert.ok(labels.includes('Mode: Own daemon'));
-  assert.ok(labels.includes('Daemon: stopped'));
-  assert.ok(labels.includes('Start daemon'));
-  assert.ok(labels.includes('Switch to Connect'));
-  assert.ok(!labels.includes('Pair with the link on the clipboard'));
-});
-
 test('the link remembers the version as the short sha', () => {
   const l = new Link();
   l.setVersion('0123456789abcdef');

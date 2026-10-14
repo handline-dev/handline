@@ -29,7 +29,6 @@ test('the env names only the instance: the live home and gateway are dropped, an
     HANDLINE_DATA: '/d/pc/app-data',
     HANDLINE_GATEWAY: '127.0.0.1:7452',
     HANDLINE_GATEWAY_WS: '127.0.0.1:7452',
-    HANDLINE_MODE: 'connect',
     HANDLINE_DEV_URL: 'http://127.0.0.1:5199',
   });
 });

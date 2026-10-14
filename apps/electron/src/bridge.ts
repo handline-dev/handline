@@ -1,7 +1,7 @@
 // The shell's side of window.handline (docs/electron-bridge.md §2, §3): what the page last said, and the check each call passes.
 // Electron's own objects are injected, so this runs under node.
 import type { Fail } from '@handline/app-core';
-import { parseMode, type Mode, type OfferInput } from './mode.ts';
+import type { OfferInput } from './mode.ts';
 
 export const CHANNELS = {
   screen: 'handline:screen',
@@ -11,7 +11,7 @@ export const CHANNELS = {
   compose: 'handline:compose',
   cancelCompose: 'handline:cancelCompose',
   mode: 'handline:mode',
-  setMode: 'handline:setMode',
+  useLocal: 'handline:useLocal',
   pairRemote: 'handline:pairRemote',
   phone: 'handline:phone',
   token: 'handline:token',
@@ -65,9 +65,9 @@ export class Page {
 }
 
 export interface ConnectionDeps {
-  mode(): { mode: Mode; remote: string | null };
-  /** Saves the mode and relaunches. */
-  setMode(m: Mode): void;
+  mode(): { remote: string | null };
+  /** Forgets the paired device, goes back to this Mac's daemon and relaunches. */
+  useLocal(): void;
   /** Pairs and relaunches on the new device; rejects with a sentence when the gateway cannot be paired with. */
   pair(i: OfferInput): Promise<void>;
   /** Opens the phone-pairing QR window; rejects with a sentence when it cannot. */
@@ -90,11 +90,9 @@ export class Connection {
       ? { ok: true, ...this.d.mode(), phone: this.d.mode().remote === null }
       : (bad('not from the app window') as Fail<'bad_request'>);
   }
-  setMode(e: Sender, arg: unknown): Reply {
+  useLocal(e: Sender): Reply {
     if (!fromWindow(e, this.origin)) return bad('not from the app window');
-    const mode = typeof arg === 'string' ? parseMode(arg) : undefined;
-    if (!mode) return bad('setMode takes connect or own');
-    this.d.setMode(mode);
+    this.d.useLocal();
     return { ok: true };
   }
   async phone(e: Sender): Promise<Reply | Fail<'cannot_pair'>> {

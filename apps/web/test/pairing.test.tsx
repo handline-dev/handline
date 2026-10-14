@@ -93,13 +93,13 @@ describe('pairing with the network listener', () => {
     expect(storage.getItem(`token:${url}`)).toBe('');
   });
 
-  it('in the desktop app the pairing screen offers the other mode and pairing with another device by address and code', async () => {
+  it('in the desktop app the pairing screen offers pairing with another device by address and code, and the way back to this computer daemon', async () => {
     const calls: unknown[] = [];
     const reply = async (r: unknown) => (calls.push(r), { ok: true as const });
     (window as { handline?: unknown }).handline = {
       api: 1,
-      mode: async () => ({ ok: true, mode: 'connect', remote: null }),
-      setMode: (m: string) => reply(m),
+      mode: async () => ({ ok: true, remote: 'mac.tail1.ts.net:7443' }),
+      useLocal: () => reply('local'),
       pairRemote: (a: unknown) => reply(a),
     };
     try {
@@ -120,8 +120,8 @@ describe('pairing with the network listener', () => {
         });
       const button = (t: string) => [...box.querySelectorAll<HTMLButtonElement>('.connection button')].find((b) => b.textContent === t)!;
       await act(async () => button('Pair with this device').click());
-      await act(async () => button('Run its own daemon').click());
-      expect(calls).toEqual([{ address: 'mac.tail1.ts.net', code: 'ABCD-1234' }, 'own']);
+      await act(async () => button("Use this computer's daemon").click());
+      expect(calls).toEqual([{ address: 'mac.tail1.ts.net', code: 'ABCD-1234' }, 'local']);
     } finally {
       delete (window as { handline?: unknown }).handline;
     }

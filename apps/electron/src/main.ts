@@ -10,9 +10,9 @@ import { Desk } from './desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
 import { Opener } from './open.ts';
 import { followMain, takeRoute } from './follow-app.ts';
-import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from './mode.ts';
-import { ownDaemon, type Own } from './own.ts';
-import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from './tailnet.ts';
+import { remoteUrl, SettingsFile, type Remote } from './mode.ts';
+import { connectDaemon, type Own } from './own.ts';
+import { gatewayAddress, onTailnet } from './tailnet.ts';
 import { Connection, Page, CHANNELS } from './bridge.ts';
 import { serveDir } from './serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from './update.ts';
@@ -69,18 +69,6 @@ async function pageServer(): Promise<{ url: string; close: () => void }> {
   return devUrl ? { url: devUrl, close: () => undefined } : serveDir(dist, Number(env('WEB_PORT') ?? (gateway ? 17443 : 17444)));
 }
 
-/** `name.ts.net:port` for the gateway when Tailscale is up and names this machine, else null (the pairing link then carries the address). */
-async function advertised(gateway: string): Promise<string | null> {
-  for (const cli of TAILSCALE_CLIS) {
-    const out = await new Promise<string>((resolve) =>
-      execFile(cli, ['status', '--json'], { timeout: 5000, encoding: 'utf8' }, (err, o) => resolve(err ? '' : o)),
-    );
-    const name = magicDnsName(out);
-    if (name) return `${name}:${gateway.split(':')[1] ?? '7443'}`;
-  }
-  return null;
-}
-
 /** A paired remote gateway has a self-signed certificate: the page trusts it by the fingerprint pairing handed over, and no other. */
 function trustFingerprint(remote: Remote): void {
   app.on('certificate-error', (e, _wc, url, _err, cert, trust) => {
@@ -90,15 +78,15 @@ function trustFingerprint(remote: Remote): void {
   });
 }
 
-function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote | null): void {
+function handleConnection(origin: string, own: Own, remote: Remote | null): void {
   const c = new Connection(origin, {
-    mode: () => ({ mode, remote: remote?.host ?? null }),
-    setMode: (m) => own.switchMode(m),
+    mode: () => ({ remote: remote?.host ?? null }),
+    useLocal: () => own.useLocal(),
     pair: (i) => own.pair(i),
     phone: () => own.phone(),
   });
   ipcMain.handle(CHANNELS.mode, (e) => c.mode(e));
-  ipcMain.handle(CHANNELS.setMode, (e, arg) => c.setMode(e, arg));
+  ipcMain.handle(CHANNELS.useLocal, (e) => c.useLocal(e));
   ipcMain.handle(CHANNELS.phone, (e) => c.phone(e));
   ipcMain.handle(CHANNELS.pairRemote, (e, arg) => c.pairRemote(e, arg));
 }
@@ -168,8 +156,7 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(async () => {
     allowGatewayOrigin();
     const settings = new SettingsFile(path.join(app.getPath('userData'), 'settings.json'));
-    const current = settings.read(parseMode(env('MODE')));
-    const remote = current.mode === 'connect' ? current.remote : null;
+    const remote = settings.read().remote;
     if (!remote && gateway && !env('GATEWAY') && !onTailnet(gateway))
       console.warn(`Tailscale is down: the gateway listens on ${gateway} only, so a phone cannot pair`);
     if (remote) {
@@ -185,18 +172,16 @@ if (!app.requestSingleInstanceLock()) {
     // Follow-main mode (pnpm app:main): the app runs from its own checkout of main and offers to restart when main moves.
     const following = env('FOLLOW') ? followMain({ dir: root, window: () => win, changed: () => own.redraw() }) : null;
     const f = following?.follower;
-    const own: Own = ownDaemon({
-      env,
-      loginPath: async () => (await editorEnv()).PATH,
+    const own: Own = connectDaemon({
       home,
-      root,
       socket,
       gatewaySocket,
       gateway,
-      advertise: gateway && onTailnet(gateway) ? await advertised(gateway) : null,
       origin,
       settings,
-      current,
+      remote,
+      // A home, socket or gateway of its own (a team's dev instance) is not the live service: attach only.
+      manage: !env('HOME') && !env('SOCKET') && !env('GATEWAY'),
       openWindow: () => void openWindow(),
       follow:
         f &&
@@ -209,7 +194,7 @@ if (!app.requestSingleInstanceLock()) {
           restart: () => void f.restartNow(),
         })),
     });
-    handleConnection(origin, own, current.mode, remote);
+    handleConnection(origin, own, remote);
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.

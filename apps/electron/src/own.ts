@@ -1,6 +1,6 @@
-// What makes the app own its daemon, in Electron terms: the child processes, the tray, and the device token the app pairs for itself.
-// The logic is in owner.ts, tray.ts and pair.ts, which a test drives; this file only connects them to Electron.
-import { spawn } from 'node:child_process';
+// The app's daemon connection, in Electron terms: make sure the launchd service runs and attach to it (or to a paired remote), the tray,
+// and the device token the app pairs for itself. The logic is in service.ts, tray.ts and pair.ts, which a test drives.
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -9,18 +9,8 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Tray
 import { webSocketTransport } from '@handline/client';
 import { pinnedWebSocketTransport, unixSocketTransport } from '@handline/client-node';
 import { CHANNELS, fromWindow } from './bridge.ts';
-import {
-  Link,
-  pairRemote,
-  plainRemoteHost,
-  helloOf,
-  type Mode,
-  type OfferInput,
-  type Remote,
-  type Settings,
-  type SettingsFile,
-} from './mode.ts';
-import { commands, Owner, resolveClaude, type Child, type Cmd } from './owner.ts';
+import { Link, pairRemote, plainRemoteHost, helloOf, type OfferInput, type Remote, type SettingsFile } from './mode.ts';
+import { ensureService, ServiceStatus, type Ensured, stopService, type ServiceDeps } from './service.ts';
 import { ensureToken, founderKeyFile, phoneLink, TokenFile, type PairDeps } from './pair.ts';
 import { phoneHtml } from './phone-html.ts';
 import { grant } from './grant.ts';
@@ -61,15 +51,6 @@ const localPairing = (home: string, gatewaySocket: string): PairDeps => ({
   name: 'Handline desktop',
 });
 
-const executable = (file: string): boolean => {
-  try {
-    fs.accessSync(file, fs.constants.X_OK);
-    return fs.statSync(file).isFile();
-  } catch {
-    return false;
-  }
-};
-
 /** Whether something is listening on this Unix socket. */
 const answers = (file: string): Promise<boolean> =>
   new Promise((resolve) => {
@@ -79,34 +60,10 @@ const answers = (file: string): Promise<boolean> =>
     c.once('error', () => (c.destroy(), resolve(false)));
   });
 
-/** Whether the gateway answers an HTTP request at all within three seconds. */
-const reachable = (hostPort: string): Promise<boolean> =>
-  fetch(`http://${hostPort}/`, { signal: AbortSignal.timeout(3000) }).then(
-    () => true,
-    () => false,
-  );
+/** The launchd plist `hl service install` writes. */
+const plist = path.join(os.homedir(), 'Library', 'LaunchAgents', 'dev.orcapipe.daemon.plist');
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-/** Its own process group, so quit stops the child and anything it started. */
-function spawnChild(cmd: Cmd, log: number): Child {
-  const p = spawn(cmd.file, cmd.args, { stdio: ['ignore', log, log], env: process.env, detached: true });
-  const stop = () => {
-    try {
-      process.kill(-p.pid!, 'SIGTERM');
-    } catch {
-      p.kill();
-    }
-  };
-  return { kill: stop, onExit: (f) => void p.on('exit', f).on('error', () => f(null)) };
-}
-
-/** Every failure of the daemon the app owns, with its reason, in daemon.log among the daemon's own lines: the tray forgets it. */
-function logFailures(owner: Owner, log: number): void {
-  owner.onChange(() => {
-    if (owner.state === 'failed') fs.writeSync(log, `${new Date().toISOString()} app: the daemon is not up: ${owner.reason}\n`);
-  });
-}
 
 /** The founder key from the protected store, or null while the daemon has not made it. */
 function readFounderKey(home: string): string | null {
@@ -121,165 +78,161 @@ const openRemote = (url: string, fp: string | null) => (fp ? pinnedWebSocketTran
 
 const pairFrom = (i: OfferInput): Promise<Remote> => pairRemote(i, { open: openRemote, name: 'Handline desktop' });
 
-function relaunchWith(file: SettingsFile, next: Settings): void {
-  file.write(next);
-  app.relaunch();
-  app.quit();
+const launchctl = (args: string[]): Promise<{ code: number; out: string }> =>
+  new Promise((resolve) =>
+    execFile('launchctl', args, { timeout: 15_000, encoding: 'utf8' }, (err, out, errOut) =>
+      resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, out: `${out}${errOut}` }),
+    ),
+  );
+
+/** The tray's Stop daemon asks first: every agent stops with the daemon. */
+async function confirmStop(): Promise<boolean> {
+  const r = await dialog.showMessageBox({
+    type: 'warning',
+    message: 'Stop the Handline daemon?',
+    detail: 'Every agent stops with it, and nothing runs until the daemon is started again.',
+    buttons: ['Stop daemon', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+  });
+  return r.response === 0;
 }
 
 export interface Own {
   /** Draws the tray menu again, after something it shows changed. */
   redraw(): void;
-  /** Starts what is missing and pairs; resolves when the window can open (with or without a token), with the address the gateway ended up on. */
+  /** Makes sure the daemon runs and pairs; resolves when the window can open (with or without a token), with the address the gateway is on. */
   ready(): Promise<string | undefined>;
-  /** What the tray says in connect mode; the daemon's version is set once the shell's own connection says hello. */
+  /** What the tray says: which daemon (address, version) and whether it answers. */
   link: Link;
-  /** Connect mode with a paired remote: where the window reaches it. */
+  /** The paired remote the window reaches, or null for this Mac's daemon. */
   remote: Remote | null;
-  /** The page's calls: switch the mode, or pair with another device; both relaunch the app. */
-  switchMode(m: Mode): void;
+  /** The page's calls: pair with another device (relaunches), go back to this Mac's daemon (relaunches), show the phone QR. */
   pair(i: OfferInput): Promise<void>;
+  useLocal(): void;
   /** Opens the phone-pairing QR window; rejects with a sentence when this app has no gateway of its own to pair a phone with. */
   phone(): Promise<void>;
 }
 
-/** The daemon's command with its claude resolved now, on the login shell's PATH: a Dock launch has no shell dirs. */
-async function daemonCmd(o: {
-  env: (k: string) => string | undefined;
-  root: string;
-  gateway: string | undefined;
-  advertise: string | null;
-  loginPath: () => Promise<string | undefined>;
-}): Promise<Cmd> {
-  const claude = resolveClaude(o.env('CLAUDE'), [await o.loginPath(), process.env.PATH], executable);
-  return commands(o.env, o.root, o.gateway ?? '127.0.0.1:7443', o.advertise, claude).daemon;
-}
-
-export function ownDaemon(o: {
-  env: (k: string) => string | undefined;
+export function connectDaemon(o: {
   home: string;
-  root: string;
   socket: string;
   gatewaySocket: string;
   /** host:port of the gateway, or undefined when the app is pointed at a daemon it does not own. */
   gateway: string | undefined;
-  /** The MagicDNS name:port a phone's pairing link carries, when the gateway is on the Tailscale address. */
-  advertise: string | null;
   origin: string;
   openWindow: () => void;
   settings: SettingsFile;
-  /** The mode and pairing in force; connect mode never starts or stops a daemon. */
-  current: Settings;
-  loginPath: () => Promise<string | undefined>;
+  /** The paired remote in force, or null. */
+  remote: Remote | null;
+  /** True for this Mac's live daemon service; false on a home of its own, where the app only attaches. */
+  manage: boolean;
   /** Follow-main mode adds its items to the tray. */
   follow?: () => TrayFollow;
 }): Own {
-  const log = fs.openSync(path.join(app.getPath('userData'), 'daemon.log'), 'a');
-  const owner = new Owner({
-    socketUp: () => answers(o.socket),
-    gatewayUp: () => answers(o.gatewaySocket),
-    spawn: (cmd) => spawnChild(cmd, log),
-    ...commands(o.env, o.root, o.gateway ?? '127.0.0.1:7443', o.advertise),
-    daemon: () => daemonCmd(o),
+  const status = new ServiceStatus();
+  const service: ServiceDeps = {
+    launchctl,
+    up: async () => (await answers(o.socket)) && (await answers(o.gatewaySocket)),
+    installed: () => fs.existsSync(plist),
+    domain: `gui/${os.userInfo().uid}`,
+    plist,
     wait: sleep,
-  });
-  app.on('quit', () => owner.stop());
+  };
   const tray = new Tray(trayIcon());
   tray.setToolTip('Handline');
   const link = new Link();
   link.set('connecting', { address: o.gateway ?? null });
-  const relaunchAs = (next: Settings) => relaunchWith(o.settings, next);
-  const pair = async (i: OfferInput) => relaunchAs({ mode: 'connect', remote: await pairFrom(i) });
+  const relaunchWith = (remote: Remote | null) => {
+    o.settings.write({ remote });
+    app.relaunch();
+    app.quit();
+  };
+  const pair = async (i: OfferInput) => relaunchWith(await pairFrom(i));
+  const useLocal = () => relaunchWith(null);
   const pairClipboard = () => pair({ link: clipboard.readText() }).catch((e: Error) => link.set('cannot-pair', { reason: e.message }));
+  /** Starts the same service again, and shows what it did. */
+  const start = async () => {
+    status.set('starting');
+    const r: Ensured = o.manage
+      ? await ensureService(service)
+      : (await service.up())
+        ? { ok: true, started: false }
+        : { ok: false, reason: `no daemon answers on ${o.socket}` };
+    status.set(r.ok ? 'running' : 'failed', r.ok ? '' : r.reason);
+    return r;
+  };
+  const askStop = async () => {
+    if (!(await confirmStop())) return;
+    const stopped = await stopService(service);
+    status.set(stopped.ok ? 'stopped' : 'failed', stopped.ok ? '' : stopped.reason);
+    link.set('no-daemon');
+  };
   link.onChange(() => draw());
   const draw = () =>
     tray.setContextMenu(
       Menu.buildFromTemplate(
         trayMenu(
-          owner.state,
-          owner.reason,
-          { open: o.openWindow, startDaemon: () => void owner.start(), quit: () => app.quit() },
+          status.state,
+          status.reason,
+          { open: o.openWindow, startDaemon: () => void start(), stopDaemon: () => void askStop(), quit: () => app.quit() },
           o.follow?.(),
           {
-            mode: o.current.mode,
             link,
-            switchTo: () => relaunchAs({ ...o.current, mode: o.current.mode === 'connect' ? 'own' : 'connect' }),
+            managed: o.manage,
+            useLocal: o.remote ? useLocal : undefined,
             pair: () => void pairClipboard(),
-            phone: o.current.remote ? undefined : () => void showPhone(openPhone),
+            phone: o.remote ? undefined : () => void showPhone(openPhone),
           },
         ),
       ),
     );
-  owner.onChange(draw);
-  logFailures(owner, log);
+  status.onChange(draw);
   draw();
   tray.on('click', o.openWindow);
   // The key stays in this process; the page gets the device token only, from its own origin's top frame.
   let token: string | null = null;
   let ownHost: string | null = null;
   ipcMain.on(CHANNELS.token, (e) => {
-    e.returnValue = fromWindow(e, o.origin) ? grant(token, ownHost, owner) : null;
+    e.returnValue = fromWindow(e, o.origin) ? grant(token, ownHost, status) : null;
   });
   const pairing = localPairing(o.home, o.gatewaySocket);
   const openPhone = singleWindow(() => makePhone(pairing));
-  /** Connect mode: attach to what is there and never start it. */
-  async function connect(): Promise<string | undefined> {
-    const remote = o.current.remote;
-    if (remote) {
-      ownHost = plainRemoteHost(remote);
-      token = remote.token;
-      try {
-        const version = await helloOf(remote, openRemote);
-        link.set('connected', { address: remote.host });
-        link.setVersion(version);
-      } catch (e) {
-        link.set('cannot-pair', { address: remote.host, reason: e instanceof Error ? e.message : String(e) });
-      }
-      return remote.host;
-    }
-    if (!o.gateway || !(await answers(o.socket)) || !(await answers(o.gatewaySocket))) {
-      link.set('no-daemon', { address: null });
-      return undefined;
-    }
-    ownHost = onTailnet(o.gateway) ? o.gateway.split(':')[0]! : null;
-    try {
-      token = await ensureToken(pairing, new TokenFile(path.join(app.getPath('userData'), 'device.json')), sleep, 3);
-      link.set('connected', { address: o.gateway });
-    } catch (e) {
-      link.set('cannot-pair', { address: o.gateway, reason: e instanceof Error ? e.message : String(e) });
-    }
-    return o.gateway;
-  }
+  const tokenFile = () => new TokenFile(path.join(app.getPath('userData'), 'device.json'));
   return {
     redraw: draw,
     link,
-    remote: o.current.remote,
-    switchMode: (m) => relaunchAs({ ...o.current, mode: m }),
+    remote: o.remote,
     pair,
-    phone: () => (o.current.remote ? Promise.reject(new Error('paired with another device: pair the phone on that device')) : openPhone()),
+    useLocal,
+    phone: () => (o.remote ? Promise.reject(new Error('paired with another device: pair the phone on that device')) : openPhone()),
     async ready() {
-      if (o.current.mode === 'connect') return connect();
-      if (!o.gateway) return undefined;
-      await owner.start();
-      ownHost = onTailnet(o.gateway) ? o.gateway.split(':')[0]! : null; // named even when nothing started: the page shows the reason (grant)
-      if (owner.state !== 'running') return o.gateway;
-      let address = o.gateway;
-      // A Mac firewall can accept the connection on the Tailscale address and answer nothing. Loopback is only for a gateway this app
-      // started and can replace: a gateway it did not start is not its to kill, and whatever else listens on loopback is not its own.
-      if (onTailnet(address) && !(await reachable(address))) {
-        const loopback = `127.0.0.1:${address.split(':')[1] ?? '7443'}`;
-        const moved = await owner.moveGateway(
-          commands(o.env, o.root, loopback).gateway,
-          () => reachable(loopback),
-          `the gateway does not answer on ${o.gateway} (a firewall?)`,
-        );
-        if (!moved) return o.gateway;
-        address = loopback;
+      const remote = o.remote;
+      if (remote) {
+        ownHost = plainRemoteHost(remote);
+        token = remote.token;
+        try {
+          link.setVersion(await helloOf(remote, openRemote));
+          link.set('connected', { address: remote.host });
+        } catch (e) {
+          link.set('cannot-pair', { address: remote.host, reason: e instanceof Error ? e.message : String(e) });
+        }
+        return remote.host;
       }
-      ownHost = onTailnet(address) ? address.split(':')[0]! : null;
-      token = await ensureToken(pairing, new TokenFile(path.join(app.getPath('userData'), 'device.json')), sleep).catch(() => null);
-      link.set('connected', { address });
-      return address;
+      if (!o.gateway) return undefined;
+      ownHost = onTailnet(o.gateway) ? o.gateway.split(':')[0]! : null; // named even when nothing started: the page shows the reason (grant)
+      const r = await start();
+      if (!r.ok) {
+        link.set('no-daemon', { address: o.gateway, reason: r.reason });
+        return o.gateway;
+      }
+      try {
+        token = await ensureToken(pairing, tokenFile(), sleep, 3);
+        link.set('connected', { address: o.gateway });
+      } catch (e) {
+        link.set('cannot-pair', { address: o.gateway, reason: e instanceof Error ? e.message : String(e) });
+      }
+      return o.gateway;
     },
   };
 }

@@ -43,10 +43,10 @@ export interface ShellApi {
       >
   >;
   cancelCompose?(): Promise<{ ok: true } | Fail<'bad_request'>>;
-  /** Which daemon the app talks to: its mode and, in connect mode, the paired device's address. Absent in a shell with one mode. */
-  mode?(): Promise<{ ok: true; mode: 'connect' | 'own'; remote: string | null; phone: boolean } | Fail<'bad_request'>>;
-  /** Switches the mode; the app relaunches. */
-  setMode?(mode: 'connect' | 'own'): Promise<{ ok: true } | Fail<'bad_request'>>;
+  /** Which daemon the app talks to: the paired device's address, or null for this computer's own. */
+  mode?(): Promise<{ ok: true; remote: string | null; phone: boolean } | Fail<'bad_request'>>;
+  /** Forgets the paired device and goes back to this computer's daemon; the app relaunches. */
+  useLocal?(): Promise<{ ok: true } | Fail<'bad_request'>>;
   /** Opens the one-time QR window for pairing a phone with this app's gateway. `mode().phone` says whether that is possible. */
   phone?(): Promise<{ ok: true } | Fail<'bad_request' | 'cannot_pair'>>;
   /** Pairs with another device's gateway, from its `handline://` link or its address and code; the app relaunches on it. */

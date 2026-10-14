@@ -12,24 +12,23 @@ The main process serves `apps/web/dist` on a loopback port and holds its own dae
 | `WS`                        | the fake daemon (`ws://127.0.0.1:7777`)                        |
 | `WEB_DIST`                  | `apps/web/dist`                                                |
 
-## Two modes
+## One daemon, and a paired device as a setting
 
-The app has two modes, shown in the tray (_Mode_, _Daemon: address · version_) and switched there (the app relaunches).
+The app makes sure this Mac's daemon runs and never owns it. The daemon is the launchd service `dev.orcapipe.daemon` (`hl service install`).
 
-- **Connect** (the default) never starts or stops a daemon. It attaches to the daemon already running on this computer (it pairs itself through the gateway's local socket), or to another device's gateway paired with _Pair with the link on the clipboard_ (copy the `handline://` link `hl device pair` prints; a Tailscale `*.ts.net` gateway needs no certificate, any other is trusted by the fingerprint in the link). With nothing running the tray says so; start a daemon and relaunch, or switch to Own.
-- **Own daemon** is what the next section describes: the app starts the daemon and gateway and stops them on quit.
-
-The choice and the remote pairing (it holds a device token) are kept in `settings.json` in the app's data folder, mode 0600. `HANDLINE_MODE=connect|own` overrides the kept mode for one run without saving it.
+- **Launch**: if the daemon and gateway sockets answer, the app attaches; if not, it starts that same service with `launchctl kickstart` (loading the installed plist first when launchd has not), and waits for it. No daemon is a child of the app. A reason is shown in the tray when it cannot (no plist installed, launchd refused, no answer in 30 s).
+- **Close the window**: the app stays in the menu bar; the tray icon or _Open Handline_ reopens it.
+- **Quit Handline** closes only the app. The daemon and its agents keep running. _Stop daemon…_ is a separate tray item that asks first and boots the service out.
+- **Another device** is a setting, not a mode: _Pair with the link on the clipboard_ (or the pairing screen's address and code) pairs with that device's gateway and relaunches; _Use this Mac's daemon_ goes back. The pairing (it holds a device token) is kept in `settings.json` in the app's data folder, mode 0600.
+- A `HANDLINE_HOME`, `HANDLINE_SOCKET` or `HANDLINE_GATEWAY` of one's own (a team's dev instance) is not the live service: the app only attaches there and shows no Start or Stop.
 
 ## On the real daemon
 
-This section is Own-daemon mode (`HANDLINE_MODE=own`, or switch in the tray).
-
-With the Go gateway running (`127.0.0.1:7443`), from the repo root:
+With the service running (or installable), from the repo root:
 
     pnpm install && pnpm app
 
-It builds `apps/web` and starts the app, which owns its daemon: it puts a tray icon up at once (open window, daemon status, start daemon, quit), starts the daemon and the gateway as its own child processes when their sockets do not answer (both `go/handlined` of the checkout, the daemon with the launchd service's flags; `HANDLINE_HANDLINED` names another binary and `HANDLINE_CLAUDE` the claude the daemon runs; build the gateway with `go build -o handlined ./cmd/handlined` in `go/`), and stops what it started when it quits. Closing the window leaves it running in the tray. It pairs itself: the app is the founder's own process, so it reads the founder key from the protected store, asks the gateway's local socket for a code and trades it for a device token, in the main process only. The key is not logged, stored or sent to the page; the token is kept in the app's data folder (`device.json`, mode 0600) and put in the page's storage by the preload. A token the gateway no longer lists is replaced at the next launch. There is no pairing step and no `hl device pair`; the pairing screen shows only if the app could not pair. The gateway listens on `127.0.0.1:7443` (`HANDLINE_GATEWAY=host:port` moves it); the page is served on `127.0.0.1:17443` (`HANDLINE_WEB_PORT`) because the token is kept per page origin, and the shell sets the page's `Origin` to the gateway's own for that one socket. The daemon's output goes to `daemon.log` in the app's data folder. The badge and notices still use the daemon's Unix socket.
+It builds `apps/web` and starts the app. It puts a tray icon up at once (open window, daemon status, pairing items, stop daemon, quit), attaches to the daemon as above, and pairs itself: the app is the founder's own process, so it reads the founder key from the protected store, asks the gateway's local socket for a code and trades it for a device token, in the main process only. The key is not logged, stored or sent to the page; the token is kept in the app's data folder (`device.json`, mode 0600) and put in the page's storage by the preload. A token the gateway no longer lists is replaced at the next launch. There is no pairing step and no `hl device pair`; the pairing screen shows only if the app could not pair. The gateway listens on `127.0.0.1:7443` (`HANDLINE_GATEWAY=host:port` moves it); the page is served on `127.0.0.1:17443` (`HANDLINE_WEB_PORT`) because the token is kept per page origin, and the shell sets the page's `Origin` to the gateway's own for that one socket. The badge and notices use the daemon's Unix socket.
 
 A device the gateway no longer knows (revoked, or a token from an older pairing) is dropped at the next launch and the window asks for a code again.
 

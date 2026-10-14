@@ -1,6 +1,5 @@
-// The app's two modes. Connect (the default) attaches to a daemon that is already running here, or pairs with another device's gateway,
-// and never starts or stops a daemon. Own daemon starts the daemon and gateway itself and stops them on quit (owner.ts). The choice and the
-// remote pairing live in one small file in the app's data folder, readable by this user only (it holds a device token).
+// Which daemon the app talks to: this Mac's launchd service (service.ts), or another device's gateway it paired with. The pairing is one
+// small file in the app's data folder, readable by this user only (it holds a device token). There is no mode to choose.
 import fs from 'node:fs';
 import path from 'node:path';
 import { once } from './pair.ts';
@@ -14,8 +13,6 @@ import {
   type Transport,
 } from '@handline/client';
 
-export type Mode = 'connect' | 'own';
-
 /** Another device's gateway this app paired with: where it is, which certificate to trust (null: plain Tailscale), our token there. */
 export interface Remote {
   host: string;
@@ -25,11 +22,8 @@ export interface Remote {
 }
 
 export interface Settings {
-  mode: Mode;
   remote: Remote | null;
 }
-
-export const parseMode = (v: unknown): Mode | undefined => (v === 'connect' || v === 'own' ? v : undefined);
 
 const isRemote = (v: unknown): v is Remote => {
   const r = v as Partial<Remote> | null;
@@ -47,15 +41,15 @@ export class SettingsFile {
   constructor(file: string) {
     this.file = file;
   }
-  /** What is kept, or the defaults; `forced` (HANDLINE_MODE) wins over the kept mode without changing the file. */
-  read(forced?: Mode): Settings {
+  /** What is kept, or the defaults. A `mode` an older file holds is ignored. */
+  read(): Settings {
     let kept: Partial<Settings> = {};
     try {
       kept = JSON.parse(fs.readFileSync(this.file, 'utf8')) as Partial<Settings>;
     } catch {
       /* none yet */
     }
-    return { mode: forced ?? parseMode(kept.mode) ?? 'connect', remote: isRemote(kept.remote) ? kept.remote : null };
+    return { remote: isRemote(kept.remote) ? kept.remote : null };
   }
   write(s: Settings): void {
     fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
@@ -138,7 +132,7 @@ export async function helloOf(r: Remote, open: Open): Promise<string> {
 
 export type LinkStatus = 'connecting' | 'connected' | 'no-daemon' | 'cannot-pair';
 
-/** What the tray says in connect mode: which daemon (address, version) and whether it answers. */
+/** What the tray says: which daemon (address, version) and whether it answers. */
 export class Link {
   status: LinkStatus = 'connecting';
   address: string | null = null;

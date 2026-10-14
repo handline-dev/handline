@@ -49,7 +49,7 @@ export async function offReason(i: Instance, up: (where: string) => Promise<bool
 }
 
 /** The environment the page and the shell run with: every HANDLINE_ and OCP_ variable dropped, so nothing names the live home or its
- * gateway, then the instance's. Connect mode attaches to the instance and never starts a daemon of its own on that home. */
+ * gateway, then the instance's. The app attaches to the instance and never starts or stops a service on that home. */
 export function teamEnv(base: NodeJS.ProcessEnv, i: Instance, devUrl: string): NodeJS.ProcessEnv {
   const env = Object.fromEntries(Object.entries(base).filter(([k]) => !k.startsWith('HANDLINE_') && !k.startsWith('OCP_')));
   return {
@@ -58,7 +58,6 @@ export function teamEnv(base: NodeJS.ProcessEnv, i: Instance, devUrl: string): N
     HANDLINE_DATA: path.join(i.home, 'app-data'),
     HANDLINE_GATEWAY: i.gateway,
     HANDLINE_GATEWAY_WS: i.gateway,
-    HANDLINE_MODE: 'connect',
     HANDLINE_DEV_URL: devUrl,
   };
 }

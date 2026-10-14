@@ -119,25 +119,24 @@ test('a notice carries its event type and target, so a click can go where the da
   assert.equal(noticeFor({ ...e, target: null })!.target, null);
 });
 
-test('the page switches the mode and pairs another device only from the window and with the right arguments', async () => {
+test('the page goes back to the local daemon and pairs another device only from the window and with the right arguments', async () => {
   const seen: unknown[] = [];
   const c = new Connection(ORIGIN, {
-    mode: () => ({ mode: 'connect', remote: 'mac.ts.net:7443' }),
+    mode: () => ({ remote: 'mac.ts.net:7443' }),
     phone: async () => {
       throw new Error('paired with another device');
     },
-    setMode: (m) => void seen.push(m),
+    useLocal: () => void seen.push('local'),
     pair: async (i) => {
       if (i.code === 'bad') throw new Error('the gateway at x cannot be paired with: nothing answered');
       seen.push(i);
     },
   });
   const evil: Sender = { senderFrame: { url: 'https://evil.example/', parent: null } };
-  assert.deepEqual(c.mode(top), { ok: true, mode: 'connect', remote: 'mac.ts.net:7443', phone: false });
+  assert.deepEqual(c.mode(top), { ok: true, remote: 'mac.ts.net:7443', phone: false });
   assert.equal(c.mode(evil).ok, false);
-  assert.deepEqual(c.setMode(top, 'own'), { ok: true });
-  assert.equal(c.setMode(top, 'nonsense').ok, false);
-  assert.equal(c.setMode(evil, 'own').ok, false);
+  assert.deepEqual(c.useLocal(top), { ok: true });
+  assert.equal(c.useLocal(evil).ok, false);
   assert.deepEqual(await c.pairRemote(top, { address: 'a.ts.net', code: 'c' }), { ok: true });
   assert.equal((await c.pairRemote(top, { address: 'a.ts.net', code: 'c', extra: 'x' })).ok, false);
   assert.equal((await c.pairRemote(top, { code: 7 })).ok, false);
@@ -146,5 +145,5 @@ test('the page switches the mode and pairs another device only from the window a
   assert.deepEqual(failed, { ok: false, code: 'cannot_pair', message: 'the gateway at x cannot be paired with: nothing answered' });
   assert.deepEqual(await c.phone(top), { ok: false, code: 'cannot_pair', message: 'paired with another device' });
   assert.equal((await c.phone(evil)).ok, false);
-  assert.deepEqual(seen, ['own', { address: 'a.ts.net', code: 'c' }]);
+  assert.deepEqual(seen, ['local', { address: 'a.ts.net', code: 'c' }]);
 });
