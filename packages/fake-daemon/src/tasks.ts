@@ -2,7 +2,7 @@
 // A task the founder asks for starts as `queued`; withdrawing or cancelling one that has not been delivered discards it.
 import type { Memo, Task, TaskClock, TaskDetail } from '@handline/contract';
 import { seedTasks } from './fixtures.ts';
-import { refused, storeFailure } from './errors.ts';
+import { invalidParams, refused, storeFailure } from './errors.ts';
 
 export class TaskFailure extends Error {
   code: 'not_found' | 'refused' | 'bad_request';
@@ -189,10 +189,34 @@ export class FakeTasks {
 
   // ---- the verbs of the daemon's task plan (D3), served only when the fake is asked to ----
 
-  done(p: Record<string, unknown>): void {
+  /** A done by the owner of a task that answers to someone else is a report: the task waits, open, for task.accept or task.reject. */
+  done(p: Record<string, unknown>, person: string): string {
     const t = this.find(p.task);
     if (t.state !== 'doing' && t.state !== 'queued') throw new TaskFailure('refused', `task ${t.id} is ${t.state}, not open`);
-    this.change(t, { state: 'done', done: this.now(), evidence: String(p.evidence ?? '') || null });
+    const evidence = String(p.evidence ?? '') || null;
+    if (person === t.to && person !== t.from) {
+      this.change(t, { state: 'reported', report: { by: person, evidence: evidence ?? '', at: this.now() } });
+      return `task T${t.id} reported done (${evidence ?? ''}); it closes when ${t.from} accepts it`;
+    }
+    this.change(t, { state: 'done', done: this.now(), evidence });
+    return `task T${t.id} done`;
+  }
+  /** The report a person may accept or reject: the task's opener or anyone but the owner who made it. */
+  private reportFor(p: Record<string, unknown>, person: string, verb: string): Row {
+    const t = this.find(p.task);
+    if (t.state !== 'reported' || !t.report) throw new TaskFailure('refused', `task ${t.id} has no report waiting: nothing to ${verb}`);
+    if (person === t.to) throw new TaskFailure('refused', `task ${t.id}'s report can only be ${verb}ed by whoever it answers to`);
+    return t;
+  }
+  accept(p: Record<string, unknown>, person: string): void {
+    const t = this.reportFor(p, person, 'accept');
+    this.change(t, { state: 'done', done: this.now(), evidence: t.report!.evidence, report: null });
+  }
+  /** The report is dropped and the task is queued again for its owner. */
+  reject(p: Record<string, unknown>, person: string): void {
+    if (!String(p.note ?? '').trim()) throw invalidParams('note is the one line that says what is missing', 'note');
+    const t = this.reportFor(p, person, 'reject');
+    this.change(t, { state: 'queued', evidence: null, report: null });
   }
   reopen(p: Record<string, unknown>, person: string): void {
     const t = this.find(p.task);
@@ -232,6 +256,8 @@ export class FakeTasks {
 const BASIC = new Set(['tasks.list', 'task.get', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel']);
 const VERBS = new Set([
   'task.done',
+  'task.accept',
+  'task.reject',
   'task.reopen',
   'task.queue',
   'task.draft',
@@ -267,7 +293,11 @@ export function taskCall(
       case 'task.cancel':
         return (tasks.close(p, 'cancel'), ok('Task cancelled.'));
       case 'task.done':
-        return (tasks.done(p), ok('Task done.'));
+        return ok(tasks.done(p, person));
+      case 'task.accept':
+        return (tasks.accept(p, person), ok('Task accepted.'));
+      case 'task.reject':
+        return (tasks.reject(p, person), ok('Task sent back.'));
       case 'task.reopen':
         return (tasks.reopen(p, person), ok('Task reopened.'));
       case 'task.queue':
