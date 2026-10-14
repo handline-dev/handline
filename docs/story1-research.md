@@ -165,3 +165,29 @@ New directions:
 - C. The daemon accepts an image uploaded from a different device than the one the task or capture came from.
 
 Story 2 questions 8, 9 and 11 are asked again in a separate task.
+
+## 6. Library spike (T3924, 2026-10-14)
+
+Licence, version, date and unpacked size are from `npm view` today. Everything under "runs on" that is not marked *checked* is read from docs and **unverified**.
+
+| Library | Licence | Version, last publish | Unpacked | Runs on |
+|---|---|---|---|---|
+| @excalidraw/excalidraw | MIT | 0.18.1, 2026-10-12 | 47 MB | web only (React DOM). Phone: only inside a WebView, unverified |
+| @shopify/react-native-skia | MIT | 2.14.0, 2026-10-01 | 10 MB | RN and web (CanvasKit wasm); needs reanimated 4 and worklets as peers, which mobile does not have |
+| react-native-svg | MIT | 15.15.5, 2026-05-20 | 3.7 MB | RN; web through react-native-web (mobile already has it) |
+| @xyflow/react (React Flow) | MIT | 12.12.0, 2026-10-11 | 1.2 MB | web only |
+| @dagrejs/dagre | MIT | 3.1.1, 2026-08-08 | 1.4 MB | plain JS, any target (*checked*: laid out 3 nodes, 2 edges in node) |
+| elkjs | EPL-2.0 or GPL-3.0 | 0.12.0, 2026-07-17 | 8 MB | plain JS; licence is the question, skip |
+| dagre (old) | MIT | 0.8.5, 2022 | 0.8 MB | unmaintained, use @dagrejs/dagre |
+
+### Pick
+
+- **Graph:** layout is `@dagrejs/dagre` called from the shared layer in packages/app-core (nodes with x, y, w, h and edges as points, no React). Web and phone each only map those to `react-native-svg` shapes (Rect, Path, Text). No React Flow: it is web only, so it would give two renderers.
+- **Annotation:** no maintained library gives pen, arrow, box and text on a picture for both RN and web out of the box. Two ways, to decide with the founder:
+  1. **Excalidraw on web, the same Excalidraw in a WebView on phone.** One tool set, nothing of ours. Cost: 47 MB package, a WebView on the phone, bundle must be served inside the app. Unverified on phone.
+  2. **react-native-svg for the picture and strokes, with gesture capture** (pan responder, no new native dep). Same code on both, but we would write pen, arrow, box and text ourselves, which the founder ruled out.
+  Recommendation: 1, after a one-day proof that Excalidraw loads in the Expo WebView and exports a PNG.
+
+### Proof
+
+Throwaway, not merged (in the session scratchpad, not in the repo): dagre laid out three nodes, and react-native-svg's web entry rendered a Path and Rects as DOM through react-native-web. That run needed a stub for `codegenNativeComponent`, so it shows the web path only. **Not run:** Expo on a phone or simulator, Excalidraw in a WebView, Skia.
