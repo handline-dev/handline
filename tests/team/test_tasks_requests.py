@@ -2159,21 +2159,19 @@ def test_inbox_and_withdraw_cli(home: Path) -> None:
         finally:
             con.close()
 
+        # The withdrawal itself is the Go daemon's (request.withdraw); the command sends the id and says what came back.
         os.environ["OCP_AGENT"] = "backend"
-        out = _capture(lambda: climod.main(["withdraw", str(rid2)]))
-        check("withdraw: an undelivered request of your own can be taken back",
-              "withdrawn" in out, out)
-        con = db.connect()
-        try:
-            check("withdraw: it leaves the queue",
-                  db.get_request(con, rid2)["state"] == "withdrawn",
-                  db.get_request(con, rid2)["state"])
-        finally:
-            con.close()
-
-        out = _capture(lambda: climod.main(["withdraw", str(rid1)]))
-        check("withdraw: a delivered request refuses",
-              "already delivered" in out, out)
+        asked = []
+        took = lambda p: asked.append(p) or {"ok": True, "said": f"request #{p['id']} to reviewer withdrawn"}  # noqa: E731
+        with support.daemon_says("request.withdraw", took):
+            rc, out = _cli(["withdraw", str(rid2), "--reason", "asked twice"], as_agent="backend")
+        check("withdraw: the daemon is asked with the id and the reason, under a request_id",
+              len(asked) == 1 and asked[0]["id"] == rid2 and asked[0]["reason"] == "asked twice" and asked[0]["request_id"], str(asked))
+        check("withdraw: what the daemon said is printed", rc == 0 and out.strip() == f"request #{rid2} to reviewer withdrawn", out)
+        with support.daemon_says("request.withdraw", lambda p: asked.append(p) or {"ok": False, "said": "too late to withdraw"}):
+            rc, out = _cli(["withdraw", str(rid1)], as_agent="backend")
+        check("withdraw: a refusal is printed and fails, and no reason is sent when none was given",
+              rc == 1 and "too late to withdraw" in out and "reason" not in asked[-1], f"{rc} {out} {asked[-1]}")
     finally:
         if real_agent is None:
             os.environ.pop("OCP_AGENT", None)
@@ -3601,10 +3599,29 @@ def test_the_founder_can_cancel_a_request_in_an_agents_queue(home: Path) -> None
             del os.environ["OCP_AGENT"]
         check("cancel: `hl cancel` refuses an agent", "founder's" in out
               and db.get_request(con, again)["state"] == "queued", out)
+        # For the founder it is the Go daemon's request.cancel: a dry run for the plan, then the call that is the go-ahead.
         askmod.asking_agent = lambda: askmod.HUMAN
-        out = _capture(lambda: climod.main(["cancel", str(again), "--yes"]))
-        check("cancel: and does the same action for the founder",
-              db.get_request(con, again)["state"] == "withdrawn" and "cancelled" in out, out)
+        asked = []
+
+        def cancels(p):
+            asked.append(p)
+            return {"ok": True, "plan": f"cancel #{p['id']}: the plan"} if p.get("dry_run") else {"ok": True, "said": "cancelled"}
+        with support.daemon_says("request.cancel", cancels):
+            out = _capture(lambda: climod.main(["cancel", str(again), "--yes"]))
+        check("cancel: with --yes the daemon is asked once, with no dry run, and its words are printed",
+              [p.get("dry_run") for p in asked] == [None] and asked[0]["id"] == again and out.strip() == "cancelled", f"{asked} {out}")
+        del asked[:]
+        with support.daemon_says("request.cancel", cancels):
+            rc, out = _cli(["cancel", str(again)], as_agent=None)
+        check("cancel: without --yes the plan is shown from a dry run, and with no terminal to confirm in nothing more is asked",
+              rc == 1 and [p.get("dry_run") for p in asked] == [True] and "the plan" in out, f"{asked} {out}")
+        with support.daemon_says("request.cancel", lambda p: {"ok": False, "plan": "it is gone"}):
+            rc, out = _cli(["cancel", "99999"], as_agent=None)
+        check("cancel: a request the dry run cannot cancel says why", rc == 1 and out.strip() == "not cancelled - it is gone", out)
+        with support.daemon_says("request.cancel", lambda p: {"ok": False, "said": "not cancelled - it is gone"}):
+            rc, out = _cli(["cancel", "99999", "--yes"], as_agent=None)
+        check("cancel: and a refused cancel prints the daemon's words as they come and fails",
+              rc == 1 and out.strip() == "not cancelled - it is gone", out)
     finally:
         (termmod.alive, termmod.send, termmod.available, termmod.typeable_now,
          askmod.asking_agent) = real
