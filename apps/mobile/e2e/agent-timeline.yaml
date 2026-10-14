@@ -1,4 +1,4 @@
-# After pair-and-page.yaml, on a `pnpm fake-listener` that has been running a few seconds (its autoplay records events): the Timeline tab of an agent page lists them, and Chat comes back.  maestro test e2e/agent-timeline.yaml
+# After pair-and-page.yaml, after prompt-answer.yaml on the same `pnpm fake-listener --prompt` (the answer is recorded as an event): the Timeline tab of handline.architect lists it, and Chat comes back.  maestro test e2e/agent-timeline.yaml
 appId: dev.handline.mobile
 ---
 - runFlow:
@@ -11,7 +11,7 @@ appId: dev.handline.mobile
 - assertVisible:
     id: timeline
 - assertVisible:
-    id: timeline-.*
+    id: timeline-[0-9]+
 - assertNotVisible:
     id: chat-input
 - tapOn:

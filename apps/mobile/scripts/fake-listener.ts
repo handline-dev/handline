@@ -1,5 +1,5 @@
 // The fake daemon as the paired-device listener: wss with a fresh self-signed certificate, paired devices only.
-// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt]`
+// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture]`
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
