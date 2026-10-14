@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -19,11 +20,12 @@ func queueMethod(home string, tell Teller, queued bool) func(*rpc.Conn, map[stri
 		}
 		by := c.Caller.Actor()
 		var (
-			done  []int64
-			notes []told
+			done      []int64
+			notes     []told
+			withdrawn map[int64][]Retired
 		)
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-			done, notes = nil, nil
+			done, notes, withdrawn = nil, nil, map[int64][]Retired{}
 			var said []string
 			seen := map[int64]bool{}
 			for _, tid := range tids {
@@ -31,11 +33,12 @@ func queueMethod(home string, tell Teller, queued bool) func(*rpc.Conn, map[stri
 					continue
 				}
 				seen[tid] = true
-				msg, told, err := setQueued(tx, home, tid, by, queued)
+				msg, told, closed, err := setQueued(tx, home, tid, by, queued)
 				if err != nil {
 					return nil, err
 				}
 				said, notes = append(said, msg), append(notes, told...)
+				withdrawn[tid] = closed
 				done = append(done, tid)
 			}
 			return accepted(strings.Join(said, "\n"), nil), nil
@@ -46,6 +49,9 @@ func queueMethod(home string, tell Teller, queued bool) func(*rpc.Conn, map[stri
 			delivered := make([]string, len(done))
 			for i, tid := range done {
 				delivered[i] = tell.QueueDelivered(tid, by, queued)
+				if closed := withdrawn[tid]; len(closed) > 0 {
+					delivered[i] += " - " + strings.Join(tell.Released(tid, draftWhy(tid, by), closed), "; ")
+				}
 			}
 			out["said"] = strings.Join(delivered, "\n")
 			tell.Notified(notes)
@@ -70,53 +76,111 @@ func taskIDs(p map[string]any, key string) ([]int64, error) {
 	return out, nil
 }
 
-// setQueued is _queue_state: the checks and the write, answering the message that goes in the effect and the notices of it.
-func setQueued(tx *sql.Tx, home string, tid int64, by string, queued bool) (string, []told, error) {
+func draftWhy(tid int64, by string) string { return fmt.Sprintf("T%d made draft by %s", tid, by) }
+
+// setQueued is _queue_state: the checks and the write, answering the message that goes in the effect, the notices of it, and the delivery
+// requests a draft withdrew (nobody works a draft).
+func setQueued(tx *sql.Tx, home string, tid int64, by string, queued bool) (string, []told, []Retired, error) {
 	t, err := getTask(tx, tid)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	if t == nil {
-		return "", nil, refusal(fmt.Sprintf("no task T%d", tid))
+		return "", nil, nil, refusal(fmt.Sprintf("no task T%d", tid))
 	}
 	st, err := state(tx, t)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	want, other := "draft", "queued"
 	if queued {
 		want, other = "queued", "draft"
 	}
 	if st == want {
-		return "", nil, refusal(fmt.Sprintf("task T%d is already %s", tid, want))
+		return "", nil, nil, refusal(fmt.Sprintf("task T%d is already %s", tid, want))
 	}
 	if st != other {
-		return "", nil, refusal(fmt.Sprintf("task T%d is %s - only a %s task can be made %s", tid, st, other, want))
+		return "", nil, nil, refusal(fmt.Sprintf("task T%d is %s - only a %s task can be made %s", tid, st, other, want))
 	}
-	var res sql.Result
+	var (
+		res    sql.Result
+		closed []Retired
+	)
 	if queued {
 		res, err = tx.Exec("UPDATE tasks SET queued_by = ?, queued_at = ? WHERE id = ? AND "+openSQL+" AND queued_by IS NULL", by, time.Now().Unix(), tid)
 	} else {
-		res, err = tx.Exec("UPDATE tasks SET queued_by = NULL, queued_at = NULL WHERE id = ? AND "+openSQL+" AND queued_by IS NOT NULL", tid)
+		if closed, err = withdrawDelivery(tx, t, by); err != nil {
+			return "", nil, nil, err
+		}
+		res, err = tx.Exec("UPDATE tasks SET queued_by = NULL, queued_at = NULL WHERE id = ? AND "+openSQL, tid)
 	}
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return "", nil, refusal(fmt.Sprintf("task T%d changed under this call - read it again", tid))
+		return "", nil, nil, refusal(fmt.Sprintf("task T%d changed under this call - read it again", tid))
+	}
+	if !queued {
+		if t, err = getTask(tx, tid); err != nil {
+			return "", nil, nil, err
+		}
+		if st, err := state(tx, t); err != nil {
+			return "", nil, nil, err
+		} else if st != "draft" {
+			why := fmt.Sprintf("task T%d is still %s", tid, st)
+			if child, err := childAsking(tx, tid); err != nil {
+				return "", nil, nil, err
+			} else if child != 0 {
+				why += fmt.Sprintf(": its child T%d is out - make that draft first", child)
+			}
+			return "", nil, nil, refusal(why)
+		}
 	}
 	after, err := newestRequest(tx)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	kind, word := "draft_task", "draft"
 	if queued {
 		kind, word = "queue_task", "queued"
 	}
 	if err := addEvent(tx, by, kind, kv{"task_id", tid}, kv{"after_request", after}); err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	msg := fmt.Sprintf("task T%d is %s (%s)", tid, word, by)
 	notes, err := tellTask(tx, home, by, msg, t.OpenedBy, t.Owner)
-	return msg, notes, err
+	return msg, notes, closed, err
+}
+
+// withdrawDelivery closes the requests still asking t's owner to work it, as rejected, nobody told of the close (the draft notice tells the
+// opener and the owner). One that has landed is refused: its owner holds the task.
+func withdrawDelivery(tx *sql.Tx, t *task, by string) ([]Retired, error) {
+	reqs, err := taskRequests(tx, t.ID)
+	if err != nil {
+		return nil, err
+	}
+	var closed []Retired
+	for _, r := range reqs {
+		if !r.asks() {
+			continue
+		}
+		if r.State == "landed" {
+			return nil, refusal(fmt.Sprintf("task T%d has landed at %s (#%d), who holds it - a draft takes back only what has not landed", t.ID, r.Target, r.ID))
+		}
+		ok, err := db.CloseIfQueued(tx, r.ID, "rejected", draftWhy(t.ID, by), db.CloseOpts{Announced: true, NoSettle: true})
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, refusal(fmt.Sprintf("task T%d changed under this call - read it again", t.ID))
+		}
+		if err := addEvent(tx, r.Requester, "closed_under", kv{"request_id", r.ID}, kv{"target", r.Target}); err != nil {
+			return nil, err
+		}
+		closed = append(closed, Retired{RID: r.ID, Requester: r.Requester, Target: r.Target, Delivered: r.DeliveredAt.Valid})
+	}
+	if len(closed) > 0 {
+		return closed, db.RefreshSent(tx, t.ID)
+	}
+	return nil, nil
 }
