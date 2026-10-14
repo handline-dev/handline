@@ -122,25 +122,6 @@ IDLE_FLOOR_MARGIN_PCT = 30
 LIVE_REFRESH_MAX_PER_CALL = 1
 
 
-def effective_context_limit(cfg: dict, model_id: str | None) -> int:
-    """`agents.context_tokens(cfg)`, clamped to a fraction of the model's own
-    window when collect.ctx_size recognizes it - the ceiling of last resort
-    described at triggers.CONTEXT_CLAMP_FRACTION. An unrecognized model has no
-    window to take a fraction of, so the configured-or-default figure stands
-    alone.
-
-    Lives here, not in agents.py: every caller (cli, daemon) already
-    imports status, and agents.py stays a leaf - it must not reach up into
-    collect or vendors just to resolve a limit its own callers can resolve
-    themselves (#1784, orcapipe/auditor).
-    """
-    limit = agents.context_tokens(cfg)
-    size = collect.ctx_size(model_id)
-    if size:
-        limit = min(limit, int(size * triggers.CONTEXT_CLAMP_FRACTION))
-    return limit
-
-
 @dataclass
 class Window:
     """One usage window as read back: a figure, when it resets, and how far to
@@ -699,28 +680,6 @@ def read_for_agent(agent: str, account: str | None) -> AccountStatus:
     acct_status.transcript_path = own.transcript_path
     acct_status.model_id = own.model_id
     return acct_status
-
-
-def reported_account(agent: str) -> str | None:
-    """Which account this agent's own session last rendered its status line
-    under, or None when there is nothing fresh enough to say.
-
-    Every render writes its own `account` under its own env (`live_cost`
-    already trusts this same field, the same way, to decide whose cost a
-    snapshot counts towards) - so a fresh one is a session reporting where it
-    actually is, not a preference. Stale is refused on the same terms
-    `read_for_agent` already refuses one for context and session id: nothing
-    rewrites this file once a session closes, so an old snapshot belongs to
-    whichever account happened to be current when it stopped, not to now.
-    """
-    f = paths.agent_status_file(agent)
-    if not f.exists():
-        return None
-    st = read("", f)
-    if st.error or st.stale:
-        return None
-    acct = st.raw.get("account")
-    return acct if isinstance(acct, str) and acct else None
 
 
 def live_cost(account: str) -> float | None:

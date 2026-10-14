@@ -63,35 +63,27 @@ from handline.cli import (account as cliaccount, ask as cliask, bridge as clibri
                      health as clihealth, setup as clisetup, task as clitask)
 from handline.team import accounts, agents, ask as askmod, decisions, hr, proposals, rehome, spawn as spawnmod, team, trust as trustmod  # noqa: E402
 from handline import actions, cli as climod, db, vendors  # noqa: E402
-from handline.actions import stuck as stuckmod  # noqa: E402
-from handline.session import blocked as blockedmod, digest, events as evmod, fold as foldmod, handoff as handoffmod, idle_close, launch, observe as obsmod, term as termmod, triggers, waiting  # noqa: E402
+from handline.session import blocked as blockedmod, digest, events as evmod, fold as foldmod, idle_close, launch, observe as obsmod, term as termmod, triggers, waiting  # noqa: E402
 from handline.vendors import claude_meter as claudemeter  # noqa: E402
 from handline.session import backends  # noqa: E402
 from handline.session.backends import orca_cli as orcacli, tmux as tmuxbackend  # noqa: E402
 from handline.vendors import claude_collect  # noqa: E402
 from handline.vendors.base import Window  # noqa: E402
 from handline.usage import windows  # noqa: E402
-from handline.usage import burnrate, collect, load as loadmod, measure, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
+from handline.usage import burnrate, collect, load as loadmod, recover as recovermod, replay as replaymod, status, usage_api  # noqa: E402
 from handline.infra import backup as backupmod, doctor, lock, paths, service, textsafe, timefmt, venv as venvmod, yamlcompat  # noqa: E402
 from handline.view import viewdata  # noqa: E402
 from handline.infra import daemonclient as dmn_client, daemonlock, devmode as devsetting  # noqa: E402
 from handline.session import states as dmn_states  # noqa: E402
-from handline.daemon import (delivery as dmn_delivery, handoff as dmn_handoff, lifecycle as dmn_lifecycle,  # noqa: E402
-                        messaging as dmn_messaging, spawn as dmn_spawn, states as dmn_timing)
 from handline.vendors import opencode as ocmod  # noqa: E402
 
 PASS, FAIL = [], []
-
-# A stand-in `close_session` that does not also end the session in the fake
-# process table would otherwise wait out the real minute before failing.
-dmn_delivery.END_WAIT_S, dmn_delivery.END_POLL_S = 0.3, 0.05
 
 # Under the suite no daemon runs: a command's daemon call is refused as with the daemon down, unless the test gives
 # the Go daemon's reply (`daemon_says`). The Go daemon's behaviour is tested in go/.
 import types as _types  # noqa: E402
 from handline.cli import ask as _cli_ask  # noqa: E402
 from handline.cli import client as _cli_client  # noqa: E402
-from handline.daemon import screenstate  # noqa: E402
 _cli_ask.dmn_client = _types.SimpleNamespace(send=lambda payload, timeout=None: None)
 
 
@@ -130,41 +122,40 @@ def queue_head(params: dict) -> dict:
         "more_waiting": 0, "more_waiting_line": None, "how_to_close": "answer it"}}
 
 
+def _first_line(body: str | None, shown: int = 40) -> str:
+    lines = (body or "").splitlines()
+    first = textsafe.oneline(lines[0]).strip() if lines else ""
+    return first[:shown].rstrip() + "…" if len(first) > shown else first
+
+
 def request_read(params: dict) -> dict:
     """A request.read reply that carries the row as the database holds it. Who may read it, the wait and marking it opened
     are the Go daemon's and are tested there (go/internal/reads/requestread_test.go)."""
-    from handline.daemon import delivery
     con = db.connect()
     try:
         row = con.execute(f"SELECT *, {db.ANSWER_SQL}, {db.DISMISSED_SQL} FROM requests WHERE id = ?", (params["id"],)).fetchone()
         if row is None:
             raise dmn_client.RpcError({"message": f"no request {params['id']}", "data": {"code": "not_found"}})
         dismissed, by, reason = db.dismissal(row)
-        said = delivery.in_reply_to(con, row)
+        parent = db.get_request(con, int(row["parent_id"])) if row["parent_id"] is not None else None
     finally:
         con.close()
     return {"id": row["id"], "requester": row["requester"], "target": row["target"], "kind": row["kind"] or "ask",
             "state": row["state"], "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(row["ts"])),
             "relation": row["relation"], "response": row["response"], "chain_depth": row["chain_depth"],
-            "parent": {"id": row["parent_id"], "line": said.partition(": ")[2]} if said else None, "body": row["body"] or "",
+            "parent": parent and {"id": parent["id"], "line": _first_line(parent["body"])}, "body": row["body"] or "",
             "answer": None if dismissed else (row["answer"] or None), "dismissal": {"by": by, "reason": reason} if dismissed else None}
 
 
 REAL_CLI_CONNECT = _cli_client.connect  # for a test that puts its own socket under the real call
 _cli_client.connect = _no_daemon
 
-def _ask_row(payload: dict, log=None) -> dict:
-    """A request row written and told the way the removed `ocp ask` did (T560): the
-    delivery tests need a plain row in an agent's queue, and no verb makes one now."""
+def _ask_row(payload: dict) -> dict:
+    """A request row written the way the removed `ocp ask` did: the tests need a plain row in an agent's
+    queue, and no verb makes one now. Delivering it is the Go daemon's."""
     kw = {k: v for k, v in payload.items() if k not in ("verb", "target", "body", "requester", "speaker")}
     ok, msg, rid = askmod.ask(payload["target"], payload["body"], requester=payload.get("requester"),
                               speaker=payload.get("speaker"), notify=False, **kw)
-    if ok and payload["target"] != askmod.HUMAN:
-        con = db.connect()
-        try:
-            askmod.push_here(con, payload["target"], rid)
-        finally:
-            con.close()
     return {"ok": bool(ok), "said": msg}
 
 
@@ -177,11 +168,8 @@ claudemeter.refresh_credential = lambda acct, timeout=0: False
 # The terminal functions the test world stands in for, captured once and put
 # back by restore_world, so no test inherits another's stand-in.
 REAL_TERMINAL = {n: getattr(termmod, n) for n in (
-    "available", "alive", "live_terminals", "wait_idle", "idle_now", "send",
-    "clear_context", "close_session", "relaunch", "resume_with", "modal_open",
-    "screen_blocker", "_screen", "decline_dialog", "background_work", "close_terminal",
-    "typeable_now", "idle_with_background")}
-termmod.LAUNCH_ENTER_DELAY_S = 0
+    "available", "live_terminals", "wait_idle", "idle_now", "send", "modal_open",
+    "screen_blocker", "_screen", "decline_dialog", "close_terminal")}
 REAL_OBSERVE = {n: getattr(obsmod, n) for n in ("live_sessions", "live_terminals")
                 if hasattr(obsmod, n)}
 
@@ -382,7 +370,6 @@ def restore_world() -> None:
     # And no screen to read for a key either: a test that presses one says so.
     termmod._screen = lambda handle: None
     termmod.PRESS_SETTLE_S = 0
-    blockedmod._checked.clear()
     accounts._modified.clear()
     accounts._present.clear()
     # The machine's process table is not the test world: with the real reading, whether a doctor or a task
@@ -394,11 +381,6 @@ def restore_world() -> None:
             setattr(obsmod, n, f)
     # Readings that outlive the tick or the frame by design, so one test's
     # world does not answer the next test's question.
-    dmn_delivery._seen.clear()
-    dmn_delivery._seen_at["t"] = 0.0
-    dmn_delivery._NOTED.clear()
-    dmn_delivery._FAILED.clear()
-    stuckmod._WORLD["at"] = 0.0
 
 
 def upgrade(path: Path | None = None):
@@ -498,15 +480,6 @@ def answer_card(con, rid: int, verdict: str) -> None:
     _set_request_state(con, rid, "landed", verdict)
     from handline.db import tasks as dbtasks
     dbtasks.settle_decision_tasks(con, rid, "done", verdict)
-
-
-def something_waiting(con, agent: str) -> None:
-    """Leave a request waiting for `agent`, unless one is: a closed agent is
-    woken for a message and for nothing else (T124), so a test of how a wake
-    goes needs one to have something to wake it for."""
-    if not db.head_of_queue(con, agent):
-        db.add_request(con, "reviewer", agent, "something for you", None,
-                       "peer", "async", None, 0, None)
 
 
 _taken_prompts: dict[str, str] = {}
@@ -818,14 +791,6 @@ COMPOSER_EMPTY = [_COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
                  "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"]
 
 
-def _composer_typed(text: str) -> list:
-    """The same box with content in it - never read; the shape is all that
-    matters (#1157)."""
-    return [_COMPOSER_RULE_ROW, f"❯ {text}", _COMPOSER_RULE_ROW,
-            "  delta · 5h 68% · 7d 67%",
-            "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"]
-
-
 # One hint line under the box and no account status line, so the box sits one
 # row later than an ocp-launched agent's (auditor's #1144 fleet check).
 ONE_HINT_ROW_COMPOSER = [_COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
@@ -918,18 +883,6 @@ def _screen_of(tail, draft=None, source="screen"):
     return term
 
 
-def _blocked_world(home: Path):
-    """backend has a terminal and a session, and a task waiting it has not been told."""
-    _daemon_home(home, 20)
-    termmod.available = lambda: True
-    termmod.alive = lambda h: True
-    sessions_are("backend")
-    con = db.connect()
-    db.set_agent_state(con, "backend", dmn_states.IDLE)
-    db.add_request(con, "marina", "backend", "carry on", None, "peer", "async", "task", 0, None)
-    return con
-
-
 # Shapes reconstructed from Claude Code's wording, NOT measured on a live screen:
 # only EXIT_DIALOG above is. They stand for the trust dialog, a tool permission
 # prompt and a question with a plain No, to prove what ocp presses for each.
@@ -973,8 +926,6 @@ CLEARED_SCREEN = ["  back at the prompt", "  > "]
 # The screen a session is really at once a dialog is gone: the composer's box
 # between its two rules, which screen_blocker must see to call the screen typeable.
 _COMPOSER_RULE_ROW = "─" * 60
-AT_THE_PROMPT = ["  back at the prompt", _COMPOSER_RULE_ROW, "❯", _COMPOSER_RULE_ROW,
-                 "  ⏵⏵ auto mode on (shift+tab to cycle)"]
 
 
 class _Terminal:
@@ -1003,19 +954,6 @@ class _Terminal:
 
     def bring_back(self, tail):
         self.tail = list(tail)
-
-
-def _worktree_with_a_dirty_file(root: Path) -> Path:
-    root.mkdir(parents=True, exist_ok=True)
-    for args in (["init", "-q", "-b", "topic"], ["config", "user.email", "t@t"],
-                 ["config", "user.name", "t"]):
-        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
-    (root / "a.txt").write_text("a")
-    subprocess.run(["git", "add", "a.txt"], cwd=root, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-qm", "first"], cwd=root, check=True,
-                   capture_output=True)
-    (root / "dirty.txt").write_text("not committed")
-    return root
 
 
 # ---------------------------------------------------------------- yaml differential
@@ -2194,13 +2132,11 @@ def orca_seen() -> None:
     """Orca is there and term_x is a live terminal."""
     termmod.available = lambda: True
     termmod.live_terminals = lambda: {"term_x"}
-    termmod.alive = lambda h: True
 
 
 def orca_settled() -> None:
     """term_x is live and settled: both idle probes answer yes."""
     termmod.live_terminals = lambda: {"term_x"}
-    termmod.alive = lambda h: True
     termmod.wait_idle = lambda h, timeout_ms=0: True
 
 
@@ -2262,13 +2198,7 @@ __all__ = [
     'clitask',
     'collect',
     'dmn_client',
-    'dmn_delivery',
-    'dmn_handoff',
-    'dmn_lifecycle',
-    'dmn_messaging',
-    'dmn_spawn',
     'dmn_states',
-    'dmn_timing',
     'daemonlock',
     'devsetting',
     'db',
@@ -2280,12 +2210,10 @@ __all__ = [
     'doctor',
     'evmod',
     'foldmod',
-    'handoffmod',
     'idle_close',
     'launch',
     'loadmod',
     'lock',
-    'measure',
     'obsmod',
     'orcacli',
     'termmod',
@@ -2302,7 +2230,6 @@ __all__ = [
     'triggers',
     'tmuxbackend',
     'trustmod',
-    'screenstate',
     'viewdata',
     'usage_api',
     'claudemeter',
@@ -2360,7 +2287,6 @@ __all__ = [
     'PASTED_DRAFT',
     '_COMPOSER_RULE_ROW',
     'COMPOSER_EMPTY',
-    '_composer_typed',
     'ONE_HINT_ROW_COMPOSER',
     'PICKER_HINT_ONLY_ENTER_TO_RETURN',
     'PICKER_CURRENT_SESSION_SELECTED',
@@ -2372,7 +2298,6 @@ __all__ = [
     'BANNER_ABOVE_ORDINARY_COMPOSER',
     'BANNER_AND_HINT_QUOTED_ABOVE_BOX',
     '_screen_of',
-    '_blocked_world',
     '_RULE_ROW',
     'TRUST_DIALOG',
     'PERMISSION_PROMPT',
@@ -2381,9 +2306,7 @@ __all__ = [
     'TRUST_DIALOG_WITH_FREE_TEXT_ESC_LINE',
     'TRUST_DIALOG_WITH_ESC_MARK_ON_THE_TITLE',
     'CLEARED_SCREEN',
-    'AT_THE_PROMPT',
     '_Terminal',
-    '_worktree_with_a_dirty_file',
     'DIFFERENTIAL_CASES',
     'DUMP_STRINGS',
     'DUMP_VALUES',

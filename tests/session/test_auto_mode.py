@@ -184,8 +184,6 @@ def test_the_sandbox_setting_holds_across_sessions_until_it_is_changed(home: Pat
     def recorded() -> str:
         return json.loads(db.get_agent_state(con, "backend")["launch_parts"])["sandbox"]
     try:
-        check("nothing in the daemon ends it with a session",
-              importlib.util.find_spec("handline.daemon.sandboxlease") is None)
         agents.register("backend", sandbox=True)
         record_launch()
         check("on: a session launched with it is sandboxed", sandboxed())

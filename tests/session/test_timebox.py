@@ -1,9 +1,8 @@
-"""Tests: a timebox's duration needs its unit, and only the measured background-work dialog gets the key that stops it.
+"""Tests: a timebox's duration needs its unit, and the background-work times follow the agent, then the global setting.
 
 Run on its own: python3 tests/session/test_timebox.py   (all areas: python3 tests/test_ocp.py)
 """
 from __future__ import annotations
-
 
 import sys
 from pathlib import Path
@@ -40,39 +39,43 @@ def test_a_duration_needs_its_unit(home: Path) -> None:
     check("timebox: no unit, no number, zero, negative or fractional is refused", not bad, str(bad))
 
 
-def _doing(con, tid: int, target: str) -> int:
-    """Link a queued, non-fyi request to `tid` so it reads doing - T286's
-    clock only runs in that state, the same live read `task_state` makes."""
-    rid = db.add_request(con, askmod.HUMAN, target, "look at it", None, "supervisor",
-                         "fire_and_forget", None, 0, None)
-    db.link_request(con, tid, rid)
-    return rid
+def _world(home: Path) -> None:
+    _daemon_home(home, 20)
+    hand_edit_team(TEAM)
+    for a in ("manager", "marina", "dohyun"):
+        agents.register(a)
 
 
-def test_stopping_key_presses_only_the_measured_dialog(home: Path) -> None:
-    def dialog(title="Background work is running", footer="Enter to confirm \u00b7 Esc to cancel",
-               marked=("\u276f 1. Exit and stop tasks", "  2. Move to background and exit", "  3. Stay")):
-        return termmod.Dialog(title, (), footer, (title, *marked))
-
-    check("stopping_key: the measured dialog is pressed with Enter",
-          termmod.stopping_key(dialog()) == (termmod.ENTER, ""))
-    near = (
-        ("a different title", dialog(title="Something else is running")),
-        ("a footer without Enter to confirm", dialog(footer="Esc to cancel")),
-        ("the keep option highlighted", dialog(marked=("  1. Exit and stop tasks", "\u276f 3. Stay"))),
-        ("a highlighted option that only resembles it", dialog(marked=("\u276f 1. Exit and stop all tasks",))),
-        ("two marked lines", dialog(marked=("\u276f 1. Exit and stop tasks", "\u276f 3. Stay"))),
-        ("no marked line", dialog(marked=("  1. Exit and stop tasks", "  3. Stay"))),
-    )
-    for what, d in near:
-        key, why = termmod.stopping_key(d)
-        check(f"stopping_key: {what} presses nothing", key is None and why, f"{key!r} {why}")
+def test_the_background_times_follow_the_agent_then_the_global_setting_then_the_default(home: Path) -> None:
+    _world(home)
+    check("times: with nothing set, the notice is the idle close and the grace is 5 minutes",
+          (idle_close.bg_notice_s("marina"), idle_close.bg_grace_s("marina")) == (600, 300))
+    idle_close.set_close_timeout(1200)
+    check("times: the notice follows the idle close", idle_close.bg_notice_s("marina") == 1200)
+    idle_close.set_bg_seconds("bg_notice_s", 400)
+    idle_close.set_bg_seconds("bg_grace_s", 120)
+    check("times: the global settings win over the defaults",
+          (idle_close.bg_notice_s("dohyun"), idle_close.bg_grace_s("dohyun")) == (400, 120))
+    idle_close.set_bg_seconds("bg_grace_s", 60, "marina")
+    check("times: an agent's own wins over the global one, and only for it",
+          idle_close.bg_grace_s("marina") == 60 and idle_close.bg_grace_s("dohyun") == 120
+          and idle_close.bg_notice_s("marina") == 400)
+    idle_close.set_bg_seconds("bg_grace_s", None, "marina")
+    check("times: clearing it goes back to the global one", idle_close.bg_grace_s("marina") == 120)
+    bad = []
+    for args in (("bg_grace_s", 0), ("bg_grace_s", -5), ("other", 5), ("bg_notice_s", None)):
+        try:
+            idle_close.set_bg_seconds(*args)
+            bad.append(args)
+        except ValueError:
+            pass
+    check("times: zero, negative, another key and a global clear are refused", not bad, str(bad))
 
 
 def main() -> int:
     def tests(td):
         run(lambda: test_a_duration_needs_its_unit(Path(td) / 'tb0'))
-        run(lambda: test_stopping_key_presses_only_the_measured_dialog(Path(td) / 'tb16'))
+        run(lambda: test_the_background_times_follow_the_agent_then_the_global_setting_then_the_default(Path(td) / 'tb10c'))
     return run_area(tests)
 
 
