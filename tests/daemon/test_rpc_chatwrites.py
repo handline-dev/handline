@@ -1,6 +1,6 @@
 """Tests: chat.send, chat.dismiss, chat.cancel and chat.seen (contract/protocol.md): what each writes, who may call it, a refusal each,
-a death between the effect and its record (nothing written, the retry does it once, the next retry is replayed), a retry after a lost
-reply, and `hl withdraw` still working from an agent session.
+a death between the effect and its record (nothing written, the retry does it once, the next retry is replayed), and a retry after a
+lost reply.
 
 Run on its own: python3 tests/daemon/test_rpc_chatwrites.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -168,13 +168,6 @@ def test_dismiss_takes_a_message_off_without_answering_it(home: Path) -> None:
     _dies_then_retries("chat.dismiss", {"request": msg, "request_id": "d3"}, None,
                        after=lambda: _row(msg)["state"] != "queued" and db.dismissal(_row(msg))[0], unchanged=lambda: _row(msg)["state"] == "queued")
     check("chat.dismiss: the dismissal is the person's, and nobody is told of it as an answer", db.dismissal(_row(msg))[1] == db.HUMAN and not _row(msg)["delivered_at"])
-
-
-def test_hl_withdraw_still_works_from_an_agent_session(home: Path) -> None:
-    _world(home)
-    own = _add("manager", "worker", "a question for the worker")
-    rc, out = support._cli(["withdraw", str(own), "--reason", "asked twice"], as_agent="manager")
-    check("hl withdraw: works at role agent", rc == 0 and "withdrawn" in out and _row(own)["state"] == "withdrawn", out)
 
 
 def test_send_under_a_message_answers_it_or_says_under_it(home: Path) -> None:
@@ -371,7 +364,6 @@ def main() -> int:
         run(lambda: test_send_is_the_persons_message_to_an_agent_through_delivery(Path(td) / "w1"))
         run(lambda: test_send_with_a_task_gives_the_agent_that_task_in_one_write(Path(td) / "w2"))
         run(lambda: test_dismiss_takes_a_message_off_without_answering_it(Path(td) / "w4"))
-        run(lambda: test_hl_withdraw_still_works_from_an_agent_session(Path(td) / "w6"))
         run(lambda: test_send_under_a_message_answers_it_or_says_under_it(Path(td) / "w8"))
         run(lambda: test_cancel_takes_back_a_message_the_person_sent(Path(td) / "w9"))
         run(lambda: test_cancel_sees_a_delivery_that_lands_after_its_check(Path(td) / "wc"))

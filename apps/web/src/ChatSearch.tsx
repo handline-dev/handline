@@ -7,7 +7,7 @@ import { BarInput, Empty, Icon } from './ui/index.ts';
 const SNIPPET = 90;
 
 /** The words around the first match: ‘…’ marks a cut end. */
-function snippet(body: string, query: string): string {
+export function snippet(body: string, query: string): string {
   const flat = body.replace(/\s+/g, ' ').trim();
   const at = flat.toLowerCase().indexOf(query.toLowerCase());
   const from = Math.max(0, at - 30);
@@ -15,7 +15,7 @@ function snippet(body: string, query: string): string {
   return `${from > 0 ? '…' : ''}${cut}${from + SNIPPET < flat.length ? '…' : ''}`;
 }
 
-const when = (at: string) => {
+export const when = (at: string) => {
   const d = new Date(at);
   return Number.isNaN(+d) ? '' : d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 };

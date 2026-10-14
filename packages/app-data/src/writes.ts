@@ -376,4 +376,10 @@ export const NOT_FROM_UI = [
   'task.handoff',
   // A member command the app does not send yet.
   'task.ask',
+  // `hl task accept` and `hl task reject`: the app has no button for a reported task yet.
+  'task.accept',
+  'task.reject',
+  // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
+  'request.withdraw',
+  'request.cancel',
 ] as const;

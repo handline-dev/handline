@@ -28,6 +28,7 @@ import { ChatBanner, ChatStrip, HrCards } from './ChatCards.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { Button, Empty, Icon, Segmented, Textarea, ComposeRow } from './ui/index.ts';
 import { setting } from './daemon.ts';
+import { useWantedMessage } from './route.ts';
 import { useWorkspace } from './Workspace.tsx';
 
 /** The heading where the day turns — 'Oct 11'; null on the same day. */
@@ -179,6 +180,14 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const jump = (id: number) => {
     if (!jumpTo(id)) setGoing(id);
   };
+  // A message chosen in the palette: this chat is its agent's, so find it the same way.
+  const wanted = useWantedMessage(agent);
+  useEffect(() => {
+    if (wanted.id === null || chat.status !== 'ready') return;
+    jump(wanted.id);
+    wanted.done();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted.id, chat.status]);
   const where = locate.data?.scope;
   useEffect(() => {
     if (going === null || !where) return;

@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline import actions  # noqa: E402
-from handline.actions import conversation  # noqa: E402
 from handline.daemon import landing  # noqa: E402
 
 SESSION = "sess-1"
@@ -784,23 +783,6 @@ def test_a_vendor_without_transcripts_takes_a_typed_line_as_landed(home: Path) -
     check("no transcript to read: typed counts as delivered", _row(rid)["landed_at"])
 
 
-def test_the_conversation_says_where_a_request_is(home: Path) -> None:
-    sent = _world(home)
-    _, row = _typed_row(sent)
-    con = db.connect()
-    try:
-        con.execute("UPDATE requests SET requester = 'human' WHERE id = ?", (row["id"],))
-        def tail():
-            rows = conversation.conversation_and_drawn(con, "backend")[0]
-            return " | ".join(getattr(r, "tail", "") for r in rows)
-        check("conversation: typed, not delivered", "typed, not in its session yet" in tail(), tail()[:300])
-        con.execute("UPDATE requests SET landed_at = ? WHERE id = ?", (int(time.time()), row["id"]))
-        check("conversation: shown, delivered", "typed, not in its session yet" not in tail()
-              and "delivered " in tail(), tail()[:300])
-    finally:
-        con.close()
-
-
 def test_an_old_delivered_request_is_not_called_undelivered_after_the_upgrade(home: Path) -> None:
     _daemon_home(home, 20)
     con = db.connect()
@@ -845,7 +827,6 @@ def main() -> int:
         run(lambda: test_a_trust_proposal_for_a_root_already_declared_is_moot(Path(td) / "l18"))
         run(lambda: test_the_unread_request_columns_are_dropped_only_by_the_doctor_and_racing_drops_are_safe(Path(td) / 'dropcols'))
         run(lambda: test_a_vendor_without_transcripts_takes_a_typed_line_as_landed(Path(td) / "l6"))
-        run(lambda: test_the_conversation_says_where_a_request_is(Path(td) / "l7"))
         run(lambda: test_an_old_delivered_request_is_not_called_undelivered_after_the_upgrade(Path(td) / "l8"))
     return run_area(tests)
 

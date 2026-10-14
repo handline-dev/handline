@@ -83,19 +83,19 @@ def _send(verb: str, **payload) -> int:
 
 
 def cmd_withdraw(args) -> int:
+    """Take back a request of your own before it is delivered (the daemon's request.withdraw)."""
     if args.reason == "":
         print(_EMPTY_REASON)
         return 1
     if askmod.asking_agent() is None:
         print(_who_refusal("withdraw"))
         return 1
-    ok, msg = askmod.withdraw(args.id, reason=args.reason)
-    print(msg)
-    return 0 if ok else 1
+    made, said, got = client.written("request.withdraw", {"id": args.id, **({"reason": args.reason} if args.reason else {})})
+    return client.said(made and bool(got.get("ok")), said)
 
 
 def cmd_cancel(args) -> int:
-    """Take a request out of an agent's queue, as the founder.
+    """Take a request out of an agent's queue, as the founder (the daemon's request.cancel).
 
     Human only: an agent that could cancel a request could close the work
     someone else handed it. Says what will happen and who will be told, and
@@ -105,24 +105,21 @@ def cmd_cancel(args) -> int:
         print("cancel is the founder's: an agent takes back its own request with "
               "`hl withdraw`, and answers one it was handed with `hl say <them> --parent <id>`.")
         return 1
-    con = db.connect()
-    try:
-        ok, plan = actions.cancel_plan(con, args.id)
-        if not ok:
-            print(f"not cancelled - {plan}")
+    if not args.yes:
+        made, why, got = client.written("request.cancel", {"id": args.id, "dry_run": True})
+        if not made:
+            return client.said(False, why)
+        if not got.get("ok"):
+            return client.said(False, f"not cancelled - {got.get('plan', '')}")
+        print(got.get("plan", ""))
+        if not sys.stdin.isatty():
+            print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
             return 1
-        if not args.yes:
-            print(plan)
-            if not sys.stdin.isatty():
-                print("refusing without a terminal to confirm in - pass --yes", file=sys.stderr)
-                return 1
-            if input("go ahead? [y/N] ").strip().lower() not in ("y", "yes"):
-                print("left alone")
-                return 1
-        print(actions.cancel(con, args.id))
-    finally:
-        con.close()
-    return 0
+        if input("go ahead? [y/N] ").strip().lower() not in ("y", "yes"):
+            print("left alone")
+            return 1
+    made, said, got = client.written("request.cancel", {"id": args.id})
+    return client.said(made and bool(got.get("ok")), said)
 
 
 # How long a --wait waits by default: ten minutes is a while to hold a terminal, and an answer that has not come in

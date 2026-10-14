@@ -151,7 +151,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                 for one in runs:
                     argv, env, key = (one + (None, None))[:3] if isinstance(one, tuple) else (one, None, None)
                     run_it(argv, env, key=key or " ".join(argv) + (" (as backend)" if env else ""))
-            run_it(*driven["withdraw"][0][:2], key=driven["withdraw"][0][2])
+            with support.daemon_says("request.withdraw", lambda q: {"ok": True, "said": f"request #{q['id']} to reviewer withdrawn"}):
+                run_it(*driven["withdraw"][0][:2], key=driven["withdraw"][0][2])
             run_it(driven["unstall"][0])
         finally:
             says.__exit__(None, None, None)
@@ -219,7 +220,7 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
         "hr diff": "writes a proposal; driven in test_a_team_diff_is_one_proposal_applied_all_or_none "
                    "(tests/team/test_hr_agents.py), not this scene",
         "team init": "writes team.yaml",
-        "cancel": "founder-only; its return strings hold ids and names (read in actions.cancel, ask.cancel)",
+        "cancel": "founder-only; it prints the Go daemon's words (request.cancel), which hold ids and names",
         "hook": "reads a hook payload on stdin and prints nothing",
         "daemon": "runs forever", "service install": "launchd", "service uninstall": "launchd",
         "service status": "launchd; prints a pid",
