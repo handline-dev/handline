@@ -11,7 +11,7 @@ import (
 func putImage(t *testing.T, r *rig) *attachments.Info {
 	t.Helper()
 	b := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("x", 2000))
-	out, err := attachments.New(r.home).Put(attachments.PutIn{Name: "shot.png", Mime: "image/png", Bytes: int64(len(b)), Data: b})
+	out, err := attachments.New(r.home).Put(r.db, attachments.PutIn{Name: "shot.png", Mime: "image/png", Bytes: int64(len(b)), Data: b})
 	if err != nil || out.Attachment == nil {
 		t.Fatal(err)
 	}

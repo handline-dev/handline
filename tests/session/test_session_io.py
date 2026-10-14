@@ -1,5 +1,5 @@
-"""Tests: what is read off a session's screen (background work, what is in the way, a dialog's last try, Orca's idle
-line), the launch line and its Enter, the trust and clear keys, and the guards they lean on.
+"""Tests: what is read off a session's screen (what is in the way, Orca's idle line), the launch prompt, the trust
+key, and the guards they lean on.
 
 Run on its own: python3 tests/session/test_session_io.py   (all areas: python3 tests/test_ocp.py)
 """
@@ -161,97 +161,6 @@ def test_failclosed(home: Path) -> None:
           picked is None, str(picked))
 
 
-def test_a_session_idle_over_background_work_is_told_from_one_mid_turn_by_its_screen(home: Path) -> None:
-    """T458: Orca reads a session with work running behind its prompt as mid-turn, so no task
-    was ever typed at it. The screen tells them apart on what a turn draws - the spinner row above
-    the composer and "esc to interrupt" in its hints (six real samples, T592) - and only a screen
-    that shows the composer, the background count and neither of those is idle."""
-    restore_world()
-    bg_hint = "  \u23f5\u23f5 auto mode on \u00b7 1 shell \u00b7 \u2190 for agents \u00b7 \u2193 to manage"
-    busy_hint = bg_hint.replace("1 shell \u00b7", "1 shell \u00b7 esc to interrupt \u00b7")
-    box = [_COMPOSER_RULE_ROW, "\u276f", _COMPOSER_RULE_ROW]
-    said = ["\u23fa I passed T620 at 4d04d15d. The verdict went to orcapipe.ui as #7249.",
-            "\u273b Saut\u00e9ed for 1m 26s \u00b7 done 10:20 PM \u00b7 1 shell still running"]
-    spinner = ["\u00b7 Puttering\u2026 (running PreToolUse hooks\u2026 1/2 \u00b7 1m 43s \u00b7 \u2193 5.3k tokens)",
-               "  \u23bf  Tip: Use /btw to ask a quick side question without interrupting Claude's current work"]
-    real, real_wait, real_blocker = termmod._screen, termmod.wait_idle, termmod.screen_blocker
-    idle = lambda rows: termmod.idle_with_background("term_x")       # noqa: E731
-    try:
-        termmod.screen_blocker = REAL_TERMINAL["screen_blocker"]
-        for label, rows, want in (
-            ("nothing drawn but the finished turn's line and the count", said + box + [bg_hint], True),
-            ("a spinner row above the composer", said + spinner + box + [bg_hint], False),
-            ("a spinner that has only just started, with no timing yet", said + ["\u2733 Thinking\u2026"] + box + [bg_hint], False),
-            ("'esc to interrupt' among the hints", said + box + [busy_hint], False),
-            ("no background work to speak of: Orca's own answer stands", said + box + ["  \u23f5\u23f5 auto mode on"], False),
-            ("a dialog in the composer's place", said + ["Enter to confirm \u00b7 Esc to cancel"], False),
-            ("nothing recognizable", ["$ "], False)):
-            termmod._screen = lambda h, rows=rows: _screen_of(rows)
-            check(f"idle over background: {label} -> {want}", idle(rows) is want)
-        termmod._screen = lambda h: _screen_of(said + box + [bg_hint], source="stream")
-        check("idle over background: a stream, not the screen, is never read", idle(None) is False)
-        termmod._screen = lambda h: None
-        check("idle over background: an unreadable screen is not idle", idle(None) is False)
-
-        # What a task is typed on: Orca says busy, the screen says idle over background work.
-        termmod.wait_idle = lambda h, timeout_ms=0: False
-        termmod._screen = lambda h: _screen_of(said + box + [bg_hint])
-        check("typeable: Orca busy, screen idle over background work -> typed", termmod.typeable_now("term_x") is True)
-        termmod._screen = lambda h: _screen_of(said + spinner + box + [bg_hint])
-        check("typeable: Orca busy, the spinner drawn -> held", termmod.typeable_now("term_x") is False)
-        termmod._screen = lambda h: _screen_of(said + box + [busy_hint])
-        check("typeable: Orca busy, 'esc to interrupt' drawn -> held", termmod.typeable_now("term_x") is False)
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod._screen = lambda h: _screen_of(said + box + ["  \u23f5\u23f5 auto mode on"])
-        check("typeable: Orca idle is still enough", termmod.typeable_now("term_x") is True)
-    finally:
-        termmod._screen, termmod.wait_idle, termmod.screen_blocker = real, real_wait, real_blocker
-
-
-def test_a_launch_line_and_its_enter_are_sent_apart(home: Path) -> None:
-    """T663: a launch line that ran nothing was never explained. The line goes without an Enter and the
-    Enter follows on its own, in case a shell taking the line as a paste swallows one that comes with
-    it; and a launch that starts nothing says whether its terminal is gone or alive, and what it shows."""
-    restore_world()
-    real = (termmod.alive, termmod.send, termmod.wait_idle, termmod._screen)
-    sent: list[tuple[str, bool]] = []
-    try:
-        termmod.alive = lambda h: True
-        termmod.wait_idle = lambda h, timeout_ms=0: True
-        termmod.send = lambda h, text, enter=True: (sent.append((text, enter)), (True, ""))[1]
-        ok, why = termmod.relaunch("term_x", "hl launch a --prompt-file /w/a.txt -- --resume s1", started=lambda: True)
-        check("launch: the line goes without an Enter, then the Enter alone",
-              ok and sent == [("hl launch a --prompt-file /w/a.txt -- --resume s1", False), ("", True)], str(sent))
-
-        sent.clear()
-        termmod._screen = lambda h, limit=40: support._screen_of(
-            ["", "me@host wt % hl launch a --prompt-file /w/a.txt -- --resume s1", ""])
-        ok, why = termmod.relaunch("term_x", "hl launch a", started=lambda: False)
-        check("launch: one that starts nothing says so, that the terminal is alive, and what it shows",
-              not ok and "no session started" in why
-              and "; the terminal is alive (screen: me@host wt % hl launch a --prompt-file /w/a.txt -- --resume s1)"
-              in why, why)
-
-        termmod._screen = lambda h, limit=40: None
-        ok, why = termmod.relaunch("term_x", "hl launch a", started=lambda: False)
-        check("launch: a live terminal whose screen cannot be read says that",
-              not ok and why.endswith("; the terminal is alive but its screen could not be read"), why)
-
-        gone = iter([True, False])           # alive when the line is typed, gone when it did not start
-        termmod.alive = lambda h: next(gone)
-        ok, why = termmod.relaunch("term_x", "hl launch a", started=lambda: False)
-        check("launch: a terminal that died under it says it is gone, not what it last showed",
-              not ok and why.endswith("no session started; the terminal is gone") and "screen" not in why, why)
-        termmod.alive = lambda h: True
-
-        termmod.send = lambda h, text, enter=True: (True, "") if enter is False else (False, "no such terminal")
-        ok, why = termmod.relaunch("term_x", "hl launch a", started=lambda: True)
-        check("launch: an Enter that could not be sent is a launch that was not sent",
-              not ok and "could not send the launch command" in why, why)
-    finally:
-        termmod.alive, termmod.send, termmod.wait_idle, termmod._screen = real
-
-
 def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
     """A dialog is quoted from the screen - title and options - never matched
     against a list of the dialogs somebody has seen."""
@@ -312,7 +221,7 @@ def test_the_screen_names_what_is_in_the_way(home: Path) -> None:
               and "Completed" in b.detail and "hl inbox management" in b.detail
               and "❯" not in b.detail and "─" not in b.detail, str(b))
         check("screen: and says why in a sentence",
-              b and blockedmod.reason(b.kind, b.detail).startswith("its conversation moved to the background"))
+              b and b.reason().startswith("its conversation moved to the background"))
         check("screen: modal_open refuses it", REAL_TERMINAL["modal_open"]("term_x"))
         hostile_picker = ["\033]0;PWNED\x07\033[31mYour conversation moved to the background"] \
             + BACKGROUND_PICKER[1:]
@@ -442,22 +351,6 @@ def test_a_launch_takes_its_prompt_once(home: Path) -> None:
     check("launch: a missing file is no prompt", launch.take_prompt(str(f)) is None)
 
 
-def test_a_dialog_on_its_last_try_says_which_dialog_in_the_stall(home: Path) -> None:
-    """The stall that repeated failed handoffs end in named a count and nothing
-    else, so the person who found it did not know a dialog was the cause."""
-    con = _blocked_world(home)
-    try:
-        db.block_open(con, "backend", termmod.MODAL, '"Overwrite the file?" - 1. Yes / 2. No',
-                      "request #1", int(time.time()), show_at=0, origin="close", title="Overwrite the file?")
-        note = blockedmod.dialog_note(con, "backend")
-        check("stall note: names the dialog", "Overwrite the file?" in note, note)
-        db.block_clear(con, "backend")
-        check("stall note: nothing to add when no dialog is the reason",
-              blockedmod.dialog_note(con, "backend") == "")
-    finally:
-        con.close()
-
-
 def test_orca_idle_parsing() -> None:
     """`ok` says the wait command ran; `satisfied` says the agent is idle.
 
@@ -510,32 +403,6 @@ def test_confirm_trust_presses_down_then_enter() -> None:
         tmuxbackend._tmux, tmuxbackend.ENTER_DELAY_S = real, delay
 
 
-def test_clear_refuses_mid_turn() -> None:
-    real_alive, real_wait, real_send = termmod.alive, termmod.wait_idle, termmod.send
-    sent = []
-    try:
-        termmod.available = lambda: True
-        termmod.alive = lambda h: True
-        termmod.send = lambda h, t, enter=True: (sent.append(t), (True, ""))[1]
-
-        termmod.wait_idle = lambda h, t=0: False
-        ok, why = termmod.clear_context("h")
-        check("orca: refuses to clear a busy agent", not ok and "mid-turn" in why, why)
-        check("orca: and sends nothing", sent == [], str(sent))
-
-        termmod.wait_idle = lambda h, t=0: True
-        ok, why = termmod.clear_context("h")
-        check("orca: clears an idle agent", ok, why)
-        check("orca: by sending /clear", sent == ["/clear"], str(sent))
-
-        termmod.available = lambda: True
-        termmod.alive = lambda h: False
-        ok, why = termmod.clear_context("h")
-        check("orca: will not clear a dead terminal", not ok, why)
-    finally:
-        termmod.alive, termmod.wait_idle, termmod.send = real_alive, real_wait, real_send
-
-
 def test_a_second_done_loses_the_race(home: Path) -> None:
     """done_evidence is written once: a call that lost the race must not
     overwrite the winner's."""
@@ -570,15 +437,10 @@ def main() -> int:
         home.mkdir()
         run(lambda: test_failclosed(home))
         run(lambda: test_the_screen_names_what_is_in_the_way(Path(td) / 'blk1'))
-        run(lambda: test_a_session_idle_over_background_work_is_told_from_one_mid_turn_by_its_screen(Path(td) / 'idlebg'))
-        run(lambda: test_a_launch_line_and_its_enter_are_sent_apart(Path(td) / 'launch1'))
         run(lambda: test_the_actor_column_is_added_to_an_existing_session_starts_table(Path(td) / 'actorcol'))
         run(lambda: test_a_launch_takes_its_prompt_once(Path(td) / 'takeprompt'))
-        run(lambda: test_a_dialog_on_its_last_try_says_which_dialog_in_the_stall(
-            Path(td) / 'stallnote'))
         skip(lambda: test_orca_idle_parsing(), ORCA_UNMAINTAINED)
         run(lambda: test_confirm_trust_presses_down_then_enter())
-        run(lambda: test_clear_refuses_mid_turn())
         run(lambda: test_a_second_done_loses_the_race(Path(td) / 'taskrace'))
     return run_area(tests)
 

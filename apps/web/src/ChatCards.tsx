@@ -3,12 +3,14 @@
 import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail } from '@handline/client';
+import { ago } from '@handline/app-core';
 import { useHr, useWrite } from '@handline/app-data';
 import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOf } from './ui/index.ts';
 import { goTeam } from './route.ts';
 import { openTaskOnClick } from './ChatMessages.tsx';
 import { useWorkspace } from './Workspace.tsx';
 import { AgentGauges } from './AgentGauges.tsx';
+import { useOpenTerminal } from './ChatMenus.tsx';
 
 const until = (iso: string | null): number | null => {
   const t = iso ? Date.parse(iso) : NaN;
@@ -101,5 +103,31 @@ export function HrCards({ agent }: { agent: string }) {
         </Dialog>
       ) : null}
     </>
+  );
+}
+
+const NEEDS: Record<string, string> = {
+  permission: 'Waiting for a yes',
+  question: 'Asked you a question',
+  usage: 'Hit the session limit',
+  dialog: 'Waiting on a dialog',
+};
+
+/** What the agent waits on a person for, with how long and a way to its terminal; gone when the daemon stops saying it. */
+export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
+  const need = detail.needs_you;
+  const openTerminal = useOpenTerminal(detail);
+  if (!need) return null;
+  const reachable = detail.structured || !!detail.terminal;
+  return (
+    <Card variant="chat" className="card-needs bg-surface" data-kind="needs_you" data-need={need.kind}>
+      <Icon name="blocked" label="Needs you" />
+      <CardWhat stacked>
+        <strong>{NEEDS[need.kind] ?? NEEDS.dialog}</strong>
+        {need.text ? <span className="muted">{need.text}</span> : null}
+        <span className="muted">{ago(need.since)}</span>
+      </CardWhat>
+      <Button icon="terminal" label="Open terminal" size="sm" disabled={!reachable} onClick={openTerminal} />
+    </Card>
   );
 }

@@ -16,9 +16,9 @@ The tests live in `tests/<group>/test_<area>.py` over the shared fixtures in
 `tests/support.py`; `tests/test_ocp.py` runs every area file (`-j N` sets how
 many at once) and adds their counts.
 
-`tools/live-e2e.sh --account NAME --agent NAME` drives one real haiku agent (permission mode `default`) through the live
-daemon and prints how fast the event stream showed each step. It spends tokens, so it runs only by hand, from the founder's
-terminal, and never from `tools/test.sh` or `check.sh`.
+`HANDLINE_LIVE=1 tools/live-e2e.sh` drives one real haiku agent through a test daemon on a scratch home and prints how
+fast the event stream showed each step. It spends tokens on the account `tools/live_account.py` picks (the most headroom
+now), so it runs only by hand, by any agent, and never from `tools/test.sh` or `check.sh`.
 
 `tools/prune_worktrees.py` lists the worktrees that are merged into main, clean and no agent's; `--remove` removes them.
 

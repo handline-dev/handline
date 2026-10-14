@@ -121,6 +121,9 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 			return fmt.Sprintf("task T%d has no brief its opener wrote to edit - a task begun from a message, or linked to someone else's request, keeps those words as they are", tid), "", nil
 		}
 		if text != strings.TrimSpace(old) {
+			if err := claimImages(tx, home, by, text, old, "body"); err != nil {
+				return "", "", err
+			}
 			newBody, bodyRID = &text, rid
 			changes = append(changes, change{key: "body", old: old, new: text, body: true})
 		}

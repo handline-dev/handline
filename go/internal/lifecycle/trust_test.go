@@ -1,7 +1,6 @@
 package lifecycle
 
 import (
-	"errors"
 	"github.com/handline/handline/go/internal/term"
 	"strings"
 	"testing"
@@ -13,14 +12,13 @@ import (
 // screenTerm is a terminal showing the vendor's startup screens, recording what is pressed.
 type screenTerm struct {
 	fakeTerm
-	bypass, trust bool
-	folder        string
-	standsAfter   bool // a press leaves the screen standing
-	presses       []string
-	blocker       *term.Blocker // another screen a launch stops at
+	trust       bool
+	folder      string
+	standsAfter bool // a press leaves the screen standing
+	presses     []string
+	blocker     *term.Blocker // another screen a launch stops at
 }
 
-func (s *screenTerm) BypassPromptShowing(string) bool    { return s.bypass }
 func (s *screenTerm) ScreenBlocker(string) *term.Blocker { return s.blocker }
 func (s *screenTerm) TrustPromptShowing(string) bool     { return s.trust }
 func (s *screenTerm) TrustPromptFolder(string) string    { return s.folder }
@@ -30,23 +28,15 @@ func (s *screenTerm) ConfirmTrust(string) (bool, string) {
 	s.trust = s.standsAfter
 	return true, ""
 }
-func (s *screenTerm) AcceptBypass(string) (bool, string) {
-	s.presses = append(s.presses, "bypass")
-	s.bypass = s.standsAfter
-	return true, ""
-}
 
 type trustAgents struct {
 	fakeAgents
-	skip      bool
-	skipErr   error
 	declared  bool
 	decisions []string
 }
 
-func (a *trustAgents) SkipPermissionsInEffect(string) (bool, error) { return a.skip, a.skipErr }
-func (a *trustAgents) IsDeclared(string) bool                       { return a.declared }
-func (a *trustAgents) VendorName(string) string                     { return "claude" }
+func (a *trustAgents) IsDeclared(string) bool   { return a.declared }
+func (a *trustAgents) VendorName(string) string { return "claude" }
 func (a *trustAgents) RaiseDecision(_ db.Q, _, text, _ string) error {
 	a.decisions = append(a.decisions, text)
 	return nil
@@ -113,30 +103,6 @@ func TestAPressThatLeavesTheTrustScreenStandingRaisesTheDecision(t *testing.T) {
 	ok, why := r.m.clearTrustPrompt("a", "t1", false)
 	if ok || len(r.tm.presses) != 1 || len(r.ag.decisions) != 1 || !strings.Contains(why, TrustStall) {
 		t.Fatalf("%v %q %v %v", ok, why, r.tm.presses, r.ag.decisions)
-	}
-}
-
-func TestBypassWarningIsAcceptedOnlyWhereSkippingPermissionsIsInEffect(t *testing.T) {
-	cases := []struct {
-		name    string
-		skip    bool
-		err     error
-		pressed int
-		want    string
-	}{
-		{"granted", true, nil, 1, "accepted"},
-		{"ungranted", false, nil, 0, "not granted"},
-		{"unreadable agent.yaml", false, errors.New("bad yaml"), 0, "could not be read"},
-	}
-	for _, c := range cases {
-		r := trustManager(t)
-		r.tm.trust, r.tm.bypass = false, true
-		r.ag.skip, r.ag.skipErr = c.skip, c.err
-		ok, why := r.m.clearTrustPrompt("a", "t1", false)
-		// After an accepted warning the screen is clear, so the whole check ends clear.
-		if len(r.tm.presses) != c.pressed || (c.pressed == 1) != ok || (c.pressed == 0 && !strings.Contains(why, c.want)) {
-			t.Errorf("%s: %v %q presses=%v", c.name, ok, why, r.tm.presses)
-		}
 	}
 }
 

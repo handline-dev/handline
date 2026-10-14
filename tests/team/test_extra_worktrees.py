@@ -1,4 +1,4 @@
-"""Tests: an agent's further worktrees (agent.yaml `extra_worktrees`): the config, making them once beside the first, the launch giving them to
+"""Tests: an agent's further worktrees (agent.yaml `extra_worktrees`): the config, the launch giving them to
 that agent alone as writable working directories, the preamble saying which is which, and the lookups that map a path to its agent.
 
 Run on its own: python3 tests/team/test_extra_worktrees.py   (all areas: python3 tests/test_ocp.py)
@@ -16,7 +16,6 @@ from support import *  # noqa: E402,F401,F403
 from handline.session import backends  # noqa: E402
 from handline.session.backends import tmux  # noqa: E402
 from handline.session.backends.base import Backend  # noqa: E402
-from handline.team import spawn  # noqa: E402
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -48,7 +47,7 @@ def _world(home: Path) -> tuple[Path, str]:
     (vendors.config_dir("alpha") / ".credentials.json").write_text("{}")
     vendors.get("claude").binary = lambda: "/x/bin/claude"
     backends.use(_Host())
-    first, why = termmod.create_worktree(str(repo), "auditor", "main")
+    first, why = backends.current().create_worktree(str(repo), "auditor", "main")
     assert first, why
     con = db.connect()
     db.set_terminal(con, "auditor", "t-1", first)
@@ -93,7 +92,12 @@ def test_a_launch_gives_the_further_worktrees_to_that_agent_alone(home: Path) ->
         agents.register("auditor", extra_worktrees=1)
         argv, _ = launch.build("auditor")
         check("launch: with the config asking and none made yet, nothing is added", "--add-dir" not in argv)
-        have, _ = spawn.ensure_extras("auditor", first, repo)
+        second, why = backends.current().create_worktree(str(repo), "auditor-2", "main")
+        assert second, why
+        have = [second]
+        con = db.connect()
+        db.set_extra_worktrees(con, "auditor", have)
+        con.close()
         argv, _ = launch.build("auditor")
         settings = json.loads(_args(argv, "--settings")[0])
         check("launch: the second is a working directory of the session", _args(argv, "--add-dir") == have, str(argv))

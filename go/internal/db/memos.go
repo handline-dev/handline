@@ -44,3 +44,21 @@ func DeleteMemo(q Q, mid int64) error {
 	_, err := q.Exec("DELETE FROM task_memos WHERE id = ?", mid)
 	return err
 }
+
+// MemoTexts is the texts of T<tid>'s memos, oldest first.
+func MemoTexts(q Q, tid int64) ([]string, error) {
+	rows, err := q.Query("SELECT body FROM task_memos WHERE task_id = ? ORDER BY id", tid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var body string
+		if err := rows.Scan(&body); err != nil {
+			return nil, err
+		}
+		out = append(out, body)
+	}
+	return out, rows.Err()
+}

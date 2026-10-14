@@ -35,11 +35,15 @@ export function whyNotImage(f: { type: string; size: number; name: string }): st
   return null;
 }
 
-const base64 = (bytes: Uint8Array) => {
-  let s = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(s);
-};
+/** One chunk as base64. `FileReader` rather than `Blob.arrayBuffer`, which React Native's Blob does not have. */
+const chunkBase64 = (part: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ''));
+    r.onerror = () => reject(r.error ?? new Error('cannot read the file'));
+    r.readAsDataURL(part);
+  });
+
 const unbase64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
 /**
@@ -59,7 +63,7 @@ export async function uploadImage(
   let upload: string | undefined;
   for (;;) {
     if (signal?.aborted) throw new Error('cancelled');
-    const data = base64(new Uint8Array(await file.slice(offset, offset + CHUNK).arrayBuffer()));
+    const data = await chunkBase64(file.slice(offset, offset + CHUNK));
     const params = { name, mime, bytes, data, ...(offset ? { offset } : {}), ...(upload ? { upload } : {}), request_id: newOperationId() };
     let r: { upload: string; received: number; attachment?: Attachment } | undefined;
     for (let tries = 0; !r; tries++) {

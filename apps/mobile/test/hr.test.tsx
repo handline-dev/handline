@@ -301,12 +301,12 @@ describe('the HR list', () => {
     await press($('hs-save'));
     expect($('hs-error')?.textContent).toContain('hand off at');
     await fill('hs-context_k', '300');
-    await press($('hs-skip_permissions-on'));
+    await press($('hs-sandbox-off'));
     await press($('hs-save'));
     expect($('hs-danger')).not.toBeNull();
-    expect(m.daemon.sessions.get(ARCH)!.settings.skip_permissions).toBe('off');
+    expect(m.daemon.sessions.get(ARCH)!.settings.sandbox).toBe('on');
     await press($('hs-save'));
-    await until(() => m.daemon.sessions.get(ARCH)!.settings.skip_permissions === 'on', 'the daemon');
+    await until(() => m.daemon.sessions.get(ARCH)!.settings.sandbox === 'off', 'the daemon');
     m.store.stop();
   });
 

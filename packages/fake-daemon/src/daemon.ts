@@ -7,7 +7,6 @@ import {
   ROLE_ORDER,
   RPC_CODES,
   type Actor,
-  type Caller,
   type Event as WireEvent,
   type MethodName,
   type Notifications,
@@ -29,40 +28,13 @@ import { HANDLERS } from './handlers.ts';
 import { Script } from './script.ts';
 import { Failure, badRequest, refused } from './errors.ts';
 import { Knobs } from './knobs.ts';
+import { TERMINAL_CAPS, TEXT_CAPS, UNKEPT, type Body, type Conn, type FakeDaemonOptions } from './conn.ts';
+
+export type { FakeDaemonOptions };
 import { Replies } from './replies.ts';
 import { FakeTranscript } from './transcript.ts';
 import { watcherNotice } from './watchers.ts';
-import { accountsReply, byTerminal, detail, statusReply, newSession, tid, view, type Attach, type Session } from './session.ts';
-
-const TERMINAL_CAPS = { terminal_format: ['text', 'bytes', 'styled'], terminal_hosts: { fake: ['text', 'bytes', 'styled'] } };
-const TEXT_CAPS = { terminal_format: ['text'], terminal_hosts: { fake: ['text'] } };
-
-// Writes whose reply is never replayed: a retry runs again and is judged on its own (a token is handed out once; a login code is kept nowhere).
-const UNKEPT = new Set(['device.pair', 'device.redeem', 'account.login_code']);
-
-interface Conn {
-  transport: Transport;
-  role: Role;
-  caller: Caller;
-  helloed: boolean;
-  topics: Set<Topic> | null;
-  attached: Map<string, Attach>; // terminal id -> how this connection watches it
-  network: boolean; // came in through the paired-device listener
-  paired: boolean; // a local connection always; a network one once hello carried a known token
-}
-
-export interface FakeDaemonOptions {
-  retention?: number; // events kept for resume; older ones give `gap`
-  now?: () => Date;
-  accounts?: boolean; // serve the account methods (default); false is a daemon that does not yet
-  transcript?: boolean; // serve the transcript stream (default); false is a daemon that does not yet
-  admin?: boolean; // serve stats, outlook, settings, standing answers, repos and worktrees (default); false is a daemon that does not yet
-  chat?: boolean; // serve the chat methods (default); false is a daemon that does not yet
-  inbox?: boolean; // serve the inbox methods (default); false is a daemon that does not yet
-  bytes?: boolean; // offer the bytes terminal format (default); false is a daemon that serves text only
-}
-
-type Body = { result?: unknown; error?: { code: number; message: string; data: Record<string, unknown> } };
+import { accountsReply, byTerminal, detail, statusReply, newSession, tid, view, type Session } from './session.ts';
 
 export class FakeDaemon {
   readonly sessions = new Map<string, Session>();
@@ -118,7 +90,6 @@ export class FakeDaemon {
   });
 
   constructor(opts: FakeDaemonOptions = {}) {
-    this.tasks.kept = (id) => this.uploads.info(id);
     this.retention = opts.retention ?? 1000;
     this.now = opts.now ?? (() => new Date());
     this.serveChat = opts.chat ?? true;
@@ -227,7 +198,7 @@ export class FakeDaemon {
 
   private session(agent: unknown): Session {
     const s = typeof agent === 'string' ? this.sessions.get(agent) : undefined;
-    if (!s) throw new Failure('not_found', `no agent named ${String(agent)}`);
+    if (!s) throw new Failure('not_found', `no agent named ${String(agent)}`, { what: 'agent', name: agent });
     return s;
   }
   // ---- events ----
@@ -447,7 +418,19 @@ export class FakeDaemon {
     if (this.work.owns(method)) return { value: this.work.call(method, p, ok) };
     if (method.startsWith('attachment.')) return { value: this.uploads.call(method, p, ok) };
     if (method.startsWith('inbox.')) return { value: this.inbox.call(method, p, c.caller.name, ok) };
-    if (this.tasks.serves(method)) return { value: taskCall(this.tasks, method, p, c.caller.name, this.script) };
+    if (this.tasks.serves(method))
+      return {
+        value: taskCall(this.tasks, method, p, c.caller.name, c.role === 'agent', this.script, (task, to, text) => {
+          const s = this.session(to);
+          if (!s.open) this.script.startSession(s, false, this.actor(c));
+          const body =
+            `Question on T${task} from the founder (the task keeps its holder): ${text}\n\n` +
+            "Answer by replying to this message: hl say human --parent <this message's #id> '<answer>'";
+          const { request } = this.chat.send({ agent: to, body, request_id: p.request_id }, c.caller.name);
+          this.chat.link(request, { id: task, title: this.tasks.find(task).title });
+          return request;
+        }),
+      };
     return null;
   }
 

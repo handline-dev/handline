@@ -135,6 +135,9 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			asked *Asked
 		)
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+			if err := claimImages(tx, home, me, body, "", "body"); err != nil {
+				return nil, err
+			}
 			var err error
 			tid, asked, err = OpenTask(tx, tell, me, NewIn{Owner: owner, Title: clean, Body: body, Secs: secs, Prio: prio, Expects: expects,
 				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter, UI: ui})

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 )
@@ -488,6 +489,11 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, err
 	}
 	task["body"] = first.str("body")
+	images, agent := attachments.New(e.Home), c != nil && c.Caller.Role == "agent"
+	parts := func(text string) []any { return images.Parts(text, agent) }
+	if p := parts(first.str("body")); p != nil {
+		task["body_parts"] = p
+	}
 	if err := e.taskResultOf(*tid, task); err != nil {
 		return nil, err
 	}
@@ -534,10 +540,17 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 		if m.set("edited_at") {
 			edited = ts(m["edited_at"])
 		}
-		ms = append(ms, map[string]any{"id": m.i("id"), "task": m.i("task_id"), "author": m.str("author"),
-			"at": ts(m["created_at"]), "text": m.str("body"), "edited_at": edited})
+		memo := map[string]any{"id": m.i("id"), "task": m.i("task_id"), "author": m.str("author"),
+			"at": ts(m["created_at"]), "text": m.str("body"), "edited_at": edited}
+		if p := parts(m.str("body")); p != nil {
+			memo["parts"] = p
+		}
+		ms = append(ms, memo)
 	}
 	task["memos"] = ms
+	if task["timeline"], err = e.taskTimeline(*tid, memos, reqs, parts); err != nil {
+		return nil, err
+	}
 	blockers, err := e.blockers(*tid)
 	if err != nil {
 		return nil, err
@@ -548,15 +561,27 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 			"reason": fmt.Sprintf("T%d (%s) %s", bl.i("id"), bl.str("owner"), bl.str("title"))})
 	}
 	task["blockers"] = bs
-	kids, err := query(e.DB, "SELECT id FROM tasks WHERE parent_task = ? ORDER BY id", *tid)
+	kids, err := query(e.DB, "SELECT * FROM tasks WHERE parent_task = ? ORDER BY id", *tid)
 	if err != nil {
 		return nil, err
 	}
-	cs := []any{}
+	cs, subs := []any{}, []any{}
 	for _, k := range kids {
 		cs = append(cs, k.i("id"))
+		subs = append(subs, map[string]any{"id": k.i("id"), "title": k.str("title"), "owner": k.str("owner"), "state": b.state(k)})
 	}
-	task["children"] = cs
+	task["children"], task["subtasks"] = cs, subs
+	task["merged_into"], task["parent_title"] = t.intOrNil("merged_into"), nil
+	if t.set("parent_task") {
+		if p, err := queryOne(e.DB, "SELECT title FROM tasks WHERE id = ?", t.i("parent_task")); err != nil {
+			return nil, err
+		} else if p != nil {
+			task["parent_title"] = p.str("title")
+		}
+	}
+	if task["people"], err = e.askable(t.str("owner")); err != nil {
+		return nil, err
+	}
 	hands, err := query(e.DB, "SELECT ts, payload FROM events WHERE kind = 'task_handoff' AND "+eventTask+" = ? ORDER BY id", *tid)
 	if err != nil {
 		return nil, err

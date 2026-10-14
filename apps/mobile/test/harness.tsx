@@ -27,6 +27,15 @@ export const $ = (id: string) => box.querySelector<HTMLElement>(`[data-testid="$
 export const text = () => box.textContent ?? '';
 /** The height a row is styled with (the DOM has no layout here, so this reads the style both rows are given from the tokens). */
 export const rowHeightOf = (el: Element | null) => (el ? getComputedStyle(el).height : undefined);
+/** Types into a field the way a keyboard does (react-native-web draws TextInput as an input or a textarea). */
+export const fill = (id: string, v: string) =>
+  act(async () => {
+    const f = $(id) as unknown as HTMLInputElement | HTMLTextAreaElement;
+    const proto = f.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(f, v);
+    f.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+export const value = (id: string) => ($(id) as unknown as HTMLInputElement | null)?.value;
 export const press = (el: HTMLElement | null) => act(async () => void el?.click());
 
 /** `role` is the caller's; `screen` replaces Home for a screen that Home does not reach yet. */

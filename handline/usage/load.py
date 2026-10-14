@@ -159,19 +159,12 @@ def set_usage_recover(acct: str, on: bool) -> None:
 WAKE_RESERVE_S = 300     # a reservation no launch answered in this long is let go
 
 
-def reserve_wake(con, agent: str, acct: str) -> None:
-    """Hold a slot on `acct` for an agent whose wake is decided, from now until it is seen
-    running (its Stop), a `wake_failed` or `WAKE_RESERVE_S`: a second wake in the same tick
-    then counts it. An event, so a restart of the daemon still sees it."""
-    db.add_event(con, agent, "wake_reserved", account=acct)
-
-
 def active_by_account(con, now: int | None = None) -> dict[str, list[str]]:
     """Agents mid-turn, by the account each is running on. An agent that has
     just moved is mid-turn on its handback before the daemon has seen it run,
     so it counts from the move until its next Stop; without that, agents that
     wall together all see the same empty destination. A woken one counts the
-    same from `reserve_wake`, on the account reserved, unless it is seen running."""
+    same from the daemon's wake reservation, on the account reserved, unless it is seen running."""
     found: dict[str, list[str]] = {}
     since = (int(time.time()) if now is None else now) - WAKE_RESERVE_S
     rows = con.execute(
@@ -225,8 +218,8 @@ def roster(con) -> tuple[dict[str, tuple[int, int]], int]:
 
 def first_turn_agents(con) -> set[str]:
     """Agents whose current mid-turn stretch is their very first since the
-    SessionStart or moved_account that began it - the turn `measure.py` already
-    prices as a cold start (about 13% of the window, `triggers.MIN_STRETCH_S`'s
+    SessionStart or moved_account that began it - the turn the daemon's cold-start measure
+    already prices (about 13% of the window, `triggers.MIN_STRETCH_S`'s
     own figure), so a burn sample must not price it again as steady work."""
     rows = con.execute(
         "SELECT DISTINCT e1.agent FROM events e1 "

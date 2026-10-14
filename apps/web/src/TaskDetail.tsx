@@ -1,7 +1,7 @@
 // One task: its title, state, people and timing, the body, the delivery history, evidence, a reply box, what it waits on and what hangs under it,
 // and the verbs of the bridge's task detail. A verb that does not apply is hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { bodyPartsOf, partsOf, taskRef } from '@handline/app-core';
+import { taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useWrite } from '@handline/app-data';
@@ -10,9 +10,8 @@ import { Button, Icon } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
 import { AssignSheet, ReplyBox } from './TaskPeople.tsx';
-import { CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
+import { AskBox, CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
 import { RichText } from './RichText.tsx';
-import { TextParts } from './TextParts.tsx';
 import { View } from './View.tsx';
 
 type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'edit' | 'release' | 'assign';
@@ -224,9 +223,9 @@ function Body({ t }: { t: Detail }) {
       {ask === 'edit' ? <EditForm t={t} onClose={() => setAsk(null)} /> : null}
 
       {t.body ? (
-        <div className="tbody-text m-0 whitespace-pre-wrap">
-          <TextParts text={t.body} parts={bodyPartsOf(t)} />
-        </div>
+        <p className="tbody-text m-0 whitespace-pre-wrap">
+          <RichText text={t.body} />
+        </p>
       ) : null}
 
       {t.blockers.length ? <TaskLinks icon="waiting" label="Waits on" items={t.blockers} /> : null}
@@ -273,13 +272,14 @@ function Body({ t }: { t: Detail }) {
           <ul className="tmemos m-0 list-none p-0">
             {t.memos.map((m) => (
               <li key={m.id} className="whitespace-pre-wrap">
-                <span className="muted">{m.author}:</span> <TextParts text={m.text} parts={partsOf(m)} />
+                <span className="muted">{m.author}:</span> <RichText text={m.text} />
               </li>
             ))}
           </ul>
         </>
       ) : null}
 
+      <AskBox t={t} />
       <ReplyBox t={t} me={me} box={replyBox} />
     </div>
   );

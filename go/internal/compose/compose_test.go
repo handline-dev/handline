@@ -86,6 +86,10 @@ func rig(t *testing.T) (*Parts, string) { return rigWith(t, func(*Config) {}) }
 func rigWith(t *testing.T, edit func(*Config)) (*Parts, string) {
 	t.Helper()
 	t.Setenv("FAKE_CLAUDE", "1")
+	t.Setenv("HANDLINE_TEST_ROOT", t.TempDir()) // the daemon records each session's proof in the protected store, which an agent's session cannot write
+	for _, k := range []string{"OCP_AGENT", "HANDLINE_AGENT"} {
+		t.Setenv(k, "")
+	}
 	home := t.TempDir()
 	os.MkdirAll(filepath.Join(home, "agents", "alice"), 0o755)
 	os.WriteFile(filepath.Join(home, "agents", "alice", "agent.yaml"), []byte("vendor: claude\nstructured: true # the real CLI\n"), 0o644)

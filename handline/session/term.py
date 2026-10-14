@@ -1,27 +1,7 @@
-"""Talking to the terminal an agent is running in, through whichever host the backend is (Orca, tmux).
-
-This is what makes "hand off, park, resume" actually reclaim context (team
-model section 2, axis 3: the cost of an async handoff is that the requester
-returns its context). Recording the handoff is only half of it - without
-clearing the session the context never drops, so a context trigger fires again
-on the very next tick and the agent hands off forever.
-
-`/clear` starts a fresh session in the same process: measured on a live agent,
-total_input_tokens went 97801 -> 0 and the session id changed, while the
-terminal, worktree and account stayed put. That is exactly the "keep the house,
-empty the memory" shape we want, and it is why an agent does not need to be
-destroyed and recreated to be cheap.
-"""
+"""Talking to the terminal an agent is running in, through whichever host the backend is (Orca, tmux)."""
 from __future__ import annotations
 
-import contextlib
-import json
-import os
 import re
-import shlex
-import shutil
-import subprocess
-import threading
 import time
 from dataclasses import dataclass
 
@@ -169,38 +149,9 @@ def _host_idle(handle: str, timeout_ms: int, drv) -> bool:
     return backends.current().wait_idle(handle, timeout_ms, drv.turn_on_screen)
 
 
-# Drivers already looked up inside the running `driver_scope`, by handle. Each
-# lookup opens a database connection, and one clear or close asks several times.
-_scope = threading.local()
-
-
-@contextlib.contextmanager
-def driver_scope():
-    """Within it, `_driver_for` answers each handle from the database once.
-    Nested scopes share the outer one; nothing outlives the outermost."""
-    outer = getattr(_scope, "memo", None) is not None
-    if not outer:
-        _scope.memo = {}
-    try:
-        yield
-    finally:
-        if not outer:
-            _scope.memo = None
-
-
 def _driver_for(handle: str):
     """The driver of the agent ocp recorded in this terminal, or the default
     vendor's for one it did not launch (a probe, a human's own)."""
-    memo = getattr(_scope, "memo", None)
-    if memo is not None and handle in memo:
-        return memo[handle]
-    drv = _lookup_driver(handle)
-    if memo is not None:
-        memo[handle] = drv
-    return drv
-
-
-def _lookup_driver(handle: str):
     # Late: vendors and db sit above this module.
     import sqlite3
     from ..team import agents
@@ -216,12 +167,6 @@ def _lookup_driver(handle: str):
     except (OSError, sqlite3.Error, agents.ConfigError, vendors.UnknownVendor):
         pass
     return vendors.get(agents.DEFAULT_VENDOR)
-
-
-def clear_command(handle: str) -> str:
-    """What is typed at this terminal's agent to clear its context - the
-    vendor's own, for a message that names it."""
-    return _driver_for(handle).clear_command()
 
 
 def send(handle: str, text: str, enter: bool = True) -> tuple[bool, str]:
@@ -263,66 +208,6 @@ def trust_prompt_gone(handle: str) -> bool:
     return _trust_screen_showing(handle) is False
 
 
-def _bypass_state(handle: str) -> str | None:
-    """The highlighted option of the vendor's bypass-permissions warning on this terminal,
-    "" when it shows and the cursor is unread, None when it is not showing or the screen could
-    not be read (which, for a gate that then types nothing, is the same)."""
-    text = screen_text(handle)
-    return None if text is None else _driver_for(handle).bypass_screen(text.split("\n"))
-
-
-def bypass_prompt_showing(handle: str) -> bool:
-    """Is this session sitting at its vendor's bypass-permissions warning? Read before typing
-    anything: the cursor starts on the option that exits, and a wake's Enter would take it."""
-    return _bypass_state(handle) is not None
-
-
-def accept_bypass(handle: str, timeout_s: float = 5.0, poll_s: float = 0.5) -> tuple[bool, str]:
-    """Accept the bypass-permissions warning this terminal shows, callers having decided that
-    they may. Enter is pressed only with the cursor on the accepting option, read off the
-    screen: from the exiting one a single Down is sent first and the screen read again, and a
-    cursor anywhere else, or unreadable, presses nothing. True once the warning is gone."""
-    driver = _driver_for(handle)
-    accept = driver.bypass_accept()
-    state = _bypass_state(handle)
-    if state is None:
-        return False, "the bypass-permissions warning is not on screen"
-    if state != accept:
-        ok, out = send(handle, driver.bypass_next_key(), enter=False)
-        if not ok:
-            return False, f"could not move to {accept!r}: {out[:200]}"
-        deadline = time.time() + timeout_s
-        while _bypass_state(handle) != accept:
-            if time.time() >= deadline:
-                return False, f"the cursor did not reach {accept!r}; nothing was confirmed"
-            time.sleep(poll_s)
-    ok, out = send(handle, "")
-    if not ok:
-        return False, f"could not confirm the bypass warning: {out[:200]}"
-    deadline = time.time() + timeout_s
-    while _bypass_state(handle) is not None:
-        if time.time() >= deadline:
-            return False, "the bypass warning is still on screen after Enter"
-        time.sleep(poll_s)
-    return True, "accepted"
-
-
-def wait_for_trust_prompt(handle: str, showing: bool, timeout_s: float = 5.0,
-                          poll_s: float = 0.5) -> bool:
-    """Poll until `trust_prompt_showing(handle)` is `showing`, or give up.
-
-    The daemon uses it after accepting the dialog, to wait for the screen to
-    clear: the vendor's redraw is not instant, and checking on the very next
-    line risks reading the screen it was still drawing.
-    """
-    deadline = time.time() + timeout_s
-    while trust_prompt_showing(handle) != showing:
-        if time.time() >= deadline:
-            return False
-        time.sleep(poll_s)
-    return True
-
-
 def trust_prompt_folder(handle: str) -> str | None:
     """The folder the trust dialog on this terminal's screen names, or None
     when it is not showing one, or is but the folder could not be read -
@@ -361,13 +246,6 @@ def create_terminal(command: str, cwd: str | None = None,
     not one the host has to know about).
     """
     return backends.current().create_terminal(command, cwd, title)[0]
-
-
-def open_terminal(command: str, cwd: str | None = None,
-                  title: str | None = None) -> tuple[str | None, str]:
-    """`create_terminal` with the reason it could not: (handle, "") or (None, why). A terminal that
-    started but whose handle could not be read is (None, "")."""
-    return backends.current().create_terminal(command, cwd, title)
 
 
 def close_terminal(handle: str, tab: bool = True) -> tuple[bool, str]:
@@ -411,16 +289,6 @@ def dispatch(task: str, handle: str, run: str) -> str | None:
     return backends.current().dispatch(task, handle, run)
 
 
-def submit(handle: str, text: str, wait_submit_s: int) -> tuple[bool, str]:
-    """Type `text` and Enter, asking a host that can to watch the prompt land (it never resends)."""
-    return backends.current().send(handle, text, True, wait_submit_s)
-
-
-def create_worktree(repo: str, name: str, base_ref: str) -> tuple[str | None, str]:
-    """A new worktree named `name` branched from `base_ref`: (its path, "") or (None, why not)."""
-    return backends.current().create_worktree(repo, name, base_ref)
-
-
 def focus(handle: str) -> tuple[bool, str]:
     """Bring this terminal to the front in the host's window.
 
@@ -439,11 +307,6 @@ def live_terminals() -> set[str] | None:
     would tear down a healthy team the first time the host was slow to answer.
     """
     return backends.current().list_terminals()
-
-
-def alive(handle: str) -> bool:
-    handles = live_terminals()
-    return handles is not None and handle in handles
 
 
 def idle_now(handle: str) -> bool:
@@ -591,9 +454,6 @@ INERT_LABELS = frozenset({"stay", "cancel", "no", "back", "keep", "do nothing",
 # on the next screen read. `accepted:true` and the dialog actually closing are
 # different claims; both were seen to hold.
 ESCAPE = "\x1b"
-CTRL_C = "\x03"
-# How long after a type the screen is read again for a shell prompt.
-SHELL_SETTLE_S = 0.6
 
 
 _ESC_MARK = re.compile(r"\(esc\)\s*$", re.IGNORECASE)
@@ -679,7 +539,6 @@ def declining_key(dialog: Dialog) -> tuple[str | None, str]:
     return ESCAPE, ""
 
 
-
 # The composer's own box: two full-width '─' rules around one content row.
 # How many rows sit below it varies by agent (measured across the fleet), so
 # the triple is searched for rather than assumed to sit a fixed distance from
@@ -701,124 +560,14 @@ def _composer_box(tail: list) -> tuple[int, int] | None:
     return None
 
 
-def composer_text(tail: list) -> str | None:
-    """What sits in the composer, whitespace-free, "" when it is empty, None when no box is drawn.
-    The box is the last two rules; its content may wrap over several rows (`_composer_box` is one)."""
-    rules = [i for i, r in enumerate(tail) if _COMPOSER_RULE.match(str(r).strip())]
-    if len(rules) < 2 or len(tail) - rules[-1] > 6 or not 1 < rules[-1] - rules[-2] <= 13:
-        return None
-    rows = [str(r).strip() for r in tail[rules[-2] + 1:rules[-1]]]
-    rows[0] = rows[0].lstrip("\u276f")
-    return "".join("".join(rows).split())
-
-
-# A scrolled box shows only part of a long text; less than this of it is not told from a person's draft.
-_OWN_PART = 20
-_PASTED = re.compile(r"\[Pastedtext#\d+\+(\d+)lines\]")
-
-
-def is_text_typed(box: str, typed: str) -> bool:
-    """Is the composer's content the text ocp typed? Equal ignoring whitespace, a stretch of it (what a
-    scrolled box shows, never longer than the text), or the placeholder a multi-line paste collapses to.
-    Anything else - a person's draft, words of theirs typed after ours - is not ocp's to send."""
-    want = "".join(typed.split())
-    if not box or not want:
-        return False
-    if box == want or (len(box) >= _OWN_PART and box in want):
-        return True
-    m = _PASTED.fullmatch(box)
-    return bool(m) and "\n" in typed and int(m.group(1)) in (typed.count("\n"), typed.count("\n") + 1)
-
-
-def composer_on_screen(handle: str) -> str | None:
-    """`composer_text` of this terminal's screen, None when it cannot be read."""
-    tail = _screen_tail(handle)
-    return None if tail is None else composer_text(tail)
-
-
 def _composer_shape(tail: list) -> bool:
     """Whether the tail holds a recognized composer box - never what is in
     it; see screen_blocker for why."""
     return _composer_box(tail) is not None
 
 
-# What claude prints as it exits, and what a shell shows after it: the old composer stays drawn above
-# both, so a screen with a box on it is not enough to say a session is there.
-EXIT_BANNER = "Resume this session with"
-_SHELL_PROMPT = re.compile(r"(?:^|\s)[%$#❯]$|^[a-z]+(?: [a-z]+)*> ?$")
-
-
-def shell_prompt_in(tail: list) -> bool:
-    """Does the bottom of this screen show a shell, not a session? Either claude's exit banner or a prompt
-    (`%`, `$`, `#`, or zsh's continuation such as `if>`, `dquote>`) in the last row below any composer
-    box. A box with the shell under it is the screen of a session that has just exited."""
-    rows = [str(r).rstrip() for r in tail]
-    while rows and not rows[-1].strip():
-        rows.pop()
-    if not rows:
-        return False
-    box = _composer_box(rows)
-    below = rows[box[1] + 1:] if box else rows
-    if any(EXIT_BANNER in r for r in below[-6:]):
-        return True
-    return bool(below) and bool(_SHELL_PROMPT.search(below[-1].strip()))
-
-
-def _screen_tail(handle: str) -> list | None:
-    term = _screen(handle)
-    tail = term.get("tail") if term else None
-    if not isinstance(tail, list) or term.get("source") != "screen":
-        return None
-    return tail
-
-
-def shell_prompt_showing(handle: str) -> bool | None:
-    """`shell_prompt_in` for this terminal's screen; None when it cannot be read."""
-    tail = _screen_tail(handle)
-    return None if tail is None else shell_prompt_in(tail)
-
-
-def clear_shell(handle: str) -> tuple[bool, str]:
-    """Abandon whatever a shell was left holding (an unclosed quote waits for its other half and
-    swallows every line after it): Ctrl-C returns it to a fresh prompt."""
-    return send(handle, CTRL_C, enter=False)
-
-
 # What a Ctrl-C's record keeps of the screen that earned it: the bottom rows, each cut short.
 CLEARED_ROWS, CLEARED_ROW_CHARS = 6, 200
-
-
-# Called as `on_cleared(handle, rows)` before each Ctrl-C; the daemon sets it to write the event.
-on_cleared = None
-
-
-def send_to_session(handle: str, text: str, settle_s: float = SHELL_SETTLE_S, enter: bool = True) -> tuple[bool, str]:
-    """`send` for text meant for a session, which must never reach a shell. Nothing is typed where the
-    screen already shows a shell; and after the type the screen is read again, since the session can
-    exit between the check and the typing. Text that landed at a shell is not delivered: the
-    continuation it opened is cleared and the send is reported as failed, so nothing is recorded as told.
-
-    A Ctrl-C into a session that was in fact running would interrupt its turn, so each one is made
-    visible: `on_cleared(handle, rows)` is called with the screen rows that read as a shell, before it is sent."""
-    tail = _screen_tail(handle)
-    if tail is not None and shell_prompt_in(tail):
-        return False, "a shell prompt is showing, not a session; nothing typed"
-    ok, out = send(handle, text, enter)
-    if not ok:
-        return ok, out
-    if settle_s:
-        time.sleep(settle_s)
-    tail = _screen_tail(handle)
-    if tail is not None and shell_prompt_in(tail):
-        if on_cleared is not None:
-            rows = [textsafe.oneline(str(r))[:CLEARED_ROW_CHARS] for r in tail if str(r).strip()]
-            try:
-                on_cleared(handle, rows[-CLEARED_ROWS:])
-            except Exception:       # noqa: BLE001 - the record is a witness; it must not stop the clear
-                pass
-        clear_shell(handle)
-        return False, "the session had exited: the text reached a shell prompt, which was cleared"
-    return ok, out
 
 
 # What a person's named key is, as the bytes a terminal sends for it. A lone sequence is one key to every host
@@ -837,25 +586,6 @@ def send_keys(handle: str, keys: list[str]) -> tuple[bool, str]:
         if not ok:
             return False, f"{k}: {out[:200]}"
     return True, ""
-
-
-def session_on_screen(handle: str) -> bool | None:
-    """Whether this terminal's screen shows an agent's session: the vendor's composer box, a dialog's
-    footer, or a turn the vendor's screen says is running. A shell prompt is none of those, so this is
-    the second witness to the process table: it is what stops a launch line typed at a live session
-    when the table failed to list it. None when the screen cannot be read - not "no session"."""
-    term = _screen(handle)
-    tail = term.get("tail") if term else None
-    if not isinstance(tail, list) or term.get("source") != "screen":
-        return None
-    if shell_prompt_in(tail):
-        return False
-    if _composer_shape(tail):
-        return True
-    rows = [str(r) for r in tail[-MODAL_ROWS - 3:]]
-    if any(m in r for r in rows for m in MODAL_MARKERS):
-        return True
-    return _driver_for(handle).working_on_screen(tail) is not None
 
 
 def screen_blocker(handle: str) -> Blocker | None:
@@ -938,9 +668,8 @@ def _read_dialog(handle: str, allow_truncated: bool = True,
     None when what was read has no dialog on it. `dialog` can still be None
     with both set - a footer with no dialog parse-able above it, at any
     width up to the cap, or (`allow_truncated=False`) one whose rule never
-    turned up at all: ocp's own autonomous presses (`decline_dialog`,
-    `stop_work_and_exit`) pass this, since pressing Esc on a dialog it could
-    not read the whole of is a choice made on too little to make it safely -
+    turned up at all: ocp's own autonomous presses (`decline_dialog`) pass this,
+    since pressing Esc on a dialog it could not read the whole of is a choice made on too little to make it safely -
     unlike a numbered press, which is a choice someone else already made
     and is confirmed here, not decided.
 
@@ -1035,38 +764,7 @@ def decline_dialog(handle: str) -> tuple[str, str, str]:
     return _press_dialog(handle, declining_key, "Esc", allow_truncated=False)
 
 
-# The exit dialog over background work, as Claude Code drew it (fixture
-# EXIT_DIALOG, copied from a live screen): its highlighted first option stops
-# the tasks and exits, and Enter confirms the highlighted one.
-EXIT_OVER_WORK_TITLE = "background work is running"
-EXIT_AND_STOP_LABEL = "exit and stop tasks"
 ENTER = "enter"
-
-
-def stopping_key(dialog: Dialog) -> tuple[str | None, str]:
-    """(key, why not) - Enter, when this is the exit dialog over background work
-    and the option highlighted is the one that stops the tasks and exits.
-
-    The one place ocp chooses to stop a session's work, so it is as narrow as
-    the parse allows: the title, the footer's own words, and the highlighted
-    option's whole label must all be the measured ones. Anything else, however
-    close, is declined like any dialog and the session stays."""
-    if dialog.title.strip().lower() != EXIT_OVER_WORK_TITLE:
-        return None, "it is not the exit dialog over background work"
-    if "Enter to confirm" not in dialog.footer:
-        return None, "its footer does not say Enter confirms"
-    marked = [ln for ln in dialog.body if ln.startswith("\u276f")]
-    m = _OPTION_LABEL.match(marked[0]) if len(marked) == 1 else None
-    if not m or _norm_label(m[2]) != EXIT_AND_STOP_LABEL:
-        return None, "its highlighted option is not 'Exit and stop tasks'"
-    return ENTER, ""
-
-
-def stop_work_and_exit(handle: str) -> tuple[str, str, str]:
-    """Press Enter on the exit dialog over background work, when `stopping_key`
-    allows; (outcome, title, why) as `decline_dialog` - including never on a
-    truncated read, the same reason."""
-    return _press_dialog(handle, stopping_key, "Enter", allow_truncated=False)
 
 
 def accepts_tool(handle: str, tool: str | None) -> bool:
@@ -1320,201 +1018,9 @@ def answer_question(handle: str, seen: tuple[str, ...], choices: tuple[int, ...]
     return STILL_OPEN, found.header, "the question is still on screen after its answer"
 
 
-# Claude Code's hint row under the composer counts what still runs in the
-# background as "<n> <noun>" segments between its mode and its key hints, e.g.
-# "⏵⏵ auto mode on · 2 monitors · ← for agents · ↓ to manage" (measured live
-# 2026-09-24). "↓ to manage" is its hint for that list and is drawn only while
-# there is one.
-_BG_COUNT = re.compile(r"^\d+\s+[A-Za-z][A-Za-z ]*$")
-_BG_HINT = "to manage"
-
-
-# The rows `background_work` last read for each terminal, so a caller that wants to keep a sample of
-# the screen it was read from does not read it twice.
-_last_tail: dict[str, list[str]] = {}
-
-
-def last_tail(handle: str) -> list[str] | None:
-    """The screen rows `background_work` last read for this terminal, or None."""
-    return _last_tail.get(handle)
-
-
-def footer_background(tail: list) -> str | None:
-    """`background_work`'s reading of rows already read: what the hint row under the composer
-    counts, "" when it counts nothing, None when no composer is drawn."""
-    box = _composer_box(tail)
-    if box is None:
-        return None
-    for row in tail[box[1] + 1:]:
-        row = str(row)
-        if _BG_HINT not in row:
-            continue
-        parts = [p.strip() for p in row.split("·")]
-        found = [p for p in parts if _BG_COUNT.match(p)]
-        return ", ".join(found) or "background tasks"
-    return ""
-
-
-def background_work(handle: str) -> str | None:
-    """What the session itself says is still running behind its prompt - "2
-    monitors", "1 shell" - or "" when it says nothing, or None when its screen
-    could not be read (no composer to read the hint row under).
-
-    Read from the hint row under the composer, the session's own count, never
-    from a timer or from what ocp last typed."""
-    term = _screen(handle)
-    tail = term.get("tail") if term else None
-    if not isinstance(tail, list) or term.get("source") != "screen":
-        return None
-    _last_tail[handle] = [str(r) for r in tail]
-    return footer_background(tail)
-
-
-def idle_with_background(handle: str) -> bool:
-    """Does the screen show a session idle at its prompt with work running behind it?
-
-    Orca's own idle answer reads such a session as mid-turn, and a task is never typed at it.
-    The screen is the second witness, and only on the busy side's absence: the driver says
-    what a turn in progress draws."""
-    term = _screen(handle)
-    tail = term.get("tail") if term else None
-    if not isinstance(tail, list) or term.get("source") != "screen":
-        return False
-    return _driver_for(handle).idle_with_background(tail)
-
-
-def usage_limit_open(handle: str) -> bool:
-    """Is the dialog on this terminal's screen the usage-limit one, the only
-    dialog that waiting does not clear and a person is not answering?"""
-    term = _screen(handle)
-    tail = term.get("tail") if term else None
-    if not isinstance(tail, list) or term.get("source") != "screen":
-        return False
-    footer = _footer_row(tail)
-    dialog = parse_dialog(tail, footer) if footer is not None else None
-    return bool(dialog and _usage_limit_dialog(dialog))
 
 
 def modal_open(handle: str) -> bool:
     """Is a modal on the agent's screen, where typed text would answer it?"""
     blocked = screen_blocker(handle)
     return bool(blocked and blocked.kind in (MODAL, BACKGROUNDED, UNREADABLE))
-
-
-def typeable_now(handle: str) -> bool:
-    """Idle and nothing on screen that a typed line would answer."""
-    # Nothing at all is asked with one read, not one per kind, so a dialog
-    # that opens between two separate reads cannot be read as neither.
-    with driver_scope():
-        return (idle_now(handle) or idle_with_background(handle)) and screen_blocker(handle) is None
-
-
-def clear_context(handle: str, wait: bool = True,
-                  timeout_ms: int = IDLE_TIMEOUT_MS) -> tuple[bool, str]:
-    """Return the session's context without destroying the agent.
-
-    Waits for the agent to finish what it is doing first: clearing mid-turn
-    would throw away work the handoff has not recorded yet.
-    """
-    if not alive(handle):
-        return False, f"terminal {handle} is not alive"
-    with driver_scope():
-        if wait and not wait_idle(handle, timeout_ms):
-            return False, "agent is mid-turn; not clearing"
-        blocked = screen_blocker(handle)          # one read, not modal_open() twice
-        cmd = clear_command(handle)
-    if blocked:
-        return False, f"{blocked.reason()}; not typing {cmd} at it"
-    ok, out = send(handle, cmd)
-    return ok, "context cleared" if ok else f"could not send {cmd}: {out[:200]}"
-
-
-def close_session(handle: str, wait: bool = True,
-                  timeout_ms: int = IDLE_TIMEOUT_MS) -> tuple[bool, str]:
-    """End the agent's session and leave its terminal standing.
-
-    Orca runs our launch command inside a login shell, so the agent's process
-    is the shell's child: when it exits the shell survives and the tab, the
-    worktree and the cwd stay exactly as they were. Measured on a live claude
-    agent: 401MB returned to the machine, terminal still running, prompt in
-    the same worktree.
-
-    Same guard as clearing - ending a session mid-turn throws away work that
-    nothing has recorded yet - and nothing is typed at a modal, where `/exit`
-    and Enter answer the question instead of ending anything.
-
-    "Ok" means the command was typed. Whether the process ended is the
-    caller's to confirm from the process table.
-    """
-    if not alive(handle):
-        return False, f"terminal {handle} is not alive"
-    with driver_scope():
-        if wait and not wait_idle(handle, timeout_ms):
-            return False, "agent is mid-turn; not closing"
-        blocked = screen_blocker(handle)          # one read, not modal_open() twice
-        cmd = _driver_for(handle).exit_command()
-    if blocked:
-        return False, f"{blocked.reason()}; not typing {cmd} at it"
-    ok, out = send(handle, cmd)
-    return ok, f"{cmd} typed" if ok else f"could not send {cmd}: {out[:200]}"
-
-
-# Between a launch line and the Enter that runs it.
-LAUNCH_ENTER_DELAY_S = 0.5
-
-
-def _terminal_note(handle: str) -> str:
-    """What a launch that started nothing should say about the terminal it was typed into: that it is
-    gone, or that it is alive and what its last rows show. One line and cut short - it is text an
-    agent's shell drew."""
-    if not alive(handle):
-        return "; the terminal is gone"
-    term = _screen(handle)
-    tail = term.get("tail") if term else None
-    if not isinstance(tail, list) or term.get("source") != "screen":
-        return "; the terminal is alive but its screen could not be read"
-    rows = [textsafe.oneline(str(r).strip()) for r in tail if str(r).strip()][-3:]
-    return f"; the terminal is alive (screen: {' | '.join(rows)[:240]})" if rows else "; the terminal is alive"
-
-
-def relaunch(handle: str, command: str, timeout_ms: int = IDLE_TIMEOUT_MS,
-             started=None) -> tuple[bool, str]:
-    """Start an agent again in the shell its session left behind.
-
-    The command is ours, so the account comes back with it - which is why this
-    does not depend on anything preserving the launch environment for us.
-
-    `started` is asked, before the wait, whether the command actually started
-    something: sending only says we typed it, and `hl launch` refuses over the
-    5h limit and exits when the account is not logged in. It comes first
-    because the wait below costs its whole timeout when there is no TUI, and a
-    launch that started nothing is exactly that case.
-    """
-    if not alive(handle):
-        return False, f"terminal {handle} is not alive"
-    if session_on_screen(handle):
-        # Whatever the process table says, a session is drawn there: the line would reach it as a
-        # prompt, and a session that obeyed it would start a second copy of itself.
-        return False, "a session is on the terminal's screen; not typing a launch line at it"
-    # The line and its Enter go as two sends, in case an Enter that arrives with the line is swallowed
-    # by a shell taking it as a paste (a hypothesis, not an observed cause).
-    ok, out = send(handle, command, enter=False)
-    if ok:
-        time.sleep(LAUNCH_ENTER_DELAY_S)
-        ok, out = send(handle, "")
-    if not ok:
-        return False, f"could not send the launch command: {out[:200]}"
-    if started is not None and not started():
-        return False, f"the launch command was typed but no session started{_terminal_note(handle)}"
-    # Typing into a TUI that is still booting loses the opening characters, so
-    # nothing may be sent to the agent until it has finished starting.
-    wait_idle(handle, timeout_ms)
-    return True, "relaunched"
-
-
-def resume_with(handle: str, text: str) -> tuple[bool, str]:
-    """Wake a cleared agent by giving it back its own handoff."""
-    if not alive(handle):
-        return False, f"terminal {handle} is not alive"
-    ok, out = send_to_session(handle, text)
-    return ok, "handoff injected" if ok else f"could not send the handoff: {out[:200]}"

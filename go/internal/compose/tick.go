@@ -68,6 +68,9 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	logLine := func(s string) { cfg.Log("%s", s) }
 	tu := tickUsage{p: p, u: uenv, roster: lc.roster, own: tc.Cutover}
 	view := p.agentView(cfg, tc.Cutover, tc.Terminals, tu)
+	if cfg.Turns != nil && tc.Terminals {
+		cfg.Turns.OnChange(view.RefreshOne)
+	}
 	agents := func() []string { return p.tickAgents(tc.Terminals) }
 	reconciler := &lifecycle.Reconciler{Q: q, Log: logLine, Ports: lifecycle.ReconcilerPorts{
 		Agents:     agents,
@@ -141,7 +144,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop, Dev: dev, Housekeeping: []tick.NamedSweep{
 		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
-		{Name: "attachment sweep", Run: func(db.Q, int64) error { attachments.New(home).Sweep(); return nil }},
+		{Name: "attachment sweep", Run: func(q db.Q, _ int64) error { return attachments.New(home).Sweep(q) }},
 		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Tell: tellFounder, Free: cfg.DiskFree}).Check},
 	}, Signalled: func() bool {
 		select {

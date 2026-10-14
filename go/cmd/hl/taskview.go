@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/hlclient"
 	"github.com/handline/handline/go/internal/taskresult"
 	"github.com/handline/handline/go/internal/textsafe"
@@ -143,11 +144,23 @@ func detailLines(t obj, now float64, home string) []string {
 		body = "(none)"
 	}
 	out = append(out, "", "brief", body)
+	out = append(out, pathLines(list(t, "body_parts"), "")...)
 	if memos := list(t, "memos"); len(memos) > 0 {
 		out = append(out, "", "memos")
 		for _, m := range memos {
 			out = append(out, fmt.Sprintf("  memo %s  %s  %s\n    %s", str(m, "id"), str(m, "author"), stamp(m["at"]), str(m, "text")))
+			out = append(out, pathLines(list(m, "parts"), "    ")...)
 		}
+	}
+	var rejects []string
+	for _, r := range list(t, "timeline") {
+		if str(r, "kind") == "reject" {
+			rejects = append(rejects, fmt.Sprintf("  %s  %s\n    %s", stamp(r["at"]), str(r, "who"), str(r, "text")))
+			rejects = append(rejects, pathLines(list(r, "parts"), "    ")...)
+		}
+	}
+	if len(rejects) > 0 {
+		out = append(append(out, "", "sent back"), rejects...)
 	}
 	if bs := list(t, "blockers"); len(bs) > 0 {
 		out = append(out, "", "waiting on")
@@ -176,6 +189,19 @@ func detailLines(t obj, now float64, home string) []string {
 	return out
 }
 
+// pathLines is where the images of a text's parts are stored, one line each as the daemon types them to an agent; only an agent's
+// task.get carries a path.
+func pathLines(parts []obj, indent string) []string {
+	var out []string
+	for _, p := range parts {
+		img, _ := p["image"].(obj)
+		if path := str(p, "path"); path != "" && img != nil {
+			out = append(out, indent+attachments.Line(len(out)+1, path, str(img, "mime"), num(img, "bytes")))
+		}
+	}
+	return out
+}
+
 // resultLines are what the task's end kept: the commit and whether main reaches it, and the screenshots where the daemon keeps
 // them (shots/T<n>/<k>.png under its home).
 func resultLines(r obj, tid int64, home string) []string {
@@ -193,24 +219,33 @@ func resultLines(r obj, tid int64, home string) []string {
 	return out
 }
 
-// waitsOn is what holds a task's clock (cli/task._waits_on): its open blockers, else its open children.
+// waitsOn is what holds a task's clock (cli/task._waits_on): the founder when they hold it or must accept it, else its open blockers and
+// open children, each the founder holds marked so; "" for none.
 func waitsOn(t obj) string {
-	var bs, ks []string
+	asker := str(t, "asker")
+	if asker == "" {
+		asker = str(t, "from")
+	}
+	if str(t, "to") == "human" || str(t, "state") == "reported" && asker == "human" {
+		return "human"
+	}
+	var on []string
+	name := func(id int64, owner string) {
+		if owner == "human" {
+			on = append(on, fmt.Sprintf("T%d (human)", id))
+		} else {
+			on = append(on, fmt.Sprintf("T%d", id))
+		}
+	}
 	for _, b := range list(t, "blockers") {
-		bs = append(bs, fmt.Sprintf("T%d", num(b, "task")))
+		name(num(b, "task"), str(b, "owner"))
 	}
 	for _, k := range list(t, "subtasks") {
 		if s := str(k, "state"); s != "done" && s != "discarded" {
-			ks = append(ks, fmt.Sprintf("T%d", num(k, "id")))
+			name(num(k, "id"), str(k, "owner"))
 		}
 	}
-	if len(bs) > 0 {
-		return " - blocked by " + strings.Join(bs, ", ")
-	}
-	if len(ks) > 0 {
-		return " - waiting on " + strings.Join(ks, ", ")
-	}
-	return ""
+	return strings.Join(on, ", ")
 }
 
 // timeoutLines is the wire's `time` as the task page's lines (cli/task._clock, then actions.timeout_lines); waits is waitsOn.
@@ -219,8 +254,11 @@ func timeoutLines(box obj, now float64, waits string) []string {
 	if box["default"] == true {
 		line += " (the default)"
 	}
+	if waits != "" && !given(box, "start") {
+		return []string{line, "timeout paused: waiting on " + waits}
+	}
 	if given(box, "left_s") {
-		return []string{line, fmt.Sprintf("paused%s, %s left", waits, timefmt.Span(num(box, "left_s"), false))}
+		return []string{line, fmt.Sprintf("paused, %s left", timefmt.Span(num(box, "left_s"), false))}
 	}
 	if !given(box, "start") {
 		return []string{line + " - counts while the task is doing"}

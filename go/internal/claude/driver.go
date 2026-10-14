@@ -39,8 +39,7 @@ func (Driver) Binary() string {
 
 func (d Driver) Hooks() lifecycle.Hooks { return Hooks{Home: d.Home} }
 
-func (Driver) AutoModeArgv() []string        { return []string{"--permission-mode", "auto"} }
-func (Driver) SkipPermissionsArgv() []string { return []string{"--dangerously-skip-permissions"} }
+func (Driver) AutoModeArgv() []string { return []string{"--permission-mode", "auto"} }
 
 func (Driver) PermissionModeArgv(mode string) []string {
 	switch mode {

@@ -3,7 +3,7 @@
 // chips narrow the list as on the web.
 import { useState } from 'react';
 import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
-import { ago, CLOSED, bodyPartsOf, splitImages, type TextPart, defaultFilter, idleText, shown, sortTasks, TASK_STATES, timeoutText, taskRef } from '@handline/app-core';
+import { ago, CLOSED, defaultFilter, idleText, shown, sortTasks, TASK_STATES, timeoutText, taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
@@ -13,7 +13,6 @@ import { Loadable } from './Loadable.tsx';
 import { Button } from './parts.tsx';
 import { MemoBox, MemoRow } from './Memos.tsx';
 import { NewTask, TaskVerbs, useTaskPending } from './TaskActions.tsx';
-import { Pictures } from './ChatPictures.tsx';
 
 type Scope = 'open' | 'mine' | 'closed';
 const SCOPES: [Scope, string][] = [
@@ -178,18 +177,6 @@ function Section(props: { title: string; children: React.ReactNode }) {
   );
 }
 
-/** A task's text without its image references, then its pictures. */
-function WithImages(props: { text: string; parts?: TextPart[] }) {
-  const c = usePalette();
-  const { text, images } = splitImages(props.text, props.parts);
-  return (
-    <View style={{ gap: space.sm }}>
-      {text ? <Text style={{ color: c.ink }}>{text}</Text> : null}
-      {images.length ? <Pictures items={images} /> : null}
-    </View>
-  );
-}
-
 function Body({ t }: { t: TaskDetail }) {
   const c = usePalette();
   const now = Date.now();
@@ -214,11 +201,7 @@ function Body({ t }: { t: TaskDetail }) {
       <TaskVerbs t={t} />
       {t.block_reason ? <Text style={{ color: c.block }}>{t.block_reason}</Text> : null}
       {t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
-      {t.body ? (
-        <Section title="Brief">
-          <WithImages text={t.body} parts={bodyPartsOf(t)} />
-        </Section>
-      ) : null}
+      {t.body ? <Section title="Brief">{line(t.body)}</Section> : null}
       {t.blockers.length ? (
         <Section title="Waits on">{t.blockers.map((b) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`))}</Section>
       ) : null}

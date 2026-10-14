@@ -2,7 +2,7 @@
 callers"), `infra.daemonclient`. A direct import of `db` or of a daemon module is refused unless it is
 listed below. MOVING is today's list and shrinks as each command moves onto the client; KEPT names the few
 that must work while the daemon is down, each with its reason. An entry nothing imports any more fails too,
-so the lists only ever shrink.
+so the lists only ever shrink. Nothing imports the removed Python daemon (`handline.daemon`).
 
 Run on its own: tools/test.sh tests/infra/test_import_allowlist.py   (all areas: tools/suite.sh)
 """
@@ -79,10 +79,18 @@ def test_cli_imports_only_what_is_listed() -> None:
     check("cli: every kept import says why", all(r.strip() for r in KEPT.values()))
 
 
+def test_nothing_imports_the_removed_python_daemon() -> None:
+    hits = [(str(f.relative_to(ROOT)), m) for d in ("handline", "tools") for f in sorted((ROOT / d).rglob("*.py"))
+            for m in imported(f, ROOT) if m == "handline.daemon" or m.startswith("handline.daemon.")]
+    check("removed: handline/daemon holds no source", not list((ROOT / "handline" / "daemon").rglob("*.py")))
+    check("removed: nothing under handline/ or tools/ imports it", not hits, str(hits))
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_the_scan_sees_every_spelling_of_an_import(Path(td)))
         run(lambda: test_cli_imports_only_what_is_listed())
+        run(lambda: test_nothing_imports_the_removed_python_daemon())
     return run_area(tests)
 
 

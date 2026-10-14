@@ -91,7 +91,7 @@ FIXTURES = {"fixtures": [
     {"name": "errors.not_found", "spec": "agent.get", "as": "founder", "about": "an agent that does not exist",
      "steps": [{"send": {"jsonrpc": "2.0", "id": 1, "method": "agent.get", "params": {"name": "nope"}}, "error": {"code": -32001}}]},
 ]}
-FILES = [Path(tempfile.mkdtemp(prefix="conformance-")) / "harness.json"]
+FILES = [support.TEST_ROOT / "harness.json"]
 FILES[0].write_text(json.dumps(FIXTURES))
 KEY = {"founder_key": "k"}
 KEYARG = ["--var", "founder_key=k"]
@@ -124,8 +124,12 @@ def test_a_wrong_reply_fails_that_fixture(td) -> None:
 
 
 def test_the_command_line_runs_against_a_socket_path(td) -> None:
-    try:     # a unix socket path is short, so not under td
-        path = os.path.join(tempfile.mkdtemp(prefix="cf", dir="/tmp"), "s")
+    with tempfile.TemporaryDirectory(prefix="cf", dir="/tmp") as short:     # a unix socket path is short, so not under td
+        _command_line_against(os.path.join(short, "s"))
+
+
+def _command_line_against(path: str) -> None:
+    try:
         Server("founder").listen(path)
     except PermissionError:
         print("note: this run may not bind a socket; the command line check was not run")

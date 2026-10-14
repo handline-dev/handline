@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/livetest"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/structured"
 )
@@ -124,17 +125,18 @@ func TestRunModelIsOneTurnAndReadsTheResultFrame(t *testing.T) {
 	}
 }
 
-// TestLiveMeter asks a real CLI for an account's usage through the Meter. LIVE_CLAUDE_CONFIG names the config dir; the Meter reads it from
-// <home>/accounts/<acct>/.claude, so a link to it stands in. LIVE_CLAUDE_CONFIG=<dir> go test -run TestLiveMeter -v ./internal/usagepoll
+// TestLiveMeter asks a real CLI for the picked account's usage through the Meter, from a scratch home whose account dir is the real
+// one's (livetest sets HANDLINE_LIVE_ACCOUNTS). HANDLINE_LIVE=1 go test -run TestLiveMeter -v ./internal/usagepoll
 func TestLiveMeter(t *testing.T) {
-	cfg := os.Getenv("LIVE_CLAUDE_CONFIG")
-	if cfg == "" {
-		t.Skip("LIVE_CLAUDE_CONFIG is not set")
+	a := livetest.Pick(t)
+	path, err := exec.LookPath("claude")
+	if err != nil {
+		t.Fatal(err)
 	}
-	m := liveMeter(t, cfg)
+	m := &Meter{Home: t.TempDir(), Claude: path}
 	c, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	r, auth := m.Read(c, "live")
+	r, auth := m.Read(c, a.Name)
 	if r == nil {
 		t.Fatalf("no reading (authFailed %v)", auth)
 	}
@@ -144,9 +146,7 @@ func TestLiveMeter(t *testing.T) {
 // TestLiveLoggedOutDirectory is the dead-login check that needs no credential: a config dir the CLI has no login in. The Meter must
 // return no reading (and say what the CLI said), not hang or read as a quiet account.
 func TestLiveLoggedOutDirectory(t *testing.T) {
-	if os.Getenv("LIVE_CLAUDE_LOGGED_OUT") == "" {
-		t.Skip("LIVE_CLAUDE_LOGGED_OUT is not set")
-	}
+	livetest.Require(t)
 	m := liveMeter(t, t.TempDir())
 	c, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()

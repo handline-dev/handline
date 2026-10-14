@@ -10,7 +10,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.session import states as dmn_states
 
 TEAM = """
 agents:
@@ -21,25 +20,17 @@ edges:
 """
 
 
-def _world(home: Path) -> list:
-    """backend (the opener) can be typed at; worker does the work."""
+def _world(home: Path) -> None:
+    """backend opens the work; worker does it."""
     _daemon_home(home, 20)
     hand_edit_team(TEAM)
     agents.register("worker")
-    sessions_are("backend")
-    termmod.available = lambda: True
-    termmod.alive = lambda h: True
-    termmod.screen_blocker = lambda h: None
-    termmod.typeable_now = lambda h: True
-    termmod.live_terminals = lambda: {"term_x"}
-    db.set_agent_state(db.connect(), "backend", dmn_states.RUNNING)      # busy unless a test frees it
-    sent: list[tuple[str, str]] = []
 
-    def send(handle, text, enter=True):
-        sent.append((handle, text))
-        return True, ""
-    termmod.send = send
-    return sent
+
+def _told(con) -> list[str]:
+    """The messages of their own queued for backend, which the daemon types at once (a notice waits for the digest)."""
+    return [r["body"] for r in con.execute(
+        "SELECT body FROM requests WHERE target = 'backend' AND kind = 'say' AND state = 'queued' AND notice IS NOT 1 ORDER BY id")]
 
 
 def _finish(con, result: str) -> int:
@@ -55,23 +46,26 @@ def _notices(con) -> list:
 
 
 def test_every_done_is_told_to_its_opener_at_once_not_held(home: Path) -> None:
-    sent = _world(home)
+    _world(home)
     con = db.connect()
     try:
         _finish(con, "FAIL @abc123 the suite broke")
-        check("urgent: a task that ends FAIL is typed to its opener now, as a message of its own",
-              len(sent) == 1 and "FAIL @abc123" in sent[0][1] and not _notices(con), str(sent))
+        told = _told(con)
+        check("urgent: a task that ends FAIL is sent to its opener now, as a message of its own",
+              len(told) == 1 and "FAIL @abc123" in told[0] and not _notices(con), str(told))
         _finish(con, "blocked: needs the founder")
-        check("urgent: and so is one that ends blocked", len(sent) == 2 and "blocked: needs" in sent[1][1], str(sent))
+        told = _told(con)
+        check("urgent: and so is one that ends blocked", len(told) == 2 and "blocked: needs" in told[1], str(told))
         _finish(con, "PASS and unblocked the failing build")
-        check("urgent: a PASS, even one that mentions failure later, is typed to its opener at once too",
-              len(sent) == 3 and "PASS and unblocked" in sent[2][1] and not _notices(con), str(sent))
+        told = _told(con)
+        check("urgent: a PASS, even one that mentions failure later, is sent to its opener at once too",
+              len(told) == 3 and "PASS and unblocked" in told[2] and not _notices(con), str(told))
     finally:
         con.close()
 
 
 def test_only_a_non_opener_is_told_in_the_digest_when_a_task_ends(home: Path) -> None:
-    sent = _world(home)
+    _world(home)
     con = db.connect()
     try:
         ok, msg, tid = actions.task_new("backend", "worker", "work to drop", "do it")
@@ -84,9 +78,9 @@ def test_only_a_non_opener_is_told_in_the_digest_when_a_task_ends(home: Path) ->
         check("end: the owner, who is not the opener, gets a notice that waits for the digest",
               len(told) == 1 and f"T{tid} discarded by the founder" in told[0]["body"]
               and told[0]["delivered_at"] is None, str([dict(r) for r in told]))
-        typed = [m for m in sent if f"T{tid} discarded by the founder" in m[1]]
-        check("end: the opener in the same end is typed its own message at once, not a notice",
-              len(typed) == 1 and not _notices(con), str(sent))
+        told = [m for m in _told(con) if f"T{tid} discarded by the founder" in m]
+        check("end: the opener in the same end is sent its own message at once, not a notice",
+              len(told) == 1 and not _notices(con), str(_told(con)))
     finally:
         con.close()
 
