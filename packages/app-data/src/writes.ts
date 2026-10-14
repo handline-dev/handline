@@ -137,6 +137,12 @@ const tasks: Record<string, WriteSpec> = {
       changeMemos(c, task, (l) => l.map((m) => (m.id === memo ? { ...m, text } : m)));
     },
   },
+  // The question is a message to the holder linked to the task; the task page reads it again for the event it leaves.
+  'task.ask': {
+    kind: 'decided',
+    label: 'ask',
+    touches: (d, p) => [qk.task(d, as<{ task: number }>(p).task)],
+  },
   'task.memo.delete': {
     kind: 'authored',
     label: 'delete memo',
@@ -371,8 +377,6 @@ export const NOT_FROM_UI = [
   'task.start',
   'task.progress',
   'task.handoff',
-  // A member command the app does not send yet.
-  'task.ask',
   // `hl task accept` and `hl task reject`: the app has no button for a reported task yet.
   'task.accept',
   'task.reject',

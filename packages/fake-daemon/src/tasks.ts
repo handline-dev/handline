@@ -87,7 +87,7 @@ export class FakeTasks {
     });
   }
 
-  private find(id: unknown): Row {
+  find(id: unknown): Row {
     const t = this.rows.find((r) => r.id === id);
     if (!t) throw new TaskFailure('not_found', `no task ${String(id)}`);
     return t;
@@ -291,7 +291,7 @@ export class FakeTasks {
 }
 
 // The task methods the fake serves; the rest (handoff) are refused as `unsupported`.
-const BASIC = new Set(['tasks.list', 'task.get', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel']);
+const BASIC = new Set(['tasks.list', 'task.get', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel', 'task.ask']);
 const VERBS = new Set([
   'task.done',
   'task.accept',
@@ -315,6 +315,9 @@ export function taskCall(
   person: string,
   agent: boolean,
   script: { accepted(said: string, extra?: Record<string, unknown>): unknown },
+  ask: (task: number, to: string, text: string) => number = () => {
+    throw refused('unsupported', 'the fake daemon does not serve task.ask');
+  },
 ): unknown {
   const ok = (said: string, extra?: Record<string, unknown>) => script.accepted(said, extra);
   try {
@@ -331,6 +334,13 @@ export function taskCall(
         return (tasks.close(p, 'withdraw'), ok('Task withdrawn.'));
       case 'task.cancel':
         return (tasks.close(p, 'cancel'), ok('Task cancelled.'));
+      case 'task.ask': {
+        if (!Number.isInteger(p.task)) throw invalidParams('task is a task number', 'task');
+        if (typeof p.to !== 'string' || !p.to) throw invalidParams("to is an agent's name", 'to');
+        if (typeof p.text !== 'string' || !p.text.trim()) throw invalidParams('text is the question, not empty', 'text');
+        tasks.find(p.task);
+        return ok('Asked.', { request: ask(p.task as number, p.to, p.text.trim()) });
+      }
       case 'task.done':
         return ok(tasks.done(p, person));
       case 'task.accept':
