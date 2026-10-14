@@ -9,6 +9,8 @@ if ! command -v go >/dev/null; then
     exit 1
 fi
 . "$here/go-env.sh"
+# The live tests spend real tokens: a shell that exported HANDLINE_LIVE still does not run them here.
+unset HANDLINE_LIVE
 # A scratch home for anything a test starts that reads one: never the live home of the agent running this.
 scratch_home="$(mktemp -d "${TMPDIR:-/tmp}/handline-go-home.XXXXXX")" || exit 1
 trap 'rm -rf "$scratch_home"' EXIT

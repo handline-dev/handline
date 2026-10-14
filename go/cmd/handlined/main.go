@@ -153,6 +153,10 @@ func main() {
 	var startTick func(stop <-chan struct{}) <-chan struct{} // set when the policy tick is on: runs it until stop closes, answers when it has returned
 	if *structuredCLI != "" && !*gateway {
 		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, CLIVersion: *claudeVersion, Args: []string{"--setting-sources", "project"}, Policy: compose.SharedPolicy(homeDir)}
+		if root, _ := paths.Getenv("TEST_ROOT"); root != "" {
+			// a scratch daemon (a live run): its agents' hl and hooks reach it, not the real home's daemon
+			ccfg.Env = []string{"HANDLINE_HOME=" + homeDir, "OCP_HOME=" + homeDir, "HANDLINE_TEST_ROOT=" + root}
+		}
 		parts := compose.New(ccfg)
 		cfg.Watch = *structuredTick && *cutover
 		cfg.Delivery = parts.Delivery()

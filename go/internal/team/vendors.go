@@ -94,8 +94,17 @@ func AccountConfigDir(home, acct string) (string, error) {
 	if err := CheckVendor(v); err != nil {
 		return "", err
 	}
+	if real, ok := paths.Getenv(LiveAccounts); ok && real != "" && inTestRoot() {
+		home = real
+	}
 	return filepath.Join(paths.AccountDir(home, acct), ConfigDirName(v)), nil
 }
+
+// LiveAccounts (HANDLINE_LIVE_ACCOUNTS) is the real home a live run takes its accounts' config dirs from: the keychain keeps a login
+// under its config dir's exact path, so a scratch home's own path has none. Read only under a test root.
+const LiveAccounts = "LIVE_ACCOUNTS"
+
+func inTestRoot() bool { r, _ := paths.Getenv("TEST_ROOT"); return r != "" }
 
 // KeychainService is the macOS Keychain service name Claude Code uses for a config dir: the default ~/.claude uses
 // "Claude Code-credentials", any other dir that name plus the first 8 hex of the sha256 of its path.
