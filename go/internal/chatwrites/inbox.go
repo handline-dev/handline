@@ -5,13 +5,12 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
-// inbox.mark_read, inbox.answer and inbox.reply (handline/daemon/rpc_inbox.py): the writes beside inbox.list.
+// inbox.mark_read and inbox.reply (handline/daemon/rpc_inbox.py): the writes beside inbox.list.
 
 const maxIDs = 200
 
@@ -241,47 +240,6 @@ func (w *writes) markRead(c *rpc.Conn, p map[string]any) (any, error) {
 	})
 }
 
-func (w *writes) inboxAnswer(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := itemParam(p, "id")
-	if err != nil {
-		return nil, err
-	}
-	option, text := p["option"], p["text"]
-	if (option == nil) == (text == nil) {
-		return nil, badParam("an answer is an option or text, one of them", "text")
-	}
-	if option != nil {
-		return nil, badParam("no item offers options yet: answer with text", "option")
-	}
-	body, err := inboxText(p, "text")
-	if err != nil {
-		return nil, err
-	}
-	gone := func(r *Result) error {
-		if strings.HasSuffix(r.Msg, "is gone") {
-			return noItem(rid)
-		}
-		return refuse(r)
-	}
-	return w.writeResult(c, gone, func(tx *sql.Tx) (*Result, map[string]any, error) {
-		rows, err := mailbox(tx)
-		if err != nil {
-			return nil, nil, err
-		}
-		in := false
-		for _, m := range rows {
-			in = in || m.id == rid
-		}
-		if !in {
-			return nil, nil, noItem(rid)
-		}
-		res, err := AnswerWrite(w.e, w.tell, tx, rid, body, nil)
-		return res, nil, err
-	})
-}
-
-func inboxText(p map[string]any, key string) (string, error) { return text(p, key) }
-
 func (w *writes) inboxReply(c *rpc.Conn, p map[string]any) (any, error) {
 	rid, err := itemParam(p, "id")
 	if err != nil {
@@ -323,7 +281,7 @@ func (w *writes) inboxReply(c *rpc.Conn, p map[string]any) (any, error) {
 					return nil, nil, err
 				}
 				if tid != 0 {
-					return nil, nil, rpc.Refused("a decision is answered with inbox.answer, not replied to", "state", "")
+					return nil, nil, rpc.Refused("a decision is closed with task.done on its task, not replied to", "state", "")
 				}
 			}
 		}

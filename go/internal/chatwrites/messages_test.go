@@ -5,7 +5,23 @@ import (
 	"testing"
 
 	dbpkg "github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/supervisor"
 )
+
+// answer closes request rid with verdict, as the agent it was asked of would.
+func (r *rig) answer(rid int64, verdict string) {
+	r.t.Helper()
+	tx, err := r.db.Begin()
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	if _, ok, msg, err := r.env.ResolveWrite(tx, supervisor.ResolveIn{RID: rid, Verdict: verdict}); err != nil || !ok {
+		r.t.Fatal(msg, err)
+	}
+	if err := tx.Commit(); err != nil {
+		r.t.Fatal(err)
+	}
+}
 
 func (r *rig) errData(m map[string]any) map[string]any {
 	r.t.Helper()
@@ -46,7 +62,7 @@ func TestInboxMarkReadReadsAReportButNeverADecision(t *testing.T) {
 	if d := r.errData(r.one(s, "inbox.mark_read", fmt.Sprintf(`{"ids":[%d],"request_id":"i2"}`, report))); d["gate"] != "state" {
 		t.Fatalf("nothing behind a reply owed is read away: %v", d)
 	}
-	r.result(r.one(s, "inbox.answer", fmt.Sprintf(`{"id":%d,"text":"yes","request_id":"i4"}`, ask)))
+	r.answer(ask, "yes")
 	res := r.result(r.one(s, "inbox.mark_read", fmt.Sprintf(`{"ids":[%d],"request_id":"i5"}`, report)))
 	if res["said"] != "1 read" || r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND read_at IS NOT NULL", report) != 1 {
 		t.Fatalf("%v", res)
@@ -56,20 +72,8 @@ func TestInboxMarkReadReadsAReportButNeverADecision(t *testing.T) {
 	}
 }
 
-func TestInboxAnswerAndReply(t *testing.T) {
+func TestInboxReplySettlesAnAgentsOwnItem(t *testing.T) {
 	r := newRig(t)
-	s := r.server("")
-	ask := r.request("alice", "human", "may I?")
-	if d := r.errData(r.one(s, "inbox.answer", fmt.Sprintf(`{"id":%d,"option":"a","request_id":"n1"}`, ask))); d["field"] != "option" {
-		t.Fatal(d)
-	}
-	if res := r.result(r.one(s, "inbox.answer", fmt.Sprintf(`{"id":%d,"text":"yes","request_id":"n2"}`, ask))); res["accepted"] != true {
-		t.Fatal(res)
-	}
-	if r.count("SELECT COUNT(*) FROM requests WHERE settles = ? AND body = 'yes'", ask) != 1 {
-		t.Fatal("answered")
-	}
-	// an agent replies to its own incoming item
 	mine := r.request("bob", "alice", "question")
 	if res := r.result(r.one(r.server("alice"), "inbox.reply", fmt.Sprintf(`{"id":%d,"text":"answer","request_id":"n3"}`, mine))); res["accepted"] != true {
 		t.Fatal(res)

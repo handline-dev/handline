@@ -75,9 +75,6 @@
  "chat.cancel": {
   "role": "member"
  },
- "chat.dismiss": {
-  "role": "member"
- },
  "chat.locate": {
   "role": "member"
  },
@@ -146,9 +143,6 @@
  },
  "hr.withdraw": {
   "role": "agent"
- },
- "inbox.answer": {
-  "role": "member"
  },
  "inbox.get": {
   "role": "agent"

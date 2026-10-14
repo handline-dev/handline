@@ -71,8 +71,6 @@ export class FakeTasks {
 
   seed(t: Partial<Row> & Pick<Row, 'id' | 'from' | 'to' | 'title' | 'state'>): void {
     this.rows.push({
-      relation: 'manager',
-      response: 'async',
       time_box: '2h',
       parent: null,
       created: this.now(),

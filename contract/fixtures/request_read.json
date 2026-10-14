@@ -84,22 +84,6 @@
       "created": {
        "$type": "timestamp"
       },
-      "relation": {
-       "$oneOf": [
-        {
-         "$type": "string"
-        },
-        null
-       ]
-      },
-      "response": {
-       "$oneOf": [
-        {
-         "$type": "string"
-        },
-        null
-       ]
-      },
       "chain_depth": {
        "$type": "integer"
       },
@@ -108,8 +92,7 @@
        "line": "which one?"
       },
       "body": "the second\nplease",
-      "answer": null,
-      "dismissal": null
+      "answer": null
      }
     },
     {

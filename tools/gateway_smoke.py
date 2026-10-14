@@ -306,12 +306,11 @@ assert ok, msg
 con = db.connect()
 say = db.add_request(con, "worker", db.HUMAN, "a report\nwith a second line", None, None, None, "say", 0, None)
 con.execute("UPDATE requests SET landed_at = ts, state = 'landed' WHERE id = ?", (say,))
-ask1 = db.add_request(con, "worker", db.HUMAN, "may I? (inbox.answer)", None, "subordinate", "async", "ask", 0, None)
 ask2 = db.add_request(con, "worker", db.HUMAN, "may I? (chat.send parent)", None, "subordinate", "async", "ask", 0, None)
 ask3 = db.add_request(con, "worker", db.HUMAN, "may I? (inbox.reply)", None, "subordinate", "async", "ask", 0, None)
 ask4 = db.add_request(con, "worker", db.HUMAN, "may I? (the inbox topic)", None, "subordinate", "async", "ask", 0, None)
 con.close()
-print(json.dumps({"task": tid, "say": say, "ask_inbox": ask1, "ask_chat": ask2, "ask_reply": ask3, "ask_topic": ask4}))
+print(json.dumps({"task": tid, "say": say, "ask_chat": ask2, "ask_reply": ask3, "ask_topic": ask4}))
 ''' % (str(ROOT), str(self.home), str(repo))
         r = subprocess.run([sys.executable, "-c", code], env=self.env, capture_output=True, text=True, timeout=120)
         if r.returncode:
@@ -465,7 +464,6 @@ def run_writes(s: Smoke, world: dict) -> None:
     s.row("chat.send", {"agent": agent, "body": "yes (chat)", "parent": seed["ask_chat"], "request_id": rid()})
     s.row("prompt.answer", {"agent": agent, "prompt": "no-such-prompt", "choice": "1", "request_id": rid()}, allow_refusal=True)
     s.row("inbox.mark_read", {"ids": [seed["say"]], "request_id": rid()})
-    s.row("inbox.answer", {"id": seed["ask_inbox"], "text": "yes (inbox)", "request_id": rid()})
     s.row("inbox.reply", {"id": seed["ask_reply"], "text": "reply from the smoke", "request_id": rid()})
     s.row("task.new", {"owner": agent, "title": "smoke task from the app", "body": "do it", "time_box": "1h", "request_id": rid()})
     s.row("task.memo.add", {"task": seed["task"], "text": "a note from the smoke", "request_id": rid()})
@@ -602,7 +600,7 @@ def scratch_run(args) -> int:
         triggers = {
             "chat": lambda: ws.call("chat.send", {"agent": s.agent, "body": "smoke: topic chat", "request_id": s.rid()}),
             "tasks": lambda: ws.call("task.memo.add", {"task": world.seed["task"], "text": "topic tasks", "request_id": s.rid()}),
-            "inbox": lambda: ws.call("inbox.answer", {"id": world.seed["ask_topic"], "text": "topic inbox", "request_id": s.rid()}),
+            "inbox": lambda: ws.call("inbox.reply", {"id": world.seed["ask_topic"], "text": "topic inbox", "request_id": s.rid()}),
             "agents": lambda: ws.call("chat.send", {"agent": s.agent, "body": "smoke: topic agents", "request_id": s.rid()}),
         }
         run_topics(s, triggers)

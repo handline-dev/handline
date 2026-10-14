@@ -12,8 +12,6 @@ const task = (id: number, over: Partial<Task> = {}): Task => ({
   to: 'a',
   title: `task ${id}`,
   state: 'queued',
-  relation: 'manager',
-  response: 'async',
   time_box: '2h',
   parent: null,
   created: ago(600),

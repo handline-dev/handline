@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { type ChatMessage, type Event, type RpcError } from '@handline/client';
+import { type ChatMessage, type Event, type RpcError, type TranscriptItem } from '@handline/client';
 import { setup, until } from '../src/helpers.ts';
 
 const ARCH = 'handline.architect';
@@ -67,31 +67,21 @@ test('chat: messages come back newest first with a flag for more, and the transc
   client.close();
 });
 
-test('chat: a send lands one step at a time on the chat topic, and ends answered', async () => {
+test('chat: a send lands one step at a time on the chat topic, and the turn ends with a reply', async () => {
   const { client, daemon } = setup();
   await client.start();
   await client.subscribe(['chat']);
   const seen: string[] = [];
+  const replies: string[] = [];
   client.onEvent((e: Event) => {
     if (e.type === 'chat.message') seen.push((e.data as unknown as ChatMessage).landing);
+    if (e.type === 'chat.transcript' && (e.data as unknown as TranscriptItem).kind === 'reply') replies.push((e.data as unknown as TranscriptItem).text ?? '');
   });
   const { request } = await client.call('chat.send', { agent: ARCH, body: 'hi' });
   daemon.settle();
-  await until(() => seen.includes('answered'), 'the answer');
-  assert.deepEqual(seen, ['queued', 'typed', 'delivered', 'answered']);
+  await until(() => replies.length > 0, 'the reply');
+  assert.deepEqual(seen, ['queued', 'typed', 'delivered']);
   assert.ok(request > 0);
-  client.close();
-});
-
-test('chat: dismiss only once', async () => {
-  const { client, daemon } = setup();
-  await client.start();
-  daemon.chat.ask(ARCH, 'which?', 'web-test');
-  const ask = (await client.call('chat.messages', { agent: ARCH, scope: 'mine' })).messages.find(
-    (x) => x.kind === 'question' && !x.answer,
-  )!;
-  await client.call('chat.dismiss', { request: ask.id });
-  await assert.rejects(client.call('chat.dismiss', { request: ask.id }), (e: RpcError) => e.code === 'refused');
   client.close();
 });
 

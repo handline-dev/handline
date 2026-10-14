@@ -34,15 +34,12 @@ const msg = (id: number, over: object = {}) => ({
   landing: 'queued',
   sending_reason: null,
   body: `m${id}`,
-  answer: null,
-  dismissed: false,
   delivered_at: null,
   typed_at: null,
   landed_at: null,
   parent: null,
   kind: 'message',
   tasks: [],
-  is_task_question: false,
   ...over,
 });
 const chatSeed: [Key, unknown][] = [
@@ -55,8 +52,6 @@ const task = (id: number, state: string) => ({
   to: 'a',
   title: `t${id}`,
   state,
-  relation: 'manager',
-  response: 'async',
   time_box: null,
   parent: null,
   created: 't',
@@ -82,8 +77,6 @@ const inboxItem = (id: number) => ({
   task: null,
   created: 't',
   read: false,
-  answered: false,
-  options: [],
   prompt: null,
 });
 const inboxSeed: [Key, unknown][] = [[qk.inbox(D), { items: [inboxItem(1), inboxItem(2)], more: false }]];

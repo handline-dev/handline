@@ -217,7 +217,7 @@ func cardOf(q db.Q, tid int64) (*db.Request, error) {
 }
 
 // DecideCard is task.done's way to decide (taskwrites.CardDecider): the founder's words on a task they own whose card still waits on them
-// are decided as the card's answer, as inbox.answer did.
+// are decided as the card's answer.
 func DecideCard(e *supervisor.Env, tell taskwrites.Teller) taskwrites.CardDecider {
 	return func(tx *sql.Tx, tid int64, words string) (bool, string, func(), error) {
 		t, err := db.GetTask(tx, tid)

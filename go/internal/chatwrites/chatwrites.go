@@ -25,11 +25,9 @@ func Register(s *rpc.Server, e *supervisor.Env, tell taskwrites.Teller) {
 	w := &writes{e, tell, attachments.New(e.Home)}
 	s.Register("chat.send", rpc.Method{Role: "member", Write: true, Handler: w.send, Refresh: w.refreshSend})
 	s.Register("chat.send_now", rpc.Method{Role: "member", Write: true, Handler: w.sendNow})
-	s.Register("chat.dismiss", rpc.Method{Role: "member", Write: true, Handler: w.dismiss})
 	s.Register("chat.cancel", rpc.Method{Role: "member", Write: true, Handler: w.cancel})
 	s.Register("chat.seen", rpc.Method{Role: "member", Write: true, Handler: w.seen})
 	s.Register("inbox.mark_read", rpc.Method{Role: "agent", Write: true, Handler: w.markRead})
-	s.Register("inbox.answer", rpc.Method{Role: "member", Write: true, Handler: w.inboxAnswer})
 	s.Register("inbox.reply", rpc.Method{Role: "agent", Write: true, Handler: w.inboxReply})
 	w.registerMessages(s)
 	w.registerAnswers(s)
@@ -271,24 +269,6 @@ func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, 
 		return nil, rpc.Refused(fmt.Sprintf("%s is not on #%d", agent, parent), "state", "")
 	}
 	return sayWriteLinked(w.e, tx, db.Human, agent, body, parent, true, nil, act)
-}
-
-func (w *writes) dismiss(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := requestParam(p, "request")
-	if err != nil {
-		return nil, err
-	}
-	return w.writeResult(c, refuse, func(tx *sql.Tx) (*Result, map[string]any, error) {
-		row, err := message(tx, rid)
-		if err != nil {
-			return nil, nil, err
-		}
-		if row.Target != db.Human && row.Requester != db.Human {
-			return nil, nil, rpc.Refused(fmt.Sprintf("#%d is not between the person and an agent", rid), "state", "")
-		}
-		res, err := DismissWrite(w.e, tx, rid, c.Caller.Actor(), "", nil, nil, nil)
-		return res, nil, err
-	})
 }
 
 func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {

@@ -44,11 +44,6 @@ func trustDaemon(t *testing.T) (d *Daemon, id string, card int64, root string) {
 	return d, id, 1, root
 }
 
-func answerCard(t *testing.T, d *Daemon, card int64, text string) {
-	t.Helper()
-	result(t, pipeTo(t, d, "k").ask(fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"inbox.answer","params":{"id":%d,"text":%q,"request_id":"a1"}}`, card, text)))
-}
-
 // doneCard is the founder's task.done on the card's decision task, with text as the evidence: how the apps decide.
 func doneCard(t *testing.T, d *Daemon, card int64, text string) {
 	t.Helper()
@@ -58,9 +53,6 @@ func doneCard(t *testing.T, d *Daemon, card int64, text string) {
 	}
 	result(t, pipeTo(t, d, "k").ask(fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.done","params":{"task":%d,"evidence":%q,"request_id":"a1"}}`, tid, text)))
 }
-
-// decisions are the founder's two ways to decide a trust proposal; each must apply it the same.
-var decisions = map[string]func(*testing.T, *Daemon, int64, string){"inbox.answer": answerCard, "task.done": doneCard}
 
 // reply is the answer the proposer is told.
 func reply(t *testing.T, d *Daemon, card int64) string {
@@ -84,73 +76,61 @@ func reportsToFounder(t *testing.T, d *Daemon, body string) int {
 // The founder's approve declares the root as the proposer asked for it, marks the proposal applied and tells the proposer so; the
 // founder is reported nothing.
 func TestTheFoundersApproveDeclaresTheProposedRoot(t *testing.T) {
-	for name, decide := range decisions {
-		t.Run(name, func(t *testing.T) {
-			d, id, card, root := trustDaemon(t)
-			decide(t, d, card, "approve")
-			tr := team.NewTrust(d.cfg.Home)
-			if got := tr.Declared(); len(got) != 1 || got[0].Root != root || got[0].Why != "the repo" || got[0].AddedBy != "alice" {
-				t.Fatalf("%+v", got)
-			}
-			p, _, _ := tr.LoadProposal(id)
-			if p.Get("state") != "applied" || p.Get("verdict") != "approve" || p.Get("applied") == nil {
-				t.Fatal(p)
-			}
-			if want := "\n\nproposal " + id + " applied: " + root + " is now a declared root"; !strings.HasSuffix(reply(t, d, card), want) {
-				t.Fatalf("%q", reply(t, d, card))
-			}
-			var n int
-			d.db.QueryRow("SELECT COUNT(*) FROM requests WHERE kind = 'say' AND target = 'human'").Scan(&n)
-			if n != 0 {
-				t.Fatal("nothing is reported to the founder")
-			}
-		})
+	d, id, card, root := trustDaemon(t)
+	doneCard(t, d, card, "approve")
+	tr := team.NewTrust(d.cfg.Home)
+	if got := tr.Declared(); len(got) != 1 || got[0].Root != root || got[0].Why != "the repo" || got[0].AddedBy != "alice" {
+		t.Fatalf("%+v", got)
+	}
+	p, _, _ := tr.LoadProposal(id)
+	if p.Get("state") != "applied" || p.Get("verdict") != "approve" || p.Get("applied") == nil {
+		t.Fatal(p)
+	}
+	if want := "\n\nproposal " + id + " applied: " + root + " is now a declared root"; !strings.HasSuffix(reply(t, d, card), want) {
+		t.Fatalf("%q", reply(t, d, card))
+	}
+	var n int
+	d.db.QueryRow("SELECT COUNT(*) FROM requests WHERE kind = 'say' AND target = 'human'").Scan(&n)
+	if n != 0 {
+		t.Fatal("nothing is reported to the founder")
 	}
 }
 
 // A reject declares nothing: the proposal is settled rejected with the founder's words, and the answer carries no apply line.
 func TestTheFoundersRejectSettlesTheProposal(t *testing.T) {
-	for name, decide := range decisions {
-		t.Run(name, func(t *testing.T) {
-			d, id, card, root := trustDaemon(t)
-			decide(t, d, card, "no, too wide")
-			tr := team.NewTrust(d.cfg.Home)
-			if tr.IsDeclared(root) {
-				t.Fatal("nothing is declared")
-			}
-			if p, _, _ := tr.LoadProposal(id); p.Get("state") != "rejected" || p.Get("verdict") != "no, too wide" {
-				t.Fatal(p)
-			}
-			if strings.Contains(reply(t, d, card), "proposal "+id) {
-				t.Fatalf("%q", reply(t, d, card))
-			}
-		})
+	d, id, card, root := trustDaemon(t)
+	doneCard(t, d, card, "no, too wide")
+	tr := team.NewTrust(d.cfg.Home)
+	if tr.IsDeclared(root) {
+		t.Fatal("nothing is declared")
+	}
+	if p, _, _ := tr.LoadProposal(id); p.Get("state") != "rejected" || p.Get("verdict") != "no, too wide" {
+		t.Fatal(p)
+	}
+	if strings.Contains(reply(t, d, card), "proposal "+id) {
+		t.Fatalf("%q", reply(t, d, card))
 	}
 }
 
 // An approve for a root the founder declared meanwhile is moot: the proposal is withdrawn, never applied, and both the proposer and the
 // founder are told it could not be applied.
 func TestAnApproveForARootDeclaredMeanwhileIsMoot(t *testing.T) {
-	for name, decide := range decisions {
-		t.Run(name, func(t *testing.T) {
-			d, id, card, root := trustDaemon(t)
-			tr := team.NewTrust(d.cfg.Home)
-			tr.Enact(root, "mine")
-			decide(t, d, card, "yes")
-			if got := tr.Declared(); len(got) != 1 || got[0].Why != "mine" {
-				t.Fatalf("%+v", got)
-			}
-			if p, _, _ := tr.LoadProposal(id); p.Get("state") != "withdrawn" || p.Get("verdict") != "moot: that root is already declared" {
-				t.Fatal(p)
-			}
-			line := "proposal " + id + " could not be applied: proposal " + id + " is moot: " + root + " is already a declared root"
-			if !strings.HasSuffix(reply(t, d, card), "\n\n"+line) {
-				t.Fatalf("%q", reply(t, d, card))
-			}
-			if reportsToFounder(t, d, line+"\nThe proposal is still open; `hl trust apply "+id+"` retries it.") != 1 {
-				t.Fatal("the founder is told it was not applied")
-			}
-		})
+	d, id, card, root := trustDaemon(t)
+	tr := team.NewTrust(d.cfg.Home)
+	tr.Enact(root, "mine")
+	doneCard(t, d, card, "yes")
+	if got := tr.Declared(); len(got) != 1 || got[0].Why != "mine" {
+		t.Fatalf("%+v", got)
+	}
+	if p, _, _ := tr.LoadProposal(id); p.Get("state") != "withdrawn" || p.Get("verdict") != "moot: that root is already declared" {
+		t.Fatal(p)
+	}
+	line := "proposal " + id + " could not be applied: proposal " + id + " is moot: " + root + " is already a declared root"
+	if !strings.HasSuffix(reply(t, d, card), "\n\n"+line) {
+		t.Fatalf("%q", reply(t, d, card))
+	}
+	if reportsToFounder(t, d, line+"\nThe proposal is still open; `hl trust apply "+id+"` retries it.") != 1 {
+		t.Fatal("the founder is told it was not applied")
 	}
 }
 

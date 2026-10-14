@@ -50,15 +50,13 @@ function renumber<T extends { id: number }>(rows: T[], provisional: (r: T) => bo
 }
 
 const newTask = (c: Ctx, p: never): Task => {
-  const v = as<{ owner: string; title: string; time_box?: string; relation?: string; parent?: number }>(p);
+  const v = as<{ owner: string; title: string; time_box?: string; parent?: number }>(p);
   return {
     id: provisionalId(),
     from: c.me,
     to: v.owner,
     title: v.title,
     state: 'pending',
-    relation: v.relation ?? 'manager',
-    response: 'async', // still required by the contract; goes with it
     time_box: v.time_box ?? null,
     parent: v.parent ?? null,
     created: c.now,
@@ -369,9 +367,6 @@ export const PAIRING = ['device.redeem'] as const;
 
 /** Agent commands: an agent sends these, the UI never does. Guard test 2 reads this list. */
 export const NOT_FROM_UI = [
-  // No screen sends these any more; they leave the contract with the answer model.
-  'chat.dismiss',
-  'inbox.answer',
   'session.wake', // a message to a closed agent starts it; no screen wakes one by hand
   'say',
   'hook.record',

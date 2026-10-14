@@ -258,10 +258,6 @@ export type Task = {
   title: string;
   /** draft, queued, doing, reported (its owner's done waits on task.accept or task.reject), done or discarded. */
   state: string;
-  /** e.g. manager. */
-  relation: string;
-  /** e.g. async. */
-  response: string;
   time_box: Duration | null;
   parent: number | null;
   created: Timestamp;
@@ -396,11 +392,6 @@ export type TaskDetail = Task & {
   };
 };
 
-export type DecisionOption = {
-  id: string;
-  label: string;
-};
-
 export type InboxItem = {
   id: number;
   kind: string;
@@ -411,8 +402,6 @@ export type InboxItem = {
   task: number | null;
   created: Timestamp;
   read: boolean;
-  answered: boolean;
-  options: DecisionOption[];
   prompt: Prompt | null;
 };
 
@@ -778,7 +767,7 @@ export type TaskBoardRow = {
 };
 
 /** Landing state of a message; open set. */
-export type Landing = "queued" | "typed" | "delivered" | "delivered_unanswered" | "answered" | "dismissed" | "withdrawn";
+export type Landing = "queued" | "typed" | "delivered" | "withdrawn";
 
 /** One request between the person and an agent. */
 export type ChatMessage = {
@@ -793,12 +782,6 @@ export type ChatMessage = {
   landing: Landing;
   sending_reason: string | null;
   body: string;
-  answer: {
-    id: number;
-    text: string;
-    at: Timestamp;
-  } | null;
-  dismissed: boolean;
   delivered_at: Timestamp | null;
   typed_at: Timestamp | null;
   landed_at: Timestamp | null;
@@ -808,7 +791,6 @@ export type ChatMessage = {
     id: number;
     title: string;
   }[];
-  is_task_question: boolean;
   /** Only in chat.search hits: the agent whose chat shows the message. */
   agent?: string;
   /** Only in chat.search hits: which of that agent's chats shows it (the jump is chat.locate). */
@@ -907,8 +889,6 @@ export type HrArgs = {
   vendor?: string;
   /** rename: the new name; link, unlink: the other end. */
   to?: string;
-  response?: string;
-  relation?: string;
   /** team: each a suffix (`sea` is `name.sea`) or a full name. */
   members?: string[];
   /** team: repo by member. */
@@ -1097,10 +1077,6 @@ export type ChatRequestItem = {
   at: Timestamp;
   /** request only. */
   message?: ChatMessage;
-  dismissal?: {
-    by: string | null;
-    reason: string | null;
-  } | null;
   task_state?: string | null;
   /** task_event only. */
   task?: number;
@@ -1656,10 +1632,6 @@ export interface Methods {
 }; result: Accepted & {
     receipt?: Receipt;
   } };
-  "chat.dismiss": { params: {
-  request: number;
-  request_id: RequestId;
-}; result: Accepted };
   "chat.cancel": { params: {
   request: number;
   /** Needed once the agent has been told the message. Without it the call is refused (gate confirm) and error data.plan holds what cancelling would do and who is told; send it again with confirm true to do it. */
@@ -1803,7 +1775,7 @@ export interface Methods {
     }[];
     /** The founder's mailbox: how many requests and answers wait, before folding. */
     waiting?: number;
-    /** The founder's mailbox: decisions first, then requests whose sender waits on the reply, then the rest, oldest first in each. */
+    /** The founder's mailbox: decisions first, then the rest, oldest first in each. */
     lines?: {
       /** The newest request the line stands for. */
       id: number;
@@ -1831,7 +1803,7 @@ export interface Methods {
   } };
   "inbox.get": { params: {
   id: number;
-  /** Hold the call up to this many seconds until the request has been answered. Default 0, at most 600. */
+  /** Hold the call up to this many seconds while the request is still queued. Default 0, at most 600. */
   wait_s?: number;
 }; result: InboxItem };
   "request.read": { params: {
@@ -1847,8 +1819,6 @@ export interface Methods {
     /** queued until it settles; then landed, or denied, withdrawn or replaced for one that never reached its target. */
     state: string;
     created: Timestamp;
-    relation: string | null;
-    response: string | null;
     chain_depth: number;
     parent: {
       id: number;
@@ -1856,13 +1826,8 @@ export interface Methods {
       line: string;
     } | null;
     body: string;
-    /** What came back, or for a request that never reached its target why it closed. Null while there is none and for a dismissal. */
+    /** What came back, or for a request that never reached its target why it closed. Null while there is none. */
     answer: string | null;
-    /** Set when the request was dismissed: who did it and why, each null when not recorded. */
-    dismissal: {
-      by: string | null;
-      reason: string | null;
-    } | null;
   } };
   "request.withdraw": { params: {
   id: number;
@@ -1890,12 +1855,6 @@ export interface Methods {
   } };
   "inbox.mark_read": { params: {
   ids: number[];
-  request_id: RequestId;
-}; result: Accepted };
-  "inbox.answer": { params: {
-  id: number;
-  option?: string;
-  text?: string;
   request_id: RequestId;
 }; result: Accepted };
   "inbox.reply": { params: {
@@ -1955,20 +1914,12 @@ export interface Methods {
   /** The brief, Markdown. It may name images (x-attachments, tasks). */
   body?: string;
   time_box?: Duration;
-  relation?: string;
-  response?: string;
   parent?: number;
   /** Cannot be worked until this task closes. */
   blocked_by?: number;
   /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
   priority?: 1 | 2 | 3;
   expects?: Expects;
-  /** Also answer the founder's message with text, where {task} is this task's real number. */
-  reply?: {
-    message: number;
-    /** {task} is replaced by the new task's number. */
-    text: string;
-  };
   /** The task shows something on a screen. A label only: task.done takes a screenshot (shots) but never requires one. */
   ui?: boolean;
   request_id: RequestId;
@@ -2112,8 +2063,6 @@ export interface Methods {
   /** The new brief, Markdown. It may name images (x-attachments, tasks). */
   body?: string;
   time_box?: Duration;
-  /** Owner only: what the task waits on. */
-  waits_on?: string;
   /** 1 high, 2 default, 3 low (written P1-P3). */
   priority?: 1 | 2 | 3;
   /** A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them. */
@@ -2458,7 +2407,6 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "chat.search": { role: "member", callers: null, write: false, since: 1 },
   "chat.send": { role: "member", callers: null, write: true, since: 1 },
   "chat.send_now": { role: "member", callers: null, write: true, since: 1 },
-  "chat.dismiss": { role: "member", callers: null, write: true, since: 1 },
   "chat.cancel": { role: "member", callers: null, write: true, since: 1 },
   "chat.seen": { role: "member", callers: null, write: true, since: 1 },
   "attachment.put": { role: "member", callers: null, write: true, since: 1 },
@@ -2478,7 +2426,6 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "request.withdraw": { role: "agent", callers: null, write: true, since: 1 },
   "request.cancel": { role: "founder", callers: null, write: true, since: 1 },
   "inbox.mark_read": { role: "agent", callers: null, write: true, since: 1 },
-  "inbox.answer": { role: "member", callers: null, write: true, since: 1 },
   "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },
   "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.get": { role: "agent", callers: null, write: false, since: 1 },
