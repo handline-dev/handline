@@ -101,10 +101,18 @@ func (wiredPorts) QueuedOrIdle(db.Q, string, string) error                      
 func (wiredPorts) Marker(db.Q, string, string, map[string]any)                       {}
 func (wiredPorts) RecordScreenSample(db.Q, string, *db.AgentState, string, []string) {}
 func (wiredPorts) OpenProposalOf(int64) string                                       { return "" }
-func (wiredPorts) Answered(db.Q, string, *db.Request, string) string                 { return "" }
-func (wiredPorts) DeliveryBlock(db.Q, string) (string, bool)                         { return "", false }
+func (wiredPorts) Answered(db.Q, string, *db.Request, string) (string, string, error) {
+	return "", "", nil
+}
+func (wiredPorts) DeliveryBlock(db.Q, string) (string, bool) { return "", false }
 
 func tellDaemon(t *testing.T, ports bool) (*Daemon, *typedAt) {
+	t.Helper()
+	return wiredDaemon(t, ports, func(*sql.DB, string) supervisor.Proposals { return wiredPorts{} })
+}
+
+// wiredDaemon is tellDaemon with the proposals port given, or none of the ports when !ports.
+func wiredDaemon(t *testing.T, ports bool, proposals func(*sql.DB, string) supervisor.Proposals) (*Daemon, *typedAt) {
 	t.Helper()
 	t.Setenv("HANDLINE_TEST_ROOT", t.TempDir())
 	home := t.TempDir()
@@ -119,9 +127,9 @@ func tellDaemon(t *testing.T, ports bool) (*Daemon, *typedAt) {
 	agents := &typedAt{typed: map[string][]string{}}
 	cfg := Config{Home: home, DBFile: filepath.Join(home, "db.sqlite"), Auth: pidAuth{}, Agents: agents, Log: t.Logf}
 	if ports {
-		cfg.OnOpen = func(_ *sql.DB, env *supervisor.Env) {
+		cfg.OnOpen = func(d *sql.DB, env *supervisor.Env) {
 			env.Ports = supervisor.Ports{Agents: agents, Terminal: noScreen{}, Observer: wiredPorts{}, Dialogs: wiredPorts{}, Waits: wiredPorts{}, Idle: wiredPorts{}, Sessions: wiredPorts{},
-				Lifecycle: wiredPorts{}, Evaluate: wiredPorts{}, Proposals: wiredPorts{}, Stuck: wiredPorts{}}
+				Lifecycle: wiredPorts{}, Evaluate: wiredPorts{}, Proposals: proposals(d, env.Home), Stuck: wiredPorts{}}
 		}
 	}
 	d, err := Start(cfg)

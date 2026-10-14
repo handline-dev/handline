@@ -30,8 +30,10 @@ limits:
 
 type fakeProposals struct{}
 
-func (fakeProposals) OpenProposalOf(int64) string                             { return "" }
-func (fakeProposals) Answered(dbpkg.Q, string, *dbpkg.Request, string) string { return "" }
+func (fakeProposals) OpenProposalOf(int64) string { return "" }
+func (fakeProposals) Answered(dbpkg.Q, string, *dbpkg.Request, string) (string, string, error) {
+	return "", "", nil
+}
 
 type fakeEval struct{}
 
