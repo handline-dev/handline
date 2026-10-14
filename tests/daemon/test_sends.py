@@ -370,9 +370,10 @@ def test_the_daemon_start_settles_old_says_and_leaves_old_asks(home: Path) -> No
 
 
 def _drawn_replies(con, target: str) -> list[str]:
-    """What the founder's chat with `target` shows as a reply (part 1 of an exchange)."""
-    rows, _ = actions.conversation_and_drawn(con, target, hint=False)
-    return [r.text for r in rows if getattr(r, "kind", "") == "msg" and r.part == 1]
+    """What the founder's chat with `target` shows as a reply: the verdict of each message the founder sent it."""
+    rows = con.execute("SELECT id FROM requests WHERE requester = ? AND target = ? AND settles IS NULL ORDER BY id",
+                       (actions.HUMAN, target)).fetchall()
+    return [v for r in rows if (v := db.shown_verdict(db.get_request(con, r["id"])))]
 
 
 def test_a_say_the_daemon_typed_draws_no_reply_in_the_chat(home: Path) -> None:

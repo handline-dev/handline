@@ -28,6 +28,7 @@ STATE_COLOR = {
 # (that says DIALOG - see screen_state()).
 WAITING_ON_YOU = "WAITING ON YOU"
 
+
 def bar(pct: int | None, width: int = 10, last_seen: bool = False) -> str:
     """`last_seen` draws the fill at the value but with no colour: the figure is
     what an account was last seen at, not a gauge anyone is reading now."""
@@ -114,6 +115,7 @@ def account_cells(name: str, st, now: float | None = None,
         "reset7": countdown(st.long.reset),
         "runway": runway_text,
     }
+
 
 def pct(v: int | None) -> str:
     return "  ?" if v is None else f"{v:>3}"
