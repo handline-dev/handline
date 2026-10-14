@@ -13,6 +13,7 @@ export async function pickImages(room: number): Promise<ImageSource[]> {
     r.assets.slice(0, room).map(async (a) => {
       let uri = a.uri;
       let mime = a.mimeType ?? 'image/jpeg';
+      let name = a.fileName ?? uri.split('/').pop() ?? 'image';
       const fit = fitLongEdge(a.width, a.height);
       const allowed = (IMAGE_TYPES as string[]).includes(mime);
       // A photo is re-encoded as JPEG when its type is not one the daemon takes (HEIC), or it is too large even after shrinking.
@@ -24,9 +25,10 @@ export async function pickImages(room: number): Promise<ImageSource[]> {
         });
         uri = out.uri;
         mime = png ? 'image/png' : 'image/jpeg';
+        name = name.replace(/\.[^.]+$/, '') + (png ? '.png' : '.jpg');
       }
       const blob = await (await fetch(uri)).blob();
-      return { blob, name: a.fileName ?? uri.split('/').pop() ?? 'image', mime, preview: uri };
+      return { blob, name, mime, preview: uri };
     }),
   );
 }

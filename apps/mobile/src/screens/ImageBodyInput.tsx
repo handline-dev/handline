@@ -25,6 +25,8 @@ export function ImageBodyInput(props: {
   const [error, setError] = useState<string | null>(null);
   const value = useRef(props.value);
   value.current = props.value;
+  const latest = useRef({ onChange: props.onChange, remove: drafts.remove });
+  latest.current = { onChange: props.onChange, remove: drafts.remove };
   // A picture that reached the daemon becomes its line in the text and its chip goes.
   useEffect(() => {
     for (const d of drafts.drafts) {
@@ -32,10 +34,9 @@ export function ImageBodyInput(props: {
       const next = insertImageRef(value.current, cursor.current, imageRef(d.attachment.id, d.name.replace(/\.[^.]+$/, '')));
       value.current = next;
       cursor.current = null;
-      props.onChange(next);
-      drafts.remove(d.key);
+      latest.current.onChange(next);
+      latest.current.remove(d.key);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drafts.drafts]);
   const pick = () =>
     pickImages(MAX_PER_MESSAGE - drafts.drafts.length).then(drafts.add, (e) =>
@@ -54,7 +55,7 @@ export function ImageBodyInput(props: {
         onSelectionChange={(e) => void (cursor.current = e.nativeEvent.selection.end)}
         editable={props.editable}
         multiline
-        style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 56 }}
+        style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 96, textAlignVertical: 'top' }}
       />
       <ImageChips drafts={drafts.drafts} problem={error ?? drafts.problem} onRetry={drafts.retry} onRemove={drafts.remove} />
       <AttachButton onPress={() => void pick()} disabled={props.editable === false} />
