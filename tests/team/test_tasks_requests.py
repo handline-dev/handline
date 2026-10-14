@@ -3893,6 +3893,11 @@ def test_a_reported_task_reads_as_awaiting_who_it_answers_to() -> None:
           clitask._detail_lines(held, 0)[2:4] == ["timeout 2h00m", "timeout paused: waiting on T9, T8"], str(clitask._detail_lines(held, 0)[2:4]))
     check("task show: with nothing open it says what is left",
           clitask._detail_lines({**held, "blockers": [], "subtasks": []}, 0)[3] == "paused, 1h20m left")
+    check("task show: a wait on the founder says so - held by them, awaiting their accept, or a blocker they hold",
+          clitask._detail_lines({**held, "to": "human"}, 0)[3] == "timeout paused: waiting on human"
+          and clitask._detail_lines({**held, "state": "reported", "asker": "human"}, 0)[3] == "timeout paused: waiting on human"
+          and clitask._detail_lines({**held, "blockers": [{"task": 9, "owner": "human", "title": "x"}], "subtasks": []}, 0)[3]
+          == "timeout paused: waiting on T9 (human)")
     p = cli_parser.build_parser()
     check("task new parses without -t", p.parse_args(["task", "new", "--assign", "b.two", "x"]).timeout is None)
     check("task accept and reject parse, reject with its note",

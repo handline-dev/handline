@@ -12,7 +12,7 @@ import (
 // Four notices about work that has run long, all read from the db every tick.
 //
 // A task's own timeout (`ocp task new -t/--timeout`) only counts while it is doing and not waiting on a blocker or child, and starts again
-// from zero when the wait ends; past it, its opener is told, and again every
+// from zero when the wait ends. A task the founder holds or must accept waits on the founder the same way. Past it, its opener is told, and again every
 // further timeout_s stretch, until the task answers with one of `hl task edit --timeout` (continue) or `hl task release` (back to queued) -
 // or is simply done. Background work about to outlive the agent's prompt cache tells its supervisor it may be stopped after a veto window.
 // An agent IDLE with its current task's own wait never recorded, the Stop-hook gate's own backstop, and an agent nudged to resolve a
@@ -136,6 +136,11 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 			continue // a terminal agent's task: the Python daemon's clock
 		}
 		tid := row.ID
+		if row.Owner == db.Human || row.Reported() && row.AnswersTo() == db.Human {
+			// the wait is on the founder: nothing an agent does moves it, so it is not reminded
+			check(db.RestartTaskTimeout(t.Q, tid, db.DefaultTaskTimeoutS))
+			continue
+		}
 		if row.Reported() {
 			b.remindReported(t, row, now)
 			continue

@@ -196,13 +196,19 @@ func TestAReportedTaskReadsAsAwaitingWhoItAnswersTo(t *testing.T) {
 func TestTaskShowReadsAPausedClock(t *testing.T) {
 	box := obj{"length_s": float64(7200), "default": false, "left_s": float64(4800)}
 	held := obj{"blockers": []any{obj{"task": float64(9)}}, "subtasks": []any{obj{"id": float64(8), "state": "doing"}, obj{"id": float64(6), "state": "done"}}}
-	for want, t2 := range map[string]obj{
-		"timeout paused: waiting on T9, T8": held,
-		"timeout paused: waiting on T8":     {"subtasks": held["subtasks"]},
-		"paused, 1h20m left":                {},
+	for _, c := range []struct {
+		task obj
+		want string
+	}{
+		{held, "timeout paused: waiting on T9, T8"},
+		{obj{"subtasks": held["subtasks"]}, "timeout paused: waiting on T8"},
+		{obj{}, "paused, 1h20m left"},
+		{obj{"to": "human"}, "timeout paused: waiting on human"},
+		{obj{"state": "reported", "from": "human"}, "timeout paused: waiting on human"},
+		{obj{"blockers": []any{obj{"task": float64(9), "owner": "human"}}}, "timeout paused: waiting on T9 (human)"},
 	} {
-		if got := timeoutLines(box, 0, waitsOn(t2)); len(got) != 2 || got[0] != "timeout 2h00m" || got[1] != want {
-			t.Errorf("%q, want %q", got, want)
+		if got := timeoutLines(box, 0, waitsOn(c.task)); len(got) != 2 || got[0] != "timeout 2h00m" || got[1] != c.want {
+			t.Errorf("%q, want %q", got, c.want)
 		}
 	}
 	running := obj{"length_s": float64(7200), "default": false, "start": "2026-10-01T10:00:00Z", "end": "2026-10-01T12:00:00Z", "left_s": nil}
