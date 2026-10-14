@@ -51,10 +51,10 @@ Not used: the WebGL addon in v1 (context loss, GPU variance; the DOM and canvas 
 
 ## 4. Resize
 
-- The terminal has one size, `cols × rows`, owned by the host and by the **input holder** (design §4.2; `terminal.resize` is accepted from the holder only and restored when they leave).
+- The terminal has one size, `cols × rows`, owned by the host. `terminal.resize` is the **input holder's** while there is one, restored when they leave, and any attached viewer's while there is none, the last resize winning (see the method in `contract/protocol.json`).
 - **Not holding:** the pane never asks for a size. It follows the size of each `snapshot` notice with reason `resize` (a bytes attach gets no `resize` notice, spec) and fits the grid in the pane by **scaling the font** (floor 9 px; below that the grid scrolls sideways). A phone and a laptop watching one agent therefore both see the real grid.
 - **Holding:** on take, and on every pane size change after, `FitAddon.proposeDimensions()` → `terminal.resize {cols, rows}` after 150 ms of no change; never while the pane has no size (hidden, 0×0); clamp to 20..400 × 5..200 or what the daemon reports. On release the daemon restores, and the `resize` snapshot notice repaints. A size the daemon refuses (`cols` 5 is `bad_request` naming the field) leaves the pane at its current size.
-- Resize does not reflow in xterm the way tmux does; the daemon sends a `snapshot` notice, reason `resize`, with the new `cols` and `rows` for any size change, the holder's or the restore, and the pane repaints from it (§3.2) rather than reflowing.
+- Resize does not reflow in xterm the way tmux does; the daemon sends a `snapshot` notice, reason `resize`, with the new `cols` and `rows` for any size change, whoever made it, the restore included, and the pane repaints from it (§3.2) rather than reflowing.
 - Dragging a divider (web-main-view §4) fires the size change only on release, not on each move.
 
 ## 5. Input and the holder

@@ -1325,6 +1325,190 @@
    ]
   },
   {
+   "name": "terminal.bytes.a_viewer_resizes_when_nobody_holds",
+   "spec": "terminal.resize",
+   "about": "With nobody holding the input, any connection that has the terminal attached resizes it, and the last resize wins. Every attach hears it: a bytes attach by a snapshot, a text attach by a resize notice. Nothing is restored: the fixture puts the first size back itself. Needs --var bytes_agent.",
+   "as": "founder",
+   "with": {
+    "other": "founder"
+   },
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "other"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "bytes",
+       "history": 0
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string",
+       "$save": "term"
+      },
+      "format": "bytes",
+      "seq": {
+       "$type": "integer",
+       "$save": "s1"
+      },
+      "cols": {
+       "$type": "integer",
+       "$save": "c0"
+      },
+      "rows": {
+       "$type": "integer",
+       "$save": "r0"
+      },
+      "holder": {
+       "kind": "daemon"
+      }
+     }
+    },
+    {
+     "on": "other",
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.attach",
+      "params": {
+       "agent": "{{bytes_agent}}",
+       "format": "text"
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "terminal.resize",
+      "params": {
+       "terminal": "{{term}}",
+       "cols": 100,
+       "rows": 30,
+       "request_id": "conf-tb-25"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notice_next": {
+      "method": "snapshot",
+      "params": {
+       "seq": {
+        "$next": "s1"
+       },
+       "reason": "resize",
+       "cols": 100,
+       "rows": 30,
+       "data": {
+        "$regex": "^[A-Za-z0-9+/]*={0,2}$"
+       }
+      }
+     },
+     "notices_within_s": 5
+    },
+    {
+     "on": "other",
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "terminal.resize",
+      "params": {
+       "terminal": "{{term}}",
+       "cols": 90,
+       "rows": 25,
+       "request_id": "conf-tb-26"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "method": "resize",
+       "params": {
+        "cols": 100,
+        "rows": 30
+       }
+      },
+      {
+       "method": "resize",
+       "params": {
+        "cols": 90,
+        "rows": 25
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "terminal.resize",
+      "params": {
+       "terminal": "{{term}}",
+       "cols": "{{c0}}",
+       "rows": "{{r0}}",
+       "request_id": "conf-tb-27"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "method": "snapshot",
+       "params": {
+        "reason": "resize",
+        "cols": 90,
+        "rows": 25,
+        "data": {
+         "$regex": "^[A-Za-z0-9+/]*={0,2}$"
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    }
+   ]
+  },
+  {
    "name": "terminal.bytes.slow_client_gets_a_snapshot_not_a_gap",
    "spec": "terminal.attach",
    "about": "NOT_YET_IN_PYTHON: A watcher that reads nothing while 16 MiB are printed is sent one snapshot notice, reason slow_client, above every seq it missed; the connection stays open. The count is bytes, not seconds. Needs --var bytes_agent.",
