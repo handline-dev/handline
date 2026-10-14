@@ -72,8 +72,8 @@ describe('palette', () => {
     const hit = $$('.palette [role="option"] button').find((b) => text(b).includes('Use the contract fixtures.'))!;
     expect(text(hit)).toContain('handline.architect');
     await act(async () => void hit.click());
-    expect(location.hash).toBe('#/agents/handline.architect');
     await until(() => $$('.msg[data-flash]').some((m) => text(m).includes('Use the contract fixtures.')), 'the flashed message');
+    expect(location.hash).toBe('#/agents/handline.architect'); // the chat took the number out of the URL
   });
 
   it('adds no Messages group for one character', async () => {
