@@ -2201,7 +2201,7 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
         db.set_terminal(con, "glm", "term_oc", "wt")
         db.set_account(con, "glm", "zai")
 
-        word, detail = viewdata.screen_state(con, row("glm"))
+        word, detail = screenstate.screen_state(con, row("glm"))
         check("opencode row: a screen mid-turn reads RUNNING over the db's IDLE",
               (word, detail) == ("RUNNING", ""), f"{word!r} {detail!r}")
         check("opencode row: the claude row is never screened",
@@ -2210,12 +2210,12 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
         screens["term_oc"] = OC_IDLE
         screenstate._opencode_seen.clear()
         check("opencode row: an idle screen reads IDLE",
-              viewdata.screen_state(con, row("glm"))[0] == "IDLE")
+              screenstate.screen_state(con, row("glm"))[0] == "IDLE")
 
         # And the other direction: a RUNNING row over an idle screen.
         db.set_agent_state(con, "glm", dmn_states.RUNNING)
         check("opencode row: an idle screen keeps a RUNNING row honest",
-              viewdata.screen_state(con, row("glm"))[0] == "IDLE")
+              screenstate.screen_state(con, row("glm"))[0] == "IDLE")
 
         # A shell prompt is evidence of neither: the db word stands. This is
         # what a closed agent's pane shows (auditor #2157, measured live).
@@ -2230,14 +2230,14 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
         screenstate._opencode_seen.clear()
         asked.clear()
         check("opencode row: a closed agent's shell prompt is not work in progress",
-              viewdata.screen_state(con, row("glm"))[0] == "IDLE" and asked == [],
+              screenstate.screen_state(con, row("glm"))[0] == "IDLE" and asked == [],
               str(asked))
 
         # A closed row is never screened at all, whatever its pane shows.
         asked.clear()
         screens["term_oc"] = OC_WORKING
         screenstate._opencode_seen.clear()
-        viewdata.screen_state(con, row("glm"))
+        screenstate.screen_state(con, row("glm"))
         check("opencode row: a closed row is never screened",
               asked == [], str(asked))
         con.execute("UPDATE agent_state SET closed_at = NULL WHERE agent = 'glm'")
@@ -2246,7 +2246,7 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
         termmod._screen = lambda h: {"source": "stream", "tail": OC_WORKING}
         screenstate._opencode_seen.clear()
         check("opencode row: an unreadable screen leaves the db state standing",
-              viewdata.screen_state(con, row("glm"))[0] == "IDLE")
+              screenstate.screen_state(con, row("glm"))[0] == "IDLE")
 
         # The tri-state, at the driver: box + interrupt is working, box
         # without it is idle, no box is no evidence.
@@ -2264,8 +2264,8 @@ def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
         asked.clear()
         termmod._screen = lambda h: (asked.append([h]), {
             "source": "screen", "tail": OC_WORKING})[1]
-        first = viewdata.screen_state(con, row("glm"))[0]
-        second = viewdata.screen_state(con, row("glm"))[0]
+        first = screenstate.screen_state(con, row("glm"))[0]
+        second = screenstate.screen_state(con, row("glm"))[0]
         check("opencode row: the cache holds within the ttl - one read per pane",
               first == second == "RUNNING" and asked == [["term_oc"]], str(asked))
     finally:
