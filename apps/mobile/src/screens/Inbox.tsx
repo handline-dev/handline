@@ -1,5 +1,5 @@
 // The Inbox tab: what waits on the person, newest first. Reads and writes go through @handline/app-data like the web Inbox: a read item leaves
-// the list at once, a question stays until it is answered. Tap a card for its detail and verbs; a verb the daemon does not serve is disabled.
+// the list at once. A decision ends its task with Done. Tap a card for its detail and verbs; a verb the daemon does not serve is disabled.
 import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { ago } from '@handline/app-core';
@@ -20,8 +20,9 @@ const KIND: Record<string, string> = {
   block: 'Block',
   prompt: 'Prompt',
 };
-const answerable = (i: InboxItem) => i.kind === 'decision' || i.kind === 'ask';
-const waits = (i: InboxItem, readPending: boolean) => (answerable(i) ? !i.answered : !i.read && !readPending);
+/** A decision is the person's task: the card ends it with task.done. */
+const decidable = (i: InboxItem) => i.kind === 'decision' && i.task != null;
+const waits = (i: InboxItem, readPending: boolean) => !i.read && !readPending;
 
 function useOff(method: string): string | null {
   const open = useConnection() === 'open';
@@ -33,7 +34,7 @@ function useOff(method: string): string | null {
  * takes the card off the list and brings it back finds its box and its text as they were. */
 interface Ui {
   open: boolean;
-  box: 'answer' | 'reply' | null;
+  box: 'reply' | null;
   text: string;
 }
 const NO_UI: Ui = { open: false, box: null, text: '' };
@@ -46,15 +47,13 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
   const setBox = (v: Ui['box']) => props.setUi({ box: v });
   const setText = (v: string) => props.setUi({ text: v });
   const read = useWrite('inbox.mark_read');
-  const answer = useWrite('inbox.answer');
+  const done = useWrite('task.done');
   const reply = useWrite('inbox.reply');
-  const off = { read: useOff('inbox.mark_read'), answer: useOff('inbox.answer'), reply: useOff('inbox.reply') };
+  const off = { read: useOff('inbox.mark_read'), decide: useOff('task.done'), reply: useOff('inbox.reply') };
   const send = () => {
     if (!text.trim()) return;
     // The box and the text stay until the daemon accepts: a refusal brings the card back with what was typed.
-    const sent =
-      box === 'answer' ? answer.mutateAsync({ id: i.id, text: text.trim() }) : reply.mutateAsync({ id: i.id, text: text.trim() });
-    sent.then(props.done, () => {}); // the refusal is reported by the write itself
+    reply.mutateAsync({ id: i.id, text: text.trim() }).then(props.done, () => {}); // the refusal is reported by the write itself
   };
   return (
     <View testID={`inbox-${i.id}`} style={{ borderTopWidth: 1, borderTopColor: c.line, opacity: props.pending ? 0.6 : 1 }}>
@@ -91,18 +90,6 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
               Sending…
             </Text>
           )}
-          {i.answered && <Text style={{ color: c.muted }}>Answered</Text>}
-          {answerable(i) && !i.answered && box === null
-            ? i.options.map((o) => (
-                <Button
-                  key={o.id}
-                  testID={`inbox-option-${i.id}-${o.id}`}
-                  label={o.label}
-                  disabled={!!off.answer}
-                  onPress={() => answer.mutate({ id: i.id, option: o.id })}
-                />
-              ))
-            : null}
           {box ? (
             <View style={{ gap: space.sm }}>
               <TextInput
@@ -111,27 +98,31 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
                 multiline
                 value={text}
                 onChangeText={setText}
-                accessibilityLabel={box === 'answer' ? 'Your answer' : 'Your reply'}
+                accessibilityLabel="Your reply"
                 style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 64 }}
               />
               <View style={{ flexDirection: 'row', gap: space.sm }}>
-                <Button
-                  testID="inbox-send"
-                  kind="yes"
-                  label={box === 'answer' ? 'Answer' : 'Send reply'}
-                  disabled={!text.trim()}
-                  onPress={send}
-                  style={{ flex: 1 }}
-                />
+                <Button testID="inbox-send" kind="yes" label="Send reply" disabled={!text.trim()} onPress={send} style={{ flex: 1 }} />
                 <Button label="Cancel" onPress={() => props.setUi({ box: null, text: '' })} />
               </View>
             </View>
           ) : (
             <View style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
-              {answerable(i) && !i.answered ? (
-                <Button testID={`inbox-answer-${i.id}`} label="Answer…" disabled={!!off.answer} onPress={() => setBox('answer')} />
+              {decidable(i) ? (
+                <Button
+                  testID={`inbox-done-${i.id}`}
+                  label="Done"
+                  disabled={!!off.decide}
+                  onPress={() => {
+                    // The decision ends its task, and only then is the card read: a refusal leaves it listed.
+                    done.mutateAsync({ task: i.task!, evidence: 'decided in the Inbox', reason: true }).then(
+                      () => read.mutate({ ids: [i.id] }),
+                      () => {}, // the refusal is reported by the write itself
+                    );
+                  }}
+                />
               ) : null}
-              {!answerable(i) && !i.prompt && i.kind !== 'block' ? (
+              {i.kind !== 'decision' && !i.prompt && i.kind !== 'block' ? (
                 <Button testID={`inbox-reply-${i.id}`} label="Reply…" disabled={!!off.reply} onPress={() => setBox('reply')} />
               ) : null}
               {!i.read && (
@@ -159,7 +150,8 @@ export function Inbox() {
   const markAll = useWrite('inbox.mark_read');
   const offRead = useOff('inbox.mark_read');
   const pendingRead = usePending('inbox.mark_read').flatMap((p) => p.ids);
-  const pendingSent = [...usePending('inbox.answer'), ...usePending('inbox.reply')].map((p) => p.id);
+  const pendingDone = usePending('task.done').map((p) => ('task' in p ? p.task : 0));
+  const pendingReply = usePending('inbox.reply').map((p) => p.id);
   const items = (query.data?.items ?? []).filter((i) => waits(i, pendingRead.includes(i.id)));
   return (
     <View style={{ flex: 1 }}>
@@ -192,7 +184,9 @@ export function Inbox() {
           renderItem={({ item }) => (
             <Card
               item={item}
-              pending={pendingRead.includes(item.id) || pendingSent.includes(item.id)}
+              pending={
+                pendingRead.includes(item.id) || (item.task != null && pendingDone.includes(item.task)) || pendingReply.includes(item.id)
+              }
               ui={ui[item.id] ?? NO_UI}
               setUi={(patch) => setUi((all) => ({ ...all, [item.id]: { ...(all[item.id] ?? NO_UI), ...patch } }))}
               done={() => setUi(({ [item.id]: _gone, ...rest }) => rest)}
