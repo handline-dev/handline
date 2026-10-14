@@ -35,7 +35,7 @@ func TestCancelIsTheFoundersDiscardThatStopsTheRequestsOutOnTheTask(t *testing.T
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, home, f)
+		Register(s, home, f, nil)
 		return s
 	}
 	cancel := func(rid string, task int) map[string]any {
