@@ -1,0 +1,116 @@
+# The required check of a pull request: what tools/check.sh runs for the change, split in jobs so the apps and Go run side by side.
+# One job, `check`, always reports and is the one required check on main; the areas a change does not touch are skipped, and
+# a skipped area counts as passed.
+name: check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+  push:
+    branches: [main] # warms the caches a pull request reads
+
+concurrency:
+  group: check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      kind: ${{ steps.plan.outputs.kind }}
+      apps: ${{ steps.plan.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: plan
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: |
+          # A push to main (no pull request) runs everything: its job is the caches.
+          if [ "${{ github.event_name }}" = push ]; then
+            echo "kind=python" >> "$GITHUB_OUTPUT"; echo "apps=turbo" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          plan="$(CHECK_PLAN=1 tools/check.sh "$BASE")"
+          echo "$plan"
+          echo "${plan%% *}" >> "$GITHUB_OUTPUT"
+          echo "apps=${plan##*apps=}" >> "$GITHUB_OUTPUT"
+
+  apps:
+    needs: plan
+    if: needs.plan.outputs.apps != 'no'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+      - name: Tests, typecheck and lint of the apps
+        run: |
+          if [ "${{ needs.plan.outputs.apps }}" = turbo ]; then
+            pnpm turbo test typecheck lint --continue
+          else
+            pnpm --dir packages/app-data test
+          fi
+
+  go:
+    needs: plan
+    if: needs.plan.outputs.kind == 'go'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - name: tmux for the terminal tests
+        run: sudo apt-get install -y -qq tmux
+      - run: tools/test-go.sh
+      - name: Go parity tests
+        run: |
+          tools/test.sh tests/infra/test_go_schema.py
+          tools/test.sh tests/infra/test_go_tidy.py
+
+  python:
+    needs: plan
+    if: needs.plan.outputs.kind == 'python'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: tmux for the terminal tests
+        run: sudo apt-get install -y -qq tmux
+      - run: tools/suite.sh
+
+  check:
+    if: always()
+    needs: [plan, apps, go, python]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every area that ran passed
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then exit 1; fi
