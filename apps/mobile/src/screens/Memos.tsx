@@ -1,9 +1,10 @@
 // A task's memos on the phone (docs/pc-app-gaps.md U11): add, edit and delete, each a `useWrite` that shows at once and rolls back with the daemon's reason.
 import { useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { classify, sentence, useWrite } from '@handline/app-data';
-import { radius, space } from '@handline/tokens';
+import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
+import { ImageBodyInput } from './ImageBodyInput.tsx';
 import { Button } from './parts.tsx';
 import { Input, Sheet, useWhyNot } from './TaskActions.tsx';
 
@@ -75,16 +76,14 @@ export function MemoBox({ id }: { id: number }) {
   };
   return (
     <View style={{ gap: space.sm }}>
-      <TextInput
+      <ImageBodyInput
         testID="memo-text"
-        accessibilityLabel="Memo"
+        label="Memo"
         placeholder="Add a memo"
-        placeholderTextColor={c.muted}
-        multiline
+        titled={false}
         editable={!why}
         value={text}
-        onChangeText={setText}
-        style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 56 }}
+        onChange={setText}
       />
       <Button testID="memo-send" label="Add memo" disabled={!!why || !text.trim()} onPress={send} />
       {why && <Text style={{ color: c.muted, fontSize: 12 }}>{why}</Text>}
