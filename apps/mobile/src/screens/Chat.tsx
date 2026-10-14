@@ -319,7 +319,6 @@ function Bubble(props: {
   const failed = m.state === 'failed';
   const mine = side === 'person' && !unnumbered && !failed;
   const back = mine ? canTakeBack(m) : null;
-  // A sent, confirmed or unknown message is the agent's: taking it back asks first, as for a delivered one.
   // The words come back to the box only once the daemon has taken the message back; a refusal leaves everything as it was.
   const takeBack = (confirm = false) =>
     act
