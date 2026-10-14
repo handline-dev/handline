@@ -77,5 +77,8 @@ review comment arrives. No reply, no resolve, no GitLab.
 **Then:** reply and resolve (7-2), GitLab through the same interface (7-3), webhooks when there is
 a public URL (7-4).
 
-**Open for the founder:** is the daemon's machine reachable from the internet (webhooks), or do we
-poll? Is the founder's own `gh` login the identity, or should agents act as a separate bot account?
+## 5. Founder answers
+
+- **Slice:** the proposal is agreed, and 7-1 is read-only first.
+- **Poll, no webhooks:** conditional requests (ETag) so an unchanged PR costs no rate limit, about once a minute.
+- **Identity:** not ours to decide. The Git host identity is whatever each team configures for its agents (their own `gh` login, a bot account or an app), set per team and given to the agent through its prompt or environment. The daemon uses the identity the agent's environment already has and never assumes the founder's login.
