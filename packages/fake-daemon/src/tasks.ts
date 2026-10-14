@@ -201,11 +201,11 @@ export class FakeTasks {
     this.change(t, { state: 'done', done: this.now(), evidence });
     return `task T${t.id} done`;
   }
-  /** The report a person may accept or reject: the task's opener or anyone but the owner who made it. */
+  /** The report a person may accept or reject: only the task's opener or the founder. */
   private reportFor(p: Record<string, unknown>, person: string, verb: string): Row {
     const t = this.find(p.task);
     if (t.state !== 'reported' || !t.report) throw new TaskFailure('refused', `task ${t.id} has no report waiting: nothing to ${verb}`);
-    if (person === t.to) throw new TaskFailure('refused', `task ${t.id}'s report can only be ${verb}ed by whoever it answers to`);
+    if (person !== t.from && person !== 'founder') throw new TaskFailure('refused', `task ${t.id}'s report can only be ${verb}ed by whoever it answers to`);
     return t;
   }
   accept(p: Record<string, unknown>, person: string): void {

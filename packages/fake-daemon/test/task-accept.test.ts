@@ -65,8 +65,19 @@ test('an unknown task is not found, and a task the owner opened for itself close
   client.close();
 });
 
+test('a third agent can neither accept nor reject a report', async () => {
+  const { client, owner, task, daemon, net } = await reported();
+  const third = second(daemon, net, { client: 'handline.other' });
+  await third.start();
+  assert.equal(code(await third.call('task.accept', { task, request_id: 'f1' }).catch((e) => e)), 'refused');
+  assert.equal(code(await third.call('task.reject', { task, note: 'no', request_id: 'f2' }).catch((e) => e)), 'refused');
+  third.close();
+  owner.close();
+  client.close();
+});
+
 test('a task can be seeded as reported', async () => {
-  const { client, daemon } = setup();
+  const { client, daemon } = setup({ client: 'boss' });
   daemon.tasks.verbs = true;
   await client.start();
   daemon.tasks.seed({
