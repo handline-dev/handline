@@ -11,11 +11,11 @@ Sources are each tool's own README or docs where the search found them, and thir
 | **Capture and annotate into an issue (1-1)** | Orca | Design Mode: click an element in an embedded Chromium, its HTML, CSS and a cropped screenshot go into the agent's prompt | The picture goes in with the words as one message; the crop is of what the person pointed at | MIT (code may be reused) |
 | | Cursor 3 | Design Mode in the agents window: click an element or draw on the page, say the change, the agent edits while you go on; a forum report says the crop is off on a scaled second display | Draw on the picture, then say it; test the capture on a scaled display | closed (idea) |
 | | Marker.io, Jam | A browser widget bundles an annotated screenshot with URL, browser, screen size and console log, and creates the issue in Jira, GitHub and others (third-party write-ups) | The issue carries the context it was taken in: which window, size, which build | closed (idea) |
-| **Review inside the task (1-2)** | Vibe Kanban | Per its docs, the task moves to In Review when the agent stops; line comments on the diff are submitted together and send it back to In Progress | Review is a state of the task, and sending back carries the comments with it | Apache-2.0 (code may be reused, keep the notice) |
+| **Review inside the task (1-2)** | Vibe Kanban | Per its docs, the task moves to In Review when the agent stops; line comments on the diff are submitted together (the move back to In Progress is our assumption, not found in its docs) | Review is a state of the task, and sending back carries the comments with it | Apache-2.0 (code may be reused, keep the notice) |
 | | Orca | Comments on any diff line are shipped back to the agent | The same: a comment is a message to the agent | MIT |
 | | Conductor | Per-workspace diff to review before the PR; sources disagree on checkpoints, not in its own docs | The diff stays out of main until the person says yes | closed (idea) |
 | | Claude Squad | A tmux session per agent, review by attaching | Nothing: no review model | AGPL-3.0 (no code) |
-| **Tags and filters (1-3)** | Vibe Kanban | Per its docs, tags are labels to categorise and filter tasks | Free labels, filter by one or several | Apache-2.0 |
+| **Tags and filters (1-3)** | Vibe Kanban | In its cloud board, tags are labels to categorise and filter tasks (its Tags page describes text snippets instead) | Free labels, filter by one or several | Apache-2.0 |
 | | Linear, Jira | Labels on an issue, saved filters and views | A filter is saved and named, not typed again | closed (idea) |
 | | Plane | Open-source Jira alternative: labels, views | Ideas only | AGPL-3.0 (no code) |
 | **Edit history (1-4)** | Jira (history tab, StatusPath-style apps) | Each change as who, field, old value, new value, when; compare past and current | The same four columns, newest first, one row per field | closed (idea) |
@@ -65,7 +65,8 @@ Handline schedules three scarce things: the founder's attention, agent accounts 
 |---|---|---|
 | The founder | `waiting on you` | open human request |
 | Another task | `blocked by T<n>` | `blocked_by` |
-| An account limit | `account at its cap` | account cap |
+| An account limit | `at its cap` | account cap |
+| An account wall | `wall` | the account's plan or usage limit is reached (Story 2) |
 | The machine | `host full: n of H` | host cap (Story 2, `docs/story2-load-research.md`) |
 
 The same reason text is the edge label in the graph (1-6) and the grey stretch in the time bar (1-5), and the task page shows it as one line under the title. The machine side comes from Story 2 (2-1 limits, 2-2 admin view); this frame only fixes that the reason is a field of the task, not a screen of its own.
