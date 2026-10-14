@@ -103,6 +103,8 @@ jobs:
       - name: tmux for the terminal tests
         run: sudo apt-get install -y -qq tmux
       - run: tools/suite.sh
+        env:
+          TMPDIR: ${{ runner.temp }} # the suite checks that a sandboxed run has one
 
   check:
     if: always()
