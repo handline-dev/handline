@@ -128,3 +128,108 @@ func TestAnApproveForARootDeclaredMeanwhileIsMoot(t *testing.T) {
 		t.Fatal("the founder is told it was not applied")
 	}
 }
+
+// foundersApproval is the founder's approve of proposal id as answering it records it, with its apply left for later: the answer on
+// record for the decision task, and the task closed with it by the founder.
+func foundersApproval(t *testing.T, d *Daemon, id string, card int64, root string) (tr *team.Trust, tid int64) {
+	t.Helper()
+	tid, err := db.TaskOfCard(d.db, card)
+	if err != nil || tid == 0 {
+		t.Fatal(tid, err)
+	}
+	tr = team.NewTrust(d.cfg.Home)
+	recordAnswer(t, tr, id, tid, root)
+	closeDecision(t, d, tid, db.Human, "settle_decision_task")
+	return tr, tid
+}
+
+// recordAnswer records the founder's approve of proposal id, answered on decision task tid for subject.
+func recordAnswer(t *testing.T, tr *team.Trust, id string, tid int64, subject string) {
+	t.Helper()
+	if err := tr.Store.Put("trust-decisions", id, fmt.Sprintf(`{"task": %d, "call": "approved", "subject": %q, "at": 1}`, tid, subject)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// closeDecision marks decision task tid answered "approve", with the event of whoever closed it.
+func closeDecision(t *testing.T, d *Daemon, tid int64, by, kind string) {
+	t.Helper()
+	if _, err := d.db.Exec("UPDATE tasks SET done_evidence = 'approve' WHERE id = ?", tid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddEvent(d.db, by, kind, db.KV{K: "task_id", V: tid}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setProposalRoot(t *testing.T, tr *team.Trust, id, root string) {
+	t.Helper()
+	p, _, err := tr.LoadProposal(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range p {
+		if p[i].Key == "root" {
+			p[i].Val = root
+		}
+	}
+	if err := tr.SaveProposal(p); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// What is declared is the root on the card the founder read: a card rewritten to its parent after the answer declares nothing.
+func TestAnApproveDeclaresNothingWhenTheCardNoLongerNamesTheRoot(t *testing.T) {
+	d, id, card, root := trustDaemon(t)
+	tr, _ := foundersApproval(t, d, id, card, root)
+	if _, err := d.db.Exec("UPDATE requests SET body = replace(body, ?, ?) WHERE id = ?", root, filepath.Dir(root), card); err != nil {
+		t.Fatal(err)
+	}
+	ok, said, err := tr.Apply(d.db, id)
+	if err != nil || ok || !strings.Contains(said, fmt.Sprintf("does not match what #%d asked the founder to approve", card)) {
+		t.Fatal(ok, said, err)
+	}
+	if len(tr.Declared()) != 0 {
+		t.Fatalf("%+v", tr.Declared())
+	}
+}
+
+// The founder's recorded answer binds the draft: a proposal edited to the root's parent afterwards, or an answer recorded for another
+// decision task, is refused; the draft as answered still applies.
+func TestAnApproveIsForTheDraftAndTaskTheFounderAnswered(t *testing.T) {
+	d, id, card, root := trustDaemon(t)
+	tr, tid := foundersApproval(t, d, id, card, root)
+	setProposalRoot(t, tr, id, filepath.Dir(root))
+	if ok, said, err := tr.Apply(d.db, id); err != nil || ok || !strings.Contains(said, "was changed after the founder answered it") {
+		t.Fatal(ok, said, err)
+	}
+	setProposalRoot(t, tr, id, root)
+	recordAnswer(t, tr, id, tid+1, root)
+	if ok, said, err := tr.Apply(d.db, id); err != nil || ok || !strings.Contains(said, fmt.Sprintf("is not for T%d", tid)) {
+		t.Fatal(ok, said, err)
+	}
+	if len(tr.Declared()) != 0 {
+		t.Fatalf("%+v", tr.Declared())
+	}
+	recordAnswer(t, tr, id, tid, root)
+	if ok, said, err := tr.Apply(d.db, id); err != nil || !ok || !tr.IsDeclared(root) {
+		t.Fatal(ok, said, err)
+	}
+}
+
+// Only the founder's close is an answer: a decision an agent marked done, or one reopened after the founder closed it, decided nothing.
+func TestADecisionNotClosedByTheFounderDecidesNothing(t *testing.T) {
+	for name, after := range map[string]string{"marked done by an agent": "mark_task_done", "reopened": "reopen_task"} {
+		t.Run(name, func(t *testing.T) {
+			d, id, card, root := trustDaemon(t)
+			tr, tid := foundersApproval(t, d, id, card, root)
+			closeDecision(t, d, tid, "alice", after)
+			if ok, said, err := tr.Apply(d.db, id); err != nil || ok || !strings.Contains(said, "nothing was decided") {
+				t.Fatal(ok, said, err)
+			}
+			if tr.IsDeclared(root) {
+				t.Fatal("nothing is declared")
+			}
+		})
+	}
+}
