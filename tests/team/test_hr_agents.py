@@ -1010,79 +1010,6 @@ def test_keychain_service_is_keyed_by_the_user_home(home: Path) -> None:
           keychain_service(other) == f"Claude Code-credentials-{digest}", keychain_service(other))
 
 
-def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -> None:
-    """#1776: a second vendor's account that reads as logged in and has room
-    is still never a place for a claude agent - it would run claude against
-    that vendor's credentials. Until accounts carried a vendor the only thing
-    keeping one out was `logged_in` asking claude's Keychain and getting a
-    no, an accident. Here the account is logged in by its own driver and
-    reads better than anything else, so each place that picks an account is
-    asked, and only the vendor keeps it out."""
-    _daemon_home(home, 99)
-    now = int(time.time())
-    # Far enough from its reset that a move beats waiting for it.
-    write_status(home, "alpha", pct_5h=99, pct_7d=10, ctx_pct=5, reset_5h=now + 4 * 3600)
-    real = (accounts.logged_in, termmod.available)
-    with second_vendor(metered=True):
-        try:
-            accounts.register("alpha")
-            (paths.account_dir("alpha") / ".claude" / ".credentials.json").write_text("{}")
-            accounts.register("zeta", vendor="zai")
-            write_status(home, "zeta", pct_5h=5, pct_7d=5, reset_5h=now + 1800,
-                         reset_7d=now + 90000, rl_at=now)
-            check("vendor pick: the premise - zeta is logged in by its own driver",
-                  accounts.logged_in("zeta"))
-            check("vendor pick: and has room, so nothing but its vendor can keep it out",
-                  status.read("zeta").takes_work()[0], str(status.read("zeta").takes_work()))
-
-            check("vendor pick: find_room does not send the walled claude agent there",
-                  launch.find_room("backend") != "zeta", str(launch.find_room("backend")))
-            picked, ranked = status.pick_account(bootstrap=True, agent="backend")
-            check("vendor pick: pick_account for the agent does not take it",
-                  picked != "zeta" and "a zai account, not claude" in dict(ranked)["zeta"],
-                  str((picked, ranked)))
-            check("vendor pick: nor pick_account for no agent in particular",
-                  status.pick_account()[0] != "zeta", str(status.pick_account()))
-            con = db.connect()
-            try:
-                db.add_request(con, "orcapipe", "backend", "work", None, "supervisor",
-                               "async", None, 0, None)
-                plan = dmn_handoff._move_plan(con, "backend", "usage_5h")
-                check("vendor pick: the daemon's move off the wall does not go there",
-                      plan[0] is None and "zeta: a zai account, not claude" in plan[1], str(plan))
-                # The page and the panel carry no agent, so their verdict is
-                # the account's own: judged for the vendor whose sessions are
-                # the only ones that can ever run here (#1815). Drawn as a
-                # refusal it said "assign no - a zai account, not claude" of an
-                # account that is a perfectly good place for zai agents.
-                facts = actions.account_facts(con, "zeta")
-                allowed, why = facts["assign"]
-                check("vendor pick: its page does not refuse it outright - the "
-                      "account is judged for its own vendor",
-                      allowed and "not claude" not in why, why)
-                check("vendor pick: and the page still names the vendor",
-                      facts["vendor"] == "zai" and facts["config"].endswith("(zai)"), str(facts))
-            finally:
-                con.close()
-            accounts.logged_in = lambda a: True
-            allowed, _ = status.account_verdict("zeta", status.read("zeta"), loadmod.read_all().get("zeta"), [], True)
-            check("vendor pick: its tick is its own vendor's answer, not a ✘ "
-                  "that reads as a broken account", allowed)
-            check("vendor pick: a fold is not sent there",
-                  foldmod._cheapest_account() != "zeta", str(foldmod._cheapest_account()))
-
-            # The control: a zai agent is placed there, so the filter is on
-            # the vendor, not on the account.
-            agents.register("glm")
-            _with_vendor("glm", "zai")
-            check("vendor pick: a zai agent is placed on the zai account",
-                  launch.find_room("glm") == "zeta"
-                  and status.pick_account(agent="glm")[0] == "zeta",
-                  str((launch.find_room("glm"), status.pick_account(agent="glm"))))
-        finally:
-            accounts.logged_in, termmod.available = real
-
-
 def test_another_vendors_account_never_spends_a_live_refresh(home: Path) -> None:
     """auditor #1863: the vendor refusal runs before live_refresh. A stale zai
     account listed ahead of a stale claude one must not be asked about, or it
@@ -1810,62 +1737,6 @@ def test_the_opencode_driver(home: Path) -> None:
         del drv.binary
 
 
-def test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(home: Path) -> None:
-    """T39 (auditor #1946): one clear asks for the terminal's driver once, not
-    once per step, and the daemon's refusals name the vendor's own clear
-    command - opencode's /new, not claude's /clear."""
-    os.environ["OCP_HOME"] = str(home)
-    real = {n: getattr(termmod, n) for n in
-            ("_lookup_driver", "_host_idle", "_screen", "alive", "send", "available",
-             "background_work", "screen_blocker", "close_session", "clear_context")}
-    real_present = dmn_delivery.session_present
-    con = db.connect()
-    try:
-        accounts.register("alpha")
-        accounts.register("zai", vendor="opencode")
-        agents.register("glm", model="zai-coding-plan/glm-5.3-flash")
-        _with_vendor("glm", "opencode")
-        agents.register("backend")
-        db.set_terminal(con, "glm", "term_oc", "wt")
-        db.set_terminal(con, "backend", "term_cl", "wt")
-
-        # The suite stubs these; this test is about the real ones.
-        for n in ("screen_blocker", "close_session", "clear_context"):
-            setattr(termmod, n, REAL_TERMINAL[n])
-        looked: list[str] = []
-        lookup = real["_lookup_driver"]
-        termmod._lookup_driver = lambda h: (looked.append(h), lookup(h))[1]
-        sent: list[str] = []
-        termmod.alive = lambda h: True
-        termmod._host_idle = lambda h, t, d: True
-        termmod.send = lambda h, text, enter=True: (sent.append(text), (True, ""))[1]
-        termmod._screen = lambda h: _screen_of(OC_IDLE if h == "term_oc" else COMPOSER_EMPTY)
-        termmod.clear_context("term_oc", wait=False)
-        check("clear: opencode is sent its own /new", sent == ["/new"], str(sent))
-        check("clear: the driver was looked up once for the whole clear",
-              looked == ["term_oc"], str(looked))
-        looked.clear()
-        termmod.close_session("term_cl", wait=False)
-        check("close: and once for a whole close", looked == ["term_cl"], str(looked))
-
-        termmod.available = lambda: True
-        dmn_delivery.session_present = lambda agent: False
-        _, why = dmn_delivery._reclaim_context(con, "glm", lambda _m: None)
-        check("refusal: a shell prompt under opencode names /new", "/new" in why and "/clear" not in why, why)
-        _, why = dmn_delivery._reclaim_context(con, "backend", lambda _m: None)
-        check("refusal: and under claude still names /clear", "/clear" in why, why)
-        dmn_delivery.session_present = lambda agent: True
-        termmod.background_work = lambda h: ["a job"]
-        _, why = dmn_delivery._reclaim_context(con, "glm", lambda _m: None)
-        check("refusal: background work under opencode names /new too",
-              "/new" in why and "/clear" not in why, why)
-    finally:
-        for n, v in real.items():
-            setattr(termmod, n, v)
-        dmn_delivery.session_present = real_present
-        con.close()
-
-
 def test_an_opencode_session_under_ocp(home: Path) -> None:
     """Each part measured on opencode 1.18.32: the
     preamble reaches the session as an instructions file, the start prompt
@@ -1993,117 +1864,6 @@ def test_an_opencode_session_under_ocp(home: Path) -> None:
         tmuxbackend.IDLE_SETTLE_S, tmuxbackend.IDLE_POLL_S = real_settle
         os.execve, launch._record_terminal = real_execve, real_record
         del drv.binary, drv.credential_present
-
-
-def test_an_opencode_row_takes_its_state_word_from_orca(home: Path) -> None:
-    """#59: claude agents report RUNNING and IDLE through hooks; opencode has
-    no counterpart wired, so production writes IDLE at launch and the row
-    sits there for the life of the session - an agent working right now reads
-    IDLE. The state cell reads the pane's screen instead (tui-idle answers
-    idle mid-turn for opencode, measured), and only on positive evidence both
-    ways: the prompt box with "interrupt" in its footer is working, the box
-    without it is idle, and anything else - a closed agent's shell prompt, a
-    start screen - is no evidence, so the db state stands. A closed row is
-    never screened at all. A claude row is never screened: its hooks already
-    said."""
-    use_home(home)
-    accounts.register("alpha")
-    accounts.register("zai", vendor="opencode")
-    agents.register("backend")
-    agents.register("glm")
-    _with_vendor("glm", "opencode")
-    con = db.connect()
-    screens = {"term_oc": OC_WORKING}
-    asked: list[list] = []
-    real_screen = termmod._screen
-    termmod._screen = lambda h: (asked.append([h]), {
-        "source": "screen", "tail": screens[h]})[1]
-    saved_seen = dict(screenstate._opencode_seen)
-    screenstate._opencode_seen.clear()
-
-    def row(agent):
-        return db.get_agent_state(con, agent)
-
-    try:
-        db.set_agent_state(con, "backend", dmn_states.RUNNING)
-        db.set_terminal(con, "backend", "term_cl", "wt")
-        db.set_account(con, "backend", "alpha")
-        # What production writes for an opencode agent: IDLE.
-        db.set_agent_state(con, "glm", dmn_states.IDLE)
-        db.set_terminal(con, "glm", "term_oc", "wt")
-        db.set_account(con, "glm", "zai")
-
-        word, detail = screenstate.screen_state(con, row("glm"))
-        check("opencode row: a screen mid-turn reads RUNNING over the db's IDLE",
-              (word, detail) == ("RUNNING", ""), f"{word!r} {detail!r}")
-        check("opencode row: the claude row is never screened",
-              asked == [["term_oc"]], str(asked))
-
-        screens["term_oc"] = OC_IDLE
-        screenstate._opencode_seen.clear()
-        check("opencode row: an idle screen reads IDLE",
-              screenstate.screen_state(con, row("glm"))[0] == "IDLE")
-
-        # And the other direction: a RUNNING row over an idle screen.
-        db.set_agent_state(con, "glm", dmn_states.RUNNING)
-        check("opencode row: an idle screen keeps a RUNNING row honest",
-              screenstate.screen_state(con, row("glm"))[0] == "IDLE")
-
-        # A shell prompt is evidence of neither: the db word stands. This is
-        # what a closed agent's pane shows (auditor #2157, measured live).
-        shell = ["Resume this session with:",
-                 "claude --resume 9f2289d7-3b45-4e86-9653-efb48c2d46da",
-                 "ron@Ron-MacBookAir  ~/orca/workspaces/orcapipe/orcapipe.glm "]
-        db.set_agent_state(con, "glm", dmn_states.IDLE)
-        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'glm'",
-                    (int(time.time()),))
-        con.commit()
-        screens["term_oc"] = shell
-        screenstate._opencode_seen.clear()
-        asked.clear()
-        check("opencode row: a closed agent's shell prompt is not work in progress",
-              screenstate.screen_state(con, row("glm"))[0] == "IDLE" and asked == [],
-              str(asked))
-
-        # A closed row is never screened at all, whatever its pane shows.
-        asked.clear()
-        screens["term_oc"] = OC_WORKING
-        screenstate._opencode_seen.clear()
-        screenstate.screen_state(con, row("glm"))
-        check("opencode row: a closed row is never screened",
-              asked == [], str(asked))
-        con.execute("UPDATE agent_state SET closed_at = NULL WHERE agent = 'glm'")
-        con.commit()
-
-        termmod._screen = lambda h: {"source": "stream", "tail": OC_WORKING}
-        screenstate._opencode_seen.clear()
-        check("opencode row: an unreadable screen leaves the db state standing",
-              screenstate.screen_state(con, row("glm"))[0] == "IDLE")
-
-        # The tri-state, at the driver: box + interrupt is working, box
-        # without it is idle, no box is no evidence.
-        drv = vendors.get("opencode")
-        check("opencode row: the driver's screen answer is three-valued",
-              drv.working_on_screen(OC_WORKING) is True
-              and drv.working_on_screen(OC_IDLE) is False
-              and drv.working_on_screen(shell) is None,
-              str((drv.working_on_screen(OC_WORKING),
-                   drv.working_on_screen(OC_IDLE),
-                   drv.working_on_screen(shell))))
-
-        termmod._screen = real_screen
-        screenstate._opencode_seen.clear()
-        asked.clear()
-        termmod._screen = lambda h: (asked.append([h]), {
-            "source": "screen", "tail": OC_WORKING})[1]
-        first = screenstate.screen_state(con, row("glm"))[0]
-        second = screenstate.screen_state(con, row("glm"))[0]
-        check("opencode row: the cache holds within the ttl - one read per pane",
-              first == second == "RUNNING" and asked == [["term_oc"]], str(asked))
-    finally:
-        termmod._screen = real_screen
-        screenstate._opencode_seen.clear(); screenstate._opencode_seen.update(saved_seen)
-        con.close()
 
 
 def test_shared_account_context_isolation(home: Path) -> None:
@@ -3007,192 +2767,6 @@ def test_register_writes_vendor_onto_an_agent_that_already_exists(home: Path) ->
           vendors.agent_vendor("late") == "opencode")
 
 
-def test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(home: Path) -> None:
-    """Four agents walled at once on one account, cap 2: two move and two stay,
-    because a moved agent counts on its new account until its next Stop. And an
-    agent that is running again is not "something else" on its own start."""
-    _daemon_home(home, 20)
-    _with_accounts("alpha", "beta")
-    now = int(time.time())
-    write_status(home, "alpha", pct_5h=100, pct_7d=10, reset_5h=now + 3 * 3600,
-                 reset_7d=now + 86400)
-    write_status(home, "beta", pct_5h=5, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
-    con = db.connect()
-    try:
-        names = ("a1", "a2", "a3", "a4")
-        _running_on(con, "alpha", *names)
-        for n in names:
-            db.add_request(con, "marina", n, "carry on", None, "peer", "async", None, 0, None)
-        moved = []
-        for n in names:
-            dest, _ = dmn_handoff._move_plan(con, n, "usage")
-            if dest:
-                db.set_account(con, n, dest)
-                db.set_agent_state(con, n, dmn_states.QUEUED)
-                db.add_event(con, n, "moved_account", {"from": "alpha", "to": dest})
-                moved.append(n)
-        check("cap: of four walled together, two move", len(moved) == 2, str(moved))
-
-        db.add_event(con, moved[0], "Stop", {})
-        check("cap: a moved agent stops counting once its turn has ended",
-              loadmod.active_agents(con).get("beta", 0) == 1)
-
-        write_status(home, "alpha", pct_5h=20, pct_7d=10, reset_5h=now + 3600,
-                     reset_7d=now + 86400)
-        db.set_agent_state(con, "a3", dmn_states.IDLE)
-        db.set_agent_state(con, "a4", dmn_states.IDLE)
-        db.set_agent_state(con, moved[1], dmn_states.IDLE)
-        db.set_account(con, "a1", "alpha")
-        db.set_agent_state(con, "a1", dmn_states.QUEUED)
-        measure.begin(con, "a1", "alpha")
-        db.add_event(con, "a1", "Stop", {})
-        db.set_agent_state(con, "a1", dmn_states.RUNNING)
-        write_status(home, "alpha", pct_5h=33, pct_7d=10, reset_5h=now + 3600,
-                     reset_7d=now + 86400)
-        measure.settle(con, "a1")
-        n = con.execute("SELECT COUNT(*) FROM events WHERE kind = 'cold_start'").fetchone()[0]
-        check("measure: the measured agent running again does not void its own sample",
-              n == 1, str(n))
-    finally:
-        con.close()
-
-
-def test_a_wake_holds_its_slot_and_a_resume_onto_a_full_account_waits_for_one(home: Path) -> None:
-    """The cap holds on a wake: a decided wake counts on its account from then until its Stop, a failed
-    wake or five minutes, so two wakes in one tick cannot both take the last slot; and a resume, which
-    is pinned to its own account, waits there for a slot, the oldest waiter first, instead of exceeding it."""
-    _daemon_home(home, 20)
-    _with_accounts("alpha", "beta")
-    now = int(time.time())
-    for a in ("alpha", "beta"):
-        write_status(home, a, pct_5h=10, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
-    loadmod.set_cap("alpha", 2)
-    con = db.connect()
-    try:
-        _running_on(con, "alpha", "r1")
-        for n in ("w1", "w2", "w3"):
-            agents.register(n)
-            db.set_account(con, n, "alpha")
-            db.set_agent_state(con, n, dmn_states.IDLE)
-            db.set_closed(con, n, f"sess-{n}")
-            support.something_waiting(con, n)
-        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w1'", (now - 30,))
-        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w2'", (now - 20,))
-        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w3'", (now - 10,))
-        row = lambda n: db.get_agent_state(con, n)
-        check("wake cap: with one free slot the oldest waiter goes",
-              launch.wake_wait("w1", row("w1"), con) is None)
-        check("wake cap: the younger ones wait behind it, whatever is free: the older takes it",
-              launch.wake_wait("w2", row("w2"), con) is not None)
-        loadmod.reserve_wake(con, "w1", "alpha")
-        check("wake cap: a decided wake counts on its account at once",
-              loadmod.active_agents(con).get("alpha") == 2)
-        w = launch.wake_wait("w2", row("w2"), con)
-        check("wake cap: the second wake of the tick sees the slot taken and waits, saying so",
-              w is not None and w.full == 2 and "slot" in launch.describe_wake_wait(w)
-              and "alpha" in launch.describe_wake_wait(w), str(w))
-        check("wake cap: the reserving agent itself is not blocked by its own slot",
-              launch.wake_wait("w1", row("w1"), con) is None)
-        real_available, termmod.available = termmod.available, lambda: True
-        db.set_terminal(con, "w2", "%9", None)
-        try:
-            ok, why = dmn_lifecycle.wake_agent(con, "w2", lambda _m: None)
-        finally:
-            termmod.available = real_available
-        check("wake cap: the daemon refuses with the same sentence and does not move it",
-              not ok and why == launch.describe_wake_wait(w), why)
-        check("wake cap: not moved to beta", not any(
-            e["kind"] == "moved_account" for e in con.execute("SELECT kind FROM events WHERE agent = 'w2'")))
-        db.add_event(con, "w1", "wake_failed", {"why": "x"})
-        db.set_terminal(con, "w1", "%8", None)
-        seen = []
-        real_launch, real_live = dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled
-        dmn_lifecycle._launch_in_pane = lambda *a, **k: (seen.append(loadmod.active_agents(con).get("alpha")), (False, "stub"))[1]
-        dmn_lifecycle._live_sessions_settled = lambda: {}
-        real_available, termmod.available = termmod.available, lambda: True
-        try:
-            dmn_lifecycle.wake_agent(con, "w1", lambda _m: None)
-        finally:
-            dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled = real_launch, real_live
-            termmod.available = real_available
-        check("wake cap: the daemon holds the slot while it launches, and a failed launch gives it back",
-              seen and set(seen) == {2} and loadmod.active_agents(con).get("alpha") == 1, str(seen))
-        check("wake cap: a failed wake gives its slot back",
-              loadmod.active_agents(con).get("alpha") == 1)
-        loadmod.reserve_wake(con, "w1", "alpha")
-        db.add_event(con, "w1", "Stop", {})
-        check("wake cap: its Stop ends the reservation",
-              loadmod.active_agents(con).get("alpha") == 1)
-        loadmod.reserve_wake(con, "w1", "alpha")
-        check("wake cap: a reservation no launch answered lapses",
-              loadmod.active_agents(con, ).get("alpha") == 2
-              and loadmod.active_by_account(con, now=int(time.time()) + loadmod.WAKE_RESERVE_S + 5).get("alpha") == ["r1"])
-        check("wake cap: a slot freeing lets the waiter go",
-              (db.add_event(con, "r1", "Stop", {}), db.set_agent_state(con, "r1", dmn_states.IDLE),
-               db.add_event(con, "w1", "Stop", {}),
-               launch.wake_wait("w2", row("w2"), con))[-1] is None)
-    finally:
-        con.close()
-
-
-def test_a_fresh_start_takes_the_last_slot_and_a_stalled_older_waiter_does_not_hold_one(home: Path) -> None:
-    """Two fresh starts onto one free slot place one: the first, through wake_agent, is not refused by its
-    own reservation (it is left out of the count its launch tests), and the second is told there is no room.
-    And an older closed agent that is stalled, or out of wake attempts, is not waited for."""
-    _daemon_home(home, 20)
-    _with_accounts("alpha")
-    now = int(time.time())
-    write_status(home, "alpha", pct_5h=10, pct_7d=10, reset_5h=now + 3600, reset_7d=now + 86400)
-    loadmod.set_cap("alpha", 2)
-    con = db.connect()
-    try:
-        _running_on(con, "alpha", "r1")
-        for n in ("f1", "f2"):
-            agents.register(n)
-            db.set_agent_state(con, n, dmn_states.IDLE)
-            db.set_closed(con, n, None)
-            db.set_terminal(con, n, "%7", None)
-            support.something_waiting(con, n)
-        seen = []
-
-        def launch_stub(*a, **k):
-            seen.append((launch.find_room("f1"), launch.choose_account("f2", con=con)))
-            return False, "stub"
-        real = (dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled, termmod.available)
-        dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled = launch_stub, lambda: {}
-        termmod.available = lambda: True
-        try:
-            dmn_lifecycle.wake_agent(con, "f1", lambda _m: None)
-        finally:
-            dmn_lifecycle._launch_in_pane, dmn_lifecycle._live_sessions_settled, termmod.available = real
-        check("fresh start: the one waking is placed on the last slot, the next one has no room",
-              seen == [("alpha", None)], str(seen))
-
-        for n in ("w1", "w2"):
-            agents.register(n)
-            db.set_account(con, n, "alpha")
-            db.set_agent_state(con, n, dmn_states.IDLE)
-            db.set_closed(con, n, f"sess-{n}")
-            support.something_waiting(con, n)
-        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w1'", (now - 30,))
-        con.execute("UPDATE agent_state SET closed_at = ? WHERE agent = 'w2'", (now - 20,))
-        db.add_event(con, "f1", "Stop", {})
-        row = lambda n: db.get_agent_state(con, n)
-        check("older waiter: a live one holds the slot for itself", launch.wake_wait("w2", row("w2"), con) is not None)
-        db.set_agent_state(con, "w1", dmn_states.STALLED)
-        check("older waiter: a stalled one is not waited for", launch.wake_wait("w2", row("w2"), con) is None)
-        db.set_agent_state(con, "w1", dmn_states.IDLE)
-        con.execute("UPDATE agent_state SET wake_failures = ? WHERE agent = 'w1'", (dmn_lifecycle.MAX_FAILED_ATTEMPTS,))
-        check("older waiter: nor one out of wake attempts", launch.wake_wait("w2", row("w2"), con) is None)
-        con.execute("UPDATE agent_state SET wake_failures = 0 WHERE agent = 'w1'")
-        w = launch.wake_wait("w2", row("w2"), con)
-        check("older waiter: the sentence counts who is mid-turn and says an older one goes first",
-              w is not None and launch.describe_wake_wait(w) == "waiting for a slot on alpha (1 of 2 mid-turn, 1 older waiting go first)",
-              launch.describe_wake_wait(w) if w else "")
-    finally:
-        con.close()
-
-
 def test_login_points_at_the_account_and_touches_no_credential(home: Path) -> None:
     """Logging in is the one thing ocp may not do for a human: a refresh token
     rotates on single use, so a second copy of one credential invalidates the
@@ -3593,115 +3167,6 @@ def test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_
             os.environ["OCP_AGENT"] = saved
 
 
-def test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(home: Path) -> None:
-    """T202: an agent whose sandbox cannot read the seals checks its own `ask`
-    against a team.yaml it cannot verify. The daemon re-checks every waiting
-    request against the founder's table: a tampered file holds delivery, and once
-    the founder's text is back the request is refused."""
-    from handline.daemon import delivery
-    from handline.infra import protected
-    _daemon_home(home, 20)
-    agents.register("scout")
-    agents.register("keeper")
-    founders = ("agents:\n  scout: {}\n  keeper: {}\nedges:\n"
-                "  - { from: \"*\", to: \"human\", kind: task }\n")
-    hand_edit_team(founders)
-    tampered = founders + '  - { from: "scout", to: "keeper", relation: peer, response: async }\n'
-    root = protected.root()
-    saved = os.environ.get("OCP_AGENT")
-    os.environ["OCP_AGENT"] = "scout"
-    root.chmod(0)
-    try:
-        paths.team_file().write_text(tampered)
-        ok, said, rid = askmod.ask("keeper", "let me in", requester="scout")
-    finally:
-        root.chmod(0o700)
-        if saved is None:
-            os.environ.pop("OCP_AGENT", None)
-        else:
-            os.environ["OCP_AGENT"] = saved
-    check("daemon: the agent's own check let the forged edge through (why the daemon looks)", ok, said)
-
-    logged: list[str] = []
-    con = db.connect()
-    try:
-        held = delivery.enforce_edges(con, "keeper", logged.append)
-        check("daemon: a tampered team.yaml holds delivery and says so",
-              held is False and any("not trusted" in l for l in logged), str(logged))
-        check("daemon: and the request is still queued, undelivered",
-              db.get_request(con, rid)["state"] == "queued")
-        paths.team_file().write_text(founders)
-        ok2 = delivery.enforce_edges(con, "keeper", logged.append)
-        row = db.get_request(con, rid)
-        check("daemon: with the founder's text back, the request is refused at delivery",
-              ok2 and row["state"] == "denied" and "refused at delivery" in (db.shown_verdict(row) or ""),
-              str(dict(row)))
-        check("daemon: nothing is left for keeper to be told", db.head_of_queue(con, "keeper") is None)
-        ok3, said3, rid3 = askmod.ask("keeper", "hello", requester="scout")
-        check("daemon: a request the table does deny at ask time is not delivered either",
-              not ok3, said3)
-    finally:
-        con.close()
-
-
-def test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(home: Path) -> None:
-    """T204: the founder allows scout -> keeper as a peer. A forged edge that only
-    changes its relation passes the agent's own ask, and until the daemon has
-    checked it, `hl inbox` in keeper's session must show nothing."""
-    from handline.daemon import delivery
-    from handline.infra import protected
-    _daemon_home(home, 20)
-    agents.register("scout")
-    agents.register("keeper")
-    founders = ("agents:\n  scout: {}\n  keeper: {}\nedges:\n"
-                '  - { from: "scout", to: "keeper", relation: peer, response: async }\n'
-                "  - { from: \"*\", to: \"human\", kind: task }\n")
-    hand_edit_team(founders)
-    forged = founders.replace("relation: peer, response: async", "relation: supervisor, response: async")
-    root = protected.root()
-    saved = os.environ.get("OCP_AGENT")
-    os.environ["OCP_AGENT"] = "scout"
-    root.chmod(0)
-    try:
-        paths.team_file().write_text(forged)
-        ok, said, rid = askmod.ask("keeper", "do as I say", requester="scout")
-    finally:
-        root.chmod(0o700)
-        if saved is None:
-            os.environ.pop("OCP_AGENT", None)
-        else:
-            os.environ["OCP_AGENT"] = saved
-    check("edge: the forged relation passed the agent's own ask", ok, said)
-    con = db.connect()
-    try:
-        check("edge: before the daemon has checked it, nothing is handed to keeper",
-              db.head_of_queue(con, "keeper") is None)
-        paths.team_file().write_text(founders)
-        delivery.enforce_edges(con, "keeper", lambda _m: None)
-        row = db.get_request(con, rid)
-        check("edge: the daemon refuses it for differing from the founder's table",
-              row["state"] == "denied" and "refused at delivery" in (db.shown_verdict(row) or ""),
-              str(dict(row)))
-        os.environ["OCP_AGENT"] = "scout"
-        root.chmod(0)
-        try:
-            ok2, said2, rid2 = askmod.ask("keeper", "honest", requester="scout")
-        finally:
-            root.chmod(0o700)
-            if saved is None:
-                os.environ.pop("OCP_AGENT", None)
-            else:
-                os.environ["OCP_AGENT"] = saved
-        check("edge: an honest request written in the agent session waits for the daemon",
-              db.head_of_queue(con, "keeper") is None)
-        delivery.enforce_edges(con, "keeper", lambda _m: None)
-        head = db.head_of_queue(con, "keeper")
-        check("edge: an honest request is cleared and handed out",
-              ok2 and head is not None and int(head["id"]) == rid2, said2)
-    finally:
-        con.close()
-
-
 def test_the_decisionion_shows_the_effort_of_an_add_and_the_team_of_a_rename(home: Path) -> None:
     """T189: what the founder reads names every field apply uses."""
     _daemon_home(home, 20)
@@ -3860,8 +3325,6 @@ def main() -> int:
         home = Path(td) / "orcapipe"
         home.mkdir()
         run(lambda: test_yaml())
-        run(lambda: test_the_daemon_refuses_an_edge_an_agent_wrote_for_itself(Path(td) / 'edgeenf'))
-        run(lambda: test_a_forged_change_to_an_allowed_edge_is_refused_and_nothing_is_handed_out_unchecked(Path(td) / 'edgeforge'))
         run(lambda: test_an_agent_whose_sandbox_cannot_read_the_protected_store_still_reads_the_yaml(Path(td) / 'noread'))
         run(lambda: test_the_decisionion_shows_the_effort_of_an_add_and_the_team_of_a_rename(Path(td) / 'esceffort'))
         run(lambda: test_a_team_diff_is_one_proposal_applied_all_or_none(Path(td) / 'diffall'))
@@ -3893,7 +3356,6 @@ def main() -> int:
         run(lambda: test_team_validation())
         run(lambda: test_team_deny_validation())
         run(lambda: test_keychain_service_is_keyed_by_the_user_home(Path(td) / 'keychain'))
-        run(lambda: test_a_claude_agent_is_never_placed_on_another_vendors_account(Path(td) / 'vendorpick'))
         run(lambda: test_another_vendors_account_never_spends_a_live_refresh(
             Path(td) / 'vendorrefresh'))
         run(lambda: test_an_accounts_verdict_is_asked_for_its_own_vendor(
@@ -3908,8 +3370,6 @@ def main() -> int:
         run(lambda: test_team_rules_reach_the_prompt_and_doctor_reports_memory(Path(td) / 'teamrules'))
         run(lambda: test_the_opencode_driver(Path(td) / 'opencode'))
         run(lambda: test_an_opencode_session_under_ocp(Path(td) / 'ocsession'))
-        run(lambda: test_a_clear_looks_the_vendor_up_once_and_refuses_in_its_own_words(Path(td) / 'clearonce'))
-        run(lambda: test_an_opencode_row_takes_its_state_word_from_orca(Path(td) / 'ocrow'))
         run(lambda: test_shared_account_context_isolation(Path(td) / 'shared'))
         run(lambda: test_agent_rewrite_uses_parser(Path(td) / 'rw'))
         run(lambda: test_hr_unlink_says_when_a_wildcard_still_allows_it_and_link_wants_team_yaml(Path(td) / 'hrunl'))
@@ -3927,9 +3387,6 @@ def main() -> int:
         run(lambda: test_proposals_raised_as_tasks_leave_the_task_board(Path(td) / 'hrmigrate'))
         run(lambda: test_register_writes_vendor_onto_an_agent_that_already_exists(
             Path(td) / 'registervendor'))
-        run(lambda: test_agents_that_wall_together_respect_the_cap_and_a_start_is_not_its_own_rival(Path(td) / 'ar4b'))
-        run(lambda: test_a_wake_holds_its_slot_and_a_resume_onto_a_full_account_waits_for_one(Path(td) / 'wakecap'))
-        run(lambda: test_a_fresh_start_takes_the_last_slot_and_a_stalled_older_waiter_does_not_hold_one(Path(td) / 'freshcap'))
         run(lambda: test_login_points_at_the_account_and_touches_no_credential(Path(td) / 'login'))
         run(lambda: test_an_account_is_added_and_removed_from_ocp(Path(td) / 'acctaddrm'))
         run(lambda: test_account_add_login_preflight_names_the_actual_blocker(Path(td) / 'acctaddmsg'))

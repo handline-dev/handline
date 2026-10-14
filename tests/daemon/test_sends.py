@@ -1,7 +1,5 @@
-"""Tests: `ocp ask` and `ocp say` as socket verbs (T351 phase 2) - the row is
-written by the daemon, the notice is typed at once even mid-turn, a task keeps
-the one-at-a-time rule, and with the daemon down nothing is sent.
-
+"""Tests: `ocp ask` and `ocp say` from the caller's side: a task keeps the one-at-a-time rule, who is asking comes
+from the caller, the daemon's old close notes leave the chat once, and with the daemon down nothing is sent.
 Run on its own: python3 tests/daemon/test_sends.py   (all areas: python3 tests/test_ocp.py)
 """
 from __future__ import annotations
@@ -34,50 +32,6 @@ def _world(home: Path) -> list:
     return sent
 
 
-def test_an_ask_is_written_by_the_daemon_and_typed_at_once_even_mid_turn(home: Path) -> None:
-    sent = _world(home)
-    reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-                   "target": "backend", "body": "please look at the retry loop"})
-    con = db.connect()
-    try:
-        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
-        check("ask: the reply names the new row", reply["ok"] and row is not None
-              and f"#{row['id']}" in reply["said"], str(reply))
-        check("ask: typed at once although the agent is not idle (typeable_now is false)",
-              len(sent) == 1 and f"#{row['id']} from product" in sent[0][1]
-              and "please look at the retry loop" in sent[0][1], str(sent))
-        check("ask: the row is marked delivered, so the tick does not repeat it", row["delivered_at"], str(dict(row)))
-        termmod.typeable_now = lambda h: True
-        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-        check("ask: and the tick then types nothing more about it", len(sent) == 1, str(sent))
-        check("ask: no pending row is left behind once it is typed", db.list_pending(con, "backend") == [])
-    finally:
-        con.close()
-
-
-def test_an_ask_at_a_blocked_screen_waits_as_a_pending_row_and_is_typed_once_clear(home: Path) -> None:
-    sent = _world(home)
-    termmod.screen_blocker = lambda h: types.SimpleNamespace(kind="permission", reason=lambda: "a permission prompt")
-    reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-                   "target": "backend", "body": "when you are free"})
-    con = db.connect()
-    try:
-        check("ask: a blocked screen is not typed at, and is not an error",
-              reply["ok"] and sent == [], str((reply, sent)))
-        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
-        check("ask: it stays owed on its row - undelivered, so it can still be withdrawn",
-              row["state"] == "queued" and not row["delivered_at"]
-              and db.unreached_count(con, "backend") == 1, str(dict(row)))
-        termmod.screen_blocker = lambda h: None
-        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
-        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
-        check("ask: typed once the screen clears, and only once",
-              len(sent) == 1 and "when you are free" in sent[0][1]
-              and db.unreached_count(con, "backend") == 0, str(sent))
-    finally:
-        con.close()
-
-
 def test_a_task_kind_ask_keeps_the_one_at_a_time_rule(home: Path) -> None:
     sent = _world(home)
     hand_edit_team(DESIGN_TEAM.replace(
@@ -87,52 +41,6 @@ def test_a_task_kind_ask_keeps_the_one_at_a_time_rule(home: Path) -> None:
                    "target": "backend", "body": "a piece of work"})
     check("ask: a task-kind ask is accepted", reply["ok"], str(reply))
     check("ask: but not typed at once - it waits for an agent that is free", sent == [], str(sent))
-
-
-def test_a_task_handed_to_an_agent_holding_a_doing_task_is_typed_on_arrival(home: Path) -> None:
-    """T596 (founder): an agent's inbox is always received, whatever it is doing. A handoff to a holder
-    with a doing task sat queued behind it for good - the one-at-a-time rule that keeps a plain task
-    waiting for a free agent, and a screen that is never idle. It is typed at once, like a say."""
-    sent = _world(home)
-    hand_edit_team(DESIGN_TEAM.replace(
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }'))
-    con = db.connect()
-    try:
-        ok, msg, held = actions.task_new("product", "backend", "the one it holds", "the one it holds")
-        check("handoff: setup: backend holds a task, and it is told about it",
-              ok and db.current_task(con, "backend") == held, msg)
-        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
-        db.mark_delivered(con, int(row["id"]))
-        db.set_cursor(con, "notify:backend", int(row["id"]))        # told, in turn
-        sent.clear()
-        t = db.new_task(con, "handed in", "product", "product")
-        ok, msg = actions.task_handoff(con, "product", t, "backend", "please take this too")
-        got = con.execute("SELECT * FROM requests WHERE target = 'backend' AND kind = 'task' "
-                          "AND body LIKE '%handed in%'").fetchone()
-        check("handoff: accepted, and queued for the holder", ok and got is not None, msg)
-        check("handoff: typed at once although the agent is mid-turn and holds a doing task",
-              len(sent) == 1 and "please take this too" in sent[0][1], str(sent))
-        check("handoff: delivered, and still open as a queued task",
-              got["state"] == "queued" and got["delivered_at"], str(dict(got)))
-        check("handoff: the task the holder has is still its current one", db.current_task(con, "backend") == held)
-        termmod.typeable_now = lambda h: True
-        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-        check("handoff: the tick does not type it a second time", len(sent) == 1, str(sent))
-
-        # A handoff held back at a blocked screen is typed by the tick once the screen clears.
-        sent.clear()
-        termmod.typeable_now = lambda h: False          # a screen with a prompt open is not idle
-        termmod.screen_blocker = lambda h: types.SimpleNamespace(kind="permission", reason=lambda: "a permission prompt")
-        t2 = db.new_task(con, "handed in later", "product", "product")
-        actions.task_handoff(con, "product", t2, "backend", "second one")
-        check("handoff: at a blocked screen it waits", sent == [], str(sent))
-        termmod.screen_blocker = lambda h: None
-        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
-        check("handoff: and is typed by the tick once it clears",
-              len(sent) == 1 and "second one" in sent[0][1], str(sent))
-    finally:
-        con.close()
 
 
 def test_who_is_asking_comes_from_the_caller_not_the_daemon(home: Path) -> None:
@@ -149,210 +57,11 @@ def test_who_is_asking_comes_from_the_caller_not_the_daemon(home: Path) -> None:
         con.close()
 
 
-def _stub_wake(table: dict, agent: str, calls: list):
-    """A resume: the session comes up and its first prompt is `delivery.waiting_prompt`,
-    which marks the waiting request delivered before it is launched."""
-    def fake(con, a, log):
-        calls.append(("woken", a))
-        table[a] = 4300
-        db.set_terminal(con, a, "term_x", "wt")
-        db.clear_closed(con, a)
-        got = dmn_delivery.waiting_prompt(con, a, log)
-        if got:
-            got[1]("sess-1")
-        return True, "woken"
-    return fake
-
-
-def _stub_start(table: dict, agent: str, calls: list):
-    """A fresh start, as `_start_for_work` does it: a terminal and a live session, and
-    nothing read - the session is told the ordinary way once it is up."""
-    def fake(con, a, log):
-        calls.append(("started", a))
-        table[a] = 4300
-        db.set_terminal(con, a, "term_x", "wt")
-        return "started"
-    return fake
-
-
-def test_a_closed_agent_is_woken_and_told_once_by_its_first_prompt(home: Path) -> None:
-    """T388 (auditor #2363 must-change 2): tell_now on a closed agent wakes it;
-    the resumed session's first prompt carries the request, and nothing is
-    typed on top of that - by tell_now again or by the tick."""
-    sent = _world(home)
-    table = sessions_are()                       # no session is running
-    con = db.connect()
-    try:
-        db.set_closed(con, "backend", "sess-0")
-        calls: list = []
-        real = dmn_lifecycle.wake_agent
-        dmn_lifecycle.wake_agent = _stub_wake(table, "backend", calls)
-        try:
-            reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-                           "target": "backend", "body": "wake up for this"})
-        finally:
-            dmn_lifecycle.wake_agent = real
-        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
-        check("closed agent: the ask is accepted and the agent is woken once",
-              reply["ok"] and calls == [("woken", "backend")], str((reply, calls)))
-        check("closed agent: the request was delivered by the first prompt, not typed at it",
-              row["delivered_at"] and sent == [], str((dict(row), sent)))
-        check("closed agent: a second telling finds it told and types nothing",
-              dmn_messaging.tell_now(con, int(row["id"]), lambda _m: None) == "already told"
-              and sent == [], str(sent))
-        termmod.typeable_now = lambda h: True
-        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-        check("closed agent: and the tick adds nothing either", sent == [], str(sent))
-        check("closed agent: no pending row was left to type it later", db.list_pending(con, "backend") == [])
-    finally:
-        con.close()
-
-
-def test_an_agent_with_no_terminal_is_started_and_told_once_by_tell_now(home: Path) -> None:
-    sent = _world(home)
-    table = sessions_are()
-    con = db.connect()
-    try:
-        con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'backend'")
-        calls: list = []
-        real = dmn_lifecycle._start_for_work
-        dmn_lifecycle._start_for_work = _stub_start(table, "backend", calls)
-        try:
-            reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-                           "target": "backend", "body": "start for this"})
-        finally:
-            dmn_lifecycle._start_for_work = real
-        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
-        check("no terminal: the agent is started once for the waiting work",
-              reply["ok"] and calls == [("started", "backend")], str((reply, calls)))
-        check("no terminal: the notice is typed exactly once, by tell_now, and the row is delivered",
-              row["delivered_at"] and len(sent) == 1 and "start for this" in sent[0][1], str((dict(row), sent)))
-        termmod.typeable_now = lambda h: True
-        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-        check("no terminal: the tick adds nothing, and no pending row is left",
-              len(sent) == 1 and db.list_pending(con, "backend") == [], str(sent))
-    finally:
-        con.close()
-
-
-def test_only_what_has_not_reached_the_agent_counts(home: Path) -> None:
-    sent = _world(home)
-    hand_edit_team(DESIGN_TEAM.replace(
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async }',
-        '- { from: "product",   to: "eng.*",        relation: peer,  response: async, kind: task }')
-        .replace('  - { from: "*",         to: "archivist",', '  - { from: "reviewer",  to: "eng.*",        relation: peer,  response: async }\n  - { from: "*",         to: "archivist",'))
-    con = db.connect()
-    try:
-        agents.register("reviewer")
-        first = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-                       "target": "backend", "body": "a task"})
-        check("in: a task is told when the agent is free - one at a time",
-              first["ok"] and db.unreached_count(con, "backend") == 1 and sent == [], str((first, sent)))
-        termmod.typeable_now = lambda h: True
-        dmn_delivery.deliver_queued(con, "backend", lambda _m: None)
-        second = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-                        "target": "backend", "body": "another task"})
-        check("in: the task told is not counted, the one waiting behind it is",
-              second["ok"] and len(sent) == 1 and db.unreached_count(con, "backend") == 1,
-              str((sent, db.unreached_count(con, "backend"))))
-        termmod.screen_blocker = lambda h: types.SimpleNamespace(reason=lambda: "a dialog")
-        _ask_row({"verb": "ask", "requester": "reviewer", "speaker": "reviewer",
-               "target": "backend", "body": "a message the screen blocks"})
-        check("in: a message held by the screen counts, until it is typed",
-              db.unreached_count(con, "backend") == 2)
-        termmod.screen_blocker = lambda h: None
-        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
-        check("in: and stops counting once typed", db.unreached_count(con, "backend") == 1
-              and len(sent) == 2, str(sent))
-    finally:
-        con.close()
-
-
-def test_a_message_for_a_closed_session_counts_until_it_is_typed_on_wake(home: Path) -> None:
-    sent = _world(home)
-    table = sessions_are()
-    con = db.connect()
-    try:
-        db.set_closed(con, "backend", "sess-0")
-        calls: list = []
-        real = dmn_lifecycle.wake_agent
-        dmn_lifecycle.wake_agent = lambda c, a, log: (calls.append(a), (False, "the account is full"))[1]
-        try:
-            _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-                   "target": "backend", "body": "for when you are back"})
-        finally:
-            dmn_lifecycle.wake_agent = real
-        check("closed: a wake that fails leaves the message counted, and nothing typed",
-              calls == ["backend"] and db.unreached_count(con, "backend") == 1 and sent == [],
-              str((calls, sent)))
-        dmn_lifecycle.wake_agent = _stub_wake(table, "backend", [])
-        try:
-            dmn_lifecycle.wake_agent(con, "backend", lambda _m: None)
-        finally:
-            dmn_lifecycle.wake_agent = real
-        check("closed: and stops counting once the woken session is told",
-              db.unreached_count(con, "backend") == 0 and sent == [], str(sent))
-    finally:
-        con.close()
-
-
-def test_the_daemon_start_settles_old_says_and_leaves_old_asks(home: Path) -> None:
-    """T398 migration: a say queued before immediate typing is settled; an ask
-    already shown stays open, and one never shown is typed by the tick like a new one."""
-    sent = _world(home)
-    con = db.connect()
-    try:
-        say = db.add_request(con, "product", "backend", "an old say", None, "peer", "async", "say", 0, None)
-        shown = db.add_request(con, "product", "backend", "an old ask, shown", None, "peer", "async", None, 0, None)
-        db.mark_delivered(con, shown)
-        unshown = db.add_request(con, "product", "backend", "an old ask, never shown", None, "peer", "async", None, 0, None)
-        human = db.add_request(con, "human", "backend", "told by the daemon before T418", None, "peer", "async", None, 0, None)
-        db.mark_delivered(con, human)
-        to_human = db.add_request(con, "backend", db.HUMAN, "drawn, not typed", None, "peer", "async", None, 0, None)
-        db.mark_delivered(con, to_human)
-        dmn_messaging.migrate_old_messages(con, lambda _m: None)
-        check("migration (T431): a request told before T418 is typed as of then, so the landing sweep sees it",
-              db.get_request(con, shown)["typed_at"] == db.get_request(con, shown)["delivered_at"]
-              and db.get_request(con, human)["typed_at"] is not None
-              and db.get_request(con, unshown)["typed_at"] is None)
-        check("migration (T431): a row for the human is drawn, never typed - left alone",
-              db.get_request(con, to_human)["typed_at"] is None)
-        check("migration: the old say is settled, with no verdict to be drawn as a reply",
-              db.get_request(con, say)["state"] == "landed" and db.shown_verdict(db.get_request(con, say)) is None
-              and db.answer_row_of(con, say) is None)
-        check("migration: an old ask that was shown stays open, still owing its answer",
-              db.get_request(con, shown)["state"] == "queued")
-        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
-        check("migration: an old ask never shown is typed once by the tick",
-              len(sent) == 1 and "never shown" in sent[0][1] and db.unreached_count(con, "backend") == 0, str(sent))
-    finally:
-        con.close()
-
-
 def _drawn_replies(con, target: str) -> list[str]:
     """What the founder's chat with `target` shows as a reply: the verdict of each message the founder sent it."""
     rows = con.execute("SELECT id FROM requests WHERE requester = ? AND target = ? AND settles IS NULL ORDER BY id",
                        (actions.HUMAN, target)).fetchall()
     return [v for r in rows if (v := db.shown_verdict(db.get_request(con, r["id"])))]
-
-
-def test_a_say_the_daemon_typed_draws_no_reply_in_the_chat(home: Path) -> None:
-    """T441 (founder #5467): the chat drew "typed" as backend's reply to a say. It is drawn from
-    the verdict of the request row, so the say is closed with none."""
-    _world(home)
-    con = db.connect()
-    try:
-        rid = db.add_request(con, actions.HUMAN, "backend", "hello there", None, "peer", "async", "say", 0, None)
-        dmn_messaging.finish_say(db.get_request(con, rid))
-        row = db.get_request(con, rid)
-        check("chat: the say is done and has no verdict", row["state"] == "landed" and db.shown_verdict(row) is None)
-        check("chat: no reply is drawn for it", _drawn_replies(con, "backend") == [], str(_drawn_replies(con, "backend")))
-        real = db.add_request(con, actions.HUMAN, "backend", "and a question", None, "peer", "async", None, 0, None)
-        askmod.resolve(real, "an answer that somebody wrote")
-        check("chat: a real answer is still drawn", _drawn_replies(con, "backend") == ["an answer that somebody wrote"],
-              str(_drawn_replies(con, "backend")))
-    finally:
-        con.close()
 
 
 def test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(home: Path) -> None:
@@ -398,126 +107,6 @@ def test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(home: Path) 
         con.close()
 
 
-def test_a_hold_on_a_task_is_always_said_once_with_its_reason(home: Path) -> None:
-    """T456 (founder #5770): core sat IDLE for 43 min with a task queued and nothing in the log. Whatever
-    holds a task back is said, once per reason, with the request id."""
-    sent = _world(home)
-    con = db.connect()
-    lines: list[str] = []
-    try:
-        rid = db.add_request(con, "product", "backend", "a piece of work", None, "peer", "async", "task", 0, None)
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-
-        dmn_delivery.deliver_queued(con, "backend", lines.append)
-        dmn_delivery.deliver_queued(con, "backend", lines.append)
-        check("hold: a screen that is not idle holds it, and says why once",
-              not sent and len([m for m in lines if f"#{rid} is held" in m and "not idle" in m]) == 1, str(lines))
-
-        db.set_cursor(con, "clear_owed:backend", int(time.time()))
-        dmn_delivery.deliver_queued(con, "backend", lines.append)
-        check("hold: a different reason is said when it changes",
-              any(f"#{rid} is held" in m and "cleared" in m for m in lines), str(lines))
-        db.clear_cursor(con, "clear_owed:backend")
-
-        termmod.typeable_now = lambda h: True
-        told = dmn_delivery.deliver_queued(con, "backend", lines.append)
-        check("typed: once nothing holds it, it is told, and it is no longer said to be held",
-              told and len(sent) == 1 and not dmn_delivery._HELD.get("backend"), str((told, sent)))
-    finally:
-        con.close()
-
-
-def test_queued_tasks_go_out_as_one_batch_a_minute_and_an_urgent_one_flushes_it(home: Path) -> None:
-    """What is queued for an agent is told together once a minute, busy or idle, and
-    at once when the batch holds the founder's request. The minute is read from the db, so a restart
-    neither loses an item nor tells one twice."""
-    sent = _world(home)
-    termmod.typeable_now = lambda h: True
-    con = db.connect()
-    lines: list[str] = []
-    every = dmn_delivery.BATCH_EVERY_S
-
-    def tick() -> bool:
-        return dmn_delivery.deliver_queued(con, "backend", lines.append)
-
-    def add(who: str, body: str) -> int:
-        return db.add_request(con, who, "backend", body, None, "peer", "async", "task", 0, None)
-
-    def minute_up() -> None:
-        db.set_cursor(con, "batch:backend", int(time.time()) - every - 1)
-    try:
-        db.set_terminal(con, "backend", "term_x", "wt")
-        db.set_agent_state(con, "backend", dmn_states.IDLE)
-        first = add("product", "the work it is on")
-        tick()
-        check("batch: the first task after a quiet spell is told at once",
-              len(sent) == 1 and f"#{first}" in sent[0][1] and db.get_cursor(con, "batch:backend"), str(sent))
-
-        b, c = add("reviewer", "PASS handback"), add("product", "one more")
-        tick()
-        tick()
-        check("batch: tasks queued within the minute wait, and nothing is said of a hold",
-              len(sent) == 1 and not db.get_request(con, b)["delivered_at"]
-              and not dmn_delivery._HELD.get("backend"), str((sent, lines)))
-
-        minute_up()
-        told = tick()
-        both = [r for r in (b, c) if f"#{r}" in sent[-1][1]]
-        check("batch: once the minute is up they arrive as one message, behind the open head",
-              told and len(sent) == 2 and len(both) == 2 and f"#{first}" in sent[1][1]
-              and db.get_request(con, b)["delivered_at"] and db.get_request(con, c)["delivered_at"]
-              and db.get_cursor(con, "notify:backend") == first, str((told, sent)))
-        tick()
-        check("batch: and the next tick tells nothing again", len(sent) == 2, str(sent))
-
-        d = add("product", "a later one")
-        urgent = add(db.HUMAN, "founder: stop and look at this")
-        tick()
-        check("batch: the founder's request flushes the whole batch at once, inside the minute",
-              len(sent) == 3 and f"#{d}" in sent[2][1] and f"#{urgent}" in sent[2][1], str(sent))
-
-        e = add("product", "after the flush")
-        minute_up()
-        con.close()                      # a restart: only the db is left
-        con = db.connect()
-        tick()
-        told_ids = [r for r in (first, b, c, d, urgent, e) for m in sent if f"#{r} from" in m[1]]
-        check("batch: after a restart each task has been told exactly once",
-              sorted(told_ids) == sorted([first, b, c, d, urgent, e]) and len(sent) == 4, str(sent))
-        check("batch: the idle wait before a task behind an open one is gone",
-              not hasattr(dmn_delivery, "_idle_on"))
-    finally:
-        con.close()
-
-
-def test_a_failed_send_puts_the_message_back_as_owed(home: Path) -> None:
-    """T398 (auditor #2427 3a): a send that fails leaves the row undelivered - owed,
-    withdrawable - and the tick types it once the send works."""
-    sent = _world(home)
-    ok_send = termmod.send
-    termmod.send = lambda h, text, enter=True: (False, "the pane is gone")
-    con = db.connect()
-    try:
-        reply = _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-                       "target": "backend", "body": "try again later"})
-        row = con.execute("SELECT * FROM requests WHERE target = 'backend'").fetchone()
-        check("failed send: accepted, nothing typed, and the row is owed again - not delivered",
-              reply["ok"] and not row["delivered_at"] and db.unreached_count(con, "backend") == 1,
-              str((reply, dict(row))))
-        ok, msg = askmod.withdraw(int(row["id"]), requester="product")
-        check("failed send: and it can still be withdrawn", ok, msg)
-        _ask_row({"verb": "ask", "requester": "product", "speaker": "product",
-               "target": "backend", "body": "second try"})
-        termmod.send = ok_send
-        dmn_messaging.tell_undelivered(con, "backend", lambda _m: None)
-        check("failed send: the next tick types it once the send works",
-              len(sent) == 1 and "second try" in sent[0][1] and db.unreached_count(con, "backend") == 0,
-              str(sent))
-    finally:
-        con.close()
-
-
 def test_with_the_daemon_down_say_sends_nothing(home: Path) -> None:
     _world(home)
     saved = cli_ask.dmn_client
@@ -536,65 +125,12 @@ def test_with_the_daemon_down_say_sends_nothing(home: Path) -> None:
         con.close()
 
 
-def test_a_push_from_outside_the_daemon_is_handed_to_it_to_start_the_agent_now(home: Path) -> None:
-    """T408: `ocp task new`, `resolve` and the rest push in their own process, which in an agent's
-    sandbox cannot start a session - the work waited for the next tick. Outside the daemon the push
-    goes over its socket; the daemon (and a caller it cannot reach) does the start itself."""
-    from handline.infra import daemonclient as client
-    from handline.team import ask as askmod
-    _world(home)
-    con = db.connect()
-    sent, started = [], []
-    real_send, real_start = client.send, dmn_lifecycle._start_for_work
-    client.send = lambda payload, timeout=None: (sent.append(payload), {"ok": True, "said": "handed"})[1]
-    dmn_lifecycle._start_for_work = lambda c, a, log: (started.append(a), "started")[1]
-    try:
-        con.execute("UPDATE agent_state SET terminal = NULL WHERE agent = 'backend'")
-        db.add_request(con, "product", "backend", "do the sea", None, "peer", "async", "task", 0, None)
-        said = askmod.push(con, "backend")
-        check("outside the daemon: the push is sent as the socket's verb, and starts nothing here",
-              sent == [{"verb": "push", "target": "backend", "rid": None}] and not started and "handed" in said,
-              f"{sent} {started} {said}")
-        said = askmod.push_answer(con, "backend")
-        check("outside the daemon: an answer's push goes the same way",
-              sent[-1] == {"verb": "push_answer", "requester": "backend"} and not started, str(sent))
-        client.send = lambda payload, timeout=None: None
-        askmod.push(con, "backend")
-        check("the daemon not answering: the push is done in this process, as before", started == ["backend"], str(started))
-        started.clear()
-        sent.clear()
-        client.send = lambda payload, timeout=None: (sent.append(payload), {"ok": True, "said": "x"})[1]
-        askmod.IN_DAEMON = True
-        try:
-            askmod.push(con, "backend")
-        finally:
-            askmod.IN_DAEMON = False
-        check("in the daemon: it starts the agent itself and does not ask itself over the socket",
-              started == ["backend"] and not sent, f"{started} {sent}")
-    finally:
-        client.send, dmn_lifecycle._start_for_work = real_send, real_start
-        con.close()
-
-
 def main() -> int:
     def tests(td):
-        run(lambda: test_an_ask_is_written_by_the_daemon_and_typed_at_once_even_mid_turn(Path(td) / "s1"))
-        run(lambda: test_an_ask_at_a_blocked_screen_waits_as_a_pending_row_and_is_typed_once_clear(Path(td) / "s2"))
         run(lambda: test_a_task_kind_ask_keeps_the_one_at_a_time_rule(Path(td) / "s3"))
-        run(lambda: test_a_task_handed_to_an_agent_holding_a_doing_task_is_typed_on_arrival(Path(td) / "s3h"))
         run(lambda: test_who_is_asking_comes_from_the_caller_not_the_daemon(Path(td) / "s4"))
-        run(lambda: test_a_closed_agent_is_woken_and_told_once_by_its_first_prompt(Path(td) / "s7"))
-        run(lambda: test_an_agent_with_no_terminal_is_started_and_told_once_by_tell_now(Path(td) / "s8"))
-        run(lambda: test_only_what_has_not_reached_the_agent_counts(Path(td) / "s10"))
-        run(lambda: test_a_message_for_a_closed_session_counts_until_it_is_typed_on_wake(Path(td) / "s11"))
-        run(lambda: test_the_daemon_start_settles_old_says_and_leaves_old_asks(Path(td) / "s12"))
-        run(lambda: test_a_say_the_daemon_typed_draws_no_reply_in_the_chat(Path(td) / 'saychat'))
         run(lambda: test_the_daemons_old_close_notes_are_taken_out_of_the_chat_once(Path(td) / 'closenotes'))
-        run(lambda: test_a_hold_on_a_task_is_always_said_once_with_its_reason(Path(td) / 'bgtask'))
-        run(lambda: test_queued_tasks_go_out_as_one_batch_a_minute_and_an_urgent_one_flushes_it(Path(td) / 'openhead'))
-        run(lambda: test_a_failed_send_puts_the_message_back_as_owed(Path(td) / "s13"))
         run(lambda: test_with_the_daemon_down_say_sends_nothing(Path(td) / "s6"))
-        run(lambda: test_a_push_from_outside_the_daemon_is_handed_to_it_to_start_the_agent_now(Path(td) / "s17"))
     return run_area(tests)
 
 

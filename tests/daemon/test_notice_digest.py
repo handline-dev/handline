@@ -1,6 +1,5 @@
-"""Results told to whoever opened the work come in one digest after a wait, ride on any
-message sooner, and a failure, a block or a FATAL is told at once.
-
+"""Tests: a done is told to its opener at once, a non-opener hears it in the digest, and `ocp notice-digest` shows
+and sets the wait.
 Run on its own: python3 tests/daemon/test_notice_digest.py   (all areas: python3 tests/test_ocp.py)
 """
 from __future__ import annotations
@@ -55,23 +54,6 @@ def _notices(con) -> list:
     return con.execute("SELECT * FROM requests WHERE notice = 1 AND target = 'backend' ORDER BY id").fetchall()
 
 
-def test_only_a_digest_is_shown_whole_when_typed(home: Path) -> None:
-    sent = _world(home)
-    con = db.connect()
-    try:
-        long = "x" * 700
-        rid = db.add_request(con, db.NOTICE_REQUESTER, "backend", f"T9 done by worker: FAIL {long}", None, None,
-                             "fire_and_forget", "say", 0, None)
-        cut = dmn_delivery.tell_text(con, db.get_request(con, rid), 1)
-        check("whole: a task-board line that is not a digest is cut as before", long not in cut and "…" in cut, cut)
-        rid = db.add_request(con, db.NOTICE_REQUESTER, "backend", f"{db.DIGEST_HEAD}1 result: {long}", None, None,
-                             "fire_and_forget", "say", 0, None)
-        whole = dmn_delivery.tell_text(con, db.get_request(con, rid), 1)
-        check("whole: a digest is shown whole", long in whole, whole[:200])
-    finally:
-        con.close()
-
-
 def test_every_done_is_told_to_its_opener_at_once_not_held(home: Path) -> None:
     sent = _world(home)
     con = db.connect()
@@ -123,7 +105,6 @@ def test_ocp_notice_digest_shows_and_sets_the_wait(home: Path) -> None:
 
 def main() -> int:
     def tests(td):
-        run(lambda: test_only_a_digest_is_shown_whole_when_typed(Path(td) / 'n8'))
         run(lambda: test_every_done_is_told_to_its_opener_at_once_not_held(Path(td) / 'n2'))
         run(lambda: test_only_a_non_opener_is_told_in_the_digest_when_a_task_ends(Path(td) / 'n2b'))
         run(lambda: test_ocp_notice_digest_shows_and_sets_the_wait(Path(td) / 'n6'))

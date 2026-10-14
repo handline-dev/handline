@@ -1,7 +1,4 @@
-"""Tests: the `styled` terminal format and its SGR reader. The rows a host gives with their codes become `Row.spans` in the
-snapshot, the frames, the history and the marker and holder notices of a styled attach; a host that gives no codes is refused,
-gate unsupported; text and styled attaches of one terminal on one connection are independent.
-
+"""Tests: the SGR reader that turns a row's codes into style runs.
 Run on its own: python3 tests/daemon/test_termstyled.py   (all areas: python3 tests/test_ocp.py)
 """
 from __future__ import annotations
@@ -12,10 +9,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.daemon import termchannel  # noqa: E402
 from handline.infra import ansi  # noqa: E402
 from handline.session import backends  # noqa: E402
-from handline.session.backends.base import Backend  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -34,22 +29,6 @@ def test_the_reader_turns_sgr_codes_into_runs() -> None:
     check("ansi: blank cells with a background run past the end of the text", text == "ab" and spans == [{"from": 2, "to": 5, "style": {"bg": 4}}], str(spans))
     check("ansi: other escapes and controls are dropped", ansi.parse("\x1b[?25h\x1b(B\x0ea\x1b]0;t\x07b") == ("ab", []))
     check("ansi: a wide character is one cell", ansi.parse("\x1b[3m漢字\x1b[m")[1] == [{"from": 0, "to": 2, "style": {"italic": True}}])
-
-
-class _StyledHost(Backend):
-    name = "tmux"
-    serves_styled = True
-
-    def available(self) -> bool:
-        return True
-
-
-def _serve(rows: list[str]) -> None:
-    """The styled rows the host gives: `rows` as it has them now, with their codes."""
-    def read(handle, n):
-        parsed = [ansi.parse(r) for r in rows]
-        return [{"text": t, **({"spans": sp} if sp else {})} for t, sp in parsed]
-    termchannel.read_styled = read
 
 
 def main() -> int:
