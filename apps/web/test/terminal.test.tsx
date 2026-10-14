@@ -1,12 +1,12 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Terminal } from '@xterm/headless';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@handline/app-core';
 import { DaemonProvider } from '@handline/app-react';
 import { DataProvider, useAgentDetail, type BoxComponent } from '@handline/app-data';
 import { BytesChannel, fromBase64, toBase64, type ByteEvent } from '@handline/client';
-import { setup } from '@handline/fake-daemon/helpers';
+import { second, setup } from '@handline/fake-daemon/helpers';
 import { BytesTab } from '../src/BytesTab.tsx';
 import { clampGrid, gridToSend, guard, isEscapeChord, keySender, paint, terminalOwnsKey, type CreateTerm } from '../src/terminal/core.ts';
 import { KEEP_MS, dropKept, keep } from '../src/terminal/keep.ts';
@@ -208,6 +208,21 @@ describe('which renderer', () => {
 });
 
 describe('the pane', () => {
+  const watchers: (() => void)[] = [];
+  beforeEach(() => {
+    watchers.length = 0;
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: () => void) {
+          watchers.push(cb);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
   let proposed: { cols: number; rows: number } | null = null;
   afterEach(() => void (proposed = null));
   let root: Root | null = null;
@@ -325,6 +340,41 @@ describe('the pane', () => {
     box.querySelector('.xterm-host div')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     await until(() => box.textContent?.includes('Could not take the input: method not found'), 'the reason');
     expect(box.textContent).not.toContain('Click the terminal to type');
+  });
+
+  it('follows the window before any click: asks for its size once the screen is live, and never answers a resize notice with another', async () => {
+    const s = setup();
+    const resize = vi.spyOn(s.client.bytes, 'resize');
+    const take = vi.spyOn(s.client, 'call');
+    proposed = { cols: 100, rows: 30 };
+    const m = await mount(s);
+    await until(() => resize.mock.calls.length > 0, 'the size without a click');
+    expect(resize.mock.calls[0]!.slice(1)).toEqual([100, 30]);
+    expect(take.mock.calls.some(([method]) => method === 'input.take')).toBe(false);
+    await until(() => m.term().cols === 100 && m.term().rows === 30, 'the repaint at the new size');
+    await wait(400); // the snapshot notice of our own resize must not start another
+    expect(resize).toHaveBeenCalledTimes(1);
+    // The window changes: a new size goes, still without a click.
+    proposed = { cols: 120, rows: 40 };
+    watchers.forEach((w) => w());
+    await until(() => resize.mock.calls.length > 1, 'the next size');
+    expect(resize.mock.calls[1]!.slice(1)).toEqual([120, 40]);
+  });
+
+  it('sends no size while another person holds the input, and follows again when they let go', async () => {
+    const s = setup();
+    const other = second(s.daemon, s.net, { client: 'someone-else' });
+    await other.start();
+    await other.call('input.take', { agent: ARCH });
+    const resize = vi.spyOn(s.client.bytes, 'resize');
+    proposed = { cols: 100, rows: 30 };
+    await mount(s);
+    await wait(400);
+    expect(resize).not.toHaveBeenCalled();
+    await other.call('input.release', { agent: ARCH });
+    await until(() => resize.mock.calls.length > 0, 'the size after the release');
+    expect(resize.mock.calls[0]!.slice(1)).toEqual([100, 30]);
+    other.close();
   });
 
   it('takes the keyboard on a click, sends keys to the host, sizes the grid once per burst, and lets go on Ctrl+Shift+E', async () => {

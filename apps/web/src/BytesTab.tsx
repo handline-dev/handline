@@ -93,21 +93,32 @@ export function BytesTab({
       const pane = back?.pane ?? make(stage);
       const quiet = back?.quiet ?? guard(pane.term, (t) => title.to(t));
       let unwritten = 0;
+      let wasLive = false;
       let holding = false,
+        otherHolds = false, // another person holds the input: they size the terminal and this pane only scales its font
         timer: ReturnType<typeof setTimeout> | undefined;
-      /** Holding: the pane asks the host for the grid that fits it. Not holding: the font is scaled to the host's grid. */
+      /** The pane sizes the host unless another person holds the input: the one who holds, or anyone while nobody does. */
+      const sizes = () => !watchOnly && (holding || !otherHolds);
       const sendSize = () => {
         const v = live.current?.view;
-        const g = v && gridToSend(pane.propose(), v);
+        const g = v && v.state === 'live' && sizes() ? gridToSend(pane.propose(), v) : null;
         if (v && g) void store.client.bytes.resize(v, g.cols, g.rows).catch(() => {}); // a refused size leaves the grid as it is
       };
+      /** The window changed (or the pane just went live): ask the host for the grid that fits it, after a short debounce. */
       const layout = () => {
         const v = live.current?.view;
         if (!v) return;
-        if (!holding) return pane.setFontSize(fontFor(el.clientWidth, v.cols));
-        pane.setFontSize(DEFAULT_FONT);
+        if (!sizes()) return pane.setFontSize(fontFor(el.clientWidth, v.cols));
         clearTimeout(timer);
         timer = setTimeout(sendSize, RESIZE_MS);
+        repaint();
+      };
+      /** The host's grid changed, whoever changed it. Never asks for a size: two panes of different sizes would trade sizes for ever. */
+      const repaint = () => {
+        const v = live.current?.view;
+        if (!v) return;
+        const fits = sizes() && gridToSend(pane.propose(), v) === null;
+        pane.setFontSize(fits ? DEFAULT_FONT : fontFor(el.clientWidth, v.cols));
       };
       const watch = new ResizeObserver(layout);
       const sendKeys = keySender(
@@ -133,25 +144,30 @@ export function BytesTab({
       stage.addEventListener('keydown', leave);
       watch.observe(el);
       let off = () => {};
+      /** The view's state, holders included: what the person sees, and whether this pane sizes the host (on going live and on any change). */
+      const settle = (v: ByteTerminalView) => {
+        setState(v.state);
+        setFailure(v.failure);
+        const now = v.state === 'live' && v.holders.some((h) => h.kind !== 'daemon' && h.name === store.me);
+        const other = v.state === 'live' && v.holders.some((h) => h.kind !== 'daemon' && h.name !== store.me);
+        setHeldBy(v.holders.find((h) => h.kind !== 'daemon' && h.name !== store.me)?.name ?? '');
+        const wentLive = v.state === 'live' && !wasLive;
+        wasLive = v.state === 'live';
+        if (now !== holding || other !== otherHolds || wentLive) {
+          if (now !== holding) setRefused('');
+          holding = now;
+          otherHolds = other;
+          setHolds(now);
+          layout();
+        }
+        if (v.state === 'live') setEverLive(true);
+      };
       const onEvent: ByteListener = (e, v) => {
         if (e.type === 'marker') return pane.mark(markerLabel(e.marker));
-        if (e.type === 'state') {
-          setState(v.state);
-          setFailure(v.failure);
-          const now = v.state === 'live' && v.holders.some((h) => h.kind !== 'daemon' && h.name === store.me);
-          setHeldBy(v.holders.find((h) => h.kind !== 'daemon' && h.name !== store.me)?.name ?? '');
-          if (now !== holding) {
-            holding = now;
-            setHolds(now);
-            setRefused('');
-            layout();
-          }
-          if (v.state === 'live') setEverLive(true);
-          return;
-        }
+        if (e.type === 'state') return void settle(v);
         if (e.type === 'write') unwritten += e.data.length;
         paint(pane.term, v, e, (n) => (unwritten -= n));
-        if (e.type === 'reset') layout();
+        if (e.type === 'reset') repaint();
         if (unwritten > MAX_UNWRITTEN) {
           unwritten = 0;
           void store.client.bytes.resync(v); // a stream the screen cannot keep up with is dropped and taken again
@@ -161,8 +177,8 @@ export function BytesTab({
         const opened = await (handle ? store.client.bytes.openPane(handle, onEvent) : store.client.bytes.open(agent, onEvent));
         off = opened.off;
         live.current = { view: opened.view, pane };
-        setState(opened.view.state);
-        if (opened.view.state === 'live') setEverLive(true);
+        settle(opened.view);
+        layout(); // a state notice that came while opening found no view yet
       } catch (e) {
         setState('failed');
         setFailure((e as { reason?: string }).reason ?? (e as Error).message);
