@@ -589,3 +589,47 @@ func TestBeforeTheCutoverTheTickSweepsNobodysSchedules(t *testing.T) {
 		t.Fatalf("Python still sweeps them: %d messages, %d cursors", n, c)
 	}
 }
+
+func TestTheDiskWatchEntryTellsTheFounderOnceFromTheTaskBoard(t *testing.T) {
+	p, _, _, _ := wired(t)
+	cfg := p.Run.cfg
+	cfg.DiskFree = func(string) (int64, int64, error) { return 13 << 30, 500 << 30, nil }
+	tk := p.Tick(cfg, TickConfig{Stop: make(chan struct{})})
+	var watch *tick.NamedSweep
+	for i, h := range tk.Loop.Housekeeping {
+		if h.Name == "disk watch" {
+			watch = &tk.Loop.Housekeeping[i]
+		}
+	}
+	if watch == nil {
+		t.Fatal("the loop has no disk watch")
+	}
+	told := func() []string {
+		rows, err := p.Sink.DB.Query("SELECT requester, body FROM requests WHERE target = ?", dbpkg.Human)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var from, body string
+			rows.Scan(&from, &body)
+			out = append(out, from+": "+body)
+		}
+		return out
+	}
+	now := time.Now().Unix()
+	if err := watch.Run(p.Sink.DB, now); err != nil {
+		t.Fatal(err)
+	}
+	got := told()
+	if len(got) != 1 || !strings.HasPrefix(got[0], dbpkg.NoticeRequester+": ") || !strings.Contains(got[0], "13 GB free of 500 GB") {
+		t.Fatalf("the founder's inbox after a low volume: %q", got)
+	}
+	if err := watch.Run(p.Sink.DB, now+601); err != nil {
+		t.Fatal(err)
+	}
+	if again := told(); len(again) != 1 {
+		t.Fatalf("a second check at the same level told again: %q", again)
+	}
+}
