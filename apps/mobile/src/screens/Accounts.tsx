@@ -9,6 +9,7 @@ import { useStore } from '@handline/app-react';
 import { classify, sentence, useAccounts, usePending, useServes, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
+import { AccountLogin } from './AccountLogin.tsx';
 import { Loadable } from './Loadable.tsx';
 import { Button } from './parts.tsx';
 import { useWhyNot } from './TaskActions.tsx';
@@ -192,6 +193,7 @@ function Body({ a }: { a: Account }) {
       <Gauge label="week" w={a.weekly} detail />
       <Text style={{ color: c.ink }}>{a.agents.length ? `On it: ${a.agents.join(', ')}` : 'No agents are on it.'}</Text>
       <Settings a={a} />
+      <AccountLogin a={a} />
       <Remove a={a} />
     </ScrollView>
   );
