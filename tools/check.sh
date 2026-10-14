@@ -8,6 +8,7 @@
 # Either of the last two first runs the app checks: `pnpm turbo test typecheck lint` (turbo caches it) when a JS workspace
 # file changed (apps/, web/, packages/, the root JS files, contract/protocol.ts), else only the packages/app-data tests
 # (6 s), whose guards fail on a contract method the apps' tables do not name.
+# A failing step does not stop the ones after it, so one run shows every failure; the exit status is 1 if any failed.
 cd "$(dirname "$0")/.." || exit 1
 # Hook and read parity with the Python daemon, and the Go migrations and method table being current.
 GO_FILES=(tests/daemon/test_go_reads.py tests/daemon/test_go_hooks.py tests/infra/test_go_schema.py tests/infra/test_go_tidy.py)
@@ -15,7 +16,7 @@ base="${1:-main}"
 apps() {
     [ -d node_modules ] || { echo "tools/check.sh: no node_modules for the app checks: run  pnpm install --frozen-lockfile" >&2; return 1; }
     if grep -qE '^(apps|web|packages)/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|contract/package\.json|contract/protocol\.ts)$' <<< "$changed"; then
-        pnpm turbo test typecheck lint
+        pnpm turbo test typecheck lint --continue
     else
         pnpm --dir packages/app-data test
     fi
@@ -32,15 +33,17 @@ while IFS= read -r path; do
         *) kind=python; break ;;
     esac
 done <<< "$changed"
+rc=0
 case "$kind" in
     none) echo "nothing changed against $base: no tests to run" >&2 ;;
     docs) echo "documentation only: the suite is not run" >&2 ;;
     go)
         echo "tools/check.sh: only Go and the apps changed: the Go suite and ${GO_FILES[*]}, no Python logic tests" >&2
-        apps || exit 1
-        tools/test-go.sh || exit 1
-        for f in "${GO_FILES[@]}"; do tools/test.sh "$f" || exit 1; done ;;
+        apps || rc=1
+        tools/test-go.sh || rc=1
+        for f in "${GO_FILES[@]}"; do tools/test.sh "$f" || rc=1; done ;;
     python)
-        apps || exit 1
-        exec tools/suite.sh ;;
+        apps || rc=1
+        tools/suite.sh || rc=1 ;;
 esac
+exit "$rc"
