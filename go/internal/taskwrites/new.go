@@ -135,6 +135,9 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			asked *Asked
 		)
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+			if err := claimImages(tx, home, me, body, "", "body"); err != nil {
+				return nil, err
+			}
 			var err error
 			tid, asked, err = OpenTask(tx, tell, me, NewIn{Owner: owner, Title: clean, Body: body, Secs: secs, Prio: prio, Expects: expects,
 				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter, UI: ui})
@@ -195,6 +198,20 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 		} else if why != "" {
 			return 0, nil, refusal(why)
 		}
+		if hasParent { // the parent waits on the new task, so a blocker that waits on the parent would close a loop
+			loop, err := cyclePath(tx, parent, blocker)
+			if err != nil {
+				return 0, nil, err
+			}
+			if blocker == parent || loop != nil {
+				ring := []string{"the new task"}
+				for _, n := range loop {
+					ring = append(ring, fmt.Sprintf("T%d", n))
+				}
+				ring = append(ring, fmt.Sprintf("T%d", parent), "the new task")
+				return 0, nil, refusal(fmt.Sprintf("a child of T%d cannot wait on T%d: that would be a cycle, %s", parent, blocker, strings.Join(ring, " -> ")))
+			}
+		}
 	}
 	if body == "" {
 		return 0, nil, refusal("a task needs a body: the work itself, what done looks like - the title alone is not a brief")
@@ -205,10 +222,6 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 		} else if !ok {
 			return 0, nil, refusal(fmt.Sprintf("no task T%d", parent))
 		}
-	}
-	kind := "task"
-	if owner == human {
-		kind = ""
 	}
 	open := func(rid int64) error {
 		var err error
@@ -250,9 +263,11 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 				return err
 			}
 		}
-		if hasBlocker { // a wait the new task cannot keep (a loop through its parent) is dropped, as the command drops it
-			if _, err := recordBlock(tx, tid, blocker, me); err != nil {
+		if hasBlocker {
+			if why, err := recordBlock(tx, tid, blocker, me); err != nil {
 				return err
+			} else if why != "" {
+				return refusal(why)
 			}
 		}
 		return nil
@@ -272,7 +287,7 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 	if tell == nil {
 		return 0, nil, fmt.Errorf("task.new needs the supervisor to route its ask")
 	}
-	asked, err = tell.TaskAsk(tx, AskReq{From: me, To: owner, Body: body, Kind: kind, NoCard: true, Notify: true, Within: open})
+	asked, err = tell.TaskAsk(tx, AskReq{From: me, To: owner, Body: body, Kind: "task", NoCard: true, Notify: true, Within: open})
 	if err != nil {
 		return 0, nil, err
 	}

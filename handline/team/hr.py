@@ -159,8 +159,8 @@ def _draft(kind: str, name: str, requester: str, why: str,
         return {}, f"{name} is already an agent"
     if kind in ("retire", "rename", "settings", "context", "schedule") + EDGE_KINDS and name not in registered:
         return {}, f"{name} is not an agent"
-    if kind in EDGE_KINDS:
-        err = _edge_refusal(kind, name, to, response, relation, registered, coming)
+    if kind in EDGE_KINDS:     # an edge only allows: its response and relation are not asked for
+        err = _edge_refusal(kind, name, to, None, None, registered, coming)
         if err:
             return {}, err
     if kind == "rename":
@@ -225,8 +225,7 @@ def _draft(kind: str, name: str, requester: str, why: str,
         "state": "proposed",
     }
     for key, value in (("team", team_name), ("repo", repo), ("model", model),
-                       ("effort", effort), ("to", to), ("vendor", vendor),
-                       ("response", response), ("relation", relation)):
+                       ("effort", effort), ("to", to), ("vendor", vendor)):
         if value:
             prop[key] = value
     for key, value in (sets or {}).items():
@@ -529,11 +528,9 @@ def enact_bundle(changes: list[dict], why: str, con=None) -> tuple[bool, str]:
 class _Snapshot:
     """What a change to the roster can touch, kept so a step that fails puts all of it back: the routing
     table and its backup, the config, the folder of each agent a step names (and what lands in the
-    archive), the seals and grants kept for them in the protected store. The database is put back by
+    archive), the seals kept for them in the protected store. The database is put back by
     the savepoint the steps run in. Orca (a repo, a label) is done after the last step, so a failure
     never reaches it."""
-
-    GRANTS = (agents._SKIP_NS,)
 
     def __init__(self, names: set[str]):
         self.dir = Path(tempfile.mkdtemp(prefix="hr-snapshot-", dir=paths.home()))
@@ -549,8 +546,7 @@ class _Snapshot:
         archive = paths.home() / "agents" / "archive"
         self.archived = {c.name for c in archive.iterdir()} if archive.is_dir() else set()
         self.kept = {(ns, key): self._get(ns, key)
-                     for ns, key in [(sealed.NS, sealed.TEAM), *((sealed.NS, sealed.agent_key(n)) for n in self.names),
-                                     *((g, n) for g in self.GRANTS for n in self.names)]}
+                     for ns, key in [(sealed.NS, sealed.TEAM), *((sealed.NS, sealed.agent_key(n)) for n in self.names)]}
 
     @staticmethod
     def _get(ns: str, key: str):
@@ -590,7 +586,7 @@ class _Snapshot:
 
 
 def _names_of(items: list[dict]) -> set[str]:
-    """The agents whose folders and grants a step may change."""
+    """The agents whose folders a step may change."""
     out: set[str] = set()
     for it in items:
         if it["kind"] == "global":

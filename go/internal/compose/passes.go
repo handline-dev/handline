@@ -26,7 +26,7 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 	wait := &tick.WaitFor{Decide: waitDecider{lc: lc}, Log: func(s string) { cfg.Log("%s", s) }}
 	apply := &tick.ApplySettings{Ports: settingsPorts{launcher: lc.Launch}}
 	subs := &subscriptions.Env{DB: lc.Env.DB, Home: cfg.Home, Asker: founderAsker{lc.Env}, Tasks: founderCloser{lc.Env, cfg.Home},
-		Plans: vendorPlans{cfg.Home}, Now: cfg.Now, Log: cfg.Log}
+		Plans: vendorPlans{cfg.Home, cfg.CLI}, Now: cfg.Now, Log: cfg.Log}
 	sched := &schedules.Runner{Q: p.db, Agents: func() []string { return paths.ListAgents(cfg.Home) }, Schedules: (&reads.Env{DB: p.db, Home: cfg.Home}).SchedulesOf,
 		Say: lc.Env.SystemSayThen, Log: func(s string) { cfg.Log("%s", s) }}
 	return []tick.NamedSweep{

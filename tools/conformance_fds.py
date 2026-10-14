@@ -206,7 +206,9 @@ def main(argv: list[str]) -> int:
         net_theirs = [b.fileno() for _a, b in net_pairs]
         daemon = subprocess.Popen([binary, "-home", str(home), "-listen", "127.0.0.1:0", "-serve-fds", ",".join(map(str, theirs)),
                                    "-serve-net-fds", ",".join(map(str, net_theirs)), *structured_cli], pass_fds=theirs + net_theirs,
-                                  stderr=subprocess.PIPE, env={**os.environ, "HANDLINE_TEST_ROOT": str(test_root)})
+                                  stderr=subprocess.PIPE,
+                                  # the founder's daemon, even when an agent runs the check: it writes the protected store
+                                  env={**os.environ, "HANDLINE_TEST_ROOT": str(test_root), "OCP_AGENT": "", "HANDLINE_AGENT": ""})
         for _a, b in pairs + net_pairs:
             b.close()
 

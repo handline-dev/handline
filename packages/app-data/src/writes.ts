@@ -101,6 +101,9 @@ const tasks: Record<string, WriteSpec> = {
   'task.queue': verb('queue', 'queue'),
   'task.draft': verb('draft', 'draft'),
   'task.release': verb('release', 'release'),
+  // A report is the opener's to judge: nothing shows until the daemon says it is closed or sent back.
+  'task.accept': decided('accept'),
+  'task.reject': decided('reject'),
   'task.withdraw': verb('withdraw', 'withdraw'),
   'task.cancel': verb('cancel', 'cancel'),
   'task.edit': verb('edit', 'edit'),
@@ -136,6 +139,12 @@ const tasks: Record<string, WriteSpec> = {
       const { task, memo, text } = as<{ task: number; memo: number; text: string }>(p);
       changeMemos(c, task, (l) => l.map((m) => (m.id === memo ? { ...m, text } : m)));
     },
+  },
+  // The question is a message to the holder linked to the task; the task page reads it again for the event it leaves.
+  'task.ask': {
+    kind: 'decided',
+    label: 'ask',
+    touches: (d, p) => [qk.task(d, as<{ task: number }>(p).task)],
   },
   'task.memo.delete': {
     kind: 'authored',
@@ -372,9 +381,6 @@ export const NOT_FROM_UI = [
   'task.start',
   'task.progress',
   'task.handoff',
-  // `hl task accept` and `hl task reject`: the app has no button for a reported task yet.
-  'task.accept',
-  'task.reject',
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',

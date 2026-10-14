@@ -491,9 +491,17 @@ func AdvanceTaskTimeout(q Q, tid, now, defaultS int64) error {
 	return err
 }
 
-// PauseTaskTimeout is db.pause_task_timeout: no deadline runs while a task is not doing or waits; what was left is kept for the resume.
+// PauseTaskTimeout is db.pause_task_timeout: no deadline runs while a task is not doing; what was left is kept for the resume.
 func PauseTaskTimeout(q Q, tid, now int64) error {
 	_, err := q.Exec("UPDATE tasks SET timeout_left = MAX(timeout_at - ?, 0), timeout_at = NULL WHERE id = ? AND timeout_at IS NOT NULL", now, tid)
+	return err
+}
+
+// RestartTaskTimeout: a task that waits gets its whole length back for when the wait ends. Set again on each tick it waits, so nothing
+// is lost or repeated across a restart. A clock that never started is left unstarted.
+func RestartTaskTimeout(q Q, tid, defaultS int64) error {
+	_, err := q.Exec("UPDATE tasks SET timeout_left = COALESCE(timeout_s, ?), timeout_at = NULL WHERE id = ? AND (timeout_at IS NOT NULL OR timeout_left IS NOT NULL)",
+		defaultS, tid)
 	return err
 }
 

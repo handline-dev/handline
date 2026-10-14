@@ -22,6 +22,8 @@ export interface PaneTerm {
   term: TermLike;
   /** The grid that fits the element, or null while it has no size. */
   propose(): { cols: number; rows: number } | null;
+  /** Calls `fn` when the grid that fits the element becomes known or changes without the element changing size (the cells were just measured). */
+  onFit?(fn: () => void): Disposable;
   setFontSize(px: number): void;
   /** A gutter tick on the cursor row with a tooltip: where the daemon typed. Never part of the stream. */
   mark(label: string): void;

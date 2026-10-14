@@ -46,9 +46,9 @@ func (s *Store) put(c *rpc.Conn, p map[string]any) (any, error) {
 		return nil, badParam("data is not base64", "data")
 	}
 	var out *PutOut
-	res, err := c.Effect(func(*sql.Tx) (map[string]any, error) {
+	res, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 		var err error
-		if out, err = s.Put(in); err != nil {
+		if out, err = s.Put(tx, in); err != nil {
 			return nil, err
 		}
 		r := map[string]any{"accepted": true, "said": fmt.Sprintf("%d of %d bytes", out.Received, in.Bytes), "upload": out.Upload, "received": out.Received}

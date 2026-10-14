@@ -9,6 +9,8 @@ test('a verb applies by the state of the task and who asked', () => {
   assert.equal(whyNot('queue', task(1, 'draft'), 'founder'), null);
   assert.match(whyNot('queue', task(1, 'queued'), 'founder')!, /not a draft/);
   assert.equal(whyNot('draft', task(1, 'queued'), 'founder'), null);
+  assert.equal(whyNot('draft', task(1, 'doing'), 'founder'), null);
+  assert.match(whyNot('draft', task(1, 'done'), 'founder')!, /not queued or running/);
   assert.equal(whyNot('release', task(1, 'doing'), 'founder'), null);
   assert.match(whyNot('release', task(1, 'queued'), 'founder')!, /not running/);
   assert.equal(whyNot('reopen', task(1, 'done'), 'founder'), null);

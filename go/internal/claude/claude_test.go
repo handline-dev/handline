@@ -99,11 +99,18 @@ func TestTheSmallMethodsAreWhatPythonSays(t *testing.T) {
 
 func TestKeepingTheSharedSettingsCurrentWritesWhatPythonWrites(t *testing.T) {
 	f := load(t)
+	// The home is reached through a symlink, so its real path differs on every platform (a macOS tmp dir does by itself, a Linux one does not).
 	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "real"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "real"), filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range f.Settings {
 		t.Run(c.Name, func(t *testing.T) {
-			home := filepath.Join(root, c.Name)
-			real, err := filepath.EvalSymlinks(root)
+			home := filepath.Join(root, "link", c.Name)
+			real, err := filepath.EvalSymlinks(filepath.Join(root, "link"))
 			if err != nil {
 				t.Fatal(err)
 			}

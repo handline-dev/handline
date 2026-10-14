@@ -16,7 +16,9 @@ import { Line, clock } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
 import { ChatFind } from './ChatFind.tsx';
 import { ChatRefs, type Ref } from './ChatRefs.tsx';
+import { NeedsYouCard } from './NeedsYouCard.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
+import { useChatImages } from './ChatImages.tsx';
 import { Button, Row } from './parts.tsx';
 
 /** A shape for each stage, so the stage does not rest on colour. */
@@ -61,6 +63,7 @@ export function Chat(props: { detail: AgentDetail }) {
   const chat = useChat(agent, scope);
   const act = useChatActions(agent);
   const [picked, setPicked] = useState<Ref | null>(null); // a message, or a request a # chose
+  const img = useChatImages(canSend);
   const [item, setItem] = useState<TranscriptItem | null>(null); // one of the agent's replies; never together with a picked message
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
@@ -127,12 +130,16 @@ export function Chat(props: { detail: AgentDetail }) {
 
   if (chat.status === 'off') return <ChatEmpty />;
 
+  // Words or pictures to send, and none still on its way up.
+  const empty = (!text.trim() && !img.ids.length) || img.busy;
   const send = (delivery?: 'now' | 'queue') => {
-    if (!text.trim()) return;
+    if (empty) return;
+    const attachments = img.ids;
     // A picked message is a reference: a linked message to whoever said it, whatever it asked.
-    if (picked) act.send(text, { parent: picked.id, to: names.has(picked.from) ? picked.from : picked.to, delivery });
-    else if (item) act.send(text, { parent_item: item.id, delivery });
-    else act.send(text, { delivery });
+    if (picked) act.send(text, { parent: picked.id, to: names.has(picked.from) ? picked.from : picked.to, delivery, attachments });
+    else if (item) act.send(text, { parent_item: item.id, delivery, attachments });
+    else act.send(text, { delivery, attachments });
+    img.clear();
     setPicked(null);
     setItem(null);
     setText('');
@@ -250,6 +257,7 @@ export function Chat(props: { detail: AgentDetail }) {
           </Text>
         )}
       </ScrollView>
+      <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
       {picked && (
         <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
           <Text testID="replying" numberOfLines={1} style={{ color: c.muted, fontSize: 12, flex: 1 }}>
@@ -271,7 +279,9 @@ export function Chat(props: { detail: AgentDetail }) {
         </Row>
       )}
       {canSend && <ChatRefs agent={agent} text={text} onPick={(r, rest) => (setItem(null), setPicked(r), setText(rest))} />}
+      {img.chips}
       <Row style={{ padding: space.sm }}>
+        {img.button}
         <TextInput
           testID="chat-input"
           value={text}
@@ -292,11 +302,11 @@ export function Chat(props: { detail: AgentDetail }) {
         />
         {working && props.detail.structured ? (
           <View style={{ gap: space.xs }}>
-            <Button testID="chat-send-now" label="Send now" disabled={!canSend || !text.trim()} onPress={() => send('now')} />
-            <Button testID="chat-send" label="Queue" disabled={!canSend || !text.trim()} onPress={() => send('queue')} />
+            <Button testID="chat-send-now" label="Send now" disabled={!canSend || empty} onPress={() => send('now')} />
+            <Button testID="chat-send" label="Queue" disabled={!canSend || empty} onPress={() => send('queue')} />
           </View>
         ) : (
-          <Button testID="chat-send" label="Send" disabled={!canSend || !text.trim()} onPress={() => send()} />
+          <Button testID="chat-send" label="Send" disabled={!canSend || empty} onPress={() => send()} />
         )}
       </Row>
     </View>

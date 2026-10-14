@@ -427,7 +427,7 @@ flips it.
 - There is no in-place `/clear`, and `input.take` and `input.release` are gone: nobody holds a terminal's input. A person watching sees the pane close and a new one open.
 - A forced move of a busy terminal agent is refused with the reason, since a turn there cannot be interrupted without a key.
 - A handoff holds the agent's lock while it waits: up to 60 s for the session to end after its pane closes, and up to a minute for the clear notice to be confirmed. A session that outlives its pane is closed on the first tick after its pid is gone. A pid that reads alive with another start time is a reused number and counts as gone; one still alive after 6 h is reported once as `needs_you` with its pid and is never started over.
-- The screen is still read to reap a terminal that is gone and to start a session (the folder-trust and bypass screens at launch).
+- The screen is still read to reap a terminal that is gone and to start a session (the folder-trust screen at launch).
 
 ## Tasks for the sub-team
 

@@ -58,14 +58,24 @@ func (e *Env) Discarded(owner string, told []db.Notice, freed []string, forget [
 	e.deliverUnblocked(e.DB, told, freed)
 }
 
-// Released is what a release does after it commits (actions.release_task): the owner of a held request is typed to stop, and each queued
-// request it closed is told like any retirement (the target told to stop if it had it, the requester told, the queue moved up). It answers
-// a phrase for each, the first line of what the retirement says.
+// Released is what a release does after it commits (actions.release_task): the owner of a held request is typed to stop (and moved on to
+// its next task when a draft parked it), and each queued request it closed is told like any retirement (the target told to stop if it had
+// it, the requester told, the queue moved up). It answers a phrase for each, the first line of what the retirement says.
 func (e *Env) Released(tid int64, why string, retired []taskwrites.Retired) []string {
 	var out string
 	defer e.guard("telling after a release", &out)
 	said := make([]string, 0, len(retired))
 	for _, r := range retired {
+		if r.Park {
+			e.typeSay(e.DB, r.Target, why+" - it is parked: stop work on it and move on to your next task", "task parked")
+			if changed, _, err := e.AdvanceCurrentTask(e.DB, r.Target); err != nil {
+				e.log("  moving %s on after T%d was parked failed: %v", r.Target, tid, err)
+			} else if changed {
+				e.Push(e.DB, r.Target, 0)
+			}
+			said = append(said, fmt.Sprintf("#%d ended; %s told to stop and moved on", r.RID, r.Target))
+			continue
+		}
 		if r.Held {
 			e.typeSay(e.DB, r.Target, why+" - stop work on it", "task released")
 			if r.RID == 0 {

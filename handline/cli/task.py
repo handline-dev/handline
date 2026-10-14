@@ -169,7 +169,7 @@ def cmd_task_queue(args) -> int:
 
 
 def cmd_task_draft(args) -> int:
-    """Send queued tasks back to draft - anyone."""
+    """Send queued or doing tasks back to draft - anyone."""
     return _cmd_task_queue(args, False)
 
 
@@ -476,12 +476,13 @@ def _clock(time_box: dict, now: float) -> dict:
 
 
 def _waits_on(t: dict) -> str:
-    """What holds a task's clock: its open blockers, else its open children."""
-    blockers = [f"T{b['task']}" for b in t.get("blockers") or []]
-    kids = [f"T{k['id']}" for k in t.get("subtasks") or [] if k["state"] not in ("done", "discarded")]
-    if blockers:
-        return " - blocked by " + ", ".join(blockers)
-    return " - waiting on " + ", ".join(kids) if kids else ""
+    """What holds a task's clock: the founder when they hold it or must accept it, else its open blockers and open
+    children, each the founder holds marked so; "" for none."""
+    if t["to"] == "human" or t.get("state") == "reported" and (t.get("asker") or t["from"]) == "human":
+        return "human"
+    held = [(b["task"], b.get("owner")) for b in t.get("blockers") or []]
+    held += [(k["id"], k.get("owner")) for k in t.get("subtasks") or [] if k["state"] not in ("done", "discarded")]
+    return ", ".join(f"T{n}" + (" (human)" if who == "human" else "") for n, who in held)
 
 
 def _result_lines(r: dict, tid: int) -> list[str]:
