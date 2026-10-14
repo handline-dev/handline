@@ -20,7 +20,7 @@ import {
   type Settings,
   type SettingsFile,
 } from './mode.ts';
-import { commands, Owner, type Child, type Cmd } from './owner.ts';
+import { commands, Owner, resolveClaude, type Child, type Cmd } from './owner.ts';
 import { ensureToken, founderKeyFile, phoneLink, TokenFile, type PairDeps } from './pair.ts';
 import { phoneHtml } from './phone-html.ts';
 import { grant } from './grant.ts';
@@ -61,6 +61,15 @@ const localPairing = (home: string, gatewaySocket: string): PairDeps => ({
   name: 'Handline desktop',
 });
 
+const executable = (file: string): boolean => {
+  try {
+    fs.accessSync(file, fs.constants.X_OK);
+    return fs.statSync(file).isFile();
+  } catch {
+    return false;
+  }
+};
+
 /** Whether something is listening on this Unix socket. */
 const answers = (file: string): Promise<boolean> =>
   new Promise((resolve) => {
@@ -79,7 +88,7 @@ const reachable = (hostPort: string): Promise<boolean> =>
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/** Its own process group: bin/ocp starts the daemon as a child of itself, and quit must stop that one too. */
+/** Its own process group, so quit stops the child and anything it started. */
 function spawnChild(cmd: Cmd, log: number): Child {
   const p = spawn(cmd.file, cmd.args, { stdio: ['ignore', log, log], env: process.env, detached: true });
   const stop = () => {
@@ -134,6 +143,18 @@ export interface Own {
   phone(): Promise<void>;
 }
 
+/** The daemon's command with its claude resolved now, on the login shell's PATH: a Dock launch has no shell dirs. */
+async function daemonCmd(o: {
+  env: (k: string) => string | undefined;
+  root: string;
+  gateway: string | undefined;
+  advertise: string | null;
+  loginPath: () => Promise<string | undefined>;
+}): Promise<Cmd> {
+  const claude = resolveClaude(o.env('CLAUDE'), [await o.loginPath(), process.env.PATH], executable);
+  return commands(o.env, o.root, o.gateway ?? '127.0.0.1:7443', o.advertise, claude).daemon;
+}
+
 export function ownDaemon(o: {
   env: (k: string) => string | undefined;
   home: string;
@@ -149,6 +170,7 @@ export function ownDaemon(o: {
   settings: SettingsFile;
   /** The mode and pairing in force; connect mode never starts or stops a daemon. */
   current: Settings;
+  loginPath: () => Promise<string | undefined>;
   /** Follow-main mode adds its items to the tray. */
   follow?: () => TrayFollow;
 }): Own {
@@ -158,13 +180,13 @@ export function ownDaemon(o: {
     gatewayUp: () => answers(o.gatewaySocket),
     spawn: (cmd) => spawnChild(cmd, log),
     ...commands(o.env, o.root, o.gateway ?? '127.0.0.1:7443', o.advertise),
+    daemon: () => daemonCmd(o),
     wait: sleep,
   });
   app.on('quit', () => owner.stop());
   const tray = new Tray(trayIcon());
   tray.setToolTip('Handline');
   const link = new Link();
-  const mode = o.current.mode;
   link.set('connecting', { address: o.gateway ?? null });
   const relaunchAs = (next: Settings) => relaunchWith(o.settings, next);
   const pair = async (i: OfferInput) => relaunchAs({ mode: 'connect', remote: await pairFrom(i) });
@@ -179,9 +201,9 @@ export function ownDaemon(o: {
           { open: o.openWindow, startDaemon: () => void owner.start(), quit: () => app.quit() },
           o.follow?.(),
           {
-            mode,
+            mode: o.current.mode,
             link,
-            switchTo: () => relaunchAs({ ...o.current, mode: mode === 'connect' ? 'own' : 'connect' }),
+            switchTo: () => relaunchAs({ ...o.current, mode: o.current.mode === 'connect' ? 'own' : 'connect' }),
             pair: () => void pairClipboard(),
             phone: o.current.remote ? undefined : () => void showPhone(openPhone),
           },
@@ -236,7 +258,7 @@ export function ownDaemon(o: {
     pair,
     phone: () => (o.current.remote ? Promise.reject(new Error('paired with another device: pair the phone on that device')) : openPhone()),
     async ready() {
-      if (mode === 'connect') return connect();
+      if (o.current.mode === 'connect') return connect();
       if (!o.gateway) return undefined;
       await owner.start();
       ownHost = onTailnet(o.gateway) ? o.gateway.split(':')[0]! : null; // named even when nothing started: the page shows the reason (grant)
