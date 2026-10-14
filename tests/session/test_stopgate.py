@@ -18,6 +18,7 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 from handline.session import stopgate  # noqa: E402
 from handline.infra import hookspool, protected  # noqa: E402
+from handline.session.states import PARKED  # noqa: E402
 
 
 def _open_task(home: Path) -> int:
@@ -125,6 +126,21 @@ def test_stop_gate_exempts_founder_chat_the_wall_and_a_closed_session(home: Path
     finally:
         con.close()
     check("at its usage limit: exempt",
+          stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
+
+
+def test_a_parked_agent_whose_last_handoff_was_a_usage_trigger_is_at_the_wall(home: Path) -> None:
+    _open_task(home)
+    con = db.connect()
+    try:
+        support._park_via_handoff(con, "worker", "usage")
+        db.set_agent_state(con, "worker", PARKED)
+        check("parked by a usage trigger: the wall gives the parked sentence",
+              stopgate.wall_reason(con, "worker") == "worker is parked until its usage window rolls over",
+              stopgate.wall_reason(con, "worker"))
+    finally:
+        con.close()
+    check("and the gate lets it stop, its open task notwithstanding",
           stopgate.decide("worker", {"session_id": "s1"}) == (False, None))
 
 
@@ -347,6 +363,7 @@ def main() -> int:
         run(lambda: test_a_roster_proposal_waiting_on_the_founder_is_a_recorded_wait(Path(td) / 'sg9'))
         run(lambda: test_stop_hook_active_and_once_per_session_guard_the_loop(Path(td) / 'sg1'))
         run(lambda: test_stop_gate_exempts_founder_chat_the_wall_and_a_closed_session(Path(td) / 'sg2'))
+        run(lambda: test_a_parked_agent_whose_last_handoff_was_a_usage_trigger_is_at_the_wall(Path(td) / 'sg11'))
         run(lambda: test_a_question_left_unanswered_is_reminded_once_when_the_turn_ends(Path(td) / 'sg5'))
         run(lambda: test_no_reminder_when_it_answered_or_the_message_asks_nothing(Path(td) / 'sg6'))
         run(lambda: test_the_task_wait_comes_first_and_the_reminder_waits_for_it(Path(td) / 'sg7'))
