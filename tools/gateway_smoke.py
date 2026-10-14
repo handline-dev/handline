@@ -27,6 +27,7 @@ import os
 import queue
 import secrets
 import shutil
+import signal
 import socket
 import struct
 import subprocess
@@ -370,7 +371,7 @@ print(json.dumps({"task": tid, "say": say, "ask_inbox": ask1, "ask_chat": ask2, 
                 p.wait(10)
             except subprocess.TimeoutExpired:
                 p.kill()
-        subprocess.run(["tmux", "-L", self.env["OCP_TMUX_SOCKET"], "kill-server"], capture_output=True)
+        subprocess.run(["tmux", "-L", self.env["OCP_TMUX_SOCKET"], "kill-server"], capture_output=True, env=self.env)
         if self.keep:
             print(f"kept {self.root} (logs: *.log)")
         else:
@@ -616,17 +617,17 @@ def scratch_run(args) -> int:
 
 def start_only(args) -> int:
     world = World(True, args.port)
-    world.setup()
-    world.start_daemon()
-    world.start_gateway()
-    key = world.founder_key()
-    code_conn = Line(str(world.home / "gateway.sock"))
-    code_conn.call("hello", {"client": "gateway-smoke", "protocol": PROTOCOL, "key": key})
-    paired = code_conn.call("device.pair", {"name": "app", "ttl_s": 600, "request_id": secrets.token_hex(6)}).get("result") or {}
-    print(f"scratch home {world.root}\ngateway ws://127.0.0.1:{world.port}/rpc\npairing code (600 s, once): {paired.get('code')}\n"
-          f"pairing uri: {paired.get('uri')}\nagents: manager, worker (repo {world.root / 'repo'})\n"
-          f"stop with ctrl-c; the scratch home stays for you to read: {world.root}", flush=True)
     try:
+        world.setup()
+        world.start_daemon()
+        world.start_gateway()
+        key = world.founder_key()
+        code_conn = Line(str(world.home / "gateway.sock"))
+        code_conn.call("hello", {"client": "gateway-smoke", "protocol": PROTOCOL, "key": key})
+        paired = code_conn.call("device.pair", {"name": "app", "ttl_s": 600, "request_id": secrets.token_hex(6)}).get("result") or {}
+        print(f"scratch home {world.root}\ngateway ws://127.0.0.1:{world.port}/rpc\npairing code (600 s, once): {paired.get('code')}\n"
+              f"pairing uri: {paired.get('uri')}\nagents: manager, worker (repo {world.root / 'repo'})\n"
+              f"stop with ctrl-c; the scratch home stays for you to read: {world.root}", flush=True)
         while all(p.poll() is None for p in world.procs):
             time.sleep(1)
     except KeyboardInterrupt:
@@ -685,6 +686,8 @@ def main() -> int:
     ap.add_argument("--url"), ap.add_argument("--token"), ap.add_argument("--agent")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
+    for sig in (signal.SIGTERM, signal.SIGHUP):      # a stopped smoke stops its world too, as ctrl-c does
+        signal.signal(sig, lambda signum, _frame: sys.exit(128 + signum))
     if args.selftest:
         return selftest()
     if args.readonly:

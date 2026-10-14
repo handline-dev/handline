@@ -10,6 +10,8 @@
 # (6 s), whose guards fail on a contract method the apps' tables do not name.
 # CHECK_PLAN=1 prints `kind=<none|docs|go|python> apps=<no|app-data|turbo>` and runs nothing.
 # A failing step does not stop the ones after it, so one run shows every failure; the exit status is 1 if any failed.
+# The tests run with TMPDIR and TMUX_TMPDIR in a directory of their own, and fail when they leave a process, a tmux
+# server, a temp file or a write to the real protected store behind (tools/leakcheck.py).
 cd "$(dirname "$0")/.." || exit 1
 # Hook and read parity with the Python daemon, and the Go migrations and method table being current.
 GO_FILES=(tests/infra/test_go_schema.py tests/infra/test_go_tidy.py)
@@ -42,6 +44,10 @@ if [ -n "${CHECK_PLAN:-}" ]; then
     exit 0
 fi
 rc=0
+if [ "$kind" = go ] || [ "$kind" = python ]; then
+    run="$(tools/leakcheck.py begin)" || exit 1
+    export TMPDIR="$run/tmp/" TMUX_TMPDIR="$run"
+fi
 case "$kind" in
     none) echo "nothing changed against $base: no tests to run" >&2 ;;
     docs) echo "documentation only: the suite is not run" >&2 ;;
@@ -54,4 +60,5 @@ case "$kind" in
         apps || rc=1
         tools/suite.sh || rc=1 ;;
 esac
+[ -n "${run:-}" ] && { tools/leakcheck.py end "$run" || rc=1; }
 exit "$rc"
