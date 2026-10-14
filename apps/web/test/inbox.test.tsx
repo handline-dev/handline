@@ -38,9 +38,15 @@ const expand = async (id: number) => {
   if (b) await click(b);
 };
 const ids = () => $$('.inbox-card').map((c) => c.dataset.item);
+/** FYI is folded by default; most tests read its cards, so they open it once the group is there. */
+const openFyi = async () => {
+  for (let i = 0; i < 40 && !$('.inbox-fyi h3 button'); i++) await wait();
+  const b = $('.inbox-fyi h3 button');
+  if (b && b.getAttribute('aria-expanded') === 'false') await click(b);
+};
 const key = (k: string) => act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })));
 
-async function mount(hash = '#/inbox', s = setup()) {
+async function mount(hash = '#/inbox', s = setup(), open = true) {
   // The seeded decision is the founder's task (1684); a daemon without the inbox has no such item.
   s.daemon.tasks.verbs = true;
   const decision = s.daemon.inbox['items'].find((i) => i.id === 3);
@@ -51,6 +57,7 @@ async function mount(hash = '#/inbox', s = setup()) {
   await act(async () => {
     root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
   });
+  if (open) await openFyi();
   return s;
 }
 afterEach(async () => {
@@ -65,12 +72,13 @@ describe('the page', () => {
   it('shows the skeleton while loading, then the cards newest first with the unread count', async () => {
     const s = setup();
     s.daemon.knobs.latency(400);
-    await mount('#/inbox', s);
+    await mount('#/inbox', s, false);
     await until(() => $('.inbox .skeleton'), 'the skeleton');
     expect($('.inbox .skeleton')!.getAttribute('aria-busy')).toBe('true');
+    await openFyi();
     await until(() => $$('.inbox-card').length === 3, 'the cards', 600);
     expect($('.inbox .skeleton')).toBeNull();
-    expect(ids()).toEqual(['5', '4', '3']);
+    expect(ids()).toEqual(['3', '4', '5']);
     expect($('.inbox-top h2')!.getAttribute('title')).toBe('Inbox');
     expect($('.inbox-top h2 [aria-label="3 unread"]')).not.toBeNull();
     expect(document.title).toBe('(3) Handline');
@@ -103,12 +111,26 @@ describe('the page', () => {
     expect(card(5).classList.contains('go')).toBe(true);
   });
 
+  it('splits into Decisions, Approvals and FYI; FYI is folded with a count and its own Mark all read', async () => {
+    const s = await mount('#/inbox', setup(), false);
+    await until(() => $('.inbox-fyi'), 'the groups');
+    expect(text($('.inbox-decisions h3')).trim()).toMatch(/^Decisions\s*1/);
+    expect(text($('.inbox-approvals h3')).trim()).toMatch(/^Approvals\s*1/);
+    expect(text($('.inbox-fyi h3')).trim()).toMatch(/^FYI\s*1/);
+    expect(ids()).toEqual(['3', '4']);
+    await click($('.inbox-fyi h3 button'));
+    expect(ids()).toEqual(['3', '4', '5']);
+    await click(button($('.inbox-fyi h3'), 'Mark all FYI read'));
+    await until(() => s.daemon.inbox.get(5).read, 'the daemon');
+    expect(s.daemon.inbox.get(3).read).toBeFalsy();
+  });
+
   it('evidence shows its first three lines and Show more shows the rest', async () => {
     const s = setup();
     s.daemon.inbox.add({ kind: 'result', title: 'Long', agent: 'handline.architect', evidence: 'a\nb\nc\nnothing else touched' });
     await mount('#/inbox', s);
     await until(() => $$('.inbox-card').length === 4, 'the cards');
-    const c = $$('.inbox-card')[0]!;
+    const c = $$('.inbox-card').find((x) => text(x).includes('Long'))!;
     await click(button(c, 'Show details')!);
     expect(text(c.querySelector('pre'))).not.toContain('nothing else touched');
     await click(button(c, 'Show more'));
@@ -132,7 +154,7 @@ describe('the page', () => {
     expect(ids()).toEqual(['5']);
     expect(kind('Result')!.getAttribute('aria-pressed')).toBe('true');
     await click(kind('Result'));
-    expect(ids()).toEqual(['5', '4', '3']);
+    expect(ids()).toEqual(['3', '4', '5']);
     await pickAgent('handline.term-build');
     expect(ids()).toEqual(['4']);
     await click(kind('Decision'));
@@ -153,7 +175,7 @@ describe('read = gone', () => {
     await until(() => s.daemon.inbox.get(5).read, 'the daemon');
     location.hash = '#/inbox'; // back on the page: the card is gone
     await until(() => $('.inbox') && !card(5), 'the card to be gone');
-    expect(ids()).toEqual(['4', '3']);
+    expect(ids()).toEqual(['3', '4']);
   });
 
   it('a click on a card of an agent without a task goes to the agent chat and marks it read', async () => {
@@ -192,7 +214,7 @@ describe('read = gone', () => {
     await until(() => $$('.inbox-card').length === 3, 'the cards');
     location.hash = '#/inbox';
     await click(button(card(5), 'Mark read'));
-    expect(ids()).toEqual(['4', '3']);
+    expect(ids()).toEqual(['3', '4']);
     expect(location.hash).toBe('#/inbox');
     await until(() => s.daemon.inbox.get(5).read, 'the daemon');
   });
@@ -284,7 +306,7 @@ describe('the verbs', () => {
     await act(async () => void s.daemon.inbox.markRead({ ids: [5] }));
     await until(() => !card(5), 'the card to leave');
     await act(async () => void s.daemon.inbox.add({ kind: 'result', title: 'Fresh', agent: 'handline.architect' }));
-    await until(() => $$('.inbox-card')[0]!.querySelector('.inbox-title')!.textContent === 'Fresh', 'the new card on top');
+    await until(() => $('.inbox-fyi .inbox-card .inbox-title')?.textContent === 'Fresh', 'the new card on top');
   });
 });
 
@@ -293,15 +315,15 @@ describe('keys', () => {
     const s = await mount();
     await until(() => $$('.inbox-card').length === 3, 'the cards');
     await key('j');
-    expect(card(5).getAttribute('aria-current')).toBe('true');
-    await key('j');
-    await key('j');
     expect(card(3).getAttribute('aria-current')).toBe('true');
+    await key('j');
+    await key('j');
+    expect(card(5).getAttribute('aria-current')).toBe('true');
     await key('k');
     await key('m');
     await until(() => s.daemon.inbox.get(4).read, 'the daemon');
     await until(() => !card(4), 'the card to leave');
-    expect(ids()).toEqual(['5', '3']);
+    expect(ids()).toEqual(['3', '5']);
     await key('?');
     expect($('.inbox-keys')).not.toBeNull();
     await key('Escape');
