@@ -17,3 +17,4 @@ export * from './refs.ts';
 export * from './rows.ts';
 export * from './task-verbs.ts';
 export * from './task-people.ts';
+export * from './task-graph.ts';

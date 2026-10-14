@@ -17,6 +17,7 @@
     "@handline/app-core": "workspace:*",
     "@handline/app-data": "workspace:*",
     "@handline/app-react": "workspace:*",
+    "@handline/app-ui": "workspace:*",
     "@handline/client": "workspace:*",
     "@handline/tokens": "workspace:*",
     "expo": "~57.0.26",
@@ -34,6 +35,7 @@
     "@types/react-dom": "^19",
     "happy-dom": "^18",
     "react-dom": "19.2.3",
+    "react-native-svg": "15.15.4",
     "react-native-web": "^0.21.0",
     "typescript": "~6.0.3",
     "vitest": "^3"

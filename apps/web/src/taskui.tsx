@@ -1,29 +1,14 @@
 // Small pieces the Tasks list and the task detail share: the state chip, the clock, the width query and the inline reason sheet.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useServes } from '@handline/app-data';
+import { STATE_GLYPH as GLYPHS, toneOf, type Tone } from '@handline/app-ui';
 import { Icon, type IconName } from './Icon.tsx';
 import { Button, Input, Sheet as SheetBox, SheetActions, VisuallyHidden } from './ui/index.ts';
 
-export const STATE_GLYPH: Record<string, IconName> = {
-  draft: 'taskDraft',
-  queued: 'taskQueued',
-  pending: 'taskPending',
-  doing: 'taskDoing',
-  blocked: 'taskBlocked',
-  done: 'taskDone',
-  discarded: 'taskDiscarded',
-};
+export const STATE_GLYPH: Record<string, IconName> = GLYPHS;
 
-/** The chip look per state; the class is the hook, the utilities the look. `run` also spins the doing glyph (tasks.css). */
-const TONE: Record<string, string> = {
-  doing: 'run text-working',
-  queued: 'wait text-wait',
-  pending: 'wait text-wait',
-  draft: 'idle',
-  blocked: 'block text-bad',
-  done: 'idle',
-  discarded: 'idle',
-};
+/** The chip look per tone; the class is the hook, the utilities the look. `run` also spins the doing glyph (tasks.css). */
+const TONE: Record<Tone, string> = { run: 'run text-working', wait: 'wait text-wait', block: 'block text-bad', idle: 'idle' };
 const CHIP = 'inline-flex items-center gap-0.5 align-middle text-ink-2 [&>svg]:shrink-0';
 
 /** A state is a shape of its own (the glyph), then a tooltip, then colour; the word stays for a screen reader. `mark` says what the write in flight is: hollow dot, or the decided "…". */
@@ -35,7 +20,7 @@ export function StateChip({ state, mark, word }: { state: string; mark?: 'author
       </span>
     );
   return (
-    <span className={`tchip ${TONE[state] ?? 'idle'} data-[state=done]:text-ok ${CHIP}`} data-state={state} title={state}>
+    <span className={`tchip ${TONE[toneOf(state)]} data-[state=done]:text-ok ${CHIP}`} data-state={state} title={state}>
       {mark === 'authored' ? <Icon name="unsaved" size={12} aria-hidden /> : null}
       <Icon
         name={STATE_GLYPH[state] ?? 'taskPending'}

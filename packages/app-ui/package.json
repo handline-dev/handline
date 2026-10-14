@@ -1,0 +1,17 @@
+{
+  "name": "@handline/app-ui",
+  "private": true,
+  "type": "module",
+  "description": "Platform-neutral data both apps draw from: state glyph and tone names, state and waiting-reason words. No React, no DOM, no React Native; each app renders it its own way",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
+    "typecheck": "tsc -p .",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@handline/config": "workspace:*"
+  }
+}

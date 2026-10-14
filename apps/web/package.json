@@ -16,6 +16,7 @@
     "@handline/app-core": "workspace:*",
     "@handline/app-data": "workspace:*",
     "@handline/app-react": "workspace:*",
+    "@handline/app-ui": "workspace:*",
     "@handline/client": "workspace:*",
     "@handline/tokens": "workspace:*",
     "@radix-ui/react-context-menu": "2.4.1",

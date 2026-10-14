@@ -13,6 +13,7 @@ import { Loadable } from './Loadable.tsx';
 import { Button } from './parts.tsx';
 import { MemoBox, MemoRow } from './Memos.tsx';
 import { NewTask, TaskVerbs, useTaskPending } from './TaskActions.tsx';
+import { TaskGraph } from './TaskGraph.tsx';
 
 type Scope = 'open' | 'mine' | 'closed';
 const SCOPES: [Scope, string][] = [
@@ -65,6 +66,7 @@ function List(props: { onSelect: (id: number) => void }) {
     Date.now(),
   );
   const [creating, setCreating] = useState(false);
+  const [graph, setGraph] = useState(false);
   if (creating)
     return (
       <ScrollView keyboardShouldPersistTaps="handled">
@@ -75,44 +77,53 @@ function List(props: { onSelect: (id: number) => void }) {
     <View style={{ flex: 1 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', padding: space.lg }}>
         <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700', flex: 1 }}>Tasks</Text>
+        <Button testID="graph-toggle" label={graph ? 'List' : 'Graph'} onPress={() => setGraph(!graph)} style={{ marginRight: space.sm }} />
         <Button testID="new-task-open" label="New task" onPress={() => setCreating(true)} style={{ marginRight: space.xl }} />
       </View>
-      <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, paddingHorizontal: space.lg }}>
-        {SCOPES.map(([id, label]) => (
-          <Pill key={id} testID={`scope-${id}`} on={scope === id} label={label} onPress={() => setScope(id)} />
-        ))}
-      </View>
-      {scope !== 'closed' && (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, padding: space.lg }}>
-          {TASK_STATES.filter((s) => !CLOSED.includes(s)).map((s) => (
-            <Pill
-              key={s}
-              testID={`state-${s}`}
-              on={states.has(s)}
-              label={s}
-              onPress={() => {
-                const next = new Set(states);
-                if (!next.delete(s)) next.add(s);
-                setStates(next);
-              }}
+      {graph ? (
+        <Loadable query={query} served={served} isEmpty={false} skeleton="tasks" label="tasks" empty="No open tasks.">
+          <TaskGraph tasks={query.data?.items ?? []} onSelect={props.onSelect} />
+        </Loadable>
+      ) : (
+        <>
+          <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, paddingHorizontal: space.lg }}>
+            {SCOPES.map(([id, label]) => (
+              <Pill key={id} testID={`scope-${id}`} on={scope === id} label={label} onPress={() => setScope(id)} />
+            ))}
+          </View>
+          {scope !== 'closed' && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, padding: space.lg }}>
+              {TASK_STATES.filter((s) => !CLOSED.includes(s)).map((s) => (
+                <Pill
+                  key={s}
+                  testID={`state-${s}`}
+                  on={states.has(s)}
+                  label={s}
+                  onPress={() => {
+                    const next = new Set(states);
+                    if (!next.delete(s)) next.add(s);
+                    setStates(next);
+                  }}
+                />
+              ))}
+            </View>
+          )}
+          <Loadable
+            query={query}
+            served={served}
+            isEmpty={rows.length === 0}
+            skeleton="tasks"
+            label="tasks"
+            empty={scope === 'closed' ? 'No closed tasks.' : 'No open tasks.'}
+          >
+            <FlatList
+              data={rows}
+              keyExtractor={(t) => String(t.id)}
+              renderItem={({ item: t }) => <Row t={t} onPress={() => props.onSelect(t.id)} />}
             />
-          ))}
-        </View>
+          </Loadable>
+        </>
       )}
-      <Loadable
-        query={query}
-        served={served}
-        isEmpty={rows.length === 0}
-        skeleton="tasks"
-        label="tasks"
-        empty={scope === 'closed' ? 'No closed tasks.' : 'No open tasks.'}
-      >
-        <FlatList
-          data={rows}
-          keyExtractor={(t) => String(t.id)}
-          renderItem={({ item: t }) => <Row t={t} onPress={() => props.onSelect(t.id)} />}
-        />
-      </Loadable>
     </View>
   );
 }
@@ -159,7 +170,13 @@ export function Detail(props: { id: number; onBack: () => void }) {
           This task no longer exists.
         </Text>
       ) : (
-        <Loadable query={query} served={served} skeleton="taskDetail" label={`task ${taskRef(props.id)}`} empty="This task no longer exists.">
+        <Loadable
+          query={query}
+          served={served}
+          skeleton="taskDetail"
+          label={`task ${taskRef(props.id)}`}
+          empty="This task no longer exists."
+        >
           {query.data ? <Body t={query.data} /> : null}
         </Loadable>
       )}
@@ -191,7 +208,9 @@ function Body({ t }: { t: TaskDetail }) {
     <ScrollView testID="task-detail" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
       <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>{t.title}</Text>
       <Text style={{ color: c.muted }}>
-        {[`${taskRef(t.id)}`, t.state, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, timeoutText(t, now)].filter(Boolean).join(' · ')}
+        {[`${taskRef(t.id)}`, t.state, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, timeoutText(t, now)]
+          .filter(Boolean)
+          .join(' · ')}
       </Text>
       {sending && (
         <Text testID="task-sending" style={{ color: c.muted }}>
