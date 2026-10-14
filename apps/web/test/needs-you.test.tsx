@@ -74,4 +74,16 @@ describe('needs you', () => {
     await wait(300);
     expect(card()).toBeNull();
   });
+
+  it('still shows a dialog card when the daemon sets has_dialog without needs_you', async () => {
+    const s = setup();
+    const fx = s.daemon.sessions.get(ARCH)!.fx;
+    keep = () => void (fx.view = undefined);
+    fx.view = { has_dialog: true, needs_you: null, state_detail: 'dialog open' };
+    await mount(s);
+    await until(() => card(), 'the card');
+    expect(card()!.dataset.need).toBe('dialog');
+    expect(card()!.textContent).toContain('dialog open');
+    expect(card()!.querySelector('button')!.getAttribute('aria-label')).toBe('Open terminal');
+  });
 });
