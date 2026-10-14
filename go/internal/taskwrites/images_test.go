@@ -3,8 +3,10 @@ package taskwrites
 import (
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/handline/handline/go/internal/attachments"
@@ -118,5 +120,23 @@ func TestARejectNoteIsOneLineThenItsImages(t *testing.T) {
 	var n int
 	if err := sdb.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'reject_task' AND json_extract(payload, '$.note') = ?", want).Scan(&n); err != nil || n != 1 {
 		t.Fatal("the note is kept as one line, then its image")
+	}
+}
+
+func TestATaskWriteClaimsTheImagesItNames(t *testing.T) {
+	sdb, s, run := imagesEnv(t)
+	img := putImage(t, sdb, s)
+	claimed := func() any {
+		var m map[string]any
+		b, _ := os.ReadFile(filepath.Join(s.Dir, "meta", img+".json"))
+		json.Unmarshal(b, &m)
+		return m["claimed"]
+	}
+	if claimed() != nil {
+		t.Fatal("a fresh upload is claimed by nothing")
+	}
+	said(t, run("", "task.memo.add", "m1", params(1, "text", "see "+ref(img))))
+	if claimed() == nil {
+		t.Fatal("the memo claims the image it names")
 	}
 }

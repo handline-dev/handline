@@ -1,7 +1,7 @@
 // The fake daemon's images: attachment.put takes a file in chunks, attachment.get gives it back, chat.send names the finished ones.
 // Image bytes live here only; the replay store (replies, events) holds a digest or the Attachment, never the data.
 import { createHash, randomBytes } from 'node:crypto';
-import type { Attachment } from '@handline/contract';
+import type { Attachment, ImagePart, TextPart } from '@handline/contract';
 import { badRequest, Failure, invalidParams, refused } from './errors.ts';
 
 // These mirror the contract's x-attachments limits (kept in prose there; app-data holds the client's copy).
@@ -123,6 +123,25 @@ export class FakeAttachments {
       if (agent && !shown().has(id)) throw refused('role', `attachment:${id} is named by no task: an agent names only an image a task shows`);
     }
     for (const id of named) this.files.get(id)!.sent = true;
+  }
+
+  /** text cut at the images it names (TextPart, ImagePart), or undefined when it names none; an agent gets each image's path. */
+  parts(text: string, agent: boolean): (TextPart | ImagePart)[] | undefined {
+    const out: (TextPart | ImagePart)[] = [];
+    let at = 0;
+    for (const m of text.matchAll(/!\[([^\]]*)\]\(attachment:([^)]*)\)/g)) {
+      if (m.index > at) out.push({ text: text.slice(at, m.index) });
+      at = m.index + m[0].length;
+      const f = this.files.get(m[2]!);
+      if (!f) out.push({ image: { id: m[2]! }, caption: m[1]!, gone: true });
+      else {
+        const { data: _d, sent: _s, ...image } = f;
+        out.push({ image, caption: m[1]!, ...(agent ? { path: `/fake-daemon/attachments/${f.id}.${f.mime.slice(6)}` } : {}) });
+      }
+    }
+    if (!out.length) return undefined;
+    if (at < text.length) out.push({ text: text.slice(at) });
+    return out;
   }
 
   /** The attachment.* methods. */

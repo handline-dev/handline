@@ -22,7 +22,7 @@ interface Host {
 type Row = Task & {
   body: string;
   memos?: Memo[];
-  notes?: string[]; // the notes it was sent back with
+  notes?: { at: string; who: string; text: string }[]; // the notes it was sent back with
   blockers: { task: number; reason: string }[];
   clock?: TaskClock | null;
 };
@@ -62,7 +62,7 @@ export class FakeTasks {
   }
   /** Checks and claims the images a write's text names; an agent names only an image some task's text already shows. */
   private images(text: string, was: string, field: string, agent: boolean): void {
-    const shown = () => new Set(this.rows.flatMap((r) => [r.body, ...(r.memos ?? []).map((m) => m.text), ...(r.notes ?? [])].flatMap(refs)));
+    const shown = () => new Set(this.rows.flatMap((r) => [r.body, ...(r.memos ?? []).map((m) => m.text), ...(r.notes ?? []).map((n) => n.text)].flatMap(refs)));
     this.host.uploads.check(text, was, field, agent, shown);
   }
   private emit(t: Task): void {
@@ -92,7 +92,7 @@ export class FakeTasks {
     if (!t) throw new TaskFailure('not_found', `no task ${String(id)}`);
     return t;
   }
-  private view({ body: _body, blockers, clock, ...t }: Row): Task {
+  private view({ body: _body, memos: _memos, notes: _notes, blockers, clock, ...t }: Row): Task {
     const ended = t.state === 'done' || t.state === 'discarded';
     return { ...t, blocked_by: blockers.map((b) => b.task), time: ended ? null : (clock ?? null) };
   }
@@ -135,14 +135,22 @@ export class FakeTasks {
     return memos[i]?.id ?? 0;
   }
 
-  get(p: Record<string, unknown>): TaskDetail {
+  get(p: Record<string, unknown>, agent = false): TaskDetail {
     const t = this.find(p.task);
+    const parts = (text: string) => this.host.uploads.parts(text, agent);
+    const withParts = <T extends object>(o: T, text: string) => {
+      const cut = parts(text);
+      return cut ? { ...o, parts: cut } : o;
+    };
+    const memos = (t.memos ?? []).map((m) => withParts(m, m.text));
+    const bodyParts = parts(t.body);
     return {
       ...this.view(t),
       body: t.body,
+      ...(bodyParts ? { body_parts: bodyParts } : {}),
       deliveries: t.delivered ? [{ at: t.delivered, how: 'typed', outcome: 'delivered' }] : [],
       events: [{ topic: 'tasks', type: 'task.opened', at: t.created, actor: null, agent: t.to, title: t.title, target: null, data: {} }],
-      memos: t.memos ?? [],
+      memos,
       blockers: t.blockers.map((b) => {
         const held = this.rows.find((r) => r.id === b.task);
         return { ...b, owner: held?.to ?? '', title: held?.title ?? '' };
@@ -155,7 +163,10 @@ export class FakeTasks {
       time: t.state === 'done' || t.state === 'discarded' ? null : (t.clock ?? null),
       parent_title: this.rows.find((r) => r.id === t.parent)?.title ?? null,
       subtasks: this.rows.filter((r) => r.parent === t.id).map((r) => ({ id: r.id, title: r.title, owner: r.to, state: r.state })),
-      timeline: [],
+      timeline: [
+        ...(t.memos ?? []).map((m) => withParts({ at: m.at, who: m.author, kind: 'memo' as const, text: m.text, memo: m.id, edited_at: m.edited_at ?? null }, m.text)),
+        ...(t.notes ?? []).map((n) => withParts({ at: n.at, who: n.who, kind: 'reject' as const, text: n.text, memo: null, edited_at: null }, n.text)),
+      ].sort((a, b) => a.at.localeCompare(b.at)),
       people: { recent: [], team: [], others: [] },
     };
   }
@@ -243,7 +254,7 @@ export class FakeTasks {
     const t = this.reportFor(p, person, 'reject');
     this.images(images, '', 'note', agent);
     const kept = [words, ...(images.match(/!\[[^\]]*\]\(attachment:[^)]*\)/g) ?? [])].join('\n');
-    this.change(t, { state: 'queued', evidence: null, report: null, notes: [...(t.notes ?? []), kept] });
+    this.change(t, { state: 'queued', evidence: null, report: null, notes: [...(t.notes ?? []), { at: this.now(), who: person, text: kept }] });
   }
   reopen(p: Record<string, unknown>, person: string): void {
     const t = this.find(p.task);
@@ -311,7 +322,7 @@ export function taskCall(
       case 'tasks.list':
         return tasks.list(p);
       case 'task.get':
-        return tasks.get(p);
+        return tasks.get(p, agent);
       case 'task.new':
         return ok('Task asked.', { task: tasks.create(p, person, agent) });
       case 'task.edit':

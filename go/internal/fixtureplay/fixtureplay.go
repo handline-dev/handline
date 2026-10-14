@@ -37,6 +37,18 @@ func Load(path string) ([]Fixture, error) {
 // Match is conformance.py's matching: every key of an object in want matches, arrays element by element, else equal; the matchers
 // $type, $oneOf, $contains, $regex, $save and $absent (as a key's value).
 func Match(want, got any, saved map[string]any, at string) error {
+	if list, ok := want.([]any); ok {
+		g, ok := got.([]any)
+		if !ok || len(g) != len(list) {
+			return fmt.Errorf("%s: wanted %d elements, got %v", at, len(list), got)
+		}
+		for i := range list {
+			if err := Match(list[i], g[i], saved, fmt.Sprintf("%s[%d]", at, i)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	w, ok := want.(map[string]any)
 	if !ok {
 		if fmt.Sprint(want) != fmt.Sprint(got) {

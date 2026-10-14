@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 )
@@ -488,6 +489,11 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, err
 	}
 	task["body"] = first.str("body")
+	images, agent := attachments.New(e.Home), c != nil && c.Caller.Role == "agent"
+	parts := func(text string) []any { return images.Parts(text, agent) }
+	if p := parts(first.str("body")); p != nil {
+		task["body_parts"] = p
+	}
 	if err := e.taskResultOf(*tid, task); err != nil {
 		return nil, err
 	}
@@ -534,10 +540,17 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 		if m.set("edited_at") {
 			edited = ts(m["edited_at"])
 		}
-		ms = append(ms, map[string]any{"id": m.i("id"), "task": m.i("task_id"), "author": m.str("author"),
-			"at": ts(m["created_at"]), "text": m.str("body"), "edited_at": edited})
+		memo := map[string]any{"id": m.i("id"), "task": m.i("task_id"), "author": m.str("author"),
+			"at": ts(m["created_at"]), "text": m.str("body"), "edited_at": edited}
+		if p := parts(m.str("body")); p != nil {
+			memo["parts"] = p
+		}
+		ms = append(ms, memo)
 	}
 	task["memos"] = ms
+	if task["timeline"], err = e.taskTimeline(*tid, memos, reqs, parts); err != nil {
+		return nil, err
+	}
 	blockers, err := e.blockers(*tid)
 	if err != nil {
 		return nil, err
