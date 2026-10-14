@@ -441,7 +441,7 @@ func (t *Term) AnswerQuestion(handle string, seen []string, choices []int, text 
 	return StillOpen, found.Header, "the question is still on screen after its answer"
 }
 
-// ---- trust and bypass screens
+// ---- trust screens
 
 func (t *Term) trustFolder(handle string) (string, bool) {
 	text, ok := t.ScreenText(handle)

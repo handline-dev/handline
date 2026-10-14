@@ -180,14 +180,6 @@ func (a agentsPort) CurrentAccount(q db.Q, agent string) string {
 	return acct
 }
 
-func (a agentsPort) SkipPermissionsInEffect(agent string) (bool, error) {
-	cfg, err := a.roster.Read(agent)
-	if err != nil {
-		return false, err
-	}
-	return a.roster.SkipPermissionsInEffect(agent, cfg), nil
-}
-
 func (a agentsPort) IsDeclared(folder string) bool { return a.trust.IsDeclared(folder) }
 
 // MeasureBegin starts the cold-start measurement of a move: what the new account's usage was when the agent was put on it.
@@ -334,10 +326,8 @@ func (noTerminal) CloseTerminal(string) (bool, string)  { return false, notServe
 func (noTerminal) Relaunch(string, string, func() bool) (bool, string) {
 	return false, notServed
 }
-func (noTerminal) BypassPromptShowing(string) bool    { return false }
-func (noTerminal) AcceptBypass(string) (bool, string) { return false, notServed }
-func (noTerminal) WaitForTrustPrompt(string, bool)    {}
-func (noTerminal) DriverScope() func()                { return func() {} }
+func (noTerminal) WaitForTrustPrompt(string, bool) {}
+func (noTerminal) DriverScope() func()             { return func() {} }
 
 const notServed = "terminal agents are served by the Python daemon"
 
