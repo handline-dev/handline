@@ -9,6 +9,7 @@ import { App } from '../src/App.tsx';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ARCH = 'handline.architect';
+const ME = 'web-test'; // the name the fake setup gives its client
 const wait = (ms = 10) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
 async function until(cond: () => unknown, what: string) {
   for (let i = 0; i < 300; i++) {
@@ -49,5 +50,91 @@ describe('my turn', () => {
     expect(dialog.textContent).toContain('Trust this folder?');
     expect([...dialog.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Open terminal']);
     expect(box.querySelector('.rail-nav')!.textContent).toMatch(/My turn \d+/);
+  });
+  async function open(s = setup()) {
+    s.daemon.tasks.verbs = true;
+    location.hash = '#/my-turn';
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />);
+    });
+    return s;
+  }
+  const label = (b: Element) => b.getAttribute('title') ?? b.getAttribute('aria-label') ?? b.textContent ?? '';
+  const button = (c: Element, name: string) => [...c.querySelectorAll('button')].find((b) => label(b) === name);
+  const click = (el: Element | undefined) => act(async () => void (el as HTMLElement).click());
+  const type = (el: Element, v: string) =>
+    act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  const report = (s: ReturnType<typeof setup>, id: number, from: string) =>
+    s.daemon.tasks.seed({
+      id,
+      from,
+      to: ARCH,
+      title: `Report ${id}`,
+      state: 'reported',
+      report: { by: ARCH, evidence: 'built', at: new Date().toISOString() },
+    });
+
+  it('Accept closes a report that answers to the founder, and no card is made for one that answers to an agent', async () => {
+    const s = setup();
+    report(s, 9001, ME);
+    report(s, 9002, 'handline.auditor');
+    await open(s);
+    await until(() => box.querySelector('[data-card="accept:9001"]'), 'the accept card');
+    expect(box.querySelector('[data-card="accept:9002"]')).toBeNull();
+    await click(button(box.querySelector('[data-card="accept:9001"]')!, 'Accept'));
+    await until(() => s.daemon.tasks.get({ task: 9001 }).state === 'done', 'the daemon');
+  });
+
+  it('Send back asks what is missing and sends it', async () => {
+    const s = setup();
+    report(s, 9001, ME);
+    await open(s);
+    await until(() => box.querySelector('[data-card="accept:9001"]'), 'the accept card');
+    const c = box.querySelector('[data-card="accept:9001"]')!;
+    await click(button(c, 'More'));
+    await click([...c.querySelectorAll('[role=menuitem]')].find((b) => b.textContent === 'Send back'));
+    const field = c.querySelector('input, textarea')!;
+    await act(async () => {
+      const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
+      Object.getOwnPropertyDescriptor(proto.prototype, 'value')!.set!.call(field, 'Tests missing');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click(button(c, 'Send back'));
+    await until(() => s.daemon.tasks.get({ task: 9001 }).state === 'queued', 'the daemon');
+  });
+
+  it("shows the daemon's refusal on the card and keeps Accept usable", async () => {
+    const s = setup();
+    report(s, 9001, ME);
+    await open(s);
+    await until(() => box.querySelector('[data-card="accept:9001"]'), 'the accept card');
+    s.daemon.tasks.verbs = false; // the daemon does not serve task.accept
+    const c = box.querySelector('[data-card="accept:9001"]')!;
+    await click(button(c, 'Accept'));
+    await until(() => c.querySelector('[role=alert]'), 'the refusal');
+    expect(button(c, 'Accept')!.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('Reply sends the written answer of a decision', async () => {
+    const s = await open();
+    await until(() => box.querySelector('[data-card="item:3"]'), 'the decision card');
+    const c = box.querySelector('[data-card="item:3"]')!;
+    await click(button(c, 'Reply'));
+    await type(c.querySelector('input')!, 'Yes, relay it.');
+    await click(button(c, 'Send reply'));
+    await until(() => s.daemon.inbox.get(3).read || s.daemon.inbox.get(3).answered, 'the daemon');
+  });
+
+  it('a permission prompt without yes/no options is a card with only Open terminal', async () => {
+    await open();
+    await until(() => box.querySelector('[data-card="item:4"]'), 'the approval card');
+    const c = box.querySelector('[data-card="item:4"]')!;
+    expect(c.getAttribute('data-kind')).toBe('approval');
+    expect(button(c, 'Allow')).toBeUndefined();
   });
 });

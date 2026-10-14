@@ -2,7 +2,8 @@
 // button(s) and a menu for the rest; a dialog the daemon does not know has only Open terminal.
 import { useMemo, useState } from 'react';
 import { ago, myTurn, type Card, type CardAction } from '@handline/app-core';
-import { useAgents, useInbox, useTasks, useWrite } from '@handline/app-data';
+import { useStore } from '@handline/app-react';
+import { classify, sentence, useAgents, useInbox, useTasks, useWrite } from '@handline/app-data';
 import { goTerminal } from './route.ts';
 import { ReasonSheet } from './taskui.tsx';
 import { Button, Icon, Input } from './ui/index.ts';
@@ -12,10 +13,11 @@ export function useMyTurn(): { cards: Card[]; loading: boolean } {
   const inbox = useInbox();
   const agents = useAgents();
   const tasks = useTasks({});
+  const me = useStore().me;
   const items = inbox.data?.items;
   const list = agents.data?.agents;
   const rows = tasks.data?.items;
-  const cards = useMemo(() => myTurn({ items: items ?? [], agents: list ?? [], tasks: rows ?? [] }), [items, list, rows]);
+  const cards = useMemo(() => myTurn({ items: items ?? [], agents: list ?? [], tasks: rows ?? [], me }), [items, list, rows, me]);
   return { cards, loading: inbox.isPending && agents.isPending };
 }
 
@@ -72,6 +74,8 @@ function CardView({ card }: { card: Card }) {
   const [text, setText] = useState('');
   const [back, setBack] = useState(false);
   const [menu, setMenu] = useState(false);
+  // The daemon's own words for a refused write; the buttons stay usable.
+  const refused = [answer, prompt, accept, reject, done, read].find((w) => w.isError)?.error;
   const run = (a: CardAction) => {
     setMenu(false);
     switch (a.type) {
@@ -139,6 +143,11 @@ function CardView({ card }: { card: Card }) {
           </span>
         ) : null}
       </div>
+      {refused ? (
+        <p className="m-0 mt-1 text-hint text-bad" role="alert">
+          {sentence(classify(refused))}
+        </p>
+      ) : null}
       {box && answerId?.type === 'answer' ? (
         <form
           className="mt-2 flex gap-2"

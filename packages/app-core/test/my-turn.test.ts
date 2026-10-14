@@ -79,10 +79,34 @@ test('a reported task is an Accept card with Accept first', () => {
   const cards = myTurn({
     items: [],
     agents: [],
-    tasks: [task({ id: 9, state: 'reported', report: { by: 'a', evidence: 'ok', at: '2026-10-15T00:00:00Z' } })],
+    tasks: [task({ id: 9, from: 'human', state: 'reported', report: { by: 'a', evidence: 'ok', at: '2026-10-15T00:00:00Z' } })],
   });
   assert.deepEqual(
     cards[0]!.actions.map((a) => a.type),
     ['accept', 'reject', 'open'],
+  );
+});
+
+test('a report that answers to an agent is no Accept card; one that answers to the caller is', () => {
+  const report = { by: 'a', evidence: 'ok', at: '2026-10-15T00:00:00Z' };
+  const tasks = [
+    task({ id: 1, from: 'b', state: 'reported', report }),
+    task({ id: 2, from: 'me', state: 'reported', report }),
+    task({ id: 3, from: 'human', state: 'reported', report }),
+  ];
+  assert.deepEqual(
+    myTurn({ items: [], agents: [], tasks, me: 'me' })
+      .map((c) => c.task)
+      .sort(),
+    [2, 3],
+  );
+});
+
+test('has_dialog without needs_you is a dialog card with only Open terminal', () => {
+  const cards = myTurn({ items: [], agents: [agent({ has_dialog: true, state_detail: 'Trust this folder?' })], tasks: [] });
+  assert.equal(cards[0]!.kind, 'dialog');
+  assert.deepEqual(
+    cards[0]!.actions.map((a) => a.type),
+    ['terminal'],
   );
 });
