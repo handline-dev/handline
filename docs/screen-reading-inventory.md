@@ -55,7 +55,7 @@ The screen key is the same `WaitIdle` as in §1: a stable screen and no `esc to 
 | `lifecycle/structured.go:227` | A forced close or restart waits for the turn |
 | `lifecycle/reconciler.go:517` (`IdleNow`) | The silence check: is a silent agent idle right now |
 
-**Replacement:** `UserPromptSubmit` opens a turn; `Stop` or `StopFailure` closes it. The daemon already records these. The transcript JSONL, watched with file events, shows activity inside a turn. Not checked in 2.1.299: whether a turn interrupted with Esc fires `Stop`. **Replaceable; the interrupt case is unverified.**
+**Replacement:** `UserPromptSubmit` opens a turn; `Stop` or `StopFailure` closes it. Esc fires no hook ([hook-probes.md](hook-probes.md) §3), so while a turn is open the daemon watches its transcript with file events and closes the turn on the `[Request interrupted by user…]` entry. Built in `go/internal/turns`, behind `handlined -turns-from-hooks` (off by default). The screen is still read where no event has said: before a session's first prompt, and after a daemon restart until the next hook. **Replaced behind the switch.**
 
 ## 5. Idle with background work
 
@@ -67,7 +67,7 @@ The screen key is the hint row under the composer: `to manage`, with `<n> <noun>
 | `lifecycle/close.go:611`; `lifecycle/handoffmove.go:360` | Do not close an agent whose work still runs |
 | `term/press.go:586` (`TypeableNow`) | No caller on main |
 
-**Replacement:** `Stop` in 2.1.299 carries `background_tasks` (id, type, status, description, command) and `session_crons`, so "done" can be told from "waiting for background work". The daemon does not read these fields yet. Background commands started by `PostToolUse` are already tracked (`session/bgjobs.go`). No hook fires when background work ends while the session is idle. **Partial: start yes, end no.**
+**Replacement:** `Stop` carries `background_tasks` (id, type, status, description, command), so "done" can be told from "waiting for background work". Background work that ends while the session is idle fires `UserPromptSubmit` then a `Stop` without it ([hook-probes.md](hook-probes.md) §3). Behind the same switch, `BackgroundWork` and `IdleWithBackground` answer from the last `Stop`. After an Esc no `Stop` comes, so the screen is read until the next one. **Replaced behind the switch.**
 
 ## 6. A dialog is open (blocker)
 

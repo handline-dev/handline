@@ -1289,8 +1289,13 @@ def claude_driver_cases(root: Path) -> dict:
                                                           mcp_approved=args["mcp_approved"], extra_dirs=args["extra_dirs"])})
     wanted = evmod.CAPTURED | evmod.ANSWERS | evmod.GUARDS
     settings = []
+    # The home is reached through a symlink, so its real path differs on every platform (a macOS tmp dir does by itself, a Linux one does not).
+    (root / "real").mkdir(parents=True, exist_ok=True)
+    link = root / "link"
+    if not link.exists():
+        link.symlink_to(root / "real")
     for case in CLAUDE_SETTINGS_CASES:
-        home = root / case["name"]
+        home = link / case["name"]
         restore_world()
         os.environ["OCP_HOME"] = str(home)
         target = home / "shared" / ".claude" / "settings.json"

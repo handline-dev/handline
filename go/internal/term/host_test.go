@@ -161,47 +161,6 @@ func TestARelaunchTypesTheLineThenItsEnterAndAsksWhetherAnythingStarted(t *testi
 	}
 }
 
-func bypassScreen(cursor string) []string {
-	mark := func(label string) string {
-		if label == cursor {
-			return "❯ " + label
-		}
-		return "  " + label
-	}
-	return []string{"WARNING: Claude Code running in Bypass Permissions mode", "", mark("No, exit"), mark("Yes, I accept"), "Enter to confirm · Esc to cancel"}
-}
-
-func TestTheBypassWarningIsAcceptedOnlyWithTheCursorOnTheAcceptingOption(t *testing.T) {
-	// cursor on "No, exit": one Down, then Enter once the screen shows the cursor moved, then the warning gone
-	h := &hostBackend{live: map[string]bool{"%1": true}, screen: func(n int) []string {
-		switch {
-		case n == 0:
-			return bypassScreen("No, exit")
-		case n == 1:
-			return bypassScreen("Yes, I accept")
-		}
-		return composer
-	}}
-	tm := hostTerm(h)
-	if !tm.BypassPromptShowing("%1") {
-		t.Fatal("the warning is showing")
-	}
-	ok, why := tm.AcceptBypass("%1")
-	if !ok || strings.Join(h.sent, ",") != "\x1b[B/false,/true" {
-		t.Fatalf("%v %q %q", ok, why, h.sent)
-	}
-	// the cursor never reaches it: nothing is confirmed
-	h = &hostBackend{live: map[string]bool{"%1": true}, screen: func(int) []string { return bypassScreen("No, exit") }}
-	if ok, why := hostTerm(h).AcceptBypass("%1"); ok || len(h.sent) != 1 || !strings.Contains(why, "nothing was confirmed") {
-		t.Fatalf("%v %q %q", ok, why, h.sent)
-	}
-	// no warning on screen: no key
-	h = &hostBackend{live: map[string]bool{"%1": true}, screen: func(int) []string { return composer }}
-	if ok, _ := hostTerm(h).AcceptBypass("%1"); ok || len(h.sent) != 0 {
-		t.Fatal("pressed with nothing to accept")
-	}
-}
-
 func TestWaitingForTheTrustPromptToGoGivesUpAfterFiveSeconds(t *testing.T) {
 	trust := []string{"Quick safety check: Is this a project you created or one you trust?"}
 	h := &hostBackend{live: map[string]bool{"%1": true}, screen: func(n int) []string {

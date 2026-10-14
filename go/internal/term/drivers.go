@@ -81,12 +81,8 @@ type Driver interface {
 	// TrustScreen is the folder the vendor's folder-trust dialog names when tail shows it; shown is false when it is not
 	// showing, and folder "" when it is showing but the folder could not be parsed out.
 	TrustScreen(tail []string) (folder string, shown bool)
-	BypassScreen(tail []string) (option string, shown bool)
-	// TrustAnswer is the keys sent, then Enter, to accept the folder TrustScreen named; BypassAccept the label of the option that
-	// accepts the bypass warning and BypassNextKey the key that moves its cursor down one option.
+	// TrustAnswer is the keys sent, then Enter, to accept the folder TrustScreen named.
 	TrustAnswer() string
-	BypassAccept() string
-	BypassNextKey() string
 	Confirmation(d *Dialog) *Confirmation
 	AskQuestion(tail []string) *Question
 	// AnswerQuestionKeys is the keys that answer q with choices (0-based) or text, or nil when this is not sent this way.
@@ -207,53 +203,6 @@ loop:
 	return strings.Join(parts, ""), true
 }
 
-// claude's warning when it starts with --dangerously-skip-permissions on a config directory that has not accepted it yet: two
-// unnumbered options, the cursor on the one that exits.
-const (
-	bypassMarker  = "WARNING: Claude Code running in Bypass Permissions mode"
-	bypassAccept  = "Yes, I accept"
-	bypassDecline = "No, exit"
-	bypassRows    = 30
-)
-
-// BypassScreen: both options and the confirm hint must be on the last rows, so a transcript that quotes the warning is not it.
-func (claude) BypassScreen(tail []string) (string, bool) {
-	rows := tail
-	if len(rows) > bypassRows {
-		rows = rows[len(rows)-bypassRows:]
-	}
-	var trimmed, labels []string
-	hint, marker := false, false
-	for _, r := range rows {
-		t := strings.TrimSpace(r)
-		trimmed = append(trimmed, t)
-		labels = append(labels, strings.TrimSpace(strings.TrimLeft(t, "❯")))
-		marker = marker || t == bypassMarker
-		hint = hint || strings.HasPrefix(t, "Enter to confirm")
-	}
-	if !marker || !hint {
-		return "", false
-	}
-	hasAccept, hasDecline := false, false
-	for _, l := range labels {
-		hasAccept = hasAccept || l == bypassAccept
-		hasDecline = hasDecline || l == bypassDecline
-	}
-	if !hasAccept || !hasDecline {
-		return "", false
-	}
-	var marked []string
-	for i, t := range trimmed {
-		if strings.HasPrefix(t, "❯") && (labels[i] == bypassAccept || labels[i] == bypassDecline) {
-			marked = append(marked, labels[i])
-		}
-	}
-	if len(marked) == 1 {
-		return marked[0], true
-	}
-	return "", true
-}
-
 // Claude Code's backgrounded-session picker: the conversation moved to the background and the screen is a list of sessions. Its
 // new-session box has the ordinary composer shape, so the shape alone cannot tell it from the agent's own prompt, and text typed
 // there goes to a new session. Its hint line does ("enter to open" or "space to reply" at or below the box), but that is ordinary
@@ -343,9 +292,7 @@ func (claude) ScreenBlocker(tail []string) *Blocker {
 	return &Blocker{Kind: Unreadable}
 }
 
-func (claude) TrustAnswer() string   { return trustPromptDownArrow }
-func (claude) BypassAccept() string  { return bypassAccept }
-func (claude) BypassNextKey() string { return trustPromptDownArrow }
+func (claude) TrustAnswer() string { return trustPromptDownArrow }
 
 // Verified against a live prompt: one Down off the default cursor ("No, exit") lands on "Yes, I trust this folder"; a bare Enter
 // then confirms it. A bare Enter with no Down confirms "No, exit" instead.
@@ -497,13 +444,10 @@ func (o opencode) ScreenBlocker(tail []string) *Blocker {
 	return nil
 }
 
-// No folder-trust dialog, bypass warning, permission prompt or AskUserQuestion of its own to detect.
-func (opencode) TrustScreen([]string) (string, bool)  { return "", false }
-func (opencode) BypassScreen([]string) (string, bool) { return "", false }
-func (opencode) TrustAnswer() string                  { return "" }
-func (opencode) BypassAccept() string                 { return "" }
-func (opencode) BypassNextKey() string                { return "" }
-func (opencode) AcceptsTool(string) bool              { return false }
+// No folder-trust dialog, permission prompt or AskUserQuestion of its own to detect.
+func (opencode) TrustScreen([]string) (string, bool) { return "", false }
+func (opencode) TrustAnswer() string                 { return "" }
+func (opencode) AcceptsTool(string) bool             { return false }
 func (opencode) AcceptingKey(*Dialog, string) (string, string) {
 	return "", "this vendor's prompts are not auto-accepted"
 }
