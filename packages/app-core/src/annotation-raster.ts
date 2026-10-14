@@ -1,7 +1,7 @@
 // Draws annotation shapes onto an RGBA bitmap in plain arithmetic, so the web and the phone produce the same pixels from the same shapes.
 // Lines are round-capped discs, boxes are outlines, an arrow is a line with two barbs, text is a built-in 5x7 capital font.
 
-import type { Point, Shape } from './annotation.ts';
+import { arrowBarbs, scaleShape, type Point, type Shape } from './annotation.ts';
 
 export interface Bitmap { width: number; height: number; /** RGBA, row by row. */ data: Uint8ClampedArray }
 
@@ -66,11 +66,7 @@ function line(b: Bitmap, p: Point, q: Point, width: number, rgb: [number, number
 
 function arrow(b: Bitmap, from: Point, to: Point, width: number, rgb: [number, number, number]) {
   line(b, from, to, width, rgb);
-  const len = Math.hypot(to.x - from.x, to.y - from.y);
-  if (len === 0) return;
-  const head = Math.min(len, Math.max(width * 4, 16));
-  const back = Math.atan2(from.y - to.y, from.x - to.x);
-  for (const turn of [0.5, -0.5]) line(b, to, { x: to.x + head * Math.cos(back + turn), y: to.y + head * Math.sin(back + turn) }, width, rgb);
+  for (const barb of arrowBarbs(from, to, width)) line(b, to, barb, width, rgb);
 }
 
 function text(b: Bitmap, at: Point, str: string, size: number, rgb: [number, number, number]) {
@@ -99,9 +95,13 @@ function text(b: Bitmap, at: Point, str: string, size: number, rgb: [number, num
   }
 }
 
-/** Paint `shapes` in order onto `bitmap` (modified in place; pass a copy of the source to keep it). */
-export function drawShapes(bitmap: Bitmap, shapes: readonly Shape[]): Bitmap {
-  for (const s of shapes) {
+/**
+ * Paint `shapes` in order onto `bitmap` (modified in place; pass a copy of the source to keep it). Shapes are in original-image pixels;
+ * `scale` is the bitmap's size over the original's (0.5 for a bitmap shrunk to half), applied to positions, line widths and text.
+ */
+export function drawShapes(bitmap: Bitmap, shapes: readonly Shape[], scale = 1): Bitmap {
+  for (const shape of shapes) {
+    const s = scaleShape(shape, scale);
     const rgb = parseColor(s.color);
     if (s.kind === 'pen') {
       const [first, ...rest] = s.points;
@@ -123,6 +123,6 @@ export function drawShapes(bitmap: Bitmap, shapes: readonly Shape[]): Bitmap {
 }
 
 /** The source bitmap with the shapes drawn on it; the source is left alone. */
-export function exportAnnotated(source: Bitmap, shapes: readonly Shape[]): Bitmap {
-  return drawShapes({ ...source, data: new Uint8ClampedArray(source.data) }, shapes);
+export function exportAnnotated(source: Bitmap, shapes: readonly Shape[], scale = 1): Bitmap {
+  return drawShapes({ ...source, data: new Uint8ClampedArray(source.data) }, shapes, scale);
 }

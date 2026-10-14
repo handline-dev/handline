@@ -16,11 +16,13 @@ Pure TypeScript, no DOM, no React Native. Coordinates are image pixels (origin t
 
 ## Export (`annotation-raster.ts`)
 - `Bitmap = { width, height, data: Uint8ClampedArray /* RGBA */ }`
-- `exportAnnotated(source, shapes)` → a new Bitmap with shapes drawn; `drawShapes(bitmap, shapes)` draws in place.
+- `exportAnnotated(source, shapes, scale = 1)` → a new Bitmap with shapes drawn; `drawShapes(bitmap, shapes, scale)` draws in place.
+  Shapes stay in original-image px; `scale` = bitmap size / original size scales positions, widths and text.
 - Same arithmetic on both platforms, so the same shapes give the same pixels. Text uses a built-in 5x7 capital font
   (lowercase is drawn as capitals; unknown characters as a box).
 - The app decodes the picture to RGBA and encodes the result to PNG itself (web: canvas getImageData / toBlob;
   phone: the image manipulator of its choice). Nothing here decodes or encodes.
 
-## Not here
-No view. A react-native-svg or SVG preview draws `shapes` from the same model.
+## Preview (`shapesToSvg`)
+`shapesToSvg(shapes, width, height)` → `{ viewBox, elements }`: `path {d, stroke, strokeWidth}` (stroke, no fill, round caps/joins)
+or `text {x, y, fontSize, fill, text}` (top-left anchored). No SVG library imported; the view maps elements to its own components.

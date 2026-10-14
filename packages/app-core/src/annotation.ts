@@ -87,3 +87,48 @@ export function annotate(s: AnnotationState, a: AnnotationAction): AnnotationSta
     case 'clear': return { ...s, shapes: [], redo: [], draft: null };
   }
 }
+
+const pt = (p: Point, k: number): Point => ({ x: p.x * k, y: p.y * k });
+
+/** The shape with every coordinate, width and text size multiplied by `k`. */
+export function scaleShape(s: Shape, k: number): Shape {
+  if (k === 1) return s;
+  const width = s.width * k;
+  switch (s.kind) {
+    case 'pen': return { ...s, width, points: s.points.map((p) => pt(p, k)) };
+    case 'text': return { ...s, width, at: pt(s.at, k), size: s.size * k };
+    default: return { ...s, width, from: pt(s.from, k), to: pt(s.to, k) };
+  }
+}
+
+/** The two barb end points of an arrow's head; empty for a zero-length arrow. */
+export function arrowBarbs(from: Point, to: Point, width: number): Point[] {
+  const len = Math.hypot(to.x - from.x, to.y - from.y);
+  if (len === 0) return [];
+  const head = Math.min(len, Math.max(width * 4, 16));
+  const back = Math.atan2(from.y - to.y, from.x - to.x);
+  return [0.5, -0.5].map((turn) => ({ x: to.x + head * Math.cos(back + turn), y: to.y + head * Math.sin(back + turn) }));
+}
+
+export type SvgElement =
+  | { type: 'path'; d: string; stroke: string; strokeWidth: number }
+  | { type: 'text'; x: number; y: number; fontSize: number; fill: string; text: string };
+
+const num = (n: number) => String(Math.round(n * 100) / 100);
+const poly = (ps: Point[]) => ps.map((p, i) => `${i ? 'L' : 'M'}${num(p.x)} ${num(p.y)}`).join('');
+
+/**
+ * What a preview draws for `shapes`: paths to stroke with round caps and joins and no fill, and text anchored at its top left.
+ * `width`/`height` are the image size, for the viewBox. Render each element with your SVG (react-native-svg or DOM).
+ */
+export function shapesToSvg(shapes: readonly Shape[], width: number, height: number): { viewBox: string; elements: SvgElement[] } {
+  const elements: SvgElement[] = shapes.map((s): SvgElement => {
+    if (s.kind === 'text') return { type: 'text', x: s.at.x, y: s.at.y, fontSize: s.size, fill: s.color, text: s.text };
+    let d: string;
+    if (s.kind === 'pen') d = s.points.length === 1 ? poly([s.points[0]!, s.points[0]!]) : poly(s.points);
+    else if (s.kind === 'box') d = `${poly([s.from, { x: s.to.x, y: s.from.y }, s.to, { x: s.from.x, y: s.to.y }])}Z`;
+    else d = poly([s.from, s.to]) + arrowBarbs(s.from, s.to, s.width).map((b) => `M${num(s.to.x)} ${num(s.to.y)}L${num(b.x)} ${num(b.y)}`).join('');
+    return { type: 'path', d, stroke: s.color, strokeWidth: s.width };
+  });
+  return { viewBox: `0 0 ${num(width)} ${num(height)}`, elements };
+}
