@@ -85,7 +85,7 @@ describe('the Chat tab', () => {
     expect($('.chat-head')).toBeNull();
   });
 
-  it("draws every message state and transcript kind from the daemon", async () => {
+  it('draws every message state and transcript kind from the daemon', async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
     expect(landing('Draft the web chat tab plan.')).toBe('answered');

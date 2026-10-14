@@ -207,7 +207,9 @@ export function InboxPage({ item }: { item: number | null }) {
                   <InboxCard
                     item={i}
                     on={i.id === cursor}
-                    pending={pending.read.includes(i.id) || (i.task != null && pending.decide.includes(i.task)) || pending.reply.includes(i.id)}
+                    pending={
+                      pending.read.includes(i.id) || (i.task != null && pending.decide.includes(i.task)) || pending.reply.includes(i.id)
+                    }
                     verbs={verbs}
                   />
                 </AnimatedItem>

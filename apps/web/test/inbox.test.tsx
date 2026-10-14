@@ -243,7 +243,7 @@ describe('the verbs', () => {
     await until(() => s.daemon.inbox.unread() === 0, 'the daemon');
   });
 
-  it("Done on a decision ends its task and reads the card; the daemon holds both", async () => {
+  it('Done on a decision ends its task and reads the card; the daemon holds both', async () => {
     const s = await mount();
     await until(() => $$('.inbox-card').length === 3, 'the cards');
     await expand(3);
