@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/term"
+	"github.com/handline/handline/go/internal/testkill"
 )
 
 // A real tmux server, when one can be started here: the host methods and the control link against the program they are for.
@@ -24,7 +25,7 @@ func TestLiveTmux(t *testing.T) {
 		return strings.TrimSpace(string(out))
 	}
 	run("new-session", "-d", "-s", "ocp", "-x", "60", "-y", "10", "cat")
-	t.Cleanup(func() { exec.Command("tmux", "-L", sock, "kill-server").Run() })
+	testkill.OnEnd(t, func() { exec.Command("tmux", "-L", sock, "kill-server").Run() }) // the server leaves our group: it is killed by name
 	pane := run("list-panes", "-a", "-F", "#{pane_id}")
 	tm := term.Tmux{}
 	if ok, why := tm.SendBytes(pane, []byte("hello \x1b[1mworld\x1b[0m\r")); !ok {

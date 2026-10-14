@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
+	"testing"
 )
 
 // Getenv reads name under both prefixes, HANDLINE_ first, as infra/names.getenv does.
@@ -23,14 +25,26 @@ func Getenv(suffix string) (string, bool) {
 	return "", false
 }
 
-// UserHome is the user's home, or the test suite's stand-in for it.
+// UserHome is the user's home, or the test suite's stand-in for it. A test binary never gets the real one: with no TEST_ROOT set it gets
+// a temporary root of its own, so a test that forgets to set one writes nothing under the real ~/.config or ~/.claude.
 func UserHome() string {
 	if t, ok := Getenv("TEST_ROOT"); ok && t != "" {
 		return t
 	}
+	if testing.Testing() {
+		return testRoot()
+	}
 	h, _ := os.UserHomeDir()
 	return h
 }
+
+var testRoot = sync.OnceValue(func() string {
+	d, err := os.MkdirTemp("", "handline-test-root-")
+	if err != nil {
+		panic(fmt.Sprintf("a test binary needs a temporary user home: %v", err))
+	}
+	return d
+})
 
 // Home is the handline home: the environment's, else ~/.handline once it exists, else ~/.orcapipe.
 func Home() string {

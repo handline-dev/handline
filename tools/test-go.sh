@@ -13,12 +13,22 @@ fi
 scratch_home="$(mktemp -d "${TMPDIR:-/tmp}/handline-go-home.XXXXXX")" || exit 1
 trap 'rm -rf "$scratch_home"' EXIT
 export HANDLINE_HOME="$scratch_home" OCP_HOME="$scratch_home"
+# The user home the tests and the daemons they start see: nothing they write lands in the real ~/.config or ~/.claude.
+mkdir -p "$scratch_home/user" && export HANDLINE_TEST_ROOT="$scratch_home/user"
+real_protected="$HOME/.config/orcapipe/protected"
+protected_before="$(ls -A "$real_protected" 2>/dev/null)"
+protected_unchanged() {
+    [ "$(ls -A "$real_protected" 2>/dev/null)" = "$protected_before" ] && return 0
+    echo "FAIL  the Go tests wrote to the real $real_protected" >&2
+    return 1
+}
 # The whole run also checks go.mod and go.sum are tidy (a run with go test args does not).
 [ $# -eq 0 ] && { "$here/check-go-tidy.sh" || exit 1; }
 race=()
 [ "${HANDLINE_GO_RACE:-}" = 1 ] && race=(-race)
 echo "tools/test-go.sh: go test ${race[*]} ${*:-./...}" >&2
 go test "${race[@]}" "${@:-./...}" || exit 1
+protected_unchanged || exit 1
 [ $# -gt 0 ] && exit 0
 CGO_ENABLED=0 go build -o /dev/null ./cmd/handlined
 
@@ -65,4 +75,5 @@ conformance --allow-missing agent.create --allow-missing agent.fold --allow-miss
 echo "tools/test-go.sh: conformance fixtures, -structured-cli" >&2
 conformance --structured-cli "$here/fake_claude.py" || exit 1
 echo "tools/test-go.sh: conformance fixtures, -structured-cli -structured-tick" >&2
-conformance --structured-cli "$here/fake_claude.py" --structured-tick
+conformance --structured-cli "$here/fake_claude.py" --structured-tick || exit 1
+protected_unchanged
