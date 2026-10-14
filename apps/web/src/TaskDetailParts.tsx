@@ -5,6 +5,7 @@ import type { TaskDetail as Detail } from '@handline/client';
 import { useWrite } from '@handline/app-data';
 import { Icon, type IconName } from './ui/Icon.tsx';
 import { Sheet } from './taskui.tsx';
+import { useBodyImages } from './BodyImages.tsx';
 import { Button, Input, MetaField, MetaGrid, NativeSelect, Textarea } from './ui/index.ts';
 import { when } from './TaskTime.tsx';
 
@@ -120,6 +121,7 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
   const edit = useWrite('task.edit');
   const [title, setTitle] = useState(t.title);
   const [body, setBody] = useState(t.body);
+  const images = useBodyImages(setBody);
   const [owner, setOwner] = useState(t.to);
   const [box, setBox] = useState(t.time_box ?? '');
   const [priority, setPriority] = useState<1 | 2 | 3>(t.priority ?? 2);
@@ -147,7 +149,8 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
         </label>
         <label className="wide">
           Body
-          <Textarea grow className="tinput" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
+          <Textarea grow className="tinput" rows={4} value={body} onChange={(e) => setBody(e.target.value)} {...images.handlers} />
+          {images.problem ? <span className="muted">{images.problem}</span> : images.busy ? <span className="muted">Uploading image…</span> : null}
         </label>
         <label>
           Time box

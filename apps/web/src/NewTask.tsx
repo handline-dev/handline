@@ -1,6 +1,7 @@
 // New task: owner, title, body, time box and priority. The row shows in the list at once with a hollow dot; a refusal leaves the text here.
 import { useState } from 'react';
 import { classify, sentence, useWrite } from '@handline/app-data';
+import { useBodyImages } from './BodyImages.tsx';
 import { Dialog, FIELD, FIELD_LABEL, Field, Icon, NOTE, Select, Textarea } from './ui/index.ts';
 
 export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => void }) {
@@ -8,6 +9,7 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
   const [owner, setOwner] = useState('');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const images = useBodyImages(setBody);
   const [box, setBox] = useState('2h');
   const [priority, setPriority] = useState<1 | 2 | 3>(2);
   const [missing, setMissing] = useState('');
@@ -43,7 +45,8 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
           <label htmlFor="newtask-body" className={FIELD_LABEL}>
             Body
           </label>
-          <Textarea id="newtask-body" className="bg-panel border-line-strong px-3 py-2 resize-y" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
+          <Textarea id="newtask-body" className="bg-panel border-line-strong px-3 py-2 resize-y" rows={4} value={body} onChange={(e) => setBody(e.target.value)} {...images.handlers} />
+          {images.problem ? <p className={NOTE}>{images.problem}</p> : images.busy ? <p className={NOTE}>Uploading image…</p> : null}
         </div>
         <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
           <Field label="Time box" value={box} onChange={(e) => setBox(e.target.value)} />
