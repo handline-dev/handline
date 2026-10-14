@@ -77,12 +77,12 @@ Under each is the bridge's own code to reuse, so what the daemon does is what th
   {"send": {"jsonrpc": "2.0", "id": 4, "method": "chat.send_now", "params": {"request": "{{req}}", "request_id": "conf-sn-5"}}, "result": {"accepted": true, "landing": "queued"}, "notices": [{"method": "event", "params": {"topic": "chat", "type": "chat.message", "data": {"landing": "queued", "send_now": {"$type": "timestamp"}}}}]},
   {"send": {"jsonrpc": "2.0", "id": 5, "method": "chat.send_now", "params": {"request": "{{req}}", "request_id": "conf-sn-6"}}, "result": {"accepted": true, "landing": "queued"}},
   {"send": {"jsonrpc": "2.0", "id": 6, "method": "chat.messages", "params": {"agent": "{{walled_agent}}", "scope": "mine", "limit": 20}}, "result": {"messages": {"$contains": {"landing": "queued", "send_now": {"$type": "timestamp"}}}}},
-  {"send": {"jsonrpc": "2.0", "id": 7, "method": "chat.withdraw", "params": {"request": "{{req}}", "reason": "conformance", "request_id": "conf-sn-7"}}, "result": {"accepted": true}}
+  {"send": {"jsonrpc": "2.0", "id": 7, "method": "chat.cancel", "params": {"request": "{{req}}", "request_id": "conf-sn-7"}}, "result": {"accepted": true}}
  ]},
  {"name": "chat.send_now.a_withdrawn_message_is_refused", "spec": "chat.send_now", "about": "A message that is no longer waiting is refused, gate state. Needs --var walled_agent.", "as": "founder", "steps": [
   {"send": {"jsonrpc": "2.0", "id": 1, "method": "hello", "params": {"client": "conformance/1", "protocol": 1, "key": "{{founder_key}}"}}, "result": {}},
   {"send": {"jsonrpc": "2.0", "id": 2, "method": "chat.send", "params": {"agent": "{{walled_agent}}", "body": "conformance: withdrawn", "request_id": "conf-sn-8"}}, "result": {"request": {"$type": "integer", "$save": "gone"}}},
-  {"send": {"jsonrpc": "2.0", "id": 3, "method": "chat.withdraw", "params": {"request": "{{gone}}", "reason": "conformance", "request_id": "conf-sn-9"}}, "result": {"accepted": true}},
+  {"send": {"jsonrpc": "2.0", "id": 3, "method": "chat.cancel", "params": {"request": "{{gone}}", "request_id": "conf-sn-9"}}, "result": {"accepted": true}},
   {"send": {"jsonrpc": "2.0", "id": 4, "method": "chat.send_now", "params": {"request": "{{gone}}", "request_id": "conf-sn-10"}}, "error": {"code": -32002, "data": {"code": "refused", "gate": "state"}}}
  ]}
 ]}

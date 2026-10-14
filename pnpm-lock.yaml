@@ -340,22 +340,6 @@ importers:
         specifier: workspace:*
         version: link:../config
 
-  web:
-    dependencies:
-      '@handline/app-core':
-        specifier: workspace:*
-        version: link:../packages/app-core
-      '@handline/client':
-        specifier: workspace:*
-        version: link:../packages/client
-    devDependencies:
-      '@handline/config':
-        specifier: workspace:*
-        version: link:../packages/config
-      '@handline/fake-daemon':
-        specifier: workspace:*
-        version: link:../packages/fake-daemon
-
 packages:
 
   '@babel/code-frame@7.29.7':

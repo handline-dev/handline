@@ -230,6 +230,7 @@ test('the built web app is served from a loopback port, any route falling back t
     assert.match(js.headers.get('content-type') ?? '', /javascript/);
     assert.equal(await (await fetch(`${web.url}agents/x`)).text(), '<div id="root"></div>');
     assert.equal(await (await fetch(`${web.url}..%2f..%2fetc/passwd`)).text(), '<div id="root"></div>');
+    assert.equal(await (await fetch(`${web.url}assets/`)).text(), '<div id="root"></div>'); // a directory is the page, not a listing
     // A malformed escape is answered, not thrown: the server keeps serving.
     assert.equal((await fetch(`${web.url}%E0%A4%A`)).status, 400);
     assert.equal((await fetch(web.url)).status, 200);
