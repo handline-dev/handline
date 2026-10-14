@@ -17,6 +17,7 @@
     "@handline/app-core": "workspace:*",
     "@handline/app-data": "workspace:*",
     "@handline/app-react": "workspace:*",
+    "@handline/app-ui": "workspace:*",
     "@handline/client": "workspace:*",
     "@handline/tokens": "workspace:*",
     "expo": "~57.0.26",
@@ -27,7 +28,8 @@
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
-    "react-native": "0.86.3"
+    "react-native": "0.86.3",
+    "react-native-svg": "15.15.4"
   },
   "devDependencies": {
     "@handline/config": "workspace:*",

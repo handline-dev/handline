@@ -20,6 +20,7 @@ import { useAgents, useServes, useTasks } from '@handline/app-data';
 import { setting } from './daemon.ts';
 import { goTasks } from './route.ts';
 import { TaskDetail } from './TaskDetail.tsx';
+import { TaskGraphPage } from './TaskGraph.tsx';
 import { NewTask } from './NewTask.tsx';
 import { Row } from './TaskRows.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from './TasksHead.tsx';
@@ -52,8 +53,9 @@ const inScope = (tasks: Task[], scope: Scope, me: string): Task[] =>
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
 
 export function TasksPage({ storage, route }: { storage: KV | null; route: string }) {
-  const id = route ? Number(route) : null;
+  const id = route && route !== 'graph' ? Number(route) : null;
   const wide = useWide(1100);
+  if (route === 'graph') return <TaskGraphPage />;
   if (id !== null && !wide) return <TaskDetail id={id} onBack={() => goTasks()} />;
   return (
     <div className={`tasks-split relative flex min-h-0 min-w-0 flex-1${id !== null ? ' with-pane' : ''}`}>
@@ -299,7 +301,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
         onFilter={setFilter}
         onView={setView}
         onSelecting={() => setSelecting(!selecting)}
-        onAct={(what) => (what === 'states' && open === 'states' ? shut() : act(what))}
+        onAct={(what) => (what === 'graph' ? goTasks('graph') : what === 'states' && open === 'states' ? shut() : act(what))}
       />
       {open === 'new' ? <NewTask agents={agents} onClose={shut} /> : null}
       <View q={q} served={listServed} shape="tasks" what="tasks">
