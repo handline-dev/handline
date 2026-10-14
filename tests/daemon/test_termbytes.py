@@ -19,15 +19,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
-from handline.daemon import inputhold, rpc_terminal, termbytes, termchannel  # noqa: E402
+from handline.daemon import inputhold, termbytes, termchannel  # noqa: E402
 from handline.infra import lock  # noqa: E402
 from handline.session import backends  # noqa: E402
 from handline.session.backends import tmux  # noqa: E402
 from handline.session.backends.base import Backend  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_rpc import Wire, _hp  # noqa: E402
-from test_rpc_terminal import NWire, Screen, _code, _gate, _next, _wire  # noqa: E402
 
 MODES = "0 3 1 1 80 24 0 0 0 0 0 0"        # alternate_on cursor_x cursor_y cursor_flag cols rows ... history_size
 _EOF = object()
@@ -235,27 +233,6 @@ def test_a_command_waits_for_its_reply_and_a_dead_link_releases_everything() -> 
     check("link: a process that cannot be started is a False start", termbytes.ControlLink(spawn=broken).start() is False)
 
 
-def test_a_bytes_attach_is_refused_when_the_link_is_dead_or_the_host_silent(home: Path) -> None:
-    support._board_world(home)
-    with Screen(), _Host():
-        saved = termbytes.LINK
-
-        def broken():
-            raise OSError("no tmux")
-        termbytes.LINK = termbytes.ControlLink(spawn=broken)
-        w = _wire()
-        try:
-            r = w.call("terminal.attach", {"agent": "worker", "format": "bytes"})
-            check("attach: a control link that cannot start is refused, gate state, nothing attached", _gate(r) == "state" and not termbytes.HUB.channels, str(r))
-            termbytes.LINK = termbytes.ControlLink(spawn=lambda: _failing())
-            r = w.call("terminal.attach", {"agent": "worker", "format": "bytes"})
-            check("attach: a host that cannot say what the screen is is refused, gate state, and the attach is gone",
-                  _gate(r) == "state" and not termbytes.HUB.channels, str(r))
-        finally:
-            termbytes.LINK = saved
-            w.close()
-
-
 def _failing():
     p = fake_proc(auto=False)
     p.on_command = lambda cmd: p.answer(None)
@@ -420,138 +397,8 @@ class _FakeHost(Backend):
         return (True, "") if self.ok else (False, "no such pane")
 
 
-class _Host:
-    """The terminal host and the control link of a test: the real tmux backend is not asked."""
-
-    def __enter__(self):
-        self.host = _FakeHost()
-        self.was = backends.use(self.host)
-        self.link = termbytes.ControlLink(spawn=lambda: self.proc)
-        self.proc = fake_proc()
-        self.saved = termbytes.LINK
-        termbytes.LINK = self.link
-        termbytes.HUB.channels.clear()
-        rpc_terminal.LOGIN_TERMINALS.discard("t-login")
-        return self
-
-    def __exit__(self, *exc):
-        for ch in list(termbytes.HUB.channels.values()):
-            for c in list(ch.clients):
-                ch.detach(c)
-        termbytes.HUB.channels.clear()
-        termbytes.LINK = self.saved
-        self.link.stop()
-        backends.use(self.was)
-        rpc_terminal.LOGIN_TERMINALS.discard("t-login")
-
-
 def _b64(raw: bytes) -> str:
     return base64.b64encode(raw).decode()
-
-
-# ---------------------------------------------------------------- (6) terminal.input
-def test_input_is_the_holders_alone_and_is_recorded_without_its_bytes(home: Path) -> None:
-    support._board_world(home)
-    with Screen(), _Host() as h:
-        w = _wire()
-        n = [0]
-
-        def call(data, terminal="t-worker"):
-            n[0] += 1
-            return w.call("terminal.input", {"terminal": terminal, "data": data, "request_id": f"in{n[0]}"})
-        for label, data in (("not base64", "not base64!"), ("empty", ""), ("a number", 5), ("too long", _b64(b"x" * 16385))):
-            r = call(data)
-            check(f"input ({label}): bad_request on data", _code(r) == "bad_request" and r["error"]["data"]["field"] == "data", str(r))
-        check("input: 16384 bytes is the most", w.call("input.take", {"agent": "worker", "request_id": "t0"}).get("result", {}).get("accepted"))
-        check("input: and it is sent whole", call(_b64(b"x" * 16384)).get("result", {}).get("accepted") and h.host.sent[-1] == ("t-worker", b"x" * 16384))
-        h.host.sent.clear()
-        w.call("input.release", {"agent": "worker", "request_id": "t1"})
-        check("input: refused while the daemon holds the input, gate input_holder", _gate(call(_b64(b"ls"))) == "input_holder" and not h.host.sent)
-        rpc_terminal.LOGIN_TERMINALS.add("t-login")
-        check("input: a login terminal has no holder: refused, gate input_holder", _gate(call(_b64(b"ls"), "t-login")) == "input_holder" and not h.host.sent)
-        con = db.connect()
-        inputhold.take(con, "worker", "person", "someone.else", int(time.time()))
-        con.close()
-        r = call(_b64(b"ls"))
-        check("input: refused to a caller while another holds it, gate input_holder naming them", _gate(r) == "input_holder" and "someone.else" in r["error"]["message"]
-              and not h.host.sent, str(r))
-        con = db.connect()
-        inputhold.release(con, "worker")
-        con.close()
-        w.call("input.take", {"agent": "worker", "request_id": "t2"})
-        with lock.terminal("worker") as mine:
-            r = call(_b64(b"ls"))
-            check("input: refused while someone else types at the agent, gate terminal_lock", mine and _gate(r) == "terminal_lock" and not h.host.sent, str(r))
-        secret = b"hunter2\r"
-        r = call(_b64(secret))
-        check("input: the holder's bytes are sent to the terminal exactly", r.get("result", {}).get("accepted") and h.host.sent == [("t-worker", secret)], str(r))
-        con = db.connect()
-        rows = [dict(x) for x in con.execute("SELECT * FROM events WHERE agent = 'worker' AND kind = 'type'")]
-        con.close()
-        text = repr(rows)
-        rows = [x for x in rows if '"bytes": 8' in x["payload"]]
-        check("input: recorded as a type event with the count and who sent it", len(rows) == 1 and '"name": "' in rows[0]["payload"], text)
-        check("input: and never the bytes, in any form", "hunter2" not in text and _b64(secret) not in text and "aHVudGVyMg" not in text, text)
-        h.host.ok = False
-        r = call(_b64(b"ls"))
-        check("input: a host that did not take them is refused, gate state, and nothing is recorded", _gate(r) == "state", str(r))
-        h.host.serves_bytes = False
-        check("input: a host that cannot send raw bytes is refused, gate unsupported", _gate(call(_b64(b"ls"))) == "unsupported")
-        check("input: a terminal nobody has is not_found", _code(call(_b64(b"ls"), "nope")) == "not_found")
-        a = _wire(as_agent="manager")
-        check("input: an agent session is refused by role", _gate(a.call("terminal.input", {"terminal": "t-worker", "data": _b64(b"ls"), "request_id": "ra"})) == "role")
-        a.close()
-        w.close()
-
-
-# ---------------------------------------------------------------- (7) resize, (9) detach and the notices
-def test_a_resize_snapshots_a_bytes_attach_and_sends_no_resize_notice(home: Path) -> None:
-    support._board_world(home)
-    with Screen() as s, _Host() as h:
-        w = _wire()
-        r = w.call("terminal.attach", {"agent": "worker", "format": "bytes"})["result"]
-        check("resize: the bytes attach has its snapshot, seq 0, the screen as base64", r["format"] == "bytes" and r["seq"] == 0 and r["cols"] == 80
-              and base64.b64decode(r["data"]).startswith(b"$ ready") and r["holder"] == inputhold.DAEMON, str(r)[:300])
-        w.call("input.take", {"agent": "worker", "request_id": "r0"})
-        got = _next(w, "holder")
-        check("resize: the holder change reaches it as a holder notice with the next seq", got is not None and got["params"]["seq"] == 1 and got["params"]["terminal"] == "t-worker", str(got))
-        r = w.call("terminal.resize", {"terminal": "t-worker", "cols": 100, "rows": 30, "request_id": "r1"})
-        snap = _next(w, "snapshot")
-        check("resize: the resize is accepted and the host resized", r["result"]["accepted"] and s.resized == [(100, 30)], str(r))
-        check("resize: and the bytes attach gets a snapshot, reason resize, the next seq", snap is not None and snap["params"]["reason"] == "resize"
-              and snap["params"]["seq"] == 2, str(snap))
-        check("resize: and no resize notice", _next(w, "resize", 0.4) is None)
-        con = db.connect()
-        termchannel.marker(con, "worker", "person_typed", {"kind": "person", "name": "someone"}, "hi")
-        con.close()
-        m = _next(w, "marker")
-        check("marker: a marker reaches the bytes attach in its counter", m is not None and m["params"]["seq"] == 3 and m["params"]["kind"] == "person_typed", str(m))
-        w.close()
-
-
-def test_detach_and_a_hung_up_connection_drop_the_client(home: Path) -> None:
-    support._board_world(home)
-    with Screen(), _Host() as h:
-        w = _wire()
-        w.call("terminal.attach", {"agent": "worker", "format": "bytes"})
-        ch = termbytes.HUB.channels.get("t-worker")
-        check("detach: an attach has a channel watching the pane", ch is not None and len(ch.clients) == 1 and "t-worker" in h.link.handlers)
-        w.call("terminal.detach", {"terminal": "t-worker"})
-        check("detach: terminal.detach removes the client, stops watching and drops the channel", not ch.clients and not h.link.handlers
-              and "t-worker" not in termbytes.HUB.channels, str((ch.clients, h.link.handlers)))
-        w.call("terminal.attach", {"agent": "worker", "format": "bytes"})
-        ch = termbytes.HUB.channels.get("t-worker")
-        w.close()
-        check("detach: a connection that ends drops its client the same way", _until(lambda: not ch.clients and "t-worker" not in termbytes.HUB.channels))
-        check("detach: and nothing is left watching", not h.link.handlers)
-        termbytes.notify("t-worker", "marker", at="x", kind="k", actor={})       # a notice to a channel nobody is on is nothing
-        w = _wire()
-        check("format: one that is not text or bytes is bad_request", _code(w.call("terminal.attach", {"agent": "worker", "format": "html"})) == "bad_request")
-        h.host.serves_bytes = False
-        r = w.call("terminal.attach", {"agent": "worker", "format": "bytes"})
-        check("format: bytes on a host that cannot serve it is refused, gate unsupported, and the text format still works",
-              _gate(r) == "unsupported" and w.call("terminal.attach", {"agent": "worker"}).get("result", {}).get("format") == "text", str(r))
-        w.close()
 
 
 # ---------------------------------------------------------------- (8) the tmux backend
@@ -584,86 +431,12 @@ def test_tmux_send_bytes_sends_hex_in_chunks_to_a_pane_only() -> None:
         tmux._tmux = real
 
 
-# ---------------------------------------------------------------- (10) hello
-def _frames(w, wait: float = 0.6) -> list:
-    out = []
-    while True:
-        m = _next(w, "frame", wait)
-        if m is None:
-            return out
-        out.append(m)
-
-
-def test_a_connection_has_one_attach_per_terminal_and_format(home: Path) -> None:
-    support._board_world(home)
-    with Screen() as s, _Host() as h:
-        s.rows = ["row 0", "row 1", "row 2"]
-        w = _wire()
-        first = w.call("terminal.attach", {"agent": "worker"})["result"]
-        second = w.call("terminal.attach", {"agent": "worker"})
-        check("attach: a second text attach of the terminal is accepted, with its own snapshot", "result" in second and second["result"]["format"] == "text", str(second))
-        ch = termchannel.HUB.channels["t-worker"]
-        check("attach: and replaces the first: one client on the channel, not two", len(ch.clients) == 1, str(len(ch.clients)))
-        s.rows = ["row 0", "row 1 CHANGED", "row 2"]
-        frames = _frames(w)
-        check("attach: one frame for the change, never one per attach (no duplicate frames)", len(frames) == 1 and frames[0]["params"]["seq"] == second["result"]["seq"] + 1, str(frames))
-        w.call("terminal.detach", {"terminal": "t-worker"})
-        check("attach: one detach ends it", not ch.clients and "t-worker" not in termchannel.HUB.channels or not termchannel.HUB.channels["t-worker"].clients)
-        w.close()
-
-        w = _wire()
-        a = w.call("terminal.attach", {"agent": "worker", "format": "bytes"})["result"]
-        b = w.call("terminal.attach", {"agent": "worker", "format": "bytes"})["result"]
-        bch = termbytes.HUB.channels["t-worker"]
-        check("attach: a second bytes attach replaces the first, snapshot and counter its own", len(bch.clients) == 1 and b["seq"] == 0 and a["seq"] == 0, str(len(bch.clients)))
-        w.call("input.take", {"agent": "worker", "request_id": "q1"})
-        got = [m for m in (_next(w, "holder", 1.0), _next(w, "holder", 0.4)) if m]
-        check("attach: the holder change reaches the one bytes attach once, with its format", len(got) == 1 and got[0]["params"]["format"] == "bytes" and got[0]["params"]["seq"] == 1, str(got))
-        t = w.call("terminal.attach", {"agent": "worker"})["result"]
-        check("attach: text and bytes of one terminal on one connection are independent", len(bch.clients) == 1 and len(termchannel.HUB.channels["t-worker"].clients) == 1 and t["format"] == "text")
-        con = db.connect()
-        termchannel.marker(con, "worker", "person_typed", {"kind": "person", "name": "someone"}, "hi")
-        con.close()
-        seen = {}
-        for _ in range(2):
-            m = _next(w, "marker", 1.0)
-            if m:
-                seen[m["params"]["format"]] = m["params"]["seq"]
-        check("marker: each attach is sent it once, with its own format and counter", set(seen) == {"text", "bytes"} and seen["bytes"] == 2, str(seen))
-        text_clients = lambda: len(getattr(termchannel.HUB.channels.get("t-worker"), "clients", []))
-        r = w.call("terminal.detach", {"terminal": "t-worker", "format": "text"})
-        check("detach: with a format only that attach ends, the other goes on", r.get("result") == {} and len(bch.clients) == 1 and text_clients() == 0, str((r, text_clients())))
-        check("detach: ending what is not held is {} and not an error", "result" in w.call("terminal.detach", {"terminal": "t-worker", "format": "text"}))
-        r = w.call("terminal.detach", {"terminal": "t-worker", "format": "html"})
-        check("detach: a format that is not text or bytes is bad_request naming format", _code(r) == "bad_request" and r["error"]["data"]["field"] == "format", str(r))
-        check("detach: a handle that does not exist is not_found", _code(w.call("terminal.detach", {"terminal": "nope"})) == "not_found")
-        w.call("terminal.attach", {"agent": "worker"})
-        w.call("terminal.detach", {"terminal": "t-worker"})
-        check("detach: with no format, every attach of the terminal on the connection ends", not bch.clients and "t-worker" not in termbytes.HUB.channels
-              and text_clients() == 0)
-        w.call("terminal.attach", {"agent": "worker"})
-        w.call("terminal.attach", {"agent": "worker", "format": "bytes"})
-        text_ch, bch = termchannel.HUB.channels["t-worker"], termbytes.HUB.channels["t-worker"]
-        w.close()
-        check("detach: closing the connection ends all of them", _until(lambda: not text_ch.clients and not bch.clients))
-
-
-def test_hello_says_which_hosts_serve_which_formats(home: Path) -> None:
-    support.use_home(home)
-    w = Wire()
-    caps = w.call("hello", _hp())["result"]["capabilities"]
-    w.close()
-    check("hello: terminal_hosts is text, bytes and styled for tmux, text for Orca", caps["terminal_hosts"] == {"orca": ["text"], "tmux": ["text", "bytes", "styled"]}, str(caps))
-    check("hello: terminal_format is the union, in the spec's order", caps["terminal_format"] == ["text", "bytes", "styled"], str(caps))
-
-
 def main() -> int:
     def tests(td):
         run(lambda: test_output_is_unescaped_as_bytes())
         run(lambda: test_tmux_greets_with_an_empty_reply_that_no_command_asked_for(Path(td) / "greet"))
         run(lambda: test_the_control_link_matches_replies_to_commands_in_order_among_output())
         run(lambda: test_a_command_waits_for_its_reply_and_a_dead_link_releases_everything())
-        run(lambda: test_a_bytes_attach_is_refused_when_the_link_is_dead_or_the_host_silent(Path(td) / "b1"))
         run(lambda: test_output_before_the_screen_is_in_it_and_output_after_is_the_first_notice())
         run(lambda: test_a_history_page_is_read_at_one_place_by_absolute_index())
         run(lambda: test_a_failed_command_of_a_line_skips_the_rest_and_the_next_reply_is_still_the_next_command_s())
@@ -671,12 +444,7 @@ def main() -> int:
         run(lambda: test_a_screen_the_host_cannot_read_leaves_no_client_behind())
         run(lambda: test_notices_are_at_most_64_kib_and_at_most_one_every_50_ms())
         run(lambda: test_a_client_a_megabyte_behind_is_resynced_alone())
-        run(lambda: test_input_is_the_holders_alone_and_is_recorded_without_its_bytes(Path(td) / "b2"))
-        run(lambda: test_a_resize_snapshots_a_bytes_attach_and_sends_no_resize_notice(Path(td) / "b3"))
-        run(lambda: test_detach_and_a_hung_up_connection_drop_the_client(Path(td) / "b4"))
         run(lambda: test_tmux_send_bytes_sends_hex_in_chunks_to_a_pane_only())
-        run(lambda: test_a_connection_has_one_attach_per_terminal_and_format(Path(td) / "b6"))
-        run(lambda: test_hello_says_which_hosts_serve_which_formats(Path(td) / "b5"))
     return run_area(tests)
 
 

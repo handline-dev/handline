@@ -3,7 +3,7 @@
   {
    "name": "account.add.an_agent_session_is_refused_by_role",
    "spec": "account.add",
-   "about": "NOT_YET_IN_PYTHON A call from an agent session is refused, gate role.",
+   "about": "A call from an agent session is refused, gate role.",
    "as": "agent",
    "steps": [
     {
@@ -42,7 +42,7 @@
   {
    "name": "account.add.needs_a_request_id",
    "spec": "account.add",
-   "about": "NOT_YET_IN_PYTHON A write without a request_id is bad_request naming it.",
+   "about": "A write without a request_id is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -80,7 +80,7 @@
   {
    "name": "account.add.needs_an_account",
    "spec": "account.add",
-   "about": "NOT_YET_IN_PYTHON No account is bad_request naming it.",
+   "about": "No account is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -118,7 +118,7 @@
   {
    "name": "account.add.a_slash_in_the_name_is_bad_request",
    "spec": "account.add",
-   "about": "NOT_YET_IN_PYTHON A name with a slash or a leading dot is bad_request, field account; nothing is made.",
+   "about": "A name with a slash or a leading dot is bad_request, field account; nothing is made.",
    "as": "founder",
    "steps": [
     {
@@ -157,7 +157,7 @@
   {
    "name": "account.add.a_leading_dot_in_the_name_is_bad_request",
    "spec": "account.add",
-   "about": "NOT_YET_IN_PYTHON A name with a slash or a leading dot is bad_request, field account; nothing is made.",
+   "about": "A name with a slash or a leading dot is bad_request, field account; nothing is made.",
    "as": "founder",
    "steps": [
     {
@@ -196,7 +196,7 @@
   {
    "name": "account.add.an_unknown_vendor_is_bad_request",
    "spec": "account.add",
-   "about": "NOT_YET_IN_PYTHON A vendor the daemon has no driver for is bad_request, field vendor.",
+   "about": "A vendor the daemon has no driver for is bad_request, field vendor.",
    "as": "founder",
    "steps": [
     {
@@ -236,7 +236,7 @@
   {
    "name": "account.add.registers_without_a_login",
    "spec": "account.add",
-   "about": "NOT_YET_IN_PYTHON A good call registers the account and logs nothing in: it answers the name, the accounts topic sends account.changed with login_state needs_login, and accounts.list shows it. Needs --var add_account (a name no account has).",
+   "about": "A good call registers the account and logs nothing in: it answers the name, the accounts topic sends account.changed with login_state needs_login, and accounts.list shows it. Needs --var add_account (a name no account has).",
    "as": "founder",
    "steps": [
     {
@@ -322,7 +322,7 @@
   {
    "name": "account.add.a_used_name_is_refused",
    "spec": "account.add",
-   "about": "NOT_YET_IN_PYTHON A name an account already has is refused (gate state) and nothing changes. Needs --var add_used_account (a name no account has).",
+   "about": "A name an account already has is refused (gate state) and nothing changes. Needs --var add_used_account (a name no account has).",
    "as": "founder",
    "steps": [
     {
@@ -375,7 +375,7 @@
   {
    "name": "account.add.a_retried_request_id_adds_once",
    "spec": "account.add",
-   "about": "NOT_YET_IN_PYTHON The same request_id and params answer replayed true and add nothing. Needs --var add_retry_account (a name no account has).",
+   "about": "The same request_id and params answer replayed true and add nothing. Needs --var add_retry_account (a name no account has).",
    "as": "founder",
    "steps": [
     {

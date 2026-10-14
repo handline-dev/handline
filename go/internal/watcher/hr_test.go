@@ -109,13 +109,11 @@ func TestAFileOnlyChangeWakesTheLoop(t *testing.T) {
 
 func TestGoAndPythonWriteTheSameHrEvents(t *testing.T) {
 	home := t.TempDir()
-	parityHome = home
-	t.Cleanup(func() { parityHome = "" })
-	now := time.Now().Unix()
+	now := int64(1_790_000_000) // fixed: the recorded rows carry the times
 	decided := func(id, state string, created, at int64, extra string) {
 		putProposal(t, home, id, state, created, 0, fmt.Sprintf("decided: %d\n%s", at, extra))
 	}
-	py, events := parity(t, "_hr", func(d *sql.DB) Detector { return &HR{Reads: &reads.Env{DB: d, Home: home}} },
+	py, events := parity(t, func(d *sql.DB) Detector { return &HR{Reads: &reads.Env{DB: d, Home: home}} },
 		func(func(string, ...any)) {
 			putProposal(t, home, "0000000a", "proposed", now-100, 0, "")
 			putProposal(t, home, "0000000c", "proposed", now-90, 0, "")

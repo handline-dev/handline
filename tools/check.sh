@@ -10,7 +10,7 @@
 # (6 s), whose guards fail on a contract method the apps' tables do not name.
 cd "$(dirname "$0")/.." || exit 1
 # Hook and read parity with the Python daemon, and the Go migrations and method table being current.
-GO_FILES=(tests/daemon/test_go_reads.py tests/daemon/test_go_hooks.py tests/infra/test_go_schema.py tests/infra/test_go_tidy.py)
+GO_FILES=(tests/infra/test_go_schema.py tests/infra/test_go_tidy.py)
 base="${1:-main}"
 apps() {
     [ -d node_modules ] || { echo "tools/check.sh: no node_modules for the app checks: run  pnpm install --frozen-lockfile" >&2; return 1; }

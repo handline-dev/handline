@@ -3,7 +3,7 @@
   {
    "name": "attachment.put.an_agent_session_is_refused",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A call from an agent session is refused, gate role.",
+   "about": "A call from an agent session is refused, gate role.",
    "as": "agent",
    "steps": [
     {
@@ -45,7 +45,7 @@
   {
    "name": "attachment.put.a_caller_that_is_nobody_is_refused",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A caller that is nobody is refused, gate role.",
+   "about": "A caller that is nobody is refused, gate role.",
    "as": "anonymous",
    "steps": [
     {
@@ -92,7 +92,7 @@
   {
    "name": "attachment.put.needs_a_request_id",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A write without a request_id is bad_request naming it.",
+   "about": "A write without a request_id is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -133,7 +133,7 @@
   {
    "name": "attachment.put.svg_is_bad_request",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON Only PNG, JPEG, GIF and WebP: another mime is bad_request naming mime; nothing is stored.",
+   "about": "Only PNG, JPEG, GIF and WebP: another mime is bad_request naming mime; nothing is stored.",
    "as": "founder",
    "steps": [
     {
@@ -175,7 +175,7 @@
   {
    "name": "attachment.put.the_first_bytes_must_match_the_mime",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A whole file whose first bytes are not the mime it names is bad_request naming data; nothing is stored.",
+   "about": "A whole file whose first bytes are not the mime it names is bad_request naming data; nothing is stored.",
    "as": "founder",
    "steps": [
     {
@@ -217,7 +217,7 @@
   {
    "name": "attachment.put.over_10_mib_is_refused",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A file larger than 10 MiB is refused, gate limit, on its first chunk.",
+   "about": "A file larger than 10 MiB is refused, gate limit, on its first chunk.",
    "as": "founder",
    "steps": [
     {
@@ -259,7 +259,7 @@
   {
    "name": "attachment.put.a_wrong_offset_is_bad_request",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A chunk that does not start where the daemon holds is bad_request naming offset; the upload goes on from where it was.",
+   "about": "A chunk that does not start where the daemon holds is bad_request naming offset; the upload goes on from where it was.",
    "as": "founder",
    "steps": [
     {
@@ -349,7 +349,7 @@
   {
    "name": "attachment.put.a_png_in_one_chunk_is_read_back",
    "spec": "attachment.put",
-   "about": "NOT_YET_IN_PYTHON A whole PNG in one chunk answers with its Attachment, and attachment.get returns the same bytes and, with thumb, a small copy.",
+   "about": "A whole PNG in one chunk answers with its Attachment, and attachment.get returns the same bytes and, with thumb, a small copy.",
    "as": "founder",
    "steps": [
     {
@@ -434,7 +434,7 @@
   {
    "name": "attachment.get.unknown_id_is_not_found",
    "spec": "attachment.get",
-   "about": "NOT_YET_IN_PYTHON An id that was never put is not_found.",
+   "about": "An id that was never put is not_found.",
    "as": "founder",
    "steps": [
     {
@@ -471,7 +471,7 @@
   {
    "name": "attachment.get.a_malformed_id_is_bad_request",
    "spec": "attachment.get",
-   "about": "NOT_YET_IN_PYTHON An id that is not 16 hex digits is bad_request naming id.",
+   "about": "An id that is not 16 hex digits is bad_request naming id.",
    "as": "founder",
    "steps": [
     {
@@ -509,7 +509,7 @@
   {
    "name": "chat.send.more_than_six_attachments_is_bad_request",
    "spec": "chat.send",
-   "about": "NOT_YET_IN_PYTHON Seven attachments are bad_request naming attachments.",
+   "about": "Seven attachments are bad_request naming attachments.",
    "as": "founder",
    "steps": [
     {
@@ -558,7 +558,7 @@
   {
    "name": "chat.send.attachments_with_a_task_is_bad_request",
    "spec": "chat.send",
-   "about": "NOT_YET_IN_PYTHON Attachments do not go with a task: bad_request naming attachments.",
+   "about": "Attachments do not go with a task: bad_request naming attachments.",
    "as": "founder",
    "steps": [
     {

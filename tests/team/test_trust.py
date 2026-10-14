@@ -12,8 +12,6 @@ import support  # noqa: E402
 from support import *  # noqa: E402,F401,F403
 
 
-
-
 def test_trust_roots(home: Path) -> None:
     """Blocker 3 (auditor's #304): roots are an explicit list the founder
     sets, never inferred from the roster or Orca's own layout - propose/apply
@@ -673,7 +671,6 @@ def test_offer_to_trust_worktrees_lists_paths_and_skips(home: Path) -> None:
           any("skipping" in p and "frontend" in p for p in asked), asked)
     check("offer: a yes goes ahead and trusts only the declared one",
           "backend: trusted" in out, out)
-
 
 
 def test_dialog_rules_are_the_founders_and_match_by_label(home: Path) -> None:

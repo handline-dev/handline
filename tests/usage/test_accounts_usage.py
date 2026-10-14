@@ -1767,7 +1767,6 @@ def test_a_turn_ending_refreshes_the_snapshot_through_the_hook(home: Path) -> No
                                             "cwd": str(cwd), **fields}))
         try:
             evmod.record_from_stdin([event])
-            drain_spool()
         finally:
             sys.stdin = real_in
 
@@ -2357,10 +2356,10 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
           set(found) <= db.AGENT_ACTIVITY_KINDS | daemon_kinds,
           str(sorted(set(found) - db.AGENT_ACTIVITY_KINDS - daemon_kinds)))
     check("activity: the scan reads every call site, not just the ones its regex can parse",
-          len(found) == calls - 2, f"{len(found)} literal kinds found, {calls} add_event( sites "
-          "(expected 2 unmatched: the def in db/events.py, the kind-as-variable forwarder in events.py)")
+          len(found) == calls - 1, f"{len(found)} literal kinds found, {calls} add_event( sites "
+          "(expected 1 unmatched: the def in db/events.py)")
 
-    # events.py's forwarder passes `event`, a variable ranging over CAPTURED -
+    # A hook's kind, one of CAPTURED, is written by the daemon's hook.record -
     # invisible to the regex above at any count, so CAPTURED is sorted here
     # directly. This is the site #1536's arithmetic exempted without checking
     # what flowed through it: every hook kind an agent's own live session can
@@ -4393,13 +4392,12 @@ def test_account_list_is_the_present_state_and_status_is_the_pick(home: Path) ->
     check("account list --json: the same roster",
           (by["alpha"]["agents_assigned"], by["alpha"]["agents_running"]) == (2, 1)
           and by["beta"]["agents_assigned"] == 0, by["alpha"])
-    text = _capture(lambda: climod.main(["status"]))
+    pick = {"picked": "alpha", "candidates": [{"account": "alpha", "reason": "room"}], "agent_costs": ["claude 0.1%"]}
+    with support.daemon_says("status.pick", pick):          # the pick itself is the Go daemon's (go/internal/usage)
+        text = _capture(lambda: climod.main(["status"]))
     check("status: the pick's reasons, the price they rest on, and the verdict",
-          "one more agent costs" in text and "\npicked:" in text
+          "one more agent costs" in text and "\npicked: alpha" in text
           and text.index("one more agent costs") < text.index("\npicked:"), text)
-    check("status --json: carries the same price",
-          json.loads(_capture(lambda: climod.main(["status", "--json"])))["agent_costs"]
-          == loadmod.costs().by_kind(paths.list_agents()))
     try:
         with contextlib.redirect_stderr(io.StringIO()):
             climod.main(["status", "--table"])

@@ -293,16 +293,10 @@ def test_record_from_stdin_blocks_only_when_enforced_and_never_marks_idle(home: 
         try:
             with contextlib.redirect_stdout(buf):
                 evmod.record_from_stdin(["Stop"])
-            drain_spool()
         finally:
             sys.stdin = real_in
         check("warn-only: lets the stop through", buf.getvalue().strip() == "{}", buf.getvalue())
-        con = db.connect()
-        try:
-            check("warn-only: the ordinary Stop capture ran - worker reads IDLE",
-                  db.get_agent_state(con, "worker")["state"] == dmn_states.IDLE)
-        finally:
-            con.close()
+        check("warn-only: the ordinary Stop capture ran - the event is recorded", len(spooled("worker", "Stop")) == 1)
 
         del os.environ["OCP_AGENT"]
         stopgate.set_enforced(True)
@@ -323,13 +317,8 @@ def test_record_from_stdin_blocks_only_when_enforced_and_never_marks_idle(home: 
         out = json.loads(buf2.getvalue())
         check("enforced: blocks with a reason", out.get("decision") == "block"
               and f"T{tid}" in out.get("reason", ""), buf2.getvalue())
-        con = db.connect()
-        try:
-            check("enforced: the ordinary Stop capture never ran - worker still reads RUNNING, "
-                  "since the turn did not really end",
-                  db.get_agent_state(con, "worker")["state"] == dmn_states.RUNNING)
-        finally:
-            con.close()
+        check("enforced: the ordinary Stop capture never ran - no second Stop is recorded, since the turn did not "
+              "really end", len(spooled("worker", "Stop")) == 1)
     finally:
         del os.environ["OCP_AGENT"]
 

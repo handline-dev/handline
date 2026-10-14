@@ -49,7 +49,7 @@ LOG_BACKUPS = 5
 
 
 # ---------------------------------------------------------------- paths
-# The daemon raises its own soft limit to the same (daemon.socket_server.FD_SOFT_LIMIT; a test holds them equal).
+# The open-file soft limit launchd gives the daemon.
 FD_SOFT_LIMIT = 4096
 
 

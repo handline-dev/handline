@@ -3,7 +3,7 @@
   {
    "name": "chat.transcript.a_tool_item_carries_its_output",
    "spec": "chat.transcript",
-   "about": "NOT_YET_IN_PYTHON: a tool item holds the text the tool printed in output; dropped_lines counts the lines the store cut, and is 0 or absent when none were; an item with no output has neither.",
+   "about": "a tool item holds the text the tool printed in output; dropped_lines counts the lines the store cut, and is 0 or absent when none were; an item with no output has neither.",
    "as": "founder",
    "steps": [
     {

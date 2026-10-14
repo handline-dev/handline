@@ -713,7 +713,6 @@ def test_a_renamed_agents_worktree_follows_it_with_its_work_and_memory(home: Pat
         con.close()
 
 
-
 def test_a_rehome_carries_orcas_label_parent_and_children(home: Path) -> None:
     """On Orca a moved checkout is a new automatic entry: rehome waits for it, names it for the agent,
     carries the old entry's comment, parent and status, re-points its children, and refuses while a
@@ -1071,11 +1070,6 @@ def test_a_claude_agent_is_never_placed_on_another_vendors_account(home: Path) -
                       facts["vendor"] == "zai" and facts["config"].endswith("(zai)"), str(facts))
             finally:
                 con.close()
-            out = io.StringIO()
-            with contextlib.redirect_stdout(out):
-                clihealth.cmd_status(argparse.Namespace(json=True))
-            check("vendor pick: hl status does not name it next",
-                  json.loads(out.getvalue())["picked"] != "zeta", out.getvalue()[:200])
             accounts.logged_in = lambda a: True
             allowed, _ = status.account_verdict("zeta", status.read("zeta"), loadmod.read_all().get("zeta"), [], True)
             check("vendor pick: its tick is its own vendor's answer, not a ✘ "
@@ -2955,8 +2949,9 @@ def test_a_repo_is_required_to_add_an_agent(home: Path) -> None:
     rc, out = _cli(["agent", "register", "boss", "--effort", "high"], as_agent=askmod.HUMAN)
     check("agent register: one that has a repo keeps it on re-registration", rc == 0
           and agents.read("boss").get("repo") == "/w/boss", out)
-    from handline.cli import client as cli_client, team as teamcli
-    doing = {a["name"]: teamcli._doing(a["name"], a) for a in cli_client.call("agents.list", {"status": True})["agents"]}
+    from handline.cli import team as teamcli
+    line = {"has_terminal": False, "started": False}          # agents.list's has_repo is the Go daemon's
+    doing = {name: teamcli._doing(name, {**line, "has_repo": bool(agents.read(name).get("repo"))}) for name in ("legacy", "boss")}
     check("hl team: an agent with no repo says why it never starts",
           "no repo" in doing["legacy"] and "--repo <path>" in doing["legacy"], doing["legacy"])
     check("hl team: one with a repo does not", "no repo" not in doing["boss"])
@@ -3012,132 +3007,6 @@ def test_an_agents_role_and_base_change_only_by_a_proposal_the_founder_approves(
           and "base.md" not in said, said)
     check("context: the file still loads as the agent's standing context",
           role_file.read_text().strip() in launch.context_for("worker"))
-
-
-def test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_founder_approves(home: Path) -> None:
-    os.environ["OCP_HOME"] = str(home)
-    os.environ.pop("OCP_AGENT", None)
-    agents.register("worker", model="sonnet", repo=str(home))
-    agents.register("other", repo=str(home))
-    _daemon_home(home, 20)
-    hand_edit_team("agents:\n  worker: {}\n  other: {}\nedges:\n  - { from: \"*\", to: \"human\", kind: task }\n")
-    from handline.daemon import socket_server
-    from handline.infra import daemonclient as dmn_client
-    from handline.team import agent_settings
-
-    def daemon_send(payload):       # the daemon is not an agent's session: no OCP_AGENT there
-        mine = os.environ.pop("OCP_AGENT", None)
-        try:
-            return socket_server._handle_request(payload, lambda *_: None)
-        finally:
-            if mine is not None:
-                os.environ["OCP_AGENT"] = mine
-    real = dmn_client.send
-    dmn_client.send = daemon_send
-    try:
-        rc, out = _cli(["agent", "set", "worker", "model=opus", "effort=high", "handoff_note=off"], as_agent="worker")
-        cfg = agents.read("worker")
-        check("settings: an agent's ordinary changes apply at once, its own handoff note off among them",
-              rc == 0 and cfg["model"] == "opus" and cfg["effort"] == "high" and cfg["handoff_note"] is False, out)
-        from handline.daemon import handoff_note
-        check("settings: the daemon then reads that agent's handoff note as off", not handoff_note.enabled("worker"))
-        reply = daemon_send({"verb": "agent_set", "agent": "worker", "speaker": "worker", "values": {"idle_close": "0"}})
-        check("settings: idle close needs the founder, since 0 keeps a session open for good",
-              not reply["ok"] and "park_timeout_s" not in agents.read("worker"), str(reply))
-        rc, out = _cli(["agent", "set", "other", "model=opus"], as_agent="worker")
-        check("settings: another agent's setting is not written, and it needs a reason",
-              rc == 1 and agents.read("other").get("model") != "opus" and not proposals.listing(), out)
-        rc, out = _cli(["agent", "set", "other", "model=opus", "effort=low", "--why", "its work is cheap"], as_agent="worker")
-        pid = next((x["id"] for x in proposals.listing() if x["kind"] == "settings" and x["agent"] == "other"), None)
-        check("settings: with a reason it is proposed for the founder, and nothing is written",
-              rc == 0 and pid and agents.read("other").get("model") != "opus", f"rc={rc} {out}")
-        rc, out = _cli(["agent", "set", "worker", "effort=low"], as_agent="worker")
-        check("settings: its own ordinary change still needs no reason", rc == 0 and agents.read("worker")["effort"] == "low", out)
-        reply = daemon_send({"verb": "agent_set", "agent": "other", "speaker": "worker", "values": {"model": "opus"}})
-        check("settings: the daemon's refusal says how to propose it",
-              not reply["ok"] and "hl agent set other" in reply["said"] and "--why" in reply["said"], str(reply))
-        rc, out = _cli(["agent", "set", "worker", "browser=chrome"], as_agent="worker")
-        check("settings: a privileged change needs a reason",
-              rc == 1 and not [x for x in proposals.listing() if x["agent"] == "worker"], out)
-        reply = daemon_send({"verb": "agent_set", "agent": "worker", "speaker": "worker",
-                             "values": {"skip_permissions": "on"}})
-        check("settings: the daemon verb refuses a privileged one outright",
-              not reply["ok"] and not agents.skip_permissions(agents.read("worker")), str(reply))
-        os.environ["OCP_AGENT"] = "worker"
-        try:
-            agents.register("worker", chrome=True)
-            check("settings: the register path is shut to an agent", False, "it went through")
-        except PermissionError:
-            check("settings: the register path is shut to an agent", True)
-        finally:
-            os.environ.pop("OCP_AGENT", None)
-        rc, out = _cli(["agent", "set", "worker", "browser=playwright", "browser_sites=https://a.com https://b.org",
-                        "model=sonnet", "--why", "needs the docs site"], as_agent="worker")
-        cfg = agents.read("worker")
-        check("settings: the ordinary half applies and the privileged half is only proposed",
-              rc == 0 and cfg["model"] == "sonnet" and not agents.chrome(cfg) and not cfg.get("mcp_config")
-              and "proposal" in out, f"rc={rc} {out}")
-    finally:
-        dmn_client.send = real
-    pid = next(x["id"] for x in proposals.listing() if x["kind"] == "settings" and x["agent"] == "worker")
-    prop = hr.load_proposal(pid)
-    con = db.connect()
-    try:
-        ok, said = hr.apply(pid, con)
-        check("settings: nothing applies before the founder answers", not ok and not agents.read("worker").get("mcp_config"), said)
-        decisions.record("hr", pid, 0, "approved", hr.subject_of(prop))
-        prop = {**prop, "state": "approved"}
-        hr.save(prop)
-        edited = dict(prop)
-        edited["set.browser_sites"] = "https://evil.example"
-        hr.save(edited)
-        ok, said = hr.apply(pid, con)
-        check("settings: a proposal edited after the approval is refused",
-              not ok and not agents.read("worker").get("mcp_config"), said)
-        hr.save(prop)
-        ok, said = hr.apply(pid, con)
-    finally:
-        con.close()
-    cfg = agents.read("worker")
-    check("settings: the approval applies exactly what was proposed",
-          ok and agents.browser_mode(cfg) == "playwright"
-          and agents.browser_origins(cfg) == ["https://a.com", "https://b.org"] and cfg["model"] == "sonnet", said)
-    ok, said = agent_settings.set_values("worker", {"browser": "off"})
-    check("settings: the founder changes any setting directly", ok and agents.browser_mode(agents.read("worker")) == "off", said)
-    # The sandbox and the permission mode are the founder's alone, like skip_permissions: an agent whose
-    # sandbox is on cannot take it off itself.
-    agent_settings.set_values("worker", {"sandbox": "on"})
-    real_send = dmn_client.send
-    dmn_client.send = daemon_send
-    try:
-        for key, value in (("sandbox", "off"), ("mode", "plan"), ("mode", "bypass")):
-            reply = daemon_send({"verb": "agent_set", "agent": "worker", "speaker": "worker", "values": {key: value}})
-            check(f"settings: the daemon verb refuses {key}={value} from the agent itself", not reply["ok"], str(reply))
-        check("settings: and nothing was written", agents.sandbox_on("worker", agents.read("worker"))
-              and "mode" not in agents.read("worker") and not agents.skip_permissions(agents.read("worker")))
-        rc, out = _cli(["agent", "set", "worker", "sandbox=off"], as_agent="worker")
-        check("settings: asking for the sandbox off needs a reason", rc == 1 and agents.sandbox_on("worker", agents.read("worker")), out)
-        before = len(proposals.listing())
-        rc, out = _cli(["agent", "set", "worker", "sandbox=off", "mode=acceptEdits", "--why", "a system job"], as_agent="worker")
-        check("settings: with one it is only proposed", rc == 0 and "proposal" in out and len(proposals.listing()) == before + 1
-              and agents.sandbox_on("worker", agents.read("worker")) and "mode" not in agents.read("worker"), out)
-    finally:
-        dmn_client.send = real_send
-    ok, said = agent_settings.set_values("worker", {"sandbox": "off", "mode": "acceptEdits"})
-    cfg = agents.read("worker")
-    check("settings: the founder sets both directly",
-          ok and "sandbox" not in cfg and cfg["mode"] == "acceptEdits" and not agents.sandbox_on("worker", cfg), said)
-    shown = agent_settings.settings_of("worker")
-    check("settings: and the settings read back as off and acceptEdits",
-          shown["sandbox"] == "off" and shown["mode"] == "acceptEdits", str(shown))
-    ok, said = agent_settings.set_values("worker", {"mode": "yolo"})
-    check("settings: an unknown mode is refused", not ok and "mode must be one of" in said, said)
-    ok, said = agent_settings.set_values("worker", {"mode": "bypass"})
-    check("settings: bypass is the old switch, granted and shown on both",
-          ok and agents.skip_permissions_in_effect("worker", agents.read("worker"))
-          and agent_settings.settings_of("worker")["skip_permissions"] == "on"
-          and agent_settings.settings_of("worker")["mode"] == "bypass", said)
-    agent_settings.set_values("worker", {"sandbox": "on", "mode": "auto"})
 
 
 def test_hr_add_writes_the_vendor_it_was_given(home: Path) -> None:
@@ -4291,7 +4160,6 @@ def main() -> int:
         run(lambda: test_a_repo_is_required_to_add_an_agent(Path(td) / 'hrrepo'))
         run(lambda: test_hr_add_writes_the_vendor_it_was_given(Path(td) / 'hrvendor'))
         run(lambda: test_an_agents_role_and_base_change_only_by_a_proposal_the_founder_approves(Path(td) / 'ctxprop'))
-        run(lambda: test_an_agent_changes_ordinary_settings_at_once_and_the_rest_only_when_the_founder_approves(Path(td) / 'agentsettings'))
         run(lambda: test_an_agent_asks_for_schedules_global_switches_and_registers_through_hr(Path(td) / 'hrkinds'))
         run(lambda: test_hr_cli_lists_cards_and_only_the_founder_decides(Path(td) / 'hrcli'))
         run(lambda: test_proposals_raised_as_tasks_leave_the_task_board(Path(td) / 'hrmigrate'))

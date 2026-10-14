@@ -3,7 +3,7 @@
   {
    "name": "account.login.runs_to_done",
    "spec": "account.login",
-   "about": "NOT_YET_IN_PYTHON A login answers its id and URL; the code brings it to code_sent and then done, the accounts topic says each step, and accounts.list then shows login_state ok. Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
+   "about": "A login answers its id and URL; the code brings it to code_sent and then done, the accounts topic says each step, and accounts.list then shows login_state ok. Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
    "as": "founder",
    "steps": [
     {
@@ -161,7 +161,7 @@
   {
    "name": "account.login.a_wrong_code_ends_failed_with_a_reason",
    "spec": "account.login",
-   "about": "NOT_YET_IN_PYTHON A code the login refuses ends it failed with a reason, and the account is not logged in by it. Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
+   "about": "A code the login refuses ends it failed with a reason, and the account is not logged in by it. Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
    "as": "founder",
    "steps": [
     {
@@ -301,7 +301,7 @@
   {
    "name": "account.login.cancel_ends_cancelled_and_is_idempotent",
    "spec": "account.login",
-   "about": "NOT_YET_IN_PYTHON Cancel ends a waiting login as cancelled; cancelling it again is accepted and changes nothing. Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
+   "about": "Cancel ends a waiting login as cancelled; cancelling it again is accepted and changes nothing. Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
    "as": "founder",
    "steps": [
     {
@@ -432,7 +432,7 @@
   {
    "name": "account.login.a_second_login_is_refused_while_one_waits",
    "spec": "account.login",
-   "about": "NOT_YET_IN_PYTHON While a login waits, another on the same account is refused (gate state) and the first goes on. Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
+   "about": "While a login waits, another on the same account is refused (gate state) and the first goes on. Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
    "as": "founder",
    "steps": [
     {
@@ -545,7 +545,7 @@
   {
    "name": "account.login.a_code_after_the_end_is_refused",
    "spec": "account.login",
-   "about": "NOT_YET_IN_PYTHON A code for a login that has ended is refused (gate state). Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
+   "about": "A code for a login that has ended is refused (gate state). Needs --var login_account (an account with no login running), login_code (the code the daemon takes as right) and login_wrong_code (one it refuses).",
    "as": "founder",
    "steps": [
     {
