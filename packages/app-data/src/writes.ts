@@ -101,6 +101,9 @@ const tasks: Record<string, WriteSpec> = {
   'task.queue': verb('queue', 'queue'),
   'task.draft': verb('draft', 'draft'),
   'task.release': verb('release', 'release'),
+  // A report is the opener's to judge: nothing shows until the daemon says it is closed or sent back.
+  'task.accept': decided('accept'),
+  'task.reject': decided('reject'),
   'task.withdraw': verb('withdraw', 'withdraw'),
   'task.cancel': verb('cancel', 'cancel'),
   'task.edit': verb('edit', 'edit'),
@@ -378,9 +381,6 @@ export const NOT_FROM_UI = [
   'task.start',
   'task.progress',
   'task.handoff',
-  // `hl task accept` and `hl task reject`: the app has no button for a reported task yet.
-  'task.accept',
-  'task.reject',
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',
