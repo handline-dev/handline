@@ -74,7 +74,7 @@ imported from outside, and `cmd_daemon*`, `cmd_dev_mode` are names of `cli/daemo
      - `hl hr approve`, `reject`, `apply`: `team/hr` tells the proposer with `team/ask.say`, which writes the request
        row itself and pushes it. When the Go daemon does not take the `push` verb, it delivers in its own process
        (`delivery`, `lifecycle`, `messaging`).
-     - `hl agent spawn`: `team/spawn` waits for the session with `delivery.wait_for_session`.
+     - `hl spawn`: `team/spawn` waits for the session with `delivery.wait_for_session`.
      - Nothing else. Only the package itself calls these: `session/blocked`'s sweep half, `session/handoff`,
        `session/launch.wake_wait`, the `handoff_note` switch in `actions/details`, `team/ask.inbox`, the rest of
        `team/ask`'s writes (the Go `hl` runs `task`, `say`, `cancel` and `withdraw`), and `actions/stuck`.
@@ -85,11 +85,12 @@ imported from outside, and `cmd_daemon*`, `cmd_dev_mode` are names of `cli/daemo
         re-exports `stuck`; the package's `agentview` and `team/ask`'s in-process push import it themselves. `tests/session/test_stopgate.py` imports the parser with the package emptied.
      2. `hl hr` calls `hr.propose`, `hr.decide`, `hr.withdraw` and `hr.list`. Go tells the proposer, so `team/hr`
         no longer calls `team/ask`.
-     3. `hl agent spawn` calls `session.start` with `repo` and `base`, and `hl agent unstall` calls `agent.unstall`.
-        First check that `session.start` makes the worktree that `spawn` makes, and decide what `--prompt` and
-        `--dry-run` become.
+     3. Done: `hl spawn` calls `session.start` with `repo` and `base`, which makes the worktree `team/spawn` made
+        (`lifecycle.SpawnWith`, a port of it); `--prompt` then goes through `chat.send`, and `--dry-run` is gone, as
+        `session.start` has none. `hl unstall` calls `agent.unstall`; `actions/control` is gone. The Python daemon's
+        own start moved to `daemon/spawn`, so `team/spawn` no longer reaches the package.
      4. Delete `handline/daemon` and everything only it reaches: the list under "Nothing else" above,
-        `actions/control`, `autoaccept.answer_by_rule`, and the tests that exercise only these (`tests/daemon`,
+        `autoaccept.answer_by_rule`, and the tests that exercise only these (`tests/daemon`,
         most of `tests/session/test_daemon_session.py` and `test_session_io.py`). If the diff is too big for one
         review, split it by test area.
 

@@ -1231,7 +1231,7 @@ def test_a_woken_session_is_not_closed_while_its_wake_waits_for_the_first_turn(h
     _daemon_home(home, 20)
     con = db.connect()
     at_wait: list = []
-    real = (spawnmod.start_in, termmod.send)
+    real = (dmn_spawn.start_in, termmod.send)
     try:
         orca_seen()
         table = sessions_are()
@@ -1249,7 +1249,7 @@ def test_a_woken_session_is_not_closed_while_its_wake_waits_for_the_first_turn(h
             table[agent] = 4242
             take_launched_prompt(cmd)
             return True, "started"
-        spawnmod.start_in = start_in
+        dmn_spawn.start_in = start_in
         termmod.live_terminals = lambda: {"term_new"}
         wt = home / "wt"
         wt.mkdir()
@@ -1278,7 +1278,7 @@ def test_a_woken_session_is_not_closed_while_its_wake_waits_for_the_first_turn(h
         check("stuck: once it is free the closed reason is back", state[0] != "closed, starting", str(state))
         check("stuck: an agent whose lock file does not exist is not held", lock.terminal_busy("never-locked") is False)
     finally:
-        spawnmod.start_in, termmod.send = real
+        dmn_spawn.start_in, termmod.send = real
         con.close()
 
 
@@ -2355,7 +2355,7 @@ def test_the_whole_loop_runs_on_our_own_commands(home: Path) -> None:
     con = db.connect()
     typed: list[tuple[str, str]] = []
     real = (termmod.available, termmod.alive, termmod.idle_now, termmod.send,
-            spawnmod.spawn, dmn_delivery.wait_for_session)
+            dmn_spawn.spawn, dmn_delivery.wait_for_session)
     try:
         orca_idle()
         termmod.send = lambda h, text, enter=True: (typed.append((h, text)), (True, ""))[1]
@@ -2365,7 +2365,7 @@ def test_the_whole_loop_runs_on_our_own_commands(home: Path) -> None:
             db.set_terminal(db.connect(), agent, f"term_{agent}", str(repo))
             return True, f"{agent}: worktree {repo}"
 
-        spawnmod.spawn = fake_spawn
+        dmn_spawn.spawn = fake_spawn
         hand_edit_team("""
 teams:
   dev: [marina]
@@ -2412,7 +2412,7 @@ edges:
               f"{saide} {typed}"[:200])
     finally:
         (termmod.available, termmod.alive, termmod.idle_now, termmod.send,
-         spawnmod.spawn, dmn_delivery.wait_for_session) = real
+         dmn_spawn.spawn, dmn_delivery.wait_for_session) = real
         con.close()
 
 

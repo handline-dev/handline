@@ -118,7 +118,7 @@ def test_a_missing_second_worktree_is_made_once_beside_the_first(home: Path) -> 
         agents.register("auditor", extra_worktrees=2)
         again, told3 = spawn.ensure_extras("auditor", first, repo)
         check("make: one that is gone is made again, and the other is left", len(again) == 2 and again[0] == have[0] and Path(again[1]).is_dir() and told3, str((again, told3)))
-        text = spawn.spawn("auditor", repo, dry_run=True)[1]
+        text = dmn_spawn.spawn("auditor", repo, dry_run=True)[1]
         check("make: a dry run says nothing is made when both are there", "would make" not in text, text)
         agents.register("auditor", extra_worktrees=0)
         check("make: with the config back to none the recorded ones are neither used nor removed", spawn.ensure_extras("auditor", first, repo)[0] == []
@@ -131,7 +131,7 @@ def test_the_dry_run_says_what_it_would_make(home: Path) -> None:
     repo, first = _world(home)
     try:
         agents.register("auditor", extra_worktrees=1)
-        text = spawn.spawn("auditor", repo, dry_run=True)[1]
+        text = dmn_spawn.spawn("auditor", repo, dry_run=True)[1]
         check("dry run: it names the second worktree it would make and makes none", "would make auditor-2" in text and not Path(first + "-2").exists(), text)
     finally:
         backends.use(None)

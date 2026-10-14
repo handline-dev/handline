@@ -1481,16 +1481,16 @@ def test_spawn_confirms_the_task_landed(home: Path) -> None:
     try:
         since = db.max_event_id(con)
         check("spawn: no prompt event yet means not landed",
-              spawnmod.prompt_landed("scout", since, timeout_s=0) is False)
+              dmn_spawn.prompt_landed("scout", since, timeout_s=0) is False)
         db.add_event(con, "scout", "SessionStart", {})
         check("spawn: a session starting is not a task arriving",
-              spawnmod.prompt_landed("scout", since, timeout_s=0) is False)
+              dmn_spawn.prompt_landed("scout", since, timeout_s=0) is False)
         db.add_event(con, "other", "UserPromptSubmit", {})
         check("spawn: another agent's prompt does not count",
-              spawnmod.prompt_landed("scout", since, timeout_s=0) is False)
+              dmn_spawn.prompt_landed("scout", since, timeout_s=0) is False)
         db.add_event(con, "scout", "UserPromptSubmit", {})
         check("spawn: the agent's own prompt event confirms it",
-              spawnmod.prompt_landed("scout", since, timeout_s=0) is True)
+              dmn_spawn.prompt_landed("scout", since, timeout_s=0) is True)
     finally:
         con.close()
 

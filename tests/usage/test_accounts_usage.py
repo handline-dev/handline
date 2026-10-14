@@ -2503,7 +2503,7 @@ def test_a_start_with_no_room_says_why_and_is_not_a_failed_attempt(home: Path) -
     _daemon_home(home, 20)
     credentialed(home, "alpha")
     con = db.connect()
-    real = (termmod.available, termmod.alive, spawnmod.spawn)
+    real = (termmod.available, termmod.alive, dmn_spawn.spawn)
     try:
         orca_seen()
         write_status(home, "alpha", pct_5h=100, pct_7d=20, ctx_pct=5,
@@ -2533,7 +2533,7 @@ def test_a_start_with_no_room_says_why_and_is_not_a_failed_attempt(home: Path) -
               db.get_agent_state(con, "backend")["wake_failures"] == 0)
 
         spawned: list[str] = []
-        spawnmod.spawn = lambda *a, **k: (spawned.append("x"), (False, "no"))[1]
+        dmn_spawn.spawn = lambda *a, **k: (spawned.append("x"), (False, "no"))[1]
         agents.register("marina", repo=str(home / "checkout"))
         msg = dmn_lifecycle._start_for_work(con, "marina", lambda _m: None)
         check("no room: a spawn for waiting work is not attempted, and says why",
@@ -2551,7 +2551,7 @@ def test_a_start_with_no_room_says_why_and_is_not_a_failed_attempt(home: Path) -
             check("no room: a resume with no recorded account is refused",
                   "no recorded session to resume" in str(e), str(e))
     finally:
-        termmod.available, termmod.alive, spawnmod.spawn = real
+        termmod.available, termmod.alive, dmn_spawn.spawn = real
         con.close()
 
 
@@ -2683,12 +2683,12 @@ def test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(home: 
     _daemon_home(home, 20)
     credentialed(home, "alpha")
     con = db.connect()
-    real_spawn = spawnmod.spawn
+    real_spawn = dmn_spawn.spawn
     try:
         def fake_spawn(agent, repo, base="main", prompt=None):
             db.set_terminal(con, agent, "term_new", None)
             return True, "spawned"
-        spawnmod.spawn = fake_spawn
+        dmn_spawn.spawn = fake_spawn
         agents.register("marina", repo=str(home / "checkout"))
         db.add_request(con, "reviewer", "marina", "look at this", None,
                        "peer", "async", None, 0, None)
@@ -2698,20 +2698,20 @@ def test_a_spawned_agent_gets_an_assumed_account_until_launch_confirms_it(home: 
         check("account: a fresh spawn has no account until its launch records one",
               row["account"] is None, dict(row))
     finally:
-        spawnmod.spawn = real_spawn
+        dmn_spawn.spawn = real_spawn
         con.close()
 
 
 def test_starts_for_waiting_work_that_keep_failing_stall_the_agent(home: Path) -> None:
     """T483: legacy sat IDLE for three days with work waiting - three failed starts
     latched the streak with nothing to show for it, and `ocp unstall` takes only
-    STALLED. The third failure stalls it, with the reason, and unstall lifts it."""
+    STALLED. The third failure stalls it, with the reason."""
     _daemon_home(home, 20)
     credentialed(home, "alpha")
     con = db.connect()
-    real_spawn = spawnmod.spawn
+    real_spawn = dmn_spawn.spawn
     try:
-        spawnmod.spawn = lambda *a, **k: (False, "worktree create failed: invalid reference: main")
+        dmn_spawn.spawn = lambda *a, **k: (False, "worktree create failed: invalid reference: main")
         agents.register("marina", repo=str(home / "checkout"))
         db.add_request(con, "reviewer", "marina", "look at this", None, "peer", "async", None, 0, None)
 
@@ -2725,13 +2725,8 @@ def test_starts_for_waiting_work_that_keep_failing_stall_the_agent(home: Path) -
         row = db.get_agent_state(con, "marina")
         check("start stall: the last failure stalls it and keeps the reason",
               row["state"] == dmn_states.STALLED and "invalid reference: main" in row["detail"], dict(row))
-
-        actions.unstall(con, "marina")
-        row = db.get_agent_state(con, "marina")
-        check("start stall: unstall clears the streak so the next tick tries again",
-              row["wake_failures"] == 0 and row["state"] != dmn_states.STALLED, dict(row))
     finally:
-        spawnmod.spawn = real_spawn
+        dmn_spawn.spawn = real_spawn
         con.close()
 
 
@@ -2742,10 +2737,10 @@ def test_an_agent_latched_idle_before_the_stall_existed_stalls_with_its_reason(h
     _daemon_home(home, 20)
     credentialed(home, "alpha")
     con = db.connect()
-    real_spawn = spawnmod.spawn
+    real_spawn = dmn_spawn.spawn
     try:
         calls: list[int] = []
-        spawnmod.spawn = lambda *a, **k: (calls.append(1), (False, "worktree create failed: invalid reference: main"))[1]
+        dmn_spawn.spawn = lambda *a, **k: (calls.append(1), (False, "worktree create failed: invalid reference: main"))[1]
         agents.register("marina", repo=str(home / "checkout"))
         db.add_request(con, "reviewer", "marina", "look at this", None, "peer", "async", None, 0, None)
         db.bump_counter(con, "marina", "wake_failures", dmn_timing.MAX_FAILED_ATTEMPTS)
@@ -2763,13 +2758,13 @@ def test_an_agent_latched_idle_before_the_stall_existed_stalls_with_its_reason(h
         agents.register("second", repo=str(home / "checkout"))
         db.add_request(con, "reviewer", "second", "look", None, "peer", "async", None, 0, None)
         db.bump_counter(con, "second", "wake_failures", dmn_timing.MAX_FAILED_ATTEMPTS)
-        spawnmod.spawn = lambda agent, *a, **k: (db.set_terminal(con, agent, "term_new", None), (True, "spawned"))[1]
+        dmn_spawn.spawn = lambda agent, *a, **k: (db.set_terminal(con, agent, "term_new", None), (True, "spawned"))[1]
         dmn_lifecycle._start_for_work(con, "second", lambda _m: None)
         row = db.get_agent_state(con, "second")
         check("latched idle: a cause that is gone lets it start and clears the streak",
               row["wake_failures"] == 0 and row["state"] != dmn_states.STALLED, dict(row))
     finally:
-        spawnmod.spawn = real_spawn
+        dmn_spawn.spawn = real_spawn
         con.close()
 
 

@@ -505,7 +505,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repo", required=True)
     p.add_argument("--base", default="main")
     p.add_argument("--prompt", default=None, help="first task to send once it is up")
-    p.add_argument("--dry-run", action="store_true")
     p.set_defaults(fn=cmd_spawn)
 
     p = sub.add_parser("bridge", aliases=["top", "watch"],

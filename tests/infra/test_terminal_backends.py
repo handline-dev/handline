@@ -396,12 +396,12 @@ def test_spawn_runs_an_agent_on_any_backend(home: Path) -> None:
     host = FakeHost()
     host.supports_runs = False
     backends.use(host)
-    real = (spawnmod._run, spawnmod.prompt_landed, dmn_delivery.wait_for_session)
+    real = (spawnmod._run, dmn_spawn.prompt_landed, dmn_delivery.wait_for_session)
     try:
         spawnmod._run = lambda args, cwd=None: (0, "", "")
-        spawnmod.prompt_landed = lambda agent, since, timeout_s=0: True
+        dmn_spawn.prompt_landed = lambda agent, since, timeout_s=0: True
         dmn_delivery.wait_for_session = lambda agent, timeout_s=0: True
-        ok, msg = spawnmod.spawn("spawny", ROOT, base="main", prompt="do the thing")
+        ok, msg = dmn_spawn.spawn("spawny", ROOT, base="main", prompt="do the thing")
         kinds = [c[0] for c in host.calls]
         check("spawn: on a fake host it makes the worktree, then the terminal in it, then waits and sends",
               ok and kinds[:2] == ["worktree", "create"] and ("create", launch.command_for("spawny"), "/wt/new", "spawny") in host.calls
@@ -409,11 +409,11 @@ def test_spawn_runs_an_agent_on_any_backend(home: Path) -> None:
         row = db.get_agent_state(db.connect(), "spawny")
         check("spawn: and records the terminal and the worktree it got",
               row["terminal"] == "h-new" and row["worktree"] == "/wt/new", str(dict(row)))
-        ok, msg = spawnmod.spawn("spawny", ROOT, base="main", dry_run=True)
+        ok, msg = dmn_spawn.spawn("spawny", ROOT, base="main", dry_run=True)
         check("spawn: a dry run names the host, not Orca's commands",
               ok and "fake:" in msg and "orca terminal" not in msg and "orca worktree" not in msg, msg)
     finally:
-        spawnmod._run, spawnmod.prompt_landed, dmn_delivery.wait_for_session = real
+        spawnmod._run, dmn_spawn.prompt_landed, dmn_delivery.wait_for_session = real
 
 
 class Bare(FakeHost):
