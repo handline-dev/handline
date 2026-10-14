@@ -49,6 +49,16 @@ os.environ[paths.TEST_ROOT_ENV] = str(TEST_ROOT)
 os.environ["OCP_HOME"] = str(TEST_ROOT / ".orcapipe")
 atexit.register(shutil.rmtree, TEST_ROOT, True)
 
+
+def _exit_on(signum, _frame):
+    raise SystemExit(128 + signum)
+
+
+# A stopped run (the runner's timeout, a closed terminal) ends like a failed one: finally blocks and atexit run, so
+# what a test started is stopped and its temp folders go.
+for _sig in (signal.SIGTERM, signal.SIGHUP):
+    signal.signal(_sig, _exit_on)
+
 # The suite must not need the real claude: a machine without one (an agent's
 # sandbox) would fail every test that gets as far as launching. A stub that
 # exits at once stands in when none is on PATH; a real one is left alone.
