@@ -413,9 +413,6 @@ def scratch(root: Path, account: dict, terminal: bool = False) -> tuple[Path, st
     key = secrets.token_urlsafe(32)
     (store / "key").write_text(key)
     (store / "key").chmod(0o600)
-    if terminal:     # the pane's `hl launch` is the Go hl's only once this switch is on (cmd/hl/launch.go)
-        (store.parent / "switches").mkdir(mode=0o700)
-        (store.parent / "switches" / "go_launch").write_text("on")
     acct = home / "accounts" / account["account"]
     acct.mkdir(parents=True)
     for f in ("status.json", "subscription.json"):
