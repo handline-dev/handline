@@ -10,7 +10,7 @@ const DAY = 24 * HOUR;
 const AGENTS = ['handline.architect', 'handline.auditor', 'handline.term-build'];
 
 /** The methods this answers. */
-const ADMIN = /^(stats\.|settings\.|answers?\.)/;
+const ADMIN = /^(stats\.|settings\.|answers?\.|devices?\.(list|revoke))/;
 const DEFAULTS = { active_cap: 4, park_timeout_s: 1800 };
 
 /** What the outlook_agent_use fixtures name (--var outlook_agent=grp.one outlook_group=grp): two agents of the group grp. */
@@ -35,6 +35,10 @@ export class FakeAdmin {
     auto_accept_dialogs: false,
     ignore_cache_expiry: false,
   };
+  private devices = [
+    { id: 'd1', name: 'Handline desktop', role: 'member' as const, created: '2026-10-01T09:00:00Z', last_seen: '2026-10-16T01:00:00Z', connected: true },
+    { id: 'd2', name: 'phone-3b54', role: 'member' as const, created: '2026-10-05T09:00:00Z', last_seen: '2026-10-12T08:00:00Z', connected: false },
+  ];
   private answers: StandingAnswer[] = [
     { kind: 'trust', key: ['/work/handline.architect'], text: 'trust folder /work/handline.architect' },
     { kind: 'dialog', key: ['claude', 'Do you trust the files', 'Yes, I trust'], text: 'claude: Do you trust the files → Yes, I trust' },
@@ -64,6 +68,11 @@ export class FakeAdmin {
         return this.settings();
       case 'settings.set':
         return (this.set((p.changes ?? {}) as SettingsChanges), accepted('Saved.'));
+      case 'devices.list':
+        return { devices: this.devices.map((d) => ({ ...d })) };
+      case 'device.revoke':
+        if (!this.devices.some((d) => d.id === p.device)) throw badRequest('no such device', 'device');
+        return ((this.devices = this.devices.filter((d) => d.id !== p.device)), accepted('Revoked.'));
       case 'answers.list':
         return { answers: this.answers.map((a) => ({ ...a, key: [...a.key] })) };
       case 'answer.add':

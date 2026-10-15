@@ -6,6 +6,7 @@ import { INVALID, minutesOf, parseCap, parseMinutes } from '@handline/app-core';
 import type { SettingsChanges } from '@handline/client';
 import { classify, sentence, useServes, useSettings, useWrite } from '@handline/app-data';
 import { Answers } from './Answers.tsx';
+import { Devices } from './Devices.tsx';
 import { DebugEntry } from './debug/DebugEntry.tsx';
 import { Field, PageHead, PageTitle, ScrollPage, Icon, RowControl, RowHint, RowText, RowTitle, SectionHead, SettingsCard, SettingsRow, Switch, type IconName, NOTE } from './ui/index.ts';
 import { useOff } from './useOff.ts';
@@ -120,6 +121,7 @@ const SECTIONS: { id: string; title: string; icon: IconName; group: string }[] =
   { id: 'closing', title: 'Closing windows', icon: 'waiting', group: 'Agents' },
   { id: 'automation', title: 'Automation', icon: 'sendNow', group: 'Automation' },
   { id: 'answers', title: 'Standing answers', icon: 'answered', group: 'Automation' },
+  { id: 'devices', title: 'Paired devices', icon: 'agent', group: 'Access' },
 ];
 
 /** The nav follows the page: the first section that shows in the top part of the scrolling page is the current one. */
@@ -246,6 +248,9 @@ export function SettingsPage() {
                   </section>
                   <section id="set-answers">
                     <Answers />
+                  </section>
+                  <section id="set-devices">
+                    <Devices />
                   </section>
                 </>
               ) : null}
