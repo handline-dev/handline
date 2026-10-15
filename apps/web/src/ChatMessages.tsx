@@ -3,7 +3,7 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { landingLabel, openTask, sessionLine, sideOf, taskRow, tickLevel } from '@handline/app-core';
+import { landingLabel, openTask, sessionLine, sideOf, taskRow, tickLevel, type TaskChange } from '@handline/app-core';
 import { useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
@@ -254,7 +254,7 @@ function TaskLine({ i, titles }: { i: TranscriptItem; titles?: Map<number, strin
   return (
     <button
       type="button"
-      className={`card-task flex w-full cursor-pointer items-baseline gap-2 rounded-card border border-l-4 border-line bg-panel px-2.5 py-1 text-left text-body ${TASK_ACCENT[ev] ?? 'border-l-wait'}`}
+      className={`card-task flex w-fit max-w-full cursor-pointer flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-card border border-l-4 border-line bg-panel px-2.5 py-1 text-left text-body ${TASK_ACCENT[ev] ?? 'border-l-wait'}`}
       data-kind="task_event"
       data-event={ev}
       title={`Open T${row.task} in the Tasks tab`}
@@ -263,10 +263,31 @@ function TaskLine({ i, titles }: { i: TranscriptItem; titles?: Map<number, strin
       <Icon name={TASK_EVENT[ev] ?? 'changed'} size={14} label={row.label} />
       <span className="card-event text-meta font-semibold uppercase tracking-wide">{row.label}</span>
       <span className="mono">T{row.task}</span>
-      <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-medium">{row.title}</span>
-      {row.detail ? <span className="muted max-w-[45%] overflow-hidden text-ellipsis whitespace-nowrap">{row.detail}</span> : null}
+      {row.title ? <span className="max-w-[24ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{row.title}</span> : null}
+      {row.parts.length ? <TaskChanges parts={row.parts} /> : null}
       <span className="muted card-time">{clock(i.at)}</span>
     </button>
+  );
+}
+
+/** What changed, one piece per change: the old value struck through, then the new one. */
+function TaskChanges({ parts }: { parts: TaskChange[] }) {
+  return (
+    <span className="muted min-w-0 break-words">
+      {parts.map((c, n) => (
+        <span key={n}>
+          {n ? ', ' : null}
+          {'text' in c ? (
+            c.text
+          ) : (
+            <>
+              {c.field ? `${c.field} ` : null}
+              <s>{c.old}</s> {c.now}
+            </>
+          )}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -278,7 +299,7 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
   return (
     <button
       type="button"
-      className={`card-task flex w-full cursor-pointer items-baseline gap-2 rounded-card border border-l-4 border-line bg-panel px-2.5 py-1 text-left text-body ${TASK_ACCENT[ev]}`}
+      className={`card-task flex w-fit max-w-full cursor-pointer flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-card border border-l-4 border-line bg-panel px-2.5 py-1 text-left text-body ${TASK_ACCENT[ev]}`}
       data-kind="task_event"
       data-event={ev}
       title={`Open T${task} in the Tasks tab`}
@@ -287,8 +308,8 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
       <Icon name={TASK_EVENT[ev]!} size={14} label={`Task ${verb ?? 'changed'}`} />
       <span className="card-event text-meta font-semibold uppercase tracking-wide">{verb ? `Task ${verb}` : 'Task'}</span>
       <span className="mono">T{task}</span>
-      <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-medium">{titles?.get(task)}</span>
-      {rest ? <span className="muted max-w-[45%] overflow-hidden text-ellipsis whitespace-nowrap">{rest}</span> : null}
+      {titles?.get(task) ? <span className="max-w-[24ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{titles.get(task)}</span> : null}
+      {rest ? <span className="muted min-w-0 break-words">{rest}</span> : null}
       <span className="muted card-time">{clock(m.at)}</span>
     </button>
   );

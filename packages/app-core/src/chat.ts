@@ -89,7 +89,7 @@ export function sessionLine(i: TranscriptItem): { reason: string; handoff: strin
   return { reason, handoff: i.session?.handoff || null };
 }
 
-const TASK_LABEL: Record<string, string> = { opened: 'Task added', changed: 'Task edited', done: 'Task done', withdrawn: 'Task deleted' };
+const TASK_LABEL: Record<string, string> = { opened: 'Task added', changed: 'Task changed', done: 'Task done', withdrawn: 'Task deleted' };
 /** What a task line in the chat shows: the label (added / edited / done / deleted), the task, and only what changed, briefly. */
 export interface TaskRow {
   label: string;
@@ -97,15 +97,28 @@ export interface TaskRow {
   title: string | null;
   /** The change (`priority 2 -> 1`) or the evidence (done note, deletion reason); null when there is none. */
   detail: string | null;
+  /** The detail as pieces: a change written `<field> <old> -> <new>` is one piece with both values, anything else is plain text. */
+  parts: TaskChange[];
+}
+export type TaskChange = { field: string; old: string; now: string } | { text: string };
+
+/** Splits `assigned to X, priority 2 -> 1` at its commas; a piece of the form `[field ]old -> new` keeps its two values. */
+export function changeParts(detail: string | null): TaskChange[] {
+  if (!detail) return [];
+  return detail.split(', ').map((piece): TaskChange => {
+    const m = /^(?:(.+) )?(\S+) -> (.+)$/.exec(piece);
+    return m ? { field: m[1] ?? '', old: m[2]!, now: m[3]! } : { text: piece };
+  });
 }
 export function taskRow(i: TranscriptItem, titles?: Map<number, string>): TaskRow {
   const e = i.task_event;
   const ev = e?.event ?? 'changed';
   const change = (e as { change?: string | null } | undefined)?.change;
   return {
-    label: TASK_LABEL[ev] ?? 'Task edited',
+    label: TASK_LABEL[ev] ?? 'Task changed',
     task: e?.task ?? NaN,
     title: titles?.get(e?.task ?? NaN) ?? null,
     detail: change || e?.evidence || null,
+    parts: changeParts(change || e?.evidence || null),
   };
 }

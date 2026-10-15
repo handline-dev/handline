@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, sideOf, taskRow, timeline } from '../src/index.ts';
+import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, sideOf, taskRow, changeParts, timeline } from '../src/index.ts';
 
 const A = 'handline.architect';
 const msg = (over: Partial<ChatMessage>): ChatMessage => ({
@@ -79,18 +79,24 @@ const titles = new Map([[7, 'Fix the tray']]);
 
 test('a task line says added, edited, done or deleted', () => {
   assert.equal(taskRow(taskItem('opened'), titles).label, 'Task added');
-  assert.equal(taskRow(taskItem('changed'), titles).label, 'Task edited');
+  assert.equal(taskRow(taskItem('changed'), titles).label, 'Task changed');
   assert.equal(taskRow(taskItem('done'), titles).label, 'Task done');
   assert.equal(taskRow(taskItem('withdrawn'), titles).label, 'Task deleted');
 });
 
 test('a task line carries the task, its title and only the change or evidence', () => {
   assert.deepEqual(taskRow(taskItem('changed', { change: 'priority 2 -> 1' }), titles), {
-    label: 'Task edited',
+    label: 'Task changed',
     task: 7,
     title: 'Fix the tray',
     detail: 'priority 2 -> 1',
+    parts: [{ field: 'priority', old: '2', now: '1' }],
   });
+  assert.deepEqual(changeParts('assigned to a.b, queued -> doing, title changed'), [
+    { text: 'assigned to a.b' },
+    { field: '', old: 'queued', now: 'doing' },
+    { text: 'title changed' },
+  ]);
   assert.equal(taskRow(taskItem('withdrawn', { evidence: 'duplicate' })).detail, 'duplicate');
   assert.equal(taskRow(taskItem('opened'), titles).detail, null);
   assert.equal(taskRow(taskItem('opened')).title, null);
