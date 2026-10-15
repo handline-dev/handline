@@ -843,6 +843,8 @@ export type ChatMessage = {
     /** The reply's first 300 characters (Unicode code points, no ellipsis) when the message was sent. */
     text: string;
   } | null;
+  /** Only on the message that tells an agent how the founder decided its HR proposal: that proposal's id, as hr.list gives it. A client that draws the decided proposal as a card can leave this line out. */
+  proposal?: number;
 };
 
 export type TranscriptItem = {

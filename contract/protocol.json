@@ -11973,6 +11973,10 @@
         "type": "null"
        }
       ]
+     },
+     "proposal": {
+      "type": "integer",
+      "description": "Only on the message that tells an agent how the founder decided its HR proposal: that proposal's id, as hr.list gives it. A client that draws the decided proposal as a card can leave this line out."
      }
     },
     "required": [

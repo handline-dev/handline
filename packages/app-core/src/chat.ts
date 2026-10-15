@@ -23,6 +23,7 @@ export function timeline(messages: ChatMessage[], items: TranscriptItem[], scope
   const out: TimelineEntry[] = [
     ...messages.flatMap((m): TimelineEntry[] => {
       if (scope === 'mine' && m.from === NOTICE_SENDER) return [];
+      if (scope === 'mine' && m.proposal != null) return []; // the outcome of an HR proposal is drawn as its card, not as this line
       const n = noticeOf(m);
       if (n?.kind === 'task') return [{ kind: 'note', at: m.at, id: m.id, message: m, task: n.task }];
       return [{ kind: 'message', at: m.at, id: m.id, message: m }];
