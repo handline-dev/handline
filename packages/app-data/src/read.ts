@@ -106,6 +106,31 @@ export const useAccounts = () => useRead('accounts.list', {});
 /** The accounts with what `hl account list` adds (plan, windows, can it take work and why): a read of its own, fetched again every 30 s because the accounts topic does not carry those fields. */
 export const useAccountUsage = () => useRead('accounts.list', { usage: true, roster: true }, { refetchMs: SNAPSHOT_STALE_MS });
 export const useInbox = (filter: CallParams<'inbox.list'> = {}) => useRead('inbox.list', filter);
+/** The inbox page the feed keeps current plus the older pages fetched with `before` as the end of the list comes near; an item of an older page is not touched by the feed. */
+export function useInboxPages() {
+  const first = useInbox();
+  const store = useStore();
+  const [older, setOlder] = useState<{ items: InboxItem[]; more: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const head = first.data?.items ?? [];
+  const items = useMemo(() => {
+    const seen = new Set<number>();
+    return [...head, ...(older?.items ?? [])].filter((i) => !seen.has(i.id) && seen.add(i.id)).sort((a, b) => b.id - a.id);
+  }, [head, older]);
+  const more = older ? older.more : (first.data?.more ?? false);
+  const loadOlder = useCallback(async () => {
+    const before = items.at(-1)?.id;
+    if (before === undefined || busy) return;
+    setBusy(true);
+    try {
+      const r = await store.client.call('inbox.list', { before });
+      setOlder((o) => ({ items: [...(o?.items ?? []), ...r.items], more: r.more }));
+    } finally {
+      setBusy(false);
+    }
+  }, [store, items, busy]);
+  return { query: first, items, more, loadOlder, loadingOlder: busy };
+}
 /** The unread items of the whole inbox: the bell, the tab title and the unread dot of the page all read the one cached list, so a mark drops them together. */
 export function useUnread(): InboxItem[] {
   const items = useInbox().data?.items;

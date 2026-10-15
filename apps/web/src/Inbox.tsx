@@ -1,8 +1,8 @@
 // The Inbox page (#/inbox, #/inbox/:id): what waits on the person, newest first, filtered by kind and agent in the page, with the bridge's
 // keys. The cards are InboxCard; the bell and the tab title read the same cached list (useUnread).
 import { useEffect, useMemo, useState } from 'react';
-import { useServes, useInbox, usePending, useUnread, useWrite } from '@handline/app-data';
-import { useConnection } from '@handline/app-react';
+import { useServes, useInboxPages, usePending, useUnread, useWrite } from '@handline/app-data';
+import { useConnection, useNearEnd } from '@handline/app-react';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { InboxCard, open, waits } from './InboxCard.tsx';
 import { kindIcon, kindLabel, type Verbs } from './inboxKinds.ts';
@@ -50,7 +50,8 @@ function useVerbs(): Verbs {
 }
 
 export function InboxPage({ item }: { item: number | null }) {
-  const list = useInbox();
+  const { query: list, items: loaded, more, loadOlder, loadingOlder } = useInboxPages();
+  const end = useNearEnd<HTMLElement, HTMLDivElement>(null, () => void loadOlder(), more && !loadingOlder);
   const { served } = useServes('inbox.list');
   const unread = useUnread();
   const verbs = useVerbs();
@@ -66,7 +67,7 @@ export function InboxPage({ item }: { item: number | null }) {
     reply: usePending('inbox.reply').map((p) => p.id),
   };
   // Read items leave the list at once, those whose mark-read is still on its way too.
-  const all = useMemo(() => list.data?.items ?? [], [list.data]);
+  const all = loaded;
   const waiting = all.filter((i) => waits(i, pending.read.includes(i.id)));
   const shown = waiting.filter((i) => (!kind || i.kind === kind) && (!agent || i.agent === agent));
   const kinds = [...new Set(waiting.map((i) => i.kind))];
@@ -215,6 +216,7 @@ export function InboxPage({ item }: { item: number | null }) {
                 </AnimatedItem>
               ))}
             </AnimatedList>
+            {more ? <div ref={end} aria-hidden className="h-px" /> : null}
           </div>
         ) : (
           <div className="empty">
