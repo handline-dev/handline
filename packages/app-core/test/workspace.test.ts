@@ -10,6 +10,8 @@ import {
   closeTab,
   addTab,
   setTerminal,
+  splitPane,
+  fillTab,
   defaultWorkspace,
   groupOf,
   groupsOf,
@@ -331,4 +333,20 @@ test('an agent has one terminal tab: a new handle takes the old one place', () =
   const two = addTab(none, 'terminal', { handle: 'term:b' });
   const merged = setTerminal(two, 'term:b');
   assert.deepEqual(groupsOf(merged.root)[0]!.tabs, [CHAT, 'terminal:term:b']);
+});
+
+test('Split halves a pane with a new tab; choosing fills it, moving a tab already open', () => {
+  const ws = setTerminal(defaultWorkspace(), 'term:a');
+  const split = splitPane(ws, 'g1')!;
+  assert.equal(groupsOf(split.root).length, 2);
+  assert.deepEqual(groupsOf(split.root)[1]!.tabs, ['new:1']);
+  const tasks = fillTab(split, 'new:1', 'tasks');
+  assert.deepEqual(groupsOf(tasks.root)[1]!.tabs, ['tasks']);
+  assert.equal(tasks.tabs['new:1'], undefined);
+  const term = fillTab(splitPane(ws, 'g1')!, 'new:1', 'terminal', { handle: 'term:a' });
+  assert.deepEqual(groupsOf(term.root).map((g) => g.tabs), [[CHAT], ['terminal:term:a']]);
+  let full: Workspace = ws;
+  for (let i = 0; i < MAX_GROUPS; i++) full = splitPane(full, 'g1') ?? full;
+  assert.equal(groupsOf(full.root).length, MAX_GROUPS);
+  assert.equal(splitPane(full, 'g1'), null);
 });

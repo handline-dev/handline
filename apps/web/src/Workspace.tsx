@@ -91,10 +91,12 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     return () => ro.disconnect();
   }, []);
 
-  // The session's Claude Code tab: added when a session starts, and moved to the new handle when it restarts, so there is only ever one.
+  // The session's Claude Code tab: added when a session starts while this is open (one already running was handled on load), and moved to the new handle when it restarts, so there is only ever one.
   const terminal = detail.terminal ?? null;
+  const had = useRef(!!terminal);
   useEffect(() => {
-    if (terminal) setWs((w) => setTerminal(w, terminal));
+    if (terminal) setWs((w) => setTerminal(w, terminal, !had.current));
+    had.current = !!terminal;
   }, [terminal]);
 
   const value: WorkspaceCtx = {
