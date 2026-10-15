@@ -43,27 +43,27 @@ approve and request changes.
 
 - A machine-user account with a token is the fallback when an App cannot be installed. It works
   the same for approval, but costs a seat and holds a long-lived token.
-- One App for all agents: the agent is named in the branch (`t<n>-<slug>`) and in the PR body, not
-  by a GitHub account per agent.
-- Unverified, to test on a sandbox repo before building: that pushes made with an installation
-  token trigger the required `check` workflow (pushes made with the workflow's own `GITHUB_TOKEN`
-  do not; this is general knowledge), and that `pull_request_review` events are readable for
-  bot-authored PRs.
+- One App for all agents: the agent is named in the PR body, not by a GitHub account per agent.
+- Confirmed by `handline.daemon`: pushes and PRs made with an installation token start the
+  required `check` workflow (only a workflow's own `GITHUB_TOKEN` is kept from doing so), provided
+  branch protection does not exclude the App from pushing. Still to test on a sandbox repo: that
+  `pull_request_review` data is readable for bot-authored PRs.
 - Per `story7`, identity stays per team config; this only makes the App the recommended default
   and lets the daemon mint its token.
 
 ### 3.2 How a review becomes work
 
-The daemon links each PR to a task and to the agent that opened it. Work lands per `AGENTS.md`:
-task branches merge into `story/<n>` without the founder, and the founder reviews the one PR from
-`story/<n>` to main. So the founder's PR links to the story's task, and its owner is the agent
-that gets the feedback. A review event on a linked PR becomes an action on that task:
+Work lands per `AGENTS.md`: task branches merge into `story/<n>` without the founder, and the
+founder reviews the one PR from `story/<n>` to main. Only `handline.pr` opens PRs, and builders hand
+finished work to their lead. So by the time a PR opens its build tasks are done and accepted, and
+`reject` and `accept` (which need a reported task) do not apply. Each PR has a founder merge task
+(assigned to the human); feedback goes to that task and to the lead:
 
 | On GitHub | Becomes | Effect |
 |---|---|---|
-| Review submitted: **Request changes** (body plus its line comments) | `hl task reject` with one note: body, then each thread as `file:line: text` with its URL | A reported task goes back to its owner's queue with the note (`reject` only works on a reported task); a done one is reopened with `hl task reopen` instead. If the owner's session is closed, the daemon wakes it. |
-| Review submitted: **Comment** (line comments, no verdict) | A memo on the task (told to the holder at once while the task is doing) | No state change. The agent decides whether to push a fix. |
-| Review submitted: **Approve** | `hl task accept` | A reported task is accepted (`accept` needs a reported task; otherwise only a memo). Merge stays a separate founder action (or the merge queue); the daemon never merges unasked. |
+| Review submitted: **Request changes** (body plus its line comments) | `hl task reopen` of the build task with one line, or a new fix task under the same story for the lead, carrying body then each thread as `file:line: text` with its URL | The holder is told; the lead routes the fix. A done child cannot be reopened under a closed story, so then use the fix task. |
+| Review submitted: **Comment** (line comments, no verdict) | A memo on the founder merge task and a say to the lead | No state change. The lead decides whether to push a fix. |
+| Review submitted: **Approve** | A memo on the founder merge task and a say to the lead | The task is ready to merge. Merge stays a separate founder action (or the merge queue); the daemon never merges unasked. |
 | Single line comment or PR comment, outside a review | A memo; acted on only if it starts with `/fix` | Avoids a reply per comment while a review is being written. |
 | Comment by the App or any account not on the reviewer list | Ignored | Stops loops and drive-by comments. |
 
@@ -90,16 +90,24 @@ The apps drive the same flow instead of replacing GitHub's diff:
 
 ## 4. What the daemon must add
 
-Draft. The Go daemon has no PR, `gh` or review code today, so all of this is new. Not yet checked with `handline.daemon`: this team has no route to it, so `handline.pc` must send it.
+Checked by `handline.daemon` against main (memo 2146 on T4397): feasible. The daemon already runs
+`gh` (`go/cmd/hl/land.go`), and `reopen`, `accept`, `reject`, memo and say exist; the router is new
+code on them.
 
-1. **PR link on a task:** `{repo, number, branch, opener agent, head sha, review cursor}`, set when
-   the agent opens the PR (`hl task pr T<n> <url>`) or found later by the `t<n>-` branch prefix or `story/<n>`.
-2. **Identity provider:** mint and refresh App installation tokens, expose them to the agent's
-   environment; fall back to a configured token.
-3. **Review feed:** poll `gh api` with ETags about once a minute (as in `story7`) for reviews,
-   review comments and issue comments on linked PRs; webhooks later when a public URL exists.
-4. **Router:** the table in 3.2, using the existing task `reject`, `accept`, `reopen` and memo
-   operations, plus reopen-and-wake when the holder's session has closed.
+1. **PR link on a task:** `{repo, number, branch, task, head sha, review cursor}`, written by
+   `handline.pr` when it opens the PR, from the request it already gets (branch, head sha, task
+   `T<n>`, asked by). No branch-name fallback. The writer is that task's assignee; its owner is the
+   lead who forwards finished work.
+2. **Identity provider:** mint and refresh App installation tokens (1 h life) from the App key in
+   the protected store, never in an agent's env. Agents get the token as `GH_TOKEN`. The founder's
+   `gh` login stays the daemon's alone, for posting verdicts. Today agents share it, so the pr-gate
+   (#274) is a guard, not an auth boundary; the App token makes it one.
+3. **Review feed:** poll, not webhook (the daemon runs on the founder's Mac with no public URL).
+   One conditional `GET pulls?state=open` per repo per minute (`If-None-Match`; a 304 costs no rate
+   limit); fetch reviews and comments only for a linked PR whose `updated_at` moved. Cursor per PR
+   in the db.
+4. **Router:** the table in 3.2. No wake path of its own: `reopen` and `say` use normal delivery,
+   which already wakes a closed holder (#267).
 5. **Writes:** post a review (verdict, body) as the founder, reply to a thread, resolve a thread,
    add a reaction.
 6. **Guards:** reviewer allowlist, ignore own bot, review cursor, round limit.
@@ -114,6 +122,6 @@ comments in the apps.
 
 - **App or machine user** as the PR author. Recommendation: App.
 - **Reviewers allowed to trigger agents:** only the founder, or named others.
-- **Does approve mean merge?** Recommendation: no; approve accepts the task and merge is a separate
-  action.
+- **Does approve mean merge?** Recommendation: no; approve marks the founder merge task ready and
+  merge is a separate action.
 - **Slice order:** A first; apps (B) after the identity change is proven on a sandbox repo.
