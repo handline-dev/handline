@@ -50,7 +50,7 @@ def _iso_epoch(v) -> float | None:
 def cache_env(cache_dir: str) -> dict[str, str]:
     """The Go, npm and pnpm caches of a sandboxed session, in its own folder: a cache the sandbox may write is one an
     unsandboxed build reads from, so the shared ones stay out of its reach."""
-    return {"GOCACHE": f"{cache_dir}/go-build", "GOMODCACHE": f"{cache_dir}/go-mod", "npm_config_cache": f"{cache_dir}/npm",
+    return {"GOCACHE": f"{cache_dir}/go-build", "GOMODCACHE": f"{cache_dir}/go-mod", "GOPATH": f"{cache_dir}/go-path", "npm_config_cache": f"{cache_dir}/npm",
             "npm_config_store_dir": f"{cache_dir}/pnpm-store", "npm_config_cache_dir": f"{cache_dir}/pnpm-cache",
             "npm_config_state_dir": f"{cache_dir}/pnpm-state"}
 
@@ -177,6 +177,8 @@ class Claude:
         # Read/Edit denies below are permissions, not the sandbox, and stay.
         settings.setdefault("sandbox", {})["enabled"] = sandbox
         if cache_dir:
+            # Go on macOS verifies TLS through trustd, which the default network isolation blocks: no module downloads
+            settings["sandbox"]["enableWeakerNetworkIsolation"] = True
             settings["env"] = cache_env(cache_dir)
         deny = []
         if hide:

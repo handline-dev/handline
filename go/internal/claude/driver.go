@@ -112,6 +112,8 @@ func (Driver) LaunchArgv(exe string, o lifecycle.LaunchArgs) []string {
 	// are permissions, not the sandbox, and stay.
 	settings.setDefault("sandbox", NewObject()).(*Object).Set("enabled", !o.SandboxOff)
 	if o.CacheDir != "" {
+		// Go on macOS verifies TLS through trustd, which the default network isolation blocks: no module downloads
+		settings.block("sandbox").Set("enableWeakerNetworkIsolation", true)
 		env := NewObject()
 		for _, kv := range CacheEnv(o.CacheDir) {
 			env.Set(kv[0], kv[1])
@@ -158,7 +160,7 @@ func (Driver) LaunchArgv(exe string, o lifecycle.LaunchArgs) []string {
 // build reads from, so the shared ones stay out of its reach.
 func CacheEnv(dir string) [][2]string {
 	var env [][2]string
-	for _, kv := range [][2]string{{"GOCACHE", "go-build"}, {"GOMODCACHE", "go-mod"}, {"npm_config_cache", "npm"},
+	for _, kv := range [][2]string{{"GOCACHE", "go-build"}, {"GOMODCACHE", "go-mod"}, {"GOPATH", "go-path"}, {"npm_config_cache", "npm"},
 		{"npm_config_store_dir", "pnpm-store"}, {"npm_config_cache_dir", "pnpm-cache"}, {"npm_config_state_dir", "pnpm-state"}} {
 		env = append(env, [2]string{kv[0], dir + "/" + kv[1]})
 	}
