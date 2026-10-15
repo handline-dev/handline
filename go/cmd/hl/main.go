@@ -28,6 +28,7 @@ var commands = map[string]command{
 	"ignore-cache-expiry": ignoreCacheExpiry,
 	"launch":              launch,
 	"notice-digest":       noticeDigest,
+	"pr":                  pr,
 	"progress":            progress,
 	"restart":             restart,
 	"say":                 say,
