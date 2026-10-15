@@ -127,7 +127,7 @@ export function Row(props: {
           </AnimatedCell>
         </>
       )}
-      <AnimatedCell className={`c-act w-[1%] whitespace-nowrap ${TD} max-sm:[grid-area:act]`}>
+      <AnimatedCell className={`c-act w-32 whitespace-nowrap ${TD} max-sm:[grid-area:act]`}>
         {t.id > 0 ? (
           <span
             className={`tacts inline-flex gap-0.5 ${
