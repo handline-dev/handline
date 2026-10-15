@@ -381,6 +381,117 @@
      }
     }
    ]
+  },
+  {
+   "name": "tasks.list.waits_drops_a_discarded_blocker",
+   "spec": "tasks.list",
+   "about": "A discarded blocker leaves waits and blocked_by; a done one stays in waits with open false.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "dropped",
+       "body": "b",
+       "request_id": "conf-graph-31"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "a"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "behind it",
+       "body": "b",
+       "blocked_by": "{{a}}",
+       "request_id": "conf-graph-32"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "w"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.draft",
+      "params": {
+       "tasks": [
+        "{{a}}"
+       ],
+       "request_id": "conf-graph-33"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.discard",
+      "params": {
+       "task": "{{a}}",
+       "reason": "not needed",
+       "request_id": "conf-graph-34"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "tasks.list",
+      "params": {
+       "under": "{{w}}"
+      }
+     },
+     "result": {
+      "items": [
+       {
+        "id": "{{w}}",
+        "blocked_by": [],
+        "waits": []
+       }
+      ],
+      "more": false
+     }
+    }
+   ]
   }
  ]
 }

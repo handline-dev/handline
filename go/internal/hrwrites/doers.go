@@ -182,6 +182,9 @@ func (e *Env) doRetire(p step) (bool, string, error) {
 			return false, "", err
 		}
 	}
+	if err := paths.RemoveCacheDir(e.Home, name); err != nil { // the folder is archived already: a cache left behind does not undo that
+		e.logf("  %s: its build caches were not removed: %v", name, err)
+	}
 	if err := sealed.New(e.Home).Forget(sealed.AgentKey(name)); err != nil {
 		return false, "", err
 	}
@@ -250,6 +253,9 @@ func (e *Env) doRename(p step) (bool, string, error) {
 		if err := os.Rename(src, dest); err != nil {
 			return false, "", err
 		}
+	}
+	if err := paths.RemoveCacheDir(e.Home, old); err != nil { // rebuilt under the new name at its next launch; the folder has moved already
+		e.logf("  %s: its build caches were not removed: %v", old, err)
 	}
 	r := e.roster()
 	if b, err := os.ReadFile(r.AgentFile(new)); err == nil {

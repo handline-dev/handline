@@ -32,3 +32,20 @@ export function titleFromNote(note: string, fallback: string): string {
   const line = note.trim().split('\n')[0]?.trim() ?? '';
   return line ? (line.length > 60 ? `${line.slice(0, 59)}…` : line) : fallback;
 }
+
+/** An image reference in a text: where it sits, the caption and the attachment id. */
+export interface ImageSpan {
+  start: number;
+  end: number;
+  caption: string;
+  id: string;
+}
+
+/** The `![caption](attachment:ID)` references in a text, in order. */
+export function findImageRefs(text: string): ImageSpan[] {
+  const out: ImageSpan[] = [];
+  for (const m of text.matchAll(/!\[([^\]\n]*)\]\(attachment:([A-Za-z0-9_-]+)\)/g)) {
+    out.push({ start: m.index, end: m.index + m[0].length, caption: m[1]!, id: m[2]! });
+  }
+  return out;
+}

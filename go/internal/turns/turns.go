@@ -4,6 +4,8 @@
 //
 // Where no event has said, the turn is Unknown and the caller reads the screen as before: before a session's first prompt (a launch
 // or trust accept settling), after a daemon restart until the next hook, and background work after an Esc until the next Stop.
+//
+// A CLI killed hard runs no SessionEnd, so the session's process is watched too: its exit ends the turn and is told at once.
 package turns
 
 import (
@@ -26,9 +28,12 @@ type Tracker struct {
 	Interrupted func(agent string)
 	Log         func(format string, args ...any)
 
-	mu      sync.Mutex
-	agents  map[string]*turn
-	changed func(agent string)
+	mu       sync.Mutex
+	agents   map[string]*turn
+	changed  func(agent string)
+	pid      func(agent string) int
+	ended    func(agent string)
+	reapWait time.Duration // reapWait when 0
 }
 
 // OnChange sets what is told, after the fact, each time an agent's turn opens or closes: the agent's view is written then, not
@@ -39,6 +44,13 @@ func (t *Tracker) OnChange(f func(agent string)) {
 	t.mu.Unlock()
 }
 
+// OnEnd sets how an agent's session process is found (0 when it is not) and what is told once that process has exited.
+func (t *Tracker) OnEnd(pid func(agent string) int, ended func(agent string)) {
+	t.mu.Lock()
+	t.pid, t.ended = pid, ended
+	t.mu.Unlock()
+}
+
 type turn struct {
 	state      State
 	at         int64 // when the hook that set state ran
@@ -46,6 +58,8 @@ type turn struct {
 	bgKnown    bool          // background is what the last Stop said; an interrupt leaves it unknown
 	changed    chan struct{} // closed on every change
 	unwatch    func()
+	pid        int // the session process watched for its exit
+	unwatchPid func()
 }
 
 func (t *Tracker) get(agent string) *turn {
@@ -80,9 +94,82 @@ func (t *Tracker) Hook(agent, event string, raw map[string]any, at int64) {
 	was, changed := tr.state, t.changed
 	t.hook(tr, agent, event, raw, at)
 	now := tr.state
+	if event == "SessionStart" {
+		tr.stopPid()
+	}
+	lookup := t.pid != nil && tr.pid == 0
 	t.mu.Unlock()
 	if now != was && changed != nil {
 		changed(agent)
+	}
+	if lookup {
+		t.watchPid(agent)
+	}
+}
+
+func (tr *turn) stopPid() {
+	if tr.unwatchPid != nil {
+		tr.unwatchPid()
+		tr.unwatchPid = nil
+	}
+	tr.pid = 0
+}
+
+// watchPid starts watching the agent's session process, found outside the lock: finding it reads files.
+func (t *Tracker) watchPid(agent string) {
+	t.mu.Lock()
+	find := t.pid
+	t.mu.Unlock()
+	pid := find(agent)
+	if pid <= 0 || zombie(pid) { // the CLI a new session replaced, not yet reaped: a later hook finds the new one
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	tr := t.get(agent)
+	if tr.pid != 0 {
+		return
+	}
+	stop, err := watchExit(pid, func() { t.exited(agent, pid) })
+	if err != nil {
+		if t.Log != nil {
+			t.Log("  turns: %s: cannot watch session pid %d, a hard kill is seen at the next tick: %v", agent, pid, err)
+		}
+		return
+	}
+	tr.pid, tr.unwatchPid = pid, stop
+}
+
+// reapWait bounds how long an exited session may stay a zombie before its end is told: the process table lists it until its shell reaps it.
+const reapWait = 2 * time.Second
+
+// exited ends the turn of a session whose process has gone, unless a newer session took the agent over meanwhile.
+func (t *Tracker) exited(agent string, pid int) {
+	wait := reapWait
+	if t.reapWait != 0 {
+		wait = t.reapWait
+	}
+	for deadline := time.Now().Add(wait); time.Now().Before(deadline) && !reaped(pid); {
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.mu.Lock()
+	tr := t.get(agent)
+	if tr.pid != pid {
+		t.mu.Unlock()
+		return
+	}
+	tr.unwatchPid, tr.pid = nil, 0
+	tr.stopWatch()
+	was := tr.state
+	tr.background, tr.bgKnown = nil, false
+	tr.set(Unknown)
+	changed, ended := t.changed, t.ended
+	t.mu.Unlock()
+	if was != Unknown && changed != nil {
+		changed(agent)
+	}
+	if ended != nil {
+		ended(agent)
 	}
 }
 

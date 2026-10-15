@@ -3,9 +3,11 @@
 
 A sandbox may refuse to bind a socket, so the daemon (`-serve-fds`) serves connections this script made as socketpairs and
 passes to it, one per fixture. It starts on a scratch home with a founder key minted where it reads it, which is given to
-the harness as --var founder_key. The network listener is on (loopback, port 0) and `-serve-net-fds` serves a second set of
-socketpairs as its connections: the role `unpaired`. Roles with no connection of their own (agent, member) are reported
-SKIP, as in a real run."""
+the harness as --var founder_key. The role `agent` gets socketpairs made by a child process recorded as an agent's session in
+that home's store, so the daemon tells their peer to be that agent. The network listener is on (loopback, port 0) and
+`-serve-net-fds` serves a second set of socketpairs as its connections: the role `unpaired`. A fixture of a role with no
+connection here (member) is reported SKIP and fails the run."""
+import fcntl
 import os
 import re
 import json
@@ -20,9 +22,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "contract"))
+sys.path.insert(0, str(ROOT))
 import conformance  # noqa: E402
+from handline.infra.sessiontoken import NS as SESSION_NS, _proc  # noqa: E402
 
 PAIRS = 512
+AGENT_PAIRS = 128
+AGENT = "c.agent"  # the agent the role `agent` connects as
 # The words a view stores (the spec's x-state-words that fixtures pin): one agent each, as the Python daemon's tick would have left it.
 STATES = ["running", "idle", "queued", "parked", "waiting", "stalled", "no_terminal"]
 
@@ -33,7 +39,7 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
     names = {w: f"s.{w}" for w in STATES}
     output_agent = "s.output"
     ask_agent = ASK_AGENT
-    for n in [*names.values(), output_agent, ask_agent]:
+    for n in [*names.values(), output_agent, ask_agent, AGENT]:
         (home / "agents" / n).mkdir(parents=True)
         (home / "agents" / n / "agent.yaml").write_text("role: seeded by conformance_fds\n")
     for _ in range(200):
@@ -49,11 +55,12 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
             seed_session_start(con, output_agent)
             seed_workroom(home, con)
             seed_open_question(con, ask_agent)
-            write_team(home, [*names.values(), output_agent, ask_agent])
+            typing = seed_typing_gates(home, con)
+            write_team(home, [*names.values(), output_agent, ask_agent, AGENT, *typing.values()])
             con.commit()
             con.close()
             return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, "session_agent": output_agent,
-                    "ask_agent": ask_agent, "triggers_agent": names["idle"], **WORKROOM}
+                    "ask_agent": ask_agent, "triggers_agent": names["idle"], **WORKROOM, **typing}
         except sqlite3.Error:
             if daemon.poll() is not None:
                 break
@@ -114,6 +121,27 @@ def seed_tool_items(con: sqlite3.Connection, agent: str) -> None:
                         (agent, seq, "seed", None, now, kind, None, json.dumps(body)))
 
 
+def seed_typing_gates(home: Path, con: sqlite3.Connection) -> dict[str, str]:
+    """An agent whose terminal lock is held for the whole run (an flock on its lock file, the one go/internal/lock takes), and one
+    whose input another person holds. Returns the --var for each."""
+    locked, held = "s.locked", "s.held"
+    for n in (locked, held):
+        (home / "agents" / n).mkdir(parents=True, exist_ok=True)
+        (home / "agents" / n / "agent.yaml").write_text("role: seeded by conformance_fds\n")
+        con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, terminal) VALUES(?, 'idle', 0, '%9')", (n,))
+    (home / "locks").mkdir(exist_ok=True)
+    f = open(home / "locks" / f"{locked}.terminal", "a")
+    fcntl.flock(f, fcntl.LOCK_EX)
+    HELD.append(f)  # kept open, so held, until this process ends
+    now = int(time.time())
+    con.execute("INSERT OR REPLACE INTO input_holders(agent, kind, name, since, last_typed) VALUES(?, 'person', 'someone else', ?, ?)",
+                (held, now, now))
+    return {"locked_agent": locked, "held_agent": held}
+
+
+HELD: list = []
+
+
 def seed_session_start(con: sqlite3.Connection, agent: str) -> None:
     """A conversation the agent began, bound to its session, for transcript_session.json."""
     con.execute("INSERT INTO session_starts(agent, ts, session_id, cause, resumed, text, prompt, actor) VALUES(?, ?, 'seed', 'launch', 0, '', '', '')",
@@ -170,7 +198,7 @@ def seed_structured(home: Path, daemon: subprocess.Popen, connect, key: str) -> 
             time.sleep(0.05)
     else:
         raise RuntimeError("the daemon's database did not come up to seed")
-    write_team(home, [*names.values(), ASK_AGENT])
+    write_team(home, [*names.values(), ASK_AGENT, AGENT])
     conn = connect()
     call(conn, 1, "hello", {"client": "conformance-seed/1", "protocol": 1, "key": key})
     for i, (var, text) in enumerate(STRUCTURED.items()):
@@ -179,6 +207,36 @@ def seed_structured(home: Path, daemon: subprocess.Popen, connect, key: str) -> 
             call(conn, 11 + 2 * i, "chat.send", {"agent": names[var], "body": text, "request_id": f"seed-send-{var}"})
     conn.close()
     return {var: n for var, n in names.items()}
+
+
+def agent_pairs(store: Path, n: int) -> tuple[list, socket.socket, int]:
+    """n socketpairs made by a child process recorded in store as AGENT's session: the kernel names their maker as the peer of
+    either end, so the daemon takes a connection on them for one from inside that session. The child lives until the
+    returned socket closes, as the parent ends or dies; its pid is returned to be waited for."""
+    ctl, child_end = socket.socketpair()
+    pid = os.fork()
+    if pid == 0:
+        try:
+            ctl.close()
+            pairs = [socket.socketpair() for _ in range(n)]
+            for i in range(0, n, 50):
+                socket.send_fds(child_end, [b"p"], [s.fileno() for pair in pairs[i:i + 50] for s in pair])
+            for pair in pairs:
+                for s in pair:
+                    s.close()
+            child_end.recv(1)
+        finally:
+            os._exit(0)
+    child_end.close()
+    fds = []
+    while len(fds) < 2 * n:
+        _msg, got, _flags, _addr = socket.recv_fds(ctl, 1, 100)
+        if not got:
+            raise RuntimeError("the agent's session process ended before it made its connections")
+        fds += got
+    (store / SESSION_NS).mkdir(mode=0o700)
+    (store / SESSION_NS / AGENT).write_text(f"{pid} {_proc(pid)[1]}")
+    return [(socket.socket(fileno=fds[i]), socket.socket(fileno=fds[i + 1])) for i in range(0, 2 * n, 2)], ctl, pid
 
 
 def main(argv: list[str]) -> int:
@@ -195,21 +253,22 @@ def main(argv: list[str]) -> int:
         test_root = Path(tmp).resolve()
         home = test_root / "state"
         home.mkdir()
-        store = test_root / ".config" / "orcapipe" / "protected" / re.sub(r"[^A-Za-z0-9]", "-", str(home.resolve())) / "founder-keys"
-        store.mkdir(parents=True, mode=0o700)
+        store = test_root / ".config" / "orcapipe" / "protected" / re.sub(r"[^A-Za-z0-9]", "-", str(home.resolve()))
+        (store / "founder-keys").mkdir(parents=True, mode=0o700)
         key = secrets.token_urlsafe(32)
-        (store / "key").write_text(key)
-        (store / "key").chmod(0o600)
+        (store / "founder-keys" / "key").write_text(key)
+        (store / "founder-keys" / "key").chmod(0o600)
+        mine, session, holder = agent_pairs(store, AGENT_PAIRS)  # first: the child would hold a copy of any pair made before it
         pairs = [socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM) for _ in range(PAIRS)]
         net_pairs = [socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM) for _ in range(PAIRS)]
-        theirs = [b.fileno() for _a, b in pairs]
+        theirs = [b.fileno() for _a, b in pairs + mine]
         net_theirs = [b.fileno() for _a, b in net_pairs]
         daemon = subprocess.Popen([binary, "-home", str(home), "-listen", "127.0.0.1:0", "-serve-fds", ",".join(map(str, theirs)),
                                    "-serve-net-fds", ",".join(map(str, net_theirs)), *structured_cli], pass_fds=theirs + net_theirs,
                                   stderr=subprocess.PIPE,
                                   # the founder's daemon, even when an agent runs the check: it writes the protected store
                                   env={**os.environ, "HANDLINE_TEST_ROOT": str(test_root), "OCP_AGENT": "", "HANDLINE_AGENT": ""})
-        for _a, b in pairs + net_pairs:
+        for _a, b in pairs + net_pairs + mine:
             b.close()
 
         def taker(pool):
@@ -226,15 +285,18 @@ def main(argv: list[str]) -> int:
         try:
             seeded = seed_states(home, daemon)
             seeded |= {"add_account": "conf-added", "add_used_account": "conf-used", "add_retry_account": "conf-retried"}  # names no account has
+            seeded |= {"account": "main", "schedule_agent": ASK_AGENT, "task_owner": ASK_AGENT}  # main: the account seed_structured makes
             if structured_cli:
                 seeded |= seed_structured(home, daemon, local, key)
-            rc = conformance.main(["--allow-skip", "--var", f"founder_key={key}", "--var", "dialogs_retired=1",
+            rc = conformance.main(["--var", f"founder_key={key}", "--var", "dialogs_retired=1",
                                    *(a for k, v in seeded.items() for a in ("--var", f"{k}={v}")), *rest],
-                                  connectors={"founder": local, "anonymous": local, "unpaired": taker(net_pairs)})
+                                  connectors={"founder": local, "anonymous": local, "agent": taker(mine), "unpaired": taker(net_pairs)})
             return rc
         finally:
             daemon.terminate()
             err = daemon.communicate()[1].decode(errors="replace")
+            session.close()
+            os.waitpid(holder, 0)
             if rc and err.strip():
                 print("daemon log:\n" + err, file=sys.stderr)
 

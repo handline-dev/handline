@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/handline/handline/go/internal/claude"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/team"
 )
@@ -21,6 +22,8 @@ type Confinement struct {
 	SandboxOff bool
 	// AllowWrite and AllowDomains are what the sandboxed session may write beyond its worktrees and reach on the network.
 	AllowWrite, AllowDomains []string
+	// CacheDir is its own build caches (claude.CacheEnv), which it may write too.
+	CacheDir string
 }
 
 // SandboxSettings is the sandbox and the permission denies of a session: the shared settings' sandbox (network, writable folders) and
@@ -43,7 +46,7 @@ func SandboxSettings(shared []byte, c Confinement) map[string]any {
 			fs[k] = v
 		}
 	}
-	for key, add := range map[string][]string{"denyRead": c.Hide, "denyWrite": c.NoWrite, "allowWrite": append(append([]string{}, c.ExtraDirs...), c.AllowWrite...)} {
+	for key, add := range map[string][]string{"denyRead": c.Hide, "denyWrite": c.NoWrite, "allowWrite": writable(c)} {
 		if len(add) == 0 {
 			continue
 		}
@@ -69,6 +72,15 @@ func SandboxSettings(shared []byte, c Confinement) map[string]any {
 		sandbox["network"] = network
 	}
 	sandbox["enabled"] = !c.SandboxOff
+	out := map[string]any{"sandbox": sandbox}
+	if c.CacheDir != "" {
+		sandbox["enableWeakerNetworkIsolation"] = true // Go on macOS verifies TLS through trustd, which the default isolation blocks
+		env := map[string]any{}
+		for _, kv := range claude.CacheEnv(c.CacheDir) {
+			env[kv[0]] = kv[1]
+		}
+		out["env"] = env
+	}
 	deny := append([]string{}, data.Permissions.Deny...)
 	for _, p := range c.Hide { // denyRead binds Bash; the Read tool is a permission
 		deny = append(deny, "Read(/"+strings.TrimRight(p, "/")+"/**)")
@@ -84,7 +96,16 @@ func SandboxSettings(shared []byte, c Confinement) map[string]any {
 		}
 		perms["allow"] = allow
 	}
-	return map[string]any{"sandbox": sandbox, "permissions": perms}
+	out["permissions"] = perms
+	return out
+}
+
+func writable(c Confinement) []string {
+	out := append(append([]string{}, c.ExtraDirs...), c.AllowWrite...)
+	if c.CacheDir != "" {
+		out = append(out, c.CacheDir)
+	}
+	return out
 }
 
 // confinementOf is what agent's session in worktree is kept out of.
@@ -107,7 +128,7 @@ func (r *Runner) confinementOf(agent, worktree string) (Confinement, error) {
 	}
 	c := Confinement{Hide: hide, NoWrite: noWrite, ExtraDirs: extra, ReadAllow: []string{filepath.Join(lc.Launch.Home, "attachments")}, SandboxOff: !lc.roster.SandboxOn(agent, cfg)}
 	if !c.SandboxOff {
-		c.AllowWrite, c.AllowDomains = lc.Launch.SandboxAllowWrite(agent), team.SandboxDomains(cfg)
+		c.AllowWrite, c.AllowDomains, c.CacheDir = lc.Launch.SandboxAllowWrite(agent), team.SandboxDomains(cfg), lc.Launch.SandboxCacheDir(agent)
 	}
 	return c, nil
 }

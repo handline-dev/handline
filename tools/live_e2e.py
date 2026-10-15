@@ -20,7 +20,7 @@ step is followed by one agent.get so the table says whether the thing happened w
 finding for the table, not a failure: exit 1 only when a step FAILs.
 
 --terminal runs a terminal agent instead, on a daemon with -turns-from-hooks and the terminal tick, in a tmux server of the
-run's own: a normal turn, an Esc pressed mid-turn, and the CLI killed hard mid-turn. Its checkout is a temporary worktree of
+run's own: a normal turn, an Esc pressed mid-turn, session.interrupt mid-turn, and the CLI killed hard mid-turn. Its checkout is a temporary worktree of
 this repository, which every account already trusts, so no folder-trust dialog shows and no account's .claude.json is written.
 """
 from __future__ import annotations
@@ -47,6 +47,7 @@ from datetime import datetime
 from pathlib import Path
 
 import live_account
+import tmuxsock
 
 DEADLINE_S = 5.0
 SLOW_S = 30.0      # how long past the deadline a step still counts as slow rather than missing
@@ -376,6 +377,17 @@ def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, group: int) -
     t = time.time()
     d.write("chat.send", {"agent": a, "body": long_turn})
     running = r.s.wait(t, agent_changed(a, "running"), t + MODEL_S)
+    time.sleep(3)
+    if not running or r.s.wait(running[0], agent_changed(a, "idle"), time.time()):
+        r.fail("kill switch: idle after session.interrupt", "the turn was not running when the interrupt was due")
+    else:
+        t = time.time()
+        d.write("session.interrupt", {"agent": a})
+        r.step("kill switch: idle after session.interrupt", t, agent_changed(a, "idle"))
+
+    t = time.time()
+    d.write("chat.send", {"agent": a, "body": long_turn})
+    running = r.s.wait(t, agent_changed(a, "running"), t + MODEL_S)
     pid = pane(sock)[1]
     if not running or not pid:
         return r.fail("hard kill mid-turn", f"running {bool(running)}, CLI pid {pid}")
@@ -527,7 +539,7 @@ def main() -> int:
         if tmux and args.keep:
             print(f"live-e2e: kept the tmux server (tmux -L {tmux}) and the worktree {root / 'work'}", file=sys.stderr)
         elif tmux:
-            subprocess.run(["tmux", "-L", tmux, "kill-server"], capture_output=True)
+            tmuxsock.stop(tmux)
             subprocess.run(["git", "worktree", "remove", "--force", str(root / "work")], cwd=REPO, capture_output=True)
         if args.keep:
             print(f"live-e2e: kept {root}", file=sys.stderr)

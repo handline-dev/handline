@@ -7,6 +7,7 @@ import { setting } from './daemon.ts';
 import { Icon } from './ui/index.ts';
 import { AccountsPage } from './Accounts.tsx';
 import { InboxPage } from './Inbox.tsx';
+import { MyTurnPage } from './MyTurn.tsx';
 import { SettingsPage } from './Settings.tsx';
 import { DebugTerminals } from './debug/DebugTerminals.tsx';
 import { StatsPage } from './Stats.tsx';
@@ -147,6 +148,8 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             <AccountsPage name={accounts.name} />
           ) : tasks !== null ? (
             <TasksPage storage={storage} route={tasks} />
+          ) : page === 'my-turn' ? (
+            <MyTurnPage />
           ) : page === 'stats' ? (
             <StatsPage />
           ) : page === 'settings' ? (

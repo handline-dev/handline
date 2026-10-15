@@ -1039,6 +1039,7 @@ def _retire(prop: dict, con) -> tuple[bool, str]:
         if dest.exists():
             dest = dest.with_name(dest.name + f"-{prop['id']}")
         src.rename(dest)
+    paths.remove_cache_dir(name)
     sealed.forget(sealed.agent_key(name))
     return True, f"{name} is retired; its folder is at {dest}. {said}"
 
@@ -1099,6 +1100,7 @@ def _rename(prop: dict, con) -> tuple[bool, str]:
         return False, said2
     if src.exists():
         src.rename(dest)
+    paths.remove_cache_dir(old)     # rebuilt under the new name at its next launch
     cfg = agents.agent_file(new)
     if cfg.exists():
         data = load(cfg.read_text())

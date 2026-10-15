@@ -225,10 +225,11 @@ func taskList(ids []int64) string {
 }
 
 // cancelRequest is the write of the founder's cancel (team/ask.py cancel) for one queued request: the founder's own undelivered one is
-// withdrawn (plan.RID 0), any other closes as rejected under the founder's words. nil when it was closed while this ran.
+// withdrawn (plan.RID 0), any other closes as rejected under the founder's words. nil when it was closed while this ran. Neither settles
+// the task: the discard calling this ends it.
 func cancelRequest(tx *sql.Tx, r linked) (*Retired, error) {
 	if r.Requester == human && !r.DeliveredAt.Valid {
-		ok, err := db.RetireIfUndelivered(tx, r.ID, "withdrawn", "")
+		ok, err := db.RetireIfUndelivered(tx, r.ID, "withdrawn", "", true)
 		if err != nil || !ok {
 			return nil, err
 		}
@@ -238,7 +239,7 @@ func cancelRequest(tx *sql.Tx, r linked) (*Retired, error) {
 		return &Retired{}, nil
 	}
 	notify := r.Requester != human
-	ok, err := db.CloseIfQueued(tx, r.ID, "rejected", CancelVerdict, db.CloseOpts{Announced: !notify})
+	ok, err := db.CloseIfQueued(tx, r.ID, "rejected", CancelVerdict, db.CloseOpts{Announced: !notify, NoSettle: true})
 	if err != nil || !ok {
 		return nil, err
 	}

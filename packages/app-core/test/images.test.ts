@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fitLongEdge, imageRef, insertImageRef, titleFromNote, withImages } from '../src/images.ts';
+import { findImageRefs, fitLongEdge, imageRef, insertImageRef, titleFromNote, withImages } from '../src/images.ts';
 
 test('the long edge shrinks to 2048 and keeps the shape', () => {
   assert.deepEqual(fitLongEdge(4096, 2048), { width: 2048, height: 1024 });
@@ -22,4 +22,16 @@ test('a capture note carries one reference per image and a title from its first 
   assert.equal(withImages(' look ', ['a1', 'b2']), 'look\n![capture](attachment:a1)\n![capture](attachment:b2)');
   assert.equal(titleFromNote('', 'Capture'), 'Capture');
   assert.equal(titleFromNote('x'.repeat(80), 'C').length, 60);
+});
+
+test('image references are found with their caption and id', () => {
+  const t = 'a ![login](attachment:9f2c) b ![](attachment:ab_1)';
+  assert.deepEqual(
+    findImageRefs(t).map((r) => [t.slice(r.start, r.end), r.caption, r.id]),
+    [
+      ['![login](attachment:9f2c)', 'login', '9f2c'],
+      ['![](attachment:ab_1)', '', 'ab_1'],
+    ],
+  );
+  assert.deepEqual(findImageRefs('![x](http://a/b.png)'), []);
 });

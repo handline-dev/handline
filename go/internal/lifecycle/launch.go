@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -104,6 +103,8 @@ type LaunchArgs struct {
 	ReadAllow []string
 	// AllowWrite and AllowDomains are what a sandboxed session may write beyond its worktrees and reach on the network.
 	AllowWrite, AllowDomains []string
+	// CacheDir is a sandboxed session's own build caches (claude.CacheEnv), which it may write too.
+	CacheDir string
 }
 
 // Hooks is a vendor's state hooks, which launch keeps current.
@@ -1013,20 +1014,23 @@ func (p LaunchPort) ChooseAccount(_ db.Q, agent string) bool {
 
 func (p LaunchPort) NoRoom(agent string) string { return p.L.NoRoom(agent) }
 
-// SandboxAllowWrite are the folders a sandboxed session of agent may write beyond its worktrees: its repo's .git, where a worktree's
-// commits and refs live, and the Go, npm and pnpm caches a build fills.
+// SandboxAllowWrite are the folders a sandboxed session of agent may write beyond its worktrees and its cache folder: its repo's .git,
+// where a worktree's commits and refs live (the CLI's sandbox keeps .git/hooks and .git/config read-only within it).
 func (l *Launcher) SandboxAllowWrite(agent string) []string {
-	var out []string
 	if repo := l.Roster.RepoOf(agent); repo != "" {
 		if fi, err := os.Stat(filepath.Join(repo, ".git")); err == nil && fi.IsDir() {
-			out = append(out, filepath.Join(repo, ".git"))
+			return []string{filepath.Join(repo, ".git")}
 		}
 	}
-	user, _ := os.UserHomeDir()
-	cache, _ := os.UserCacheDir()
-	pnpm := filepath.Join(user, ".local", "share", "pnpm")
-	if runtime.GOOS == "darwin" {
-		pnpm = filepath.Join(user, "Library", "pnpm")
+	return nil
+}
+
+// SandboxCacheDir is agent's own build caches, made here. Any sandboxed session may write the whole home (the shared settings allow it),
+// so this keeps shared caches out of its reach, not its caches from other agents.
+func (l *Launcher) SandboxCacheDir(agent string) string {
+	d := paths.CacheDir(l.Home, agent)
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		l.warn("%s: cannot make its cache folder %s: %v", agent, d, err)
 	}
-	return append(out, filepath.Join(cache, "go-build"), filepath.Join(user, "go", "pkg", "mod"), filepath.Join(user, ".npm"), pnpm)
+	return d
 }

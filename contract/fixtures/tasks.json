@@ -374,6 +374,79 @@
      }
     }
    ]
+  },
+  {
+   "name": "task.cancel.the_founders_own_task",
+   "spec": "task.cancel",
+   "about": "The founder cancels a task of their own: its request to the founder goes with it, and the task is discarded, not refused as ended by someone else.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "mine",
+       "body": "b",
+       "request_id": "conf-cancel-own-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "t"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.cancel",
+      "params": {
+       "task": "{{t}}",
+       "request_id": "conf-cancel-own-2"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "tasks.list",
+      "params": {
+       "under": "{{t}}"
+      }
+     },
+     "result": {
+      "items": [
+       {
+        "id": "{{t}}",
+        "state": "discarded"
+       }
+      ],
+      "more": false
+     }
+    }
+   ]
   }
  ]
 }
