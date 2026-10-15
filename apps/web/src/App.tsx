@@ -4,7 +4,6 @@ import type { KV, Store } from '@handline/app-core';
 import { DaemonProvider, useError, useStore } from '@handline/app-react';
 import { DataProvider, SKELETON_CSS, useUnread, type BoxComponent } from '@handline/app-data';
 import { setting } from './daemon.ts';
-import { Icon } from './ui/index.ts';
 import { AccountsPage } from './Accounts.tsx';
 import { InboxPage } from './Inbox.tsx';
 import { SettingsPage } from './Settings.tsx';
@@ -30,6 +29,7 @@ import { NewAgent } from './NewAgent.tsx';
 import { KeysSheet } from './KeysSheet.tsx';
 import { Palette } from './Palette.tsx';
 import { Sidebar } from './Sidebar.tsx';
+import { FoldedControls, RailControls } from './RailControls.tsx';
 import { DaemonDown } from './DaemonDown.tsx';
 import { HrBanner } from './HrBanner.tsx';
 import { terminalOwnsKey } from './terminal/core.ts';
@@ -106,7 +106,10 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
     document.title = unread ? `(${unread}) Handline` : 'Handline';
   }, [unread]);
   // Everything but the workspace lives in the sidebar, so the main view gets the whole window height.
+  // The pages with no tab strip keep the rail's handle; on the agent workspace the controls ride the first strip.
+  const hasStrip = !team && !worktrees.open && !inbox.open && !accounts.open && tasks === null && page !== 'stats' && page !== 'settings' && !!agent && !settings;
   return (
+    <FoldedControls.Provider value={railOpen ? null : { show: toggle }}>
     <div className="frame flex h-screen flex-col">
       <div id="app" data-rail={railOpen ? 'open' : 'closed'} style={{ '--rail-w': `${railW}px` } as React.CSSProperties}>
         {railOpen ? (
@@ -124,14 +127,11 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             />
           </>
         ) : (
-          <button
-            className="rail-handle flex w-7 flex-none justify-center self-stretch border-0 border-r border-line bg-panel pt-2 align-top"
-            aria-label="Show the agent list"
-            title="Show the agent list"
-            onClick={toggle}
-          >
-            <Icon name="sidebar" size={16} aria-hidden />
-          </button>
+          hasStrip ? null : (
+            <div className="rail-handle flex w-9 flex-none justify-start self-stretch border-r border-line bg-panel px-1 shell:pt-[calc(var(--h-tabs)+4px)] pt-2">
+              <RailControls show={toggle} />
+            </div>
+          )
         )}
         <main className={`main flex min-h-0 min-w-0 flex-1 bg-canvas${railOpen ? ' max-[900px]:ml-0' : ''}`} aria-label="Agent workspace">
           <DaemonDown />
@@ -177,5 +177,6 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
       {palette ? <Palette onClose={() => setPalette(false)} /> : null}
       {keys ? <KeysSheet onClose={() => setKeys(false)} /> : null}
     </div>
+    </FoldedControls.Provider>
   );
 }

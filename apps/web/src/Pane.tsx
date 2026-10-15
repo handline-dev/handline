@@ -31,6 +31,7 @@ import { Watch } from './TranscriptTab.tsx';
 import { TerminalTab } from './TerminalTab.tsx';
 import { TerminalBar } from './TerminalBar.tsx';
 import { useWorkspace } from './Workspace.tsx';
+import { RailControls, useFoldedControls } from './RailControls.tsx';
 
 const label = (t: Tab, structured = false): string =>
   t.kind === 'chat'
@@ -57,7 +58,8 @@ const TAB_KEYS: KeyRows = [
 
 export function Pane({ group }: { group: Group }) {
   useScreenKeys('On the tabs', TAB_KEYS);
-  const { ws, detail, agent, storage, apply, canSplit, dragging, setDragging } = useWorkspace();
+  const { ws, detail, agent, storage, apply, canSplit, lead, dragging, setDragging } = useWorkspace();
+  const folded = useFoldedControls();
   const store = useStore();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
@@ -106,6 +108,11 @@ export function Pane({ group }: { group: Group }) {
       onPointerDownCapture={() => ws.active !== group.id && apply((w) => ({ ...w, active: group.id }))}
     >
       <div className="strip flex h-[var(--h-tabs)] items-stretch border-b border-line bg-surface px-2" role="tablist" ref={strip} onDragOver={(e) => dragging && e.preventDefault()} onDrop={dropOnStrip}>
+        {folded && lead === group.id ? (
+          <div className="mr-1 flex flex-none items-center shell:pl-[var(--lights-w,86px)]">
+            <RailControls show={folded.show} row />
+          </div>
+        ) : null}
         {group.tabs.map((id) => {
           const t = ws.tabs[id]!;
           return (
