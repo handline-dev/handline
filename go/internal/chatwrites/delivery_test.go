@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	dbpkg "github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/rpc"
-	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
 )
 
@@ -26,60 +26,60 @@ type fakeSessions struct {
 func (f *fakeSessions) Structured(a string) bool { return a != "alice" }
 func (f *fakeSessions) Live(a string) bool       { return a != "alice" }
 
-func (f *fakeSessions) ledger(a string) *structured.DBLedger {
-	return &structured.DBLedger{DB: f.r.db, Agent: a}
+func (f *fakeSessions) ledger(a string) *delivery.DBLedger {
+	return &delivery.DBLedger{DB: f.r.db, Agent: a}
 }
 
-func (f *fakeSessions) Send(a, op, text string, d structured.Delivery) (structured.Receipt, error) {
+func (f *fakeSessions) Send(a, op, text string, d delivery.Delivery) (delivery.Receipt, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	l := f.ledger(a)
 	if o, _ := l.Get(op); o != nil {
-		return structured.Receipt{Op: o.ID, UUID: o.UUID, State: o.State}, nil
+		return delivery.Receipt{Op: o.ID, UUID: o.UUID, State: o.State}, nil
 	}
-	o := structured.Op{ID: op, UUID: structured.UUIDFor(op), Text: text, Delivery: d, State: structured.Sent}
+	o := delivery.Op{ID: op, UUID: delivery.UUIDFor(op), Text: text, Delivery: d, State: delivery.Sent}
 	switch {
-	case d == structured.Queue && (f.busy || f.busyFor[a]):
-		o.State = structured.Queued
+	case d == delivery.Queue && (f.busy || f.busyFor[a]):
+		o.State = delivery.Queued
 	case f.echo:
-		o.State = structured.Confirmed
+		o.State = delivery.Confirmed
 		f.sent = append(f.sent, text)
 	default:
 		f.sent = append(f.sent, text)
 	}
 	l.Put(o)
-	return structured.Receipt{Op: op, UUID: o.UUID, State: o.State}, nil
+	return delivery.Receipt{Op: op, UUID: o.UUID, State: o.State}, nil
 }
 
-func (f *fakeSessions) Withdraw(a, op string) (structured.Receipt, bool, error) {
+func (f *fakeSessions) Withdraw(a, op string) (delivery.Receipt, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	l := f.ledger(a)
 	o, _ := l.Get(op)
 	if o == nil {
-		return structured.Receipt{}, false, fmt.Errorf("no such operation")
+		return delivery.Receipt{}, false, fmt.Errorf("no such operation")
 	}
-	if o.State == structured.Queued {
-		o.State = structured.Withdrawn
+	if o.State == delivery.Queued {
+		o.State = delivery.Withdrawn
 		l.Put(*o)
 	}
-	return structured.Receipt{Op: op, UUID: o.UUID, State: o.State}, o.State == structured.Withdrawn, nil
+	return delivery.Receipt{Op: op, UUID: o.UUID, State: o.State}, o.State == delivery.Withdrawn, nil
 }
 
-func (f *fakeSessions) Promote(a, op string) (structured.Receipt, error) {
+func (f *fakeSessions) Promote(a, op string) (delivery.Receipt, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	l := f.ledger(a)
 	o, _ := l.Get(op)
 	if o == nil {
-		return structured.Receipt{}, fmt.Errorf("no such operation")
+		return delivery.Receipt{}, fmt.Errorf("no such operation")
 	}
-	if o.State == structured.Queued {
-		o.State = structured.Sent
+	if o.State == delivery.Queued {
+		o.State = delivery.Sent
 		l.Put(*o)
 		f.sent = append(f.sent, o.Text)
 	}
-	return structured.Receipt{Op: op, UUID: o.UUID, State: o.State}, nil
+	return delivery.Receipt{Op: op, UUID: o.UUID, State: o.State}, nil
 }
 
 // confirmAll is the CLI echoing every message written so far.
@@ -94,13 +94,13 @@ func (f *fakeSessions) confirmAll() {
 	rows.Close()
 	for _, id := range ids {
 		parts := strings.SplitN(id, ":", 3) // send:<agent>:<op>
-		f.setState(parts[1], parts[2], structured.Confirmed)
+		f.setState(parts[1], parts[2], delivery.Confirmed)
 		f.r.env.SessionConfirmed(f.r.db, parts[1], parts[2])
 	}
 }
 
 // setState is the session moving a message on: the CLI echoed it, or the daemon died before it did.
-func (f *fakeSessions) setState(a, op string, s structured.State) {
+func (f *fakeSessions) setState(a, op string, s delivery.State) {
 	l := f.ledger(a)
 	o, _ := l.Get(op)
 	o.State = s
@@ -125,7 +125,7 @@ func receiptOf(t *testing.T, res map[string]any) map[string]any {
 	if !ok {
 		t.Fatalf("no receipt in %v", res)
 	}
-	if rc["uuid"] != structured.UUIDFor(supervisor.RequestOp(int64(res["request"].(float64)))) {
+	if rc["uuid"] != delivery.UUIDFor(supervisor.RequestOp(int64(res["request"].(float64)))) {
 		t.Fatalf("receipt uuid %v is not the operation's", rc["uuid"])
 	}
 	return rc
@@ -182,7 +182,7 @@ func TestARepeatAnswersTheReceiptAsItIsNowAndOtherParamsAreRefused(t *testing.T)
 	if receiptOf(t, first)["state"] != "sent" {
 		t.Fatal(first)
 	}
-	f.setState("bob", supervisor.RequestOp(int64(first["request"].(float64))), structured.Confirmed)
+	f.setState("bob", supervisor.RequestOp(int64(first["request"].(float64))), delivery.Confirmed)
 	again := r.result(r.one(s, "chat.send", send("repeat", "d1", "")))
 	if again["replayed"] != true || again["request"] != first["request"] || receiptOf(t, again)["state"] != "confirmed" || len(f.sent) != 1 {
 		t.Fatalf("the receipt now, nothing written again: %v %v", again, f.sent)
@@ -197,7 +197,7 @@ func TestAnUnknownOperationStaysUnknownAndANewIdIsANewOperation(t *testing.T) {
 	r, f, s := sessionRig(t)
 	first := r.result(r.one(s, "chat.send", send("in flight", "crash-1", "")))
 	rid := int64(first["request"].(float64))
-	f.setState("bob", supervisor.RequestOp(rid), structured.Unknown)
+	f.setState("bob", supervisor.RequestOp(rid), delivery.Unknown)
 	again := r.result(r.one(s, "chat.send", send("in flight", "crash-1", "")))
 	if again["replayed"] != true || receiptOf(t, again)["state"] != "unknown" || len(f.sent) != 1 {
 		t.Fatalf("unknown, and not written again: %v", again)
@@ -216,7 +216,7 @@ func TestCancelWithdrawsAQueuedMessageWithoutConfirmAndARetryOfItIsRefused(t *te
 	r.result(r.one(s, "chat.cancel", fmt.Sprintf(`{"request":%d,"request_id":"c1"}`, rid)))
 	var state string
 	r.db.QueryRow("SELECT state FROM requests WHERE id = ?", rid).Scan(&state)
-	if op, _ := f.ledger("bob").Get(supervisor.RequestOp(rid)); state != "withdrawn" || op.State != structured.Withdrawn {
+	if op, _ := f.ledger("bob").Get(supervisor.RequestOp(rid)); state != "withdrawn" || op.State != delivery.Withdrawn {
 		t.Fatalf("withdrawn in the row and in the session: %s %v", state, op)
 	}
 	r.refusedWith(r.one(s, "chat.send", send("take me back", "d1", "")), "state")
@@ -230,7 +230,7 @@ func TestCancelOfAWrittenMessageNeedsTheConfirm(t *testing.T) {
 	// a message the session wrote while the person was deciding is written too: the cancel asks for the confirm
 	f.busy = true
 	held := int64(r.result(r.one(s, "chat.send", send("race", "d2", "")))["request"].(float64))
-	f.setState("bob", supervisor.RequestOp(held), structured.Sent)
+	f.setState("bob", supervisor.RequestOp(held), delivery.Sent)
 	r.refusedWith(r.one(s, "chat.cancel", fmt.Sprintf(`{"request":%d,"request_id":"c2"}`, held)), "confirm")
 	if d, ty := r.delivered(held); !d || !ty {
 		t.Fatalf("marked as written: %v %v", d, ty)

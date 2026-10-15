@@ -6,7 +6,7 @@ const HANDSHAKE = new Set(['hello', 'subscribe', 'unsubscribe', 'whoami', 'devic
 /** Test controls: how long the daemon takes to answer, and calls it refuses. */
 export class Knobs {
   delayMs = 0;
-  private refusals = new Map<string, { gate: string; reason: string; hint?: string; times: number }>();
+  private refusals = new Map<string, { gate: string; reason: string; hint?: string; times: number; data?: Record<string, unknown> }>();
 
   /** Every call after hello waits this long before it is handled; 0 turns it off. */
   latency(ms: number): void {
@@ -15,8 +15,8 @@ export class Knobs {
   /** Account names accounts.list serves; null, as the Python daemon today, is refused as unsupported. */
   accounts: string[] | null = null;
   /** Refuses `method` with the gate's own words, `times` calls (default: until `clear`). */
-  refuse(method: string, gate: string, reason: string, hint?: string, times = Infinity): void {
-    this.refusals.set(method, { gate, reason, hint, times });
+  refuse(method: string, gate: string, reason: string, hint?: string, times = Infinity, data?: Record<string, unknown>): void {
+    this.refusals.set(method, { gate, reason, hint, times, data });
   }
   private unserved = new Set<string>();
   /** Leaves `method` out of hello's list and refuses it, as a daemon that does not serve it would. */
@@ -67,6 +67,6 @@ export class Knobs {
     const r = this.refusals.get(method);
     if (!r) return undefined;
     if (--r.times <= 0) this.refusals.delete(method);
-    return refused(r.gate, r.reason, r.hint);
+    return refused(r.gate, r.reason, r.hint, r.data);
   }
 }

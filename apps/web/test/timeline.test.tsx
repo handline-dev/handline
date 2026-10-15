@@ -59,7 +59,7 @@ describe('Timeline tab', () => {
     await record(s, 60);
     await mount(s);
     await click(box.querySelector('[aria-label="Add a tab"]')!);
-    await click([...box.querySelectorAll('[role=menuitem], button')].find((b) => b.textContent === 'Timeline')!);
+    await click([...document.querySelectorAll('[role=menuitem]')].find((b) => b.textContent === 'Timeline')!);
     await until(() => entries().length === 50, 'the first page');
     expect(entries()[0]).toBe(60);
     expect(entries().at(-1)).toBe(11);
@@ -74,7 +74,7 @@ describe('Timeline tab', () => {
     await record(s, 60);
     await mount(s);
     await click(box.querySelector('[aria-label="Add a tab"]')!);
-    await click([...box.querySelectorAll('[role=menuitem], button')].find((b) => b.textContent === 'Timeline')!);
+    await click([...document.querySelectorAll('[role=menuitem]')].find((b) => b.textContent === 'Timeline')!);
     await until(() => entries().length === 50, 'the first page');
     await click(older()!);
     await until(() => entries().length === 60, 'the older page');

@@ -70,20 +70,9 @@ func (e *Env) holderGate(c *rpc.Conn, agent string) error {
 	return nil
 }
 
-// terminalOnly refuses an agent run as a structured session: it has no terminal to type at, so a client sends chat.send.
-func (e *Env) terminalOnly(agent string) error {
-	if e.Structured != nil && e.Structured(agent) {
-		return rpc.Refused(agent+" runs as a structured session and has no terminal: send it a chat message", "unsupported", "")
-	}
-	return nil
-}
-
 func (e *Env) take(c *rpc.Conn, params map[string]any) (any, error) {
 	agent, err := e.agent(params)
 	if err != nil {
-		return nil, err
-	}
-	if err := e.terminalOnly(agent); err != nil {
 		return nil, err
 	}
 	if err := e.holderGate(c, agent); err != nil {
@@ -109,9 +98,6 @@ func (e *Env) take(c *rpc.Conn, params map[string]any) (any, error) {
 func (e *Env) release(c *rpc.Conn, params map[string]any) (any, error) {
 	agent, err := e.agent(params)
 	if err != nil {
-		return nil, err
-	}
-	if err := e.terminalOnly(agent); err != nil {
 		return nil, err
 	}
 	row, err := e.Holds.Holder(agent)
@@ -148,9 +134,6 @@ func text(params map[string]any, allowed string) (string, error) {
 func (e *Env) act(c *rpc.Conn, name string, params map[string]any, wall bool, send func(handle string) (bool, string)) (any, error) {
 	agent, err := e.agent(params)
 	if err != nil {
-		return nil, err
-	}
-	if err := e.terminalOnly(agent); err != nil {
 		return nil, err
 	}
 	hold := lock.TakeTerminal(e.Home, agent)

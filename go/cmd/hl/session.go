@@ -30,8 +30,8 @@ func closeCmd(c *hlclient.Client, args []string) (int, bool) {
 // restart ends an agent's session and starts it again in the same terminal (cli/task.py cmd_restart).
 func restart(c *hlclient.Client, args []string) (int, bool) {
 	p, ok := parse(args, nil, []string{"--fresh", "--force"}, nil)
-	if !ok || len(p.pos) != 1 || !ascii(p.pos[0]) {
-		return 0, false
+	if !ok || len(p.pos) != 1 {
+		return badArgs("usage: hl restart [--fresh] [--force] target", args), true
 	}
 	c.NoteVerbChain([]string{"restart", ""})
 	raw := p.pos[0]

@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/rpc"
-	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
 )
 
@@ -14,19 +14,19 @@ import (
 // the message joins a running turn or waits for its end, and the result carries the receipt.
 
 // deliveryParam is chat.send's delivery word; queue is the default.
-func deliveryParam(p map[string]any) (structured.Delivery, error) {
+func deliveryParam(p map[string]any) (delivery.Delivery, error) {
 	switch p["delivery"] {
 	case nil, "queue":
-		return structured.Queue, nil
+		return delivery.Queue, nil
 	case "now":
-		return structured.Now, nil
+		return delivery.Now, nil
 	}
 	return "", badParam("delivery is now or queue", "delivery")
 }
 
 // sendAct is what follows the commit of a message to a structured agent: it sends the message under d and keeps the receipt in *got. A
 // message to an agent with no live session waits for the usual delivery, which starts it.
-func (w *writes) sendAct(agent string, d structured.Delivery, got *map[string]any) func(rid int64) {
+func (w *writes) sendAct(agent string, d delivery.Delivery, got *map[string]any) func(rid int64) {
 	return func(rid int64) {
 		row, err := db.GetRequest(w.e.DB, rid)
 		if err == nil && row != nil {
@@ -107,7 +107,7 @@ func (w *writes) promoteHeld(c *rpc.Conn, rid int64) (out map[string]any, handle
 		return nil, false, err
 	}
 	notQueued := rpc.Refused(fmt.Sprintf("message %d is not queued: it was written or taken back", rid), "state", "")
-	if state != string(structured.Queued) {
+	if state != string(delivery.Queued) {
 		return nil, true, notQueued
 	}
 	r, ok, err := w.e.PromoteHeld(w.e.DB, row)

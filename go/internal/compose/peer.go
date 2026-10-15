@@ -4,16 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"syscall"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/peerinbox"
 	"github.com/handline/handline/go/internal/peerport"
-	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
 )
@@ -32,7 +33,7 @@ func (p *Parts) SettlePeerSends() {
 		return
 	}
 	for _, agent := range paths.ListAgents(p.home) {
-		if p.Kind(agent) || !p.Peer(agent) {
+		if !p.Peer(agent) {
 			continue
 		}
 		if err := p.tell.SessionLost(p.db, agent); err != nil && p.log != nil {
@@ -113,12 +114,11 @@ func agentSession(home string, q db.Q, agent string) (peerinbox.Session, error) 
 	return peerinbox.ByCwd(config, cwd, func(pid int) bool { return syscall.Kill(pid, 0) == nil })
 }
 
-// mixedAgents is supervisor.Agents for a daemon with structured agents and peer-inbox agents: each call goes to the one the agent is
-// delivered through.
+// mixedAgents is supervisor.Agents for peer-inbox agents and the others: each call goes to the one the agent is delivered through.
 type mixedAgents struct {
-	structured supervisor.Agents
-	peer       supervisor.Agents
-	isPeer     func(agent string) bool
+	none   supervisor.Agents
+	peer   supervisor.Agents
+	isPeer func(agent string) bool
 }
 
 var _ supervisor.Agents = mixedAgents{}
@@ -127,19 +127,36 @@ func (m mixedAgents) of(agent string) supervisor.Agents {
 	if m.isPeer(agent) {
 		return m.peer
 	}
-	return m.structured
+	return m.none
 }
 
 func (m mixedAgents) Structured(agent string) bool { return m.of(agent).Structured(agent) }
 func (m mixedAgents) Live(agent string) bool       { return m.of(agent).Live(agent) }
-func (m mixedAgents) Send(agent, op, text string, d structured.Delivery) (structured.Receipt, error) {
+func (m mixedAgents) Send(agent, op, text string, d delivery.Delivery) (delivery.Receipt, error) {
 	return m.of(agent).Send(agent, op, text, d)
 }
-func (m mixedAgents) Withdraw(agent, op string) (structured.Receipt, bool, error) {
+func (m mixedAgents) Withdraw(agent, op string) (delivery.Receipt, bool, error) {
 	return m.of(agent).Withdraw(agent, op)
 }
-func (m mixedAgents) Promote(agent, op string) (structured.Receipt, error) {
+func (m mixedAgents) Promote(agent, op string) (delivery.Receipt, error) {
 	return m.of(agent).Promote(agent, op)
+}
+
+// noSessionPort is the Agents of an agent with no session port: nothing is delivered through it, and the supervisor's other paths reach it.
+type noSessionPort struct{}
+
+var errNoSessionPort = errors.New("no session port")
+
+func (noSessionPort) Structured(string) bool { return false }
+func (noSessionPort) Live(string) bool       { return false }
+func (noSessionPort) Send(agent, _, _ string, _ delivery.Delivery) (delivery.Receipt, error) {
+	return delivery.Receipt{}, fmt.Errorf("%s: %w", agent, errNoSessionPort)
+}
+func (noSessionPort) Withdraw(agent, _ string) (delivery.Receipt, bool, error) {
+	return delivery.Receipt{}, false, fmt.Errorf("%s: %w", agent, errNoSessionPort)
+}
+func (noSessionPort) Promote(agent, _ string) (delivery.Receipt, error) {
+	return delivery.Receipt{}, fmt.Errorf("%s: %w", agent, errNoSessionPort)
 }
 
 // peerFrom is who the message op to a session is from: whoever wrote it (the agents named in the operation, "founder" for the person), else

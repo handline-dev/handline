@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,82 +11,15 @@ import (
 	"time"
 
 	dbpkg "github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
 )
 
-func TestOneTickWakesAClosedStructuredAgentWithWorkWaitingAndLeavesATerminalAgentAlone(t *testing.T) {
-	p, _, _, _ := wired(t)
-	d := p.Sink.DB
-	// bob is a terminal agent with work waiting and no terminal: the Go tick must not touch it, let alone count a failure against it.
-	if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "bob", Body: "begin", Response: "async", Kind: "ask"}); err != nil {
-		t.Fatal(err)
-	}
-	tk := p.Tick(p.Run.cfg, TickConfig{})
-	if _, err := tk.Tick.Run(nil); err != nil {
-		t.Fatal(err)
-	}
-	if !p.Run.Alive("alice") {
-		row, _ := dbpkg.GetAgentState(d, "alice")
-		t.Fatalf("the tick did not wake alice: %+v", row)
-	}
-	if !p.Run.WaitIdle("alice", 10*time.Second) {
-		t.Fatal("her turn ends")
-	}
-	if row, _ := dbpkg.GetAgentState(d, "bob"); row != nil && (row.WakeFailures != 0 || row.FailedAttempts != 0 || row.State == "STALLED") {
-		t.Fatalf("a terminal agent was touched: %+v", row)
-	}
-	// The fake CLI leaves no transcript to read a cache clock from, so the answer just given is the activity that keeps the cache warm.
-	dbpkg.AddEvent(d, "alice", "Stop")
-	if _, err := tk.Tick.Run(nil); err != nil { // a second tick leaves a running agent running
-		t.Fatal(err)
-	}
-	if !p.Run.Alive("alice") {
-		t.Fatal("still running")
-	}
-}
-
-func TestTheTicksIdleCloseIsRecordedForTheStartAfterIt(t *testing.T) {
-	p, _, _, _ := wired(t)
-	d := p.Sink.DB
-	if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "alice", Body: "begin", Response: "async", Kind: "ask"}); err != nil {
-		t.Fatal(err)
-	}
-	tk := p.Tick(p.Run.cfg, TickConfig{})
-	// The first tick wakes her and the second tells her the ask; a turn still running at the close check holds the session open. The
-	// fake session sends no hooks: without the Stop the real one records, her cache reads cold and the second tick closes her for that.
-	for range 2 {
-		if _, err := tk.Tick.Run(nil); err != nil {
-			t.Fatal(err)
-		}
-		if !p.Run.WaitIdle("alice", 10*time.Second) {
-			t.Fatal("her turn ends")
-		}
-		if _, err := dbpkg.AddEvent(d, "alice", "Stop"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := d.Exec("UPDATE events SET ts = ts - 7200 WHERE agent = 'alice'"); err != nil { // idle for longer than any close window
-		t.Fatal(err)
-	}
-	res, err := tk.Tick.Run(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if row, _ := dbpkg.GetAgentState(d, "alice"); row == nil || !row.ClosedAt.Valid || row.ClosedAt.Int64 == 0 {
-		t.Fatalf("the tick did not close her: %v", res.Actions)
-	}
-	if _, ok, _ := dbpkg.LastEventID(d, "alice", lifecycle.IdleCloseKind); !ok {
-		t.Fatalf("the idle close was not recorded as one: %v", res.Actions)
-	}
-}
-
 func TestAnAgentWithTheRenewalSwitchOnIsNotStalledForWantingACacheClock(t *testing.T) {
 	p, _, _, wt := wired(t)
-	d := p.Sink.DB
+	d := p.db
 	os.WriteFile(filepath.Join(p.home, "agents", "alice", "agent.yaml"), []byte("vendor: claude\nstructured: true\ncache_renewal: true\nidle_fold: true\n"), 0o644)
 	// A session that is open and idle, with a status naming a transcript that is not there: the clock is unreadable, so no renewal is due.
 	if err := dbpkg.SetResumeSession(d, "alice", "s1"); err != nil {
@@ -95,7 +27,7 @@ func TestAnAgentWithTheRenewalSwitchOnIsNotStalledForWantingACacheClock(t *testi
 	}
 	d.Exec("UPDATE agent_state SET closed_at = NULL, state = 'IDLE' WHERE agent = 'alice'")
 	_ = wt
-	tk := p.Tick(p.Run.cfg, TickConfig{})
+	tk := p.Tick(cfgOf(p), TickConfig{})
 	if tk.Tick.Cost == nil || tk.Tick.Cost.Ports == nil {
 		t.Fatal("the cost pilot has no ports")
 	}
@@ -117,7 +49,7 @@ func TestAnAgentWithTheRenewalSwitchOnIsNotStalledForWantingACacheClock(t *testi
 func TestShutdownWaitsForTheTickInHandBeforeTheDatabaseCloses(t *testing.T) {
 	p, _, _, _ := wired(t)
 	stop := make(chan struct{})
-	tk := p.Tick(p.Run.cfg, TickConfig{Stop: stop})
+	tk := p.Tick(cfgOf(p), TickConfig{Stop: stop})
 	entered, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	tk.Tick.Passes = []tick.NamedSweep{{Name: "slow", Run: func(dbpkg.Q, int64) error {
@@ -141,67 +73,9 @@ func TestShutdownWaitsForTheTickInHandBeforeTheDatabaseCloses(t *testing.T) {
 	}
 }
 
-func TestAStructuredAgentWhoseTranscriptShowsAFullContextIsHandedOffByTheTick(t *testing.T) {
-	p, lc, _, wt := wired(t)
-	d := p.Sink.DB
-	for _, args := range [][]string{{"init", "-q"}, {"-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"}} {
-		if out, err := exec.Command("git", append([]string{"-C", wt}, args...)...).CombinedOutput(); err != nil {
-			t.Skipf("git: %v %s", err, out)
-		}
-	}
-	lc.Handoff.SetDefaultEnabled(false) // the note is asked and answered over turns; this is about the trigger
-	if ok, said, err := lc.Manager.WakeAgent("alice", lifecycle.WakeOpts{}); err != nil || !ok {
-		t.Fatalf("wake: %v %q %v", ok, said, err)
-	}
-	if !p.Run.WaitIdle("alice", 10*time.Second) {
-		t.Fatal("her turn ends")
-	}
-	row, _ := dbpkg.GetAgentState(d, "alice")
-	acct := p.Run.parts.OpenedOn("alice")
-	if acct == "" {
-		t.Fatal("the account the session was opened under is not known")
-	}
-	dir, _ := team.AccountConfigDir(p.home, acct)
-	os.MkdirAll(filepath.Join(dir, "projects", "x"), 0o755)
-	reply := `{"type":"assistant","isSidechain":false,"message":{"model":"claude-opus-5","usage":{"input_tokens":10,"cache_read_input_tokens":290000,"cache_creation_input_tokens":5000}}}` + "\n"
-	os.WriteFile(filepath.Join(dir, "projects", "x", row.ResumeSession.String+".jsonl"), []byte(reply), 0o644)
-	dbpkg.AddEvent(d, "alice", "Stop")
-
-	st := tickUsage{p: p, u: lc.usage, roster: lc.roster}.ReadForAgent("alice", acct)
-	if st.TrustedCtxUsed == nil || *st.TrustedCtxUsed != 295010 || st.TranscriptPath == "" || st.ModelID != "claude-opus-5" {
-		t.Fatalf("%+v", st)
-	}
-	tk := p.Tick(p.Run.cfg, TickConfig{})
-	// A tick that finds the session still busy defers the handoff to the next one, so tick until it is parked.
-	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if _, err := tk.Tick.Run(nil); err != nil {
-			t.Fatal(err)
-		}
-		if row, _ = dbpkg.GetAgentState(d, "alice"); row.State == "PARKED" {
-			break
-		}
-	}
-	if p.Run.Alive("alice") || row.State != "PARKED" || row.ThrottleCount != 0 {
-		t.Fatalf("alive %v %+v", p.Run.Alive("alice"), row)
-	}
-	// The park has run out and nothing else waits: the tick still opens a fresh session and sends it the record.
-	for i := 0; i < 3 && !p.Run.Alive("alice"); i++ {
-		if _, err := tk.Tick.Run(nil); err != nil {
-			t.Fatal(err)
-		}
-	}
-	row, _ = dbpkg.GetAgentState(d, "alice")
-	if !p.Run.Alive("alice") || row.ResumeSession.String == "" || row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 {
-		t.Fatalf("no fresh session after the park: %+v", row)
-	}
-	if h, _ := dbpkg.GetHandoff(d, "alice"); h != "" {
-		t.Fatalf("the record was not handed over: %q", h)
-	}
-}
-
 func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
 	p, _, _, _ := wired(t)
-	d := p.Sink.DB
+	d := p.db
 	tp := timeboxPorts{p: p, home: p.home}
 	if tp.StopWaitReason(d, "alice") != "" {
 		t.Fatal("an agent with no current task has no reason to stay")
@@ -240,12 +114,12 @@ func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
 
 func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 	p, _, _, _ := wired(t)
-	tk := p.Tick(p.Run.cfg, TickConfig{})
+	tk := p.Tick(cfgOf(p), TickConfig{})
 	if len(tk.Tick.Passes) != 9 {
 		t.Fatalf("passes: %d", len(tk.Tick.Passes))
 	}
 	var logs []string
-	cfg := p.Run.cfg
+	cfg := cfgOf(p)
 	cfg.Log = func(format string, a ...any) { logs = append(logs, fmt.Sprintf(format, a...)) }
 	tk = p.Tick(cfg, TickConfig{})
 	for i := 0; i < 3; i++ {
@@ -260,7 +134,7 @@ func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 	}
 }
 
-func TestTheFirstTickAfterMidnightRollsTheDigestOfAStructuredAgent(t *testing.T) {
+func TestTheFirstTickAfterMidnightRollsTheDigestOfAnAgent(t *testing.T) {
 	p, _, _, _ := wired(t)
 	dir := filepath.Join(p.home, "agents", "alice", "journal")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -270,9 +144,9 @@ func TestTheFirstTickAfterMidnightRollsTheDigestOfAStructuredAgent(t *testing.T)
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 10, 9, 23, 59, 0, 0, time.Local)
-	cfg := p.Run.cfg
+	cfg := cfgOf(p)
 	cfg.Now = func() time.Time { return now }
-	tk := p.Tick(cfg, TickConfig{})
+	tk := p.Tick(cfg, TickConfig{Terminals: true})
 	run := func() {
 		t.Helper()
 		if _, err := tk.Tick.Run(nil); err != nil {
@@ -306,7 +180,7 @@ func TestTheLoopEndsForARestartWhenDevModeFindsAChangedExecutableThatStarts(t *t
 	exe := filepath.Join(t.TempDir(), "handlined")
 	os.WriteFile(exe, []byte("old"), 0o755)
 	clock := time.Unix(1_800_000_000, 0)
-	cfg := p.Run.cfg
+	cfg := cfgOf(p)
 	cfg.Now = func() time.Time { return clock }
 	tk := p.Tick(cfg, TickConfig{Stop: make(chan struct{})})
 	tk.dev.Exe, tk.dev.Check = exe, func(string) error { return nil }
@@ -329,7 +203,7 @@ func TestTheTickRelinksAccountsToSharedItemsAddedAfterTheyWereRegistered(t *test
 	cdir, _ := team.AccountConfigDir(p.home, "a1")
 	os.MkdirAll(filepath.Join(p.home, "shared", ".claude"), 0o755)
 	os.WriteFile(filepath.Join(p.home, "shared", ".claude", "CLAUDE.md"), []byte("x"), 0o644)
-	tk := p.Tick(p.Run.cfg, TickConfig{})
+	tk := p.Tick(cfgOf(p), TickConfig{})
 	got, err := tk.Tick.Sweeps.RelinkAccounts()
 	if err != nil || len(got["a1"]) == 0 {
 		t.Fatalf("%v %v", got, err)
@@ -343,7 +217,7 @@ func TestTheLoopRunsTheDescriptorCheckAndLogRotationAfterEachTick(t *testing.T) 
 	p, _, _, _ := wired(t)
 	var mu sync.Mutex
 	var logged []string
-	cfg := p.Run.cfg
+	cfg := cfgOf(p)
 	cfg.Log = func(f string, a ...any) { mu.Lock(); logged = append(logged, fmt.Sprintf(f, a...)); mu.Unlock() }
 	log := filepath.Join(p.home, "logs", "daemon.err.log")
 	os.MkdirAll(filepath.Dir(log), 0o755)
@@ -364,8 +238,8 @@ func TestTheLoopRunsTheDescriptorCheckAndLogRotationAfterEachTick(t *testing.T) 
 // passRuns reports whether the named pass reaches the db: on a closed one it errors or panics, and a gated-off pass returns nil.
 func passRuns(t *testing.T, cutover bool, name string) (ran bool) {
 	p, _, _, _ := wired(t)
-	tk := p.Tick(p.Run.cfg, TickConfig{Cutover: cutover})
-	p.Sink.DB.Close()
+	tk := p.Tick(cfgOf(p), TickConfig{Cutover: cutover})
+	p.db.Close()
 	for _, s := range tk.Tick.Passes {
 		if s.Name == name {
 			defer func() {
@@ -373,7 +247,7 @@ func passRuns(t *testing.T, cutover bool, name string) (ran bool) {
 					ran = true
 				}
 			}()
-			return s.Run(p.Sink.DB, time.Now().Unix()) != nil
+			return s.Run(p.db, time.Now().Unix()) != nil
 		}
 	}
 	t.Fatalf("no pass %s", name)
@@ -395,16 +269,16 @@ func TestTheSubscriptionsPassRunsOnlyFromTheCutover(t *testing.T) {
 	for _, cutover := range []bool{false, true} {
 		p, _, _, _ := wired(t)
 		t.Setenv("PATH", t.TempDir()) // the plan question must not reach a real claude
-		tk := p.Tick(p.Run.cfg, TickConfig{Cutover: cutover})
+		tk := p.Tick(cfgOf(p), TickConfig{Cutover: cutover})
 		for _, s := range tk.Tick.Passes {
 			if s.Name == "subscriptions" {
-				if err := s.Run(p.Sink.DB, time.Now().Unix()); err != nil {
+				if err := s.Run(p.db, time.Now().Unix()); err != nil {
 					t.Fatal(err)
 				}
 			}
 		}
 		var n int
-		p.Sink.DB.QueryRow("SELECT COUNT(*) FROM cursors WHERE name LIKE 'plan_checked:%'").Scan(&n)
+		p.db.QueryRow("SELECT COUNT(*) FROM cursors WHERE name LIKE 'plan_checked:%'").Scan(&n)
 		if (n > 0) != cutover {
 			t.Fatalf("cutover=%v: %d plan cursors", cutover, n)
 		}
@@ -413,11 +287,11 @@ func TestTheSubscriptionsPassRunsOnlyFromTheCutover(t *testing.T) {
 
 func TestTheTickRunsTheNoticeSweepAsALevelOfPersistedState(t *testing.T) {
 	p, _, _, _ := wired(t)
-	d := p.Sink.DB
+	d := p.db
 	key := "stopped_told:fatal:alice"
 	tick := func() {
 		t.Helper()
-		if _, err := p.Tick(p.Run.cfg, TickConfig{Cutover: true}).Tick.Run(nil); err != nil { // a new tick each time: nothing is remembered in memory
+		if _, err := p.Tick(cfgOf(p), TickConfig{Cutover: true}).Tick.Run(nil); err != nil { // a new tick each time: nothing is remembered in memory
 			t.Fatal(err)
 		}
 	}
@@ -445,60 +319,6 @@ func TestTheTickRunsTheNoticeSweepAsALevelOfPersistedState(t *testing.T) {
 	if v, _ := dbpkg.Cursor(d, key); v != 0 {
 		t.Fatalf("the mark ends with the spell: %d", v)
 	}
-}
-
-func TestTheNoticeDigestIsSweptByTheGoTickOnlyFromTheCutover(t *testing.T) {
-	for _, cutover := range []bool{false, true} {
-		p, _, _, _ := wired(t)
-		d := p.Sink.DB
-		t.Cleanup(func() { p.Run.WaitIdle("alice", 10*time.Second) }) // the telling may wake her in the background
-		if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: dbpkg.NoticeRequester, Target: "alice", Body: "T3 done by bob: ok", Kind: "say", Notice: true}); err != nil {
-			t.Fatal(err)
-		}
-		tk := p.Tick(p.Run.cfg, TickConfig{Cutover: cutover})
-		for _, s := range tk.Tick.Passes {
-			if s.Name == "notice-digest" {
-				if err := s.Run(d, time.Now().Unix()+86400); err != nil {
-					t.Fatal(err)
-				}
-			}
-		}
-		left, err := dbpkg.PendingNotices(d, "alice")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if cutover == (len(left) != 0) {
-			t.Fatalf("cutover=%v: %d notices left waiting", cutover, len(left))
-		}
-	}
-}
-
-func TestTheStartupBringsUpWaitingWorkAndSettlesAnOldToldSayButNotAnOwedOneBeforeAnyTick(t *testing.T) {
-	p, _, _, _ := wired(t)
-	d := p.Sink.DB
-	say, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "old", Response: "none", Kind: "say"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := dbpkg.MarkDelivered(d, say); err != nil { // told by the daemon before
-		t.Fatal(err)
-	}
-	owed, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "sent just before the restart", Response: "none", Kind: "say"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tk := p.Tick(p.Run.cfg, TickConfig{})
-	tk.Startup()
-	if !p.Run.Alive("alice") {
-		t.Fatal("alice has work waiting and no session: startup wakes her without waiting for a tick")
-	}
-	if r, _ := dbpkg.GetRequest(d, say); r == nil || r.State == "queued" {
-		t.Fatalf("an old told say is settled at start: %+v", r)
-	}
-	if r, _ := dbpkg.GetRequest(d, owed); r == nil || r.State != "queued" {
-		t.Fatalf("a say not yet told is owed after a restart, not settled: %+v", r)
-	}
-	p.Run.WaitIdle("alice", 10*time.Second)
 }
 
 func TestTheStartRunsReconcileMigrateStartWaitingReloadInThatOrder(t *testing.T) {
@@ -535,12 +355,139 @@ func TestAReconcileThatFailsEndsTheStartBeforeAnyAgentIsStarted(t *testing.T) {
 	}
 }
 
-func TestTheTickTypesAnAgentsScheduledMessageWhenItIsDue(t *testing.T) {
+func TestBeforeTheCutoverTheTickSweepsNobodysSchedules(t *testing.T) {
 	p, _, _, _ := wired(t)
-	d := p.Sink.DB
+	d := p.db
 	os.WriteFile(filepath.Join(p.home, "agents", "alice", "agent.yaml"),
 		[]byte("vendor: claude\nstructured: true\nschedules: '[{\"cron\": \"* * * * *\", \"message\": \"check the queue\"}]'\n"), 0o644)
-	tk := p.Tick(p.Run.cfg, TickConfig{Cutover: true})
+	tk := p.Tick(cfgOf(p), TickConfig{})
+	t0 := time.Now().Unix()
+	t0 -= t0 % 60
+	for _, s := range tk.Tick.Passes {
+		if s.Name == "schedules" {
+			s.Run(d, t0)
+			s.Run(d, t0+120)
+		}
+	}
+	var n int
+	d.QueryRow("SELECT COUNT(*) FROM requests WHERE requester = 'schedule'").Scan(&n)
+	var c int
+	d.QueryRow("SELECT COUNT(*) FROM cursors WHERE name LIKE 'schedule_%'").Scan(&c)
+	if n != 0 || c != 0 {
+		t.Fatalf("Python still sweeps them: %d messages, %d cursors", n, c)
+	}
+}
+
+func TestTheDiskWatchEntryTellsTheFounderOnceFromTheTaskBoard(t *testing.T) {
+	p, _, _, _ := wired(t)
+	cfg := cfgOf(p)
+	cfg.DiskFree = func(string) (int64, int64, error) { return 13 << 30, 500 << 30, nil }
+	tk := p.Tick(cfg, TickConfig{Stop: make(chan struct{})})
+	var watch *tick.NamedSweep
+	for i, h := range tk.Loop.Housekeeping {
+		if h.Name == "disk watch" {
+			watch = &tk.Loop.Housekeeping[i]
+		}
+	}
+	if watch == nil {
+		t.Fatal("the loop has no disk watch")
+	}
+	told := func() []string {
+		rows, err := p.db.Query("SELECT requester, body FROM requests WHERE target = ?", dbpkg.Human)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var from, body string
+			rows.Scan(&from, &body)
+			out = append(out, from+": "+body)
+		}
+		return out
+	}
+	now := time.Now().Unix()
+	if err := watch.Run(p.db, now); err != nil {
+		t.Fatal(err)
+	}
+	got := told()
+	if len(got) != 1 || !strings.HasPrefix(got[0], dbpkg.NoticeRequester+": ") || !strings.Contains(got[0], "13 GB free of 500 GB") {
+		t.Fatalf("the founder's inbox after a low volume: %q", got)
+	}
+	if err := watch.Run(p.db, now+601); err != nil {
+		t.Fatal(err)
+	}
+	if again := told(); len(again) != 1 {
+		t.Fatalf("a second check at the same level told again: %q", again)
+	}
+}
+
+func stateOf(view string) string {
+	var v struct {
+		State string `json:"state"`
+	}
+	json.Unmarshal([]byte(view), &v)
+	return v.State
+}
+
+func TestTheNoticeDigestIsSweptByTheGoTickOnlyFromTheCutover(t *testing.T) {
+	for _, cutover := range []bool{false, true} {
+		p, _, _, _ := wired(t)
+		d := p.db
+		if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: dbpkg.NoticeRequester, Target: "alice", Body: "T3 done by bob: ok", Kind: "say", Notice: true}); err != nil {
+			t.Fatal(err)
+		}
+		tk := p.Tick(cfgOf(p), TickConfig{Cutover: cutover})
+		for _, s := range tk.Tick.Passes {
+			if s.Name == "notice-digest" {
+				if err := s.Run(d, time.Now().Unix()+86400); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		left, err := dbpkg.PendingNotices(d, "alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cutover == (len(left) != 0) {
+			t.Fatalf("cutover=%v: %d notices left waiting", cutover, len(left))
+		}
+	}
+}
+
+func TestTheStartupBringsUpWaitingWorkAndSettlesAnOldToldSayButNotAnOwedOneBeforeAnyTick(t *testing.T) {
+	p, _, _, _ := wired(t)
+	d := p.db
+	say, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "old", Response: "none", Kind: "say"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbpkg.MarkDelivered(d, say); err != nil { // told by the daemon before
+		t.Fatal(err)
+	}
+	owed, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "sent just before the restart", Response: "none", Kind: "say"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk := p.Tick(cfgOf(p), TickConfig{Terminals: true})
+	tk.Startup()
+	if row, _ := dbpkg.GetAgentState(d, "alice"); row == nil || row.Terminal.String == "" {
+		t.Fatalf("alice has work waiting and no session: startup wakes her in a terminal without waiting for a tick: %+v", row)
+	}
+	if r, _ := dbpkg.GetRequest(d, say); r == nil || r.State == "queued" {
+		t.Fatalf("an old told say is settled at start: %+v", r)
+	}
+	if r, _ := dbpkg.GetRequest(d, owed); r == nil || r.State != "queued" {
+		t.Fatalf("a say not yet told is owed after a restart, not settled: %+v", r)
+	}
+}
+
+func TestTheTickTypesAnAgentsScheduledMessageWhenItIsDue(t *testing.T) {
+	p, _, _, _ := wired(t)
+	d := p.db
+	os.WriteFile(filepath.Join(p.home, "agents", "alice", "agent.yaml"),
+		[]byte("vendor: claude\nschedules: '[{\"cron\": \"* * * * *\", \"message\": \"check the queue\"}]'\n"), 0o644)
+	tk := p.Tick(cfgOf(p), TickConfig{Cutover: true})
 	var run func(q dbpkg.Q, now int64) error
 	for _, s := range tk.Tick.Passes {
 		if s.Name == "schedules" {
@@ -562,129 +509,4 @@ func TestTheTickTypesAnAgentsScheduledMessageWhenItIsDue(t *testing.T) {
 	if err := d.QueryRow("SELECT body FROM requests WHERE requester = 'schedule' AND target = 'alice'").Scan(&body); err != nil || body != "[schedule * * * * *] check the queue" {
 		t.Fatalf("%q %v", body, err)
 	}
-	for deadline := time.Now().Add(10 * time.Second); !p.Run.Alive("alice") && time.Now().Before(deadline); { // the telling wakes her in the background
-		time.Sleep(20 * time.Millisecond)
-	}
-	p.Run.WaitIdle("alice", 10*time.Second)
-}
-
-func TestBeforeTheCutoverTheTickSweepsNobodysSchedules(t *testing.T) {
-	p, _, _, _ := wired(t)
-	d := p.Sink.DB
-	os.WriteFile(filepath.Join(p.home, "agents", "alice", "agent.yaml"),
-		[]byte("vendor: claude\nstructured: true\nschedules: '[{\"cron\": \"* * * * *\", \"message\": \"check the queue\"}]'\n"), 0o644)
-	tk := p.Tick(p.Run.cfg, TickConfig{})
-	t0 := time.Now().Unix()
-	t0 -= t0 % 60
-	for _, s := range tk.Tick.Passes {
-		if s.Name == "schedules" {
-			s.Run(d, t0)
-			s.Run(d, t0+120)
-		}
-	}
-	var n int
-	d.QueryRow("SELECT COUNT(*) FROM requests WHERE requester = 'schedule'").Scan(&n)
-	var c int
-	d.QueryRow("SELECT COUNT(*) FROM cursors WHERE name LIKE 'schedule_%'").Scan(&c)
-	if n != 0 || c != 0 {
-		t.Fatalf("Python still sweeps them: %d messages, %d cursors", n, c)
-	}
-}
-
-func TestTheDiskWatchEntryTellsTheFounderOnceFromTheTaskBoard(t *testing.T) {
-	p, _, _, _ := wired(t)
-	cfg := p.Run.cfg
-	cfg.DiskFree = func(string) (int64, int64, error) { return 13 << 30, 500 << 30, nil }
-	tk := p.Tick(cfg, TickConfig{Stop: make(chan struct{})})
-	var watch *tick.NamedSweep
-	for i, h := range tk.Loop.Housekeeping {
-		if h.Name == "disk watch" {
-			watch = &tk.Loop.Housekeeping[i]
-		}
-	}
-	if watch == nil {
-		t.Fatal("the loop has no disk watch")
-	}
-	told := func() []string {
-		rows, err := p.Sink.DB.Query("SELECT requester, body FROM requests WHERE target = ?", dbpkg.Human)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer rows.Close()
-		var out []string
-		for rows.Next() {
-			var from, body string
-			rows.Scan(&from, &body)
-			out = append(out, from+": "+body)
-		}
-		return out
-	}
-	now := time.Now().Unix()
-	if err := watch.Run(p.Sink.DB, now); err != nil {
-		t.Fatal(err)
-	}
-	got := told()
-	if len(got) != 1 || !strings.HasPrefix(got[0], dbpkg.NoticeRequester+": ") || !strings.Contains(got[0], "13 GB free of 500 GB") {
-		t.Fatalf("the founder's inbox after a low volume: %q", got)
-	}
-	if err := watch.Run(p.Sink.DB, now+601); err != nil {
-		t.Fatal(err)
-	}
-	if again := told(); len(again) != 1 {
-		t.Fatalf("a second check at the same level told again: %q", again)
-	}
-}
-
-func TestAStructuredAgentsViewSaysRunningWhileAShortTurnRunsAndIdleWhenItEnds(t *testing.T) {
-	p, _, _, _ := wired(t)
-	d := p.Sink.DB
-	if err := dbpkg.SetAgentState(d, "alice", "IDLE", 0, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := dbpkg.ClearClosed(d, "alice"); err != nil { // wired left it closed; it is opened below
-		t.Fatal(err)
-	}
-	p.Tick(p.Run.cfg, TickConfig{}) // the view writer is told each turn's start and end; no tick runs here
-	var mu sync.Mutex
-	var seen []string
-	refresh := *p.refreshView.Load()
-	watch := func(agent string) {
-		refresh(agent)
-		var raw string
-		d.QueryRow("SELECT view FROM agent_view WHERE agent = ?", agent).Scan(&raw)
-		mu.Lock()
-		seen = append(seen, stateOf(raw))
-		mu.Unlock()
-	}
-	p.refreshView.Store(&watch)
-	if err := p.Run.Open(lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "11111111-1111-4111-8111-111111111111"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.Run.Send("alice", "op1", "hello"); err != nil {
-		t.Fatal(err)
-	}
-	if !p.Run.WaitIdle("alice", 10*time.Second) {
-		t.Fatal("the turn ends")
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		mu.Lock()
-		got := strings.Join(seen, " ")
-		mu.Unlock()
-		if strings.Contains(got, "running") && strings.HasSuffix(got, "idle") {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("views written as the turn ran: %q, want running then idle", got)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
-func stateOf(view string) string {
-	var v struct {
-		State string `json:"state"`
-	}
-	json.Unmarshal([]byte(view), &v)
-	return v.State
 }
