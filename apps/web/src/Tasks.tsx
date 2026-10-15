@@ -26,7 +26,7 @@ import { Row } from './TaskRows.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from './TasksHead.tsx';
 import { TableHead } from './TaskTableHead.tsx';
 import { KeysSheet, MergeSheet, OwnerSheet, PrioritySheet } from './TaskSheets.tsx';
-import { Button } from './ui/index.ts';
+import { Button, ScrollPage } from './ui/index.ts';
 import { AnimatedList } from './AnimatedList.tsx';
 import { useBulk } from './taskActions.ts';
 import { ReasonSheet, useCan, useNow, useWide } from './taskui.tsx';
@@ -281,8 +281,9 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
   // The daemon is asked for closed tasks only when they are shown, so "nothing at all" can only be said once they are.
   const none = scope === 'closed' && all.length === 0;
   return (
-    <section
-      className="tasks flex min-h-0 min-w-0 flex-1 flex-col px-4 py-3 outline-none max-sm:px-4 max-sm:py-3"
+    <ScrollPage
+      beside={selected !== null}
+      className="tasks flex flex-col pt-4 outline-none"
       ref={root}
       tabIndex={0}
       aria-label="Tasks"
@@ -323,6 +324,6 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
           listBody
         )}
       </View>
-    </section>
+    </ScrollPage>
   );
 }
