@@ -70,9 +70,13 @@ def _code_line() -> str:
         sha = None
     if not sha:
         return "  code: unknown (the daemon did not answer hello)"
-    rc, out, _ = gitrun.run(paths.repo_root(), "rev-parse", "--short", "HEAD")
+    if sha == "unknown":
+        return "  code: unknown (the daemon binary carries no git sha)"
+    rc, out, _ = gitrun.run(paths.repo_root(), "rev-parse", "HEAD")
     head = out.strip() if rc == 0 else ""
-    return f"  code: {sha}" + (f" - the checkout is at {head}: restart it with `{db.schema.RESTART_COMMAND}`" if head and head != sha else "")
+    # The daemon's sha is a prefix of a commit (build-go.sh's --short, or 12 characters of go's own record).
+    moved = head and not head.startswith(sha)
+    return f"  code: {sha}" + (f" - the checkout is at {head[:len(sha)]}: restart it with `{db.schema.RESTART_COMMAND}`" if moved else "")
 
 
 def _state_of(line: dict | None) -> tuple[str, str]:

@@ -93,6 +93,9 @@ func sameRow(t *testing.T, i int, want map[string]any, e *stream.Event) {
 	}
 }
 
+// sinceRecorded are the Task fields Go added after the Python rows were recorded.
+var sinceRecorded = map[string]bool{"waits": true, "waiting": true}
+
 func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 	py, events := parity(t, func(d *sql.DB) Detector { return &Tasks{Reads: &reads.Env{DB: d}} },
 		func(run func(string, ...any)) {
@@ -135,6 +138,9 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 			if fmt.Sprint(goTask["blocked_by"]) != "[1]" {
 				t.Errorf("the held task lists its blocker: %v", goTask["blocked_by"])
 			}
+			if w, _ := goTask["waiting"].(map[string]any); fmt.Sprint(goTask["waits"]) != "[map[open:true task:1]]" || w["on"] != "task" {
+				t.Errorf("the held task waits on its blocker: %v %v", goTask["waits"], goTask["waiting"])
+			}
 		case "2":
 			if goTask["mismatch"] != "approved, but no request is out" {
 				t.Errorf("a queued task nothing is out for says so: %v", goTask["mismatch"])
@@ -152,7 +158,7 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 			}
 		}
 		for k := range goTask {
-			if _, has := pyTask[k]; !has {
+			if _, has := pyTask[k]; !has && !sinceRecorded[k] {
 				t.Errorf("row %d: Go's Task has %s, Python's does not", i, k)
 			}
 		}

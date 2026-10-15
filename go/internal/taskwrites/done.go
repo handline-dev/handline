@@ -18,7 +18,7 @@ var shaLike = regexp.MustCompile(`^[0-9a-fA-F]{4,40}$`)
 
 // doneMethod is task.done (actions.mark_task_done): the owner's or the founder's call, with exactly one of a merge sha on main, a
 // request already answered, or a one-line fact. An owner the task does not answer to files it as a report for task.accept.
-func doneMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
+func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		tid, err := taskID(p)
 		if err != nil {
@@ -79,8 +79,19 @@ func doneMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			return nil, badParam("a sha is checked against a repo: name one", "repo")
 		}
 		var done *DoneResult
+		var decided func()
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 			in.Sha, in.Words, in.Request, in.Repo = sha, words, request, repo
+			if decide != nil && by == db.Human && words != "" && in.Commit == "" && len(in.Shots) == 0 {
+				handled, said, then, err := decide(tx, tid, words)
+				if err != nil {
+					return nil, err
+				}
+				if handled {
+					decided = then
+					return accepted(said, nil), nil
+				}
+			}
 			res, err := MarkDone(tx, home, by, in)
 			if err != nil {
 				return nil, err
@@ -93,6 +104,9 @@ func doneMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 				return nil, fmt.Errorf("task T%d is done, but its screenshots could not be put in place: %w", tid, kerr)
 			}
 		}
+		if err == nil && decided != nil {
+			decided()
+		}
 		switch {
 		case err != nil || done == nil || tell == nil:
 		case done.Reported:
@@ -103,6 +117,10 @@ func doneMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 		return out, err
 	}
 }
+
+// CardDecider ends the founder's own decision task through its card while that card is still queued, so what waits on the answer (a trust
+// proposal) runs. handled is false for any other task, which MarkDone then ends; then runs once the call has committed.
+type CardDecider func(tx *sql.Tx, tid int64, words string) (handled bool, said string, then func(), err error)
 
 // DoneIn is what MarkDone is given: exactly one of Sha (checked against Repo's main), Request (already answered) or Words.
 type DoneIn struct {

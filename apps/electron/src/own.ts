@@ -22,7 +22,7 @@ import {
 } from './mode.ts';
 import { commands, Owner, resolveClaude, type Child, type Cmd } from './owner.ts';
 import { ensureToken, founderKeyFile, phoneLink, TokenFile, type PairDeps } from './pair.ts';
-import { phoneHtml } from './phone-html.ts';
+import { COPY_URL, phoneHtml } from './phone-html.ts';
 import { grant } from './grant.ts';
 import { onTailnet } from './tailnet.ts';
 import { singleWindow } from './single-window.ts';
@@ -40,9 +40,17 @@ function trayIcon(): Electron.NativeImage {
 const makePhone = async (pairing: PairDeps): Promise<{ win: BrowserWindow; expiresAt: number }> => {
   const l = await phoneLink(pairing);
   const minutes = Math.max(1, Math.round((Date.parse(l.expiresAt) - Date.now()) / 60_000));
-  const w = new BrowserWindow({ width: 340, height: 440, resizable: false, title: 'Pair a phone', webPreferences: { sandbox: true } });
+  const w = new BrowserWindow({ width: 340, height: 500, resizable: false, title: 'Pair a phone', webPreferences: { sandbox: true } });
   w.setMenuBarVisibility(false);
-  await w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(phoneHtml(l.uri, minutes))}`);
+  const until = new Date(l.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  // The link never enters the page: the button navigates to COPY_URL and the app puts the link on the clipboard.
+  w.webContents.on('will-navigate', (e, url) => {
+    e.preventDefault();
+    if (url !== COPY_URL) return;
+    clipboard.writeText(l.uri);
+    void w.webContents.executeJavaScript(`document.getElementById('c').textContent='Copied'`);
+  });
+  await w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(phoneHtml(l.uri, minutes, until))}`);
   return { win: w, expiresAt: Date.parse(l.expiresAt) };
 };
 

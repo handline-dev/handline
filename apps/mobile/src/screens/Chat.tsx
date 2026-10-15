@@ -15,6 +15,7 @@ import { usePalette } from '../theme.ts';
 import { Line, clock } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
 import { ChatFind } from './ChatFind.tsx';
+import { ChatRefs, type Ref } from './ChatRefs.tsx';
 import { NeedsYouCard } from './NeedsYouCard.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { useChatImages } from './ChatImages.tsx';
@@ -61,8 +62,8 @@ export function Chat(props: { detail: AgentDetail }) {
   const [scope, setScope] = useState<ChatScope>('mine');
   const chat = useChat(agent, scope);
   const act = useChatActions(agent);
+  const [picked, setPicked] = useState<Ref | null>(null); // a message, or a request a # chose
   const img = useChatImages(canSend);
-  const [picked, setPicked] = useState<ChatMessage | null>(null);
   const [item, setItem] = useState<TranscriptItem | null>(null); // one of the agent's replies; never together with a picked message
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
@@ -277,6 +278,7 @@ export function Chat(props: { detail: AgentDetail }) {
           </Pressable>
         </Row>
       )}
+      {canSend && <ChatRefs agent={agent} text={text} onPick={(r, rest) => (setItem(null), setPicked(r), setText(rest))} />}
       {img.chips}
       <Row style={{ padding: space.sm }}>
         {img.button}

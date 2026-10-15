@@ -2206,7 +2206,7 @@ def test_only_the_agents_own_events_move_its_activity_clock(home: Path) -> None:
                     "forced_move", "fresh_close", "handoff", "moved_account", "nudged",
                     "notified", "park", "session_gone", "started_for_work", "terminal_closed", "terminal_gone",
                     "unstuck", "login_expired", "trust_confirmed", "wake", "wake_failed", "restart_owed", "move_owed", "SessionStart",
-                    "SessionEnd", "timebox_exceeded", "task_timeout_exceeded",
+                    "SessionEnd", "Notification", "timebox_exceeded", "task_timeout_exceeded",
                     "unasked_running", "stale_background",
                     "stale_background_stopped", "dialog_accepted",
                     "dialog_accept_failed", "stop_wait_stuck", "forgotten_resolve_capped",

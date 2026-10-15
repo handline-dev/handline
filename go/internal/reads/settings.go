@@ -22,7 +22,7 @@ var perAgent = []string{"park_timeout_s", "ignore_cache_expiry", "bg_notice_s", 
 
 // hooksWanted is session/events.py's CAPTURED, ANSWERS and GUARDS: the events our hook is installed for.
 var hooksWanted = []string{"SessionStart", "SessionEnd", "Stop", "StopFailure", "SubagentStop", "PostCompact", "UserPromptSubmit",
-	"PermissionRequest", "TeammateIdle", "PostToolUse", "PostToolUseFailure", "PreToolUse"}
+	"PermissionRequest", "TeammateIdle", "Notification", "PostToolUse", "PostToolUseFailure", "PreToolUse"}
 
 // ourCommands is names.COMMANDS: what the installed command may be called, whatever path it was written with.
 var ourCommands = map[string]bool{"hl": true, "handline": true, "ocp": true}

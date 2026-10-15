@@ -1,0 +1,386 @@
+{
+ "fixtures": [
+  {
+   "name": "tasks.list.under_reads_a_whole_story",
+   "spec": "tasks.list",
+   "about": "under is a task and every task below it, any depth, a done one included; a task outside the story is left out. Newest first.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "story",
+       "body": "b",
+       "request_id": "conf-graph-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "s"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "part",
+       "body": "b",
+       "parent": "{{s}}",
+       "request_id": "conf-graph-2"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "p"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "step",
+       "body": "b",
+       "parent": "{{p}}",
+       "request_id": "conf-graph-3"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "st"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "finished part",
+       "body": "b",
+       "parent": "{{s}}",
+       "request_id": "conf-graph-4"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "d"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "task.done",
+      "params": {
+       "task": "{{d}}",
+       "evidence": "folded into the step",
+       "request_id": "conf-graph-5"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "outside",
+       "body": "b",
+       "request_id": "conf-graph-6"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "o"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "tasks.list",
+      "params": {
+       "under": "{{s}}"
+      }
+     },
+     "result": {
+      "items": [
+       {
+        "id": "{{d}}",
+        "state": "done"
+       },
+       {
+        "id": "{{st}}",
+        "parent": "{{p}}"
+       },
+       {
+        "id": "{{p}}",
+        "parent": "{{s}}"
+       },
+       {
+        "id": "{{s}}"
+       }
+      ],
+      "more": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "tasks.list.waits_keeps_a_done_blocker_and_waiting_names_the_open_one",
+   "spec": "tasks.list",
+   "about": "waits lists every task this one waited on, oldest first, a done one with open false; blocked_by and waiting name only the open one.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "first",
+       "body": "b",
+       "request_id": "conf-graph-11"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "a"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "second",
+       "body": "b",
+       "request_id": "conf-graph-12"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "b"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "behind both",
+       "body": "b",
+       "blocked_by": "{{a}}",
+       "request_id": "conf-graph-13"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "w"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.edit",
+      "params": {
+       "task": "{{w}}",
+       "blocked_by": "{{b}}",
+       "request_id": "conf-graph-15"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "task.done",
+      "params": {
+       "task": "{{a}}",
+       "evidence": "shipped",
+       "request_id": "conf-graph-14"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "tasks.list",
+      "params": {
+       "under": "{{w}}"
+      }
+     },
+     "result": {
+      "items": [
+       {
+        "id": "{{w}}",
+        "blocked_by": [
+         "{{b}}"
+        ],
+        "waits": [
+         {
+          "task": "{{a}}",
+          "open": false
+         },
+         {
+          "task": "{{b}}",
+          "open": true
+         }
+        ],
+        "waiting": {
+         "on": "task",
+         "text": "blocked by T{{b}}",
+         "tasks": [
+          "{{b}}"
+         ],
+         "since": {
+          "$type": "timestamp"
+         }
+        }
+       }
+      ],
+      "more": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "tasks.list.waiting_on_the_founder",
+   "spec": "tasks.list",
+   "about": "A task with an open request to the founder and no open blocker waits on the founder.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "a todo",
+       "body": "b",
+       "request_id": "conf-graph-21"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "t"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "tasks.list",
+      "params": {
+       "under": "{{t}}"
+      }
+     },
+     "result": {
+      "items": [
+       {
+        "id": "{{t}}",
+        "blocked_by": [],
+        "waits": [],
+        "waiting": {
+         "on": "founder",
+         "text": "waiting on you",
+         "tasks": [],
+         "since": {
+          "$type": "timestamp"
+         }
+        }
+       }
+      ],
+      "more": false
+     }
+    }
+   ]
+  }
+ ]
+}
