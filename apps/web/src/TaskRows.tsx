@@ -130,7 +130,7 @@ export function Row(props: {
             </span>
           </AnimatedCell>
           <AnimatedCell
-            className={`c-time mono w-20 ${TD} max-sm:[grid-area:time] max-sm:text-ink-2${over ? ' text-bad font-semibold' : ''}`}
+            className={`c-time mono w-28 whitespace-nowrap ${TD} max-sm:[grid-area:time] max-sm:text-ink-2${over ? ' text-bad font-semibold' : ''}`}
             title={detail}
           >
             {timeoutText(t, now) || idleText(t, now)}
