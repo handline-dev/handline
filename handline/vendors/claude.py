@@ -46,6 +46,14 @@ def _iso_epoch(v) -> float | None:
         return None
 
 
+
+def cache_env(cache_dir: str) -> dict[str, str]:
+    """The Go, npm and pnpm caches of a sandboxed session, in its own folder: a cache the sandbox may write is one an
+    unsandboxed build reads from, so the shared ones stay out of its reach."""
+    return {"GOCACHE": f"{cache_dir}/go-build", "GOMODCACHE": f"{cache_dir}/go-mod", "npm_config_cache": f"{cache_dir}/npm",
+            "npm_config_store_dir": f"{cache_dir}/pnpm-store", "npm_config_cache_dir": f"{cache_dir}/pnpm-cache",
+            "npm_config_state_dir": f"{cache_dir}/pnpm-state"}
+
 class Claude:
     name = "claude"
     # Nothing is read from the status line any more (D11), so this is no longer
@@ -135,7 +143,8 @@ class Claude:
                     mcp_approved: list[str] | None = None,
                     extra_dirs: list[str] | None = None,
                     allow_write: list[str] | None = None,
-                    allow_domains: list[str] | None = None) -> list[str]:
+                    allow_domains: list[str] | None = None,
+                    cache_dir: str | None = None) -> list[str]:
         argv = [exe]
         if model:
             argv += ["--model", str(model)]
@@ -152,7 +161,7 @@ class Claude:
             argv += ["--append-system-prompt", preamble]
         # One --settings object: a second one would replace the first.
         settings = self.memory_settings(memory_dir) if memory_dir else {}
-        writable = [*(extra_dirs or []), *(allow_write or [])]
+        writable = [*(extra_dirs or []), *(allow_write or []), *([cache_dir] if cache_dir else [])]
         if hide or no_write or writable or allow_domains:
             fs = {}
             if hide:
@@ -167,6 +176,8 @@ class Claude:
         # Said either way, so the shared settings never decide it. Off, commands run unsandboxed; the
         # Read/Edit denies below are permissions, not the sandbox, and stay.
         settings.setdefault("sandbox", {})["enabled"] = sandbox
+        if cache_dir:
+            settings["env"] = cache_env(cache_dir)
         deny = []
         if hide:
             # denyRead binds Bash; the Read tool is a permission, so deny it there too.

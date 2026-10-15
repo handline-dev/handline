@@ -258,12 +258,16 @@ def test_the_founders_switch_sandboxes_every_agent_whose_file_says_nothing_with_
     check("switch: before it, a file without the key is unsandboxed, with no allowances",
           got["enabled"] is False and "network" not in got and str(repo / ".git") not in got.get("filesystem", {}).get("allowWrite", []), str(got))
     protected.put("switches", "sandbox_default", "on")
-    got = _settings(launchmod.build("backend")[0])[0]["sandbox"]
+    settings = _settings(launchmod.build("backend")[0])[0]
+    got = settings["sandbox"]
     writable = got.get("filesystem", {}).get("allowWrite", [])
+    own = str(home / "caches" / "backend")
     check("switch: on, the same file is sandboxed", got["enabled"] is True, str(got))
-    check("switch: it may write its repo's .git and the Go, npm and pnpm caches",
-          writable[0] == str(repo / ".git") and any(w.endswith("go-build") for w in writable)
-          and any(w.endswith(".npm") for w in writable) and any(w.endswith("pnpm") for w in writable), str(writable))
+    check("switch: it may write its repo's .git and its own cache folder, and no shared cache",
+          writable == [str(repo / ".git"), own] and Path(own).is_dir(), str(writable))
+    check("switch: its Go, npm and pnpm caches point into that folder",
+          settings.get("env", {}).get("GOCACHE") == own + "/go-build" and settings["env"]["GOMODCACHE"] == own + "/go-mod"
+          and all(v.startswith(own + "/") for v in settings["env"].values()), str(settings.get("env")))
     check("switch: and reach the package registries", got["network"]["allowedDomains"][:3] ==
           ["registry.npmjs.org", "proxy.golang.org", "sum.golang.org"], str(got))
     cfg["sandbox_domains"] = "expo.dev, exp.host"
@@ -274,6 +278,7 @@ def test_the_founders_switch_sandboxes_every_agent_whose_file_says_nothing_with_
     agents.write("backend", cfg)
     got = _settings(launchmod.build("backend")[0])[0]["sandbox"]
     check("switch: a file that says false stays unsandboxed", got["enabled"] is False and "network" not in got, str(got))
+    check("switch: and its caches are the shared ones", "env" not in _settings(launchmod.build("backend")[0])[0])
 
 
 def main() -> int:

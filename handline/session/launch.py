@@ -441,7 +441,8 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
                            sandbox=sandboxed,
                            **({"mcp_approved": approved} if approved else {}),
                            **({"extra_dirs": extra_dirs} if extra_dirs else {}),
-                           **({"allow_write": sandbox_allow_write(cfg), "allow_domains": agents.sandbox_domains(cfg)} if sandboxed else {}))
+                           **({"allow_write": sandbox_allow_write(cfg), "allow_domains": agents.sandbox_domains(cfg),
+                               "cache_dir": sandbox_cache_dir(agent)} if sandboxed else {}))
     # The pair goes whole or not at all: a caller's own mode wins, and a lone
     # value left behind would be read as the opening prompt.
     if mode and not any(x == mode[0] or x.startswith(mode[0] + "=") for x in extra or []):
@@ -456,16 +457,19 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
 
 
 def sandbox_allow_write(cfg: dict) -> list[str]:
-    """The folders a sandboxed session may write beyond its worktrees: its repo's .git, where a worktree's commits and
-    refs live, and the Go, npm and pnpm caches a build fills."""
-    out = []
+    """The folders a sandboxed session may write beyond its worktrees and its cache folder: its repo's .git, where a
+    worktree's commits and refs live (the CLI's sandbox keeps .git/hooks and .git/config read-only within it)."""
     repo = cfg.get("repo")
     if isinstance(repo, str) and repo and (Path(repo) / ".git").is_dir():
-        out.append(str(Path(repo) / ".git"))
-    home = Path.home()
-    cache = home / "Library" / "Caches" if sys.platform == "darwin" else Path(os.environ.get("XDG_CACHE_HOME") or home / ".cache")
-    pnpm = home / "Library" / "pnpm" if sys.platform == "darwin" else home / ".local" / "share" / "pnpm"
-    return out + [str(cache / "go-build"), str(home / "go" / "pkg" / "mod"), str(home / ".npm"), str(pnpm)]
+        return [str(Path(repo) / ".git")]
+    return []
+
+
+def sandbox_cache_dir(agent: str) -> str:
+    """The agent's own build caches (vendors/claude.py cache_env), made here: the session may write it but not its parent."""
+    d = paths.home() / "caches" / agent
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
 
 
 def extra_worktrees_of(agent: str, cfg: dict) -> list[str]:
