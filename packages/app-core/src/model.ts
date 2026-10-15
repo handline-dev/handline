@@ -80,12 +80,6 @@ export function queueOf(a: AgentView, unreached: number | null = null): { tasks:
   return { tasks: a.task_count ?? null, messages: a.unreached ?? unreached };
 }
 
-export function ago(iso: string | null | undefined, now = Date.now()): string {
-  if (!iso) return '';
-  const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
-  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
-}
-
 export interface Controls {
   start: boolean;
   resume: boolean;

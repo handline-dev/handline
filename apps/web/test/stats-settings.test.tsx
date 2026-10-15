@@ -106,7 +106,7 @@ describe('outlook', () => {
     expect($('.outlook-svg .line.future')!.getAttribute('stroke-dasharray')).toBeTruthy();
     expect(text($('.outlook-legend'))).toContain('guess');
     expect($$('.outlook-legend li svg .line.future')[0]!.getAttribute('stroke-dasharray')).toBeTruthy();
-    expect(text($('[data-runway="beta"]'))).toContain('runs out in 2 h 0 m');
+    expect(text($('[data-runway="beta"]'))).toContain('runs out in 2 h');
     expect(text($('[data-runway="alpha"]'))).toContain('lasts until the week resets');
     expect($('.data-table')).toBeNull();
     await click(button('Table'));

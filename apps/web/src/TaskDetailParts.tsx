@@ -1,6 +1,6 @@
 // The task detail's presentational parts: the meta grid, one verb button, the link and timeline sections, and the two small sheets.
 import { useRef, useState } from 'react';
-import { replyTargets, taskRef, timeoutText } from '@handline/app-core';
+import { dateTime, replyTargets, taskRef, timeoutText } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { BodyEditor } from './BodyEditor.tsx';
@@ -9,7 +9,6 @@ import { Icon, type IconName } from './ui/Icon.tsx';
 import { Sheet } from './taskui.tsx';
 import { CHIP, chipLook } from './TaskPeople.tsx';
 import { Button, Input, MetaField, MetaGrid, NativeSelect, Textarea } from './ui/index.ts';
-import { when } from './TaskTime.tsx';
 
 export const TIMELINE = 'ttimeline m-0 list-none p-0 [&_svg]:shrink-0 [&_svg]:self-center [&_svg]:text-ink-3';
 
@@ -23,9 +22,9 @@ export function TaskMeta({ t, now }: { t: Detail; now: number }) {
       <MetaField icon="agent" label="Asked by" value={<strong>{t.from}</strong>} />
       <MetaField icon="priority" label="Priority" value={`P${t.priority ?? 2}`} />
       <MetaField icon="waiting" label="Time box" value={[t.time_box ?? 'none', timeoutText(t, now)].filter(Boolean).join(' · ')} />
-      <MetaField icon="schedules" label="Created" value={when(t.created)} />
-      {t.delivered ? <MetaField icon="delivered" label="Delivered" value={when(t.delivered)} /> : null}
-      {t.done ? <MetaField icon="taskDone" label="Closed" value={when(t.done)} /> : null}
+      <MetaField icon="schedules" label="Created" value={dateTime(t.created)} />
+      {t.delivered ? <MetaField icon="delivered" label="Delivered" value={dateTime(t.delivered)} /> : null}
+      {t.done ? <MetaField icon="taskDone" label="Closed" value={dateTime(t.done)} /> : null}
       {t.parent ? (
         <MetaField
           icon="viewTree"
@@ -91,13 +90,13 @@ export function TaskTimeline({ deliveries, events }: { deliveries: Detail['deliv
       {deliveries.map((d) => (
         <li key={d.at} title={`delivered by ${d.how}`} className={LI}>
           <Icon name="delivered" label="Delivered" aria-hidden="true" size={14} />
-          <span className="mono">{when(d.at)}</span> Delivered ({d.how}): {d.outcome}
+          <span className="mono">{dateTime(d.at)}</span> Delivered ({d.how}): {d.outcome}
         </li>
       ))}
       {events.map((e, i) => (
         <li key={i} className={LI}>
           <Icon name="changed" label="Event" aria-hidden="true" size={14} />
-          <span className="mono">{when(e.at)}</span> {e.type}
+          <span className="mono">{dateTime(e.at)}</span> {e.type}
           {e.agent ? ` · ${e.agent}` : ''}
         </li>
       ))}
