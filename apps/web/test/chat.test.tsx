@@ -395,7 +395,7 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await act(async () => void stream.dispatchEvent(new Event('scroll')));
     await other(t, 'fresh news');
     await until(() => $('.newer'), 'the pill');
-    expect(text($('.newer'))).toBe('1');
+    expect(text($('.newer'))).toBe('1 new message');
     await click($('.newer')!);
     expect($('.newer')).toBeNull();
   });
