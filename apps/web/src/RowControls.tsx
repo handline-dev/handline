@@ -1,7 +1,7 @@
-// Start and the ⋯ button of an agent row, and the agent's context menu (right-click on the row, or the ⋯ button). There is no Resume: a message to an agent with no session wakes it.
-import { controlsOf, asks, verbsOf, type Verb, type VerbId } from '@handline/app-core';
+// The ⋯ button of an agent row, and the agent's context menu (right-click on the row, or the ⋯ button). No Start or Resume: the daemon wakes, parks, restarts and moves agents by itself, so the person is not shown those.
+import { asks, verbsOf, type Verb, type VerbId } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
-import { useSelector, useStore } from '@handline/app-react';
+import { useSelector } from '@handline/app-react';
 import { useAgentDetail, useVerbMark, useVerbRun, useWrite } from '@handline/app-data';
 import { useServed } from './AgentVerbs.tsx';
 import { Button, Icon, MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger, type At, type IconName } from './ui/index.ts';
@@ -10,37 +10,17 @@ import { shell } from './shell.ts';
 const VERB_ICON: Partial<Record<VerbId, IconName>> = {
   interrupt: 'cancel',
   clear_stall: 'refresh',
-  restart: 'retry',
-  restart_fresh: 'retry',
-  close: 'close',
-  park: 'idle',
-  fold: 'less',
-  move: 'accounts',
 };
 
-/** Start, and the button that opens the row's menu at itself. */
+/** The only session verbs the menu offers: stopping a turn and clearing a stall are the person's call; the rest the daemon does itself. */
+const MENU_VERBS: VerbId[] = ['interrupt', 'clear_stall'];
+
+/** The button that opens the row's menu at itself. */
 export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (at: At) => void }) {
   const agent = a.name;
-  const d = useAgentDetail(agent).data;
-  const start = useWrite('session.start', agent);
-  const store = useStore();
   const mark = useVerbMark(agent);
-  const busy = start.isPending || !!mark;
-  if (!d) return null;
-  const c = controlsOf(d, store.me);
   return (
     <span className="row-actions relative flex flex-none items-center gap-1">
-      {c.start ? (
-        <Button variant="solid" label="Start" disabled={busy} onClick={() => start.mutate({ agent })}>
-          {start.isPending ? (
-            'starting…'
-          ) : (
-            <>
-              <Icon name="play" size={12} aria-hidden className="mr-1 inline-block align-[-2px]" /> Start
-            </>
-          )}
-        </Button>
-      ) : null}
       <Button
         label={`More actions for ${agent}`}
         aria-label={`More actions for ${agent}`}
@@ -68,7 +48,7 @@ export function AgentMenu({ agent: a, onAsk }: { agent: AgentView; onAsk: (v: Ve
   const open = shell('openPath');
   if (!d) return null;
   const copy = (text: string) => void navigator.clipboard?.writeText(text);
-  const verbs = verbsOf(a, d).filter(served);
+  const verbs = verbsOf(a, d).filter((v) => MENU_VERBS.includes(v.id) && served(v));
   return (
     <>
       {open ? (
@@ -94,8 +74,8 @@ export function AgentMenu({ agent: a, onAsk }: { agent: AgentView; onAsk: (v: Ve
       ) : null}
       {verbs.length ? <MenuSeparator /> : null}
       {verbs.map((v) => (
-        <MenuItem key={v.id} icon={VERB_ICON[v.id]} disabled={busy} onSelect={() => (asks(v) || v.id === 'move' ? onAsk(v) : run(v))}>
-          {v.id === 'park' ? 'Sleep' : v.label}
+        <MenuItem key={v.id} icon={VERB_ICON[v.id]} disabled={busy} onSelect={() => (asks(v) ? onAsk(v) : run(v))}>
+          {v.label}
         </MenuItem>
       ))}
       {d.terminal && !d.session_open && closeServed ? (

@@ -4,7 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
-import { second, setup } from '@handline/fake-daemon/helpers';
+import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -60,112 +60,6 @@ afterEach(async () => {
 });
 
 describe('U12 agent verbs', () => {
-  it('Park asks first; Cancel sends nothing and Confirm parks, with "parking…" in the state cell meanwhile', async () => {
-    const s = setup();
-    open(s);
-    await mount(ARCH, s);
-    await click(await item('Sleep'));
-    expect(text($('.verb-sheet'))).toContain('Park handline.architect?');
-    await click(sheetBtn('Cancel'));
-    expect($('.verb-sheet')).toBeNull();
-    expect(session(s).open).toBe(true);
-    await click(await item('Sleep'));
-    const park = s.daemon.knobs.hold('session.park'); // held open: the pending mark does not depend on timing
-    await click(sheetBtn('Confirm'));
-    await until(() => ($(`[data-agent="${ARCH}"] .row-main`)?.getAttribute('title') ?? '').includes('parking…'), 'the gerund in the row');
-    expect(text($(`[data-agent="${ARCH}"] .row-actions [aria-haspopup="menu"]`))).toContain('parking…'); // and in the menu button
-    expect(session(s).open).toBe(true);
-    park();
-    await until(() => !session(s).open, 'parked');
-    await until(() => !text($(`[data-agent="${ARCH}"] .row-actions [aria-haspopup="menu"]`)).includes('parking…'), 'the mark gone');
-  });
-
-  it('Restart fresh drops the session id; Restart keeps the conversation', async () => {
-    const s = setup();
-    open(s);
-    await mount(ARCH, s);
-    await click(await item('Restart fresh'));
-    expect(text($('.verb-sheet'))).toContain('context is dropped');
-    await click(sheetBtn('Confirm'));
-    await until(() => session(s).sessionId !== 's-1', 'a fresh session');
-    const fresh = session(s).sessionId;
-    await click(await item('Restart'));
-    await click(sheetBtn('Confirm'));
-    await until(() => session(s).open && session(s).sessionId === fresh, 'resumed');
-  });
-
-  it('Close always asks, even for an idle agent', async () => {
-    const s = setup();
-    open(s);
-    await mount(ARCH, s);
-    await click(await item('Close'));
-    expect($('.verb-sheet')).not.toBeNull();
-    expect(session(s).open).toBe(true);
-    await click(sheetBtn('Confirm'));
-    await until(() => !session(s).open, 'closed');
-  });
-
-  it('Fold asks and ends the session so the next one starts from the handoff', async () => {
-    const s = setup();
-    open(s);
-    await mount(ARCH, s);
-    await click(await item('Fold into handoff'));
-    await click(sheetBtn('Confirm'));
-    await until(() => !session(s).open && session(s).sessionId === null, 'folded');
-  });
-
-  it('Move account asks for the account, not a yes', async () => {
-    const s = setup();
-    open(s);
-    await mount(ARCH, s);
-    await click(await item('Move account'));
-    expect(sheetBtn('Move').hasAttribute('disabled')).toBe(true);
-    const sel = $('.verb-sheet select') as HTMLSelectElement;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(sel, 'beta');
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    await click(sheetBtn('Move'));
-    await until(() => session(s).fx.account === 'beta', 'moved');
-  });
-
-  it('Move account lists an account no agent uses when the daemon lists accounts', async () => {
-    const s = setup();
-    s.daemon.knobs.accounts = ['alpha', 'beta', 'gamma'];
-    open(s);
-    await mount(ARCH, s);
-    await click(await item('Move account'));
-    await until(() => $$('.verb-sheet option').some((o) => text(o) === 'gamma'), 'gamma among the accounts');
-    expect($$('.verb-sheet option').map((o) => text(o))).toEqual(['choose an account', 'alpha', 'gamma']);
-  });
-
-  it("a refused verb puts the row back and shows the daemon's reason", async () => {
-    const s = setup();
-    open(s);
-    s.daemon.knobs.refuse('session.park', 'state', 'The agent is mid-turn; park it when it is idle.');
-    await mount(ARCH, s);
-    await click(await item('Sleep'));
-    await click(sheetBtn('Confirm'));
-    await until(() => text($('.toast')).includes('mid-turn'), 'the reason');
-    expect($(`[data-agent="${ARCH}"] .row-main`)?.getAttribute('title')).not.toContain('parking…');
-    expect(session(s).open).toBe(true);
-  });
-
-  it('a sheet whose row changed while it was open sends nothing and says so', async () => {
-    const s = setup();
-    open(s);
-    const net = { down: false };
-    await mount(ARCH, s);
-    await click(await item('Sleep'));
-    const other = second(s.daemon, net);
-    await other.start();
-    await other.call('session.stop', { agent: ARCH, mode: 'close', request_id: 'x1' }); // another client closes it
-    await until(() => !session(s).open, 'closed elsewhere');
-    await wait(50);
-    await click(sheetBtn('Confirm'));
-    expect(text($('.verb-sheet'))).toContain('It changed while you looked');
-  });
-
   it('a stalled row offers Clear stall, which asks first and then queues the agent', async () => {
     const s = setup();
     open(s);
