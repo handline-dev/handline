@@ -66,22 +66,60 @@ func TestHookLetsThroughWithEmptyJSON(t *testing.T) {
 	}
 }
 
-func TestHookIsPythonsWhileTheSwitchIsOffAndForAnyOtherEvent(t *testing.T) {
-	off := hookRig(t, false)
-	if out, _, code := off.runIn(preToolUse("Write", nil), asAgent, "hook", "PreToolUse"); code != 0 || !strings.HasSuffix(out, " hook PreToolUse\n") ||
-		!strings.HasPrefix(out, "python ") {
-		t.Errorf("off: %q %d", out, code)
-	}
-	on := hookRig(t, true)
-	for _, args := range [][]string{{"hook", "Stop"}, {"hook", "commit"}, {"hook", "PreToolUse", "x"}} {
-		if out, _, code := on.runIn("{}", asAgent, args...); code != 0 || !strings.HasSuffix(out, " "+strings.Join(args, " ")+"\n") {
+// Every hook event is the Go hl's: none reaches Python, whatever the switch says.
+func TestHookIsGoForEveryEventAndNeverPython(t *testing.T) {
+	r := hookRig(t, false)
+	r.daemon(nil)
+	for _, args := range [][]string{{"hook", "PreToolUse"}, {"hook", "Stop"}, {"hook", "commit"}, {"hook", "Notification"},
+		{"hook", "TeammateIdle"}, {"hook", "PreToolUse", "x"}, {"hook"}} {
+		if out, _, code := r.runIn("{}", asAgent, args...); code != 0 || strings.HasPrefix(out, "python ") {
 			t.Errorf("%v: %q %d", args, out, code)
 		}
 	}
-	// The event the payload names wins, as in Python, and Python is given the stdin already read.
-	stdin := `{"hook_event_name": "PostToolUse"}`
-	if out, _, code := on.runIn(stdin, asAgent, "hook", "PreToolUse"); code != 0 || !strings.HasSuffix(out, " hook PreToolUse\n") {
-		t.Errorf("named another event: %q %d", out, code)
+	// The event the payload names wins, as in Python.
+	if out, _, _ := r.runIn(preToolUse("Write", nil), asAgent, "hook", "PostToolUse"); !strings.Contains(out, `"permissionDecision": "deny"`) {
+		t.Errorf("the payload's PreToolUse was not guarded: %q", out)
+	}
+}
+
+// The stop gate refuses a stop while the current task has no recorded wait, once per session, and the refusal is recorded.
+func TestStopIsRefusedOncePerSessionWhileTheCurrentTaskHasNoWait(t *testing.T) {
+	r := hookRig(t, false)
+	calls := r.daemon(nil)
+	d, err := store.Open(paths.DBFile(r.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	for _, q := range []string{
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(7, 'job', 'a.one', 'human', 1)",
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('a.one', 'RUNNING', 1, 7)",
+	} {
+		if _, err := d.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stop := `{"hook_event_name": "Stop", "session_id": "s1"}`
+	out, _, _ := r.runIn(stop, asAgent, "hook", "Stop")
+	if !strings.Contains(out, `"decision": "block"`) || !strings.Contains(out, "T7 is current with no recorded wait") {
+		t.Fatalf("not refused: %q", out)
+	}
+	if out, _, _ := r.runIn(stop, asAgent, "hook", "Stop"); out != "{}\n" {
+		t.Fatalf("refused twice in one session: %q", out)
+	}
+	var n int
+	d.QueryRow("SELECT COUNT(*) FROM events WHERE agent = 'a.one' AND kind = 'stop_gate' AND json_extract(payload, '$.task_id') = 7").Scan(&n)
+	if n != 1 {
+		t.Fatalf("stop_gate events: %d", n)
+	}
+	recorded := 0
+	for _, c := range calls() {
+		if c["method"] == "hook.record" {
+			recorded++
+		}
+	}
+	if recorded != 1 {
+		t.Fatalf("the stop let through is recorded, the refused one is not: %d", recorded)
 	}
 }
 

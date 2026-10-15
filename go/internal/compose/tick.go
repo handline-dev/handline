@@ -453,26 +453,10 @@ func (t tickUsage) fillFromSession(agent, acct string, st *tick.Status) {
 func (t tickUsage) ContextLimit(agent, modelID string) int {
 	cfg, _ := t.roster.Read(agent)
 	limit := int(team.ContextTokensOf(cfg))
-	if size := contextWindow(modelID); size > 0 {
+	if size := usage.ContextWindow(modelID); size > 0 {
 		limit = min(limit, int(float64(size)*tick.ContextClampFraction))
 	}
 	return limit
-}
-
-// ctxSizes is vendors/claude_collect.CTX_SIZE, keyed by prefix so a dated model id still matches. An unrecognised model has no figure
-// rather than a guessed one.
-var ctxSizes = []struct {
-	prefix string
-	size   int
-}{{"claude-opus-5", 1_000_000}, {"claude-sonnet-5", 1_000_000}, {"claude-haiku-4-5", 200_000}}
-
-func contextWindow(model string) int {
-	for _, c := range ctxSizes {
-		if len(model) >= len(c.prefix) && model[:len(c.prefix)] == c.prefix {
-			return c.size
-		}
-	}
-	return 0
 }
 
 func (t tickUsage) WriteBurn(acct string, rate float64, at int64) {
