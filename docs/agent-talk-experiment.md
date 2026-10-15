@@ -1,80 +1,129 @@
 # How agents should talk to each other: an experiment
 
-Three haiku agents on a test daemon of their own (`HANDLINE_LIVE=1 python3 tools/agent_talk.py --design A|B|N --runs 3`). The
-founder gives `talk.lead` a task: get the secret word each builder (`talk.a`, `talk.b`) keeps in a file only it can read, and
-report both words to the founder. Each agent's ROLE.md states the design's rules. Run on 2026-10-15, main 804760406, account
-gamma, Claude Code 2.1.300.
+Three haiku agents on a test daemon of their own, never the live daemon or team. The founder gives `talk.lead` a task: get the
+secret word each builder (`talk.a`, `talk.b`) keeps in a file only it can read, and report both words to the founder.
 
-- **A, today:** `hl say` and tasks between agents; the lead may report with `hl say human`.
-- **B, tasks only:** tasks between agents; the lead reports by closing the founder's task. `hl say` is refused at its
-  permission prompt.
-- **N, native founder talk:** as B between agents, but the lead reports in plain text in its own session, read from the
-  transcript.
-- **@name lines picked up by the daemon: not run.** Faking it without a daemon change would deliver each line as the
-  founder's message, which is the thing under test.
+## Read first: round 1 did not test what it meant to
 
-## Results (3 runs per design)
+A structured session (the kind the daemon starts here) gets neither its agent's model nor its context: the daemon starts
+`claude` with no `--model` and no system prompt, so `agent.yaml`'s `model: haiku` and the agent's ROLE.md never reach it. In
+round 1's 46 transcripts Sonnet answered 295 times, Opus 53 and Haiku never, and the design rules (A, B, N) appear in none.
+Round 1's numbers therefore compare three runs of one untold setup, not three designs. A daemon fix is in review; until it lands, round 2 works
+around it in the harness: each agent's checkout has its role as the project's `CLAUDE.md` and `"model": "haiku"` in its
+project settings. Every round 2 run was checked to have answered with `claude-haiku-5-5` only.
 
-| | A | B | N |
-|---|---|---|---|
-| Report with both words reached the founder | 3/3 | 2/3 | 3/3 |
-| Time to that report, median | 26 s | 49 s (2 runs) | 40 s |
-| Time to that report, min–max | 26–40 s | 37–62 s, 1 never | 27–62 s |
-| Report channel used | task done ×3 | task done ×2, none ×1 | session text ×2, task done ×1 (against its rule) |
-| Wrong sends (no edge, or a refused `hl say`) | 1 | 5 (3 `hl say` tries) | 2 (2 tries) |
-| `hl say` calls (per run) | 3 (0, 0, 3) | 3 refused (0, 1, 2) | 2 refused (0, 1, 1) |
-| Double reports | 0 | 0 | 1 |
-| Lost words | 0 | 2 (the stuck run) | 0 |
-| Session text blocks (stray) | 17 | 10 | 20 |
-| of which echoes of a send | 16 | 10 | 15 |
-| Cost per run, mean | $0.31 | $0.46 | $0.39 |
-| Cost per run, min–max | $0.17–0.38 | $0.31–0.62 | $0.30–0.50 |
-| Output tokens per run, mean | 1,772 | 1,872 | 2,277 |
+## Round 2: can agents keep their session text for the founder?
 
-Wrong sends count a message or task between agents that the job has no edge for, plus every `hl say` tried where it is
-refused. An echo is session text written within a minute of the same agent sending something, naming the other agent or a
-word. Three runs per design cannot separate the designs: B is slowest and costliest, but its ranges overlap A's and N's,
-and its one failed run is the lead not closing the task, which has nothing to do with `hl say`.
+`HANDLINE_LIVE=1 python3 tools/agent_talk_round2.py --runs 6 --keep DIR` (and `--runs 3 --conditions md`). Run on
+2026-10-15, Claude Code 2.1.300.
 
-Each run's counted row is in `docs/agent-talk-experiment.runs.jsonl`. The runs' raw event streams were not kept (they ran
-without `--keep`), so the table can be re-added from the rows but not recounted from events; a rerun with `--keep` writes
-`events.json` per run.
+Channels assumed in every condition: an agent talks to the founder by writing in its own session, and every text block reaches
+the founder except one that is exactly `noop`. `hl say human` answers "use the chat instead": the daemon has no such reply, so
+a shim in front of `hl` gives it. Agents talk to each other with `hl say <agent>` and tasks. Each condition adds one line to
+every role:
 
-## What happened
+- **none:** nothing, round 1's baseline.
+- **rule:** "After you send to another agent, do not repeat it in your session; session text is only for the founder."
+- **noop:** "When you have nothing to tell the founder, end your turn with exactly `noop`."
+- **md:** as noop, and every `hl say` body goes in Markdown through `--file -` (3 runs, a side check).
 
-- **The founder's report went by task, not `hl say`.** In A the lead reported by closing the founder's task in all three
-  runs; `hl say` was called 3 times, all in one run, and none of those calls was the report. Where it was refused, agents
-  still tried it 5 times in 6 runs, mostly to find out how to reach the founder.
-- **The founder's task travels down a chain.** In 1 of 3 A runs and 2 of 3 B runs, the lead handed the founder's own task
-  to a builder, who handed it on to the other, instead of opening one subtask each. With no `hl say`, whoever ends up holding
-  the task has to report, and in an earlier batch (discarded for a harness bug, below) builders got stuck there.
-- **The stuck B run:** the lead collected both words and wrote them in its session ("Both builders sent back their words:
-  ..."), but never closed the founder's task. Under N that text would have reached the founder.
-- **Numbers confuse:** in a trial run of A, the lead closed the founder's task with the evidence "request #2" instead of the
-  words.
-- **Session text is mostly talk about the work.** Every run had 3 to 10 assistant text blocks; 41 of 47 were echoes: "I
-  handed T1 to talk.a", "The word is basil340, I marked T3 done". In N, builders also wrote their word to their own session
-  instead of closing their task. If all session text reached the founder, each run would send 3 to 10 such lines, and the
-  builders' lines would read as reports.
+In every second run the founder asks the lead mid-job, in its session, to reply with a code (`ACK` and three digits), so a
+reply to the founder is tested.
+
+| | none | rule | noop | md |
+|---|---|---|---|---|
+| Runs (founder asked mid-job) | 6 (3) | 6 (3) | 6 (3) | 3 (1) |
+| Report with both words reached the founder | 6/6 | 6/6 | 6/6 | 3/3 |
+| First report's channel | 1x session text, 5x task done | 4x session text, 2x task done | 3x session text, 3x task done | 1x session text, 2x task done |
+| Time to the report, s, median (min-max) | 98 (74-158) | 63 (47-114) | 148 (57-196) | 95 (42-130) |
+| Missed reports | 0 | 0 | 0 | 0 |
+| Founder's question answered | 3/3 | 3/3 | 3/3 | 1/1 |
+| ... in the turn the question started | 3/3 | 2/3 | 3/3 | 0/1 |
+| Text in founder-started turns (of it, reports) | 9 (3) | 9 (1) | 10 (1) | 2 (0) |
+| Report still reached the founder with only those turns and task done | 5/6 | 3/6 | 4/6 | 2/3 |
+| Echoes reaching the founder, per run (total) | 4 (2-5) (23) | 5.5 (1-8) (30) | 3.5 (2-4) (20) | 2 (2-3) (7) |
+| Other stray text reaching the founder (total) | 4 | 1 | 0 | 1 |
+| Half-kept noop | 0 | 0 | 0 | 0 |
+| Turns ended with exactly noop | 0 | 0 | 8 | 6 |
+| Double reports | 9 | 6 | 5 | 3 |
+| Builder closed its task without its word (e.g. "request #2") | 2 | 4 | 2 | 1 |
+| hl say to the founder tried (refused) | 3 | 3 | 5 | 1 |
+| Cost per run, $, median (min-max) | 0.034 (0.019-0.044) | 0.038 (0.010-0.067) | 0.033 (0.026-0.057) | 0.033 (0.030-0.050) |
+| Output tokens per run, median (min-max) | 4534 (3345-7249) | 5062 (2971-10004) | 4088 (3019-6945) | 4282 (3751-6017) |
+| Messages between agents (in Markdown) | 21 (0) | 24 (0) | 26 (0) | 10 (6) |
+
+How the cells are counted (`count()` in the harness is the definition): a report is any agent's delivered text, or the
+founder's task closed, with both words. An echo is delivered text, other than a report or a reply to the founder, written
+within a minute of the same agent's `hl` command and naming another agent or a word. A double report is every report after
+the first. A missed report is a run with no report, or a founder question whose code no delivered lead text carries.
+
+Each run's raw events and its words are kept in `~/.handline/experiments/agent-talk-round2/<condition>-<n>/`
+(`events.json`, `meta.json`); `python3 tools/agent_talk_round2.py --recount <that folder>` prints every row and this table
+again. The counted rows are also in `docs/agent-talk-experiment.round2.jsonl`.
+
+### What happened
+
+- **The rule did nothing; noop helped a little.** Of the turns that ended, 37 of 41 ended in text in none, 37 of 46 in rule,
+  28 of 46 in noop (8 ended in `noop`, 10 in nothing). Echoes per run: 4 with no rule, 5.5 with the rule, 3.5 with noop; the
+  ranges overlap. The echoes are turn summaries: "I read `secret.txt` and sent the word to talk.lead (queued as #5)", "Both
+  builders have been asked ... I'm waiting on their replies". Haiku writes one at the end of almost every turn it does not
+  end with `noop`, whatever the role says.
+- **No half-kept noop was seen.** No agent wrote "noop. sent to talk.a"; it wrote either exactly `noop` or a full summary.
+- **Replies to the founder worked, though not always at once.** All 10 mid-job questions were answered with the code in
+  session text, 8 of them in the turn the question started; the other 2 came a turn or two later, in a turn a task notice
+  started. The shim's refusal was tried 12 times in 21 runs before agents fell back to their session.
+- **"Only a turn the founder started" is not enough either.** Delivering only those turns would have shown the founder 30
+  text blocks in 21 runs, reports included, where all-text delivery shows 86 stray blocks besides the reports. But the
+  report would not have arrived in 7 of 21 runs: there the lead wrote the words in a turn a task notice started and never
+  closed the founder's task.
+- **Reports double up.** The lead writes the words in its session and also closes the founder's task with them, so the
+  founder gets both: 23 double reports in 21 runs. Builders' summaries also carry their word, so under all-text delivery
+  the founder would see each word two or three times.
+- **Numbers still stand in for content.** 9 builder closes carried no word, for example "reported the secret word to
+  talk.lead as the answer to #4".
+
+### Markdown through `--file -` (md)
+
+7 of 10 `hl say` calls used `--file -`, and 6 of 10 bodies had Markdown, which in practice was backticks around the word.
+Judged by whether a message was acted on with no question back and the run ended with both words: none of the 81
+messages between agents (10 in md) drew a question, and every run succeeded, so Markdown changed nothing measurable. The messages in this job are a one-line request
+and a one-word answer; a job with longer messages (a plan, a list of findings) would be the place to test it again.
+
+## Message ids: hide them from agents, or make them short hashes (design note, no code change)
+
+Today an agent sees each message's database row number in every delivery ("#N from talk.lead"), in `hl read <n>` and
+`hl say <agent> --parent <n>`, and in notices like "T1 reported done by talk.b: request #2". The numbers only grow, look like
+task numbers, and get used as content (the wordless closes above). Proposal, in order:
+
+1. **Agents never need a message id.** A delivery ends with what to do, not a number: "reply with `hl say talk.lead`", where
+   the reply threads to the newest open message from that sender; a digest is read with `hl inbox`. `--parent` and
+   `hl read <n>` stay for people and the app.
+2. **Where an agent must name one, it is a short handle.** For example `m-k3f9`: four base32 characters of an HMAC of the
+   row id under a daemon key, in a unique column, lengthened on a collision. A handle does not grow or order and cannot be
+   read as a task number or a count. `hl read`, `--parent` and every notice take and print the handle; the row id stays
+   internal.
+3. **Task numbers stay (T1, T2 ...).** People say them and they name the work. The task-board notice should quote the
+   evidence, never a message number, and `hl task done` should refuse evidence that is only a message reference.
 
 ## Recommendation (for the founder to decide)
 
-1. **Between agents, tasks are enough; `hl say` can go.** No run that finished needed it. B, without it, had the one
-   failed run (2 words lost) and the slowest, costliest median, but that failure was the lead not closing the task, and
-   three runs cannot show whether B is really slower. Before removing it: make "the agent that holds the founder's task reports
-   by closing it" hold, by refusing a handoff of a founder-opened task to an agent below its owner (the owner opens a subtask
-   instead). That rule would have prevented the chain stalls of the first batch; the stuck B run is a different miss (the
-   lead had the words and never closed the task). Expect agents to keep trying `hl say` for a while, so its refusal should
-   say what to do instead.
-2. **Native founder talk: not with all session text.** Deliver to the founder only (a) text in a turn that a founder message
-   started, which is a reply, and (b) text the agent marks for the founder, for example a line that starts with
-   `@founder`. Everything else stays in the transcript, readable on demand. Both rules are untested here: no founder message
-   started a turn in any run, so (a) never applied, and N's agents were told to write the report plainly, not to mark it,
-   so (b) never applied. A run of N with the founder asking mid-job, and the marker in the role, would test both.
-3. Keep `hl task done` evidence free text, and have the board notice quote it; avoid evidence that is only a number.
+1. **Fix the structured launch first** (model and context), and rerun any agent experiment after it; until then no role
+   instruction reaches an app-started agent.
+2. **Do not deliver all session text to the founder, and do not rely on a prompt rule to make it safe.** With the best
+   rule (noop), 3.5 echoes per run still reached the founder, and the plain rule changed nothing. The candidate to test
+   next: deliver the text of a turn that a founder message started (8 of 10 replies), plus the founder's own task closed
+   with its evidence, and tell agents exactly that ("to answer the founder, reply in the turn it wrote to you; to report,
+   close its task"). Unprompted, that pair lost the report in 7 of 21 runs, so the instruction is what is under test.
+   Everything else stays in the transcript, readable on demand.
+3. **If session text is delivered, add noop anyway:** it is free (same cost) and cut text-ending turns from 90% to 61%;
+   expect it to be slower (median 148 s against 98 s, ranges overlap).
+4. **Hide message ids from agents** (design note above) and quote evidence, not numbers, in task notices.
+5. **Markdown bodies:** allow them; no effect in this job.
 
-## Harness bug in the first batch
+## Round 1 (folded in; see the first section)
 
-The first B and N batch refused every permission prompt whose command merely contained "hl say", so a handoff whose note
-mentioned it, and `hl say --help`, were refused too. Two N runs never finished. Those runs are not in the table; B and N were
-run again with the refusal matching only an `hl say` call.
+Round 1 ran 3 runs each of A (`hl say` and tasks), B (tasks only, `hl say` refused at its prompt) and N (as B, the lead
+reports in its session), with `tools/agent_talk.py`; its rows are in `docs/agent-talk-experiment.runs.jsonl`. Because the
+roles never reached the agents, the A/B/N columns differ only in whether `hl say` was refused. What still holds from it: 41
+of 47 session text blocks were echoes of a send (the untold baseline round 2 starts from), a lead handed the founder's own
+task down a chain instead of opening subtasks, and a lead closed the founder's task with "request #2" as the evidence.

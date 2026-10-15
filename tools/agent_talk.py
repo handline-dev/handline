@@ -70,7 +70,7 @@ def refuse_say(prompt: dict) -> str:
     return yes(prompt)
 
 
-def setup(root: Path, account: dict, design: str) -> tuple[Path, str, dict[str, Path], dict[str, str]]:
+def setup(root: Path, account: dict, roles: dict[str, str]) -> tuple[Path, str, dict[str, Path], dict[str, str]]:
     """The test daemon's home: founder key, the picked account, the shared settings, three structured haiku agents in git checkouts
     of their own (the builders' with a secret word), and the edges the job uses."""
     home, real = root / "state", Path(account["home"])
@@ -100,7 +100,7 @@ def setup(root: Path, account: dict, design: str) -> tuple[Path, str, dict[str, 
         d = home / "agents" / name
         d.mkdir(parents=True)
         (d / "agent.yaml").write_text(f"model: haiku\nmode: default\nstructured: true\nrepo: {work}\n")
-        (d / "ROLE.md").write_text(f"# {name}\n{ROLES[design][LEAD if name == LEAD else 'builder']}\n")
+        (d / "ROLE.md").write_text(f"# {name}\n{roles[LEAD if name == LEAD else 'builder']}\n")
     (home / "team.yaml").write_text(
         "agents:\n" + "".join(f"  {n}: {{}}\n" for n in AGENTS) + "edges:\n"
         '  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }\n'
@@ -191,7 +191,7 @@ def one_run(binary: str, account: dict, design: str, keep: bool) -> dict:
     root = Path(tempfile.mkdtemp(prefix="agent-talk.")).resolve()
     group = None
     try:
-        home, key, works, words = setup(root, account, design)
+        home, key, works, words = setup(root, account, ROLES[design])
         group = start_daemon(binary, root, home, account, agents=works)
         sock = home / "daemon.sock"
         d = Daemon(sock, key)

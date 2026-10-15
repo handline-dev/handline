@@ -430,12 +430,12 @@ def scratch(root: Path, account: dict, terminal: bool = False) -> tuple[Path, st
 
 
 def start_daemon(binary: str, root: Path, home: Path, account: dict, tmux: str | None = None,
-                 agents: dict[str, Path] | None = None) -> int:
+                 agents: dict[str, Path] | None = None, env_extra: dict[str, str] | None = None) -> int:
     """The test daemon as production runs it (structured sessions, the tick, the cutover), in a process group of its own so its
     sessions go with it; returns that group. Like launchd's daemon it has no parent: an agent's hl counts the Claude Codes
     above it, and the one running this run must not be one. The agent's row names its checkout: the daemon makes no worktrees yet."""
     env = {k: v for k, v in os.environ.items() if k not in ("HANDLINE_AGENT", "OCP_AGENT", "HANDLINE_HOME", "OCP_HOME")}
-    env |= {"HANDLINE_TEST_ROOT": str(root), "HANDLINE_LIVE_ACCOUNTS": account["home"]}
+    env |= {"HANDLINE_TEST_ROOT": str(root), "HANDLINE_LIVE_ACCOUNTS": account["home"]} | (env_extra or {})
     terminal = []
     if tmux:     # a tmux server of the run's own: the live one is never touched
         hl = str(REPO / "bin" / "hl")      # this checkout's hl, whose launch takes the real config dir under a test root
