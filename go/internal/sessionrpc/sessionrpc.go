@@ -68,6 +68,8 @@ type Env struct {
 	// Terminal agents only (frozen): the terminal's close, and whether a session still runs in it.
 	CloseTerminal  func(handle string) (ok bool, why string)
 	SessionPresent func(agent string) (bool, error)
+	// InterruptTerminal interrupts a terminal agent's turn (Env.PressEsc of the typing Env); nil interrupts structured sessions alone.
+	InterruptTerminal func(c *rpc.Conn, agent string) error
 	// Fold is control.fold: fold the day's events into the agent's digest, the one model call, run as `hl fold`. nil serves no agent.fold.
 	Fold func(agent string) (ok bool, said string)
 	// Marker tells whoever watches the agent's terminal that a control call happened (termchan.Env.Marker); nil tells no one.
@@ -353,11 +355,17 @@ func (e *Env) stop(c *rpc.Conn, params map[string]any) (any, error) {
 	})
 }
 
-// interrupt stops the running turn of a structured session by control request. A terminal agent has no turn to reach from here.
+// interrupt stops the running turn: a structured session's by control request, a terminal agent's by Esc on its pane.
 func (e *Env) interrupt(c *rpc.Conn, params map[string]any) (any, error) {
 	return e.run(c, "session.interrupt", params, false, func(_ Call, agent string) (map[string]any, error) {
 		if !e.Procs.Structured(agent) {
-			return nil, rpc.Refused(agent+" has no structured session to interrupt", "state", "")
+			if e.InterruptTerminal == nil {
+				return nil, rpc.Refused(agent+" has no structured session to interrupt", "state", "")
+			}
+			if err := e.InterruptTerminal(c, agent); err != nil {
+				return nil, err
+			}
+			return done(true, agent+": interrupted", nil)
 		}
 		if err := e.Procs.Interrupt(agent); err != nil {
 			return nil, rpc.Refused(agent+": not interrupted: "+err.Error(), "state", "")

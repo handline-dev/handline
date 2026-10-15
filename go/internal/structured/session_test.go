@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -286,5 +288,22 @@ func TestAnOperationIdIsAValidUUIDAndTheSameEachTime(t *testing.T) {
 	a := UUIDFor("x")
 	if a != UUIDFor("x") || a == UUIDFor("y") || len(a) != 36 || a[14] != '5' {
 		t.Fatal(a)
+	}
+}
+
+// A CLI whose start cannot be recorded is killed and reaped before Open fails: no session runs that the daemon cannot tell is the agent's.
+func TestAStartThatCannotBeRecordedKillsTheCLIAndOpenFails(t *testing.T) {
+	l := launch(t)
+	refused, pid, ended := errors.New("not recorded"), 0, false
+	l.Started = func(p int) error { pid = p; return refused }
+	l.Ended = func(int) { ended = true }
+	if s, err := Open(context.Background(), l, Handlers{}, 5*time.Second); s != nil || !errors.Is(err, refused) {
+		t.Fatalf("opened %v %v", s, err)
+	}
+	if pid == 0 || syscall.Kill(-pid, 0) != syscall.ESRCH {
+		t.Fatalf("the CLI's group (pid %d) still runs", pid)
+	}
+	if ended {
+		t.Fatal("a session that never opened is told ended")
 	}
 }

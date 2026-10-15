@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CHAT,
+  toggleView,
   TRANSCRIPT,
   MAX_GROUPS,
   activate,
@@ -367,4 +368,14 @@ test('without a session, saved Claude Code tabs of old handles collapse to one',
   const one = oneTerminal(two);
   assert.deepEqual(groupsOf(one.root)[0]!.tabs, [CHAT, 'terminal:term:a']);
   assert.equal(oneTerminal(one), one);
+});
+
+test('the view switch goes from the chat to Claude Code and back, opening the tab when it is not there', () => {
+  const withTab = defaultWorkspace({ terminal: 'h1' });
+  const shown = (w: ReturnType<typeof defaultWorkspace>) => groupOf(w, CHAT)!.activeTab;
+  assert.equal(shown(toggleView(withTab, 'h1')), 'terminal:h1');
+  assert.equal(shown(toggleView(toggleView(withTab, 'h1'), 'h1')), CHAT);
+  assert.equal(shown(toggleView(defaultWorkspace(), 'h2')), 'terminal:h2');
+  assert.equal(shown(toggleView(defaultWorkspace())), CHAT, 'no terminal to switch to');
+  assert.equal(shown(toggleView(defaultWorkspace(), undefined, true)), 'transcript');
 });

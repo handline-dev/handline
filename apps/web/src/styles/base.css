@@ -192,3 +192,7 @@ summary::-webkit-details-marker {
   background: color-mix(in srgb, var(--block) 14%, transparent);
   color: var(--block);
 }
+.banner.ok {
+  background: color-mix(in srgb, var(--s-ok) 14%, transparent);
+  color: var(--s-ok);
+}

@@ -373,7 +373,10 @@
    "name": "task.accept.nothing_to_accept_when_the_opener_closed_it",
    "spec": "task.accept",
    "as": "agent",
-   "about": "A task its owner opened for itself answers to that owner: its done closes it at once, and there is no report to accept.",
+   "with": {
+    "boss": "founder"
+   },
+   "about": "A task its owner opened for itself (task.begin from the founder's message) answers to that owner: its done closes it at once, and there is no report to accept.",
    "steps": [
     {
      "send": {
@@ -396,13 +399,44 @@
     {
      "send": {
       "jsonrpc": "2.0",
-      "id": 2,
-      "method": "task.new",
+      "id": 1,
+      "method": "hello",
       "params": {
-       "owner": "{{me}}",
-       "title": "my own task",
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{me}}",
        "body": "build it; done is it built and tested",
-       "time_box": "1h",
+       "request_id": "conf-own-0"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$save": "msg"
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.begin",
+      "params": {
+       "title": "my own task",
+       "message": "{{msg}}",
        "request_id": "conf-own-1"
       }
      },
