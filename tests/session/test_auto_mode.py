@@ -141,8 +141,8 @@ def test_the_sandbox_is_on_only_where_agent_yaml_turns_it_on(home: Path) -> None
           and agents.sandbox_on("backend", agents.read("backend")))
     check("sandbox: a changed sandbox is a changed launch", launchmod.fingerprint("backend") != off)
     agents.register("backend", sandbox=False)
-    check("sandbox: off again takes the key out", "sandbox" not in agents.read("backend")
-          and not agents.sandbox_on("backend", agents.read("backend")))
+    check("sandbox: off again is written as false, so the founder's default cannot turn it back on",
+          agents.read("backend")["sandbox"] is False and not agents.sandbox_on("backend", agents.read("backend")))
     check("sandbox: and the fingerprint is the old one", launchmod.fingerprint("backend") == off)
     cfg = agents.read("backend")
     cfg["sandbox"] = False
@@ -246,12 +246,43 @@ def test_only_mcp_servers_the_founder_approved_by_content_are_enabled_at_launch(
         os.chdir(here)
 
 
+def test_the_founders_switch_sandboxes_every_agent_whose_file_says_nothing_with_its_allowances(home: Path) -> None:
+    from handline.infra import protected
+    _launch_world(home)
+    repo = home / "repo"
+    (repo / ".git").mkdir(parents=True)
+    cfg = agents.read("backend")
+    cfg["repo"] = str(repo)
+    agents.write("backend", cfg)
+    got = _settings(launchmod.build("backend")[0])[0]["sandbox"]
+    check("switch: before it, a file without the key is unsandboxed, with no allowances",
+          got["enabled"] is False and "network" not in got and str(repo / ".git") not in got.get("filesystem", {}).get("allowWrite", []), str(got))
+    protected.put("switches", "sandbox_default", "on")
+    got = _settings(launchmod.build("backend")[0])[0]["sandbox"]
+    writable = got.get("filesystem", {}).get("allowWrite", [])
+    check("switch: on, the same file is sandboxed", got["enabled"] is True, str(got))
+    check("switch: it may write its repo's .git and the Go, npm and pnpm caches",
+          writable[0] == str(repo / ".git") and any(w.endswith("go-build") for w in writable)
+          and any(w.endswith(".npm") for w in writable) and any(w.endswith("pnpm") for w in writable), str(writable))
+    check("switch: and reach the package registries", got["network"]["allowedDomains"][:3] ==
+          ["registry.npmjs.org", "proxy.golang.org", "sum.golang.org"], str(got))
+    cfg["sandbox_domains"] = "expo.dev, exp.host"
+    agents.write("backend", cfg)
+    got = _settings(launchmod.build("backend")[0])[0]["sandbox"]
+    check("switch: agent.yaml adds its own hosts", got["network"]["allowedDomains"][-2:] == ["expo.dev", "exp.host"], str(got))
+    cfg["sandbox"] = False
+    agents.write("backend", cfg)
+    got = _settings(launchmod.build("backend")[0])[0]["sandbox"]
+    check("switch: a file that says false stays unsandboxed", got["enabled"] is False and "network" not in got, str(got))
+
+
 def main() -> int:
     def tests(td):
         run(lambda: test_only_mcp_servers_the_founder_approved_by_content_are_enabled_at_launch(Path(td) / 'a6'))
         run(lambda: test_the_sandbox_setting_holds_across_sessions_until_it_is_changed(Path(td) / 'a5'))
         run(lambda: test_an_agent_starts_in_the_mode_it_is_set_to(Path(td) / 'a3'))
         run(lambda: test_the_sandbox_is_on_only_where_agent_yaml_turns_it_on(Path(td) / 'a4'))
+        run(lambda: test_the_founders_switch_sandboxes_every_agent_whose_file_says_nothing_with_its_allowances(Path(td) / 'a7'))
         run(lambda: test_the_claude_driver_asks_for_auto_mode_and_names_what_is_trusted(Path(td) / 'a0'))
         run(lambda: test_the_trusted_environment_names_the_worktree_its_repo_and_its_github_remotes(Path(td) / 'a1'))
         run(lambda: test_a_launch_starts_in_auto_mode_unless_the_agent_skips_permissions(Path(td) / 'a2'))
