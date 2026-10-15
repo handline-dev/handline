@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/team/agentsettings.go; do not change, change the Go
 """What an agent's settings are and how they are written: the one place the chat
 page's Settings tab, the HR tab and `hl agent set` all read and write them."""
 from __future__ import annotations

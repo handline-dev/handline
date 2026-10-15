@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/team/dialogrules.go; do not change, change the Go
 """Standing answers to a vendor's blocking prompts, on the founder's own say-so.
 
 A rule is {vendor, title, label}: for a prompt with exactly this title, choose

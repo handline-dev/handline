@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/lock/lock.go; do not change, change the Go
 """Exclusive holds, each one flock: one writer per agent terminal, and one
 daemon per installation.
 

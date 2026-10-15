@@ -45,6 +45,7 @@ if [ -n "${CHECK_PLAN:-}" ]; then
     exit 0
 fi
 rc=0
+tools/check-deprecated.sh "$base" || rc=1
 if [ "$kind" = go ] || [ "$kind" = python ]; then
     run="$(tools/leakcheck.py begin)" || exit 1
     export TMPDIR="$run/tmp/" TMUX_TMPDIR="$run"

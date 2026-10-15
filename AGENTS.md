@@ -31,6 +31,8 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   A story reaches main as one PR, which the founder checks by eye and merges.
   Only a fix for a red main, a daemon bug or a security fix goes straight to main,
   as its own PR. Main is merged into every `story/<n>` at least once a day.
+- New work goes in Go only, never in `handline/`: a Python file whose first line says `# DEPRECATED` is ported, so change
+  the Go; `tools/check.sh` refuses a diff that adds to one or adds a file under `handline/` (deleting is fine).
 - Every PR to main shows, in its body, a screenshot of each screen it adds or
   changes, before and after, PC and phone where both change, so the founder can
   judge it from the PR alone. A PR with no UI change says so in one line.
