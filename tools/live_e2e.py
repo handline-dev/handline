@@ -47,6 +47,7 @@ from datetime import datetime
 from pathlib import Path
 
 import live_account
+import tmuxsock
 
 DEADLINE_S = 5.0
 SLOW_S = 30.0      # how long past the deadline a step still counts as slow rather than missing
@@ -527,7 +528,7 @@ def main() -> int:
         if tmux and args.keep:
             print(f"live-e2e: kept the tmux server (tmux -L {tmux}) and the worktree {root / 'work'}", file=sys.stderr)
         elif tmux:
-            subprocess.run(["tmux", "-L", tmux, "kill-server"], capture_output=True)
+            tmuxsock.stop(tmux)
             subprocess.run(["git", "worktree", "remove", "--force", str(root / "work")], cwd=REPO, capture_output=True)
         if args.keep:
             print(f"live-e2e: kept {root}", file=sys.stderr)
