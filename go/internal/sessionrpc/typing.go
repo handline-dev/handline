@@ -259,3 +259,27 @@ func truncate(s string, n int) string {
 	}
 	return s
 }
+
+// PressEsc presses Esc on agent's own terminal, which interrupts a Claude Code turn: session.interrupt for a terminal agent. Its gates are
+// the typing calls': the terminal lock, so it never lands in the middle of something being typed, and someone else's input hold.
+func (e *Env) PressEsc(c *rpc.Conn, agent string) error {
+	hold := lock.TakeTerminal(e.Home, agent)
+	if hold == nil {
+		return rpc.Refused(agent+": "+TypingElsewhere, "terminal_lock", "")
+	}
+	defer hold.Release()
+	if err := e.holderGate(c, agent); err != nil {
+		return err
+	}
+	handle, err := db.Terminal(e.DB, agent)
+	if err != nil {
+		return err
+	}
+	if handle == "" || !e.Term.Backend.Available() {
+		return rpc.Refused(agent+" has no terminal", "state", "")
+	}
+	if ok, why := e.Term.Send(handle, term.Escape, false); !ok {
+		return rpc.Refused(agent+": not interrupted: "+truncate(why, 200), "state", "")
+	}
+	return nil
+}

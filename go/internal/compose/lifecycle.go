@@ -9,6 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/supervisor"
@@ -114,7 +115,7 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	m := &lifecycle.Manager{Q: q, Home: home, Log: cfg.Log, Settings: settings,
 		Delivery: lc.Env, Handoff: hp, Term: termPort{tm}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawner{inner: spawns, kind: p.Kind},
 		Agents: agentsPort{home: home, roster: roster, trust: team.NewTrust(home), accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q, Structured: p.Kind},
-		Observe: observer{p: p}, Typing: noTyping{}, Run: p.Run, TermRun: termRun{p}, Locks: p.Locks}
+		Observe: observer{p: p}, Typing: terminalLock{home: p.home}, Run: p.Run, TermRun: termRun{p}, Locks: p.Locks}
 	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho, Env: lc.Env, usage: uenv, roster: roster, term: tm}
 	hp.mover = func() *lifecycle.Mover { return p.LC.Mover }
 	p.LC.Mover = p.newMover(m, uenv, lc.Env, func() int64 { return nowOf(cfg.Now)().Unix() })
@@ -306,10 +307,16 @@ func (o observer) LiveSessions() (map[string]int, bool) {
 	return out, true
 }
 
-// noTyping: a structured agent has no terminal to take, and nobody else can hold it.
-type noTyping struct{}
+// terminalLock is the right to type at a terminal agent, the lock every typing call takes (a structured agent is never asked for it).
+type terminalLock struct{ home string }
 
-func (noTyping) TakeTerminal(string) (func(), bool) { return func() {}, true }
+func (t terminalLock) TakeTerminal(agent string) (func(), bool) {
+	h := lock.TakeTerminal(t.home, agent)
+	if h == nil {
+		return nil, false
+	}
+	return h.Release, true
+}
 
 // noTerminal is the terminal a terminal agent would be in, which this daemon does not have.
 type noTerminal struct{}

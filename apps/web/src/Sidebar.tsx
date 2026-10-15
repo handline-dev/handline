@@ -19,6 +19,7 @@ import {
 import type { AgentView } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { useAgents, useUnreached, useServes, useUnread, useVerbMark } from '@handline/app-data';
+import { useMyTurn } from './MyTurn.tsx';
 import { VerbSheet } from './AgentVerbs.tsx';
 import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
@@ -78,6 +79,7 @@ export function Sidebar({
   const counts = new Map<Dot, number>();
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const unread = useUnread().length;
+  const myTurn = useMyTurn().cards.length;
   const onInbox = useInboxRoute().open;
   const hr = useHrCount();
   const onTeam = !!useTeamRoute();
@@ -108,6 +110,9 @@ export function Sidebar({
         ) : null}
       </div>
       <div className="rail-nav flex flex-wrap gap-0.5 px-1.5">
+        <button className={navOf(onPage === 'my-turn')} aria-current={onPage === 'my-turn' ? 'page' : undefined} onClick={() => void (location.hash = '#/my-turn')}>
+          <Icon name="decision" size={14} aria-hidden /> My turn{myTurn ? ` ${myTurn}` : ''}
+        </button>
         <button className={navOf(onInbox)} aria-current={onInbox ? 'page' : undefined} onClick={goInbox}>
           <Icon name="inbox" size={14} aria-hidden /> Inbox{unread ? ` ${unread}` : ''}
         </button>
@@ -281,16 +286,16 @@ function Row({
                 <span className="w-3 flex-none" aria-hidden />
               )}
               <button
-                className="row-main flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left"
+                className="row-main flex min-w-0 flex-1 items-center gap-2 overflow-hidden border-0 bg-transparent p-0 text-left"
                 onClick={() => goAgent(a.name)}
                 aria-current={selected ? 'true' : undefined}
                 title={tip}
               >
                 <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
-                <span className="name min-w-0 flex-1 whitespace-nowrap">{rowName(a.name, depth, team)}</span>
+                <span className="name min-w-[4.5rem] flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{rowName(a.name, depth, team)}</span>
                 <Badges badges={badges} />
                 {a.needs_you ? (
-                  <span className="needs flex-none rounded-pill bg-wait px-1.5 text-label text-canvas" title={a.needs_you.text ?? undefined}>
+                  <span className="needs min-w-0 max-w-[7rem] overflow-hidden text-ellipsis whitespace-nowrap rounded-pill bg-wait px-1.5 text-label text-canvas" title={a.needs_you.text ?? undefined}>
                     {a.needs_you.kind}
                   </span>
                 ) : null}

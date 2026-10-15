@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { second, setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
+import { popPlace } from '../src/UsagePopup.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -128,11 +129,48 @@ describe('the usage popup', () => {
     expect(rows).toHaveLength(3);
     expect(text(rows[0])).toContain('alpha');
     expect(text(rows[0])).toContain('agents 1 / cap 4');
-    expect(text(rows[1])).toContain('runway');
+    expect(text($$('.usage-row')[1])).not.toContain('agents stop at'); // the window resets in 1 h, before the stop at 2 h
+    expect($$('.usage-row')[1]!.getAttribute('data-tone')).toBe('ok');
+    expect(text($$('.usage-row')[0])).not.toContain('agents stop at');
+    expect($('.usage-stats')!.getAttribute('href')).toBe('#/stats');
     expect(rows[1]!.getAttribute('href')).toBe('#/accounts/beta');
     await click($('.usage-all'));
     expect(location.hash).toBe('#/accounts');
     expect($('.usage-pop')).toBeNull();
+  });
+
+  it('Escape and a click outside close the popup, a click inside does not', async () => {
+    await mount('#/agents/handline.architect', setup(), '1');
+    await until(() => $('.usage-btn'), 'the item');
+    await click($('.usage-btn'));
+    expect($('.usage-pop')).not.toBeNull();
+    await click($('.usage-pop'));
+    expect($('.usage-pop')).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await until(() => !$('.usage-pop'), 'closed by Escape');
+    await click($('.usage-btn'));
+    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await until(() => !$('.usage-pop'), 'closed by an outside click');
+  });
+
+  it('the popup is placed above the button and kept inside the window', () => {
+    expect(popPlace({ left: 1214, top: 760 }, 1280, 800)).toEqual({ bottom: 48, left: 912 });
+    expect(popPlace({ left: 20, top: 760 }, 1280, 800)).toEqual({ bottom: 48, left: 20 });
+    expect(popPlace({ left: 330, top: 600 }, 360, 640)).toEqual({ bottom: 48, left: 8 });
+  });
+
+  it('a window at 95% is a red row and one at 90% an amber row', async () => {
+    const s = setup();
+    const at = new Date(Date.now() + 3_600_000).toISOString();
+    s.daemon.accounts.add({ name: 'hot', five_hour: { used_pct: 96, resets_at: at, source: 'measured' } });
+    s.daemon.accounts.add({ name: 'warm', five_hour: { used_pct: 90, resets_at: at, source: 'measured' } });
+    await mount('#/agents/handline.architect', s, '1');
+    await until(() => $('.usage-btn'), 'the item');
+    await click($('.usage-btn'));
+    const row = (n: string) => $$('.usage-row').find((r) => r.getAttribute('href') === `#/accounts/${n}`)!;
+    await until(() => row('hot'), 'the rows');
+    expect(row('hot').getAttribute('data-tone')).toBe('bad');
+    expect(row('warm').getAttribute('data-tone')).toBe('warn');
   });
 
   it('follows the accounts topic', async () => {

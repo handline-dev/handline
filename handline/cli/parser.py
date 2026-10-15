@@ -18,7 +18,7 @@ from .bridge import cmd_bridge
 from .device import cmd_device
 from .daemon import cmd_daemon_status, cmd_dev_mode
 from .health import cmd_backup, cmd_doctor, cmd_events, cmd_fold, cmd_status, cmd_triggers
-from .hooks import cmd_go, cmd_hook, cmd_hook_install, cmd_hooks_gate
+from .hooks import cmd_go, cmd_hook, cmd_hook_install, cmd_hooks_gate, cmd_sandbox_repo
 from .hr import cmd_hr, cmd_trust
 from .schedule import cmd_schedule
 from .idle import cmd_auto_accept, cmd_notice_digest, cmd_idle_background, cmd_idle_timeout, cmd_ignore_cache_expiry, seconds_or_never, span_arg
@@ -153,6 +153,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("part", choices=["hook", "launch"])
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
     p.set_defaults(fn=cmd_go)
+
+    p = sub.add_parser("sandbox-repo", help="show or set what a sandboxed session of a repo may do beyond the sandbox: "
+                                            "weaker-network (Go module downloads on macOS), pnpm-install (runs outside it)")
+    p.add_argument("repo", help="the repo's folder name, as agent.yaml's repo ends")
+    p.add_argument("allowance", nargs="*", help="every allowance it has; none given shows them")
+    p.add_argument("--clear", action="store_true", help="take every allowance away")
+    p.set_defaults(fn=cmd_sandbox_repo)
 
     p = sub.add_parser("doctor", help="verify preconditions")
     p.add_argument("--no-color", action="store_true")
@@ -714,7 +721,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 _READ_ONLY = {"read", "inbox", "ps", "status", "team", "events", "doctor", "guide", "top", "watch", "bridge",
-              "hook", "hooks", "go", "memory", "schedule", "login", "venv", "service", "backup", "dev-mode"}
+              "hook", "hooks", "go", "sandbox-repo", "memory", "schedule", "login", "venv", "service", "backup", "dev-mode"}
 _TASK_READS = {"list", "show", "board"}
 
 
