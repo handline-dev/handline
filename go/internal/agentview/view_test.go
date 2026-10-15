@@ -254,3 +254,68 @@ func TestARowForAnAgentThatIsGoneGoesAndAFailingAgentKeepsItsLast(t *testing.T) 
 		t.Errorf("gone agent's row kept (%d, %v)", n, err)
 	}
 }
+
+func TestAHandoffShowsFromTheNoteWaitThroughTheLaunchUntilTheNewSessionBegins(t *testing.T) {
+	r := newRig(t, "a")
+	r.state(t, "a", states.Idle, "")
+	handoff := func() any {
+		t.Helper()
+		r.env.RefreshOne("a")
+		return r.stored(t, "a")["handoff"]
+	}
+	if h := handoff(); h != nil {
+		t.Fatalf("no handoff, got %v", h)
+	}
+
+	if err := db.MarkNoteWait(r.env.Q, "a", "context", 4990); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkNoteWait(r.env.Q, "a", "context", 4995); err != nil { // the wait keeps its start
+		t.Fatal(err)
+	}
+	h, _ := handoff().(map[string]any)
+	if h["cause"] != "context_full" || h["phase"] != "writing" || h["since"] != stamp(4990) {
+		t.Fatalf("note wait: %v", h)
+	}
+
+	db.ClearNoteWait(r.env.Q, "a")
+	if err := db.StartHandoff(r.env.Q, "h1", "a", "", "context", 5060); err != nil {
+		t.Fatal(err)
+	}
+	h, _ = handoff().(map[string]any)
+	if h["cause"] != "context_full" || h["phase"] != "writing" || h["since"] != stamp(5060-states.HandoffDeadlineS) {
+		t.Fatalf("in flight: %v", h)
+	}
+
+	if err := db.AdvanceHandoff(r.env.Q, "h1", "released", "done", ""); err != nil {
+		t.Fatal(err)
+	}
+	r.state(t, "a", states.Parked, "")
+	h, _ = handoff().(map[string]any)
+	if h["cause"] != "context_full" || h["phase"] != "starting" {
+		t.Fatalf("released: %v", h)
+	}
+
+	if _, err := db.NoteSessionStart(r.env.Q, "a", "context_full", false, "", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if h := handoff(); h != nil {
+		t.Fatalf("the new session began, got %v", h)
+	}
+}
+
+func TestAHandoffForAUsageWindowDoesNotShowAsStartingAndAStaleNoteWaitShowsNothing(t *testing.T) {
+	r := newRig(t, "a")
+	r.state(t, "a", states.Parked, "")
+	db.StartHandoff(r.env.Q, "h1", "a", "", "usage", 5060)
+	db.AdvanceHandoff(r.env.Q, "h1", "released", "done", "")
+	r.env.RefreshOne("a")
+	if h := r.stored(t, "a")["handoff"]; h != nil {
+		t.Fatalf("usage: %v", h)
+	}
+	db.MarkNoteWait(r.env.Q, "a", "context", 5000-noteWaitStaleS-1)
+	r.env.RefreshOne("a")
+	if h := r.stored(t, "a")["handoff"]; h != nil {
+		t.Fatalf("stale: %v", h)
+	}
+}

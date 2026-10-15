@@ -123,13 +123,20 @@ func TestADeferredHandoffThreeTicksRunningLeavesTheCountersAtZero(t *testing.T) 
 		if h, _ := db.InFlightFor(g.m.Q, "a"); h != nil {
 			t.Fatalf("%s: a handoff row was started", c.name)
 		}
+		if _, _, waits, _ := db.NoteWait(g.m.Q, "a"); waits != (c.name == "note hold") {
+			t.Fatalf("%s: note wait kept %v", c.name, waits)
+		}
 	}
 }
 
 func TestAContextHandoffClosesFreshAndParksWithAnImmediateWake(t *testing.T) {
 	g := newMoveRig(t)
+	db.MarkNoteWait(g.m.Q, "a", "context", g.m.now())
 	if ok, _ := g.v.PerformHandoff("a", HandoffTrigger{"context", "190k of 200k"}, ""); !ok {
 		t.Fatal("degraded")
+	}
+	if _, _, waits, _ := db.NoteWait(g.m.Q, "a"); waits {
+		t.Fatal("the note wait outlived the handoff")
 	}
 	row := g.row(t)
 	if len(g.r.closed) != 1 || !isClosed(row) || row.ResumeSession.String != "" || row.State != states.Parked {
