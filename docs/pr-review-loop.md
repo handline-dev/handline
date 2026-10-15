@@ -16,8 +16,8 @@ read-only PR state and a say on review comments), which stays as written.
 
 | Tool | Who opens the PR | How review comes back as work |
 |---|---|---|
-| GitHub Copilot coding agent | Copilot, as itself | `@copilot` in a PR comment starts a new session on the same PR with the earlier context; only users with write access are obeyed; a 👀 reaction acknowledges the comment; comments left while it was unassigned are ignored ([review docs](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/review-copilot-prs)). The person who assigned Copilot cannot approve the PR either (older English page and the Japanese page; the current English page does not say). |
-| Devin | `devin-ai-integration[bot]` (GitHub App) | Autofix pushes fix commits for comments from an allowlisted set of bots; the docs warn that answering every bot comment can loop, so the allowlist is the recommended mode. Per-PR toggle. A comment, bug or flag in the diff view can be sent to Devin ([Devin Review](https://docs.devin.ai/work-with-devin/devin-review), [Autofix](https://docs.devin.ai/use-cases/gallery/devin-review-autofix)). How a human's comment on a Devin PR is handled was not found. |
+| GitHub Copilot coding agent | Copilot, as itself | A `@copilot` mention in a PR comment requests changes ([review docs](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/review-copilot-prs)). The person who assigned Copilot cannot approve its PR (the approval page linked in section 1). Session reuse, write-access gating and the 👀 reaction were not found in the cited page. |
+| Devin | `devin-ai-integration[bot]` (GitHub App) | Autofix pushes fix commits for comments from an allowlisted set of bots; the docs warn that answering every bot comment can loop, so the allowlist is the recommended mode. Auto-fix is switched on from the review sidebar of a Devin PR (org admins only). A comment, bug or flag in the diff view can be sent to Devin ([Devin Review](https://docs.devin.ai/work-with-devin/devin-review), [Autofix](https://docs.devin.ai/use-cases/gallery/devin-review-autofix)). How a human's comment on a Devin PR is handled was not found. |
 | Cursor background agents and Bugbot | The Cursor app | `@cursor` in the PR conversation continues the session found by the PR's branch; staff say this works on PRs only. `@cursor` inside an inline review thread is reported unreliable, with "post it in the main conversation" as the workaround. Bugbot reports as a check named "Cursor Bugbot" ([forum](https://forum.cursor.com/t/cursor-background-agent-from-github-creates-new-session-on-every-follow-up-post/158505), [forum](https://forum.cursor.com/t/bugbot-cursor-mentions-in-pr-comment-threads-not-working-github-enterprise/151708), [Bugbot](https://cursor.com/help/ai-features/bugbot)). |
 | Sweep | The Sweep app | Replies on the PR and code comments are taken as requests to retry; "revert" reverts a file's edits. Only package listings and third-party reviews were found, no current official doc ([PyPI](https://pypi.org/project/sweepai/0.5.2)). |
 | Graphite | The developer (stacked PRs via the CLI) | A review inbox with "needs your review / approved / waiting" and a verdict per PR in a stack: approve, request changes or comment. It is a review surface over GitHub and has no agent to send feedback to ([Graphite docs](https://graphite.com/docs/review-pull-requests)). |
@@ -43,7 +43,7 @@ approve and request changes.
 
 - A machine-user account with a token is the fallback when an App cannot be installed. It works
   the same for approval, but costs a seat and holds a long-lived token.
-- One App for all agents: the agent is named in the branch (`T<n>/<slug>`) and in the PR body, not
+- One App for all agents: the agent is named in the branch (`t<n>-<slug>`) and in the PR body, not
   by a GitHub account per agent.
 - Unverified, to test on a sandbox repo before building: that pushes made with an installation
   token trigger the required `check` workflow (pushes made with the workflow's own `GITHUB_TOKEN`
@@ -54,14 +54,16 @@ approve and request changes.
 
 ### 3.2 How a review becomes work
 
-The daemon links each PR to a task and to the agent that opened it. A review event on a linked PR
-becomes an action on that task:
+The daemon links each PR to a task and to the agent that opened it. Work lands per `AGENTS.md`:
+task branches merge into `story/<n>` without the founder, and the founder reviews the one PR from
+`story/<n>` to main. So the founder's PR links to the story's task, and its owner is the agent
+that gets the feedback. A review event on a linked PR becomes an action on that task:
 
 | On GitHub | Becomes | Effect |
 |---|---|---|
-| Review submitted: **Request changes** (body plus its line comments) | `hl task reject` with one note: body, then each thread as `file:line: text` with its URL | Task returns to doing and the note is told to the holder. If that session is closed, the task is reopened for the same agent and the daemon wakes it. |
-| Review submitted: **Comment** (line comments, no verdict) | A memo on the task, and a say to the holder | No state change. The agent decides whether to push a fix. |
-| Review submitted: **Approve** | `hl task accept` | Task is accepted. Merge stays a separate founder action (or the merge queue); the daemon never merges unasked. |
+| Review submitted: **Request changes** (body plus its line comments) | `hl task reject` with one note: body, then each thread as `file:line: text` with its URL | A reported task goes back to its owner's queue with the note (`reject` only works on a reported task); a done one is reopened with `hl task reopen` instead. If the owner's session is closed, the daemon wakes it. |
+| Review submitted: **Comment** (line comments, no verdict) | A memo on the task (told to the holder at once while the task is doing) | No state change. The agent decides whether to push a fix. |
+| Review submitted: **Approve** | `hl task accept` | A reported task is accepted (`accept` needs a reported task; otherwise only a memo). Merge stays a separate founder action (or the merge queue); the daemon never merges unasked. |
 | Single line comment or PR comment, outside a review | A memo; acted on only if it starts with `/fix` | Avoids a reply per comment while a review is being written. |
 | Comment by the App or any account not on the reviewer list | Ignored | Stops loops and drive-by comments. |
 
@@ -88,15 +90,15 @@ The apps drive the same flow instead of replacing GitHub's diff:
 
 ## 4. What the daemon must add
 
-Draft. Not yet checked with `handline.daemon`: this team has no route to it, so `handline.pc` must send it.
+Draft. The Go daemon has no PR, `gh` or review code today, so all of this is new. Not yet checked with `handline.daemon`: this team has no route to it, so `handline.pc` must send it.
 
 1. **PR link on a task:** `{repo, number, branch, opener agent, head sha, review cursor}`, set when
-   the agent opens the PR (`hl task pr T<n> <url>`) or found later by the `T<n>/` branch prefix.
+   the agent opens the PR (`hl task pr T<n> <url>`) or found later by the `t<n>-` branch prefix or `story/<n>`.
 2. **Identity provider:** mint and refresh App installation tokens, expose them to the agent's
    environment; fall back to a configured token.
 3. **Review feed:** poll `gh api` with ETags about once a minute (as in `story7`) for reviews,
    review comments and issue comments on linked PRs; webhooks later when a public URL exists.
-4. **Router:** the table in 3.2, using the existing task `reject`, `accept`, memo and say
+4. **Router:** the table in 3.2, using the existing task `reject`, `accept`, `reopen` and memo
    operations, plus reopen-and-wake when the holder's session has closed.
 5. **Writes:** post a review (verdict, body) as the founder, reply to a thread, resolve a thread,
    add a reaction.
