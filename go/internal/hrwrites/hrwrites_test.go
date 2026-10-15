@@ -632,3 +632,16 @@ func TestTheProposerIsToldHowEachDecisionWentInTheWordsHrPyUsed(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+func TestACacheThatCannotBeRemovedDoesNotUndoARetire(t *testing.T) {
+	r := newRig(t)
+	caches := filepath.Join(r.home, "caches")
+	os.MkdirAll(filepath.Join(caches, "bob", "go-build"), 0o755)
+	os.Chmod(caches, 0o555) // bob's folder cannot leave it
+	defer os.Chmod(caches, 0o755)
+	p, id := r.propose("aaaa0009", "kind", "retire", "agent", "bob")
+	res := r.decide(id, "approve", p.subject(), "g1")["result"].(map[string]any)
+	if !strings.Contains(res["said"].(string), "bob is retired") || strings.Contains(r.file("team.yaml"), "bob:") {
+		t.Fatalf("the retire stopped half done: %v", res)
+	}
+}

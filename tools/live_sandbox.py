@@ -152,6 +152,8 @@ def run_one(d: le.Daemon, s: le.Stream, sock: str, home: Path, root: Path, key: 
             ("own caches in its env", "pass" if gocache.startswith(str(home / "caches" / agent)) else "FAIL", gocache)]
     rc = run(f"echo x > {wt}/srt-control", "worktree write", 60)
     rows.append(("worktree write (control)", "pass" if rc == 0 else "FAIL", f"rc {rc}" + ("" if rc == 0 else ": srt did not run, the rows below say nothing")))
+    if not os.access(key, os.R_OK):   # else a missing key would read as refused
+        return rows + [("founder key read", "FAIL", f"{key} is not readable outside the sandbox: nothing to refuse")]
     rc = run(f"cat {key}", "founder key read", 60)
     rows.append(("founder key read", "pass" if rc not in (0, -1) else "FAIL", f"rc {rc}"))
     probe = Path(subprocess.run(["go", "env", "GOCACHE"], capture_output=True, text=True).stdout.strip()) / "zz-handline-sandbox-probe"
