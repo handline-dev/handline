@@ -1458,6 +1458,10 @@ export interface Methods {
   agent: AgentName;
   request_id: RequestId;
 }; result: Accepted };
+  "agent.retire": { params: {
+  agent: AgentName;
+  request_id: RequestId;
+}; result: Accepted };
   "agent.create": { params: {
   name: AgentName;
   /** A free string today. */
@@ -2470,6 +2474,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "agent.fold": { role: "agent", callers: null, write: true, since: 1 },
   "agent.move": { role: "agent", callers: null, write: true, since: 1 },
   "agent.unstall": { role: "founder", callers: null, write: true, since: 1 },
+  "agent.retire": { role: "founder", callers: null, write: true, since: 1 },
   "agent.create": { role: "founder", callers: null, write: true, since: 1 },
   "session.start": { role: "agent", callers: null, write: true, since: 1 },
   "session.wake": { role: "agent", callers: null, write: true, since: 1 },

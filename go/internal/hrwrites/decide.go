@@ -35,11 +35,12 @@ func (e *Env) logf(format string, args ...any) {
 	}
 }
 
-// Register adds hr.decide and hr.withdraw to the server's table.
+// Register adds hr.decide, agent.set, hr.withdraw and agent.retire to the server's table.
 func Register(s *rpc.Server, e *Env) {
 	s.Register("hr.decide", rpc.Method{Role: "member", Write: true, Handler: e.decideMethod})
 	s.Register("agent.set", rpc.Method{Role: "agent", Write: true, Handler: e.agentSetMethod})
 	s.Register("hr.withdraw", rpc.Method{Role: "agent", Write: true, Handler: e.withdrawMethod})
+	s.Register("agent.retire", rpc.Method{Role: "founder", Write: true, Handler: e.retireMethod})
 }
 
 const decisionsNS = "hr-decisions"

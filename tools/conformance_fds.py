@@ -39,7 +39,7 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
     names = {w: f"s.{w}" for w in STATES}
     output_agent = "s.output"
     ask_agent = ASK_AGENT
-    for n in [*names.values(), output_agent, ask_agent, AGENT]:
+    for n in [*names.values(), output_agent, ask_agent, AGENT, *RETIRE]:
         (home / "agents" / n).mkdir(parents=True)
         (home / "agents" / n / "agent.yaml").write_text("role: seeded by conformance_fds\n")
     for _ in range(200):
@@ -56,11 +56,12 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
             seed_workroom(home, con)
             seed_open_question(con, ask_agent)
             typing = seed_typing_gates(home, con)
-            write_team(home, [*names.values(), output_agent, ask_agent, AGENT, *typing.values()])
+            write_team(home, [*names.values(), output_agent, ask_agent, AGENT, *RETIRE, *typing.values()])
             con.commit()
             con.close()
             return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, "session_agent": output_agent,
-                    "ask_agent": ask_agent, "triggers_agent": names["idle"], **WORKROOM, **typing}
+                    "ask_agent": ask_agent, "triggers_agent": names["idle"], "retire_agent": RETIRE[0],
+                    "retire_parent": RETIRE[1], **WORKROOM, **typing}
         except sqlite3.Error:
             if daemon.poll() is not None:
                 break
@@ -94,6 +95,8 @@ def seed_open_question(con: sqlite3.Connection, agent: str) -> None:
 
 
 ASK_AGENT = "s.ask"
+# agent_retire.json: an agent nothing depends on, which it retires, and one with an agent under its name, which it may not.
+RETIRE = ["r.gone", "r.boss", "r.boss.kid"]
 
 
 def write_team(home: Path, agents: list[str]) -> None:
@@ -198,7 +201,7 @@ def seed_structured(home: Path, daemon: subprocess.Popen, connect, key: str) -> 
             time.sleep(0.05)
     else:
         raise RuntimeError("the daemon's database did not come up to seed")
-    write_team(home, [*names.values(), ASK_AGENT, AGENT])
+    write_team(home, [*names.values(), ASK_AGENT, AGENT, *RETIRE])
     conn = connect()
     call(conn, 1, "hello", {"client": "conformance-seed/1", "protocol": 1, "key": key})
     for i, (var, text) in enumerate(STRUCTURED.items()):

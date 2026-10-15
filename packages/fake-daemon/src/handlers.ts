@@ -81,6 +81,7 @@ const BASE: Record<string, (h: Call) => unknown> = {
     script.setState(s, 'queued', actor);
     return script.accepted(`${s.fx.name}: stalled -> queued`);
   },
+  'agent.retire': ({ actor, script, agent }) => script.retire(agent(), actor),
   'session.stop': (h) => {
     const { p, actor, script, agent } = h;
     return script.stopSession(agent(), p.mode, actor);
