@@ -173,6 +173,54 @@
    ]
   },
   {
+   "name": "sandbox_allowances",
+   "allow_write": [
+    "/r/.git",
+    "/c/go-build"
+   ],
+   "allow_domains": [
+    "registry.npmjs.org",
+    "expo.dev"
+   ],
+   "argv": [
+    "/bin/claude",
+    "--disallowedTools",
+    "Task",
+    "--effort",
+    "high",
+    "--no-chrome",
+    "--settings",
+    "{\"sandbox\": {\"filesystem\": {\"allowWrite\": [\"/r/.git\", \"/c/go-build\"]}, \"network\": {\"allowedDomains\": [\"registry.npmjs.org\", \"expo.dev\"]}, \"enabled\": true}}"
+   ]
+  },
+  {
+   "name": "allowances_beside_extra_dirs",
+   "extra_dirs": [
+    "/w/2"
+   ],
+   "allow_write": [
+    "/r/.git"
+   ],
+   "hide": [
+    "/k"
+   ],
+   "allow_domains": [
+    "sum.golang.org"
+   ],
+   "argv": [
+    "/bin/claude",
+    "--disallowedTools",
+    "Task",
+    "--effort",
+    "high",
+    "--no-chrome",
+    "--add-dir",
+    "/w/2",
+    "--settings",
+    "{\"sandbox\": {\"filesystem\": {\"denyRead\": [\"/k\"], \"allowWrite\": [\"/w/2\", \"/r/.git\"]}, \"network\": {\"allowedDomains\": [\"sum.golang.org\"]}, \"enabled\": true}, \"permissions\": {\"deny\": [\"Read(//k/**)\"]}}"
+   ]
+  },
+  {
    "name": "everything",
    "model": "sonnet",
    "preamble": "p",

@@ -258,3 +258,16 @@ func TestADecisionNotClosedByTheFounderDecidesNothing(t *testing.T) {
 		})
 	}
 }
+
+// Before every port has its owner no card can be resolved, so the founder's task.done on their own todo marks it done as it did before
+// task.done resolved cards (the conformance fixtures play the daemon that way).
+func TestTheFoundersTaskDoneOnTheirOwnTodoWorksBeforeThePortsAreWired(t *testing.T) {
+	d, _ := tellDaemon(t, false)
+	f := pipeTo(t, d, "k")
+	result(t, f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.new","params":{"owner":"human","title":"todo","body":"b","request_id":"n1"}}`))
+	result(t, f.ask(`{"jsonrpc":"2.0","id":3,"method":"task.done","params":{"task":1,"evidence":"did it","request_id":"d1"}}`))
+	task, err := db.GetTask(d.db, 1)
+	if err != nil || task == nil || !task.Ended() {
+		t.Fatalf("not done: %+v %v", task, err)
+	}
+}

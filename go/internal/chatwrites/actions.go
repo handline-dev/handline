@@ -220,6 +220,9 @@ func cardOf(q db.Q, tid int64) (*db.Request, error) {
 // are decided as the card's answer, as inbox.answer did.
 func DecideCard(e *supervisor.Env, tell taskwrites.Teller) taskwrites.CardDecider {
 	return func(tx *sql.Tx, tid int64, words string) (bool, string, func(), error) {
+		if !e.Wired() { // no card can be resolved before every port has its owner: the task is marked done as before, its card left
+			return false, "", nil, nil
+		}
 		t, err := db.GetTask(tx, tid)
 		if err != nil || t == nil || t.Owner != db.Human || t.Ended() {
 			return false, "", nil, err

@@ -74,3 +74,25 @@ func Exe(pid int) string {
 	}
 	return p
 }
+
+// ttyDev is the device of pid's controlling terminal (tty_nr in /proc/pid/stat); ok is false when it has none or no such process runs.
+func ttyDev(pid int) (uint64, bool) {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return 0, false
+	}
+	s := string(b)
+	i := strings.LastIndex(s, ")")
+	if i < 0 {
+		return 0, false
+	}
+	f := strings.Fields(s[i+1:])
+	if len(f) < 5 {
+		return 0, false
+	}
+	dev, err := strconv.ParseUint(f[4], 10, 64)
+	if err != nil || dev == 0 {
+		return 0, false
+	}
+	return dev, true
+}
