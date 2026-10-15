@@ -3,22 +3,24 @@ import { useEffect, useRef, useState } from 'react';
 import { useScreenKeys, type KeyRows } from './screenKeys.ts';
 import {
   activate,
-  applyPreset,
   badgesOf,
   needsAttention,
   closeTab,
+  fillTab,
+  splitPane,
   CHAT,
   moveTab,
   moveTabBy,
   openTab,
   taskRef,
   type Group,
-  type Preset,
   type Tab,
+  type TabKind,
+  type TabParams,
 } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { ChatTab } from './ChatTab.tsx';
-import { Icon, MenuButton, MenuItem, type IconName } from './ui/index.ts';
+import { Button, Icon, MenuButton, MenuItem, type IconName } from './ui/index.ts';
 import { TasksTab } from './TasksTab.tsx';
 import { TimelineTab } from './TimelineTab.tsx';
 import { Badges } from './Badges.tsx';
@@ -33,6 +35,8 @@ import { useWorkspace } from './Workspace.tsx';
 const label = (t: Tab, structured = false): string =>
   t.kind === 'chat'
     ? 'Chat'
+    : t.kind === 'new'
+      ? 'New tab'
     : t.kind === 'tasks'
       ? t.params.pinned
         ? taskRef(Number(t.params.task))
@@ -44,13 +48,7 @@ const label = (t: Tab, structured = false): string =>
           : t.kind === 'terminal'
             ? 'Claude Code'
             : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
-const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history' };
-const PRESETS: [Preset, string][] = [
-  ['single', 'One pane'],
-  ['cols', 'Two columns'],
-  ['rows', 'Two rows'],
-  ['grid', '2 x 2'],
-];
+const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history', new: 'plus' };
 
 const TAB_KEYS: KeyRows = [
   ['Alt+Left Alt+Right', 'move the focused tab along the strip'],
@@ -59,11 +57,21 @@ const TAB_KEYS: KeyRows = [
 
 export function Pane({ group }: { group: Group }) {
   useScreenKeys('On the tabs', TAB_KEYS);
-  const { ws, detail, agent, storage, apply, dragging, setDragging } = useWorkspace();
+  const { ws, detail, agent, storage, apply, canSplit, dragging, setDragging } = useWorkspace();
   const store = useStore();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
   const badges = badgesOf(detail, store.me);
+  // What a new tab can show: the same list for the + menu and for the picker in a freshly split pane.
+  const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; disabled?: boolean }[] = [
+    { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
+    { kind: 'timeline', params: {}, label: 'Timeline', icon: 'history' },
+    detail.structured === true
+      ? { kind: 'transcript', params: {}, label: 'Transcript', icon: 'terminal' }
+      : detail.terminal
+        ? { kind: 'terminal', params: { handle: detail.terminal }, label: 'Claude Code', icon: 'terminal' }
+        : { kind: 'terminal', params: {}, label: 'No terminal: start the agent first', icon: 'noTerminal', disabled: true },
+  ];
   const structured = detail.structured === true;
   // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.
   // The first terminal tab of the group: a group holds one terminal tab per agent, so the unread dot follows that one.
@@ -106,7 +114,7 @@ export function Pane({ group }: { group: Group }) {
               role="tab"
               tabIndex={0}
               aria-selected={id === group.activeTab}
-              className={`tab group inline-flex max-w-[200px] cursor-default select-none items-center gap-1.5 whitespace-nowrap border-b-2 px-3 font-sans text-body font-medium ${id === group.activeTab ? 'on border-b-ink text-ink' : 'border-b-transparent text-ink-2'}`}
+              className={`tab group inline-flex max-w-[200px] cursor-default select-none items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 font-sans text-body font-medium ${id === group.activeTab ? 'on border-b-ink text-ink' : 'border-b-transparent text-ink-2'}`}
               data-tab={id}
               draggable
               onDragStart={(e) => {
@@ -159,40 +167,42 @@ export function Pane({ group }: { group: Group }) {
             </div>
           );
         })}
-        <span className="strip-end relative ml-auto flex items-center gap-0.5">
-          <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab">
-            <MenuItem icon="tasks" onSelect={() => apply((w) => openTab(w, 'tasks', {}, group.id))}>
-              Tasks
+        <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="ml-0.5 self-center">
+          {choices.map((c) => (
+            <MenuItem key={c.label} icon={c.icon} disabled={c.disabled} onSelect={() => apply((w) => openTab(w, c.kind, c.params, group.id))}>
+              {c.label}
             </MenuItem>
-            <MenuItem icon="history" onSelect={() => apply((w) => openTab(w, 'timeline', {}, group.id))}>
-              Timeline
-            </MenuItem>
-            {structured ? (
-              <MenuItem icon="terminal" onSelect={() => apply((w) => openTab(w, 'transcript', {}, group.id))}>
-                Transcript
-              </MenuItem>
-            ) : detail.terminal ? (
-              <MenuItem icon="terminal" onSelect={() => apply((w) => openTab(w, 'terminal', { handle: detail.terminal! }, group.id))}>
-                Claude Code
-              </MenuItem>
-            ) : (
-              <MenuItem icon="noTerminal" disabled>
-                No terminal: start the agent first
-              </MenuItem>
-            )}
-          </MenuButton>
-          <MenuButton icon="layout" size="sm" label="Layout" name="Layout">
-            {PRESETS.map(([p, name]) => (
-              <MenuItem key={p} onSelect={() => apply((w) => applyPreset(w, p))}>
-                {name}
-              </MenuItem>
-            ))}
-          </MenuButton>
-        </span>
+          ))}
+        </MenuButton>
+        <Button
+          icon="split"
+          size="sm"
+          label="Split this pane"
+          title={canSplit(group.id) ? undefined : 'The window is too narrow for another pane'}
+          disabled={!canSplit(group.id)}
+          className="ml-auto self-center"
+          onClick={() => apply((w) => splitPane(w, group.id) ?? w)}
+        />
       </div>
       <div className="pane-body relative flex min-h-0 flex-1 flex-col [&>*]:min-h-0 [&>*]:flex-1" role="tabpanel">
         {!tab ? null : tab.kind === 'chat' ? (
           <ChatTab agent={agent} detail={detail} />
+        ) : tab.kind === 'new' ? (
+          <div className="new-tab flex flex-col items-center justify-center gap-1 p-6">
+            <p className="m-0 mb-2 text-ink-2">Open in this pane</p>
+            {choices.map((c) => (
+              <Button
+                key={c.label}
+                variant="outline"
+                icon={c.icon}
+                label={c.label}
+                disabled={c.disabled}
+                onClick={() => apply((w) => fillTab(w, tab.id, c.kind, c.params))}
+              >
+                {c.label}
+              </Button>
+            ))}
+          </div>
         ) : tab.kind === 'tasks' ? (
           <TasksTab agent={agent} task={typeof tab.params.task === 'number' ? tab.params.task : null} />
         ) : tab.kind === 'timeline' ? (
