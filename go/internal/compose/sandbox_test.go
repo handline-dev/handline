@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/sessiontoken"
 )
@@ -125,5 +126,36 @@ func TestAStructuredSessionIsRecordedAsTheAgentsWhileItRuns(t *testing.T) {
 	<-s.Exited()
 	if kept, _ := tokens.Store.Get(sessiontoken.NS, "alice"); strings.Contains(kept, strconv.Itoa(pid)+" ") {
 		t.Fatalf("the record outlives the session: %q", kept)
+	}
+}
+
+// A structured session starts with the agent's model and the context a terminal launch gives it (ROLE.md, its handoff), not the
+// account's default model and no context.
+func TestAStructuredSessionStartsWithTheAgentsModelAndContext(t *testing.T) {
+	p, _, _, _ := wired(t)
+	dir := filepath.Join(p.home, "agents", "alice")
+	os.WriteFile(filepath.Join(dir, "agent.yaml"), []byte("vendor: claude\nstructured: true\nmodel: haiku\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "ROLE.md"), []byte("Build the widget.\n"), 0o644)
+	if err := dbpkg.SetHandoff(p.Sink.DB, "alice", "left off at step 3"); err != nil {
+		t.Fatal(err)
+	}
+	argsFile := filepath.Join(t.TempDir(), "args.json")
+	p.Run.cfg.Env = append(p.Run.cfg.Env, "FAKE_CLAUDE_ARGS="+argsFile)
+	if err := p.Run.Open(lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "55555555-5555-4555-8555-555555555555"}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var argv []string
+	json.Unmarshal(b, &argv)
+	model := slices.Index(argv, "--model")
+	if model < 0 || model+1 >= len(argv) || argv[model+1] != "haiku" {
+		t.Fatalf("the agent's model is not passed: %q", argv)
+	}
+	pre := slices.Index(argv, "--append-system-prompt")
+	if pre < 0 || pre+1 >= len(argv) || !strings.Contains(argv[pre+1], "Build the widget.") || !strings.Contains(argv[pre+1], "left off at step 3") {
+		t.Fatalf("the agent's context is not passed: %q", argv)
 	}
 }

@@ -44,6 +44,10 @@ func fakeClaude() {
 		fmt.Println(v + " (Claude Code)")
 		return
 	}
+	if f := os.Getenv("FAKE_CLAUDE_ARGS"); f != "" { // what it was started with, for a test to read
+		b, _ := json.Marshal(os.Args[1:])
+		os.WriteFile(f, b, 0o600)
+	}
 	out := json.NewEncoder(os.Stdout)
 	var mu sync.Mutex
 	emit := func(v any) { mu.Lock(); out.Encode(v); mu.Unlock() }

@@ -788,7 +788,8 @@ func (l *Launcher) effortOf(cfg team.Config) string {
 	return team.DefaultEffort
 }
 
-func modelOf(cfg team.Config) string {
+// ModelOf is the model agent.yaml names, "" for the account's default: what a terminal and a structured launch both pass.
+func ModelOf(cfg team.Config) string {
 	if m, ok := cfg["model"].(string); ok {
 		return m
 	}
@@ -813,7 +814,7 @@ func (l *Launcher) Fingerprint(agent string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	material := strings.Join([]string{modelOf(cfg), l.effortOf(cfg), DisallowedTools, l.mcpConfigMaterial(), static}, "\x1e")
+	material := strings.Join([]string{ModelOf(cfg), l.effortOf(cfg), DisallowedTools, l.mcpConfigMaterial(), static}, "\x1e")
 	if !l.plainMode(agent, cfg) {
 		material += "\x1emode:" + l.Roster.ModeOf(agent, cfg) // only when not the default, like chrome
 	}
@@ -874,7 +875,7 @@ func (l *Launcher) FingerprintParts(agent string) (map[string]string, error) {
 		sandbox = SandboxOffPart
 	}
 	return map[string]string{
-		"model":       h(modelOf(cfg)),
+		"model":       h(ModelOf(cfg)),
 		"effort":      h(l.effortOf(cfg)),
 		"mcp config":  h(l.mcpConfigMaterial() + "\x1e" + mcpTail),
 		"browser":     h(browser),

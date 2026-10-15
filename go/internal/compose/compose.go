@@ -239,8 +239,20 @@ func (r *Runner) Open(spec lifecycle.StartSpec) error {
 	if r.parts.LC == nil {
 		return fmt.Errorf("%s: no lifecycle to record the session's proof in", spec.Agent)
 	}
+	// The model and the context (ROLE.md, base.md, its team, its handoff) are the ones a terminal launch gives the agent.
+	agentCfg, err := r.parts.LC.roster.Read(spec.Agent)
+	if err != nil {
+		return fmt.Errorf("%s: %w", spec.Agent, err)
+	}
+	preamble, err := r.parts.LC.Launch.ContextFor(spec.Agent)
+	if err != nil {
+		return fmt.Errorf("%s: %w", spec.Agent, err)
+	}
+	if preamble != "" {
+		args = append(append([]string{}, args...), "--append-system-prompt", preamble)
+	}
 	tokens := r.parts.LC.Launch.Tokens
-	l := structured.Launch{Path: r.cfg.CLI, Args: args, Cwd: spec.Worktree, ConfigDir: cfgDir, SessionID: spec.SessionID,
+	l := structured.Launch{Path: r.cfg.CLI, Args: args, Cwd: spec.Worktree, ConfigDir: cfgDir, SessionID: spec.SessionID, Model: lifecycle.ModelOf(agentCfg),
 		Resume: spec.Resume, Env: append([]string{"OCP_AGENT=" + spec.Agent}, r.cfg.Env...),
 		// The proof the CLI and what it runs are the agent (sessiontoken), as a terminal launch records it: without it the daemon cannot
 		// tell the agent's hl from the founder's.
@@ -254,7 +266,7 @@ func (r *Runner) Open(spec lifecycle.StartSpec) error {
 	if r.parts.db != nil {
 		l.Ledger = confirming{&structured.DBLedger{DB: r.parts.db, Agent: spec.Agent, Now: r.cfg.Now}, r.parts}
 	}
-	_, err := r.mgr.Start(context.Background(), spec.Agent, l)
+	_, err = r.mgr.Start(context.Background(), spec.Agent, l)
 	if err == nil {
 		r.parts.openedMu.Lock()
 		if r.parts.opened == nil {
