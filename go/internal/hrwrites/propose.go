@@ -116,11 +116,12 @@ func (e *Env) proposeMethod(c *rpc.Conn, params map[string]any) (any, error) {
 	slices.Sort(fns)
 	for _, fn := range fns {
 		v := sets[fn]
-		if kind == "context" { // a proposal file holds no line break
+		if kind == "context" { // a proposal file holds no line break; PyJSON matches the Python that still reads it, drop both together
 			v = rpc.PyJSON(v, false, true)
 		}
 		prop.set("set."+fn, v)
 	}
+	// The file is written outside the transaction; the Effect below only records the reply.
 	if err := e.save(prop); err != nil {
 		return refuse("could not write the proposal down, so nothing was raised: %v", err)
 	}

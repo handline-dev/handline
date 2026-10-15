@@ -40,7 +40,7 @@ var commands = map[string]command{
 	"withdraw":            withdraw,
 }
 
-// ported are the verbs with no Python behind them: arguments Go does not take are refused here, not handed to a parser that is gone.
+// ported are the verbs with no Python behind them (a subset of commands; keep in step): arguments Go does not take are refused here, not handed to a parser that is gone.
 var ported = map[string]bool{"say": true, "task": true, "progress": true, "read": true, "inbox": true, "withdraw": true, "team": true, "hr": true}
 
 func main() {

@@ -355,7 +355,7 @@ func read(c *hlclient.Client, args []string) (int, bool) {
 
 func orNone(v any) any {
 	if v == nil {
-		return "None"
+		return "-"
 	}
 	return v
 }
@@ -449,7 +449,7 @@ func doing(agent string, line map[string]any) string {
 		return "?"
 	}
 	if line["has_repo"] != true && line["has_terminal"] != true {
-		return fmt.Sprintf("never started - no repo (`hl agent register %s --repo <path>`)", agent)
+		return "never started - no repo"
 	}
 	if line["started"] != true {
 		return "never started"
