@@ -68,6 +68,8 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	logLine := func(s string) { cfg.Log("%s", s) }
 	tu := tickUsage{p: p, u: uenv, roster: lc.roster, own: tc.Cutover}
 	view := p.agentView(cfg, tc.Cutover, tc.Terminals, tu)
+	refresh := view.RefreshOne
+	p.refreshView.Store(&refresh)
 	if cfg.Turns != nil && tc.Terminals {
 		cfg.Turns.OnChange(view.RefreshOne)
 	}

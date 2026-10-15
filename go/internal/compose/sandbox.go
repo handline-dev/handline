@@ -19,6 +19,8 @@ type Confinement struct {
 	ReadAllow []string
 	// SandboxOff is the founder's choice for this agent: commands run unsandboxed. The Read and Edit denies stay.
 	SandboxOff bool
+	// AllowWrite and AllowDomains are what the sandboxed session may write beyond its worktrees and reach on the network.
+	AllowWrite, AllowDomains []string
 }
 
 // SandboxSettings is the sandbox and the permission denies of a session: the shared settings' sandbox (network, writable folders) and
@@ -41,7 +43,7 @@ func SandboxSettings(shared []byte, c Confinement) map[string]any {
 			fs[k] = v
 		}
 	}
-	for key, add := range map[string][]string{"denyRead": c.Hide, "denyWrite": c.NoWrite, "allowWrite": c.ExtraDirs} {
+	for key, add := range map[string][]string{"denyRead": c.Hide, "denyWrite": c.NoWrite, "allowWrite": append(append([]string{}, c.ExtraDirs...), c.AllowWrite...)} {
 		if len(add) == 0 {
 			continue
 		}
@@ -52,6 +54,20 @@ func SandboxSettings(shared []byte, c Confinement) map[string]any {
 		fs[key] = have
 	}
 	sandbox["filesystem"] = fs
+	if len(c.AllowDomains) > 0 {
+		network := map[string]any{}
+		if old, ok := sandbox["network"].(map[string]any); ok {
+			for k, v := range old {
+				network[k] = v
+			}
+		}
+		have, _ := network["allowedDomains"].([]any)
+		for _, d := range c.AllowDomains {
+			have = append(have, d)
+		}
+		network["allowedDomains"] = have
+		sandbox["network"] = network
+	}
 	sandbox["enabled"] = !c.SandboxOff
 	deny := append([]string{}, data.Permissions.Deny...)
 	for _, p := range c.Hide { // denyRead binds Bash; the Read tool is a permission
@@ -89,7 +105,11 @@ func (r *Runner) confinementOf(agent, worktree string) (Confinement, error) {
 	if err != nil {
 		return Confinement{}, err
 	}
-	return Confinement{Hide: hide, NoWrite: noWrite, ExtraDirs: extra, ReadAllow: []string{filepath.Join(lc.Launch.Home, "attachments")}, SandboxOff: !lc.roster.SandboxOn(agent, cfg)}, nil
+	c := Confinement{Hide: hide, NoWrite: noWrite, ExtraDirs: extra, ReadAllow: []string{filepath.Join(lc.Launch.Home, "attachments")}, SandboxOff: !lc.roster.SandboxOn(agent, cfg)}
+	if !c.SandboxOff {
+		c.AllowWrite, c.AllowDomains = lc.Launch.SandboxAllowWrite(agent), team.SandboxDomains(cfg)
+	}
+	return c, nil
 }
 
 // claudeTranscripts is where the Claude CLI records a session: claude names the folder under the config directory after the worktree, every

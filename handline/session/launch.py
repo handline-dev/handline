@@ -430,6 +430,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
               f"starting it as usual", file=sys.stderr)
     approved = trust.mcp_approved(Path.cwd())
     extra_dirs = extra_worktrees_of(agent, cfg)
+    sandboxed = agents.sandbox_on(agent, cfg)
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS,
                            mcp_arg + agents.mcp_config_args(cfg), preamble,
                            hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + [str(f) for f in sessiontoken.hidden_folders()],
@@ -437,9 +438,10 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
                            memory_dir=memory_dir,
                            trusted=trusted_environment(Path.cwd()) if mode and chosen == agents.DEFAULT_MODE else None,
                            chrome=agents.chrome(cfg),
-                           sandbox=agents.sandbox_on(agent, cfg),
+                           sandbox=sandboxed,
                            **({"mcp_approved": approved} if approved else {}),
-                           **({"extra_dirs": extra_dirs} if extra_dirs else {}))
+                           **({"extra_dirs": extra_dirs} if extra_dirs else {}),
+                           **({"allow_write": sandbox_allow_write(cfg), "allow_domains": agents.sandbox_domains(cfg)} if sandboxed else {}))
     # The pair goes whole or not at all: a caller's own mode wins, and a lone
     # value left behind would be read as the opening prompt.
     if mode and not any(x == mode[0] or x.startswith(mode[0] + "=") for x in extra or []):
@@ -451,6 +453,19 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     if drv.name == "claude":
         env.update(opencode.glm_env(vendors.config_dir(acct)))
     return argv, env
+
+
+def sandbox_allow_write(cfg: dict) -> list[str]:
+    """The folders a sandboxed session may write beyond its worktrees: its repo's .git, where a worktree's commits and
+    refs live, and the Go, npm and pnpm caches a build fills."""
+    out = []
+    repo = cfg.get("repo")
+    if isinstance(repo, str) and repo and (Path(repo) / ".git").is_dir():
+        out.append(str(Path(repo) / ".git"))
+    home = Path.home()
+    cache = home / "Library" / "Caches" if sys.platform == "darwin" else Path(os.environ.get("XDG_CACHE_HOME") or home / ".cache")
+    pnpm = home / "Library" / "pnpm" if sys.platform == "darwin" else home / ".local" / "share" / "pnpm"
+    return out + [str(cache / "go-build"), str(home / "go" / "pkg" / "mod"), str(home / ".npm"), str(pnpm)]
 
 
 def extra_worktrees_of(agent: str, cfg: dict) -> list[str]:
