@@ -182,6 +182,9 @@ func (e *Env) doRetire(p step) (bool, string, error) {
 			return false, "", err
 		}
 	}
+	if err := paths.RemoveCacheDir(e.Home, name); err != nil {
+		return false, "", err
+	}
 	if err := sealed.New(e.Home).Forget(sealed.AgentKey(name)); err != nil {
 		return false, "", err
 	}
@@ -250,6 +253,9 @@ func (e *Env) doRename(p step) (bool, string, error) {
 		if err := os.Rename(src, dest); err != nil {
 			return false, "", err
 		}
+	}
+	if err := paths.RemoveCacheDir(e.Home, old); err != nil { // rebuilt under the new name at its next launch
+		return false, "", err
 	}
 	r := e.roster()
 	if b, err := os.ReadFile(r.AgentFile(new)); err == nil {
