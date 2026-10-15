@@ -50,6 +50,8 @@ export type RefusalData = {
   proposal?: Proposal;
   /** With gate confirm: what the call would do and who is told. */
   plan?: string;
+  /** With gate duplicate_title: the open task the new one repeats. */
+  task?: number;
 };
 
 /** Like 2h, 30m, 1d. */
@@ -1988,6 +1990,8 @@ export interface Methods {
   relation?: string;
   response?: string;
   parent?: number;
+  /** Open the task even when an open task under the same parent, or the parent itself, has nearly its title (gate duplicate_title). */
+  duplicate_ok?: boolean;
   /** Cannot be worked until this task closes. */
   blocked_by?: number;
   /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
