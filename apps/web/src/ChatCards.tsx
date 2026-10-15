@@ -10,6 +10,7 @@ import { goTeam } from './route.ts';
 import { openTaskOnClick } from './ChatMessages.tsx';
 import { useWorkspace } from './Workspace.tsx';
 import { AgentGauges } from './AgentGauges.tsx';
+import { ViewSwitch } from './ViewSwitch.tsx';
 import { useOpenTerminal } from './ChatMenus.tsx';
 
 const until = (iso: string | null): number | null => {
@@ -22,7 +23,7 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
   const cache = until(detail.cache_until);
   const { apply } = useWorkspace();
   return (
-    <div className="chat-strip flex min-w-0 items-center gap-2 overflow-hidden text-hint text-ink-2">
+    <div className="chat-strip flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-hint text-ink-2">
       <State kind={stateOf(detail.state)} label={detail.state_detail ? `${detail.state}: ${detail.state_detail}` : detail.state} />
       {detail.model ? (
         <Chip title={`Model ${detail.model}${detail.effort ? `, ${detail.effort}` : ''}`}>
@@ -43,6 +44,7 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
         </Chip>
       ) : null}
       <AgentGauges ctx={typeof detail.ctx_pct === 'number' ? Math.round(detail.ctx_pct) : null} cacheMin={cache} />
+      <ViewSwitch to="terminal" />
     </div>
   );
 }
