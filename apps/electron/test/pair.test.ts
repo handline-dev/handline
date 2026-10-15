@@ -51,8 +51,9 @@ test('pairSelf proves the key, asks for a code and trades it for a token; no key
   await assert.rejects(pairSelf({ readKey: () => 'wrong', open: g.open, name: 'x' }), /bad key/);
 });
 
-test('a kept token is reused while the gateway lists its device, and replaced when it was revoked', async () => {
+test('a kept token is reused while the gateway lists its device, and replaced when it was revoked', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pair-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const file = new TokenFile(path.join(dir, 'sub', 'device.json'));
   const g = gateway('K');
   const d = { readKey: () => 'K', open: g.open, name: 'x' };
@@ -67,10 +68,12 @@ test('a kept token is reused while the gateway lists its device, and replaced wh
   assert.deepEqual(file.read(), { token: 'tok2', device: 'd2' });
 });
 
-test('it waits for the daemon to make its key, then pairs; with no key at all it gives up', async () => {
+test('it waits for the daemon to make its key, then pairs; with no key at all it gives up', async (t) => {
   const g = gateway('K');
   let reads = 0;
-  const file = new TokenFile(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pair-')), 'device.json'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pair-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = new TokenFile(path.join(dir, 'device.json'));
   const d = { readKey: () => (++reads > 3 ? 'K' : null), open: g.open, name: 'x' };
   assert.equal(await ensureToken(d, file, async () => undefined), 'tok1');
   await assert.rejects(

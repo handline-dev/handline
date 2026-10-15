@@ -57,7 +57,7 @@ func TestAFailedStatementComesBackAsAnErrorFromEveryExportedReader(t *testing.T)
 		"ScreenDrawsSession": func() error { _, err := r.ScreenDrawsSession("bob"); return err },
 		"SessionChanged":     func() error { _, err := r.SessionChanged(q, "bob"); return err },
 		"StalledOnDialog":    func() error { _, err := r.StalledOnDialog(q, "bob", "x"); return err },
-		"TaskReason":         func() error { _, _, _, err := r.TaskReason(q, task, 1); return err },
+		"TaskReason":         func() error { _, _, _, _, err := r.TaskReason(q, task, 1); return err },
 		"TypeSay":            func() error { return r.TypeSay(q, "bob", "x", "y") },
 		"WallReason":         func() error { _, err := r.WallReason(q, "bob", nil); return err },
 		"DeliverQueued":      func() error { _, err := r.DeliverQueued(q, "bob"); return err },

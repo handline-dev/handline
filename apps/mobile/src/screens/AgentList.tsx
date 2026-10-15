@@ -72,7 +72,7 @@ export function AgentList(props: { onUnpair: () => void; onPage: (page: 'worktre
           }}
         />
       </Loadable>
-      <Button label="Unpair this phone" onPress={props.onUnpair} style={{ margin: space.lg }} />
+      <Button label="Unpair this phone" onPress={props.onUnpair} style={{ margin: space.lg, alignSelf: 'flex-start' }} />
     </View>
   );
 }

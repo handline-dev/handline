@@ -23,7 +23,7 @@ func TestBeginOpensATaskOnTheFoundersMessageAndStartsIt(t *testing.T) {
 	}
 	s := rpc.NewServer(auth{"worker"}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 	s.DB = db
-	Register(s, t.TempDir(), nil)
+	Register(s, t.TempDir(), nil, nil)
 	line := func(id int, params, rid string) string {
 		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.begin","params":{%s"request_id":%q}}`, id, params, rid)
 	}

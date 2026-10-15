@@ -136,6 +136,20 @@ func (l lifecycleStarter) WakeAgent(_ db.Q, agent string) (bool, string) {
 	return ok, said
 }
 
+func (l lifecycleStarter) AccountWait(q db.Q, agent string) (string, error) {
+	row, err := db.GetAgentState(q, agent)
+	if err != nil {
+		return "", err
+	}
+	switch w := l.m.Launch.WakeWait(q, agent, row); {
+	case w == nil:
+		return "", nil
+	case w.Slot:
+		return "cap", nil
+	}
+	return "wall", nil
+}
+
 // evaluate is daemon/evaluate.queued_or_idle: QUEUED when something has not reached the agent yet, IDLE otherwise.
 type evaluate struct{}
 

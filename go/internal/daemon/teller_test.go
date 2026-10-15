@@ -97,6 +97,7 @@ func (wiredPorts) MovableTrigger(string) bool                                   
 func (wiredPorts) CacheLeft(string, int64) (int64, bool)                             { return 0, false }
 func (wiredPorts) StartForWork(db.Q, string) string                                  { return "" }
 func (wiredPorts) WakeAgent(db.Q, string) (bool, string)                             { return false, "" }
+func (wiredPorts) AccountWait(db.Q, string) (string, error)                          { return "", nil }
 func (wiredPorts) QueuedOrIdle(db.Q, string, string) error                           { return nil }
 func (wiredPorts) Marker(db.Q, string, string, map[string]any)                       {}
 func (wiredPorts) RecordScreenSample(db.Q, string, *db.AgentState, string, []string) {}

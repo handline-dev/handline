@@ -39,7 +39,7 @@ func reportEnvIn(t *testing.T, home string, rows ...string) (*sql.DB, *fakeTelle
 	return sdb, f, func(agent, method, rid, params string) map[string]any {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = sdb
-		Register(s, home, f)
+		Register(s, home, f, nil)
 		return call(t, s, fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":%q,"params":{"request_id":%q%s}}`, method, rid, params))[0]
 	}
 }

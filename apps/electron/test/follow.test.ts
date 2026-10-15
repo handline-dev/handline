@@ -153,6 +153,7 @@ test('watchMain calls back once when the main ref is replaced or packed-refs is 
     50,
   );
   t.after(stop);
+  t.after(() => fs.rmSync(git, { recursive: true, force: true }));
   await new Promise((r) => setTimeout(r, 100));
   if (errors.length) return t.skip(`fs.watch is not available here: ${errors[0]!.message}`);
   if (!(await watchDelivers(git))) return t.skip('fs.watch delivers no events on this host');

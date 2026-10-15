@@ -16,10 +16,10 @@ import (
 // The hook events a launch keeps installed: captured, the answers to a permission prompt, and the guard
 // (events.CAPTURED | ANSWERS | GUARDS).
 var Wanted = []string{"SessionStart", "SessionEnd", "Stop", "StopFailure", "SubagentStop", "PostCompact", "UserPromptSubmit",
-	"PermissionRequest", "TeammateIdle", "PostToolUse", "PostToolUseFailure", "PreToolUse"}
+	"PermissionRequest", "TeammateIdle", "PostToolUse", "PostToolUseFailure", "PreToolUse", "Notification"}
 
 // matchers limit a hook of ours to the tools it looks at, for the events that fire on every call.
-var matchers = map[string]string{"PreToolUse": "Write|Edit|MultiEdit|NotebookEdit|Bash"}
+var matchers = map[string]string{"PreToolUse": "Write|Edit|MultiEdit|NotebookEdit|Bash", "Notification": "permission_prompt"}
 
 var (
 	oldStatusLines     = []string{"statusline.sh", "statusline-collect.sh"}

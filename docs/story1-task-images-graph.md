@@ -62,20 +62,20 @@ The founder's order: one image path for three places, chat messages, task bodies
 
 - Its images are the references in the body, in order, then the listed ids not already referenced. An id in both counts once; at most 6 in all (`bad_request`, field `attachments` when the list is what goes over, else `body`).
 - `ChatMessage.attachments` keeps listing every image of the message, in that order, so today's clients draw them all. Such a client shows a reference's text as written; a client that reads `parts` does not.
-- The checks are part A's for both forms, in the write's own transaction. Two changes for the list, so both forms answer alike: an id already sent is accepted (the fake daemon refuses it today, the Go daemon does not), and an image no longer kept is `not_found`, what `attachment`, as the Go daemon already answers (the contract says `bad_request`).
+- The checks are part A's for both forms, in the write's own transaction; the count of 6 is checked first. Two changes for the list, so both forms answer alike: an id already sent is accepted (the fake daemon refused it, the Go daemon did not), and a well-formed id never put or no longer kept is `not_found`, what `attachment`, as the Go daemon already answered (the contract said `bad_request`).
 - With `task` the body is the new task's brief, so references in it are allowed and checked as `task.new` `body`. The list stays refused with `task`: a brief names its images in its text.
 
-**Who may name an image in a message.** As for a task: a member or the founder any kept image; an agent only one a task or a message already names, so it can pass on a picture it was shown, never an upload no one has sent.
+**Who may name an image in a message.** As for a task: a member or the founder any kept image; an agent only one a task's text or a message already names or was sent with (`attachments` counts), so it can pass on a picture it was shown, never an upload no one has sent.
 
-**Keeping.** A message that names an image claims it, kept 30 days after the message, as today. An image is removed only when nothing keeps it any more: no open task names it, and its last claim and last task are 30 days old.
+**Keeping.** A message that names an image claims it, kept 30 days after the message, as today. A handoff note is a text of its task, as a reject note is, so its images are kept while the task is open and 30 days after. An image is removed only when nothing keeps it any more: no open task names it, and its last claim and last task are 30 days old.
 
-**What a client reads.** `ChatMessage` gains `parts` with part A's shape (`TextPart`, `ImagePart`), present when the message has an image: the body cut at its references, then one image part per listed id, with an empty `caption`. A timeline row of kind `handoff` gains `parts` as a memo does. `body` stays as it is.
+**What a client reads.** `ChatMessage` and the `request.read` result gain `parts` with part A's shape (`TextPart`, `ImagePart`), present when the message has an image: the body cut at its references, then one image part per listed id, with an empty `caption`. `ChatMessage.attachments` and `turn_start.attachments` list every image of the message. A timeline row of kind `handoff` gains `parts` as a memo does. `body` stays as it is.
 
-**What an agent gets.** Delivery adds one line per image after the text, the form it has today (`[image N: /absolute/path.png (image/png, 184 KB)]`), numbered over the message's images in the order above. The same lines go in the inbox file `hl read` shows, which has none today. An `ImagePart` carries `path` for an agent caller only.
+**What an agent gets.** Delivery adds one line per image after the text, the form it has today (`[image N: /absolute/path.png (image/png, 184 KB)]`), numbered over the message's images in the order above; for a task's request the images its memos name follow, numbered on. `request.read` gains the same `parts`, so `hl read` prints the same lines, which it does not today. An `ImagePart` carries `path` for an agent caller only.
 
 **Markdown.** A task body, a memo and a message are stored as written. The daemon reads only the image references, anywhere in the text (inside a code span too); the rest is the client's to draw. A client draws the text as Markdown (CommonMark with GFM lists and tables), shows raw HTML as text, and never fetches an image by another scheme (an `http:` image is shown as a link), so nothing outside the daemon is loaded. It draws images from `parts`, not by parsing the text. A client that does not draw Markdown yet shows the text parts as plain text, as today. Titles stay plain text. An agent reads the Markdown as written.
 
-**Contract edits.** `x-attachments`: "what" and "flow" name messages and tasks as one path; "tasks" becomes "texts" listing the nine fields; "roles" covers messages; "storage" gets the keeping rule above. `chat.send` `attachments`: how it meets the body's references, and the two changed refusals. The descriptions of `say` `body`, `inbox.reply` `text`, `task.handoff` `note`, and `Task`/`TaskDetail` `body` (Markdown). Schemas: `ChatMessage.parts`, `parts` on the `handoff` timeline row. Fixtures: a `chat.send` with a reference and a listed id read back in `parts` and `attachments`; the same id in both counted once; 4 referenced and 3 listed refused; an already sent id accepted; `chat.send` with `task` and a reference read back in the task's `body_parts`; an agent's `say` naming an image from its brief accepted and one never sent refused.
+**Contract edits.** `x-attachments`: "what" and "flow" name messages and tasks as one path; "tasks" becomes "texts" listing the nine fields; "roles" covers messages; "storage" gets the keeping rule above. `chat.send` `attachments`: how it meets the body's references, and the two changed refusals. The descriptions of `say` `body`, `inbox.reply` `text`, `task.handoff` `note`, and `Task`/`TaskDetail` `body` (Markdown). Schemas: `ChatMessage.parts`, `request.read` `parts`, `parts` on the `handoff` timeline row. Fixtures (Go conformance, as the founder): a `chat.send` with a reference and a listed id, the same id in both counted once, read back in `parts` and `attachments`; an already sent id accepted; 4 referenced and 3 listed refused; a reference to an image never put `not_found`. The Go tests cover what the binary's run cannot: `chat.send` with `task` (it has no task teller), an agent's `say` and handoff note (it has no agent connection).
 
 ## B. The task graph (1-6)
 
@@ -92,7 +92,7 @@ The founder's order: one image path for three places, chat messages, task bodies
 Three things are missing, each a small addition:
 
 1. **One story in one call.** `parent` filters direct children only, so a story of three levels takes a call per level. Add `tasks.list` param `under` (task id): that task and every task below it, any depth, done and discarded included (`all` is implied), still within the caller's scope, newest first and paged as today. 1-6 reads a story with `under`, or the caller's whole board with today's params.
-2. **Waits that are over.** `blocked_by` drops a blocker once it closes, but the graph draws a done blocker too, as a ticked node with its arrow (story1-research, "The graph on PC"). The waits stay recorded (`task_blocks`), so add `Task.waits`: every task this one has waited on, `[{task, open}]`, oldest first; `blocked_by` stays as it is.
+2. **Waits that are over.** `blocked_by` drops a blocker once it closes, but the graph draws a done blocker too, as a ticked node with its arrow (story1-research, "The graph on PC"). A done blocker's wait stays recorded (`task_blocks`; a discarded blocker's wait is dropped with it), so add `Task.waits`: every task this one has waited on, `[{task, open}]`, oldest first; `blocked_by` stays as it is.
 3. **The waiting reason as one field.** Answer 7. Today it is free text in two fields plus the board's `now`. Add `Task.waiting`, `null` when nothing waits, else:
 
    ```jsonc
@@ -103,11 +103,11 @@ Three things are missing, each a small addition:
 
 **Scope** is the caller's, as for every task read: an agent sees itself and its reports, a member and the founder everything (with `everyone`). A blocker outside the caller's scope still appears in `waits` and `waiting.tasks` by id, without its row.
 
-**Fixtures.** `tasks.list` with `under` on a three-level story (every level, a done child included, and a task outside the story left out); `waits` with one open and one closed blocker; `waiting` for a task behind a blocker (`task`) and one waiting on a founder's answer (`founder`).
+**Fixtures** (`contract/fixtures/task_graph.json`). `tasks.list` with `under` on a three-level story (every level, a done child included, and a task outside the story left out); `waits` with one open and one done blocker; `waiting` for a task behind a blocker (`task`) and one waiting on a founder's answer (`founder`). `cap`, `wall` and `owner` come from the supervisor's sweep and are covered by Go tests.
 
 ## Build slices that follow
 
 1. Go: `body_parts` and the `parts` fields, the reject row of the timeline, the reference checks, keeping, path lines to agents. hl prints the path lines in `hl task show`.
 2. Go: part A+, on part A's parser, checker and keeper; path lines in the inbox file.
-3. Go: `tasks.list` `under`, `Task.waits`, `Task.waiting` (with the stored cause). The fake daemon follows each slice.
+3. Go: `tasks.list` `under`, `Task.waits`, `Task.waiting` (with the stored cause). The fake daemon follows each slice. Done: in `contract/protocol.json`.
 4. Apps (handline.pc, phone): the image picker in the task body and memo editor, `task.reject` with the circled picture, and the graph on `under` + `waits` + `waiting`.
