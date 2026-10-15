@@ -1,10 +1,7 @@
 // The quiet admin page (#/admin, linked from the foot of Settings): what the daemon is doing, why agents wake, how full their memory is, and what just happened.
 // Read-only: it shows what `hl` printed for a person, in words.
-import { useEffect, useState } from 'react';
 import { ago } from '@handline/app-core';
-import { useMemory, useServes, useStatus, useTriggers } from '@handline/app-data';
-import { useStore } from '@handline/app-react';
-import type { Event } from '@handline/client';
+import { useMemory, useRecentEvents, useServes, useStatus, useTriggers } from '@handline/app-data';
 import { PageHead, PageTitle, RowTitle, ScrollPage, SectionHead, SettingsCard, SettingsRow } from './ui/index.ts';
 import { View } from './View.tsx';
 
@@ -94,20 +91,9 @@ function Memory() {
 }
 
 function Recent() {
-  const store = useStore();
   const { served } = useServes('events.feed');
-  const [events, setEvents] = useState<Event[] | null>(null);
-  useEffect(() => {
-    if (!served) return;
-    let live = true;
-    store.client.call('events.feed', { limit: 30 }).then(
-      (r) => live && setEvents([...r.events].sort((a, b) => b.cursor - a.cursor)),
-      () => live && setEvents([]),
-    );
-    return () => {
-      live = false;
-    };
-  }, [store, served]);
+  const q = useRecentEvents(30);
+  const events = q.data ?? (q.isError ? [] : null);
   return (
     <>
       <SectionHead>Just happened</SectionHead>
