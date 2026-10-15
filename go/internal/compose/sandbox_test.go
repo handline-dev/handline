@@ -51,6 +51,14 @@ func TestTheSandboxSettingsCarryTheSharedSandboxAndTheHideListsAsATerminalAgentG
 	if _, sb, deny := sandboxOf(t, shared, Confinement{SandboxOff: true, Hide: []string{"/x"}}); sb["enabled"] != false || len(deny) != 2 {
 		t.Fatalf("the founder's choice turns the sandbox off and keeps the file-tool denies: %v %v", sb, deny)
 	}
+	fs, sb, _ = sandboxOf(t, shared, Confinement{ExtraDirs: []string{"/w2"}, AllowWrite: []string{"/r/.git"}, AllowDomains: []string{"registry.npmjs.org"}})
+	if !slices.Equal(fs["allowWrite"].([]any), []any{"/h", "/w2", "/r/.git"}) {
+		t.Fatalf("the allowances are written beside the worktrees: %v", fs["allowWrite"])
+	}
+	network := sb["network"].(map[string]any)
+	if !slices.Equal(network["allowedDomains"].([]any), []any{"github.com", "registry.npmjs.org"}) {
+		t.Fatalf("the hosts are added to the shared ones: %v", network)
+	}
 }
 
 // What the CLI is started with is what a terminal session of the agent would be kept out of.

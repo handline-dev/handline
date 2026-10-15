@@ -84,7 +84,8 @@ func (Driver) LaunchArgv(exe string, o lifecycle.LaunchArgs) []string {
 	if o.MemoryDir != "" {
 		settings.Set("autoMemoryDirectory", o.MemoryDir)
 	}
-	if len(o.Hide) > 0 || len(o.NoWrite) > 0 || len(o.ExtraDirs) > 0 {
+	writable := append(append([]string{}, o.ExtraDirs...), o.AllowWrite...)
+	if len(o.Hide) > 0 || len(o.NoWrite) > 0 || len(writable) > 0 || len(o.AllowDomains) > 0 {
 		fs := NewObject()
 		if len(o.Hide) > 0 {
 			fs.Set("denyRead", o.Hide)
@@ -92,11 +93,16 @@ func (Driver) LaunchArgv(exe string, o lifecycle.LaunchArgs) []string {
 		if len(o.NoWrite) > 0 {
 			fs.Set("denyWrite", o.NoWrite)
 		}
-		if len(o.ExtraDirs) > 0 {
-			fs.Set("allowWrite", o.ExtraDirs) // a working directory is readable; Bash may write it only when it is named here
+		if len(writable) > 0 {
+			fs.Set("allowWrite", writable) // a working directory is readable; Bash may write it only when it is named here
 		}
 		sb := NewObject()
 		sb.Set("filesystem", fs)
+		if len(o.AllowDomains) > 0 {
+			net := NewObject()
+			net.Set("allowedDomains", o.AllowDomains)
+			sb.Set("network", net)
+		}
 		settings.Set("sandbox", sb)
 	}
 	// Said either way, so the shared settings never decide it. Off, commands run unsandboxed; the Read/Edit denies below

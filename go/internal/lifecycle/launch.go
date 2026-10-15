@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -101,6 +102,8 @@ type LaunchArgs struct {
 	ExtraDirs                 []string
 	// ReadAllow are folders the session may read with its file tools without asking (the attachments folder).
 	ReadAllow []string
+	// AllowWrite and AllowDomains are what a sandboxed session may write beyond its worktrees and reach on the network.
+	AllowWrite, AllowDomains []string
 }
 
 // Hooks is a vendor's state hooks, which launch keeps current.
@@ -1009,3 +1012,21 @@ func (p LaunchPort) ChooseAccount(_ db.Q, agent string) bool {
 }
 
 func (p LaunchPort) NoRoom(agent string) string { return p.L.NoRoom(agent) }
+
+// SandboxAllowWrite are the folders a sandboxed session of agent may write beyond its worktrees: its repo's .git, where a worktree's
+// commits and refs live, and the Go, npm and pnpm caches a build fills.
+func (l *Launcher) SandboxAllowWrite(agent string) []string {
+	var out []string
+	if repo := l.Roster.RepoOf(agent); repo != "" {
+		if fi, err := os.Stat(filepath.Join(repo, ".git")); err == nil && fi.IsDir() {
+			out = append(out, filepath.Join(repo, ".git"))
+		}
+	}
+	user, _ := os.UserHomeDir()
+	cache, _ := os.UserCacheDir()
+	pnpm := filepath.Join(user, ".local", "share", "pnpm")
+	if runtime.GOOS == "darwin" {
+		pnpm = filepath.Join(user, "Library", "pnpm")
+	}
+	return append(out, filepath.Join(cache, "go-build"), filepath.Join(user, "go", "pkg", "mod"), filepath.Join(user, ".npm"), pnpm)
+}
