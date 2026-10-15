@@ -19,7 +19,7 @@ export function Devices() {
       <View q={q} served={served} shape="settings" what="paired devices" empty={!rows.length && 'No device is paired.'}>
         <SettingsCard as="ul" className="devices">
           {rows.map((d) => (
-            <SettingsRow as="li" key={d.id} data-device={d.id}>
+            <SettingsRow answer as="li" key={d.id} data-device={d.id}>
               <Icon name={d.connected ? 'agent' : 'waiting'} size={16} label={d.connected ? 'Connected' : 'Not connected'} />
               <RowTitle plain className="[overflow-wrap:anywhere]">
                 {d.name} <span className="muted">{d.connected ? 'connected' : d.last_seen ? `seen ${ago(d.last_seen)} ago` : 'never seen'}</span>
@@ -42,6 +42,9 @@ export function Devices() {
           }}
         >
           <p className="m-0">{asking.name} loses its access to this daemon at once. To use it again it has to be paired anew.</p>
+          <div>
+            <Button label="Cancel" onClick={() => setAsking(null)} />
+          </div>
         </Dialog>
       ) : null}
     </>
