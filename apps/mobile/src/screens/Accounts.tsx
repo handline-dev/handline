@@ -14,7 +14,7 @@ import { Loadable } from './Loadable.tsx';
 import { Button, PageHeader } from './parts.tsx';
 import { useWhyNot } from './TaskActions.tsx';
 
-const SPANS = { '5 h': FIVE_HOURS_MS, week: WEEK_MS } as const;
+const SPANS = { '5 hours': FIVE_HOURS_MS, week: WEEK_MS } as const;
 
 export function Accounts(props: { selected: string | null; onSelect: (name: string | null) => void }) {
   return props.selected != null ? <One name={props.selected} onBack={() => props.onSelect(null)} /> : <List onSelect={props.onSelect} />;
@@ -80,7 +80,7 @@ function List(props: { onSelect: (name: string) => void }) {
                 </Text>
               </View>
               <Text style={{ color: c.muted, fontSize: 12 }}>{stateText(a)}</Text>
-              <Gauge label="5 h" w={a.five_hour} />
+              <Gauge label="5 hours" w={a.five_hour} />
               <Gauge label="week" w={a.weekly} />
             </Pressable>
           )}
@@ -186,7 +186,7 @@ function Body({ a }: { a: Account }) {
     <ScrollView testID="account-detail" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
       <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>{a.label}</Text>
       <Text style={{ color: c.muted }}>{stateText(a)}</Text>
-      <Gauge label="5 h" w={a.five_hour} detail />
+      <Gauge label="5 hours" w={a.five_hour} detail />
       <Gauge label="week" w={a.weekly} detail />
       <Text style={{ color: c.ink }}>{a.agents.length ? `On it: ${a.agents.join(', ')}` : 'No agents are on it.'}</Text>
       <Settings a={a} />

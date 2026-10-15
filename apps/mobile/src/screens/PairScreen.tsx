@@ -28,9 +28,9 @@ export function PairScreen(props: { onPaired: (p: Pairing) => void }) {
   };
   return (
     <View style={{ padding: space.lg, gap: space.md }}>
-      <PageHeader bare title="Pair with a daemon" />
+      <PageHeader bare title="Connect to your computer" />
       <Text style={{ color: c.muted }}>
-        On the computer, choose Pair a phone in the Handline menu, and scan its code. Or run hl device pair and paste the link.
+        On your computer, open the Handline menu, choose Pair a phone and scan the code. No code? Paste the pairing link below (hl device pair makes one).
       </Text>
       {scanning ? (
         <ScanQr onScan={(t) => void go(t)} onCancel={() => setScanning(false)} />
