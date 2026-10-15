@@ -1025,9 +1025,10 @@ func (l *Launcher) SandboxAllowWrite(agent string) []string {
 	return nil
 }
 
-// SandboxCacheDir is agent's own build caches, made here: the session may write it but not its parent.
+// SandboxCacheDir is agent's own build caches, made here. Any sandboxed session may write the whole home (the shared settings allow it),
+// so this keeps shared caches out of its reach, not its caches from other agents.
 func (l *Launcher) SandboxCacheDir(agent string) string {
-	d := filepath.Join(l.Home, "caches", agent)
+	d := paths.CacheDir(l.Home, agent)
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		l.warn("%s: cannot make its cache folder %s: %v", agent, d, err)
 	}

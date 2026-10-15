@@ -1107,9 +1107,14 @@ edges:
 
         # Retiring archives rather than deletes: the journal is the record of
         # work that was actually done.
+        ro = home / "caches" / "dohyun" / "go-mod" / "m@v1"   # read-only, as Go keeps its module cache
+        ro.mkdir(parents=True)
+        (ro / "go.mod").write_text("")
+        ro.chmod(0o555)
         ok, said = hr.propose("retire", "dohyun", requester="hr", why="branch landed")
         pid2 = said.split()[1]
         ok, said = apply_hr(pid2)
+        check("hr: and removes its build caches", not (home / "caches" / "dohyun").exists())
         table = yamlcompat.load((home / "team.yaml").read_text())
         archived = list((home / "agents" / "archive").glob("*dohyun*"))
         check("hr: retiring takes it out of the table", ok and "dohyun" not in table["agents"], said)

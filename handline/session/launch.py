@@ -466,8 +466,9 @@ def sandbox_allow_write(cfg: dict) -> list[str]:
 
 
 def sandbox_cache_dir(agent: str) -> str:
-    """The agent's own build caches (vendors/claude.py cache_env), made here: the session may write it but not its parent."""
-    d = paths.home() / "caches" / agent
+    """The agent's own build caches (vendors/claude.py cache_env), made here. Any sandboxed session may write the whole
+    home (the shared settings allow it), so this keeps shared caches out of its reach, not its caches from other agents."""
+    d = paths.cache_dir(agent)
     d.mkdir(parents=True, exist_ok=True)
     return str(d)
 

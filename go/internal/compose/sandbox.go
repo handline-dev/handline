@@ -74,6 +74,7 @@ func SandboxSettings(shared []byte, c Confinement) map[string]any {
 	sandbox["enabled"] = !c.SandboxOff
 	out := map[string]any{"sandbox": sandbox}
 	if c.CacheDir != "" {
+		sandbox["enableWeakerNetworkIsolation"] = true // Go on macOS verifies TLS through trustd, which the default isolation blocks
 		env := map[string]any{}
 		for _, kv := range claude.CacheEnv(c.CacheDir) {
 			env[kv[0]] = kv[1]

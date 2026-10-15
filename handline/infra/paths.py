@@ -166,6 +166,22 @@ def agent_dir(name: str) -> Path:
     return agents_dir() / name
 
 
+def cache_dir(name: str) -> Path:
+    """A sandboxed agent's own build caches (vendors/claude.py cache_env)."""
+    return home() / "caches" / name
+
+
+def remove_cache_dir(name: str) -> None:
+    """Remove an agent's build caches. Go keeps its module cache read-only, so folders are made writable first."""
+    d = cache_dir(name)
+    if not d.exists():
+        return
+    for root, dirs, _ in os.walk(d):
+        for x in dirs:
+            os.chmod(os.path.join(root, x), 0o755)
+    shutil.rmtree(d, ignore_errors=True)
+
+
 def handoff_note_file(agent: str) -> Path:
     """The one file an agent writes for its handoff note."""
     return agent_dir(agent) / "handoff.md"
