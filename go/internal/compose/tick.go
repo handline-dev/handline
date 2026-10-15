@@ -68,8 +68,17 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	logLine := func(s string) { cfg.Log("%s", s) }
 	tu := tickUsage{p: p, u: uenv, roster: lc.roster, own: tc.Cutover}
 	view := p.agentView(cfg, tc.Cutover, tc.Terminals, tu)
+	refresh := view.RefreshOne
+	p.refreshView.Store(&refresh)
+	wake := make(chan struct{}, 1)
 	if cfg.Turns != nil && tc.Terminals {
 		cfg.Turns.OnChange(view.RefreshOne)
+		cfg.Turns.OnEnd(p.sessionPid, func(string) {
+			select {
+			case wake <- struct{}{}:
+			default:
+			}
+		})
 	}
 	agents := func() []string { return p.tickAgents(tc.Terminals) }
 	reconciler := &lifecycle.Reconciler{Q: q, Log: logLine, Ports: lifecycle.ReconcilerPorts{
@@ -141,7 +150,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	dev.Exe, _ = os.Executable()
 	dev.Baseline()
 	fds := &housekeeping.FDs{Log: logLine}
-	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop, Dev: dev, Housekeeping: []tick.NamedSweep{
+	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop, Dev: dev, Wake: wake, Housekeeping: []tick.NamedSweep{
 		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
 		{Name: "attachment sweep", Run: func(q db.Q, _ int64) error { return attachments.New(home).Sweep(q) }},

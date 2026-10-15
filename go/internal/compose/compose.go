@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
@@ -81,6 +82,8 @@ type Parts struct {
 
 	openedMu sync.Mutex
 	opened   map[string]string // the account each agent's last session was opened under
+
+	refreshView atomic.Pointer[func(agent string)] // the tick's view writer, once Tick has built it
 }
 
 // OpenedOn is the account the agent's running session was opened under: the daemon chose its config directory, so it knows. "" when no
@@ -112,6 +115,12 @@ func (e events) Emit(agent string, ev structured.Event) {
 	if ev.Type == "session_end" && e.p.tell != nil && e.p.db != nil {
 		if err := e.p.tell.SessionLost(e.p.db, agent); err != nil && e.p.log != nil {
 			e.p.log("  %s: telling the session's end failed: %v", agent, err)
+		}
+	}
+	// a turn that began or ended is in the agent's view now, not at the next tick, which a short turn can fall between
+	if ev.Type == "state" || ev.Type == "session_end" {
+		if refresh := e.p.refreshView.Load(); refresh != nil {
+			(*refresh)(agent)
 		}
 	}
 }

@@ -19,17 +19,25 @@ type Loop struct {
 	// MaxTicks counts this process's own ticks, 0 for no limit: a restart starts the count over.
 	MaxTicks int
 	Sleep    func(time.Duration) bool // false when Stop came first; nil waits on Stop
+	// Wake runs the reconcile sweep alone between ticks, so a session that ended is recorded at once rather than at the next tick.
+	Wake <-chan struct{}
 }
 
 func (l *Loop) sleep(d time.Duration) bool {
 	if l.Sleep != nil {
 		return l.Sleep(d)
 	}
-	select {
-	case <-l.Stop:
-		return false
-	case <-time.After(d):
-		return true
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	for {
+		select {
+		case <-l.Stop:
+			return false
+		case <-timer.C:
+			return true
+		case <-l.Wake:
+			l.Tick.Sweep()
+		}
 	}
 }
 

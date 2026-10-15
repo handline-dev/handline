@@ -23,6 +23,8 @@ def _world(home: Path) -> Path:
     (home / "accounts" / "alpha" / "status.json").write_text("{}")
     (home / "venv" / "bin").mkdir(parents=True)
     (home / "venv" / "bin" / "python3").write_text("")
+    (home / "caches" / "a" / "go-build").mkdir(parents=True)
+    (home / "caches" / "a" / "go-build" / "x").write_text("")
     con = db.connect()
     db.add_request(con, "human", "a", "hello", None, None, None, None, 0, None)
     con.close()
@@ -45,6 +47,7 @@ def test_a_snapshot_holds_the_state_and_never_a_login(home: Path) -> None:
     check("backup: nothing under accounts/*/.claude is copied",
           not any(".claude" in n for n in names), str(names))
     check("backup: venv is left out", not any(n.startswith("venv") for n in names))
+    check("backup: the agents' build caches are left out", not any(n.startswith("caches") for n in names), str(names))
     import tarfile
     with tarfile.open(out) as tar:
         tar.extract("db.sqlite", home.parent / "restored")
