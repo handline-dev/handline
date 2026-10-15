@@ -133,7 +133,9 @@ class Claude:
                     trusted: list[str] | None = None,
                     chrome: bool = False, sandbox: bool = False,
                     mcp_approved: list[str] | None = None,
-                    extra_dirs: list[str] | None = None) -> list[str]:
+                    extra_dirs: list[str] | None = None,
+                    allow_write: list[str] | None = None,
+                    allow_domains: list[str] | None = None) -> list[str]:
         argv = [exe]
         if model:
             argv += ["--model", str(model)]
@@ -150,15 +152,18 @@ class Claude:
             argv += ["--append-system-prompt", preamble]
         # One --settings object: a second one would replace the first.
         settings = self.memory_settings(memory_dir) if memory_dir else {}
-        if hide or no_write or extra_dirs:
+        writable = [*(extra_dirs or []), *(allow_write or [])]
+        if hide or no_write or writable or allow_domains:
             fs = {}
             if hide:
                 fs["denyRead"] = hide
             if no_write:
                 fs["denyWrite"] = no_write
-            if extra_dirs:
-                fs["allowWrite"] = extra_dirs       # a working directory is readable; Bash may write it only when it is named here
+            if writable:
+                fs["allowWrite"] = writable         # a working directory is readable; Bash may write it only when it is named here
             settings["sandbox"] = {"filesystem": fs}
+            if allow_domains:
+                settings["sandbox"]["network"] = {"allowedDomains": allow_domains}
         # Said either way, so the shared settings never decide it. Off, commands run unsandboxed; the
         # Read/Edit denies below are permissions, not the sandbox, and stay.
         settings.setdefault("sandbox", {})["enabled"] = sandbox
