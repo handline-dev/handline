@@ -25,7 +25,7 @@ import { classify, useAgentDetail, useAgents, useServes } from '@handline/app-da
 import { View } from './View.tsx';
 import { DropZones } from './DropZones.tsx';
 import { Pane } from './Pane.tsx';
-import { isSwitchChord } from './terminal/core.ts';
+import { isSwitchChord, isTerminalSwitch } from './terminal/core.ts';
 
 const CELL = 'cell flex min-h-0 min-w-0 [&>*]:min-h-0 [&>*]:min-w-0 [&>*]:flex-1';
 
@@ -115,7 +115,8 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   flipRef.current = flip;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!isSwitchChord(e)) return;
+      const inTerminal = e.target instanceof HTMLElement && !!e.target.closest('.xterm');
+      if (!(inTerminal ? isTerminalSwitch(e) : isSwitchChord(e))) return;
       e.preventDefault();
       flipRef.current();
     };

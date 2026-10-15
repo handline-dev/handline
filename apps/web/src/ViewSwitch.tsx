@@ -5,8 +5,10 @@ import { useStore } from '@handline/app-react';
 import { useWorkspaceIfAny } from './Workspace.tsx';
 import { Badges } from './Badges.tsx';
 import { Button } from './ui/index.ts';
+import { IS_MAC } from './terminal/core.ts';
 
-const KEY = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform ?? '') ? '⌘J' : 'Ctrl+J';
+// From the terminal view the key is the one the terminal gives up (Ctrl+Shift+J off a Mac).
+const keyFor = (to: 'chat' | 'terminal') => (IS_MAC ? '⌘J' : to === 'chat' ? 'Ctrl+Shift+J' : 'Ctrl+J');
 
 export function ViewSwitch({ to }: { to: 'chat' | 'terminal' }) {
   const ws = useWorkspaceIfAny();
@@ -19,7 +21,7 @@ export function ViewSwitch({ to }: { to: 'chat' | 'terminal' }) {
     <span className="ml-auto inline-flex items-center">
       <Badges badges={badges} onClick={{ dialog: ws.flip }} />
       <span className="relative inline-flex">
-        <Button size="sm" icon={to === 'chat' ? 'chat' : 'terminal'} label={`${label} (${KEY})`} onClick={ws.flip} />
+        <Button size="sm" icon={to === 'chat' ? 'chat' : 'terminal'} label={`${label} (${keyFor(to)})`} onClick={ws.flip} />
         {attention ? <span className="unread-dot absolute top-0.5 right-0.5 h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" /> : null}
       </span>
     </span>
