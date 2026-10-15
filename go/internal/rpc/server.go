@@ -596,6 +596,10 @@ func hello(c *Conn, params map[string]any) (any, error) {
 		c.Caller = Caller{"member", map[string]any{"kind": "device", "device": id, "name": name}}
 	} else if c.fixed == nil {
 		c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
+		if c.Caller.Role == "founder" {
+			client, _ := params["client"].(string)
+			c.srv.noteFounderKey(c.Pid, client)
+		}
 	}
 	caps, methods := baseCapabilities(), c.methodList()
 	// A server that serves terminal.* itself declares its formats and has no Relay; a gateway has a Relay and serves none of them, so the

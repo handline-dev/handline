@@ -3,9 +3,13 @@ package rpc
 import (
 	"bufio"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/store"
@@ -218,5 +222,49 @@ func TestARehelloAtTheCapDoesNotEvictItsOwnConnection(t *testing.T) {
 	}
 	if len(g.open) != 0 {
 		t.Fatalf("%d logins still held", len(g.open))
+	}
+}
+
+func TestEveryHelloTheFounderKeyIsTakenOnLeavesARecordOfWhoPresentedIt(t *testing.T) {
+	db := newDB(t)
+	srv := writeServer(t, db, new(int), nil)
+	hello := func(key string) {
+		cl, sv := net.Pipe()
+		done := make(chan struct{})
+		go func() { srv.Serve(NewLineTransport(sv), os.Getpid()); sv.Close(); close(done) }()
+		c := &client{cl, bufio.NewReader(cl)}
+		c.raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"t/1","protocol":1,"key":"`+key+`"}}`)
+		cl.Close()
+		<-done
+	}
+	hello("k")
+	hello("wrong")
+	hello("")
+	hello("k")
+	rows, err := db.Query("SELECT agent, payload FROM events WHERE kind = 'founder_key'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []map[string]any
+	for rows.Next() {
+		var agent, payload string
+		rows.Scan(&agent, &payload)
+		var p map[string]any
+		json.Unmarshal([]byte(payload), &p)
+		if agent != Human {
+			t.Fatalf("recorded under %q", agent)
+		}
+		got = append(got, p)
+	}
+	if len(got) != 2 {
+		t.Fatalf("one record per hello the key was taken on, none for the others: %v", got)
+	}
+	self := filepath.Base(os.Args[0]) + ":" + strconv.Itoa(os.Getpid())
+	if p := got[0]; int(p["pid"].(float64)) != os.Getpid() || !strings.HasPrefix(p["chain"].(string), self) || p["client"] != "t/1" {
+		t.Fatalf("the record names the process, the programs above it and the client: %v (want the chain to start %s)", p, self)
+	}
+	if _, ok := got[0]["terminal"].(string); !ok {
+		t.Fatalf("no terminal field: %v", got[0])
 	}
 }

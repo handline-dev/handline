@@ -22,9 +22,10 @@ func TestCancelIsTheFoundersDiscardThatStopsTheRequestsOutOnTheTask(t *testing.T
 		os.WriteFile(filepath.Join(home, "agents", a, "agent.yaml"), nil, 0o644)
 	}
 	for _, q := range []string{
-		"INSERT INTO tasks(id, title, owner, opened_by, created_at, sent_at) VALUES(1, 'a', 'w', 'boss', 1, 5), (2, 'b', 'w2', 'human', 1, 5)",
-		"INSERT INTO requests(id, requester, target, kind, state, ts, body, delivered_at) VALUES(10, 'boss', 'w', 'task', 'queued', 1, 'x', 6), (20, 'human', 'w2', 'task', 'queued', 1, 'x', NULL)",
-		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10), (2, 20)",
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, sent_at) VALUES(1, 'a', 'w', 'boss', 1, 5), (2, 'b', 'w2', 'human', 1, 5), (3, 'c', 'human', 'human', 1, 5)",
+		"INSERT INTO requests(id, requester, target, kind, state, ts, body, delivered_at) VALUES(10, 'boss', 'w', 'task', 'queued', 1, 'x', 6), (20, 'human', 'w2', 'task', 'queued', 1, 'x', NULL), " +
+			"(30, 'human', 'human', 'task', 'queued', 1, 'x', NULL)",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10), (2, 20), (3, 30)",
 		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('w2', 'IDLE', 1, 2)",
 	} {
 		if _, err := db.Exec(q); err != nil {
@@ -61,5 +62,15 @@ func TestCancelIsTheFoundersDiscardThatStopsTheRequestsOutOnTheTask(t *testing.T
 	}
 	if count("SELECT COUNT(*) FROM requests WHERE id = 20 AND state = 'withdrawn'") != 1 || len(f.cancelled) != 0 || !f.stopped || len(f.forget) != 1 || f.forget[0].RID != 20 {
 		t.Fatalf("it is withdrawn, its inbox file goes and the holder is typed to stop: %+v %v %+v", f.cancelled, f.stopped, f.forget)
+	}
+
+	// The founder's own task: its request is its card, and withdrawing the card is part of this discard, not someone else's.
+	r = cancel("c3", 3)
+	if r["error"] != nil || r["result"].(map[string]any)["said"] != "task T3 discarded by human: cancelled by the founder" {
+		t.Fatalf("a founder-owned task: %v", r)
+	}
+	if count("SELECT COUNT(*) FROM tasks WHERE id = 3 AND discard_reason = 'cancelled by the founder'") != 1 ||
+		count("SELECT COUNT(*) FROM requests WHERE id = 30 AND state = 'withdrawn'") != 1 {
+		t.Fatal("the task is discarded by the cancel and its card withdrawn")
 	}
 }

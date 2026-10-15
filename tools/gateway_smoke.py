@@ -37,6 +37,8 @@ import threading
 import time
 from pathlib import Path
 
+import tmuxsock
+
 ROOT = Path(__file__).resolve().parent.parent
 PROTOCOL = 1
 
@@ -261,6 +263,7 @@ class World:
         return self.root / f"{name}.log"
 
     def setup(self) -> None:
+        tmuxsock.sweep("gwsmoke", env=self.env)       # the servers of smokes killed before their stop
         for d in (self.home, self.user, self.root / "bin"):
             d.mkdir(parents=True, exist_ok=True)
         # A fake claude: it prints a banner and answers every line it is typed, so a terminal has bytes to show and to take.
@@ -371,7 +374,7 @@ print(json.dumps({"task": tid, "say": say, "ask_inbox": ask1, "ask_chat": ask2, 
                 p.wait(10)
             except subprocess.TimeoutExpired:
                 p.kill()
-        subprocess.run(["tmux", "-L", self.env["OCP_TMUX_SOCKET"], "kill-server"], capture_output=True, env=self.env)
+        tmuxsock.stop(self.env["OCP_TMUX_SOCKET"], env=self.env)
         if self.keep:
             print(f"kept {self.root} (logs: *.log)")
         else:

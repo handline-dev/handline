@@ -101,6 +101,10 @@ type LaunchArgs struct {
 	ExtraDirs                 []string
 	// ReadAllow are folders the session may read with its file tools without asking (the attachments folder).
 	ReadAllow []string
+	// AllowWrite and AllowDomains are what a sandboxed session may write beyond its worktrees and reach on the network.
+	AllowWrite, AllowDomains []string
+	// CacheDir is a sandboxed session's own build caches (claude.CacheEnv), which it may write too.
+	CacheDir string
 }
 
 // Hooks is a vendor's state hooks, which launch keeps current.
@@ -1009,3 +1013,24 @@ func (p LaunchPort) ChooseAccount(_ db.Q, agent string) bool {
 }
 
 func (p LaunchPort) NoRoom(agent string) string { return p.L.NoRoom(agent) }
+
+// SandboxAllowWrite are the folders a sandboxed session of agent may write beyond its worktrees and its cache folder: its repo's .git,
+// where a worktree's commits and refs live (the CLI's sandbox keeps .git/hooks and .git/config read-only within it).
+func (l *Launcher) SandboxAllowWrite(agent string) []string {
+	if repo := l.Roster.RepoOf(agent); repo != "" {
+		if fi, err := os.Stat(filepath.Join(repo, ".git")); err == nil && fi.IsDir() {
+			return []string{filepath.Join(repo, ".git")}
+		}
+	}
+	return nil
+}
+
+// SandboxCacheDir is agent's own build caches, made here. Any sandboxed session may write the whole home (the shared settings allow it),
+// so this keeps shared caches out of its reach, not its caches from other agents.
+func (l *Launcher) SandboxCacheDir(agent string) string {
+	d := paths.CacheDir(l.Home, agent)
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		l.warn("%s: cannot make its cache folder %s: %v", agent, d, err)
+	}
+	return d
+}
