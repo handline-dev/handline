@@ -6,7 +6,7 @@ import { detach, group, groupOf, groupsOf, replaceGroup } from './layout-tree.ts
 
 export { groupOf, groupsOf };
 
-export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review' | 'timeline';
+export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review' | 'timeline' | 'new';
 export const TAB_KINDS: readonly TabKind[] = [
   'chat',
   'tasks',
@@ -18,6 +18,7 @@ export const TAB_KINDS: readonly TabKind[] = [
   'markdown',
   'review',
   'timeline',
+  'new',
 ];
 export type TabParams = Record<string, string | number>;
 export interface Tab {
@@ -101,6 +102,37 @@ export function addTab(ws: Workspace, kind: TabKind, params: TabParams = {}, int
     tabs: { ...ws.tabs, [id]: { id, kind, params } },
     root: replaceGroup(ws.root, target.id, (g) => ({ ...g, tabs: [...g.tabs, id] })),
   };
+}
+
+/** With no session to name, saved Claude Code tabs of old handles still collapse to the first in reading order. */
+export function oneTerminal(ws: Workspace): Workspace {
+  const all = groupsOf(ws.root).flatMap((g) => g.tabs).filter((t) => ws.tabs[t]?.kind === 'terminal');
+  return all.slice(1).reduce(closeTab, ws);
+}
+
+/** Gives the agent its one Claude Code tab for `handle`. A restarted session has a new handle: the old tab is renamed in place (keeping its place and whether it shows), any others go. None yet: it is added, not shown (unless `add` is false: a tab the person closed stays closed). */
+export function setTerminal(ws: Workspace, handle: string, add = true): Workspace {
+  const id = tabId(ws, 'terminal', { handle });
+  const old = Object.keys(ws.tabs).filter((t) => ws.tabs[t]!.kind === 'terminal');
+  if (old.length === 0) return !add ? ws : addTab(ws, 'terminal', { handle }, groupOf(ws, CHAT)?.id);
+  if (old.length === 1 && old[0] === id) return ws;
+  const keep = old.includes(id) ? id : old[0]!;
+  const tabs = { ...ws.tabs };
+  for (const t of old) delete tabs[t];
+  tabs[id] = { id, kind: 'terminal', params: { handle } };
+  let root = ws.root;
+  for (const g of groupsOf(ws.root)) {
+    if (!g.tabs.some((t) => old.includes(t))) continue;
+    root = replaceGroup(root, g.id, (x) => {
+      const list: string[] = [];
+      for (const t of x.tabs) {
+        const next = t === keep ? id : old.includes(t) ? null : t;
+        if (next && !list.includes(next)) list.push(next);
+      }
+      return { ...x, tabs: list, activeTab: old.includes(x.activeTab) ? id : x.activeTab };
+    });
+  }
+  return { ...ws, tabs, root };
 }
 
 /** Shows the tab and gives its group the focus. */
@@ -194,6 +226,28 @@ export function splitTab(ws: Workspace, id: string, onto: string, edge: Edge): W
   const { root } = detach(ws, id);
   const fresh = group(nextGroupId({ ...ws, root: root! }), [id]);
   return { ...ws, active: fresh.id, root: replaceGroup(root!, onto, (g) => wrap(g, fresh, edge)) };
+}
+
+/** The Split button: halves a pane, the new half (to its right) holding a "new" tab that offers what to open. Null at MAX_GROUPS. */
+export function splitPane(ws: Workspace, onto: string): Workspace | null {
+  if (groupsOf(ws.root).length >= MAX_GROUPS || !groupsOf(ws.root).some((g) => g.id === onto)) return null;
+  const id = tabId(ws, 'new', {});
+  const fresh = group(nextGroupId(ws), [id]);
+  return {
+    ...ws,
+    active: fresh.id,
+    tabs: { ...ws.tabs, [id]: { id, kind: 'new', params: {} } },
+    root: replaceGroup(ws.root, onto, (g) => wrap(g, fresh, 'right')),
+  };
+}
+
+/** A "new" tab's choice: its place shows `kind` instead. Already open elsewhere, that tab moves here rather than opening twice. */
+export function fillTab(ws: Workspace, newTab: string, kind: TabKind, params: TabParams = {}): Workspace {
+  const into = groupOf(ws, newTab);
+  if (!into || ws.tabs[newTab]?.kind !== 'new') return ws;
+  const id = tabId(ws, kind, params);
+  const placed = ws.tabs[id] ? moveTab(ws, id, into.id) : openTab(ws, kind, params, into.id);
+  return closeTab(placed, newTab);
 }
 
 /** Drag to a free edge of the whole view: splits the root. */

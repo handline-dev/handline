@@ -2,16 +2,16 @@
 // Nothing sits above the panes: each pane has its own tab strip.
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  addTab,
   arrange,
-  CHAT,
   defaultWorkspace,
-  groupOf,
   groupsOf,
   loadWorkspace,
   MAX_GROUPS,
   saveWorkspace,
   setSplit,
+  splitPane,
+  oneTerminal,
+  setTerminal,
   storageKey,
   type KV,
   type Node,
@@ -35,6 +35,8 @@ export interface WorkspaceCtx {
   apply: (f: (w: Workspace) => Workspace) => void;
   /** Runs a drag-and-drop result; a refusal (a fifth pane) is said in the toast. */
   drop: (next: Workspace | null) => void;
+  /** Whether Split on this pane shows as a pane of its own at this window size (narrower, the groups render as one strip). */
+  canSplit: (group: string) => boolean;
   dragging: string | null;
   setDragging: (tab: string | null) => void;
 }
@@ -93,11 +95,11 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     return () => ro.disconnect();
   }, []);
 
-  // A session that starts while this workspace is open gets its Claude Code tab, second and not shown; one already running was handled on load.
+  // The session's Claude Code tab: added when a session starts while this is open (one already running was handled on load), and moved to the new handle when it restarts, so there is only ever one.
   const terminal = detail.terminal ?? null;
   const had = useRef(!!terminal);
   useEffect(() => {
-    if (terminal && !had.current) setWs((w) => addTab(w, 'terminal', { handle: terminal }, groupOf(w, CHAT)?.id));
+    setWs((w) => (terminal ? setTerminal(w, terminal, !had.current) : oneTerminal(w)));
     had.current = !!terminal;
   }, [terminal]);
 
@@ -106,6 +108,10 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     detail,
     agent,
     storage,
+    canSplit: (id) => {
+      const next = splitPane(ws, id);
+      return !!next && !arrange(next, size.w, size.h).merged;
+    },
     dragging,
     setDragging,
     apply: (f) => setWs(f),

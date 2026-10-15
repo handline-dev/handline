@@ -9,6 +9,10 @@ import {
   arrange,
   closeTab,
   addTab,
+  oneTerminal,
+  setTerminal,
+  splitPane,
+  fillTab,
   defaultWorkspace,
   groupOf,
   groupsOf,
@@ -316,4 +320,51 @@ test('openTask opens the Tasks tab on that task, and moves an open one to anothe
   assert.equal(b.tabs.tasks!.params.task, 9);
   assert.equal(Object.keys(b.tabs).filter((k) => k === 'tasks').length, 1);
   assert.deepEqual(openTask(b, null).tabs.tasks!.params, {});
+});
+
+test('an agent has one terminal tab: a new handle takes the old one place', () => {
+  const none = setTerminal(defaultWorkspace(), 'term:a');
+  assert.deepEqual(groupsOf(none.root)[0]!.tabs, [CHAT, 'terminal:term:a']);
+  assert.equal(setTerminal(none, 'term:a'), none);
+  const shown = activate(none, 'terminal:term:a');
+  const restarted = setTerminal(shown, 'term:b');
+  assert.deepEqual(groupsOf(restarted.root)[0]!.tabs, [CHAT, 'terminal:term:b']);
+  assert.equal(groupsOf(restarted.root)[0]!.activeTab, 'terminal:term:b');
+  assert.deepEqual(Object.keys(restarted.tabs), [CHAT, 'terminal:term:b']);
+  const two = addTab(none, 'terminal', { handle: 'term:b' });
+  const merged = setTerminal(two, 'term:b');
+  assert.deepEqual(groupsOf(merged.root)[0]!.tabs, [CHAT, 'terminal:term:b']);
+});
+
+test('Split halves a pane with a new tab; choosing fills it, moving a tab already open', () => {
+  const ws = setTerminal(defaultWorkspace(), 'term:a');
+  const split = splitPane(ws, 'g1')!;
+  assert.equal(groupsOf(split.root).length, 2);
+  assert.deepEqual(groupsOf(split.root)[1]!.tabs, ['new:1']);
+  const tasks = fillTab(split, 'new:1', 'tasks');
+  assert.deepEqual(groupsOf(tasks.root)[1]!.tabs, ['tasks']);
+  assert.equal(tasks.tabs['new:1'], undefined);
+  const term = fillTab(splitPane(ws, 'g1')!, 'new:1', 'terminal', { handle: 'term:a' });
+  assert.deepEqual(groupsOf(term.root).map((g) => g.tabs), [[CHAT], ['terminal:term:a']]);
+  let full: Workspace = ws;
+  for (let i = 0; i < MAX_GROUPS; i++) full = splitPane(full, 'g1') ?? full;
+  assert.equal(groupsOf(full.root).length, MAX_GROUPS);
+  assert.equal(splitPane(full, 'g1'), null);
+});
+
+test('Split after a collapse still opens a new right half', () => {
+  const split = splitPane(defaultWorkspace(), 'g1')!;
+  const collapsed = moveTab(split, 'new:1', 'g1');
+  assert.equal(groupsOf(collapsed.root).length, 1);
+  const again = splitPane(collapsed, groupsOf(collapsed.root)[0]!.id)!;
+  assert.equal(groupsOf(again.root).length, 2);
+  assert.deepEqual(groupsOf(again.root).map((g) => g.tabs.length), [2, 1]);
+  assert.notEqual(groupsOf(again.root)[1]!.tabs[0], 'new:1');
+});
+
+test('without a session, saved Claude Code tabs of old handles collapse to one', () => {
+  const two = addTab(addTab(defaultWorkspace(), 'terminal', { handle: 'term:a' }), 'terminal', { handle: 'term:b' });
+  const one = oneTerminal(two);
+  assert.deepEqual(groupsOf(one.root)[0]!.tabs, [CHAT, 'terminal:term:a']);
+  assert.equal(oneTerminal(one), one);
 });

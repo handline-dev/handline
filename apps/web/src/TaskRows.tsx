@@ -18,13 +18,17 @@ export function Row(props: {
   tree?: boolean;
   depth?: number;
   rows: number;
-  /** The mark column shows while the table selects (or rows are marked); the phone card keeps a slot for it then. */
+  /** Boxes show always once the table selects (or rows are marked), else on hover; the phone card has a slot for them only then. */
   markCell: boolean;
   dim?: boolean;
   onCursor: () => void;
   onMark: (range: boolean) => void;
   /** The row's menu of every verb that can be done to it. */
   menu?: ReactNode;
+  /** The row's menu is open: its buttons stay shown. */
+  menuOpen?: boolean;
+  /** A right-click on the row asks for its menu. */
+  onMenu?: () => void;
   can: { discard: { ok: boolean; why: string | undefined }; edit: { ok: boolean; why: string | undefined } };
   onAct: (what: 'discard' | 'owner' | 'priority') => void;
 }) {
@@ -55,14 +59,20 @@ export function Row(props: {
       className={row}
       aria-selected={props.cursor}
       data-task={t.id}
+      onContextMenu={(e) => {
+        if (!props.onMenu) return;
+        e.preventDefault();
+        props.onMenu();
+      }}
       onClick={() => {
         props.onCursor();
         if (t.id > 0) goTasks(t.id);
       }}
     >
-      <AnimatedCell className={`c-mark w-8 text-center ${TD} max-sm:[grid-area:mark]${props.markCell ? '' : ' hidden max-sm:hidden'}`}>
+      <AnimatedCell className={`c-mark w-8 text-center ${TD} max-sm:[grid-area:mark]${props.markCell ? '' : ' max-sm:hidden'}`}>
         <input
           type="checkbox"
+          className={props.markCell ? undefined : 'opacity-0 group-hover/trow:opacity-100 focus-visible:opacity-100'}
           aria-label={`Mark ${taskRef(t.id)}`}
           checked={props.marked}
           onChange={() => undefined}
@@ -127,11 +137,11 @@ export function Row(props: {
           </AnimatedCell>
         </>
       )}
-      <AnimatedCell className={`c-act w-[1%] whitespace-nowrap ${TD} max-sm:[grid-area:act]`}>
+      <AnimatedCell className={`c-act w-32 whitespace-nowrap ${TD} max-sm:[grid-area:act]`}>
         {t.id > 0 ? (
           <span
             className={`tacts inline-flex gap-0.5 ${
-              props.cursor
+              props.cursor || props.menuOpen
                 ? 'opacity-100'
                 : 'opacity-0 group-hover/trow:opacity-100 group-focus-within/trow:opacity-100 pointer-coarse:opacity-100'
             }`}
