@@ -36,7 +36,7 @@ export function AgentList(props: { onUnpair: () => void; onPage: (page: 'worktre
           data={agents}
           keyExtractor={(a) => a.name}
           renderItem={({ item: a }) => {
-            const sub = [a.task?.title, a.account && `acct ${a.account}`, a.model].filter(Boolean).join(' · ');
+            const sub = a.task?.title;
             const need = a.needs_you ? `${a.needs_you.text ?? KIND[a.needs_you.kind]} · ${ago(a.needs_you.since)}` : '';
             return (
               <Pressable
