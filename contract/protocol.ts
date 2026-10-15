@@ -2067,8 +2067,14 @@ export interface Methods {
 }; result: Accepted };
   "task.memo.list": { params: {
   task: number;
+  /** With limit: the page just older than this memo id. */
+  before?: number;
+  /** 1 to 200. The newest limit memos, or the limit just older than before; absent: every memo. */
+  limit?: number;
 }; result: {
     memos: Memo[];
+    /** There are older memos than the page. */
+    more: boolean;
   } };
   "task.memo.add": { params: {
   task: number;
