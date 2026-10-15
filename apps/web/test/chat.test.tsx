@@ -284,6 +284,11 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(icon(events[0], 'Task added')).not.toBeNull();
     expect(text(events[0])).toContain('1684');
     expect(events[0]!.tagName).toBe('BUTTON');
+    const changed = events.find((c) => c.getAttribute('data-event') === 'changed')!;
+    expect(text(changed)).toContain('assigned to alice');
+    expect(text(changed.querySelector('s'))).toBe('2'); // the old priority struck through, the new one after it
+    expect(text(changed)).toContain('priority 2 1');
+    expect(changed.className).toContain('w-fit');
   });
 
   it('a click on a task line opens that task in the Tasks tab', async () => {

@@ -255,7 +255,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 key={keyOf(e)}
                 instant={i <= tail || tail < 0}
                 onFrame={repin}
-                className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start"
+                className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-start"
               >
                 {e.kind === 'message' ? (
                   <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} onRef={jump} />
