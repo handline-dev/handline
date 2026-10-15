@@ -129,15 +129,37 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const e = entries.at(-1);
     seen.current = { scope, last: e ? keyOf(e) : null };
   });
-  // The latest page shows first; the next older one loads as the top comes near, and the view stays on the line it was on.
-  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, chat.loadOlder, chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
-  const before = useRef<{ height: number; first: string | null } | null>(null);
+  // The latest page shows first; the next older one loads as the top comes near, one page at a time, and the view stays on the line it was on:
+  // the first line in view is remembered with its distance from the top, and put back at that distance once an older page is above it.
+  const anchor = useRef<{ el: Element; off: number } | null>(null);
+  const hold = () => {
+    const box = stream.current;
+    if (!box) return;
+    const top = box.getBoundingClientRect().top;
+    const el = [...box.querySelectorAll('[data-id]')].find((n) => n.getBoundingClientRect().bottom > top);
+    anchor.current = el ? { el, off: el.getBoundingClientRect().top - top } : null;
+  };
+  const [armed, setArmed] = useState(true);
+  const more = () => {
+    hold();
+    setArmed(false);
+    chat.loadOlder();
+  };
+  const firstKey = entries[0] ? keyOf(entries[0]) : null;
   useLayoutEffect(() => {
-    const el = stream.current;
-    const first = entries[0] ? keyOf(entries[0]) : null;
-    if (el && before.current && before.current.first !== first && before.current.first !== null) el.scrollTop += el.scrollHeight - before.current.height;
-    before.current = el ? { height: el.scrollHeight, first } : null;
-  });
+    const box = stream.current;
+    const a = anchor.current;
+    if (!box || !a || !a.el.isConnected) return;
+    const drift = a.el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
+    if (drift) box.scrollTop += drift;
+  }, [firstKey]);
+  // Armed again a frame after the page landed and the view was put back, so the sentinel is looked at once more.
+  useEffect(() => {
+    if (chat.loadingOlder) return;
+    const id = requestAnimationFrame(() => setArmed(true));
+    return () => cancelAnimationFrame(id);
+  }, [chat.loadingOlder, firstKey]);
+  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
   const repin = () => {
     const el = stream.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
@@ -228,12 +250,13 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
       </div>
       <ChatBanner detail={detail} />
       <div
-        className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>.skeleton]:self-stretch"
+        className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>.skeleton]:self-stretch"
         ref={stream}
         onScroll={(e) => {
           const el = e.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
           if (pinned.current) setNewer(0);
+          if (armed && !chat.loadingOlder) hold();
         }}
       >
         <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
