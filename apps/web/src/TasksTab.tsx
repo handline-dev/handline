@@ -95,7 +95,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
           <Button variant="outline" size="sm" label={marked.size >= mine.length ? 'Clear' : 'Select all'} onClick={toggleAll}>
             {marked.size >= mine.length ? 'Clear' : `Select all ${mine.length}`}
           </Button>
-          <VerbMenu tasks={verbs.byId([...marked])} me={me} cans={cans} onPick={verbs.pick} title="Actions on the marked tasks" up />
+          <VerbMenu tasks={verbs.byId([...marked])} me={me} cans={cans} onPick={verbs.pick} title="Actions on the marked tasks" />
         </Toolbar>
       ) : null}
     </section>

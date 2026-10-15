@@ -11,6 +11,7 @@ import { App } from '../src/App.tsx';
 
 const ARCH = 'handline.architect';
 const TB = 'handline.term-build';
+const AUD = 'handline.auditor';
 const wait = (ms = 10) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
 async function until(cond: () => unknown, what: string, tries = 300) {
   for (let i = 0; i < tries; i++) {
@@ -101,31 +102,40 @@ describe('loading', () => {
 });
 
 describe('writes', () => {
-  it('Start is a pending mark while the daemon works, and nothing else changes until the daemon says so', async () => {
+  // The auditor is a structured agent: while a turn runs, Interrupt is the one session verb its menu offers.
+  const running = async (s: ReturnType<typeof setup>) => {
+    await mount(AUD, s);
+    await until(() => $(`[data-agent="${AUD}"]`), 'the row');
+    s.daemon.sessions.get(AUD)!.state = 'running';
+    await act(async () => s.daemon.chat.setTurn(AUD, true));
+    s.daemon.dropConnections(); // the rows are read again
+    await until(() => $(`[data-agent="${AUD}"] .row-main`)?.getAttribute('title')?.includes('running'), 'the row running', 600);
+    await act(
+      async () => void $(`[data-agent="${AUD}"]`)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+    );
+    return [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((b) => text(b) === 'Interrupt')!;
+  };
+
+  it('Interrupt is a pending mark while the daemon works, and nothing else changes until the daemon says so', async () => {
     const s = setup();
-    await mount(TB, s);
-    await until(() => button('Start'), 'Start');
+    const item = await running(s);
     s.daemon.knobs.latency(300);
-    await click(button('Start')!);
-    await until(() => button('starting'), 'the pending mark');
-    expect(text(button('starting')!)).toBe('starting…');
-    expect(button('starting')!.hasAttribute('disabled')).toBe(true);
-    expect(s.daemon.sessions.get(TB)!.state).toBe('parked');
-    await until(() => !button('starting'), 'the mark gone', 600);
-    expect(s.daemon.sessions.get(TB)!.state).not.toBe('parked');
+    await click(item);
+    await until(() => $(`[data-agent="${AUD}"]`)?.textContent?.includes('interrupting…'), 'the pending mark');
+    expect(s.daemon.sessions.get(AUD)!.state).toBe('running');
+    await until(() => !$(`[data-agent="${AUD}"]`)?.textContent?.includes('interrupting…'), 'the mark gone', 600);
+    expect(s.daemon.sessions.get(AUD)!.state).not.toBe('running');
   });
 
-  it("a refused Start shows the daemon's sentence and hint, and Start is back", async () => {
+  it("a refused Interrupt shows the daemon's sentence and hint, and the row is as before", async () => {
     const s = setup();
-    await mount(TB, s);
-    await until(() => button('Start'), 'Start');
-    s.daemon.knobs.refuse('session.start', 'cap', 'The account is at its cap', 'wait for the window');
-    await click(button('Start')!);
+    const item = await running(s);
+    s.daemon.knobs.refuse('session.interrupt', 'cap', 'The turn cannot be stopped', 'wait for it');
+    await click(item);
     await until(() => $('.toast'), 'the toast');
-    expect(text($('.toast'))).toContain('The account is at its cap (wait for the window)');
-    expect(button('starting')).toBeUndefined();
-    expect(button('Start')!.hasAttribute('disabled')).toBe(false);
-    expect(s.daemon.sessions.get(TB)!.state).toBe('parked');
+    expect(text($('.toast'))).toContain('The turn cannot be stopped (wait for it)');
+    expect($(`[data-agent="${AUD}"]`)?.textContent).not.toContain('interrupting…');
+    expect(s.daemon.sessions.get(AUD)!.state).toBe('running');
   });
 
   it('the prompt card answers as a decided write and a stale prompt refreshes the card without sending anything', async () => {

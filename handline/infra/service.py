@@ -102,14 +102,14 @@ def go_arguments(home: Path, allow_live_home: bool = False) -> list[str]:
         raise ServiceError(f"{exe} is not built (tools/build-go.sh)")
     claude = shutil.which("claude")
     if claude is None:
-        raise ServiceError("no claude binary on PATH for -structured-cli")
+        raise ServiceError("no claude binary on PATH for -claude")
     live = home.resolve() in paths.live_homes()
     if not live and label() == LABEL:
         raise ServiceError(f"{home} is not the live home, and the live service's label would be replaced: set OCP_SERVICE_LABEL for a rehearsal")
     if live and not allow_live_home:
         raise ServiceError(f"{home} is the live home: the Go daemon is installed there only with --allow-live-home")
     return [str(exe), "-allow-real-home" if live else "-home", *([] if live else [str(home)]),
-            "-structured-cli", claude, "-structured-tick", "-terminal-tick", "-cutover"]
+            "-claude", claude, "-terminal-tick", "-cutover"]
 
 
 def _path_with_python3() -> str:

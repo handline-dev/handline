@@ -14,15 +14,22 @@ import (
 // recentS: a task that ended longer ago than this is no longer looked at for change.
 const recentS = 86400
 
-const taskPrint = "SELECT t.id, t.title, t.owner, t.opened_by, t.priority, t.sent_at, t.queued_by, t.done_evidence, t.done_at, t.discarded_by, t.discarded_at, " +
-	"t.timeout_s, t.parent_task, t.edited_at, t.delivered_at FROM tasks t " +
-	"WHERE (t.done_evidence IS NULL AND t.discarded_by IS NULL) OR COALESCE(t.done_at, t.discarded_at, 0) >= ? ORDER BY t.id"
+// taskLooked are the tasks looked at for change: open, or ended since ?.
+const taskLooked = "((t.done_evidence IS NULL AND t.discarded_by IS NULL) OR COALESCE(t.done_at, t.discarded_at, 0) >= ?)"
 
-// What else makes a task change, each in one grouped read of its own table rather than a subquery per task.
-var taskExtras = []string{
-	"SELECT task_id, COUNT(*), MAX(id), MAX(edited_at) FROM task_memos GROUP BY task_id",
-	"SELECT l.task_id, COUNT(*), MAX(r.state_at) FROM task_requests l JOIN requests r ON r.id = l.request_id GROUP BY l.task_id",
-	"SELECT task_id, COUNT(*) FROM task_blocks WHERE dormant = 0 GROUP BY task_id",
+const taskPrint = "SELECT t.id, t.title, t.owner, t.opened_by, t.priority, t.sent_at, t.queued_by, t.done_evidence, t.done_at, t.discarded_by, t.discarded_at, " +
+	"t.timeout_s, t.parent_task, t.edited_at, t.delivered_at FROM tasks t WHERE " + taskLooked + " ORDER BY t.id"
+
+// What else makes a task change, each in one grouped read of its own table rather than a subquery per task. The linked requests are read
+// for the looked-at tasks only: every task's, joined to requests each look, were most of an idle daemon's time.
+var taskExtras = []struct {
+	query string
+	since bool // takes the cutoff of taskLooked
+}{
+	{"SELECT task_id, COUNT(*), MAX(id), MAX(edited_at) FROM task_memos GROUP BY task_id", false},
+	{"SELECT l.task_id, COUNT(*), MAX(r.state_at) FROM tasks t JOIN task_requests l ON l.task_id = t.id JOIN requests r ON r.id = l.request_id " +
+		"WHERE " + taskLooked + " GROUP BY l.task_id", true},
+	{"SELECT task_id, COUNT(*) FROM task_blocks WHERE dormant = 0 GROUP BY task_id", false},
 }
 
 // Tasks is the tasks topic: a task that appeared or changed (its fields, a memo, a request linked to it), as the spec's Task. Its
@@ -71,12 +78,17 @@ func (t *Tasks) Scan(q *sql.DB, emit Emit) error {
 	if t.Now != nil {
 		now = t.Now
 	}
-	print, err := rowsPrint(q, taskPrint, now().Unix()-recentS)
+	since := now().Unix() - recentS
+	print, err := rowsPrint(q, taskPrint, since)
 	if err != nil {
 		return err
 	}
-	for _, query := range taskExtras {
-		extra, err := rowsPrint(q, query)
+	for _, x := range taskExtras {
+		var args []any
+		if x.since {
+			args = append(args, since)
+		}
+		extra, err := rowsPrint(q, x.query, args...)
 		if err != nil {
 			return err
 		}

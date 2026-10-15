@@ -6,7 +6,8 @@ import { classify, sentence, useRead, useServes } from '@handline/app-data';
 import { BytesTab } from '../BytesTab.tsx';
 import type { CreateTerm } from '../terminal/core.ts';
 import { Button } from '../ui/index.ts';
-import { facts, flags, span, type DebugPane } from './paneFacts.ts';
+import { facts, flags, type DebugPane } from './paneFacts.ts';
+import { span } from '@handline/app-core';
 
 const REFRESH_MS = 5000;
 
@@ -25,7 +26,7 @@ function PaneRow({ p, now, on, pick }: { p: DebugPane; now: number; on: boolean;
             {p.session}:{p.window} {p.terminal}
           </span>
           <span className="truncate">{p.agent ?? p.window_name}</span>
-          <span className="ml-auto text-label text-ink-3">{p.idle_s === null ? '-' : span(p.idle_s)}</span>
+          <span className="ml-auto text-label text-ink-3">{p.idle_s === null ? '-' : span(p.idle_s * 1000)}</span>
         </span>
         <span className="flex flex-wrap gap-1">
           {flags(p, now).map((f) => (

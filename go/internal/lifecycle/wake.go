@@ -212,12 +212,6 @@ type WakeOpts struct {
 // what it knows when it wakes. A closed agent has no terminal; a new one is opened for it in its worktree.
 func (m *Manager) WakeAgent(agent string, o WakeOpts) (ok bool, said string, err error) {
 	defer catch(&err)
-	if m.structured(agent) {
-		// No pane to type into: no terminal lock or input hold, one lifecycle act at a time instead.
-		defer m.lockAgent(agent)()
-		ok, said = m.wakeAgent(agent, o)
-		return ok, said, nil
-	}
 	release, mine := m.Typing.TakeTerminal(agent)
 	if !mine {
 		// A human's key and a tick can both land here, and this one holds the terminal for as long as a session takes to appear.
@@ -231,9 +225,6 @@ func (m *Manager) WakeAgent(agent string, o WakeOpts) (ok bool, said string, err
 // WakeAgentLocked is a wake for callers already holding the terminal lock.
 func (m *Manager) WakeAgentLocked(agent string, o WakeOpts) (ok bool, said string, err error) {
 	defer catch(&err)
-	if m.structured(agent) {
-		defer m.lockAgent(agent)()
-	}
 	ok, said = m.wakeAgent(agent, o)
 	return ok, said, nil
 }
@@ -263,9 +254,6 @@ func (m *Manager) wakeAgent(agent string, o WakeOpts) (bool, string) {
 	handle := must(db.Terminal(m.Q, agent))
 	row := must(db.GetAgentState(m.Q, agent))
 	closed := isClosed(row)
-	if m.structured(agent) {
-		return m.wakeStructured(agent, row, o)
-	}
 	// A closed session's pane was closed with it; the wake opens a new terminal in the worktree the agent kept.
 	wt := ""
 	if row != nil {
@@ -432,9 +420,6 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 		}
 	}
 	c := closed2{force, warm, cause, restartedBy, movedTo, o.Applying}
-	if m.structured(agent) {
-		return m.launchStructured(agent, row, wt, session, c)
-	}
 	return m.launchClosed(agent, row, wt, session, c)
 }
 

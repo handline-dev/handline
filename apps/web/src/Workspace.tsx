@@ -2,17 +2,18 @@
 // Nothing sits above the panes: each pane has its own tab strip.
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  addTab,
   arrange,
-  CHAT,
   defaultWorkspace,
-  groupOf,
   groupsOf,
   loadWorkspace,
   MAX_GROUPS,
   openTab,
   saveWorkspace,
   setSplit,
+  splitPane,
+  oneTerminal,
+  setTerminal,
+  toggleView,
   storageKey,
   type KV,
   type Node,
@@ -26,6 +27,7 @@ import { takeTerminalWish } from './route.ts';
 import { View } from './View.tsx';
 import { DropZones } from './DropZones.tsx';
 import { Pane } from './Pane.tsx';
+import { isSwitchChord, isTerminalSwitch } from './terminal/core.ts';
 
 const CELL = 'cell flex min-h-0 min-w-0 [&>*]:min-h-0 [&>*]:min-w-0 [&>*]:flex-1';
 
@@ -35,8 +37,14 @@ export interface WorkspaceCtx {
   agent: string;
   storage: KV | null;
   apply: (f: (w: Workspace) => Workspace) => void;
+  /** The chat / Claude Code switch. */
+  flip: () => void;
   /** Runs a drag-and-drop result; a refusal (a fifth pane) is said in the toast. */
   drop: (next: Workspace | null) => void;
+  /** Whether Split on this pane shows as a pane of its own at this window size (narrower, the groups render as one strip). */
+  canSplit: (group: string) => boolean;
+  /** The pane whose strip comes first (the folded sidebar's buttons sit there): the one shown when the groups render as one. */
+  lead: string;
   dragging: string | null;
   setDragging: (tab: string | null) => void;
 }
@@ -95,13 +103,28 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     return () => ro.disconnect();
   }, []);
 
-  // A session that starts while this workspace is open gets its Claude Code tab, second and not shown; one already running was handled on load.
+  // The session's Claude Code tab: added when a session starts while this is open (one already running was handled on load), and moved to the new handle when it restarts, so there is only ever one.
   const terminal = detail.terminal ?? null;
   const had = useRef(!!terminal);
   useEffect(() => {
-    if (terminal && !had.current) setWs((w) => addTab(w, 'terminal', { handle: terminal }, groupOf(w, CHAT)?.id));
+    setWs((w) => (terminal ? setTerminal(w, terminal, !had.current) : oneTerminal(w)));
     had.current = !!terminal;
   }, [terminal]);
+
+  // Cmd/Ctrl+J flips between the chat and Claude Code, from either (a focused terminal hands the chord over).
+  const flip = () => setWs((w) => toggleView(w, detail.terminal ?? undefined, detail.structured === true));
+  const flipRef = useRef(flip);
+  flipRef.current = flip;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const inTerminal = e.target instanceof HTMLElement && !!e.target.closest('.xterm');
+      if (!(inTerminal ? isTerminalSwitch(e) : isSwitchChord(e))) return;
+      e.preventDefault();
+      flipRef.current();
+    };
+    addEventListener('keydown', onKey);
+    return () => removeEventListener('keydown', onKey);
+  }, []);
 
   // "Open terminal" from the My turn page: the terminal (or transcript) comes to the front once.
   useEffect(() => {
@@ -115,10 +138,16 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   }, [agent, detail.structured, detail.terminal]);
 
   const value: WorkspaceCtx = {
+    flip,
     ws,
     detail,
     agent,
     storage,
+    lead: arrange(ws, size.w, size.h).merged ? ws.active : groupsOf(ws.root)[0]!.id,
+    canSplit: (id) => {
+      const next = splitPane(ws, id);
+      return !!next && !arrange(next, size.w, size.h).merged;
+    },
     dragging,
     setDragging,
     apply: (f) => setWs(f),

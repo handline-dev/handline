@@ -414,7 +414,11 @@ export class FakeDaemon {
     if (method === 'accounts.list' && this.knobs.accounts)
       return { value: accountsReply(this.knobs.accounts, [...this.sessions.values()]) };
     if (/^accounts?\./.test(method)) return { value: this.accounts.call(method, p, ok) };
-    if (this.admin.owns(method)) return { value: this.admin.call(method, p, ok) };
+    if (this.admin.owns(method)) {
+      const value = this.admin.call(method, p, ok);
+      if (method === 'device.revoke') this.emit('devices', 'device.revoked', { data: { device: p.device } });
+      return { value };
+    }
     if (this.work.owns(method)) return { value: this.work.call(method, p, ok) };
     if (method.startsWith('attachment.')) return { value: this.uploads.call(method, p, ok) };
     if (method.startsWith('inbox.')) return { value: this.inbox.call(method, p, c.caller.name, ok) };

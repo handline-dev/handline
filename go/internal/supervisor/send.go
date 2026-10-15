@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/states"
-	"github.com/handline/handline/go/internal/structured"
 )
 
 // Seeing and typing at an agent's session (daemon/delivery.py, "sending").
@@ -203,7 +203,7 @@ func (e *Env) TypeNotice(q db.Q, agent, text string) (sent bool, err error) {
 	if !e.structuredAgent(agent) {
 		return false, nil
 	}
-	state, _ := e.sendOnce(q, agent, e.nextOp(q, "notice"), text, structured.Now)
+	state, _ := e.sendOnce(q, agent, e.nextOp(q, "notice"), text, delivery.Now)
 	return state != NotSent, nil
 }
 

@@ -33,6 +33,9 @@ export function teamOf(name: string, names: readonly string[]): string {
 /** What a row shows of the name: inside its team, the part after the team's prefix. */
 export const shortName = (name: string, team: string): string => (name.startsWith(`${team}.`) ? name.slice(team.length + 1) : name);
 
+/** What a row shows of the name in the tree: under a parent only the last segment (`handline.pc.auditor` is `auditor`), at the top the team-relative name. */
+export const rowName = (name: string, depth: number, team: string): string => (depth > 0 ? name.slice(name.lastIndexOf('.') + 1) : shortName(name, team));
+
 /** The agent list as one list: waiting ones sort up, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off. */
 export function railRows(agents: AgentView[], opts: { hidden?: ReadonlySet<Dot>; search?: string } = {}): RailRow[] {
   const q = (opts.search ?? '').trim().toLowerCase();
@@ -75,12 +78,6 @@ export const RAIL_FILTERS: { id: string; label: string; dots: Dot[] }[] = [
 /** What is piled up for an agent: tasks it owns that are not done (`task_count`) and messages owed to it that have not reached it (`unreached`, which the daemon sends only for agents.list `status: true`). A count the view does not carry is null, never 0. */
 export function queueOf(a: AgentView, unreached: number | null = null): { tasks: number | null; messages: number | null } {
   return { tasks: a.task_count ?? null, messages: a.unreached ?? unreached };
-}
-
-export function ago(iso: string | null | undefined, now = Date.now()): string {
-  if (!iso) return '';
-  const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
-  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
 }
 
 export interface Controls {

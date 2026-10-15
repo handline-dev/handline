@@ -8,7 +8,7 @@ package supervisor
 
 import (
 	"github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/structured"
+	"github.com/handline/handline/go/internal/delivery"
 )
 
 // Terminal is session/term.py as the telling layer uses it: the terminal host's screen reads. Nothing is typed at a terminal; a terminal
@@ -95,7 +95,7 @@ type Stuck interface {
 	DeliveryBlock(q db.Q, agent string) (why string, clears bool)
 }
 
-// Agents is the agents' structured sessions (go/internal/structured), as the one send path uses them. A nil port means every agent is a
+// Agents is the session port the one send path delivers through (the peer inbox, go/internal/compose). A nil port means every agent is a
 // terminal agent, and the typing code is what delivers.
 type Agents interface {
 	// Structured says whether agent runs as a structured session: its kind, not whether the process is up.
@@ -104,10 +104,10 @@ type Agents interface {
 	Live(agent string) bool
 	// Send delivers text under the operation id. The same op twice writes once and answers the first receipt. Now joins a running turn; Queue is
 	// held until the turn ends. An error means nothing was written.
-	Send(agent, op, text string, d structured.Delivery) (structured.Receipt, error)
+	Send(agent, op, text string, d delivery.Delivery) (delivery.Receipt, error)
 	// Withdraw takes back a message still held behind a turn; ok is whether it was (also on a repeat). Promote writes a held message now.
-	Withdraw(agent, op string) (structured.Receipt, bool, error)
-	Promote(agent, op string) (structured.Receipt, error)
+	Withdraw(agent, op string) (delivery.Receipt, bool, error)
+	Promote(agent, op string) (delivery.Receipt, error)
 }
 
 // Ports is every port; a nil field is an owner that has not landed yet.
