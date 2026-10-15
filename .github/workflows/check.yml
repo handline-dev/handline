@@ -31,11 +31,12 @@ jobs:
       - name: Plan
         id: plan
         run: |
-          # A push to main runs everything: its job is the caches.
-          if [ "${{ github.event_name }}" = push ]; then echo "apps=turbo" >> "$GITHUB_OUTPUT"; exit 0; fi
           plan="$(CHECK_PLAN=1 tools/check.sh "$BASE")"
           echo "$plan"
-          echo "apps=${plan##*apps=}" >> "$GITHUB_OUTPUT"
+          apps="${plan##*apps=}"
+          # A push to main runs the apps only when they changed, then all of them, which warms the turbo cache.
+          if [ "${{ github.event_name }}" = push ] && [ "$apps" != turbo ]; then apps=no; fi
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
       - if: steps.plan.outputs.apps != 'no'
         uses: pnpm/action-setup@v4
       - if: steps.plan.outputs.apps != 'no'
@@ -61,10 +62,10 @@ jobs:
           fi
 
   go:
-    runs-on: [self-hosted, linux, netcup]
+    runs-on: [self-hosted, linux, go-ci]
     timeout-minutes: 30
     env:
-      GOFLAGS: -p=2 # 4 GB of memory: two test binaries at a time
+      GOFLAGS: -p=1 # 2 cores and 3 GB of memory: one test binary at a time
     steps:
       - uses: actions/checkout@v4
         with:
