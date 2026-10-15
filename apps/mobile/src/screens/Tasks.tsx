@@ -196,8 +196,8 @@ function Body({ t }: { t: TaskDetail }) {
   const now = Date.now();
   const memos = useMemos(t.id).data?.memos ?? t.memos; // the memo list is the one a memo write edits at once
   const sending = useTaskPending(t.id);
-  const line = (s: string) => (
-    <Text key={s} style={{ color: c.ink }}>
+  const line = (s: string, key: string | number = s) => (
+    <Text key={key} style={{ color: c.ink }}>
       {s}
     </Text>
   );
@@ -217,12 +217,12 @@ function Body({ t }: { t: TaskDetail }) {
       {t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
       {t.body ? <Section title="Brief">{line(t.body)}</Section> : null}
       {t.blockers.length ? (
-        <Section title="Waits on">{t.blockers.map((b) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`))}</Section>
+        <Section title="Waits on">{t.blockers.map((b, i) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`, i))}</Section>
       ) : null}
-      {t.children.length ? <Section title="Subtasks">{t.children.map((k) => line(`${taskRef(k)}`))}</Section> : null}
+      {t.children.length ? <Section title="Subtasks">{t.children.map((k, i) => line(`${taskRef(k)}`, i))}</Section> : null}
       {t.evidence ? <Section title="Evidence">{line(t.evidence)}</Section> : null}
       {t.deliveries.length ? (
-        <Section title="Delivery">{t.deliveries.map((d) => line(`${ago(d.at)} · ${d.how} · ${d.outcome}`))}</Section>
+        <Section title="Delivery">{t.deliveries.map((d, i) => line(`${ago(d.at)} · ${d.how} · ${d.outcome}`, i))}</Section>
       ) : null}
       {memos.length ? (
         <Section title="Memos">
@@ -232,7 +232,7 @@ function Body({ t }: { t: TaskDetail }) {
         </Section>
       ) : null}
       <MemoBox id={t.id} />
-      {t.handoffs.length ? <Section title="Handoffs">{t.handoffs.map((h) => line(`${h.from} → ${h.to}: ${h.note}`))}</Section> : null}
+      {t.handoffs.length ? <Section title="Handoffs">{t.handoffs.map((h, i) => line(`${h.from} → ${h.to}: ${h.note}`, i))}</Section> : null}
     </ScrollView>
   );
 }

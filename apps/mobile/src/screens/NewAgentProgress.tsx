@@ -124,7 +124,7 @@ export function NewAgentProgress(props: {
   };
   return (
     <ScrollView testID="new-agent" contentContainerStyle={{ padding: space.lg, gap: space.md }}>
-      <PageHeader title="New agent" back={{ label: 'Agents', onPress: props.onClose, testID: 'na-back' }} />
+      <PageHeader bare title="New agent" back={{ label: 'Agents', onPress: props.onClose, testID: 'na-back' }} />
       {body()}
     </ScrollView>
   );
