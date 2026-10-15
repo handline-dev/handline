@@ -31,6 +31,7 @@ var commands = map[string]command{
 	"notice-digest":       noticeDigest,
 	"progress":            progress,
 	"restart":             restart,
+	"sandbox-repo":        sandboxRepo,
 	"say":                 say,
 	"task":                task,
 }
