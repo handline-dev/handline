@@ -101,9 +101,6 @@ func (m *Manager) ShouldClose(agent, state string, row *db.AgentState, now int64
 	if row == nil || (row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) || !m.hasSession(agent, row) {
 		return false, nil
 	}
-	if m.structured(agent) && m.Run.Busy(agent) {
-		return false, nil // the CLI is mid-turn whatever the label says
-	}
 	// deliver_queued runs before this in the same tick, so a PARKED agent that reaches here was not delivered to; its queue is no
 	// reason to hold the session open.
 	if must(m.Delivery.BgHolds(m.Q, agent, now)) {
@@ -141,14 +138,6 @@ func TriggersApply(row *db.AgentState) bool {
 		row.State != states.Parked && row.State != states.Throttled && row.State != states.Degraded
 }
 
-// TriggersApplyTo is TriggersApply for an agent that may be structured: its session is a live process, not a terminal.
-func (m *Manager) TriggersApplyTo(agent string, row *db.AgentState) bool {
-	if !m.structured(agent) {
-		return TriggersApply(row)
-	}
-	return row != nil && m.Run.Alive(agent) && !isClosed(row) && row.State != states.Parked && row.State != states.Throttled && row.State != states.Degraded
-}
-
 // WakeCause is what the tick wakes a closed agent for.
 type WakeCause struct{ Kind, What string }
 
@@ -183,7 +172,7 @@ func (m *Manager) ClosedWakeCause(agent string, row *db.AgentState) (c *WakeCaus
 // ResumableWithoutTerminal: a closed agent whose pane closed with its session and whose worktree is still there is woken (resuming),
 // not started fresh.
 func (m *Manager) ResumableWithoutTerminal(row *db.AgentState) bool {
-	return row != nil && row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 && (row.Terminal.String == "" || m.structured(row.Agent)) && m.Spawn.WorktreePath(row.Worktree.String) != ""
+	return row != nil && row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 && row.Terminal.String == "" && m.Spawn.WorktreePath(row.Worktree.String) != ""
 }
 
 // StartOrWakeNeeded is ("start" | "wake", what) when the daemon owes this agent a session; kind "" otherwise. The one decision the tick
@@ -303,14 +292,6 @@ func (m *Manager) noteAbandoned(agent string, now int64) {
 // back.
 func (m *Manager) CloseAgent(agent string, st SessionStatus, o CloseOpts) (ok bool, said string, err error) {
 	defer catch(&err)
-	if m.structured(agent) {
-		defer m.lockAgent(agent)()
-		if m.Run.Busy(agent) && !o.Force {
-			return false, agent + " is mid-turn; not closing a session mid-work", nil
-		}
-		ok, said = m.closeAgent(agent, st, o)
-		return ok, said, nil
-	}
 	release, mine := m.Typing.TakeTerminal(agent)
 	if !mine {
 		return false, TypingElsewhere + "; not closing", nil
@@ -592,9 +573,6 @@ func (m *Manager) answerExitDialog(agent string, stop bool) bool {
 // read. resume is the session id to come back to, "" when nothing may: a session id exists only under its own account's config
 // directory, so a close that precedes a move to another account must record none.
 func (m *Manager) endSession(agent, resume string, st SessionStatus, keepPane, paneMayClose bool) (bool, string) {
-	if m.structured(agent) {
-		return m.endStructured(agent, resume, st)
-	}
 	handle := must(db.Terminal(m.Q, agent))
 	if handle == "" || !m.Term.Available() {
 		return false, "no terminal to close"
@@ -707,9 +685,6 @@ func (m *Manager) endSession(agent, resume string, st SessionStatus, keepPane, p
 // EndSession is endSession for a handoff, which has already recorded the work and needs the session gone.
 func (m *Manager) EndSession(agent, resume string, st SessionStatus, keepPane, paneMayClose bool) (ok bool, why string, err error) {
 	defer catch(&err)
-	if m.structured(agent) {
-		defer m.lockAgent(agent)()
-	}
 	ok, why = m.endSession(agent, resume, st, keepPane, paneMayClose)
 	return ok, why, nil
 }

@@ -1,4 +1,4 @@
-package structured
+package delivery
 
 import (
 	"database/sql"

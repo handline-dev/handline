@@ -31,8 +31,6 @@ type Env struct {
 	Home    string
 	Backend func() term.Backend
 	Now     func() time.Time
-	// Structured says whether an agent runs as a structured session, which has no terminal to hold.
-	Structured func(agent string) bool
 
 	Hub   *Hub
 	Bytes *BytesHub
@@ -362,7 +360,7 @@ func (e *Env) attachBytes(c *rpc.Conn, handle string, history int, holders []map
 }
 
 // open is where an agent's terminal is and how a person on this machine attaches to it, for the one button that opens it when the agent
-// needs them. It types nothing and answers nothing. An agent with no terminal (a structured one among them) is not_found (terminal).
+// needs them. It types nothing and answers nothing. An agent with no terminal is not_found (terminal).
 func (e *Env) open(c *rpc.Conn, params map[string]any) (any, error) {
 	if name, _ := params["agent"].(string); name == "" {
 		return nil, bad("agent is a name", "agent")

@@ -12,8 +12,8 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/peerinbox"
-	"github.com/handline/handline/go/internal/structured"
 )
 
 // Deliverer is what the port needs of the inbox: *peerinbox.Sender.
@@ -60,9 +60,9 @@ func (p *Port) Live(agent string) bool {
 }
 
 // Send takes the message and delivers it in the background; that an op goes out once is the ledger's (supervisor sendOnce). An error means nothing was written.
-func (p *Port) Send(agent, op, text string, _ structured.Delivery) (structured.Receipt, error) {
+func (p *Port) Send(agent, op, text string, _ delivery.Delivery) (delivery.Receipt, error) {
 	if _, err := p.Find(agent); err != nil {
-		return structured.Receipt{}, errors.New(agent + " has no live session inbox: " + err.Error())
+		return delivery.Receipt{}, errors.New(agent + " has no live session inbox: " + err.Error())
 	}
 	var from peerinbox.From
 	if p.From != nil {
@@ -83,17 +83,17 @@ func (p *Port) Send(agent, op, text string, _ structured.Delivery) (structured.R
 		l.running = true
 		go p.drain(agent, l)
 	}
-	return structured.Receipt{Op: op, State: structured.Sent}, nil
+	return delivery.Receipt{Op: op, State: delivery.Sent}, nil
 }
 
 // Withdraw cannot take back a message the inbox has taken: it may already be written.
-func (p *Port) Withdraw(_, op string) (structured.Receipt, bool, error) {
-	return structured.Receipt{Op: op, State: structured.Sent}, false, nil
+func (p *Port) Withdraw(_, op string) (delivery.Receipt, bool, error) {
+	return delivery.Receipt{Op: op, State: delivery.Sent}, false, nil
 }
 
 // Promote has nothing to promote: a message is written as soon as its turn in the agent's line comes.
-func (p *Port) Promote(_, op string) (structured.Receipt, error) {
-	return structured.Receipt{Op: op, State: structured.Sent}, nil
+func (p *Port) Promote(_, op string) (delivery.Receipt, error) {
+	return delivery.Receipt{Op: op, State: delivery.Sent}, nil
 }
 
 func (p *Port) drain(agent string, l *line) {

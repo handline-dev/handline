@@ -32,11 +32,6 @@ type Env struct {
 	Started time.Time
 	Sha     string
 	Schema  int
-	// Structured says whether the daemon runs the agent as a structured session; nil is none. transcript.events is served for those only.
-	Structured func(agent string) bool
-	// SessionOpen says whether a structured agent's session is running; nil is none. A structured agent has no terminal, so agent.get
-	// reads this where a terminal agent's row says it.
-	SessionOpen func(agent string) bool
 	// Context is the model id and the context figures of an agent on an account, as the usage reads give them: the status file's percent,
 	// tokens used (nil when unknown or stale) and the limit tokens are judged against (0 when unknown). agent.strip leaves them null then.
 	Context func(agent, account string) (model string, pct *int, used *int64, limit int)
