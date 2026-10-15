@@ -149,7 +149,7 @@ export function Message(props: {
         ) : null}
         {m.parent_item ? (
           <blockquote
-            className="msg-quote mb-1 flex w-fit max-w-[16rem] min-w-0 items-center gap-1 text-[12px] text-ink-2"
+            className="msg-quote mx-0 mt-0 mb-1 flex w-fit max-w-[16rem] min-w-0 items-center gap-1 text-[12px] text-ink-2"
             data-item={m.parent_item.id}
           >
             <Icon name="reference" size={12} label="Reply to the agent's reply" className="shrink-0" />
