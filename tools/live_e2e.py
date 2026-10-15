@@ -93,11 +93,13 @@ class Daemon:
 class Stream:
     """A subscribed connection: a reader thread keeps every event with its arrival time and wakes whoever waits."""
 
-    def __init__(self, sock: Path, key: str) -> None:
+    def __init__(self, sock: Path, key: str, topics: list[str] = TOPICS, into: Stream | None = None) -> None:
+        """into: keep this connection's events in that stream's list, so one wait sees both (the transcript topic is subscribed
+        on a connection of its own)."""
         self.conn = Daemon(sock, key)
-        self.conn.call("subscribe", {"topics": TOPICS})
-        self.events: list[tuple[float, dict]] = []
-        self.cond = threading.Condition()
+        self.conn.call("subscribe", {"topics": topics})
+        self.events: list[tuple[float, dict]] = into.events if into else []
+        self.cond = into.cond if into else threading.Condition()
         self.closed = False
         threading.Thread(target=self._read, daemon=True).start()
 
@@ -159,8 +161,8 @@ class Answerer:
     """Answers yes to the agent's permission prompts outside the permission step, on a connection of its own: a haiku agent in
     mode default asks before almost any command it improvises, and those prompts are not what a step measures."""
 
-    def __init__(self, sock: Path, key: str, stream: Stream, agent: str) -> None:
-        self.d, self.s, self.agent = Daemon(sock, key), stream, agent
+    def __init__(self, sock: Path, key: str, stream: Stream, agent: str, choose=yes) -> None:
+        self.d, self.s, self.agent, self.choose = Daemon(sock, key), stream, agent, choose
         self.on = threading.Event()
         self.on.set()
         self.answered: set[str] = set()
@@ -178,7 +180,7 @@ class Answerer:
                 prompt = self.d.call("agent.get", {"agent": self.agent}).get("prompt")
                 if prompt and prompt["id"] not in self.answered:
                     self.answered.add(prompt["id"])
-                    self.d.write("prompt.answer", {"agent": self.agent, "prompt": prompt["id"], "choice": yes(prompt)})
+                    self.d.write("prompt.answer", {"agent": self.agent, "prompt": prompt["id"], "choice": self.choose(prompt)})
             except (Refused, OSError):
                 pass
 
@@ -418,7 +420,8 @@ def scratch(root: Path, account: dict, terminal: bool = False) -> tuple[Path, st
     return home, key
 
 
-def start_daemon(binary: str, root: Path, home: Path, account: dict, tmux: str | None = None) -> int:
+def start_daemon(binary: str, root: Path, home: Path, account: dict, tmux: str | None = None,
+                 agents: dict[str, Path] | None = None) -> int:
     """The test daemon as production runs it (structured sessions, the tick, the cutover), in a process group of its own so its
     sessions go with it; returns that group. Like launchd's daemon it has no parent: an agent's hl counts the Claude Codes
     above it, and the one running this run must not be one. The agent's row names its checkout: the daemon makes no worktrees yet."""
@@ -447,7 +450,8 @@ def start_daemon(binary: str, root: Path, home: Path, account: dict, tmux: str |
             raise Refused(f"the test daemon did not come up; its log: {root / 'daemon.log'}")
         time.sleep(0.1)
     con = sqlite3.connect(home / "db.sqlite", timeout=10)
-    con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'queued', 0, ?)", (AGENT, str(root / "work")))
+    for name, work in (agents or {AGENT: root / "work"}).items():
+        con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'queued', 0, ?)", (name, str(work)))
     con.commit()
     con.close()
     return sh.pid
