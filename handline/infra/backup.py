@@ -54,8 +54,8 @@ def backup_dir(home: Path | None = None) -> Path:
 def _skipped(rel: Path) -> bool:
     parts = rel.parts
     # logs/ and locks/ change on every run (this job's own log among them), so
-    # counting them would make every run a change.
-    return (parts[:1] in (("venv",), ("logs",), ("locks",)) or (len(parts) >= 3 and parts[0] == "accounts" and parts[2] == ".claude")
+    # counting them would make every run a change. caches/ is sandboxed agents' build caches, rebuilt at will.
+    return (parts[:1] in (("venv",), ("logs",), ("locks",), ("caches",)) or (len(parts) >= 3 and parts[0] == "accounts" and parts[2] == ".claude")
             or (len(parts) == 1 and parts[0] in DB_NAMES))
 
 

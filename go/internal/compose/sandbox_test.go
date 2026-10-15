@@ -51,9 +51,16 @@ func TestTheSandboxSettingsCarryTheSharedSandboxAndTheHideListsAsATerminalAgentG
 	if _, sb, deny := sandboxOf(t, shared, Confinement{SandboxOff: true, Hide: []string{"/x"}}); sb["enabled"] != false || len(deny) != 2 {
 		t.Fatalf("the founder's choice turns the sandbox off and keeps the file-tool denies: %v %v", sb, deny)
 	}
-	fs, sb, _ = sandboxOf(t, shared, Confinement{ExtraDirs: []string{"/w2"}, AllowWrite: []string{"/r/.git"}, AllowDomains: []string{"registry.npmjs.org"}})
-	if !slices.Equal(fs["allowWrite"].([]any), []any{"/h", "/w2", "/r/.git"}) {
+	c := Confinement{ExtraDirs: []string{"/w2"}, AllowWrite: []string{"/r/.git"}, AllowDomains: []string{"registry.npmjs.org"}, CacheDir: "/h/caches/a"}
+	fs, sb, _ = sandboxOf(t, shared, c)
+	if !slices.Equal(fs["allowWrite"].([]any), []any{"/h", "/w2", "/r/.git", "/h/caches/a"}) {
 		t.Fatalf("the allowances are written beside the worktrees: %v", fs["allowWrite"])
+	}
+	if env := SandboxSettings([]byte(shared), c)["env"].(map[string]any); env["GOCACHE"] != "/h/caches/a/go-build" || env["npm_config_store_dir"] != "/h/caches/a/pnpm-store" {
+		t.Fatalf("the caches are the session's own: %v", env)
+	}
+	if _, ok := SandboxSettings([]byte(shared), Confinement{SandboxOff: true})["env"]; ok {
+		t.Fatal("an unsandboxed session keeps the shared caches")
 	}
 	network := sb["network"].(map[string]any)
 	if !slices.Equal(network["allowedDomains"].([]any), []any{"github.com", "registry.npmjs.org"}) {

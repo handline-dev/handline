@@ -175,9 +175,9 @@
   {
    "name": "sandbox_allowances",
    "allow_write": [
-    "/r/.git",
-    "/c/go-build"
+    "/r/.git"
    ],
+   "cache_dir": "/h/caches/a",
    "allow_domains": [
     "registry.npmjs.org",
     "expo.dev"
@@ -190,7 +190,7 @@
     "high",
     "--no-chrome",
     "--settings",
-    "{\"sandbox\": {\"filesystem\": {\"allowWrite\": [\"/r/.git\", \"/c/go-build\"]}, \"network\": {\"allowedDomains\": [\"registry.npmjs.org\", \"expo.dev\"]}, \"enabled\": true}}"
+    "{\"sandbox\": {\"filesystem\": {\"allowWrite\": [\"/r/.git\", \"/h/caches/a\"]}, \"network\": {\"allowedDomains\": [\"registry.npmjs.org\", \"expo.dev\"]}, \"enabled\": true}, \"env\": {\"GOCACHE\": \"/h/caches/a/go-build\", \"GOMODCACHE\": \"/h/caches/a/go-mod\", \"npm_config_cache\": \"/h/caches/a/npm\", \"npm_config_store_dir\": \"/h/caches/a/pnpm-store\", \"npm_config_cache_dir\": \"/h/caches/a/pnpm-cache\", \"npm_config_state_dir\": \"/h/caches/a/pnpm-state\"}}"
    ]
   },
   {

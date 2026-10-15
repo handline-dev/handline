@@ -139,8 +139,9 @@ func (l *Launcher) Build(agent string, extra []string, force bool, account strin
 	}
 	sandboxed := l.Roster.SandboxOn(agent, cfg)
 	var allowWrite, allowDomains []string
+	var cacheDir string
 	if sandboxed {
-		allowWrite, allowDomains = l.SandboxAllowWrite(agent), team.SandboxDomains(cfg)
+		allowWrite, allowDomains, cacheDir = l.SandboxAllowWrite(agent), team.SandboxDomains(cfg), l.SandboxCacheDir(agent)
 	}
 	var trusted []string
 	if len(mode) > 0 && chosen == team.DefaultMode {
@@ -154,7 +155,7 @@ func (l *Launcher) Build(agent string, extra []string, force bool, account strin
 		MemoryDir: memoryDir, Trusted: trusted, Chrome: team.Chrome(cfg),
 		SandboxOff:  !sandboxed,
 		MCPApproved: approved, ExtraDirs: extraDirs, ReadAllow: []string{filepath.Join(l.Home, "attachments")},
-		AllowWrite: allowWrite, AllowDomains: allowDomains,
+		AllowWrite: allowWrite, AllowDomains: allowDomains, CacheDir: cacheDir,
 	})
 	// The pair goes whole or not at all: a caller's own mode wins, and a lone value left behind would be read as the opening prompt.
 	if len(mode) > 0 {
