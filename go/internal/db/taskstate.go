@@ -76,6 +76,23 @@ func HoldsCurrent(q Q, t *Task) (bool, error) {
 	return cur == nil || cur.Ended() || cur.Reported(), nil
 }
 
+// HeldByHolder is whether the holder rule keeps request r back from agent: it delivers a task of agent's that is not the one agent holds.
+func HeldByHolder(q Q, agent string, r *Request) (bool, error) {
+	tasks, err := TasksForRequest(q, r.ID)
+	if err != nil {
+		return false, err
+	}
+	for _, t := range tasks {
+		if t.Owner != agent {
+			continue
+		}
+		if holds, err := HoldsCurrent(q, t); err != nil || !holds {
+			return !holds, err
+		}
+	}
+	return false, nil
+}
+
 // IsDoing is actions.is_doing: reads_doing and the one its owner holds.
 func IsDoing(q Q, tid int64) (bool, error) {
 	t, err := GetTask(q, tid)
