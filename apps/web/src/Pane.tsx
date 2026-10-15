@@ -29,6 +29,7 @@ import { BytesTab } from './BytesTab.tsx';
 import { wantsBytes } from './terminal/choose.ts';
 import { Watch } from './TranscriptTab.tsx';
 import { TerminalTab } from './TerminalTab.tsx';
+import { ViewSwitch } from './ViewSwitch.tsx';
 import { useWorkspace } from './Workspace.tsx';
 import { RailControls, useFoldedControls } from './RailControls.tsx';
 
@@ -89,6 +90,7 @@ export function Pane({ group }: { group: Group }) {
     if (termShown) setUnread(false);
   }, [termShown]);
 
+  const hiddenActive = group.tabs.includes(CHAT) && ['terminal', 'transcript'].includes(ws.tabs[group.activeTab]?.kind ?? '');
   const dropOnStrip = (e: React.DragEvent) => {
     if (!dragging) return;
     e.preventDefault();
@@ -114,13 +116,16 @@ export function Pane({ group }: { group: Group }) {
         ) : null}
         {group.tabs.map((id) => {
           const t = ws.tabs[id]!;
+          // Claude Code is reached by the switch (Cmd/Ctrl+J, /terminal, the icon in the bottom bar), not by a tab, while the chat is in the group.
+          const asleep = id === CHAT && hiddenActive; // Claude Code is showing: the Chat tab stays the strip's one tab, quiet
+          const viaSwitch = (t.kind === 'terminal' || t.kind === 'transcript') && group.tabs.includes(CHAT);
           return (
             <div
               key={id}
               role="tab"
               tabIndex={0}
-              aria-selected={id === group.activeTab}
-              className={`tab group inline-flex max-w-[200px] cursor-default select-none items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 font-sans text-body font-medium ${id === group.activeTab ? 'on border-b-ink text-ink' : 'border-b-transparent text-ink-2'}`}
+              aria-selected={id === group.activeTab || asleep}
+              className={`tab group ${viaSwitch ? 'hidden' : 'inline-flex'} max-w-[200px] cursor-default select-none items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 font-sans text-body font-medium ${id === group.activeTab ? 'on border-b-ink text-ink' : asleep ? 'border-b-line-strong text-ink-2' : 'border-b-transparent text-ink-2'}`}
               data-tab={id}
               draggable
               onDragStart={(e) => {
@@ -218,12 +223,15 @@ export function Pane({ group }: { group: Group }) {
             agent={agent}
             structured={structured}
             terminal={
-              <div className="flex min-h-0 flex-col [&>:last-child]:flex-1">
+              <div className="flex min-h-0 flex-col [&>:nth-last-child(2)]:flex-1">
                 {wantsBytes(store.client.hello?.capabilities.terminal_format, storage) ? (
                   <BytesTab agent={agent} detail={detail} />
                 ) : (
                   <TerminalTab agent={agent} detail={detail} />
                 )}
+                <div className="chat-foot flex h-8 flex-none items-center border-t border-line px-3">
+                  <ViewSwitch to="chat" />
+                </div>
               </div>
             }
           />

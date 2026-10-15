@@ -1,6 +1,9 @@
 package turns
 
 import (
+	"fmt"
+	"os"
+	"strings"
 	"sync"
 
 	"golang.org/x/sys/unix"
@@ -41,3 +44,14 @@ func watchExit(pid int, exited func()) (stop func(), err error) {
 
 // reaped is whether pid has left the process table, not merely exited.
 func reaped(pid int) bool { return unix.Kill(pid, 0) == unix.ESRCH }
+
+// zombie is whether pid has exited and waits to be reaped: the process table still lists it, but it is no session.
+func zombie(pid int) bool {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return false
+	}
+	s := string(b)
+	i := strings.LastIndexByte(s, ')') // the command name may hold spaces and parentheses
+	return i >= 0 && i+2 < len(s) && s[i+2] == 'Z'
+}

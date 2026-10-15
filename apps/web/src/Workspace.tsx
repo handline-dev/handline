@@ -7,11 +7,13 @@ import {
   groupsOf,
   loadWorkspace,
   MAX_GROUPS,
+  openTab,
   saveWorkspace,
   setSplit,
   splitPane,
   oneTerminal,
   setTerminal,
+  toggleView,
   storageKey,
   type KV,
   type Node,
@@ -21,9 +23,11 @@ import {
 import type { AgentDetail } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { classify, useAgentDetail, useAgents, useServes } from '@handline/app-data';
+import { takeTerminalWish } from './route.ts';
 import { View } from './View.tsx';
 import { DropZones } from './DropZones.tsx';
 import { Pane } from './Pane.tsx';
+import { isSwitchChord, isTerminalSwitch } from './terminal/core.ts';
 
 const CELL = 'cell flex min-h-0 min-w-0 [&>*]:min-h-0 [&>*]:min-w-0 [&>*]:flex-1';
 
@@ -33,6 +37,8 @@ export interface WorkspaceCtx {
   agent: string;
   storage: KV | null;
   apply: (f: (w: Workspace) => Workspace) => void;
+  /** The chat / Claude Code switch. */
+  flip: () => void;
   /** Runs a drag-and-drop result; a refusal (a fifth pane) is said in the toast. */
   drop: (next: Workspace | null) => void;
   /** Whether Split on this pane shows as a pane of its own at this window size (narrower, the groups render as one strip). */
@@ -105,7 +111,34 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     had.current = !!terminal;
   }, [terminal]);
 
+  // Cmd/Ctrl+J flips between the chat and Claude Code, from either (a focused terminal hands the chord over).
+  const flip = () => setWs((w) => toggleView(w, detail.terminal ?? undefined, detail.structured === true));
+  const flipRef = useRef(flip);
+  flipRef.current = flip;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const inTerminal = e.target instanceof HTMLElement && !!e.target.closest('.xterm');
+      if (!(inTerminal ? isTerminalSwitch(e) : isSwitchChord(e))) return;
+      e.preventDefault();
+      flipRef.current();
+    };
+    addEventListener('keydown', onKey);
+    return () => removeEventListener('keydown', onKey);
+  }, []);
+
+  // "Open terminal" from the My turn page: the terminal (or transcript) comes to the front once.
+  useEffect(() => {
+    const take = () => {
+      if (!takeTerminalWish(agent)) return;
+      setWs((w) => (detail.structured ? openTab(w, 'transcript') : detail.terminal ? openTab(w, 'terminal', { handle: detail.terminal }) : w));
+    };
+    take();
+    addEventListener('handline-terminal', take);
+    return () => removeEventListener('handline-terminal', take);
+  }, [agent, detail.structured, detail.terminal]);
+
   const value: WorkspaceCtx = {
+    flip,
     ws,
     detail,
     agent,

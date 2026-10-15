@@ -2,14 +2,15 @@
 // that concern it, decided where they were discussed.
 import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
-import type { AgentDetail } from '@handline/client';
+import type { AgentDetail, Proposal } from '@handline/client';
 import { ago } from '@handline/app-core';
-import { useHr, useWrite } from '@handline/app-data';
+import { classify, sentence, useHr, useWrite } from '@handline/app-data';
 import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOf } from './ui/index.ts';
 import { goTeam } from './route.ts';
 import { openTaskOnClick } from './ChatMessages.tsx';
 import { useWorkspace } from './Workspace.tsx';
 import { AgentGauges } from './AgentGauges.tsx';
+import { ViewSwitch } from './ViewSwitch.tsx';
 import { useOpenTerminal } from './ChatMenus.tsx';
 
 const until = (iso: string | null): number | null => {
@@ -22,7 +23,7 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
   const cache = until(detail.cache_until);
   const { apply } = useWorkspace();
   return (
-    <div className="chat-strip flex min-w-0 items-center gap-2 overflow-hidden text-hint text-ink-2">
+    <div className="chat-strip flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-hint text-ink-2">
       <State kind={stateOf(detail.state)} label={detail.state_detail ? `${detail.state}: ${detail.state_detail}` : detail.state} />
       {detail.model ? (
         <Chip title={`Model ${detail.model}${detail.effort ? `, ${detail.effort}` : ''}`}>
@@ -43,6 +44,7 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
         </Chip>
       ) : null}
       <AgentGauges ctx={typeof detail.ctx_pct === 'number' ? Math.round(detail.ctx_pct) : null} cacheMin={cache} />
+      <ViewSwitch to="terminal" />
     </div>
   );
 }
@@ -61,6 +63,12 @@ export function ChatBanner({ detail }: { detail: AgentDetail }) {
 }
 
 const DONE: Record<string, string> = { approved: 'Applied', rejected: 'Rejected' };
+/** What the card says once a decision came back: what was done, or why it was not. */
+function outcome(p: Proposal, choice: 'approve' | 'reject', error?: string): string {
+  if (error) return error;
+  if (choice === 'reject') return 'Rejected';
+  return p.kind === 'add' && p.asked?.team ? `${p.agent} added to ${p.asked.team}` : 'Applied';
+}
 const settledRecently = (iso?: string | null) => !!iso && Date.now() - Date.parse(iso) < 60 * 60_000;
 
 /** The HR proposals that concern this agent: open ones with approve and reject as icons, a failed one with a retry, and a decided one as the same
@@ -71,9 +79,20 @@ export function HrCards({ agent }: { agent: string }) {
   const can = useSelector((s) => s.can('hr.decide'));
   const [rejecting, setRejecting] = useState<{ id: number; subject: string } | null>(null);
   const [note, setNote] = useState('');
+  // The button pressed on a card, while it waits and after: the card stays and says how it went (the app posts nothing in the chat).
+  const [sent, setSent] = useState<Record<number, { choice: 'approve' | 'reject'; wait: boolean; error?: string }>>({});
+  const send = (p: { id: number; subject: string }, choice: 'approve' | 'reject', why?: string) => {
+    setSent((m) => ({ ...m, [p.id]: { choice, wait: true } }));
+    decide
+      .mutateAsync({ proposal: p.id, decision: choice, subject: p.subject, ...(why ? { note: why } : {}) })
+      .then(
+        () => setSent((m) => ({ ...m, [p.id]: { choice, wait: false } })),
+        (e) => setSent((m) => ({ ...m, [p.id]: { choice, wait: false, error: sentence(classify(e)) } })),
+      );
+  };
   const reject = () => {
     if (!rejecting || !note.trim()) return;
-    decide.mutate({ proposal: rejecting.id, decision: 'reject', subject: rejecting.subject, note: note.trim() });
+    send(rejecting, 'reject', note.trim());
     setRejecting(null);
     setNote('');
   };
@@ -81,36 +100,61 @@ export function HrCards({ agent }: { agent: string }) {
   const shown = mine.filter((p) => p.state === 'open' || p.state === 'apply_failed' || (p.state in DONE && settledRecently(p.settled)));
   return (
     <>
-      {shown.map((p) => (
-        <Card variant="chat" key={p.id} className="card-hr bg-surface" data-kind="hr" data-proposal={p.id} data-state={p.state}>
-          <Icon name="team" label="Proposal" />
-          <CardWhat stacked>
-            <strong>{p.title}</strong>
-            {p.state in DONE ? (
+      {shown.map((p) => {
+        const mine = sent[p.id];
+        const failed = mine?.error ?? (mine && !mine.wait && p.state === 'apply_failed' ? `Not applied${p.error ? `: ${p.error}` : ''}` : undefined);
+        const pressed = (c: 'approve' | 'reject') => !!mine && mine.choice === c;
+        return (
+          <Card variant="chat" key={p.id} className="card-hr bg-surface" data-kind="hr" data-proposal={p.id} data-state={p.state}>
+            <Icon name="team" label="Proposal" />
+            <CardWhat stacked>
+              <strong>{p.title}</strong>
+              {p.state in DONE ? (
+                <>
+                  <span className="outcome text-ink-2">{DONE[p.state]}</span>
+                  <span className="muted whitespace-pre-line">{p.diff}</span>
+                </>
+              ) : p.state === 'apply_failed' ? (
+                <span className="outcome text-bad">Not applied{p.error ? `: ${p.error}` : ''}. Approve to try again.</span>
+              ) : p.reason ? (
+                <span className="muted">{p.reason}</span>
+              ) : null}
+              {mine && !mine.wait ? (
+                <span className={`banner${failed ? '' : ' ok'}`} role="status">
+                  {failed ?? outcome(p, mine.choice)}
+                </span>
+              ) : null}
+            </CardWhat>
+            {can && (!(p.state in DONE) || mine) ? (
               <>
-                <span className="outcome text-ink-2">{DONE[p.state]}</span>
-                <span className="muted whitespace-pre-line">{p.diff}</span>
+                <Button
+                  icon="markRead"
+                  label="Approve"
+                  size="sm"
+                  aria-pressed={pressed('approve')}
+                  aria-busy={mine?.wait && pressed('approve') ? true : undefined}
+                  disabled={!!mine && (mine.wait || !failed)}
+                  className={pressed('approve') ? 'bg-raised' : ''}
+                  onClick={() => send(p, 'approve')}
+                >
+                  {mine?.wait && pressed('approve') ? <span className="hr-wait" aria-hidden>…</span> : undefined}
+                </Button>
+                <Button
+                  icon="dismiss"
+                  label="Reject"
+                  size="sm"
+                  aria-pressed={pressed('reject')}
+                  aria-busy={mine?.wait && pressed('reject') ? true : undefined}
+                  disabled={!!mine && (mine.wait || !failed)}
+                  className={pressed('reject') ? 'bg-raised' : ''}
+                  onClick={() => setRejecting({ id: p.id, subject: p.subject })}
+                />
               </>
-            ) : p.state === 'apply_failed' ? (
-              <span className="outcome text-bad">Not applied{p.error ? `: ${p.error}` : ''}. Approve to try again.</span>
-            ) : p.reason ? (
-              <span className="muted">{p.reason}</span>
             ) : null}
-          </CardWhat>
-          {can && !(p.state in DONE) ? (
-            <>
-              <Button
-                icon="markRead"
-                label="Approve"
-                size="sm"
-                onClick={() => decide.mutate({ proposal: p.id, decision: 'approve', subject: p.subject })}
-              />
-              <Button icon="dismiss" label="Reject" size="sm" onClick={() => setRejecting({ id: p.id, subject: p.subject })} />
-            </>
-          ) : null}
-          <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
-        </Card>
-      ))}
+            <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
+          </Card>
+        );
+      })}
       {rejecting ? (
         <Dialog title="Reject" onClose={() => setRejecting(null)} action={{ label: 'Reject', onClick: reject, disabled: !note.trim() }}>
           <Field label="Why" value={note} onChange={(e) => setNote(e.target.value)} />

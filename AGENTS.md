@@ -19,17 +19,21 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   --parent T<n> -t <time> "review T<n> @<sha>" "<branch, what changed, what to
   check>"`; the child blocks T<n>, and the auditor closes it with `hl task done
   T<child> "PASS: <notes>"` or `"FAIL: <what fails>"` - you are told when it
-  is done, with its result. On a PASS open the same for `orcapipe.merger`
-  (`"merge T<n> @<sha>"`, body naming the PASS task); it closes with the merged
-  commit sha or `"not merged: <reason>"`. Then mark T<n> done with that sha
-  (`hl task done T<n> <sha>`; it is refused while a child is open), else
-  `hl task handoff T<n> <its opener> "merged <sha>"`. A wrong result is
-  reopened by its asker. An auditor or merger never hands a review or merge task
-  back: it finishes it.
-- Before you ask for a review, merge current main into the branch and run
-  `tools/check.sh main`; the review request
-  carries its result line. The auditor sends a request without it back,
-  unreviewed.
+  is done, with its result. On a PASS open the same for the merger
+  (`"merge T<n> @<sha>"`, body naming the PASS task and the target branch); it
+  closes with the merged commit sha or `"not merged: <reason>"`. Then mark T<n>
+  done with that sha (`hl task done T<n> <sha>`; it is refused while a child is
+  open), else `hl task handoff T<n> <its opener> "merged <sha>"`. A wrong result
+  is reopened by its asker. An auditor or merger never hands a review or merge
+  task back: it finishes it.
+- Where work lands: each story has a branch `story/<n>`. Its tasks branch from
+  it and, after the PASS, the merger merges them into it, with no founder step.
+  A story reaches main as one PR, which the founder checks by eye and merges.
+  Only a fix for a red main, a daemon bug or a security fix goes straight to main,
+  as its own PR. Main is merged into every `story/<n>` at least once a day.
+- Before you ask for a review, merge the current target (`story/<n>`, or main)
+  into the branch and run `tools/check.sh <target>`; the review request carries
+  its result line. The auditor sends a request without it back, unreviewed.
 - A task or a say can be refused; the refusal says why, and the policy behind
   it is deliberate, not a fault to route around. A name that is not on
   `hl team` (a bare `auditor` for `<team>.auditor`) is refused with "unknown
@@ -103,14 +107,14 @@ agent (ROLE.md, base.md); this file does not repeat them.
   commit. Work is not done until they pass. While iterating, run only the
   tests you touched (`tools/test.sh -k <name>`, or `tools/test.sh tests/<group>/test_<area>.py`); do not run the
   whole suite before you hand the task to the auditor. The auditor runs the tests once at the
-  exact sha (`HANDLINE_GO_RACE=1 tools/check.sh main`: the variable adds `-race` to the Go tests, and only this run sets it; in the foreground with a 600000 ms Bash timeout, never in the
+  exact sha (`HANDLINE_GO_RACE=1 tools/check.sh <target>`: the variable adds `-race` to the Go tests, and only this run sets it; in the foreground with a 600000 ms Bash timeout, never in the
   background); a count you quote is not a verdict. `tools/check.sh` runs nothing for documentation; for anything else
   it runs, in order: the app checks (`pnpm turbo test typecheck lint` when an app or JS workspace file changed, else
   `pnpm --dir packages/app-data test`), then the Go suite and the Python files that test only Go (its GO_FILES) for
   a change to go/ or the apps only, the whole suite (`tools/suite.sh`) otherwise.
-- Lighter review: a docs-only change, or a re-merge of main onto an already PASSed sha with no
-  conflict, lands without a new review round. The auditor records the PASS on the new sha at once
-  and the merger lands it.
+- Lighter review: a docs-only change, or a re-merge of main or the story branch onto an already
+  PASSed sha with no conflict, lands without a new review round. The auditor records the PASS on the
+  new sha at once and the merger lands it on its target.
 - Live checks: run them yourself, one short run each, and put the output in the task. They are opt-in:
   `HANDLINE_LIVE=1 tools/live-e2e.sh`, or `HANDLINE_LIVE=1 go test -run TestLive... ./internal/...`. Each spends
   the account with the most headroom now (`tools/live_account.py` says which and why) and runs a test daemon on a

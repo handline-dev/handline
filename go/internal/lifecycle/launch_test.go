@@ -659,3 +659,42 @@ edges:
 		t.Errorf("wrong boss:\n%s\n---\n%s", dev, scout)
 	}
 }
+
+// argsDriver keeps what Build hands the driver.
+type argsDriver struct {
+	fakeDriver
+	got *LaunchArgs
+}
+
+func (d argsDriver) LaunchArgv(exe string, o LaunchArgs) []string {
+	*d.got = o
+	return d.fakeDriver.LaunchArgv(exe, o)
+}
+
+type argsVendors struct {
+	fakeVendors
+	d Driver
+}
+
+func (v argsVendors) ForAgent(string) (Driver, error) { return v.d, nil }
+
+func TestBuildHandsTheDriverTheAllowancesOfTheAgentsRepoOnly(t *testing.T) {
+	r := newLaunchRig(t)
+	var got LaunchArgs
+	r.l.Ports.Vendors = argsVendors{fakeVendors{"claude"}, argsDriver{fakeDriver{"claude"}, &got}}
+	if err := r.l.Roster.Store.Put(team.RepoAllowanceNS, "orcapipe", "weaker-network\npnpm-install"); err != nil {
+		t.Fatal(err)
+	}
+	for repo, want := range map[string]bool{"/ws/orcapipe": true, "/ws/harbor-app": false} {
+		if err := r.l.Roster.SetKeys("ann", []yamlcompat.Pair{{Key: "sandbox", Val: true}, {Key: "repo", Val: repo}}); err != nil {
+			t.Fatal(err)
+		}
+		got = LaunchArgs{}
+		if _, _, err := r.l.Build("ann", nil, false, "main"); err != nil {
+			t.Fatal(err)
+		}
+		if got.WeakerNetwork != want || (len(got.Excluded) > 0) != want {
+			t.Errorf("%s: weaker %v, excluded %v", repo, got.WeakerNetwork, got.Excluded)
+		}
+	}
+}

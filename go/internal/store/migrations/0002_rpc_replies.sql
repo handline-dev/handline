@@ -8,4 +8,4 @@ CREATE TABLE rpc_replies (
           ts         INTEGER NOT NULL,
           PRIMARY KEY (caller, request_id)
         );
-CREATE INDEX rpc_replies_ts ON rpc_replies(ts);
+CREATE INDEX IF NOT EXISTS rpc_replies_ts ON rpc_replies(ts);
