@@ -127,14 +127,16 @@ test('a message can be taken back until it is withdrawn, and the agent is asked 
   assert.deepEqual(takeBack(r('sent')), { confirm: true });
 });
 
-test("the task board's words are task cards or hidden notices, in the agent's own chat and in the All view", () => {
+test("the task board's words are left out of the agent's own chat and shown in the All view", () => {
   const news = pm({ id: 7, from: 'task-board', to: A, body: 'T3492 done by handline.pair: -' }); // local-ref-ok
   const delivery = pm({ id: 8, from: 'task-board', to: A, body: '#28387 to handline.pair was written to its session' }); // local-ref-ok
   assert.deepEqual(noticeOf(news), { kind: 'task', task: 3492 });
   assert.deepEqual(noticeOf(delivery), { kind: 'delivery' });
   assert.equal(noticeOf(pm({ from: 'human', body: 'T1 done by me' })), null);
   const kinds = (scope: 'mine' | 'all') => timeline([news, delivery], [], scope).map((e) => `${e.kind}${e.id}`);
-  assert.deepEqual(kinds('mine'), ['note7']);
+  const waits = pm({ id: 9, from: 'task-board', to: A, body: 'task T4136 now waits on T4148' }); // local-ref-ok
+  assert.deepEqual(timeline([news, delivery, waits, pm({ id: 10, from: 'human', to: A })], [], 'mine').map((e) => `${e.kind}${e.id}`), ['message10']);
+  assert.deepEqual(kinds('mine'), []);
   assert.deepEqual(kinds('all'), ['note7', 'message8']);
   assert.equal(sideOf(delivery, A, 'Handline desktop'), 'other');
 });

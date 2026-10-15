@@ -18,13 +18,13 @@ export function noticeOf(m: ChatMessage): { kind: 'task'; task: number } | { kin
   return /^#\d+\s/.test(m.body) ? { kind: 'delivery' } : null;
 }
 
-/** Everything on screen for one agent, oldest first: the messages and the agent's transcript by time. In the agent's own chat (`mine`) the task board's delivery notices are left out. */
+/** Everything on screen for one agent, oldest first: the messages and the agent's transcript by time. In the agent's own chat (`mine`) nothing the task board sent is shown: it still reaches the agent and stays on the task. */
 export function timeline(messages: ChatMessage[], items: TranscriptItem[], scope: 'mine' | 'all' = 'mine'): TimelineEntry[] {
   const out: TimelineEntry[] = [
     ...messages.flatMap((m): TimelineEntry[] => {
+      if (scope === 'mine' && m.from === NOTICE_SENDER) return [];
       const n = noticeOf(m);
       if (n?.kind === 'task') return [{ kind: 'note', at: m.at, id: m.id, message: m, task: n.task }];
-      if (n?.kind === 'delivery' && scope === 'mine') return [];
       return [{ kind: 'message', at: m.at, id: m.id, message: m }];
     }),
     ...items.map((i): TimelineEntry => ({ kind: 'item', at: i.at, id: i.id, item: i })),

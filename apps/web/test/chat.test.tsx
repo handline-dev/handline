@@ -349,15 +349,17 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
   const labelled = (within: Element | null | undefined, label: string) =>
     [...(within ?? box).querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label);
 
-  it("the task board's news is a task card, and its delivery notice is not in the agent's own chat; neither is a bubble", async () => {
+  it("nothing the task board sent is in the agent's own chat", async () => {
     const s = setup();
     s.daemon.chat.seed(ARCH, { from: 'task-board', to: ARCH, body: 'T3492 done by handline.pair: -' }); // local-ref-ok
     s.daemon.chat.seed(ARCH, { from: 'task-board', to: ARCH, body: '#28387 to handline.pair was written to its session' }); // local-ref-ok
+    s.daemon.chat.seed(ARCH, { from: 'task-board', to: ARCH, body: 'task T4136 now waits on T4148' }); // local-ref-ok
     await mount(ARCH, s);
     await until(() => msg('Which gap list'), 'history');
-    expect($$('[data-kind="task_event"]').some((c) => text(c).includes('T3492') && text(c).includes('by handline.pair'))).toBe(true); // local-ref-ok
+    expect($$('[data-kind="task_event"]').some((c) => text(c).includes('T3492'))).toBe(false); // local-ref-ok
     expect(msg('T3492 done by')).toBeUndefined(); // local-ref-ok
     expect(msg('#28387 to handline.pair')).toBeUndefined(); // local-ref-ok
+    expect(msg('now waits on')).toBeUndefined();
   });
 
   it('a message number in a message is a link that scrolls to that message, also one on an older page', async () => {
