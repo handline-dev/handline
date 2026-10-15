@@ -239,7 +239,7 @@ describe('the workspace', () => {
     expect($$('.pane')).toHaveLength(2);
     expect($('.dz')).toBeNull(); // the drag ended
     await click($('.pane[data-group="g1"] [aria-label="Add a tab"]')!);
-    await click($$('.pane[data-group="g1"] .ui-prow').find((b) => text(b).trim() === 'Claude Code')!);
+    await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => text(b).trim() === 'Claude Code')!);
     expect($$('[data-tab^="terminal:"]')).toHaveLength(1);
   });
 

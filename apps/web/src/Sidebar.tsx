@@ -25,7 +25,7 @@ import { Badges } from './Badges.tsx';
 import { Mark, MARKS } from './RailIcons.tsx';
 import { AgentGauges } from './AgentGauges.tsx';
 import { useNow } from './Gauge.tsx';
-import { Button, Icon, Menu, MenuContent, MenuTrigger, Popup, PROW } from './ui/index.ts';
+import { Button, Icon, Menu, MenuButton, MenuCheckItem, MenuContent, MenuTrigger } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import {
   goAgent,
@@ -66,7 +66,6 @@ export function Sidebar({
   const [collapsed, setCollapsed] = useState<Set<string>>(
     () => new Set(setting(storage, 'collapsed', '').value.split('|').filter(Boolean)),
   );
-  const [menu, setMenu] = useState(false);
   const flip = <T extends string>(set: Set<T>, k: T, key: string, sep: string): Set<T> => {
     const next = new Set(set);
     if (!next.delete(k)) next.add(k);
@@ -146,26 +145,21 @@ export function Sidebar({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <Button
+        <MenuButton
           icon="filter"
           label={hidden.size ? `Filter: ${hidden.size} hidden` : 'Filter'}
-          aria-haspopup="menu"
-          aria-expanded={menu}
+          name="Show agents that are"
           className={hidden.size ? 'text-primary' : ''}
-          onClick={() => setMenu(!menu)}
-        />
-        <Popup open={menu} onClose={() => setMenu(false)} title="Show agents that are" align="right">
+        >
           {RAIL_FILTERS.map((f) => {
             const on = f.dots.some((d) => !hidden.has(d));
             const n = f.dots.reduce((t, d) => t + (counts.get(d) ?? 0), 0);
             return (
-              <button
+              <MenuCheckItem
                 key={f.id}
-                type="button"
-                role="menuitemcheckbox"
-                aria-checked={on}
-                className={`${PROW} filter`}
-                onClick={() => {
+                checked={on}
+                icon={<Mark dot={f.dots[0]!} title={MARKS[f.dots[0]!].label} />}
+                onCheckedChange={() => {
                   const next = new Set(hidden);
                   for (const d of f.dots) {
                     if (on) next.add(d);
@@ -175,14 +169,12 @@ export function Sidebar({
                   setHidden(next);
                 }}
               >
-                <span className="w-3.5 flex-none">{on ? <Icon name="markRead" size={12} aria-hidden /> : null}</span>
-                <Mark dot={f.dots[0]!} title={MARKS[f.dots[0]!].label} />
                 <span className="flex-1">{f.label}</span>
                 <span className="muted count">{n}</span>
-              </button>
+              </MenuCheckItem>
             );
           })}
-        </Popup>
+        </MenuButton>
       </div>
       <div className="rail-list min-h-0 flex-1 overflow-auto">
         {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}

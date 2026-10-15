@@ -564,8 +564,7 @@ describe('the detail', () => {
 describe('actions on one task or many', () => {
   const shiftClick = (el: Element | null) =>
     act(async () => void el!.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })));
-  const popupRow = (label: string) =>
-    $$('.ui-popup [role="dialog"] button, .ui-popup button, .ui-popup [aria-disabled]').find((b) => text(b).startsWith(label));
+  const popupRow = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => text(b).startsWith(label));
   const menu = async (within: ParentNode, button_: string, rowLabel: string) => {
     await click(button(button_, within));
     await click(popupRow(rowLabel));

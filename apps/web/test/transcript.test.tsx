@@ -131,9 +131,10 @@ describe('the transcript of a structured agent', () => {
     expect(text($('[data-tab="transcript"]'))).toContain('Transcript');
     expect($('[data-tab^="terminal:"]')).toBeNull();
     await click($('button[aria-label="Add a tab"]')!);
-    await until(() => $('.strip-end .ui-popup'), 'the add-tab menu');
-    expect(text($('.strip-end .ui-popup'))).toContain('Transcript');
-    expect(text($('.strip-end .ui-popup'))).not.toContain('Claude Code');
+    await until(() => document.querySelector('[role="menu"]'), 'the add-tab menu');
+    const menu = text(document.querySelector('[role="menu"]'));
+    expect(menu).toContain('Transcript');
+    expect(menu).not.toContain('Claude Code');
   });
 
   it('says Working with an Interrupt while a turn runs, and says why when it is refused', async () => {

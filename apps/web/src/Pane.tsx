@@ -18,7 +18,7 @@ import {
 } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { ChatTab } from './ChatTab.tsx';
-import { Button, Icon, Popup, PopupRow, type IconName } from './ui/index.ts';
+import { Icon, MenuButton, MenuItem, type IconName } from './ui/index.ts';
 import { TasksTab } from './TasksTab.tsx';
 import { TimelineTab } from './TimelineTab.tsx';
 import { Badges } from './Badges.tsx';
@@ -72,7 +72,6 @@ export function Pane({ group }: { group: Group }) {
   const attention = needsAttention(badges);
   const wasAttention = useRef(attention);
   const [unread, setUnread] = useState(false);
-  const [menu, setMenu] = useState<'tab' | 'layout' | null>(null);
   useEffect(() => {
     if (attention && !wasAttention.current && termId !== undefined && !termShown) setUnread(true);
     wasAttention.current = attention;
@@ -161,44 +160,34 @@ export function Pane({ group }: { group: Group }) {
           );
         })}
         <span className="strip-end relative ml-auto flex items-center gap-0.5">
-          <Button
-            icon="plus"
-            size="sm"
-            label="Add a tab"
-            aria-haspopup="menu"
-            aria-expanded={menu === 'tab'}
-            onClick={() => setMenu(menu === 'tab' ? null : 'tab')}
-          />
-          <Popup open={menu === 'tab'} onClose={() => setMenu(null)} title="Add a tab" align="right">
-            <PopupRow icon="tasks" label="Tasks" onClick={() => (setMenu(null), apply((w) => openTab(w, 'tasks', {}, group.id)))} />
-            <PopupRow icon="history" label="Timeline" onClick={() => (setMenu(null), apply((w) => openTab(w, 'timeline', {}, group.id)))} />
+          <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab">
+            <MenuItem icon="tasks" onSelect={() => apply((w) => openTab(w, 'tasks', {}, group.id))}>
+              Tasks
+            </MenuItem>
+            <MenuItem icon="history" onSelect={() => apply((w) => openTab(w, 'timeline', {}, group.id))}>
+              Timeline
+            </MenuItem>
             {structured ? (
-              <PopupRow icon="terminal" label="Transcript" onClick={() => (setMenu(null), apply((w) => openTab(w, 'transcript', {}, group.id)))} />
+              <MenuItem icon="terminal" onSelect={() => apply((w) => openTab(w, 'transcript', {}, group.id))}>
+                Transcript
+              </MenuItem>
             ) : detail.terminal ? (
-              <PopupRow
-                icon="terminal"
-                label="Claude Code"
-                onClick={() => (setMenu(null), apply((w) => openTab(w, 'terminal', { handle: detail.terminal! }, group.id)))}
-              />
+              <MenuItem icon="terminal" onSelect={() => apply((w) => openTab(w, 'terminal', { handle: detail.terminal! }, group.id))}>
+                Claude Code
+              </MenuItem>
             ) : (
-              <span className="ui-prow text-ink-3">
-                <Icon name="noTerminal" size={14} label="No terminal: start the agent first" />
-              </span>
+              <MenuItem icon="noTerminal" disabled>
+                No terminal: start the agent first
+              </MenuItem>
             )}
-          </Popup>
-          <Button
-            icon="layout"
-            size="sm"
-            label="Layout"
-            aria-haspopup="menu"
-            aria-expanded={menu === 'layout'}
-            onClick={() => setMenu(menu === 'layout' ? null : 'layout')}
-          />
-          <Popup open={menu === 'layout'} onClose={() => setMenu(null)} title="Layout" align="right">
+          </MenuButton>
+          <MenuButton icon="layout" size="sm" label="Layout" name="Layout">
             {PRESETS.map(([p, name]) => (
-              <PopupRow key={p} label={name} onClick={() => (setMenu(null), apply((w) => applyPreset(w, p)))} />
+              <MenuItem key={p} onSelect={() => apply((w) => applyPreset(w, p))}>
+                {name}
+              </MenuItem>
             ))}
-          </Popup>
+          </MenuButton>
         </span>
       </div>
       <div className="pane-body relative flex min-h-0 flex-1 flex-col [&>*]:min-h-0 [&>*]:flex-1" role="tabpanel">

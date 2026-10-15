@@ -2,7 +2,7 @@
 // A drop, the Move to… menu and the key `m` all ask the daemon for the same status; a card moves only when the refetch shows it.
 import { useState } from 'react';
 import type { Worktree } from '@handline/client';
-import { Button, PROW } from './ui/index.ts';
+import { MenuButton, MenuItem } from './ui/index.ts';
 import { goWorktrees } from './route.ts';
 import { Owner, sums } from './Worktrees.tsx';
 
@@ -77,31 +77,21 @@ export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: s
                     </span>
                   ) : null}
                   {moves.enabled ? (
-                    <Button
+                    <MenuButton
                       size="sm"
                       variant="outline"
                       label="Move to…"
+                      name="Move to"
                       disabled={!!moves.moving[w.path]}
-                      aria-haspopup="menu"
-                      aria-expanded={menu === w.path}
-                      onClick={() => setMenu(menu === w.path ? null : w.path)}
+                      open={menu === w.path}
+                      onOpenChange={(o) => setMenu(o ? w.path : null)}
                     >
-                      Move to…
-                    </Button>
-                  ) : null}
-                  {menu === w.path ? (
-                    <div className="wt-menu grid gap-1 rounded-card border border-line-strong bg-surface p-1.5" role="menu" aria-label="Move to">
                       {STATUSES.filter((s) => s !== w.status).map((s) => (
-                        <button
-                          key={s}
-                          role="menuitem"
-                          className={`${PROW} rounded-chip max-sm:min-h-12`}
-                          onClick={() => (setMenu(null), moves.move(w.path, s))}
-                        >
+                        <MenuItem key={s} onSelect={() => moves.move(w.path, s)}>
                           {s}
-                        </button>
+                        </MenuItem>
                       ))}
-                    </div>
+                    </MenuButton>
                   ) : null}
                 </article>
               );
