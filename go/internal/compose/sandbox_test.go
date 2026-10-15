@@ -12,6 +12,7 @@ import (
 
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/sessiontoken"
+	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
 func sandboxOf(t *testing.T, shared string, c Confinement) (fs map[string]any, sandbox map[string]any, deny []any) {
@@ -134,5 +135,24 @@ func TestAStructuredSessionIsRecordedAsTheAgentsWhileItRuns(t *testing.T) {
 	<-s.Exited()
 	if kept, _ := tokens.Store.Get(sessiontoken.NS, "alice"); strings.Contains(kept, strconv.Itoa(pid)+" ") {
 		t.Fatalf("the record outlives the session: %q", kept)
+	}
+}
+
+func TestAStructuredSessionCarriesTheAllowancesOfItsRepoOnly(t *testing.T) {
+	p, lc, _, wt := wired(t)
+	if err := lc.roster.Store.Put(team.RepoAllowanceNS, "orcapipe", "weaker-network\npnpm-install"); err != nil {
+		t.Fatal(err)
+	}
+	for repo, want := range map[string]bool{"/ws/orcapipe": true, "/ws/harbor-app": false} {
+		if err := lc.roster.SetKeys("alice", []yamlcompat.Pair{{Key: "sandbox", Val: true}, {Key: "repo", Val: repo}}); err != nil {
+			t.Fatal(err)
+		}
+		c, err := p.Run.confinementOf("alice", wt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Allowed.WeakerNetwork != want || (len(c.Allowed.Excluded) > 0) != want {
+			t.Errorf("%s: %+v", repo, c.Allowed)
+		}
 	}
 }

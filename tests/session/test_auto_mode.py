@@ -279,7 +279,7 @@ def test_the_founders_switch_sandboxes_every_agent_whose_file_says_nothing_with_
     protected.put(agents.REPO_ALLOWANCE_NS, "repo", "weaker-network\npnpm-install")
     got = _settings(launchmod.build("backend")[0])[0]["sandbox"]
     check("switch: the founder's allowances for its repo", got.get("enableWeakerNetworkIsolation") is True
-          and got.get("excludedCommands") == ["pnpm install", "pnpm install *"], str(got))
+          and got.get("excludedCommands") == ["pnpm install", "pnpm install --frozen-lockfile"], str(got))
     protected.put(agents.REPO_ALLOWANCE_NS, "other", "weaker-network\npnpm-install")
     protected.delete(agents.REPO_ALLOWANCE_NS, "repo")
     got = _settings(launchmod.build("backend")[0])[0]["sandbox"]

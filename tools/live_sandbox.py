@@ -55,7 +55,7 @@ REPOS = {
 SESSION = {"orcapipe": [("go module download", "cd go && go mod download -x"), ("pnpm install", "pnpm install --frozen-lockfile")]}
 # name -> the allowances the founder gives its repo, and what the session's sandbox must then say.
 ALLOWED = {"orcapipe": ["weaker-network", "pnpm-install"]}
-WANTED = {"orcapipe": {"enableWeakerNetworkIsolation": True, "excludedCommands": ["pnpm install", "pnpm install *"]}}
+WANTED = {"orcapipe": {"enableWeakerNetworkIsolation": True, "excludedCommands": ["pnpm install", "pnpm install --frozen-lockfile"]}}
 STEP_S = 1800      # how long one step may run
 SRT = "0.0.79"     # the sandbox runtime
 
@@ -66,7 +66,7 @@ def cli_settings(tmux: list[str], handle: str) -> dict | None:
     kids = subprocess.run(["pgrep", "-P", shell], capture_output=True, text=True).stdout.split()
     args = subprocess.run(["ps", "-ww", "-o", "args=", "-p", kids[0]], capture_output=True, text=True).stdout if kids else ""
     try:
-        return json.loads(args[args.index("--settings ") + len("--settings "):].split(" --", 1)[0])
+        return json.JSONDecoder().raw_decode(args[args.index("--settings ") + len("--settings "):])[0]
     except ValueError:
         return None
 

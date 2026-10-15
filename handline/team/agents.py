@@ -215,7 +215,7 @@ def sandbox_domains(cfg: dict) -> list[str]:
 REPO_ALLOWANCE_NS = "sandbox_repos"
 # Each allowance as the session's sandbox takes it: weaker network isolation (Go on macOS verifies TLS through trustd,
 # which the default isolation blocks), or commands that run outside the sandbox.
-REPO_ALLOWANCES = {"weaker-network": {"weaker_network": True}, "pnpm-install": {"excluded": ["pnpm install", "pnpm install *"]}}
+REPO_ALLOWANCES = {"weaker-network": {"weaker_network": True}, "pnpm-install": {"excluded": ["pnpm install", "pnpm install --frozen-lockfile"]}}
 
 
 def repo_allowances(cfg: dict) -> dict:

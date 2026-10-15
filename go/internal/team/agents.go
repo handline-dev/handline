@@ -405,7 +405,7 @@ type RepoAllowances struct {
 // RepoAllowanceNames are the allowances the founder may give a repo, each as it changes the session's sandbox.
 var RepoAllowanceNames = map[string]func(*RepoAllowances){
 	"weaker-network": func(a *RepoAllowances) { a.WeakerNetwork = true },
-	"pnpm-install":   func(a *RepoAllowances) { a.Excluded = append(a.Excluded, "pnpm install", "pnpm install *") },
+	"pnpm-install":   func(a *RepoAllowances) { a.Excluded = append(a.Excluded, "pnpm install", "pnpm install --frozen-lockfile") },
 }
 
 // RepoAllowancesOf are the allowances of the repo agent.yaml names. A repo has none until the founder gives them (`hl sandbox-repo`),

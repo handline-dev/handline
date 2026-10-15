@@ -199,7 +199,7 @@
    "weaker_network": true,
    "excluded": [
     "pnpm install",
-    "pnpm install *"
+    "pnpm install --frozen-lockfile"
    ],
    "argv": [
     "/bin/claude",
@@ -209,7 +209,7 @@
     "high",
     "--no-chrome",
     "--settings",
-    "{\"sandbox\": {\"filesystem\": {\"allowWrite\": [\"/h/caches/a\"]}, \"enabled\": true, \"enableWeakerNetworkIsolation\": true, \"excludedCommands\": [\"pnpm install\", \"pnpm install *\"]}, \"env\": {\"GOCACHE\": \"/h/caches/a/go-build\", \"GOMODCACHE\": \"/h/caches/a/go-mod\", \"GOPATH\": \"/h/caches/a/go-path\", \"npm_config_cache\": \"/h/caches/a/npm\", \"npm_config_store_dir\": \"/h/caches/a/pnpm-store\", \"npm_config_cache_dir\": \"/h/caches/a/pnpm-cache\", \"npm_config_state_dir\": \"/h/caches/a/pnpm-state\"}}"
+    "{\"sandbox\": {\"filesystem\": {\"allowWrite\": [\"/h/caches/a\"]}, \"enabled\": true, \"enableWeakerNetworkIsolation\": true, \"excludedCommands\": [\"pnpm install\", \"pnpm install --frozen-lockfile\"]}, \"env\": {\"GOCACHE\": \"/h/caches/a/go-build\", \"GOMODCACHE\": \"/h/caches/a/go-mod\", \"GOPATH\": \"/h/caches/a/go-path\", \"npm_config_cache\": \"/h/caches/a/npm\", \"npm_config_store_dir\": \"/h/caches/a/pnpm-store\", \"npm_config_cache_dir\": \"/h/caches/a/pnpm-cache\", \"npm_config_state_dir\": \"/h/caches/a/pnpm-state\"}}"
    ]
   },
   {

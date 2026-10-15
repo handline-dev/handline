@@ -1260,7 +1260,7 @@ CLAUDE_LAUNCH_CASES = [
     {"name": "trusted_and_approved", "trusted": ["Source control: github.com/acme", "\"quoted\""], "mcp_approved": ["a", "b"]},
     {"name": "empty_lists_are_none", "hide": [], "no_write": [], "trusted": [], "mcp_approved": [], "extra_dirs": []},
     {"name": "sandbox_allowances", "allow_write": ["/r/.git"], "cache_dir": "/h/caches/a", "allow_domains": ["registry.npmjs.org", "expo.dev"]},
-    {"name": "repo_allowances", "cache_dir": "/h/caches/a", "weaker_network": True, "excluded": ["pnpm install", "pnpm install *"]},
+    {"name": "repo_allowances", "cache_dir": "/h/caches/a", "weaker_network": True, "excluded": ["pnpm install", "pnpm install --frozen-lockfile"]},
     {"name": "allowances_beside_extra_dirs", "extra_dirs": ["/w/2"], "allow_write": ["/r/.git"], "hide": ["/k"], "allow_domains": ["sum.golang.org"]},
     {"name": "everything", "model": "sonnet", "preamble": "p", "hide": ["/a/"], "no_write": ["/b"], "memory_dir": "/m",
      "trusted": ["t"], "chrome": True, "sandbox": False, "mcp_approved": ["s"], "extra_dirs": ["/e"]},

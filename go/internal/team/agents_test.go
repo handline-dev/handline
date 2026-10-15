@@ -160,8 +160,15 @@ func TestARepoHasOnlyTheSandboxAllowancesTheFounderGaveIt(t *testing.T) {
 	if err := r.Store.Put(RepoAllowanceNS, "orcapipe", "weaker-network\npnpm-install\nrm-rf"); err != nil {
 		t.Fatal(err)
 	}
-	if got := r.RepoAllowancesOf(ours); !got.WeakerNetwork || !slices.Equal(got.Excluded, []string{"pnpm install", "pnpm install *"}) {
+	if got := r.RepoAllowancesOf(ours); !got.WeakerNetwork || !slices.Equal(got.Excluded, []string{"pnpm install", "pnpm install --frozen-lockfile"}) {
 		t.Fatalf("the repo's entry, and a line that names no allowance grants nothing: %+v", got)
+	}
+	// The CLI takes a pattern as the whole command, or as its start when it ends in " *": an add of a package stays in the sandbox.
+	for _, pattern := range r.RepoAllowancesOf(ours).Excluded {
+		start, prefix := strings.CutSuffix(pattern, " *")
+		if cmd := "pnpm install left-pad"; cmd == pattern || prefix && strings.HasPrefix(cmd, start+" ") {
+			t.Fatalf("%q runs %q outside the sandbox", pattern, cmd)
+		}
 	}
 	for _, cfg := range []Config{theirs, {}, {"repo": "/ws/@personal"}} {
 		if got := r.RepoAllowancesOf(cfg); got.WeakerNetwork || got.Excluded != nil {
