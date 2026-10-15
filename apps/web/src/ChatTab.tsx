@@ -132,14 +132,15 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   // The latest page shows first; older pages load as the top comes near, one load at a time. The line in view when a load starts is remembered with its
   // distance from the top, and put back in the layout effect of every commit that changes the entries (a page above it, wherever it lands), before
   // the sentinel is armed again, so a page landing while the top is still in view does not start the next one on an unrestored view.
-  const anchor = useRef<{ el: Element; off: number } | null>(null);
+  const anchor = useRef<{ id: string; off: number } | null>(null);
   const [armed, setArmed] = useState(true);
   const more = () => {
     const box = stream.current;
     if (!box || anchor.current) return;
     const top = box.getBoundingClientRect().top;
     const el = [...box.querySelectorAll('[data-id]')].find((n) => n.getBoundingClientRect().bottom > top);
-    anchor.current = el ? { el, off: el.getBoundingClientRect().top - top } : null;
+    const id = el?.getAttribute('data-id');
+    anchor.current = el && id ? { id, off: el.getBoundingClientRect().top - top } : null;
     setArmed(false);
     chat.loadOlder();
   };
@@ -147,8 +148,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const box = stream.current;
     const a = anchor.current;
     if (!box || !a) return;
-    if (a.el.isConnected) {
-      const drift = a.el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
+    // Found again by its id: a page landing can re-create the element (separators, grouping), so the one held at load start may be gone.
+    const el = box.querySelector(`[data-id="${CSS.escape(a.id)}"]`);
+    if (el) {
+      const drift = el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
       if (drift) box.scrollTop += drift;
     }
     if (!chat.loadingOlder) anchor.current = null; // the load is over; the next one remembers its own line
