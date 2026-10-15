@@ -51,6 +51,17 @@ describe('handoff line', () => {
     expect(card()!.textContent).toContain('Writing the handoff');
   });
 
+  it('moves the age on every second', async () => {
+    const s = setup();
+    const fx = s.daemon.sessions.get(ARCH)!.fx;
+    keep = () => void (fx.view = undefined);
+    fx.view = { handoff: { cause: 'context_full', phase: 'starting', since: new Date(Date.now() - 5_000).toISOString() } };
+    await mount(s);
+    await until(() => card(), 'the line');
+    const first = card()!.textContent;
+    await until(() => card()!.textContent !== first, 'the age to move');
+  });
+
   it('shows nothing when no handoff runs', async () => {
     const s = setup();
     await mount(s);

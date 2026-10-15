@@ -10,6 +10,7 @@ import { goTeam } from './route.ts';
 import { openTaskOnClick } from './ChatMessages.tsx';
 import { useWorkspace } from './Workspace.tsx';
 import { AgentGauges } from './AgentGauges.tsx';
+import { useNow } from './Gauge.tsx';
 import { ViewSwitch } from './ViewSwitch.tsx';
 import { useOpenTerminal } from './ChatMenus.tsx';
 
@@ -195,6 +196,7 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
 
 /** While a session hands off: why and what, live, until the session marker takes its place. */
 export function HandoffCard({ detail }: { detail: AgentDetail }) {
+  const now = useNow(1000);
   const h = detail.handoff;
   if (!h) return null;
   const { why, what } = handoffLine(h);
@@ -204,7 +206,7 @@ export function HandoffCard({ detail }: { detail: AgentDetail }) {
       <CardWhat stacked>
         <strong>{why}</strong>
         <span className="muted">{what}</span>
-        <span className="muted">{ago(h.since)}</span>
+        <span className="muted">{ago(h.since, now)}</span>
       </CardWhat>
     </Card>
   );
