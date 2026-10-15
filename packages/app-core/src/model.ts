@@ -33,6 +33,9 @@ export function teamOf(name: string, names: readonly string[]): string {
 /** What a row shows of the name: inside its team, the part after the team's prefix. */
 export const shortName = (name: string, team: string): string => (name.startsWith(`${team}.`) ? name.slice(team.length + 1) : name);
 
+/** What a row shows of the name in the tree: under a parent only the last segment (`handline.pc.auditor` is `auditor`), at the top the team-relative name. */
+export const rowName = (name: string, depth: number, team: string): string => (depth > 0 ? name.slice(name.lastIndexOf('.') + 1) : shortName(name, team));
+
 /** The agent list as one list: waiting ones sort up, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off. */
 export function railRows(agents: AgentView[], opts: { hidden?: ReadonlySet<Dot>; search?: string } = {}): RailRow[] {
   const q = (opts.search ?? '').trim().toLowerCase();
