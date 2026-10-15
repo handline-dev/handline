@@ -313,9 +313,21 @@ func TestAHandoffForAUsageWindowDoesNotShowAsStartingAndAStaleNoteWaitShowsNothi
 	if h := r.stored(t, "a")["handoff"]; h != nil {
 		t.Fatalf("usage: %v", h)
 	}
-	db.MarkNoteWait(r.env.Q, "a", "context", 5000-noteWaitStaleS-1)
+	db.MarkNoteWait(r.env.Q, "a", "context", 5000-db.NoteWaitStaleS-1)
 	r.env.RefreshOne("a")
 	if h := r.stored(t, "a")["handoff"]; h != nil {
 		t.Fatalf("stale: %v", h)
+	}
+}
+
+func TestANoteWaitThatEndedWithItsSessionDoesNotHoldTheNextOneToItsTimeOrKind(t *testing.T) {
+	r := newRig(t, "a")
+	r.state(t, "a", states.Idle, "")
+	db.MarkNoteWait(r.env.Q, "a", "context", 1000)
+	db.MarkNoteWait(r.env.Q, "a", "usage", 4990)
+	r.env.RefreshOne("a")
+	h, _ := r.stored(t, "a")["handoff"].(map[string]any)
+	if h["cause"] != "usage" || h["phase"] != "writing" || h["since"] != stamp(4990) {
+		t.Fatalf("got %v", h)
 	}
 }

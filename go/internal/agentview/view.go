@@ -419,10 +419,6 @@ func (e *Env) Refresh() error {
 	return nil
 }
 
-// noteWaitStaleS is how long a wait for the agent's note counts as one, so a trigger that went away before it was acted on leaves no
-// handoff showing.
-const noteWaitStaleS = 600
-
 // handoffView is the handoff the agent is in the middle of, nil for none: its note is awaited or its record taken (writing), or the
 // session is closed for it and the next not yet begun (starting). A handoff that parks the agent until a usage window resets is
 // not starting. The cause is session.cause's word.
@@ -449,10 +445,10 @@ func (e *Env) handoffView(agent string, row *db.AgentState, now int64) (any, err
 	}
 	if kind, since, ok, err := db.NoteWait(e.Q, agent); err != nil {
 		return nil, err
-	} else if ok && now-since <= noteWaitStaleS {
+	} else if ok && now-since <= db.NoteWaitStaleS {
 		return view(kind, "writing", since), nil
 	}
-	if h == nil || row == nil || (row.State != states.Parked && row.ClosedAt.Int64 == 0) || now-h.Updated > noteWaitStaleS {
+	if h == nil || row == nil || (row.State != states.Parked && row.ClosedAt.Int64 == 0) || now-h.Updated > db.NoteWaitStaleS {
 		return nil, nil
 	}
 	if k := h.TriggerKind.String; k == "usage" || k == "usage_7d" || k == states.ByHandMark {

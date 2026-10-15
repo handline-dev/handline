@@ -142,9 +142,13 @@ func LastSessionStart(q Q, agent string) (int64, error) {
 
 func noteWaitKey(agent string) string { return "handoff_note_wait:" + agent }
 
-// MarkNoteWait keeps that a handoff of this kind waits for the agent's note, since now; the first call of a wait keeps its time.
+// NoteWaitStaleS is how long a wait for the agent's note counts as one: a trigger that went away before it was acted on, or a session that
+// ended mid-wait, leaves no handoff showing and does not hold the next wait to its time.
+const NoteWaitStaleS = 600
+
+// MarkNoteWait keeps that a handoff of this kind waits for the agent's note, since now; a call within a wait keeps its time.
 func MarkNoteWait(q Q, agent, kind string, now int64) error {
-	if v, _, err := Meta(q, noteWaitKey(agent)); err != nil || v != "" {
+	if _, since, ok, err := NoteWait(q, agent); err != nil || (ok && now-since <= NoteWaitStaleS) {
 		return err
 	}
 	return SetMeta(q, noteWaitKey(agent), fmt.Sprintf("%d:%s", now, kind))
