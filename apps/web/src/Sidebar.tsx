@@ -286,16 +286,16 @@ function Row({
                 <span className="w-3 flex-none" aria-hidden />
               )}
               <button
-                className="row-main flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left"
+                className="row-main flex min-w-0 flex-1 items-center gap-2 overflow-hidden border-0 bg-transparent p-0 text-left"
                 onClick={() => goAgent(a.name)}
                 aria-current={selected ? 'true' : undefined}
                 title={tip}
               >
                 <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
-                <span className="name min-w-0 flex-1 whitespace-nowrap">{rowName(a.name, depth, team)}</span>
+                <span className="name min-w-[4.5rem] flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{rowName(a.name, depth, team)}</span>
                 <Badges badges={badges} />
                 {a.needs_you ? (
-                  <span className="needs flex-none rounded-pill bg-wait px-1.5 text-label text-canvas" title={a.needs_you.text ?? undefined}>
+                  <span className="needs min-w-0 max-w-[7rem] overflow-hidden text-ellipsis whitespace-nowrap rounded-pill bg-wait px-1.5 text-label text-canvas" title={a.needs_you.text ?? undefined}>
                     {a.needs_you.kind}
                   </span>
                 ) : null}
