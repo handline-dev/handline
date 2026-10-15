@@ -4,11 +4,11 @@ Handline walked as a first-time user, from nothing to a merged change, through t
 
 ## How it was run
 
-- Build: `pnpm install`, `tools/build-go.sh`, `pnpm --filter @handline/web build`, then the app in Own-daemon mode (`HANDLINE_MODE=own`), as `docs/run-on-real-daemon.md` describes. Main at `67f4d5063`, macOS, Claude Code 2.1.300.
+- Build: `pnpm install`, `tools/build-go.sh`, `pnpm --filter @handline/web build`, then the app in Own-daemon mode (`HANDLINE_MODE=own`), as `apps/electron/README.md` describes. Main at `67f4d5063`, macOS, Claude Code 2.1.300.
 - Scratch home `/tmp/hl-fr3`, its own app data folder, gateway on `127.0.0.1:7851`, its own tmux socket. The live daemon and the real team were never used.
 - One live agent was needed. As `tools/live_account.py` picks, the account with the most headroom was borrowed through `HANDLINE_TEST_ROOT` and `HANDLINE_LIVE_ACCOUNTS` (the way `tools/live_e2e.py` does), because a real login needs a person at a browser. The agent was a haiku agent in permission mode `default` on a two-line scratch git repo.
 - The window was driven with the DevTools port (`HANDLINE_DEBUG_PORT`). Clicks went through the page's own buttons, so mouse hit-testing was not exercised.
-- Not walked: a real account login, the phone, and a terminal agent past its login failure (step 7 explains).
+- Not walked: a real account login, the phone, and a terminal agent past its login failure (step 6).
 
 **Harness workarounds.** These are not product findings. They kept the walk going: the test root (founder key stored under it, so the app's key path was bridged by a symlink), a wrapper binary that adds `-claude-version 2.1.300` (finding P12 is the product side of this), and `structured: true` set by hand in `agent.yaml`. The first run without a tmux socket of its own put the agent's terminal in the founder's live tmux session. That window was closed at once, and nothing else of the live team was touched.
 
@@ -42,7 +42,7 @@ The inbox already holds one item (`img/first-run/01b-inbox.png`), a "Disk space 
 
 **Did.** Watched for the Handline roots and the Claude Code trust dialog; `hl trust list`.
 **Expected.** A prompt to trust the folder, from Handline or from Claude Code.
-**Happened.** Neither appeared. `hl trust list` stayed `no declared roots` through the whole run, and the structured agent ran in the worktree (`/tmp/hl-fr3-proj.worktrees/worker`, made by the first Start) without any dialog. The terminal agent never got as far as a trust dialog: it stopped at the login message (step 7).
+**Happened.** Neither appeared. `hl trust list` stayed `no declared roots` through the whole run, and the structured agent ran in the worktree (`/tmp/hl-fr3-proj.worktrees/worker`, made by the first Start) without any dialog. The terminal agent never got as far as a trust dialog: it stopped at the login message (step 6).
 **Verdict.** Not observed, so the step is untested rather than fine. The borrowed account's config dir may already trust the paths, and a structured session may skip the dialog by design. A real new user on a terminal agent should be walked through this once with a fresh account.
 **Needed the CLI.** `hl trust` is CLI only; the app has no screen for roots.
 
@@ -58,7 +58,7 @@ The inbox already holds one item (`img/first-run/01b-inbox.png`), a "Disk space 
 
 **Did.** Opened the agent, pressed Start, then typed a task in the chat box.
 **Expected.** Start runs the agent; a message gives it work.
-**Happened, Start.** The first Start made a terminal agent, which printed `no account is logged in. A human has to do this once` in a terminal the app does not show. The app showed only a banner: `... started in <worktree> (terminal %0) but no session is running in it after 20s - the terminal is there and claude is not. Go and look (t)`. After the harness fixes (structured agent, `-claude-version`), Start worked and the agent began on its own wake prompt with no task: it went looking for a "journal" and "inbox" in the new project and ended its turn asking the founder where they are.
+**Happened, Start.** The first Start made a terminal agent, which printed `no account is logged in. A human has to do this once` in a terminal the app does not show. The app showed only a banner: `... started in <worktree> (terminal %0) but no session is running in it after 20s - the terminal is there and claude is not. Go and look (t)`. Start was then refused because the installed Claude (`2.1.300`) is newer than the daemon accepts (`2.1.296`). After the harness fixes (structured agent, `-claude-version`), Start worked and the agent began on its own wake prompt with no task: it went looking for a "journal" and "inbox" in the new project and ended its turn asking the founder where they are.
 **Happened, the message.** Sending the task from the chat box failed with `send: unknown target 'worker'`, because the agent was not in `team.yaml` (step 5). The message showed twice in the chat. After fixing `team.yaml` it went through.
 **Stuck.** The route from "agent exists" to "agent has work" has two silent failures. The Tasks page has a `+` button (`img/first-run/08-tasks.png`), but chat was used here, and the agent then opened task T1 itself.
 **Needed the CLI.** Yes, for every fix above.
@@ -67,14 +67,14 @@ The inbox already holds one item (`img/first-run/01b-inbox.png`), a "Disk space 
 
 **Did.** Watched the agent's row, the chat, the inbox and the status bar; allowed or denied each permission.
 **Expected.** A running state, and a clear card when it needs me.
-**Happened.** Good: the row, the inbox count (2), the status bar bell and a permission card with the command and Allow/Deny with key hints all show at once (`img/first-run/07-permission-asked.png`). Problems: the agent's own channel to the founder asks permission too (`hl say human ...`, `hl task begin`, `hl task done`; `img/first-run/07-permission-hl-say.png`), so one tiny task took about 11 approvals (2 `hl say`, 5 `hl task`, the file write, 2 for `git add` and commit). At 1280 px the sidebar row loses the agent name once the "permission" pill shows, and the tab strip shows two truncated "C.. ! no terminal" tabs. The first permission asked (an `ls` of the account's own memory folder) was something no new user could judge.
+**Happened.** Good: the row, the inbox count (2), the status bar bell and a permission card with the command and Allow/Deny with key hints all show at once (`img/first-run/07-permission-asked.png`). Problems: the agent's own channel to the founder asks permission too (`hl say human ...`, `hl task begin`, `hl task done`; `img/first-run/07-permission-hl-say.png`), so one tiny task took about 11 approvals (the `ls`, 2 `hl say`, 5 `hl task`, the file write, 2 for `git add` and commit). At 1280 px the sidebar row loses the agent name once the "permission" pill shows, and the tab strip shows two truncated "C.. ! no terminal" tabs. The first permission asked (an `ls` of the account's own memory folder) was something no new user could judge.
 **Needed the CLI.** No.
 
 ## 8. Review the result
 
 **Did.** Inbox, Tasks > Closed > T1, Worktrees.
 **Expected.** A "ready for review" item with the diff or commit.
-**Happened.** The inbox got no "work finished" item, only a daemon notice that a terminal had been closed. The agent closed its own task. The task page (`img/first-run/08-task-detail.png`) shows the brief, history and evidence text ("hello.txt committed on worker branch"), with no diff, no commit link and no accept or reject step. Worktrees (`img/first-run/09-worktrees.png`) shows the branch as `clean`, `0` files, with no sign that it is one commit ahead.
+**Happened.** The inbox got no "work finished" item, only a daemon notice that a terminal had been closed (`img/first-run/08-inbox-after.png`). The agent closed its own task. The task page (`img/first-run/08-task-detail.png`) shows the brief, history and evidence text ("hello.txt committed on worker branch"), with no diff, no commit link and no accept or reject step. Worktrees (`img/first-run/09-worktrees.png`) shows the branch as `clean`, `0` files, with no sign that it is one commit ahead.
 **Needed the CLI.** Plain `git` in the worktree is the only way to see the change.
 
 ## 9. Merge
