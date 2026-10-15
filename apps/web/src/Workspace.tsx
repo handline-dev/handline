@@ -37,6 +37,8 @@ export interface WorkspaceCtx {
   drop: (next: Workspace | null) => void;
   /** Whether Split on this pane shows as a pane of its own at this window size (narrower, the groups render as one strip). */
   canSplit: (group: string) => boolean;
+  /** The pane whose strip comes first (the folded sidebar's buttons sit there): the one shown when the groups render as one. */
+  lead: string;
   dragging: string | null;
   setDragging: (tab: string | null) => void;
 }
@@ -108,6 +110,7 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     detail,
     agent,
     storage,
+    lead: arrange(ws, size.w, size.h).merged ? ws.active : groupsOf(ws.root)[0]!.id,
     canSplit: (id) => {
       const next = splitPane(ws, id);
       return !!next && !arrange(next, size.w, size.h).merged;

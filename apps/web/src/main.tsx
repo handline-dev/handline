@@ -1,11 +1,14 @@
 import { createRoot } from 'react-dom/client';
 import { Start } from './Start.tsx';
 import { browserStorage, daemonUrl } from './daemon.ts';
-import { inShell } from './shell.ts';
+import { inShell, trackShellInsets } from './shell.ts';
 import './styles.css';
 
 // The chrome reads this in the shell (styles/base.css).
-if (inShell()) document.documentElement.dataset.shell = 'desktop';
+if (inShell()) {
+  document.documentElement.dataset.shell = 'desktop';
+  trackShellInsets();
+}
 
 // Dev only: keys 1-5 try a preview theme (5 is the tokens' own light/white; 1-4 are styles/themes.css), 0 back to the app's own.
 if (import.meta.env.DEV) {
