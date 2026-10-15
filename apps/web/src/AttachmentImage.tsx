@@ -1,0 +1,48 @@
+// The one picture of an uploaded image: a small copy in the text, the original in a dialog behind a click. Chat pictures, memos and task
+// descriptions all draw it (the editor draws it for an image node too).
+import { useState } from 'react';
+import { useAttachmentUrl } from '@handline/app-data';
+import { Dialog } from './ui/index.ts';
+
+export function AttachmentImage({ id, name }: { id: string; name: string }) {
+  const small = useAttachmentUrl(id, true);
+  const [open, setOpen] = useState(false);
+  const label = name || 'image';
+  if (small.gone)
+    return (
+      <span className="attachment gone muted text-[12px]" title="This image is no longer kept">
+        {label}
+      </span>
+    );
+  return (
+    <>
+      <button
+        type="button"
+        className="attachment border-0 bg-transparent p-0"
+        title={label}
+        aria-label={`Open ${label}`}
+        onClick={() => setOpen(true)}
+      >
+        {small.url ? (
+          <img src={small.url} alt={label} className="max-h-40 max-w-full rounded-chip object-cover" />
+        ) : (
+          <span className="muted text-[12px]">{label}</span>
+        )}
+      </button>
+      {open ? <Original id={id} name={label} onClose={() => setOpen(false)} /> : null}
+    </>
+  );
+}
+
+function Original({ id, name, onClose }: { id: string; name: string; onClose: () => void }) {
+  const full = useAttachmentUrl(id, false);
+  return (
+    <Dialog title={name} onClose={onClose}>
+      {full.url ? (
+        <img src={full.url} alt={name} className="max-h-[70vh] max-w-full" />
+      ) : (
+        <p className="muted">{full.gone ? 'This image is no longer kept.' : 'Loading…'}</p>
+      )}
+    </Dialog>
+  );
+}

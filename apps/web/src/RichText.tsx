@@ -1,8 +1,9 @@
 // The one renderer of free text: openable paths, T<N> as a link to the task (plain click: this pane's Tasks tab; ctrl, cmd or middle click: a tab
 // of its own; the Tasks page where there are no panes), and #N as a link to that message where the caller has messages.
 import type { MouseEvent, ReactNode } from 'react';
-import { findRefs, openTask, openTaskTab, taskRef } from '@handline/app-core';
+import { findImageRefs, findRefs, openTask, openTaskTab, taskRef } from '@handline/app-core';
 import { useTasks } from '@handline/app-data';
+import { AttachmentImage } from './AttachmentImage.tsx';
 import { PathText } from './PathText.tsx';
 import { goTasks } from './route.ts';
 import { useWorkspaceIfAny } from './Workspace.tsx';
@@ -16,6 +17,20 @@ function useKnownTask(): (id: number) => boolean {
 }
 
 export function RichText({ text, agent, onRef }: { text: string; agent?: string; onRef?: (id: number) => void }) {
+  const images = findImageRefs(text);
+  if (!images.length) return <Refs text={text} agent={agent} onRef={onRef} />;
+  const parts: ReactNode[] = [];
+  let at = 0;
+  for (const i of images) {
+    if (i.start > at) parts.push(<Refs key={`t${at}`} text={text.slice(at, i.start)} agent={agent} onRef={onRef} />);
+    parts.push(<AttachmentImage key={i.start} id={i.id} name={i.caption} />);
+    at = i.end;
+  }
+  if (at < text.length) parts.push(<Refs key={`t${at}`} text={text.slice(at)} agent={agent} onRef={onRef} />);
+  return <>{parts}</>;
+}
+
+function Refs({ text, agent, onRef }: { text: string; agent?: string; onRef?: (id: number) => void }) {
   const ws = useWorkspaceIfAny();
   const known = useKnownTask();
   const refs = findRefs(text, { messages: !!onRef, task: known });
