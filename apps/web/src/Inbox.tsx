@@ -1,6 +1,6 @@
 // The Inbox page (#/inbox, #/inbox/:id): what waits on the person, newest first, filtered by kind and agent in the page, with the bridge's
 // keys. The cards are InboxCard; the bell and the tab title read the same cached list (useUnread).
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useServes, useInboxPages, usePending, useUnread, useWrite } from '@handline/app-data';
 import { useConnection, useNearEnd } from '@handline/app-react';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
