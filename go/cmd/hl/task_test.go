@@ -150,7 +150,7 @@ func TestTaskRefusalsBeforeAnyCall(t *testing.T) {
 	}
 }
 
-func TestWhatTheTaskPortDoesNotParseIsPythons(t *testing.T) {
+func TestWhatTheTaskPortDoesNotParseIsRefused(t *testing.T) {
 	r := agentsRig(t)
 	calls := r.daemon(nil)
 	for _, args := range [][]string{
@@ -161,9 +161,9 @@ func TestWhatTheTaskPortDoesNotParseIsPythons(t *testing.T) {
 		{"task", "memo", "T1", "bogus"}, {"task", "memo", "T1", "delete", "abc"}, {"task", "done", "T1", "--request", "x"},
 		{"task", "edit", "T1", "--title"}, {"task", "queue"}, {"task", "merge", "T1"},
 	} {
-		out, _, code := r.run(asAgent, args...)
-		if code != 0 || !strings.HasPrefix(out, "python ") || !strings.HasSuffix(strings.TrimSpace(out), strings.Join(args, " ")) {
-			t.Errorf("%v: %q %d", args, out, code)
+		out, errs, code := r.run(asAgent, args...)
+		if code != 2 || out != "" || !strings.Contains(errs, "arguments not understood") {
+			t.Errorf("%v: %q %q %d", args, out, errs, code)
 		}
 	}
 	if got := calls(); len(got) != 0 {

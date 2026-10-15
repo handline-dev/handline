@@ -645,3 +645,39 @@ func TestACacheThatCannotBeRemovedDoesNotUndoARetire(t *testing.T) {
 		t.Fatalf("the retire stopped half done: %v", res)
 	}
 }
+
+func TestProposeWritesTheProposalFileAndRefusesWhatHrPyRefused(t *testing.T) {
+	r := newRig(t)
+	call := func(rid, params string) map[string]any {
+		return r.callAs("alice", "hr.propose", fmt.Sprintf(`{%s,"request_id":%q}`, params, rid))
+	}
+	res := call("p1", `"kind":"retire","args":{"name":"bob"},"why":"idle"`)["result"].(map[string]any)
+	n, ok := res["proposal"].(float64)
+	if !ok || !strings.HasPrefix(res["said"].(string), "proposal ") {
+		t.Fatalf("%v", res)
+	}
+	p, err := r.e.load(fmt.Sprintf("%08x", int64(n)))
+	if err != nil || p == nil || p.str("kind") != "retire" || p.str("agent") != "bob" || p.str("requested_by") != "alice" ||
+		p.str("state") != "proposed" || p.str("why") != "idle" {
+		t.Fatalf("%v %+v", err, p)
+	}
+	ctx := call("p2", `"kind":"context","args":{"name":"bob","sets":{"ROLE.md":"new role"}},"why":"w"`)["result"].(map[string]any)
+	cp, _ := r.e.load(fmt.Sprintf("%08x", int64(ctx["proposal"].(float64))))
+	if cp == nil || cp.str("set.ROLE.md") != `"new role"` {
+		t.Fatalf("a context text is kept as JSON on one line: %+v", cp)
+	}
+	for _, c := range []struct{ params, want string }{
+		{`"kind":"add","args":{"name":"alice"},"why":"w"`, "alice is already an agent"},
+		{`"kind":"retire","args":{"name":"ghost"},"why":"w"`, "ghost is not an agent"},
+		{`"kind":"add","args":{"name":"carol"},"why":"w"`, "carol needs a repo"},
+		{`"kind":"retire","args":{"name":"bob"},"why":" "`, "say why"},
+		{`"kind":"link","args":{"name":"alice","to":"alice"},"why":"w"`, "an agent cannot ask itself"},
+		{`"kind":"context","args":{"name":"bob","sets":{"x.md":"t"}},"why":"w"`, "only ROLE.md and base.md"},
+	} {
+		m := call("e"+c.want[:3], c.params)
+		msg, _ := m["error"].(map[string]any)["message"].(string)
+		if !strings.Contains(msg, c.want) {
+			t.Errorf("%s: %v", c.want, m)
+		}
+	}
+}

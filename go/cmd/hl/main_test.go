@@ -114,11 +114,21 @@ func TestWhatIsNotPortedRunsPythonWithTheSameArgv(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry := filepath.Join(real, "bin", "_ocp_entry.py")
-	for _, args := range [][]string{{}, {"inbox", "--all"}, {"progress", "--help"}, {"progress", "a", "b"}} {
+	for _, args := range [][]string{{}, {"agent", "list"}} {
 		out, _, code := r.run(nil, args...)
 		want := strings.TrimSpace("python " + entry + " " + strings.Join(args, " "))
 		if code != 0 || strings.TrimSpace(out) != want {
 			t.Errorf("%v: %q (exit %d), want %q", args, out, code, want)
+		}
+	}
+}
+
+func TestProgressRefusesWhatItDoesNotParse(t *testing.T) {
+	r := newRig(t)
+	for _, args := range [][]string{{"progress", "--help"}, {"progress", "a", "b"}} {
+		out, errs, code := r.run(nil, args...)
+		if code != 2 || strings.Contains(out, "python") || !strings.Contains(errs, "arguments not understood") {
+			t.Errorf("%v: %q %q %d", args, out, errs, code)
 		}
 	}
 }
