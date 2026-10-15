@@ -476,6 +476,31 @@ def test_every_tools_file_with_a_shebang_is_executable_in_the_index() -> None:
     check("tools: every file with a shebang is 100755 in the index", out and not bad, "; ".join(bad))
 
 
+def test_leakcheck_fails_a_command_that_leaves_a_tmux_server(td: Path) -> None:
+    """tools/leakcheck.py run, as CI runs the suites: a tmux server still up under the run's TMUX_TMPDIR fails it."""
+    # CI runs it outside the suite: its tmux probe must reach the real tmux, not a stand-in of this suite or the one running it.
+    path = os.pathsep.join(d for d in os.environ["PATH"].split(os.pathsep) if not Path(d).name.startswith("handline-suite-bin-"))
+    real = shutil.which("tmux", path=path)
+    if not real:
+        skip(test_leakcheck_fails_a_command_that_leaves_a_tmux_server, "tmux is not installed")
+        return
+    env = {**os.environ, "PATH": path}
+    leakcheck, where, pid = str(ROOT / "tools" / "leakcheck.py"), td / "tmux-tmpdir", td / "tmux-pid"
+    clean = subprocess.run([leakcheck, "run", "true"], capture_output=True, text=True, env=env)
+    check("leakcheck: a command that leaves nothing passes", clean.returncode == 0, clean.stderr)
+    tmux = f"{real} -L leakprobe"
+    leak = f'printf %s "$TMUX_TMPDIR" > {where}; {tmux} new-session -d sh && {tmux} display-message -p "#{{pid}}" > {pid}'
+    left = subprocess.run([leakcheck, "run", "sh", "-c", leak], capture_output=True, text=True, env=env)
+    try:
+        check("leakcheck: a tmux server left up fails the run, and is named",
+              left.returncode == 1 and "tmux server:" in left.stderr and "leakprobe" in left.stderr, left.stderr)
+    finally:
+        if pid.exists() and pid.read_text().strip().isdigit():
+            os.kill(int(pid.read_text()), signal.SIGTERM)
+        if where.exists():
+            shutil.rmtree(where.read_text(), ignore_errors=True)
+
+
 def main() -> int:
     def tests(td):
         home = Path(td) / "orcapipe"
@@ -484,6 +509,7 @@ def main() -> int:
         run(lambda: test_every_tools_file_with_a_shebang_is_executable_in_the_index())
         run(lambda: test_timefmt_stamp_reads_a_missing_time_as_empty_or_the_epoch())
         run(lambda: test_the_runner_skips_a_file_missing_a_module_and_fails_one_that_hangs())
+        run(lambda: test_leakcheck_fails_a_command_that_leaves_a_tmux_server(Path(td)))
         run(lambda: test_the_guard_against_the_real_orca_names_the_test_and_cannot_be_swallowed())
         run(lambda: test_the_guard_against_the_live_tmux_server_names_the_test_and_cannot_be_swallowed())
         run(lambda: test_the_suite_and_the_package_name_only_what_exists())

@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -161,5 +163,48 @@ func TestRequestReadRefusesWhatTheReaderMayNotSeeAndBadParams(t *testing.T) {
 		if _, err := e.requestRead(asBob, p); !errors.As(err, &re) || re.RPCCode != rpc.InvalidParams {
 			t.Fatalf("%v: %v", p, err)
 		}
+	}
+}
+
+func TestAMessagesImagesReadBackInPartsWithAPathOnlyForAnAgent(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	s := attachments.New(e.Home)
+	var ids []string
+	for range 2 {
+		b := []byte("\x89PNG\r\n\x1a\n" + strings.Repeat("x", 100))
+		out, err := s.Put(e.DB, attachments.PutIn{Name: "s.png", Mime: "image/png", Bytes: int64(len(b)), Data: b})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, out.Attachment.ID)
+	}
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(1, 10, 'human', 'bob', ?, 'landed', 'say', 1)",
+		"see ![it](attachment:"+ids[0]+") here")
+	listed, _ := s.Lookup(ids[1])
+	attachments.Record(e.DB, 1, []attachments.Info{listed})
+	got, err := e.chatMessages(nil, map[string]any{"agent": "bob", "scope": "mine"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := got.(map[string]any)["messages"].([]any)[0].(map[string]any)
+	var kinds []string
+	for _, p := range m["parts"].([]any) {
+		part := p.(map[string]any)
+		if _, ok := part["path"]; ok {
+			t.Fatalf("a person gets no path: %v", part)
+		}
+		if img, ok := part["image"].(map[string]any); ok {
+			kinds = append(kinds, img["id"].(string))
+		} else {
+			kinds = append(kinds, "text")
+		}
+	}
+	if want := []string{"text", ids[0], "text", ids[1]}; !reflect.DeepEqual(kinds, want) || len(m["attachments"].([]any)) != 2 {
+		t.Fatalf("parts %v, attachments %v", kinds, m["attachments"])
+	}
+	named, _ := s.Lookup(ids[0])
+	if parts, _ := read(t, e, asBob, 1)["parts"].([]any); len(parts) != 4 || parts[1].(map[string]any)["path"] != s.Path(named) {
+		t.Fatalf("an agent reading the message gets the path: %v", parts)
 	}
 }

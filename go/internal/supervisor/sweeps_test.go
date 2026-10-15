@@ -17,11 +17,11 @@ func TestSweepHoldsRecordsWhyEachTaskWaitsAndWarnsOnceWhenNothingIsInTheWay(t *t
 	db.SetCurrentTask(r.DB, "bob", a, true)
 	r.must(r.SweepHolds(r.clock))
 	raw, _, _ := db.Meta(r.DB, "taskhold:1")
-	if raw != `{"why": "nothing is in the way - the daemon sends it on its next tick", "able": true, "since": 100000, "able_since": 100000}` {
+	if raw != `{"why": "nothing is in the way - the daemon sends it on its next tick", "on": "owner", "able": true, "since": 100000, "able_since": 100000}` {
 		t.Fatalf("%s", raw)
 	}
 	raw, _, _ = db.Meta(r.DB, "taskhold:2")
-	if raw != `{"why": "behind T1, which bob holds (still open)", "able": false, "since": 100000}` {
+	if raw != `{"why": "behind T1, which bob holds (still open)", "on": "owner", "able": false, "since": 100000}` {
 		t.Fatalf("%s", raw)
 	}
 	// blocked
@@ -30,7 +30,7 @@ func TestSweepHoldsRecordsWhyEachTaskWaitsAndWarnsOnceWhenNothingIsInTheWay(t *t
 	r.clock += 10
 	r.must(r.SweepHolds(r.clock))
 	raw, _, _ = db.Meta(r.DB, "taskhold:2")
-	if raw != `{"why": "blocked by T3 (alice)", "able": false, "since": 100010}` {
+	if raw != `{"why": "blocked by T3 (alice)", "on": "task", "able": false, "since": 100010}` {
 		t.Fatalf("%s", raw)
 	}
 	// able for five minutes: the founder is told once
@@ -52,6 +52,22 @@ func TestSweepHoldsRecordsWhyEachTaskWaitsAndWarnsOnceWhenNothingIsInTheWay(t *t
 	r.must(r.SweepHolds(r.clock + 2))
 	if _, found, _ := db.Meta(r.DB, "taskhold:1"); found {
 		t.Fatal("a done task still has a line")
+	}
+}
+
+func TestAWaitOnTheOwnerIsFiledUnderItsAccountsWallOrCap(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	if c := r.ownerCause(r.DB, "bob"); c != "owner" {
+		t.Fatalf("nothing holds the account: %q", c)
+	}
+	r.life.wait = "cap"
+	if c := r.ownerCause(r.DB, "bob"); c != "cap" {
+		t.Fatalf("no free slot: %q", c)
+	}
+	r.Waits = fakeWaits{limit: map[string]bool{"bob": true}}
+	if c := r.ownerCause(r.DB, "bob"); c != "wall" {
+		t.Fatalf("at its usage limit: %q", c)
 	}
 }
 

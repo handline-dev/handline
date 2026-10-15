@@ -12,7 +12,7 @@ function seedPictures(s: ReturnType<typeof setup>, body: string, names: string[]
     const r = s.daemon.uploads.put({ name, mime: 'image/png', bytes: 70, data: PNG });
     return r.attachment!.id;
   });
-  s.daemon.chat.send({ agent: AUD, body, request_id: `pic-${body}`, attachments: ids }, 'founder', s.daemon.uploads.take);
+  s.daemon.chat.send({ agent: AUD, body, request_id: `pic-${body}`, attachments: ids }, 'founder', s.daemon.uploads.message);
   return ids;
 }
 

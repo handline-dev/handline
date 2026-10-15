@@ -37,7 +37,7 @@ func TestQueueAndDraftAreAllOrNone(t *testing.T) {
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, home, nil)
+		Register(s, home, nil, nil)
 		return s
 	}
 	line := func(id int, method, rid string, tasks ...int) string {
@@ -142,7 +142,7 @@ func TestDraftWithdrawsTheDeliveryNotYetLandedAndEndsOneThatHas(t *testing.T) {
 	f := &fakeTeller{}
 	s := rpc.NewServer(auth{"boss"}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 	s.DB = sdb
-	Register(s, t.TempDir(), f)
+	Register(s, t.TempDir(), f, nil)
 	draft := func(rid string, tid int) map[string]any {
 		return call(t, s, fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.draft","params":{"tasks":[%d],"request_id":%q}}`, tid, rid))[0]
 	}
@@ -221,7 +221,7 @@ func TestDraftParksALandedTaskItsHolderIsWorking(t *testing.T) {
 	f := &fakeTeller{}
 	s := rpc.NewServer(auth{"boss"}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 	s.DB = sdb
-	Register(s, t.TempDir(), f)
+	Register(s, t.TempDir(), f, nil)
 	draft := func(rid string, tid int) map[string]any {
 		return call(t, s, fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.draft","params":{"tasks":[%d],"request_id":%q}}`, tid, rid))[0]
 	}

@@ -107,6 +107,9 @@ func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 			if why := handoffRefusal(t, me, to, said, agents); why != "" {
 				return nil, refusal(why)
 			}
+			if err := claimImages(tx, home, me, said, "", "note"); err != nil {
+				return nil, err
+			}
 			h = Handover{Task: tid, By: me, From: t.Owner, To: to, Title: t.Title}
 			if tell == nil {
 				return nil, fmt.Errorf("task.handoff needs the supervisor to route its ask")

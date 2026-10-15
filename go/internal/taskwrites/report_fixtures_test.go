@@ -67,7 +67,7 @@ func play(t *testing.T, file string, keep func(fixtureplay.Fixture) bool) {
 				}
 				s := rpc.NewServer(taskwrites.AuthAs(agent), "x", store.LatestVersion(), "local", func(string, ...any) {})
 				s.DB = sdb
-				taskwrites.Register(s, home, tell)
+				taskwrites.Register(s, home, tell, nil)
 				attachments.Register(s, attachments.New(home))
 				reads.Register(s, reads.Env{DB: sdb, Home: home, Started: time.Now()})
 				conns[name] = open(t, s)
