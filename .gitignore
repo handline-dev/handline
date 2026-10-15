@@ -22,3 +22,4 @@ apps/mobile/android/
 apps/mobile/.expo/
 apps/mobile/modules/*/android/build/
 .DS_Store
+/go/cmd/hl/hl

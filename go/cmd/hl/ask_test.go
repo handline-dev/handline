@@ -82,7 +82,7 @@ func TestHrRenameTeamAndDiffGoThroughTheDaemon(t *testing.T) {
 	if err := os.WriteFile(r.home+"/role.md", []byte("the role"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	diff := "changes:\n  - kind: rename\n    name: a.one\n    to: a.uno\n  - kind: context\n    name: b.two\n    role_file: role.md\n"
+	diff := "changes:\n  - kind: rename\n    name: a.one\n    to: a.uno\n  - kind: context\n    name: b.two\n    role_file: " + r.home + "/role.md\n"
 	if err := os.WriteFile(r.home+"/diff.yaml", []byte(diff), 0o644); err != nil {
 		t.Fatal(err)
 	}

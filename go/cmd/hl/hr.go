@@ -120,11 +120,7 @@ func hrPropose(c *hlclient.Client, kind string, args []string) (int, bool) {
 		sets := map[string]any{}
 		for _, f := range [][2]string{{"ROLE.md", "--role-file"}, {"base.md", "--base-file"}} {
 			if path, ok := p.opt(f[1]); ok && path != "" {
-				if strings.HasPrefix(path, "~/") {
-					if home, err := os.UserHomeDir(); err == nil {
-						path = filepath.Join(home, path[2:])
-					}
-				}
+				path = expandHome(path)
 				b, err := os.ReadFile(path)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
@@ -136,6 +132,16 @@ func hrPropose(c *hlclient.Client, kind string, args []string) (int, bool) {
 		hargs["sets"] = sets
 	}
 	return said(c.Write("hr.propose", params)), true
+}
+
+// expandHome is a path with a leading ~/ taken to the home folder.
+func expandHome(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
 }
 
 // hrDiff raises a whole team diff from a file's `changes:` as one proposal (cli/hr._read_changes, hr.propose of kind bundle).
@@ -162,11 +168,7 @@ func hrDiff(c *hlclient.Client, args []string) (int, bool) {
 
 // readChanges is the `changes:` of a team-diff file, a file named by role_file or base_file read in as the new text of a context change.
 func readChanges(path string) ([]any, string) {
-	if strings.HasPrefix(path, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			path = filepath.Join(home, path[2:])
-		}
-	}
+	path = expandHome(path)
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Sprintf("%s: %v", path, err)
@@ -202,13 +204,11 @@ func readChanges(path string) ([]any, string) {
 				continue
 			}
 			delete(ch2, f[0])
-			name := fmt.Sprint(ref)
-			if strings.HasPrefix(name, "~/") {
-				if home, err := os.UserHomeDir(); err == nil {
-					name = filepath.Join(home, name[2:])
-				}
+			name := expandHome(fmt.Sprint(ref))
+			if !filepath.IsAbs(name) {
+				name = filepath.Join(filepath.Dir(path), name)
 			}
-			body, err := os.ReadFile(filepath.Join(filepath.Dir(path), name))
+			body, err := os.ReadFile(name)
 			if err != nil {
 				return nil, fmt.Sprintf("%s: %v", path, err)
 			}

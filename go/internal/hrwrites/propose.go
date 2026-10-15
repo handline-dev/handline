@@ -206,16 +206,9 @@ func (e *Env) draft(actor, kind string, args map[string]any, why string, registe
 	if kind == "team" && repo == "" {
 		return nil, fmt.Sprintf("team %s needs --repo <path> for its manager; a member without its own --member SUFFIX=REPO works there too. Each worktree is made in it.", name)
 	}
-	idb := make([]byte, 4)
-	if _, err := rand.Read(idb); err != nil {
+	prop, err := newProp(kind, name, actor, why)
+	if err != nil {
 		return nil, err.Error()
-	}
-	prop := &Prop{}
-	for _, kv := range []yamlcompat.Pair{
-		{Key: "id", Val: hex.EncodeToString(idb)}, {Key: "kind", Val: kind}, {Key: "agent", Val: name},
-		{Key: "requested_by", Val: actor}, {Key: "why", Val: why}, {Key: "created", Val: time.Now().Unix()}, {Key: "state", Val: "proposed"},
-	} {
-		prop.set(kv.Key, kv.Val)
 	}
 	for _, kv := range [][2]string{{"team", teamName}, {"repo", repo}, {"model", str("model")}, {"effort", str("effort")}, {"to", to}, {"vendor", str("vendor")}} {
 		if kv[1] != "" {
@@ -245,6 +238,22 @@ func (e *Env) draft(actor, kind string, args map[string]any, why string, registe
 		}
 	}
 	return prop, ""
+}
+
+// newProp is a proposal's header: a fresh id, what it is about, who asks and why.
+func newProp(kind, agent, actor, why string) (*Prop, error) {
+	idb := make([]byte, 4)
+	if _, err := rand.Read(idb); err != nil {
+		return nil, err
+	}
+	p := &Prop{}
+	for _, kv := range []yamlcompat.Pair{
+		{Key: "id", Val: hex.EncodeToString(idb)}, {Key: "kind", Val: kind}, {Key: "agent", Val: agent},
+		{Key: "requested_by", Val: actor}, {Key: "why", Val: why}, {Key: "created", Val: time.Now().Unix()}, {Key: "state", Val: "proposed"},
+	} {
+		p.set(kv.Key, kv.Val)
+	}
+	return p, nil
 }
 
 // raised writes the proposal down outside the transaction; the Effect only records the reply.
@@ -315,7 +324,6 @@ func (e *Env) proposeBundle(c *rpc.Conn, raw []any, why string) (any, error) {
 	now := paths.ListAgents(e.Home)
 	registered := now
 	coming := map[string]bool{}
-	out := &Prop{}
 	var flat []yamlcompat.Pair
 	for n, s := range steps {
 		d, msg := e.draft(c.Caller.Actor(), s.kind, s.args, why, registered, coming)
@@ -336,15 +344,9 @@ func (e *Env) proposeBundle(c *rpc.Conn, raw []any, why string) (any, error) {
 			}
 		}
 	}
-	idb := make([]byte, 4)
-	if _, err := rand.Read(idb); err != nil {
+	out, err := newProp(bundle, fmt.Sprintf("%d changes", len(steps)), c.Caller.Actor(), why)
+	if err != nil {
 		return nil, err
-	}
-	for _, kv := range []yamlcompat.Pair{
-		{Key: "id", Val: hex.EncodeToString(idb)}, {Key: "kind", Val: bundle}, {Key: "agent", Val: fmt.Sprintf("%d changes", len(steps))},
-		{Key: "requested_by", Val: c.Caller.Actor()}, {Key: "why", Val: why}, {Key: "created", Val: time.Now().Unix()}, {Key: "state", Val: "proposed"},
-	} {
-		out.set(kv.Key, kv.Val)
 	}
 	for _, kv := range flat {
 		out.set(kv.Key, kv.Val)
