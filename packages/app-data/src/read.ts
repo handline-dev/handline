@@ -158,6 +158,19 @@ export const useTask = (task: number) => useRead('task.get', { task });
 export const useMemos = (task: number) => useRead('task.memo.list', { task });
 export const useTaskBoard = () => useRead('task.board', {});
 export const useTrust = () => useRead('trust.list', {});
+/** The newest events of the daemon's log, read once when the page opens (the log is not a cache the bridge keeps; a screen that wants it live asks again). */
+export function useRecentEvents(limit: number) {
+  const store = useStore();
+  const { daemon } = useData();
+  const { served, open } = useServes('events.feed');
+  return useQuery({
+    queryKey: [daemon, 'events.feed', limit],
+    queryFn: () => store.client.call('events.feed', { limit }),
+    enabled: served && open,
+    gcTime: 0,
+    select: (r) => [...r.events].sort((a, b) => b.cursor - a.cursor),
+  });
+}
 export const useMemory = (agent?: string) => useRead('memory.status', { agent });
 export const useTeam = () => useRead('team.get', {});
 export const useHr = (filter: CallParams<'hr.list'> = {}) => useRead('hr.list', filter);
