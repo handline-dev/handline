@@ -72,12 +72,13 @@ func TestCancelPlansWithoutWritingAndClosesAnyQueuedRequest(t *testing.T) {
 	}
 	rid := r.request("alice", "bob", "do the thing")
 	dbpkg.MarkDelivered(r.db, rid)
-	events := r.count("SELECT COUNT(*) FROM events")
+	const written = "SELECT COUNT(*) FROM events WHERE kind != 'founder_key'" // each call's hello records its key; the call is what is checked
+	events := r.count(written)
 	plan := cancel(rid, `,"dry_run":true`, "c1")
 	if plan["ok"] != true || !strings.HasPrefix(plan["plan"].(string), fmt.Sprintf("cancel #%d (delivered to bob)", rid)) {
 		t.Fatalf("%v", plan)
 	}
-	if r.state(rid) != "queued" || r.count("SELECT COUNT(*) FROM events") != events {
+	if r.state(rid) != "queued" || r.count(written) != events {
 		t.Fatal("a dry run writes nothing")
 	}
 	// the same request_id is not a kept reply: the dry run and the cancel may share one
