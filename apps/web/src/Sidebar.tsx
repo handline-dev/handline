@@ -1,6 +1,6 @@
 // The agent list. A row shows an agent's state, its queue and a fold button when it has children; its actions (Start, the ⋯ menu)
 // show while the pointer is on it or it is selected. One filter button opens the menu of what to show.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ago,
   dotOf,
@@ -19,6 +19,7 @@ import {
 import type { AgentView } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { useAgents, useUnreached, useServes, useUnread, useVerbMark } from '@handline/app-data';
+import { useMyTurn } from './MyTurn.tsx';
 import { VerbSheet } from './AgentVerbs.tsx';
 import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
@@ -43,6 +44,13 @@ import { AgentMenu, RowControls } from './RowControls.tsx';
 import { NewAgentButton } from './NewAgent.tsx';
 import { View } from './View.tsx';
 import { navOf, PairPhone } from './NavRows.tsx';
+
+// What a row's one line holds, in px: the state mark, the name's least width, a chip's icon and padding, a letter of it, and the gap between items.
+const MARK_W = 14;
+const NAME_MIN = 72;
+const CHIP_PAD = 28;
+const CHAR_W = 7;
+const GAP = 8;
 
 export function Sidebar({
   selected,
@@ -78,6 +86,7 @@ export function Sidebar({
   const counts = new Map<Dot, number>();
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const unread = useUnread().length;
+  const myTurn = useMyTurn().cards.length;
   const onInbox = useInboxRoute().open;
   const hr = useHrCount();
   const onTeam = !!useTeamRoute();
@@ -108,6 +117,9 @@ export function Sidebar({
         ) : null}
       </div>
       <div className="rail-nav flex flex-wrap gap-0.5 px-1.5">
+        <button className={navOf(onPage === 'my-turn')} aria-current={onPage === 'my-turn' ? 'page' : undefined} onClick={() => void (location.hash = '#/my-turn')}>
+          <Icon name="decision" size={14} aria-hidden /> My turn{myTurn ? ` ${myTurn}` : ''}
+        </button>
         <button className={navOf(onInbox)} aria-current={onInbox ? 'page' : undefined} onClick={goInbox}>
           <Icon name="inbox" size={14} aria-hidden /> Inbox{unread ? ` ${unread}` : ''}
         </button>
@@ -237,6 +249,19 @@ function Row({
   const [hot, setHot] = useState(false); // the pointer or focus is on the row: its actions show, and only then do they cost a detail read
   const [menuOpen, setMenuOpen] = useState(false);
   const mark = useVerbMark(a.name);
+  // The needs-you chip comes right after the name (the lesser chips drop first) and is the word when the word fits beside the name, else the icon.
+  const main = useRef<HTMLButtonElement>(null);
+  const [wide, setWide] = useState(true);
+  const kindLen = a.needs_you?.kind.length ?? 0;
+  useEffect(() => {
+    const el = main.current;
+    if (!el) return;
+    const fit = () => setWide(el.clientWidth >= MARK_W + NAME_MIN + CHIP_PAD + CHAR_W * kindLen + 2 * GAP);
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [kindLen]);
   const now = useNow();
   const cache = cacheLeft(a.cache_until, now);
   const ctx = ctxOf(a);
@@ -280,20 +305,26 @@ function Row({
               ) : (
                 <span className="w-3 flex-none" aria-hidden />
               )}
+              {/* One line tall and wrapping: a chip that does not fit drops below the box whole, never cut off. */}
               <button
-                className="row-main flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left"
+                ref={main}
+                className="row-main flex h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden border-0 bg-transparent p-0 text-left"
                 onClick={() => goAgent(a.name)}
                 aria-current={selected ? 'true' : undefined}
                 title={tip}
               >
                 <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
-                <span className="name min-w-0 flex-1 whitespace-nowrap">{rowName(a.name, depth, team)}</span>
-                <Badges badges={badges} />
+                <span className="name h-5 min-w-[4.5rem] flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-5">{rowName(a.name, depth, team)}</span>
                 {a.needs_you ? (
-                  <span className="needs flex-none rounded-pill bg-wait px-1.5 text-label text-canvas" title={a.needs_you.text ?? undefined}>
-                    {a.needs_you.kind}
+                  <span
+                    className="needs inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-pill bg-wait px-1.5 text-label text-canvas"
+                    title={[a.needs_you.kind, a.needs_you.text].filter(Boolean).join(': ')}
+                  >
+                    <Icon name={a.needs_you.kind === 'permission' ? 'permission' : 'answer'} size={12} label={a.needs_you.kind} />
+                    {wide ? <span>{a.needs_you.kind}</span> : null}
                   </span>
                 ) : null}
+                <Badges badges={badges} />
                 {queue.messages ? (
                   <span
                     className="q-msgs inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"

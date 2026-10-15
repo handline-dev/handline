@@ -112,10 +112,10 @@ export function useInboxPages() {
   const store = useStore();
   const [older, setOlder] = useState<{ items: InboxItem[]; more: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
-  const head = first.data?.items ?? [];
+  const head = first.data?.items;
   const items = useMemo(() => {
     const seen = new Set<number>();
-    return [...head, ...(older?.items ?? [])].filter((i) => !seen.has(i.id) && seen.add(i.id)).sort((a, b) => b.id - a.id);
+    return [...(head ?? []), ...(older?.items ?? [])].filter((i) => !seen.has(i.id) && seen.add(i.id)).sort((a, b) => b.id - a.id);
   }, [head, older]);
   const more = older ? older.more : (first.data?.more ?? false);
   const loadOlder = useCallback(async () => {

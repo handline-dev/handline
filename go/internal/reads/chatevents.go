@@ -15,9 +15,19 @@ type ChatRequest struct {
 // Replies is what agent said in this request that chat.messages does not serve (chat.transcript's reply items).
 func (c *ChatRequest) Replies(agent string) []map[string]any { return repliesOf(c.r, agent) }
 
+// ChatRequests reads requests for one pass of the chat watcher: the task board a task delivery's state needs is loaded once for the
+// pass, not once a request.
+type ChatRequests struct{ ch *chat }
+
+// ChatRequests starts a pass; one that outlives a change of the board shows the board as it was.
+func (e *Env) ChatRequests() *ChatRequests { return &ChatRequests{&chat{e: e}} }
+
 // ChatRequest reads request id whether or not any chat draws it; nil when there is none.
-func (e *Env) ChatRequest(id int64) (*ChatRequest, error) {
-	ch := &chat{e: e}
+func (e *Env) ChatRequest(id int64) (*ChatRequest, error) { return e.ChatRequests().Get(id) }
+
+// Get is ChatRequest within the pass.
+func (p *ChatRequests) Get(id int64) (*ChatRequest, error) {
+	ch := p.ch
 	r, err := ch.requestRow(id)
 	if err != nil || r == nil {
 		return nil, err

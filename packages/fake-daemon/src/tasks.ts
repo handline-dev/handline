@@ -120,6 +120,10 @@ export class FakeTasks {
   private change(t: Row, patch: Partial<Row>): void {
     Object.assign(t, patch);
     this.emit(this.view(t));
+    // As the daemon: a discarded task blocks nothing, so it leaves every waits (a done one stays, open false).
+    if (patch.state === 'discarded')
+      for (const r of this.rows)
+        if (r.blockers.some((b) => b.task === t.id)) this.change(r, { blockers: r.blockers.filter((b) => b.task !== t.id) });
   }
 
   list(p: Record<string, unknown>): { items: Task[]; more: boolean } {

@@ -3,6 +3,7 @@ package sessiontoken
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/handline/handline/go/internal/peer"
@@ -61,6 +62,30 @@ func TestARacingLaunchThatDiesLeavesTheLiveOne(t *testing.T) {
 	}
 	if tk.Verify("a", 300) || tk.Verify("b", 320) {
 		t.Fatal("a reused pid, or another agent's session, passed")
+	}
+}
+
+// Launches recording and ended sessions forgetting at once, as the daemon and hl launch do: every live session keeps its proof.
+func TestRecordsAndForgetsAtOnceLoseNoLiveSession(t *testing.T) {
+	procs := map[int]peer.Proc{}
+	for pid := 300; pid < 340; pid++ {
+		procs[pid] = P(2, "5.0")
+	}
+	tk := tokens(t, procs)
+	for pid := 300; pid < 320; pid++ {
+		tk.Record("a", pid)
+	}
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(2)
+		go func() { defer wg.Done(); tk.Forget("a", 300+i) }() // an ended session, still in procs: Record keeps it unless forgotten
+		go func() { defer wg.Done(); tk.Record("a", 320+i) }()
+	}
+	wg.Wait()
+	for pid := 300; pid < 340; pid++ {
+		if got, want := tk.Verify("a", pid), pid >= 320; got != want {
+			t.Fatalf("pid %d recorded %v, want %v", pid, got, want)
+		}
 	}
 }
 

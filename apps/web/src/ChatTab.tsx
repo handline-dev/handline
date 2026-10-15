@@ -129,9 +129,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const e = entries.at(-1);
     seen.current = { scope, last: e ? keyOf(e) : null };
   });
-  // The latest page shows first; older pages load as the top comes near, one load at a time. The line in view when a load starts is remembered with its
-  // distance from the top, and put back in the layout effect of every commit that changes the entries (a page above it, wherever it lands), before
-  // the sentinel is armed again, so a page landing while the top is still in view does not start the next one on an unrestored view.
+  // The latest page shows first; older pages load as the top comes near. The line in view when a load starts is put back in the layout effect of
+  // each commit that changes the entries, before the sentinel is armed again.
   const anchor = useRef<{ id: string; off: number } | null>(null);
   const [armed, setArmed] = useState(true);
   const more = () => {

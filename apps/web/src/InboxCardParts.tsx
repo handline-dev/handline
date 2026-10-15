@@ -134,7 +134,7 @@ export function InboxDetail(props: {
         {decidable(i) ? (
           <Button icon="done" label="Done" disabled={!!v.off.decide} title={v.off.decide ?? 'Done'} onClick={() => v.decide(i)} />
         ) : null}
-        {i.kind !== 'decision' && !i.prompt && i.kind !== 'block' ? (
+        {!i.prompt && i.kind !== 'block' ? (
           <Button
             icon="reply"
             label="Reply"

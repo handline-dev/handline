@@ -18,7 +18,7 @@ func watchFile(path string, changed, done func()) (stop func(), err error) {
 		return nil, err
 	}
 	var p [2]int
-	if err := unix.Pipe(p[:]); err != nil {
+	if err := pipe(&p); err != nil {
 		unix.Close(fd)
 		unix.Close(kq)
 		return nil, err

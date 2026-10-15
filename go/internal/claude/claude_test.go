@@ -32,6 +32,8 @@ type fixture struct {
 		AllowWrite  []string `json:"allow_write"`
 		AllowDomain []string `json:"allow_domains"`
 		CacheDir    string   `json:"cache_dir"`
+		Weaker      bool     `json:"weaker_network"`
+		Excluded    []string `json:"excluded"`
 		Chrome      bool     `json:"chrome"`
 		Sandbox     *bool    `json:"sandbox"`
 		Argv        []string `json:"argv"`
@@ -76,7 +78,8 @@ func TestLaunchArgvIsWhatPythonWrites(t *testing.T) {
 		o := lifecycle.LaunchArgs{Model: str(c.Model, ""), Effort: str(c.Effort, "high"), Disallowed: str(c.Disallowed, "Task"),
 			MCPArgs: c.MCP, Preamble: str(c.Preamble, ""), Hide: c.Hide, NoWrite: c.NoWrite, MemoryDir: str(c.MemoryDir, ""),
 			Trusted: c.Trusted, Chrome: c.Chrome, SandboxOff: c.Sandbox != nil && !*c.Sandbox, MCPApproved: c.MCPApproved,
-			ExtraDirs: c.ExtraDirs, AllowWrite: c.AllowWrite, AllowDomains: c.AllowDomain, CacheDir: c.CacheDir}
+			ExtraDirs: c.ExtraDirs, AllowWrite: c.AllowWrite, AllowDomains: c.AllowDomain, CacheDir: c.CacheDir,
+			WeakerNetwork: c.Weaker, Excluded: c.Excluded}
 		if got := (Driver{}).LaunchArgv(str(c.Exe, "/bin/claude"), o); !reflect.DeepEqual(got, c.Argv) {
 			t.Errorf("%s:\n got  %q\n want %q", c.Name, got, c.Argv)
 		}

@@ -6,7 +6,9 @@ import { DataProvider, SKELETON_CSS, useUnread, type BoxComponent } from '@handl
 import { setting } from './daemon.ts';
 import { AccountsPage } from './Accounts.tsx';
 import { InboxPage } from './Inbox.tsx';
+import { MyTurnPage } from './MyTurn.tsx';
 import { SettingsPage } from './Settings.tsx';
+import { AdminPage } from './Admin.tsx';
 import { DebugTerminals } from './debug/DebugTerminals.tsx';
 import { StatsPage } from './Stats.tsx';
 import {
@@ -107,7 +109,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   }, [unread]);
   // Everything but the workspace lives in the sidebar, so the main view gets the whole window height.
   // The pages with no tab strip keep the rail's handle; on the agent workspace the controls ride the first strip.
-  const hasStrip = !team && !worktrees.open && !inbox.open && !accounts.open && tasks === null && page !== 'stats' && page !== 'settings' && !!agent && !settings;
+  const hasStrip = !team && !worktrees.open && !inbox.open && !accounts.open && tasks === null && page !== 'stats' && page !== 'settings' && page !== 'admin' && !!agent && !settings;
   return (
     <FoldedControls.Provider value={railOpen ? null : { show: toggle }}>
     <div className="frame flex h-screen flex-col">
@@ -145,10 +147,14 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             <AccountsPage name={accounts.name} />
           ) : tasks !== null ? (
             <TasksPage storage={storage} route={tasks} />
+          ) : page === 'my-turn' ? (
+            <MyTurnPage />
           ) : page === 'stats' ? (
             <StatsPage />
           ) : page === 'settings' ? (
             <SettingsPage />
+          ) : page === 'admin' ? (
+            <AdminPage />
           ) : agent && settings ? (
             <SettingsView key={agent} agent={agent} />
           ) : agent ? (

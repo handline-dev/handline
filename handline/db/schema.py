@@ -821,6 +821,17 @@ def _task_timeout_left(con) -> None:
         con.execute("ALTER TABLE tasks ADD COLUMN timeout_left INTEGER")
 
 
+def _requests_touched(con) -> None:
+    """The chat watcher asks every look for the requests touched since a second: a request by its state_at else
+    its ts, an answer by its ts. A database migrated past step 1 before step 1 made indexes for this has none and
+    reads the whole table each time, so they are made here under names of their own. The answer index is partial,
+    since requests_settles_ts led the planner through every answer. Additive."""
+    con.execute("DROP INDEX IF EXISTS requests_touched")
+    con.execute("DROP INDEX IF EXISTS requests_settles_ts")
+    con.execute("CREATE INDEX IF NOT EXISTS requests_touched_at ON requests(COALESCE(state_at, ts))")
+    con.execute("CREATE INDEX IF NOT EXISTS requests_answered_ts ON requests(ts) WHERE settles IS NOT NULL")
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
@@ -839,6 +850,7 @@ MIGRATIONS = [
     (15, "drop_lands", _drop_lands, True),
     (16, "task_report", _task_report, True),
     (17, "task_timeout_left", _task_timeout_left, True),
+    (18, "requests_touched", _requests_touched, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

@@ -13,3 +13,5 @@ func watchExit(int, func()) (func(), error) {
 }
 
 func reaped(int) bool { return true }
+
+func zombie(int) bool { return false }
