@@ -3,8 +3,10 @@ import type { ComponentProps } from 'react';
 
 const join = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 
-export function ScrollPage({ className, ...rest }: ComponentProps<'section'>) {
-  return <section {...rest} className={join('mx-auto h-full w-full max-w-[var(--w-page)] overflow-auto px-4 pt-0 pb-6', className)} />;
+// `beside` is for a page that shares the row with a pane: it takes the room the pane leaves, not the page width.
+export function ScrollPage({ className, beside, ...rest }: ComponentProps<'section'> & { beside?: boolean }) {
+  const size = beside ? 'min-w-0 flex-1' : 'mx-auto w-full max-w-[var(--w-page)]';
+  return <section {...rest} className={join('h-full overflow-auto px-4 pt-0 pb-6', size, className)} />;
 }
 
 export function PageHead({ className, ...rest }: ComponentProps<'header'>) {

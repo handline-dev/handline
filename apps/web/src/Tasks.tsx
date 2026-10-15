@@ -282,6 +282,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
   const none = scope === 'closed' && all.length === 0;
   return (
     <ScrollPage
+      beside={selected !== null}
       className="tasks flex flex-col pt-4 outline-none"
       ref={root}
       tabIndex={0}
