@@ -2074,6 +2074,8 @@ export interface Methods {
   task: number;
   /** Markdown. It may name images (x-attachments, texts). */
   text: string;
+  /** Tell every reader at once, even mid-turn. */
+  now?: boolean;
   request_id: RequestId;
 }; result: Accepted & {
     memo: number;

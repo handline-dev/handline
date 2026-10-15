@@ -121,6 +121,8 @@ type NewRequest struct {
 	State                                    string // "": queued
 	Verdict                                  string
 	Notice                                   bool
+	// TurnEnd makes it a notice that waits for the end of the target's turn with no digest window (notice 2): a memo's tell.
+	TurnEnd bool
 }
 
 // AddRequest is db.add_request. A notice, or a say to the founder, is born landed. The edge of a request written here is
@@ -132,7 +134,7 @@ func AddRequest(q Q, n NewRequest) (int64, error) {
 		state = "queued"
 	}
 	now := Now()
-	landed := (n.Notice || n.Target == Human && n.Kind == "say") && state == "queued"
+	landed := (n.Notice || n.TurnEnd || n.Target == Human && n.Kind == "say") && state == "queued"
 	if landed || state == "done" {
 		state = Landed
 	}
@@ -142,6 +144,9 @@ func AddRequest(q Q, n NewRequest) (int64, error) {
 	}
 	if n.Notice {
 		notice = 1
+	}
+	if n.TurnEnd {
+		notice = 2
 	}
 	if n.ParentID != 0 {
 		parent = n.ParentID
@@ -398,10 +403,11 @@ func MarkAnnounced(q Q, rids []int64) error {
 
 // PendingNotices is db.pending_notices: the notices the target has not been shown, oldest first.
 func PendingNotices(q Q, target string) ([]*Request, error) {
-	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE target = ? AND notice = 1 AND state = 'landed' AND delivered_at IS NULL ORDER BY id", target)
+	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE target = ? AND notice >= 1 AND state = 'landed' AND delivered_at IS NULL ORDER BY id", target)
 }
 
-// NoticeWaiting is one agent with a notice waiting and when its oldest unshown notice landed.
+// NoticeWaiting is one agent with a notice waiting and when its oldest unshown notice with a digest window landed (0: only notices held to
+// the end of its turn wait).
 type NoticeWaiting struct {
 	Agent string
 	Since int64
@@ -409,7 +415,7 @@ type NoticeWaiting struct {
 
 // AgentsWithNotices is db.agents_with_notices.
 func AgentsWithNotices(q Q) ([]NoticeWaiting, error) {
-	rows, err := q.Query("SELECT target, MIN(landed_at) FROM requests WHERE notice = 1 AND state = 'landed' AND delivered_at IS NULL AND target != ? GROUP BY target ORDER BY target", Human)
+	rows, err := q.Query("SELECT target, MIN(CASE WHEN notice = 1 THEN landed_at END) FROM requests WHERE notice >= 1 AND state = 'landed' AND delivered_at IS NULL AND target != ? GROUP BY target ORDER BY target", Human)
 	if err != nil {
 		return nil, err
 	}
@@ -427,10 +433,16 @@ func AgentsWithNotices(q Q) ([]NoticeWaiting, error) {
 	return out, rows.Err()
 }
 
+// TurnEndNoticesBefore is every notice held to the end of its target's turn (a memo's tell) that landed at or before `before` and has been
+// neither shown nor read, oldest first.
+func TurnEndNoticesBefore(q Q, before int64) ([]*Request, error) {
+	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE notice = 2 AND state = 'landed' AND delivered_at IS NULL AND read_at IS NULL AND landed_at <= ? ORDER BY id", before)
+}
+
 // MarkNoticesDigested is db.mark_notices_digested.
 func MarkNoticesDigested(q Q, rids []int64) error {
 	for _, id := range rids {
-		if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) WHERE id = ? AND notice = 1 AND state = 'landed'", Now(), id); err != nil {
+		if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) WHERE id = ? AND notice >= 1 AND state = 'landed'", Now(), id); err != nil {
 			return err
 		}
 	}
@@ -440,7 +452,7 @@ func MarkNoticesDigested(q Q, rids []int64) error {
 // MarkNoticesShown is db.mark_notices_shown: these notices went out inside a typed delivery to session.
 func MarkNoticesShown(q Q, rids []int64, session string) error {
 	for _, id := range rids {
-		if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?), typed_at = ?, typed_session = ? WHERE id = ? AND notice = 1 AND state = 'landed'",
+		if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?), typed_at = ?, typed_session = ? WHERE id = ? AND notice >= 1 AND state = 'landed'",
 			Now(), Now(), nullStr(session), id); err != nil {
 			return err
 		}

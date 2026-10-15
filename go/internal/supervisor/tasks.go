@@ -348,13 +348,25 @@ func (e *Env) queueSay(q db.Q, owner, body, why string) int64 {
 	return rid
 }
 
-// TellMemoHolder: a memo changing on a task that is doing is told to its holder at once, typed like a say; on any other task, or when the
-// holder made the change, nothing is sent.
-func (e *Env) TellMemoHolder(q db.Q, tid int64, by, what, text string) (err error) {
+// TellMemo tells a memo's change to whom it concerns: the holder of a doing task (one not yet doing reads its memos when it is delivered), who
+// the task answers to, and every agent the memo names with @. Never the writer or the founder, who reads the board. The holder of a doing task
+// (it is its current task), a reader at its prompt, and every reader of one sent now, are typed it at once like a say; any other reader gets
+// it at the end of its turn, with whatever else waits for it then (SweepDigests), and its lead hears of it if it waits an hour (SweepHeldMemos).
+func (e *Env) TellMemo(q db.Q, tid int64, by, what, text string, now bool) (err error) {
 	defer Catch(&err)
 	row := must(db.GetTask(q, tid))
-	if row == nil || row.Owner == db.Human || row.Owner == by || must(db.TaskState(q, row)) != "doing" {
+	if row == nil {
 		return nil
+	}
+	holder := ""
+	if must(db.TaskState(q, row)) == "doing" {
+		holder = row.Owner
+	}
+	to := []string{holder, row.AnswersTo()}
+	for _, m := range mentionRe.FindAllStringSubmatch(text, -1) {
+		if name := strings.TrimRight(m[1], ".-"); e.registered(name) {
+			to = append(to, name)
+		}
 	}
 	body := fmt.Sprintf("T%d memo %s by %s", tid, what, by)
 	if text != "" {
@@ -364,6 +376,50 @@ func (e *Env) TellMemoHolder(q db.Q, tid int64, by, what, text string) (err erro
 		}
 		body += ": " + t
 	}
-	e.typeSay(q, row.Owner, body, "task memo")
+	told := map[string]bool{"": true, by: true, db.Human: true}
+	for _, a := range to {
+		if told[a] {
+			continue
+		}
+		told[a] = true
+		if now || a == holder || e.idleWithSession(q, a) {
+			e.typeSay(q, a, body, "task memo")
+			continue
+		}
+		rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: a, Body: body, Response: "fire_and_forget", Kind: "say", TurnEnd: true}))
+		check(db.LinkRequest(q, tid, rid))
+		e.log("  %s: T%d memo held for the end of its turn (#%d)", a, tid, rid)
+	}
 	return nil
 }
+
+// MemoLeadS is how long a memo held for the end of its reader's turn may go unread before the reader's lead is told.
+const MemoLeadS = 3600
+
+// SweepHeldMemos tells the reader's lead, at once and once, of each memo held for the end of the reader's turn that has gone MemoLeadS
+// unread. The memo stays held for the reader.
+func (e *Env) SweepHeldMemos(now int64) (err error) {
+	defer Catch(&err)
+	q := db.Q(e.DB)
+	rows := must(db.TurnEndNoticesBefore(q, now-MemoLeadS))
+	if len(rows) == 0 {
+		return nil
+	}
+	t := must(team.LoadTeam(e.Home))
+	for _, r := range rows {
+		key := fmt.Sprintf("memo_lead:%d", r.ID)
+		if must(db.Cursor(q, key)) != 0 {
+			continue
+		}
+		check(db.SetCursor(q, key, 1))
+		lead := t.SupervisorOf(r.Target)
+		if lead == "" || lead == db.Human || !e.registered(lead) {
+			continue
+		}
+		e.tellNowSay(q, lead, fmt.Sprintf("%s has not read this memo in an hour, held for the end of its turn (#%d): %s", r.Target, r.ID, r.Body), "memo unread 1h")
+	}
+	return nil
+}
+
+// mentionRe is an @name in a memo: at the start or after a character that is not part of a name, so an email address names nobody.
+var mentionRe = regexp.MustCompile(`(?:^|[^A-Za-z0-9._@-])@([A-Za-z0-9][A-Za-z0-9._-]*)`)

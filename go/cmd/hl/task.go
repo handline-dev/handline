@@ -306,12 +306,13 @@ func taskNote(c *hlclient.Client, args []string) (int, bool) {
 }
 
 func taskMemo(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--file"}, nil, nil)
+	p, ok := parse(args, []string{"--file"}, []string{"--now"}, nil)
 	if !ok || len(p.pos) < 2 {
 		return 0, false
 	}
 	tid, ok := taskRef(p.pos[0])
 	verb, rest := p.pos[1], slices.Clone(p.pos[2:])
+	now := p.flags["--now"]
 	shape, known := map[string]int{"list": 0, "add": 1, "edit": 2, "delete": 1}[verb]
 	if !ok || !known {
 		return 0, false
@@ -326,6 +327,10 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 	}
 	mutating(c, "memo")
 	if !asking(c, "write a memo") {
+		return 1, true
+	}
+	if now && verb != "add" {
+		fmt.Println("--now goes with add")
 		return 1, true
 	}
 	file, _ := p.opt("--file")
@@ -352,7 +357,11 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 	case "list":
 		return memoList(c, tid), true
 	case "add":
-		return said(c.Write("task.memo.add", map[string]any{"task": tid, "text": rest[0]})), true
+		params := map[string]any{"task": tid, "text": rest[0]}
+		if now {
+			params["now"] = true
+		}
+		return said(c.Write("task.memo.add", params)), true
 	}
 	if verb == "edit" {
 		return said(c.Write("task.memo.edit", map[string]any{"task": tid, "memo": mid, "text": rest[1]})), true

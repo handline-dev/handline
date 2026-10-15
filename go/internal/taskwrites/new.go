@@ -42,6 +42,18 @@ func timeBox(p map[string]any, key string) (int64, error) {
 	return secs, nil
 }
 
+// optionalBool is a true or false param, false when absent.
+func optionalBool(p map[string]any, key string) (bool, error) {
+	if p[key] == nil {
+		return false, nil
+	}
+	b, ok := p[key].(bool)
+	if !ok {
+		return false, badParam(key+" is true or false", key)
+	}
+	return b, nil
+}
+
 // optionalTask is rpc_tasks._task_number: a task number, or none.
 func optionalTask(p map[string]any, key string) (int64, bool, error) {
 	if p[key] == nil {
@@ -108,13 +120,9 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 				return nil, err
 			}
 		}
-		ui := false
-		if v := p["ui"]; v != nil {
-			b, isBool := v.(bool)
-			if !isBool {
-				return nil, badParam("ui is true or false", "ui")
-			}
-			ui = b
+		ui, err := optionalBool(p, "ui")
+		if err != nil {
+			return nil, err
 		}
 		parent, hasParent, err := optionalTask(p, "parent")
 		if err != nil {
