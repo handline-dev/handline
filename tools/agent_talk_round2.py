@@ -86,7 +86,7 @@ def count(events: list[tuple[float, dict]], meta: dict) -> dict:
     """The run's numbers from everything the stream saw after the founder's task."""
     words, ack, t0, ask_at = meta["words"], meta.get("ack"), meta["t0"], meta.get("ask_at")
     both = lambda text: all(w in (text or "") for w in words.values())
-    msgs, texts, sends, say_founder, wordless, started = {}, [], [], 0, 0, {}
+    msgs, texts, sends, say_founder, wordless, started, last, ended = {}, [], [], 0, 0, {}, {}, set()
     tokens = {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}
     cost = 0.0
     for at, ev in events:
@@ -99,6 +99,7 @@ def count(events: list[tuple[float, dict]], meta: dict) -> dict:
             if data.get("kind") == "turn_start":
                 started[(data["agent"], data.get("session"), data.get("turn"))] = (data.get("turn_start") or {}).get("from")
             elif data.get("kind") == "text":
+                last[(data["agent"], data.get("session"), data.get("turn"))] = data.get("text") or ""
                 texts.append((at, data["agent"], data.get("text") or "", started.get((data["agent"], data.get("session"), data.get("turn")))))
             elif data.get("kind") == "tool_use":
                 cmd = str(((data.get("tool_use") or {}).get("input") or {}).get("command") or "")
@@ -109,6 +110,7 @@ def count(events: list[tuple[float, dict]], meta: dict) -> dict:
                 if data["agent"] in words and re.search(r"hl task done T\d+", cmd) and words[data["agent"]] not in cmd:
                     wordless += 1
             elif data.get("kind") == "turn_end":
+                ended.add((data["agent"], data.get("session"), data.get("turn")))
                 end = data.get("turn_end") or {}
                 cost += end.get("cost_usd") or 0
                 for k in tokens:
@@ -148,6 +150,9 @@ def count(events: list[tuple[float, dict]], meta: dict) -> dict:
         "stray_delivered": len(stray),
         "half_kept": sum(1 for at, a, t in out if NOOP_WORD.search(t)),
         "noop_turns": sum(1 for at, a, t in texts if not delivered(t)),
+        # How each turn of the job (started after the founder's task, and ended) ended: its last text block, or none.
+        "turns_ended": len(ended & started.keys()),
+        "turns_ended_in_text": sum(1 for k in ended & started.keys() if k in last and delivered(last[k])),
         "say_founder_tries": say_founder,
         "wordless_done": wordless,
         "says_between_agents": len(between),
@@ -267,6 +272,7 @@ def table(rows: list[dict]) -> str:
         "Other stray text reaching the founder (total)": lambda rs: str(total(rs, "stray_delivered") - total(rs, "echoes")),
         "Half-kept noop": lambda rs: str(total(rs, "half_kept")),
         "Turns ended with exactly noop": lambda rs: str(total(rs, "noop_turns")),
+        "Ended turns whose last block is text": lambda rs: f"{total(rs, 'turns_ended_in_text')}/{total(rs, 'turns_ended')}",
         "Double reports": lambda rs: str(total(rs, "double_reports")),
         "Builder closed its task without its word (e.g. \"request #2\")": lambda rs: str(total(rs, "wordless_done")),
         "hl say to the founder tried (refused)": lambda rs: str(total(rs, "say_founder_tries")),

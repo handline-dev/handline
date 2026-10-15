@@ -45,6 +45,7 @@ reply to the founder is tested.
 | Other stray text reaching the founder (total) | 4 | 1 | 0 | 1 |
 | Half-kept noop | 0 | 0 | 0 | 0 |
 | Turns ended with exactly noop | 0 | 0 | 8 | 6 |
+| Ended turns whose last block is text | 37/39 | 37/45 | 28/43 | 10/19 |
 | Double reports | 9 | 6 | 5 | 3 |
 | Builder closed its task without its word (e.g. "request #2") | 2 | 4 | 2 | 1 |
 | hl say to the founder tried (refused) | 3 | 3 | 5 | 1 |
@@ -63,8 +64,8 @@ again. The counted rows are also in `docs/agent-talk-experiment.round2.jsonl`.
 
 ### What happened
 
-- **The rule did nothing; noop helped a little.** Of the turns that ended, 37 of 41 ended in text in none, 37 of 46 in rule,
-  28 of 46 in noop (8 ended in `noop`, 10 in nothing). Echoes per run: 4 with no rule, 5.5 with the rule, 3.5 with noop; the
+- **The rule did nothing; noop helped a little.** Of the job's turns (started after the founder's task, and ended), 37 of
+  39 ended in text in none, 37 of 45 in rule, 28 of 43 in noop (8 ended in `noop`, 7 in nothing). Echoes per run: 4 with no rule, 5.5 with the rule, 3.5 with noop; the
   ranges overlap. The echoes are turn summaries: "I read `secret.txt` and sent the word to talk.lead (queued as #5)", "Both
   builders have been asked ... I'm waiting on their replies". Haiku writes one at the end of almost every turn it does not
   end with `noop`, whatever the role says.
@@ -115,7 +116,7 @@ task numbers, and get used as content (the wordless closes above). Proposal, in 
    with its evidence, and tell agents exactly that ("to answer the founder, reply in the turn it wrote to you; to report,
    close its task"). Unprompted, that pair lost the report in 7 of 21 runs, so the instruction is what is under test.
    Everything else stays in the transcript, readable on demand.
-3. **If session text is delivered, add noop anyway:** it is free (same cost) and cut text-ending turns from 90% to 61%;
+3. **If session text is delivered, add noop anyway:** it is free (same cost) and cut text-ending turns from 95% to 65%;
    expect it to be slower (median 148 s against 98 s, ranges overlap).
 4. **Hide message ids from agents** (design note above) and quote evidence, not numbers, in task notices.
 5. **Markdown bodies:** allow them; no effect in this job.
