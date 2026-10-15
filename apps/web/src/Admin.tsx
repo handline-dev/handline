@@ -1,0 +1,133 @@
+// The quiet admin page (#/admin, linked from the foot of Settings): what the daemon is doing, why agents wake, how full their memory is, and what just happened.
+// Read-only: it shows what `hl` printed for a person, in words.
+import { ago } from '@handline/app-core';
+import { useMemory, useRecentEvents, useServes, useStatus, useTriggers } from '@handline/app-data';
+import { PageHead, PageTitle, RowTitle, ScrollPage, SectionHead, SettingsCard, SettingsRow } from './ui/index.ts';
+import { View } from './View.tsx';
+
+const HEALTH: Record<string, string> = { ok: 'working', degraded: 'degraded', down: 'down' };
+
+function Daemon() {
+  const q = useStatus();
+  const { served } = useServes('daemon.status');
+  const s = q.data;
+  return (
+    <>
+      <SectionHead>Daemon</SectionHead>
+      <View q={q} served={served} shape="settings" what="the daemon status">
+        {s ? (
+          <SettingsCard className="admin-daemon">
+            <SettingsRow>
+              <RowTitle plain>
+                Running since {ago(s.started_at)} ago, version <code>{s.version.slice(0, 8)}</code>
+              </RowTitle>
+            </SettingsRow>
+            <SettingsRow>
+              <RowTitle plain>
+                Terminals on {s.terminal_host.name}: {HEALTH[s.terminal_host.health] ?? s.terminal_host.health}
+                {s.terminal_host.detail ? <span className="muted"> · {s.terminal_host.detail}</span> : null}
+              </RowTitle>
+            </SettingsRow>
+            <SettingsRow>
+              <RowTitle plain>
+                {s.agents.total} agents: {Object.entries(s.agents.by_state).map(([k, n]) => `${n} ${k}`).join(', ') || 'none'}
+              </RowTitle>
+            </SettingsRow>
+          </SettingsCard>
+        ) : null}
+      </View>
+    </>
+  );
+}
+
+function Wakes() {
+  const q = useTriggers();
+  const { served } = useServes('agent.triggers');
+  const rows = q.data?.agents ?? [];
+  return (
+    <>
+      <SectionHead>Why agents wake</SectionHead>
+      <View q={q} served={served} shape="settings" what="the triggers" empty={!rows.length && 'No agents.'}>
+        <SettingsCard as="ul" className="admin-wakes">
+          {rows.map((a) => (
+            <SettingsRow as="li" key={a.agent} data-agent={a.agent}>
+              <RowTitle plain>
+                {a.agent} <span className="muted">{a.fired ? `wakes: ${a.reason}` : a.reason}</span>
+              </RowTitle>
+            </SettingsRow>
+          ))}
+        </SettingsCard>
+      </View>
+    </>
+  );
+}
+
+function Memory() {
+  const q = useMemory();
+  const { served } = useServes('memory.status');
+  const rows = q.data?.agents ?? [];
+  return (
+    <>
+      <SectionHead>Agent memory</SectionHead>
+      <View q={q} served={served} shape="settings" what="the memory status" empty={!rows.length && 'No agents.'}>
+        <SettingsCard as="ul" className="admin-memory">
+          {rows.map((a) => {
+            const pct = a.budget ? Math.round((a.bytes / a.budget) * 100) : 0;
+            return (
+              <SettingsRow as="li" key={a.agent} data-agent={a.agent}>
+                <RowTitle plain>
+                  {a.agent}{' '}
+                  <span className="muted">
+                    {pct}% full, {a.entries} notes{a.unused.length ? `, unused: ${a.unused.join(', ')}` : ''}
+                  </span>
+                </RowTitle>
+              </SettingsRow>
+            );
+          })}
+        </SettingsCard>
+      </View>
+    </>
+  );
+}
+
+function Recent() {
+  const { served } = useServes('events.feed');
+  const q = useRecentEvents(30);
+  const events = q.data ?? (q.isError ? [] : null);
+  return (
+    <>
+      <SectionHead>Just happened</SectionHead>
+      {events === null ? (
+        <p className="muted">{served ? 'Loading…' : 'This daemon does not serve its event feed.'}</p>
+      ) : (
+        <SettingsCard as="ul" className="admin-events">
+          {events.map((e) => (
+            <SettingsRow as="li" key={e.cursor}>
+              <RowTitle plain>
+                {e.title ?? e.type}
+                {e.agent ? <span className="muted"> · {e.agent}</span> : null} <span className="muted">{ago(e.at)} ago</span>
+              </RowTitle>
+            </SettingsRow>
+          ))}
+          {!events.length ? <SettingsRow>Nothing yet.</SettingsRow> : null}
+        </SettingsCard>
+      )}
+    </>
+  );
+}
+
+export function AdminPage() {
+  return (
+    <ScrollPage className="admin" aria-label="Admin">
+      <PageHead>
+        <PageTitle>Admin</PageTitle>
+      </PageHead>
+      <div className="mx-auto flex w-full max-w-[var(--w-form)] flex-col gap-4">
+        <Daemon />
+        <Wakes />
+        <Memory />
+        <Recent />
+      </div>
+    </ScrollPage>
+  );
+}

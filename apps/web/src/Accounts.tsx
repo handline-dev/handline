@@ -1,6 +1,6 @@
 // The Accounts page (#/accounts, #/accounts/:name): one line per account with its gauges, state and agents, and one account in three tabs.
 import { useState } from 'react';
-import { STATE_WORD, outUntil, stateOf, span } from '@handline/app-core';
+import { STATE_WORD, outUntil, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { classify, sentence, useAccountUsage, useAccounts, useAgents, useServes, useWrite } from '@handline/app-data';
@@ -49,14 +49,13 @@ export function StateChip({ account, now }: { account: Account; now: number }) {
 export const agentsLine = (account: Account) => `${account.agents.length} / cap ${account.cap_effective}`;
 
 const LOGIN_WORD: Record<Account['login_state'], string> = { ok: 'logged in', needs_login: 'needs login', unknown: 'login unknown' };
-const resetAt = (iso: string) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 /** What `hl account list` adds to the gauges: the login, the plan, when the week resets, and whether it can take another agent and why not. */
 export function UsageLine({ account }: { account: Account }) {
   const week = account.weekly?.resets_at;
   return (
     <span className="acct-usage col-span-full text-hint muted" data-usage={account.name}>
-      {[LOGIN_WORD[account.login_state], account.plan, week ? `week resets ${resetAt(week)}` : null].filter(Boolean).join(' · ')}
+      {[LOGIN_WORD[account.login_state], account.plan, week ? `week resets ${dateTime(week)}` : null].filter(Boolean).join(' · ')}
       {account.assignable === undefined ? null : account.assignable ? (
         <span className="acct-assign"> · can take another agent</span>
       ) : (
