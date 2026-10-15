@@ -492,8 +492,47 @@ func MarkLanded(q Q, rid int64) error {
 	if err := StampTaskDelivered(q, rid); err != nil {
 		return err
 	}
-	_, err := q.Exec("UPDATE requests SET state = 'landed', state_at = ? WHERE id = ? AND state = 'queued' AND target != ?", now, rid, Human)
-	return err
+	if _, err := q.Exec("UPDATE requests SET state = 'landed', state_at = ? WHERE id = ? AND state = 'queued' AND target != ?", now, rid, Human); err != nil {
+		return err
+	}
+	return settleSendLedger(q, rid)
+}
+
+// settleSendLedger drops the send ledger entry of each message that carried rid once every request it carried has landed, been read or
+// left the queue: the message's fate is known, and an entry kept until its session ends only makes that end report it as unknown.
+func settleSendLedger(q Q, rid int64) error {
+	rows, err := q.Query("SELECT name FROM cursors WHERE name LIKE 'send:%:request:%' AND "+
+		"',' || substr(name, instr(name, ':request:') + 9) || ',' LIKE '%,' || ? || ',%'", rid)
+	if err != nil {
+		return err
+	}
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return err
+		}
+		names = append(names, n)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, n := range names {
+		ids := "," + n[strings.Index(n, ":request:")+9:] + ","
+		var open int
+		if err := q.QueryRow("SELECT count(*) FROM requests WHERE ? LIKE '%,' || id || ',%' AND state = 'queued' AND landed_at IS NULL AND read_at IS NULL",
+			ids).Scan(&open); err != nil {
+			return err
+		}
+		if open == 0 {
+			if _, err := q.Exec("DELETE FROM cursors WHERE name = ?", n); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // AwaitingLanding is db.awaiting_landing: requests typed at target that its transcript has not shown yet.
@@ -548,6 +587,9 @@ func RetireQueued(q Q, rid int64, state, verdict string) (bool, error) {
 	if n == 0 {
 		return false, nil
 	}
+	if err := settleSendLedger(q, rid); err != nil {
+		return false, err
+	}
 	if verdict != "" {
 		if err := AddReason(q, rid, verdict); err != nil {
 			return false, err
@@ -569,6 +611,9 @@ func RetireIfUndelivered(q Q, rid int64, state, verdict string) (bool, error) {
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		return false, nil
+	}
+	if err := settleSendLedger(q, rid); err != nil {
+		return false, err
 	}
 	if verdict != "" {
 		if err := AddReason(q, rid, verdict); err != nil {
@@ -600,6 +645,9 @@ func CloseIfQueued(q Q, rid int64, state, verdict string, o CloseOpts) (bool, er
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return false, nil
+	}
+	if err := settleSendLedger(q, rid); err != nil {
+		return false, err
 	}
 	if o.DismissedBy != "" {
 		var reason any

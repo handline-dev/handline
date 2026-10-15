@@ -170,7 +170,11 @@ func (e *Env) sendOnce(q db.Q, agent, op, text string, d structured.Delivery) (S
 	case structured.Confirmed:
 		check(moveLedger(q, key, sendWritten, sendConfirmed))
 	}
-	return stateOfLedger(must(db.Cursor(q, key))), ""
+	v := must(db.Cursor(q, key))
+	if v == 0 { // the echo landed every request while Send answered, and that took it off the ledger: it is delivered
+		return Confirmed, ""
+	}
+	return stateOfLedger(v), ""
 }
 
 // moveLedger sets a ledger row to to if it is still from, in one statement.
