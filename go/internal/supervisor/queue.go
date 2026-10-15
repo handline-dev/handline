@@ -35,6 +35,10 @@ func (e *Env) SweepTaskQueue(now int64) (err error) {
 	sort.Strings(owners)
 	for _, agent := range owners {
 		if must(db.CurrentTaskStillAsking(q, agent)) {
+			if must(e.AdvanceToDormantBlocker(q, agent)) {
+				e.Push(q, agent, 0)
+				e.log("  %s: its current task waits on a task of its own behind it - delivered that one first", agent)
+			}
 			continue
 		}
 		if len(must(db.WaitingTasks(q, agent))) == 0 {
