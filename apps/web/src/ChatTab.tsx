@@ -129,36 +129,35 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const e = entries.at(-1);
     seen.current = { scope, last: e ? keyOf(e) : null };
   });
-  // The latest page shows first; the next older one loads as the top comes near, one page at a time, and the view stays on the line it was on:
-  // the first line in view is remembered with its distance from the top, and put back at that distance once an older page is above it.
+  // The latest page shows first; older pages load as the top comes near, one load at a time. The line in view when a load starts is remembered with its
+  // distance from the top, and put back in the layout effect of every commit that changes the entries (a page above it, wherever it lands), before
+  // the sentinel is armed again, so a page landing while the top is still in view does not start the next one on an unrestored view.
   const anchor = useRef<{ el: Element; off: number } | null>(null);
-  const hold = () => {
+  const [armed, setArmed] = useState(true);
+  const more = () => {
     const box = stream.current;
-    if (!box) return;
+    if (!box || anchor.current) return;
     const top = box.getBoundingClientRect().top;
     const el = [...box.querySelectorAll('[data-id]')].find((n) => n.getBoundingClientRect().bottom > top);
     anchor.current = el ? { el, off: el.getBoundingClientRect().top - top } : null;
-  };
-  const [armed, setArmed] = useState(true);
-  const more = () => {
-    hold();
     setArmed(false);
     chat.loadOlder();
   };
-  const firstKey = entries[0] ? keyOf(entries[0]) : null;
   useLayoutEffect(() => {
     const box = stream.current;
     const a = anchor.current;
-    if (!box || !a || !a.el.isConnected) return;
-    const drift = a.el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
-    if (drift) box.scrollTop += drift;
-  }, [firstKey]);
-  // Armed again a frame after the page landed and the view was put back, so the sentinel is looked at once more.
+    if (!box || !a) return;
+    if (a.el.isConnected) {
+      const drift = a.el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
+      if (drift) box.scrollTop += drift;
+    }
+    if (!chat.loadingOlder) anchor.current = null; // the load is over; the next one remembers its own line
+  }, [entries.length, chat.loadingOlder]);
   useEffect(() => {
-    if (chat.loadingOlder) return;
+    if (chat.loadingOlder || anchor.current) return;
     const id = requestAnimationFrame(() => setArmed(true));
     return () => cancelAnimationFrame(id);
-  }, [chat.loadingOlder, firstKey]);
+  }, [chat.loadingOlder, entries.length]);
   const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
   const repin = () => {
     const el = stream.current;
@@ -256,7 +255,6 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           const el = e.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
           if (pinned.current) setNewer(0);
-          if (armed && !chat.loadingOlder) hold();
         }}
       >
         <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
