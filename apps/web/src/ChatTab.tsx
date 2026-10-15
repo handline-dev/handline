@@ -108,7 +108,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const entries = timeline(chat.messages, chat.items, scope);
   // Task titles for the transcript's task lines, so a card can say what it is about without opening the task.
   const { served } = useServes('tasks.list');
-  const tasks = useTasks({});
+  const tasks = useTasks({ all: true, limit: 200 }); // done tasks too: a card of a closed task keeps its title
   const titles = new Map((served ? (tasks.data?.items ?? []) : []).map((t) => [t.id, t.title]));
   const history = chat.messages
     .filter((m) => m.to === agent && m.from !== agent && m.landing !== 'withdrawn' && m.id > 0)
