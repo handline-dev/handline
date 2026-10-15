@@ -5473,6 +5473,22 @@
      "schema": {
       "type": "integer"
      }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "With limit: the page just older than this memo id."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "1 to 200. The newest limit memos, or the limit just older than before; absent: every memo."
+     }
     }
    ],
    "result": {
@@ -5485,10 +5501,15 @@
        "items": {
         "$ref": "#/components/schemas/Memo"
        }
+      },
+      "more": {
+       "type": "boolean",
+       "description": "There are older memos than the page."
       }
      },
      "required": [
-      "memos"
+      "memos",
+      "more"
      ]
     }
    },
