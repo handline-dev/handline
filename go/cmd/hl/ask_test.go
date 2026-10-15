@@ -75,3 +75,37 @@ func TestAPortedVerbRefusesWhatItDoesNotParseInsteadOfRunningPython(t *testing.T
 		}
 	}
 }
+
+func TestHrRenameTeamAndDiffGoThroughTheDaemon(t *testing.T) {
+	r := agentsRig(t)
+	calls := r.daemon(map[string]string{"hr.propose": `{"accepted":true,"proposal":3,"said":"proposal 00000003 raised."}`})
+	if err := os.WriteFile(r.home+"/role.md", []byte("the role"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := "changes:\n  - kind: rename\n    name: a.one\n    to: a.uno\n  - kind: context\n    name: b.two\n    role_file: " + r.home + "/role.md\n"
+	if err := os.WriteFile(r.home+"/diff.yaml", []byte(diff), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"hr", "rename", "a.one", "--to", "a.uno", "--why", "w"},
+		{"hr", "team", "zed", "--member", "sea=/s", "--member", "air", "--repo", "/r", "--why", "w"},
+		{"hr", "diff", "--file", r.home + "/diff.yaml", "--why", "w"},
+	} {
+		if out, errs, code := r.run(asAgent, args...); code != 0 || errs != "" || out == "" {
+			t.Errorf("%v: %d %q %q", args, code, out, errs)
+		}
+	}
+	want := []string{
+		`hr.propose {"args":{"name":"a.one","to":"a.uno"},"kind":"rename","why":"w"}`,
+		`hr.propose {"args":{"members":["sea","air"],"name":"zed","repo":"/r","repos":{"zed":"/r","zed.sea":"/s"}},"kind":"team","why":"w"}`,
+		`hr.propose {"args":{"changes":[{"kind":"rename","name":"a.one","to":"a.uno"},{"kind":"context","name":"b.two","sets":{"ROLE.md":"the role"}}],"name":"2 changes"},"kind":"bundle","why":"w"}`,
+	}
+	if got := sent(calls()); !reflect.DeepEqual(got, want) {
+		t.Errorf("calls\n got  %v\n want %v", got, want)
+	}
+	for _, args := range [][]string{{"hr", "rename", "a.one", "--why", "w"}, {"hr", "team", "zed", "--why", "w"}} {
+		if _, errs, code := r.run(asAgent, args...); code != 2 || !strings.Contains(errs, "arguments not understood") {
+			t.Errorf("%v: %d %q", args, code, errs)
+		}
+	}
+}
