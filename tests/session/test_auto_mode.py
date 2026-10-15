@@ -274,6 +274,16 @@ def test_the_founders_switch_sandboxes_every_agent_whose_file_says_nothing_with_
     agents.write("backend", cfg)
     got = _settings(launchmod.build("backend")[0])[0]["sandbox"]
     check("switch: agent.yaml adds its own hosts", got["network"]["allowedDomains"][-2:] == ["expo.dev", "exp.host"], str(got))
+    check("switch: a repo the founder allowed nothing keeps the full isolation and runs every command inside",
+          "enableWeakerNetworkIsolation" not in got and "excludedCommands" not in got, str(got))
+    protected.put(agents.REPO_ALLOWANCE_NS, "repo", "weaker-network\npnpm-install")
+    got = _settings(launchmod.build("backend")[0])[0]["sandbox"]
+    check("switch: the founder's allowances for its repo", got.get("enableWeakerNetworkIsolation") is True
+          and got.get("excludedCommands") == ["pnpm install", "pnpm install *"], str(got))
+    protected.put(agents.REPO_ALLOWANCE_NS, "other", "weaker-network\npnpm-install")
+    protected.delete(agents.REPO_ALLOWANCE_NS, "repo")
+    got = _settings(launchmod.build("backend")[0])[0]["sandbox"]
+    check("switch: and none another repo was given", "enableWeakerNetworkIsolation" not in got and "excludedCommands" not in got, str(got))
     cfg["sandbox"] = False
     agents.write("backend", cfg)
     got = _settings(launchmod.build("backend")[0])[0]["sandbox"]

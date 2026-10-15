@@ -2,6 +2,7 @@ package compose
 
 import (
 	"encoding/json"
+	"github.com/handline/handline/go/internal/team"
 	"os"
 	"path/filepath"
 	"slices"
@@ -65,6 +66,14 @@ func TestTheSandboxSettingsCarryTheSharedSandboxAndTheHideListsAsATerminalAgentG
 	network := sb["network"].(map[string]any)
 	if !slices.Equal(network["allowedDomains"].([]any), []any{"github.com", "registry.npmjs.org"}) {
 		t.Fatalf("the hosts are added to the shared ones: %v", network)
+	}
+	if _, ok := sb["enableWeakerNetworkIsolation"]; ok || sb["excludedCommands"] != nil {
+		t.Fatalf("a repo the founder allowed nothing keeps the full isolation and runs every command inside: %v", sb)
+	}
+	c.Allowed = team.RepoAllowances{WeakerNetwork: true, Excluded: []string{"pnpm install"}}
+	_, sb, _ = sandboxOf(t, `{"sandbox":{"excludedCommands":["xcrun *"]}}`, c)
+	if sb["enableWeakerNetworkIsolation"] != true || !slices.Equal(sb["excludedCommands"].([]any), []any{"xcrun *", "pnpm install"}) {
+		t.Fatalf("the repo's allowances, its commands added to the shared ones: %v", sb)
 	}
 }
 

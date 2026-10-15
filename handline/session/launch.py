@@ -442,7 +442,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
                            **({"mcp_approved": approved} if approved else {}),
                            **({"extra_dirs": extra_dirs} if extra_dirs else {}),
                            **({"allow_write": sandbox_allow_write(cfg), "allow_domains": agents.sandbox_domains(cfg),
-                               "cache_dir": sandbox_cache_dir(agent)} if sandboxed else {}))
+                               "cache_dir": sandbox_cache_dir(agent), **agents.repo_allowances(cfg)} if sandboxed else {}))
     # The pair goes whole or not at all: a caller's own mode wins, and a lone
     # value left behind would be read as the opening prompt.
     if mode and not any(x == mode[0] or x.startswith(mode[0] + "=") for x in extra or []):

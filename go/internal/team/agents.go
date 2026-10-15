@@ -390,6 +390,41 @@ func SandboxDomains(cfg Config) []string {
 	return out
 }
 
+// RepoAllowanceNS is the protected namespace of the sandbox allowances the founder gave a repo: one entry per repo, named after
+// its folder, one allowance a line.
+const RepoAllowanceNS = "sandbox_repos"
+
+// RepoAllowances are what a sandboxed session may do beyond the sandbox, because the founder allowed it for its repo.
+type RepoAllowances struct {
+	// WeakerNetwork lets the session reach trustd, which Go on macOS verifies TLS through: without it no Go module downloads.
+	WeakerNetwork bool
+	// Excluded are the commands that run outside the sandbox.
+	Excluded []string
+}
+
+// RepoAllowanceNames are the allowances the founder may give a repo, each as it changes the session's sandbox.
+var RepoAllowanceNames = map[string]func(*RepoAllowances){
+	"weaker-network": func(a *RepoAllowances) { a.WeakerNetwork = true },
+	"pnpm-install":   func(a *RepoAllowances) { a.Excluded = append(a.Excluded, "pnpm install", "pnpm install *") },
+}
+
+// RepoAllowancesOf are the allowances of the repo agent.yaml names. A repo has none until the founder gives them (`hl sandbox-repo`),
+// and a line that names no allowance grants nothing.
+func (r *Roster) RepoAllowancesOf(cfg Config) RepoAllowances {
+	var out RepoAllowances
+	repo, _ := cfg["repo"].(string)
+	if repo == "" || r.Store == nil {
+		return out
+	}
+	v, _ := r.Store.Get(RepoAllowanceNS, filepath.Base(filepath.Clean(repo)))
+	for _, name := range strings.Fields(v) {
+		if apply := RepoAllowanceNames[name]; apply != nil {
+			apply(&out)
+		}
+	}
+	return out
+}
+
 // AgentFile is the path of an agent's agent.yaml.
 func (r *Roster) AgentFile(name string) string {
 	return filepath.Join(paths.AgentDir(r.Home, name), "agent.yaml")

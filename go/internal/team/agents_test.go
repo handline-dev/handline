@@ -3,6 +3,7 @@ package team
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -145,6 +146,27 @@ func TestTheFoundersSwitchTurnsTheSandboxOnWhereAgentYamlSaysNothing(t *testing.
 	got := SandboxDomains(Config{"sandbox_domains": " expo.dev,, "})
 	if strings.Join(got, ",") != "registry.npmjs.org,proxy.golang.org,sum.golang.org,expo.dev" {
 		t.Fatalf("the registries and the strings agent.yaml adds: %v", got)
+	}
+}
+
+func TestARepoHasOnlyTheSandboxAllowancesTheFounderGaveIt(t *testing.T) {
+	t.Setenv("OCP_AGENT", "")
+	t.Setenv("HANDLINE_AGENT", "")
+	r := NewRoster(newHome(t))
+	ours, theirs := Config{"repo": "/ws/orcapipe/"}, Config{"repo": "/ws/harbor-app"}
+	if got := r.RepoAllowancesOf(ours); got.WeakerNetwork || got.Excluded != nil {
+		t.Fatalf("a repo has none until the founder gives them: %+v", got)
+	}
+	if err := r.Store.Put(RepoAllowanceNS, "orcapipe", "weaker-network\npnpm-install\nrm-rf"); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.RepoAllowancesOf(ours); !got.WeakerNetwork || !slices.Equal(got.Excluded, []string{"pnpm install", "pnpm install *"}) {
+		t.Fatalf("the repo's entry, and a line that names no allowance grants nothing: %+v", got)
+	}
+	for _, cfg := range []Config{theirs, {}, {"repo": "/ws/@personal"}} {
+		if got := r.RepoAllowancesOf(cfg); got.WeakerNetwork || got.Excluded != nil {
+			t.Fatalf("%v: another repo has none: %+v", cfg, got)
+		}
 	}
 }
 
