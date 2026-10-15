@@ -34,9 +34,13 @@ export function AgentSettings({ agent, onBack }: { agent: string; onBack: () => 
   return (
     <View style={{ flex: 1 }}>
       <PageHeader title="Settings" back={{ label: agent, onPress: onBack, testID: 'settings-back' }}>
-        <Text style={{ color: c.muted }}>Each change saves as you make it.</Text>
-        {served ? null : <Text style={{ color: c.muted }}>This daemon does not serve agent settings.</Text>}
-        {served && !editable ? <Text style={{ color: c.muted }}>Only the founder edits agent settings.</Text> : null}
+        <Text style={{ color: c.muted }}>
+          {!served
+            ? 'This daemon does not serve agent settings.'
+            : editable
+              ? 'Each change saves as you make it.'
+              : 'Only the founder edits agent settings.'}
+        </Text>
       </PageHeader>
       <ScrollView testID="agent-settings" contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.xl }}>
         <Loadable query={query} served skeleton="settings" label={`${agent} settings`} empty="This agent no longer exists.">

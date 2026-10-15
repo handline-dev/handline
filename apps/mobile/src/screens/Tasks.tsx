@@ -191,6 +191,12 @@ function Section(props: { title: string; children: React.ReactNode }) {
   );
 }
 
+/** The last delivery and how many there were, not one line per attempt. */
+function deliverySummary(ds: TaskDetail['deliveries']): string {
+  const d = [...ds].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0]!;
+  return `${ds.length > 1 ? `${ds.length} deliveries, last: ` : ''}${ago(d.at)} · ${d.how} · ${d.outcome}`;
+}
+
 function Body({ t }: { t: TaskDetail }) {
   const c = usePalette();
   const now = Date.now();
@@ -213,8 +219,9 @@ function Body({ t }: { t: TaskDetail }) {
         </Text>
       )}
       <TaskVerbs t={t} />
-      {t.block_reason ? <Text style={{ color: c.block }}>{t.block_reason}</Text> : null}
-      {t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
+      {/* The Waits on section already says what holds it; the reason lines are for a task with no listed blocker. */}
+      {!t.blockers.length && t.block_reason ? <Text style={{ color: c.block }}>{t.block_reason}</Text> : null}
+      {!t.blockers.length && t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
       {t.body ? <Section title="Brief">{line(t.body)}</Section> : null}
       {t.blockers.length ? (
         <Section title="Waits on">{t.blockers.map((b, i) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`, i))}</Section>
@@ -222,7 +229,7 @@ function Body({ t }: { t: TaskDetail }) {
       {t.children.length ? <Section title="Subtasks">{t.children.map((k, i) => line(`${taskRef(k)}`, i))}</Section> : null}
       {t.evidence ? <Section title="Evidence">{line(t.evidence)}</Section> : null}
       {t.deliveries.length ? (
-        <Section title="Delivery">{t.deliveries.map((d, i) => line(`${ago(d.at)} · ${d.how} · ${d.outcome}`, i))}</Section>
+        <Section title="Delivery">{line(deliverySummary(t.deliveries))}</Section>
       ) : null}
       {memos.length ? (
         <Section title="Memos">
