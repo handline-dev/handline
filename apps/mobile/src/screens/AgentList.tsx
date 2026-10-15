@@ -6,7 +6,7 @@ import { ago } from '@handline/app-core';
 import { KIND } from './NeedsYouCard.tsx';
 import { usePalette } from '../theme.ts';
 import { StateMark } from './StateMark.tsx';
-import { Button } from './parts.tsx';
+import { Button, PageHeader } from './parts.tsx';
 import { Loadable } from './Loadable.tsx';
 
 export function AgentList(props: { onUnpair: () => void; onPage: (page: 'worktrees' | 'new') => void }) {
@@ -20,20 +20,17 @@ export function AgentList(props: { onUnpair: () => void; onPage: (page: 'worktre
   const create = useServes('agent.create').served;
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: space.lg }}>
-        <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>Agents</Text>
-        <View style={{ flexDirection: 'row', gap: space.sm }}>
-          <Button
-            testID="worktrees-open"
-            label="Worktrees"
-            onPress={() => props.onPage('worktrees')}
-            style={{ paddingVertical: space.sm }}
-          />
-          {founder && create ? (
-            <Button testID="new-agent-open" label="New agent" onPress={() => props.onPage('new')} style={{ paddingVertical: space.sm }} />
-          ) : null}
-        </View>
-      </View>
+      <PageHeader
+        title="Agents"
+        actions={
+          <>
+            <Button testID="worktrees-open" label="Worktrees" onPress={() => props.onPage('worktrees')} style={{ paddingVertical: space.sm }} />
+            {founder && create ? (
+              <Button testID="new-agent-open" label="New agent" onPress={() => props.onPage('new')} style={{ paddingVertical: space.sm }} />
+            ) : null}
+          </>
+        }
+      />
       <Loadable query={query} served={served} isEmpty={agents.length === 0} skeleton="agents" label="agents" empty="No agents.">
         <FlatList
           data={agents}

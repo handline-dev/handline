@@ -7,7 +7,7 @@ import { classify, sentence, useServes, useWorktrees, useWrite } from '@handline
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
-import { Button } from './parts.tsx';
+import { Button, PageHeader } from './parts.tsx';
 
 export const STATUSES = ['todo', 'in progress', 'in review', 'done'];
 const sums = (w: Worktree) => ({
@@ -207,13 +207,10 @@ export function Worktrees(props: { onClose: () => void; onAgent: (name: string) 
     .sort((a, b) => a.repo.localeCompare(b.repo) || a.branch.localeCompare(b.branch));
   return (
     <View testID="worktrees" style={{ flex: 1 }}>
-      <Button
-        testID="wt-back"
-        label={open ? '‹ Worktrees' : '‹ Back'}
-        onPress={() => (open ? setOpen(null) : props.onClose())}
-        style={{ margin: space.lg, alignSelf: 'flex-start' }}
+      <PageHeader
+        title={open ? undefined : 'Worktrees'}
+        back={{ label: open ? 'Worktrees' : 'Agents', onPress: () => (open ? setOpen(null) : props.onClose()), testID: 'wt-back' }}
       />
-      {open ? null : <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700', paddingHorizontal: space.lg }}>Worktrees</Text>}
       <Loadable
         query={query}
         served={served}

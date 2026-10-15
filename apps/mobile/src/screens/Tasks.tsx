@@ -10,7 +10,7 @@ import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
-import { Button } from './parts.tsx';
+import { Button, PageHeader } from './parts.tsx';
 import { MemoBox, MemoRow } from './Memos.tsx';
 import { NewTask, TaskVerbs, useTaskPending } from './TaskActions.tsx';
 import { TaskGraph } from './TaskGraph.tsx';
@@ -51,7 +51,6 @@ export function Tasks(props: { selected: number | null; onSelect: (id: number | 
 }
 
 function List(props: { onSelect: (id: number) => void }) {
-  const c = usePalette();
   const { served } = useServes('tasks.list');
   const me = useStore().me;
   const [scope, setScope] = useState<Scope>('open');
@@ -75,11 +74,15 @@ function List(props: { onSelect: (id: number) => void }) {
     );
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', padding: space.lg }}>
-        <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700', flex: 1 }}>Tasks</Text>
-        <Button testID="graph-toggle" label={graph ? 'List' : 'Graph'} onPress={() => setGraph(!graph)} style={{ marginRight: space.sm }} />
-        <Button testID="new-task-open" label="New task" onPress={() => setCreating(true)} style={{ marginRight: space.xl }} />
-      </View>
+      <PageHeader
+        title="Tasks"
+        actions={
+          <>
+            <Button testID="graph-toggle" label={graph ? 'List' : 'Graph'} onPress={() => setGraph(!graph)} />
+            <Button testID="new-task-open" label="New task" onPress={() => setCreating(true)} />
+          </>
+        }
+      />
       {graph ? (
         <Loadable query={query} served={served} isEmpty={false} skeleton="tasks" label="tasks" empty="No open tasks.">
           <TaskGraph tasks={query.data?.items ?? []} onSelect={props.onSelect} />
@@ -164,7 +167,7 @@ export function Detail(props: { id: number; onBack: () => void }) {
   const gone = query.isError && classify(query.error).kind === 'not_found';
   return (
     <View style={{ flex: 1 }}>
-      <Button testID="task-back" label="‹ Tasks" onPress={props.onBack} style={{ margin: space.lg, alignSelf: 'flex-start' }} />
+      <PageHeader back={{ label: 'Tasks', onPress: props.onBack, testID: 'task-back' }} />
       {gone ? (
         <Text testID="empty" style={{ color: c.muted, padding: space.lg }}>
           This task no longer exists.

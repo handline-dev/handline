@@ -9,7 +9,7 @@ import { classify, sentence, useAgentDetail, usePending, useServes, useSettings,
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
-import { Button } from './parts.tsx';
+import { Button, PageHeader } from './parts.tsx';
 import { Schedules } from './Schedules.tsx';
 
 const SECTIONS: { id: Field['section']; title: string }[] = [
@@ -33,13 +33,11 @@ export function AgentSettings({ agent, onBack }: { agent: string; onBack: () => 
   const editable = served && (role === 'founder' || role === 'agent'); // agent.set is for the founder and an agent on itself
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ padding: space.lg, gap: space.sm }}>
-        <Button testID="settings-back" label={`‹ ${agent}`} onPress={onBack} style={{ alignSelf: 'flex-start' }} />
-        <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>Settings</Text>
+      <PageHeader title="Settings" back={{ label: agent, onPress: onBack, testID: 'settings-back' }}>
         <Text style={{ color: c.muted }}>Each change saves as you make it.</Text>
         {served ? null : <Text style={{ color: c.muted }}>This daemon does not serve agent settings.</Text>}
         {served && !editable ? <Text style={{ color: c.muted }}>Only the founder edits agent settings.</Text> : null}
-      </View>
+      </PageHeader>
       <ScrollView testID="agent-settings" contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.xl }}>
         <Loadable query={query} served skeleton="settings" label={`${agent} settings`} empty="This agent no longer exists.">
           {d ? (

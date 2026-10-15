@@ -8,7 +8,7 @@ import { useStore } from '@handline/app-react';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { NewAgentProgress } from './NewAgentProgress.tsx';
-import { Button } from './parts.tsx';
+import { Button, PageHeader } from './parts.tsx';
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 type Effort = (typeof EFFORTS)[number];
@@ -123,15 +123,13 @@ function Choice(props: {
 }
 
 function Page(props: { onClose: () => void; children: React.ReactNode }) {
-  const c = usePalette();
   return (
     <ScrollView
       testID="new-agent"
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: 120 }}
     >
-      <Button testID="na-back" label="‹ Back" onPress={props.onClose} style={{ alignSelf: 'flex-start' }} />
-      <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>New agent</Text>
+      <PageHeader title="New agent" back={{ label: 'Agents', onPress: props.onClose, testID: 'na-back' }} />
       {props.children}
     </ScrollView>
   );

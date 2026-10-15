@@ -3,7 +3,7 @@ import { Text, TextInput, View } from 'react-native';
 import { radius, space } from '@handline/tokens';
 import { RpcError } from '@handline/client';
 import { pair, type Pairing } from '../session.ts';
-import { Button } from './parts.tsx';
+import { Button, PageHeader } from './parts.tsx';
 import { ScanQr } from './ScanQr.tsx';
 import { usePalette } from '../theme.ts';
 
@@ -28,7 +28,7 @@ export function PairScreen(props: { onPaired: (p: Pairing) => void }) {
   };
   return (
     <View style={{ padding: space.lg, gap: space.md }}>
-      <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>Pair with a daemon</Text>
+      <PageHeader bare title="Pair with a daemon" />
       <Text style={{ color: c.muted }}>
         On the computer, choose Pair a phone in the Handline menu, and scan its code. Or run hl device pair and paste the link.
       </Text>
