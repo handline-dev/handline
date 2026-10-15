@@ -87,8 +87,12 @@ function Ticks({ level, label, receipt }: { level: 0 | 1 | 2; label: string; rec
       role="img"
       aria-label={label}
     >
-      <Icon name="delivered" size={13} className={level >= 1 ? 'text-ok' : 'text-ink-3'} aria-hidden />
-      <Icon name="delivered" size={13} className={`-ml-[7px] ${level >= 2 ? 'text-ok' : 'text-ink-3'}`} aria-hidden />
+      <Icon name="delivered" size={13} strokeWidth={3} className={level >= 1 ? 'text-ok' : 'text-ink-3'} aria-hidden />
+      {/* The front tick has a ring in the chat background, so it reads as lying on the back one. */}
+      <span className={`relative -ml-[8px] inline-flex ${level >= 2 ? 'text-ok' : 'text-ink-3'}`}>
+        <Icon name="delivered" size={13} strokeWidth={6} className="absolute inset-0 text-canvas" aria-hidden />
+        <Icon name="delivered" size={13} strokeWidth={3} className="relative" aria-hidden />
+      </span>
     </span>
   );
 }
