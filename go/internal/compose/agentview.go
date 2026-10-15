@@ -55,8 +55,11 @@ func (r rowSessions) Busy(agent string) bool {
 func (p *Parts) agentView(cfg Config, cutover, terminals bool, tu tickUsage) *agentview.Env {
 	lc, q, home := p.LC, p.db, cfg.Home
 	return &agentview.Env{
-		LaunchedAt: p.launches.since,
-		Q:          q, Home: home,
+		PaneAlive: func(agent string) bool {
+			row, err := db.GetAgentState(q, agent)
+			return err == nil && row != nil && row.Terminal.String != "" && p.liveTerminals()[row.Terminal.String]
+		},
+		Q: q, Home: home,
 		Sessions:   rowSessions{p, terminals, cfg.Turns},
 		Background: lc.Env,
 		Wakes:      lc.Manager,

@@ -75,8 +75,8 @@ type Env struct {
 	Parent    func(agent string) string
 	CacheLeft func(agent string, now float64) (left float64, ok bool, err error)
 	CtxPct    func(agent, account string) *int // nil: no trusted reading
-	// LaunchedAt is when a launch of agent began that has not failed, 0 for none; nil is none.
-	LaunchedAt func(agent string) int64
+	// PaneAlive is whether the terminal pane agent's row names is up; nil is never, so nothing reads as starting.
+	PaneAlive func(agent string) bool
 	Now        func() int64
 	Log        func(string)
 	// Registered is every registered agent, structured or not: an agent is gone when it is not in it. Nil is Agents.
@@ -259,20 +259,22 @@ func (e *Env) wire(agent string, row *db.AgentState, word, detail string) (strin
 	return "idle", detail
 }
 
-// StartingS is how long a launch reads as starting without its session's first hook: past it the launch is judged by what is there.
-const StartingS = 120
+// sessionHooks are the hooks a session sends on its own: any of them after a launch says the session is up.
+var sessionHooks = []string{"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "PostCompact"}
 
-// starting is whether a launch of agent is in progress: begun under StartingS ago, and no SessionStart hook recorded since.
-func (e *Env) starting(agent string, now int64) bool {
-	if e.LaunchedAt == nil {
+// starting is whether a launch of agent is in progress, from what is recorded: hl launch kept the start (session_starts) just before it
+// became claude, no hook of that session has come since, and the pane it runs in is up. A launch that died takes its pane with it, so no
+// time limit is needed.
+func (e *Env) starting(agent string) bool {
+	if e.PaneAlive == nil {
 		return false
 	}
-	at := e.LaunchedAt(agent)
-	if at == 0 || now-at >= StartingS {
+	at, ok := must2(db.LastSessionStartTS(e.Q, agent))
+	if !ok {
 		return false
 	}
-	last, ok := must2(db.LastEventTS(e.Q, agent, "SessionStart"))
-	return !ok || last < at
+	last, hooked := must2(db.LastEventOfTS(e.Q, agent, sessionHooks))
+	return (!hooked || last < at) && e.PaneAlive(agent)
 }
 
 // Compute is the view of one agent.
@@ -301,7 +303,7 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		detail = clip(textsafe.Oneline(wait), DetailCap)
 	}
 	state, detail := e.wire(agent, row, word, detail)
-	if (state == "no_terminal" || state == "idle" || state == "queued") && e.starting(agent, now) {
+	if (state == "no_terminal" || state == "idle" || state == "queued") && e.starting(agent) {
 		state, detail = "starting", ""
 	}
 

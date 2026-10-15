@@ -798,7 +798,7 @@ AgentView.state is one of these lower-case words. The set is open: a client trea
 | `running` | A turn is running (a hand-off in progress counts: moving is working). |
 | `idle` | At its prompt with nothing to do, or nothing pending for it (a park with no work behind it, a finished one). state_detail may say what it waits on (a child task, background work). |
 | `queued` | Has work and will start at the daemon's next tick, with no time to wait for. state_detail may say why it is not running yet (a restart retry). |
-| `starting` | A launch in progress: from session.start or a wake until the session's first hook (a terminal agent) or its initialize (a structured one). At most 120 s: a launch that has not reported by then is shown as what is there. Never hides a running turn, a dialog or a stall. |
+| `starting` | A terminal agent's launch in progress: hl launch kept the session start, no hook of that session has come since, and its pane is up. A launch that died takes its pane with it, so it never reads as starting. Never hides a running turn, a dialog or a stall. |
 | `parked` | Waits for a time: the usage window rolling over, a park a person asked for, a throttle or degraded retry, or an account move settling. state_detail is the clock (`due` once it has passed; `moving` for an account move, which has no clock). |
 | `waiting` | A person must answer: a dialog or a prompt is open (has_dialog is true). |
 | `stalled` | Stopped until a person unstalls it (the daemon will not wake it). |
@@ -812,7 +812,7 @@ What the daemon sends for each of its own states:
 | RUNNING, HANDOFF | `running` |
 | IDLE, DONE, PARKED with no work behind it | `idle` |
 | QUEUED, a restart retry (PENDING with no clock) | `queued` |
-| a launch in progress, before its session's first hook or initialize (checked over idle, queued and no_terminal) | `starting` |
+| a terminal launch in progress, before its session's first hook, with its pane up (checked over idle, queued and no_terminal) | `starting` |
 | PARKED, THROTTLED, DEGRADED with a wake time (PENDING with a clock); MOVING | `parked` |
 | DIALOG (an open prompt or modal) | `waiting` |
 | STALLED (FATAL) | `stalled` |

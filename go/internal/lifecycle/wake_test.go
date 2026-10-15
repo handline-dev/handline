@@ -2,7 +2,6 @@ package lifecycle
 
 import (
 	"errors"
-	"fmt"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -430,38 +429,5 @@ func TestAResumeThatComesUpAfterTheWaitIsNotLaunchedOverFresh(t *testing.T) {
 	ok, said, _ := m.WakeAgent("a", WakeOpts{Force: true})
 	if !ok || len(tm.relaunched) != 1 {
 		t.Fatalf("%v %q launches %v", ok, said, tm.relaunched)
-	}
-}
-
-type panicSpawn struct{ fakeSpawn }
-
-func (*panicSpawn) Spawn(string, string) (bool, string, error) { panic(errors.New("no descriptors")) }
-
-func TestALaunchMarkIsDroppedWhenTheLaunchFailsOrPanicsAndKeptWhenItWorks(t *testing.T) {
-	m, _, _ := newManager(t)
-	m.Agents = fakeAgents{repo: "/repo"}
-	var marks []string
-	m.Launching = func(a string, on bool) { marks = append(marks, fmt.Sprintf("%s:%v", a, on)) }
-	db.AddPending(m.Q, "a", "x", 1)
-	m.StartForWork("a") // fakeSpawn says no
-	if strings.Join(marks, " ") != "a:true a:false" {
-		t.Fatalf("a failed launch: %v", marks)
-	}
-	marks = nil
-	m.Spawn.(*fakeSpawn).ok = true
-	db.AddPending(m.Q, "b", "x", 1)
-	m.StartForWork("b")
-	if strings.Join(marks, " ") != "b:true" {
-		t.Fatalf("a terminal launch that worked lasts until its session's first hook: %v", marks)
-	}
-	marks = nil
-	m.Spawn = &panicSpawn{}
-	db.AddPending(m.Q, "c", "x", 1)
-	func() {
-		defer func() { recover() }()
-		m.StartForWork("c")
-	}()
-	if strings.Join(marks, " ") != "c:true c:false" {
-		t.Fatalf("a launch that panicked: %v", marks)
 	}
 }

@@ -162,14 +162,11 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	// ok is StartIn/Spawn's own answer, not re-derived from the row: they confirm a session actually started now, so a terminal left
 	// standing with nothing in it counts as the failed wake it is.
 	var ok bool
-	end, started := m.BeginLaunch(agent), false
-	defer func() { end(started) }() // deferred, so a launch that panics is over too
 	if wt != "" {
 		ok, said, err = m.Spawn.StartIn(agent, wt, "")
 	} else {
 		ok, said, err = m.Spawn.Spawn(agent, realpath(expandUser(repo)))
 	}
-	started = ok && err == nil
 	// A start that could not be tried (git cannot run, no descriptors) is no failed start of the agent's own: it is not counted.
 	check(err)
 	first := strings.SplitN(said, "\n", 2)[0]
@@ -435,30 +432,10 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 		}
 	}
 	c := closed2{force, warm, cause, restartedBy, movedTo, o.Applying}
-	end := m.BeginLaunch(agent)
-	var ok bool
-	var said string
-	defer func() { end(ok) }() // deferred, so a launch that panics is over too
 	if m.structured(agent) {
-		ok, said = m.launchStructured(agent, row, wt, session, c)
-	} else {
-		ok, said = m.launchClosed(agent, row, wt, session, c)
+		return m.launchStructured(agent, row, wt, session, c)
 	}
-	return ok, said
-}
-
-// BeginLaunch tells Launching a launch of agent begins, and returns what ends it: a launch that failed is over at once, and so is a
-// structured one that worked (it returns once the session has initialized); a terminal one lasts until its session's first hook.
-func (m *Manager) BeginLaunch(agent string) func(ok bool) {
-	if m.Launching == nil {
-		return func(bool) {}
-	}
-	m.Launching(agent, true)
-	return func(ok bool) {
-		if !ok || m.structured(agent) {
-			m.Launching(agent, false)
-		}
-	}
+	return m.launchClosed(agent, row, wt, session, c)
 }
 
 // startFreshElsewhere moves a closed agent off the account its session is tied to: the handoff the close took is the record, the closed mark

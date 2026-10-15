@@ -50,11 +50,7 @@ func (c controls) Start(call sessionrpc.Call, agent, repo, base string) (bool, s
 	if repo == "" { // the agent's own repository, never the folder the daemon happens to run in
 		repo = c.lc.roster.RepoOf(agent)
 	}
-	end, started := m.BeginLaunch(agent), false
-	defer func() { end(started) }() // deferred, so a launch that panics is over too
-	ok, said, err := c.lc.Spawns.SpawnWith(agent, repo, lifecycle.SpawnOpts{Base: base})
-	started = ok && err == nil
-	return ok, said, err
+	return c.lc.Spawns.SpawnWith(agent, repo, lifecycle.SpawnOpts{Base: base})
 }
 
 func (c controls) Wake(call sessionrpc.Call, agent string) (bool, string, error) {
