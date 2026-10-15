@@ -470,7 +470,22 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await click(labelled($('.card-hr'), 'Reject')!);
     await typeInto($('.ui-dialog input') as HTMLInputElement, 'not now');
     await click($('.ui-dialog .ui-btn.solid')!);
-    await until(() => !$('.card-hr'), 'the card gone once decided');
+    await until(() => $('.card-hr')?.getAttribute('data-state') === 'rejected', 'the same card showing the outcome');
+    expect(text($('.card-hr'))).toContain('Rejected');
+    expect(labelled($('.card-hr'), 'Approve')).toBeUndefined();
+  });
+
+  it('an approved HR proposal stays as the same card saying Applied, with what changed and no buttons', async () => {
+    const s = setup();
+    hrOf(s).raise({ id: 42, title: 'link handline.architect -> handline.auditor', diff: 'link architect to auditor', agent: ARCH });
+    await mount(ARCH, s);
+    await until(() => $('.card-hr'), 'the HR card');
+    await click(labelled($('.card-hr'), 'Approve')!);
+    await until(() => $('.card-hr')?.getAttribute('data-state') === 'approved', 'the card showing Applied');
+    expect(text($('.card-hr'))).toContain('Applied');
+    expect(text($('.card-hr'))).toContain('link architect to auditor');
+    expect(labelled($('.card-hr'), 'Approve')).toBeUndefined();
+    expect(labelled($('.card-hr'), 'Reject')).toBeUndefined();
   });
 });
 

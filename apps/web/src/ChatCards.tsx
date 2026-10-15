@@ -60,7 +60,11 @@ export function ChatBanner({ detail }: { detail: AgentDetail }) {
   );
 }
 
-/** The open HR proposals that concern this agent, each with approve and reject as icons and a link to the Team page. */
+const DONE: Record<string, string> = { approved: 'Applied', rejected: 'Rejected' };
+const settledRecently = (iso?: string | null) => !!iso && Date.now() - Date.parse(iso) < 60 * 60_000;
+
+/** The HR proposals that concern this agent: open ones with approve and reject as icons, a failed one with a retry, and a decided one as the same
+ *  card showing the outcome for an hour. */
 export function HrCards({ agent }: { agent: string }) {
   const q = useHr({});
   const decide = useWrite('hr.decide');
@@ -73,17 +77,27 @@ export function HrCards({ agent }: { agent: string }) {
     setRejecting(null);
     setNote('');
   };
-  const open = (q.data?.proposals ?? []).filter((p) => p.state === 'open' && (p.agent === agent || p.requested_by === agent));
+  const mine = (q.data?.proposals ?? []).filter((p) => p.agent === agent || p.requested_by === agent);
+  const shown = mine.filter((p) => p.state === 'open' || p.state === 'apply_failed' || (p.state in DONE && settledRecently(p.settled)));
   return (
     <>
-      {open.map((p) => (
-        <Card variant="chat" key={p.id} className="card-hr bg-surface" data-kind="hr" data-proposal={p.id}>
+      {shown.map((p) => (
+        <Card variant="chat" key={p.id} className="card-hr bg-surface" data-kind="hr" data-proposal={p.id} data-state={p.state}>
           <Icon name="team" label="Proposal" />
           <CardWhat stacked>
             <strong>{p.title}</strong>
-            {p.reason ? <span className="muted">{p.reason}</span> : null}
+            {p.state in DONE ? (
+              <>
+                <span className="outcome text-ink-2">{DONE[p.state]}</span>
+                <span className="muted whitespace-pre-line">{p.diff}</span>
+              </>
+            ) : p.state === 'apply_failed' ? (
+              <span className="outcome text-bad">Not applied{p.error ? `: ${p.error}` : ''}. Approve to try again.</span>
+            ) : p.reason ? (
+              <span className="muted">{p.reason}</span>
+            ) : null}
           </CardWhat>
-          {can ? (
+          {can && !(p.state in DONE) ? (
             <>
               <Button
                 icon="markRead"
