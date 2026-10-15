@@ -148,6 +148,7 @@
    "hl doctor",
    "hl hooks",
    "hl go",
+   "hl sandbox-repo",
    "hl install-hooks",
    "hl backup",
    "hl venv",
@@ -4957,7 +4958,8 @@
     {
      "$ref": "#/components/errors/refused"
     }
-   ]
+   ],
+   "description": "The owner may not be the caller: a task an agent takes on itself is begun from the founder's message (task.begin)."
   },
   {
    "name": "task.handoff",

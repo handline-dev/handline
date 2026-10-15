@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -250,5 +251,58 @@ func TestTheExitOfAReplacedSessionIsNotTold(t *testing.T) {
 	}
 	if ok, known := idle(tr, 0); ok || !known {
 		t.Fatalf("the new session's turn moved: idle=%v known=%v", ok, known)
+	}
+}
+
+// childFds is the descriptors a child the daemon starts holds open.
+func childFds(t *testing.T) []string {
+	out, err := exec.Command("ls", "/dev/fd").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Fields(string(out))
+}
+
+func TestAChildStartedWhileWatchesAreOpenInheritsNoneOfTheirDescriptors(t *testing.T) {
+	before := childFds(t)
+	pid, _ := session(t)
+	stopExit, err := watchExit(pid, func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopExit()
+	stopFile, err := watchFile(transcript(t), func() {}, func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopFile()
+	if after := childFds(t); len(after) != len(before) {
+		t.Fatalf("a child holds %v with the watches open, %v without", after, before)
+	}
+}
+
+func TestAnExitedSessionNotYetReapedIsNotWatched(t *testing.T) {
+	cmd := exec.Command("true")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer cmd.Wait()
+	for deadline := time.Now().Add(wait); !zombie(cmd.Process.Pid); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the process never became a zombie")
+		}
+	}
+	tr, _ := tracker(t)
+	tr.reapWait = time.Nanosecond // a watched zombie would be told at once
+	ended := make(chan string, 1)
+	tr.OnEnd(func(string) int { return cmd.Process.Pid }, func(a string) { ended <- a })
+	tr.Hook("amy", "UserPromptSubmit", nil, 10)
+	select {
+	case <-ended:
+		t.Fatal("the exit of the CLI a new session replaced ended the new session's turn")
+	case <-time.After(300 * time.Millisecond):
+	}
+	if ok, known := idle(tr, 0); ok || !known {
+		t.Fatalf("the turn moved: idle=%v known=%v", ok, known)
 	}
 }

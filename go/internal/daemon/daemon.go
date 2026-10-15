@@ -420,6 +420,7 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 			if d.cfg.Session != nil {
 				env := d.cfg.Session()
 				env.Emit = d.operationEvent
+				env.InterruptTerminal = d.typing().PressEsc
 				sessionrpc.Register(s, env)
 			}
 		},

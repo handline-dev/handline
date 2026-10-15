@@ -215,6 +215,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                       "(tests/session/test_stopgate.py), not this scene",
         "go": "writes the protected store; driven in test_the_go_switches_are_the_founders_and_off_until_set "
               "(tests/session/test_edittask.py), not this scene",
+        "sandbox-repo": "writes the protected store; driven in test_a_repos_sandbox_allowances_are_the_founders_to_give "
+                        "(tests/session/test_edittask.py), not this scene",
         "install-hooks": "writes the shared settings",
         "hr add": "writes a proposal; prints its id", "hr retire": "writes a proposal; prints its id",
         "hr rename": "writes a proposal; prints its id",
