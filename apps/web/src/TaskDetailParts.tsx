@@ -1,11 +1,12 @@
 // The task detail's presentational parts: the meta grid, one verb button, the link and timeline sections, and the two small sheets.
 import { useState } from 'react';
-import { taskRef, timeoutText } from '@handline/app-core';
+import { replyTargets, taskRef, timeoutText } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { useCan } from './taskui.tsx';
 import { Icon, type IconName } from './ui/Icon.tsx';
 import { Sheet } from './taskui.tsx';
+import { CHIP, chipLook } from './TaskPeople.tsx';
 import { Button, Input, MetaField, MetaGrid, NativeSelect, Textarea } from './ui/index.ts';
 import { when } from './TaskTime.tsx';
 
@@ -167,19 +168,35 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
   );
 }
 
-/** A question to the task's holder, kept as a message linked to the task; the text stays until the daemon accepts it. */
-export function AskBox({ t }: { t: Detail }) {
+/** One box for a message about the task, sent as a question linked to it: the holder is preselected, the others the task names are chips. */
+export function MessageBox({ t, me, box }: { t: Detail; me: string; box: React.RefObject<HTMLTextAreaElement | null> }) {
   const can = useCan('task.ask');
   const ask = useWrite('task.ask');
+  const people = [t.to, ...replyTargets(t, me).filter((n) => n !== t.to)];
+  const [picked, setPicked] = useState<string | null>(null);
+  const to = picked && people.includes(picked) ? picked : t.to;
   const [text, setText] = useState('');
-  const question = text.trim();
+  const body = text.trim();
   const send = () => {
-    if (!question || ask.isPending) return;
-    ask.mutate({ task: t.id, to: t.to, text: question }, { onSuccess: () => setText('') });
+    if (!body || ask.isPending) return;
+    ask.mutate({ task: t.id, to, text: body }, { onSuccess: () => setText('') });
   };
   return (
-    <section className="mt-4 grid gap-2" aria-label="Ask about this task">
-      <h3 className="m-0 text-ink-3">Ask {t.to}</h3>
+    <section className="mt-4 grid gap-2" aria-label="Message about this task">
+      <h3 className="m-0 text-ink-3">Send a message to</h3>
+      <div className="flex flex-wrap gap-1.5">
+        {people.map((n) => (
+          <button
+            key={n}
+            type="button"
+            aria-pressed={to === n}
+            className={`${CHIP} ${chipLook(to === n)}`}
+            onClick={() => (setPicked(n), box.current?.focus())}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
       <form
         className="flex gap-2"
         onSubmit={(e) => {
@@ -188,18 +205,24 @@ export function AskBox({ t }: { t: Detail }) {
         }}
       >
         <Textarea
+          ref={box}
           grow
           className="tinput"
           rows={2}
           value={text}
           disabled={!can.ok}
           title={can.why}
-          placeholder="A question about this task"
-          aria-label="Question"
+          placeholder={`Message to ${to}`}
+          aria-label="Message"
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+            e.preventDefault();
+            send();
+          }}
         />
-        <Button type="submit" variant="solid" icon="say" label="Ask" disabled={!can.ok || !question || ask.isPending} title={can.why}>
-          {ask.isPending ? 'Asking...' : 'Ask'}
+        <Button type="submit" variant="solid" icon="send" label={`Send to ${to}`} disabled={!can.ok || !body || ask.isPending} title={can.why}>
+          {ask.isPending ? 'Sending...' : `Send to ${to}`}
         </Button>
       </form>
       {ask.isError ? (

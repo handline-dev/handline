@@ -493,13 +493,13 @@ describe('the detail', () => {
     expect(button('Cancel', $('.tverbs')!)).toBeUndefined(); // closed: no verbs left that stop it
   });
 
-  it('replies to someone the task names: pick the chip, type, send', async () => {
+  it('messages someone the task names: the holder is preselected, pick another chip, type, send', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    const reply = () => $('section[aria-label="Reply to someone"]')!;
-    await until(() => $('section[aria-label="Reply to someone"]'), 'the reply box');
+    const reply = () => $('section[aria-label="Message about this task"]')!;
+    await until(() => $('section[aria-label="Message about this task"]'), 'the reply box');
     expect($('[aria-label="Add a memo"]')).toBeNull();
-    expect((button('Send', reply()) as HTMLButtonElement).disabled).toBe(true); // nobody picked yet
+    expect(reply().querySelectorAll('button[aria-pressed=true]').length).toBe(1); // the holder is preselected
     await click(button('handline.architect', reply())!);
     await typeInto($('textarea', reply()) as HTMLTextAreaElement, 'is the pane done?');
     await click(button('Send to handline.architect', reply())!);
