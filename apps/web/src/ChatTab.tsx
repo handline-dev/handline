@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { timeline } from '@handline/app-core';
-import { useSelector } from '@handline/app-react';
+import { useNearEnd, useSelector } from '@handline/app-react';
 import {
   Skeleton,
   classify,
@@ -129,6 +129,39 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const e = entries.at(-1);
     seen.current = { scope, last: e ? keyOf(e) : null };
   });
+  // The latest page shows first; older pages load as the top comes near. The line in view when a load starts is put back in the layout effect of
+  // each commit that changes the entries, before the sentinel is armed again.
+  const anchor = useRef<{ id: string; off: number } | null>(null);
+  const [armed, setArmed] = useState(true);
+  const more = () => {
+    const box = stream.current;
+    if (!box || anchor.current) return;
+    const { top, bottom } = box.getBoundingClientRect();
+    // The last line in view: whatever page lands, it lands above it. The first one may be an old message above the paged window, which a page never moves.
+    const el = [...box.querySelectorAll('[data-id]')].filter((n) => n.getBoundingClientRect().top < bottom && n.getBoundingClientRect().bottom > top).at(-1);
+    const id = el?.getAttribute('data-id');
+    anchor.current = el && id ? { id, off: el.getBoundingClientRect().top - top } : null;
+    setArmed(false);
+    chat.loadOlder();
+  };
+  useLayoutEffect(() => {
+    const box = stream.current;
+    const a = anchor.current;
+    if (!box || !a) return;
+    // Found again by its id: a page landing can re-create the element (separators, grouping), so the one held at load start may be gone.
+    const el = box.querySelector(`[data-id="${CSS.escape(a.id)}"]`);
+    if (el) {
+      const drift = el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
+      if (drift) box.scrollTop += drift;
+    }
+    if (!chat.loadingOlder) anchor.current = null; // the load is over; the next one remembers its own line
+  }, [entries.length, chat.loadingOlder]);
+  useEffect(() => {
+    if (chat.loadingOlder || anchor.current) return;
+    const id = requestAnimationFrame(() => setArmed(true));
+    return () => cancelAnimationFrame(id);
+  }, [chat.loadingOlder, entries.length]);
+  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
   const repin = () => {
     const el = stream.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
@@ -219,13 +252,12 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
       </div>
       <ChatBanner detail={detail} />
       <div
-        className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [&>*]:flex-none [&>.skeleton]:self-stretch"
+        className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>.skeleton]:self-stretch"
         ref={stream}
         onScroll={(e) => {
           const el = e.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
           if (pinned.current) setNewer(0);
-          if (el.scrollTop < 60 && chat.hasOlder && !chat.loadingOlder) chat.loadOlder();
         }}
       >
         <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
@@ -234,6 +266,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
             {sentence(classify(chat.error))} <Button variant="outline" size="sm" label="Retry" onClick={chat.refetch} />
           </div>
         ) : null}
+        {chat.hasOlder ? <div ref={top} aria-hidden className="h-px" /> : null}
         {chat.hasOlder ? (
           <button
             className="icon older self-center"
