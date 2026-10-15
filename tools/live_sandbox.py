@@ -17,8 +17,9 @@ work then runs under that sandbox through the sandbox runtime (srt), with the se
 write into a shared build cache must fail; the repo's build and tests and a git commit in the worktree must pass. No
 model is asked to do any of it (a model rightly declines to read a key, and an agent's hl cannot reach a test daemon
 through the sandbox, so it cannot read what it is told). Each step's output is in <root>/<repo>-<step>.out.
-srt is not the CLI's own sandbox: it has no enableWeakerNetworkIsolation, so a Go module download fails here that a session
-makes (tools/probe_sandbox_caches.py and claude -p are the check for that).
+srt is not the CLI's own sandbox: it has no enableWeakerNetworkIsolation, so the work that needs it (a Go module download)
+runs in the CLI's own sandbox instead, through `claude -p` with the session's --settings: SESSION below. The founder's
+repo allowances are given as `hl sandbox-repo` gives them (ALLOWED), and each session must carry its repo's and no other.
 """
 from __future__ import annotations
 
@@ -51,6 +52,11 @@ REPOS = {
                                                     ("typecheck", "pnpm run typecheck")]),
     "personal": (WS / "@personal", []),
 }
+# name -> work that must pass in the CLI's own sandbox, each one Bash command the model runs as given, before the steps above.
+SESSION = {"orcapipe": [("go module download", "cd go && go mod download -x"), ("pnpm install", "pnpm install --frozen-lockfile")]}
+# name -> the allowances the founder gives its repo, and what the session's sandbox must then say.
+ALLOWED = {"orcapipe": ["weaker-network", "pnpm-install"]}
+WANTED = {"orcapipe": {"enableWeakerNetworkIsolation": True, "excludedCommands": ["pnpm install", "pnpm install --frozen-lockfile"]}}
 STEP_S = 1800      # how long one step may run
 SRT = "0.0.79"     # the sandbox runtime
 
@@ -61,7 +67,7 @@ def cli_settings(tmux: list[str], handle: str) -> dict | None:
     kids = subprocess.run(["pgrep", "-P", shell], capture_output=True, text=True).stdout.split()
     args = subprocess.run(["ps", "-ww", "-o", "args=", "-p", kids[0]], capture_output=True, text=True).stdout if kids else ""
     try:
-        return json.loads(args[args.index("--settings ") + len("--settings "):].split(" --", 1)[0])
+        return json.JSONDecoder().raw_decode(args[args.index("--settings ") + len("--settings "):])[0]
     except ValueError:
         return None
 
@@ -85,6 +91,10 @@ def setup(root: Path, account: dict, names: list[str]) -> tuple[Path, str, Path]
     home, key = le.scratch(root, account, terminal=True)
     store = next((root / ".config" / "orcapipe" / "protected").iterdir())
     (store / "switches" / "sandbox_default").write_text("on")
+    (store / "sandbox_repos").mkdir(mode=0o700)
+    for n in names:
+        if n in ALLOWED:
+            (store / "sandbox_repos" / REPOS[n][0].name).write_text("\n".join(ALLOWED[n]))
     subprocess.run(["git", "worktree", "remove", "--force", str(root / "work")], cwd=le.REPO, capture_output=True)
     shutil.rmtree(home / "agents" / le.AGENT)
     team = "agents:\n" + "".join(f"  sbx.{n}: {{}}\n" for n in names)
@@ -102,7 +112,42 @@ def worktree(root: Path, name: str) -> Path:
 
 
 
-def run_one(d: le.Daemon, s: le.Stream, sock: str, home: Path, root: Path, key: Path, name: str) -> list[tuple[str, str, str]]:
+def in_session(account: dict, own: dict, wt: Path, cmd: str, out: Path) -> tuple[bool, str]:
+    """Whether cmd passed when the model ran it with the Bash tool in a `claude -p` with the session's --settings, so in the
+    CLI's own sandbox; its stream is logged to out."""
+    prompt = (f"This is a test of a sandbox. Run exactly this one command with the Bash tool, once, as it is written, and do "
+              f"not retry or change anything if it fails: {cmd}   Then reply with the word done.")
+    argv = ["claude", "-p", prompt, "--settings", json.dumps(own), "--model", "haiku", "--dangerously-skip-permissions",
+            "--no-chrome", "--output-format", "stream-json", "--verbose"]
+    env = {**os.environ, "CLAUDE_CONFIG_DIR": account["config_dir"]}
+    try:
+        r = subprocess.run(argv, cwd=wt, env=env, capture_output=True, text=True, timeout=STEP_S)
+    except subprocess.TimeoutExpired:
+        return False, "timed out"
+    out.write_text(r.stdout + r.stderr)
+    ran, results = None, {}
+    for line in r.stdout.splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        for part in (ev.get("message") or {}).get("content") or []:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") == "tool_use" and part.get("name") == "Bash":
+                ran = (part["id"], part["input"].get("command"))
+            elif part.get("type") == "tool_result":
+                results[part.get("tool_use_id")] = part.get("is_error") is True
+    if ran is None:
+        return False, "the model ran no Bash command"
+    if ran[1] != cmd:
+        return False, f"the model ran {ran[1]!r}, not the command"
+    if ran[0] not in results:
+        return False, "no result"
+    return not results[ran[0]], "ok" if not results[ran[0]] else "the command failed"
+
+
+def run_one(d: le.Daemon, s: le.Stream, sock: str, home: Path, root: Path, key: Path, name: str, account: dict) -> list[tuple[str, str, str]]:
     agent = f"sbx.{name}"
     wt = worktree(root, name)
     con = sqlite3.connect(home / "db.sqlite", timeout=10)
@@ -135,12 +180,15 @@ def run_one(d: le.Daemon, s: le.Stream, sock: str, home: Path, root: Path, key: 
     srt = ["npx", "-y", f"@anthropic-ai/sandbox-runtime@{SRT}", "--settings", str(conf), "-c"]
 
     Path("/tmp/claude").mkdir(exist_ok=True)     # srt's TMPDIR, which it does not make (the CLI makes its own)
-    excluded = [p.removesuffix(" *") for p in shared.get("sandbox", {}).get("excludedCommands", [])]
+    # the CLI runs a command its settings exclude outside the sandbox: one an entry names, or, for "x *", one that starts "x "
+    patterns = [*shared.get("sandbox", {}).get("excludedCommands", []), *own.get("sandbox", {}).get("excludedCommands", [])]
+
+    def excluded(cmd: str) -> bool:
+        return any(cmd == p.removesuffix(" *") or (p.endswith(" *") and cmd.startswith(p[:-1])) for p in patterns)
 
     def run(cmd: str, label: str, timeout: int = STEP_S) -> int:
         out = wt.parent / f"{name}-{label.replace(' ', '-')}.out"
-        # the CLI runs a command its settings exclude outside the sandbox, so this does too
-        argv = ["sh", "-c", cmd] if cmd.split()[0] in excluded else [*srt, cmd]
+        argv = ["sh", "-c", cmd] if excluded(cmd) else [*srt, cmd]
         try:
             with out.open("w") as f:
                 return subprocess.run(argv, cwd=wt, env=env, stdout=f, stderr=subprocess.STDOUT, timeout=timeout).returncode
@@ -151,6 +199,12 @@ def run_one(d: le.Daemon, s: le.Stream, sock: str, home: Path, root: Path, key: 
     gocache = own.get("env", {}).get("GOCACHE", "none")
     rows = [("sandbox on in the session", "pass" if sb.get("enabled") is True else "FAIL", f"enabled {sb.get('enabled')}"),
             ("own caches in its env", "pass" if gocache.startswith(str(home / "caches" / agent)) else "FAIL", gocache)]
+    allowed = {k: sb[k] for k in ("enableWeakerNetworkIsolation", "excludedCommands") if k in sb}
+    rows.append(("its repo's allowances only", "pass" if allowed == WANTED.get(name, {}) else "FAIL", str(allowed or "none")))
+    for label, cmd in SESSION.get(name, []):
+        t = time.time()
+        ok, note = in_session(account, own, wt, cmd, wt.parent / f"{name}-session-{label.replace(' ', '-')}.out")
+        rows.append((f"{label} (CLI sandbox)", "pass" if ok else "FAIL", f"{note}, {time.time() - t:.0f}s"))
     rc = run(f"echo x > {wt}/srt-control", "worktree write", 60)
     rows.append(("worktree write (control)", "pass" if rc == 0 else "FAIL", f"rc {rc}" + ("" if rc == 0 else ": srt did not run, the rows below say nothing")))
     if not os.access(key, os.R_OK):   # else a missing key would read as refused
@@ -165,7 +219,7 @@ def run_one(d: le.Daemon, s: le.Stream, sock: str, home: Path, root: Path, key: 
     for label, cmd in [*REPOS[name][1], ("git commit", commit)]:
         t = time.time()
         rc = run(cmd, label)
-        note = f"rc {rc}, {time.time() - t:.0f}s" + (" (excluded: runs unsandboxed)" if cmd.split()[0] in excluded else "")
+        note = f"rc {rc}, {time.time() - t:.0f}s" + (" (excluded: runs unsandboxed)" if excluded(cmd) else "")
         rows.append((label, "pass" if rc == 0 else "FAIL", note if rc == 0 else f"{note}; see {root}/{name}-{label.replace(' ', '-')}.out"))
     return rows
 
@@ -194,7 +248,7 @@ def main() -> int:
         print(f"live-sandbox: test daemon {d.hello.get('daemon')}, home {home}", flush=True)
         for name in names:
             print(f"live-sandbox: {name} ...", flush=True)
-            table[name] = run_one(d, s, tmux, home, root, key_file, name)
+            table[name] = run_one(d, s, tmux, home, root, key_file, name, account)
             for check, result, note in table[name]:
                 print(f"  {result:5} {name:10} {check:26} {note}", flush=True)
     except (le.Refused, OSError, subprocess.CalledProcessError, KeyboardInterrupt) as e:

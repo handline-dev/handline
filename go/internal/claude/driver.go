@@ -111,9 +111,13 @@ func (Driver) LaunchArgv(exe string, o lifecycle.LaunchArgs) []string {
 	// Said either way, so the shared settings never decide it. Off, commands run unsandboxed; the Read/Edit denies below
 	// are permissions, not the sandbox, and stay.
 	settings.setDefault("sandbox", NewObject()).(*Object).Set("enabled", !o.SandboxOff)
-	if o.CacheDir != "" {
-		// Go on macOS verifies TLS through trustd, which the default network isolation blocks: no module downloads
+	if o.WeakerNetwork {
 		settings.block("sandbox").Set("enableWeakerNetworkIsolation", true)
+	}
+	if len(o.Excluded) > 0 {
+		settings.block("sandbox").Set("excludedCommands", o.Excluded)
+	}
+	if o.CacheDir != "" {
 		env := NewObject()
 		for _, kv := range CacheEnv(o.CacheDir) {
 			env.Set(kv[0], kv[1])

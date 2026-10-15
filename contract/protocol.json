@@ -148,6 +148,7 @@
    "hl doctor",
    "hl hooks",
    "hl go",
+   "hl sandbox-repo",
    "hl install-hooks",
    "hl backup",
    "hl venv",

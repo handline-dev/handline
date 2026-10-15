@@ -2,6 +2,7 @@ package compose
 
 import (
 	"encoding/json"
+	"github.com/handline/handline/go/internal/team"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/sessiontoken"
+	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
 func sandboxOf(t *testing.T, shared string, c Confinement) (fs map[string]any, sandbox map[string]any, deny []any) {
@@ -65,6 +67,14 @@ func TestTheSandboxSettingsCarryTheSharedSandboxAndTheHideListsAsATerminalAgentG
 	network := sb["network"].(map[string]any)
 	if !slices.Equal(network["allowedDomains"].([]any), []any{"github.com", "registry.npmjs.org"}) {
 		t.Fatalf("the hosts are added to the shared ones: %v", network)
+	}
+	if _, ok := sb["enableWeakerNetworkIsolation"]; ok || sb["excludedCommands"] != nil {
+		t.Fatalf("a repo the founder allowed nothing keeps the full isolation and runs every command inside: %v", sb)
+	}
+	c.Allowed = team.RepoAllowances{WeakerNetwork: true, Excluded: []string{"pnpm install"}}
+	_, sb, _ = sandboxOf(t, `{"sandbox":{"excludedCommands":["xcrun *"]}}`, c)
+	if sb["enableWeakerNetworkIsolation"] != true || !slices.Equal(sb["excludedCommands"].([]any), []any{"xcrun *", "pnpm install"}) {
+		t.Fatalf("the repo's allowances, its commands added to the shared ones: %v", sb)
 	}
 }
 
@@ -125,5 +135,24 @@ func TestAStructuredSessionIsRecordedAsTheAgentsWhileItRuns(t *testing.T) {
 	<-s.Exited()
 	if kept, _ := tokens.Store.Get(sessiontoken.NS, "alice"); strings.Contains(kept, strconv.Itoa(pid)+" ") {
 		t.Fatalf("the record outlives the session: %q", kept)
+	}
+}
+
+func TestAStructuredSessionCarriesTheAllowancesOfItsRepoOnly(t *testing.T) {
+	p, lc, _, wt := wired(t)
+	if err := lc.roster.Store.Put(team.RepoAllowanceNS, "orcapipe", "weaker-network\npnpm-install"); err != nil {
+		t.Fatal(err)
+	}
+	for repo, want := range map[string]bool{"/ws/orcapipe": true, "/ws/harbor-app": false} {
+		if err := lc.roster.SetKeys("alice", []yamlcompat.Pair{{Key: "sandbox", Val: true}, {Key: "repo", Val: repo}}); err != nil {
+			t.Fatal(err)
+		}
+		c, err := p.Run.confinementOf("alice", wt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Allowed.WeakerNetwork != want || (len(c.Allowed.Excluded) > 0) != want {
+			t.Errorf("%s: %+v", repo, c.Allowed)
+		}
 	}
 }
