@@ -88,7 +88,7 @@ The apps drive the same flow instead of replacing GitHub's diff:
 
 ## 4. What the daemon must add
 
-Draft, to be checked with `handline.daemon`.
+Draft. Not yet checked with `handline.daemon`: this team has no route to it, so `handline.pc` must send it.
 
 1. **PR link on a task:** `{repo, number, branch, opener agent, head sha, review cursor}`, set when
    the agent opens the PR (`hl task pr T<n> <url>`) or found later by the `T<n>/` branch prefix.
