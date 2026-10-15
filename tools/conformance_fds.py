@@ -7,6 +7,7 @@ the harness as --var founder_key. The role `agent` gets socketpairs made by a ch
 that home's store, so the daemon tells their peer to be that agent. The network listener is on (loopback, port 0) and
 `-serve-net-fds` serves a second set of socketpairs as its connections: the role `unpaired`. A fixture of a role with no
 connection here (member) is reported SKIP and fails the run."""
+import fcntl
 import os
 import re
 import json
@@ -54,11 +55,12 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
             seed_session_start(con, output_agent)
             seed_workroom(home, con)
             seed_open_question(con, ask_agent)
-            write_team(home, [*names.values(), output_agent, ask_agent, AGENT])
+            typing = seed_typing_gates(home, con)
+            write_team(home, [*names.values(), output_agent, ask_agent, AGENT, *typing.values()])
             con.commit()
             con.close()
             return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, "session_agent": output_agent,
-                    "ask_agent": ask_agent, "triggers_agent": names["idle"], **WORKROOM}
+                    "ask_agent": ask_agent, "triggers_agent": names["idle"], **WORKROOM, **typing}
         except sqlite3.Error:
             if daemon.poll() is not None:
                 break
@@ -117,6 +119,27 @@ def seed_tool_items(con: sqlite3.Connection, agent: str) -> None:
             seq += 1
             con.execute("INSERT OR REPLACE INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES(?,?,?,?,?,?,?,?)",
                         (agent, seq, "seed", None, now, kind, None, json.dumps(body)))
+
+
+def seed_typing_gates(home: Path, con: sqlite3.Connection) -> dict[str, str]:
+    """An agent whose terminal lock is held for the whole run (an flock on its lock file, the one go/internal/lock takes), and one
+    whose input another person holds. Returns the --var for each."""
+    locked, held = "s.locked", "s.held"
+    for n in (locked, held):
+        (home / "agents" / n).mkdir(parents=True, exist_ok=True)
+        (home / "agents" / n / "agent.yaml").write_text("role: seeded by conformance_fds\n")
+        con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, terminal) VALUES(?, 'idle', 0, '%9')", (n,))
+    (home / "locks").mkdir(exist_ok=True)
+    f = open(home / "locks" / f"{locked}.terminal", "a")
+    fcntl.flock(f, fcntl.LOCK_EX)
+    HELD.append(f)  # kept open, so held, until this process ends
+    now = int(time.time())
+    con.execute("INSERT OR REPLACE INTO input_holders(agent, kind, name, since, last_typed) VALUES(?, 'person', 'someone else', ?, ?)",
+                (held, now, now))
+    return {"locked_agent": locked, "held_agent": held}
+
+
+HELD: list = []
 
 
 def seed_session_start(con: sqlite3.Connection, agent: str) -> None:

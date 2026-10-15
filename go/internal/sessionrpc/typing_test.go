@@ -144,3 +144,30 @@ func TestATypingCallWhileTheTickHoldsTheTerminalLockIsRefusedAtOnce(t *testing.T
 		t.Fatalf("sent %q", h.sent)
 	}
 }
+
+func TestInterruptPressesEscOnATerminalAgentsPaneBehindTheTypingGates(t *testing.T) {
+	r, h, c := typingRig(t)
+	r.e.InterruptTerminal = r.e.PressEsc
+	result(t, c.call("input.take", map[string]any{"agent": "ann", "request_id": rid("t1")})) // the caller's own hold lets it through
+	got := result(t, c.call("session.interrupt", map[string]any{"agent": "ann", "request_id": rid("i1")}))
+	if got["said"] != "ann: interrupted" || strings.Join(h.sent, "|") != term.Escape {
+		t.Fatalf("%v sent %q", got, h.sent)
+	}
+	if len(r.pr.interrupted) != 0 {
+		t.Fatalf("a terminal agent is not interrupted by control request: %v", r.pr.interrupted)
+	}
+	r.e.DB.Exec("UPDATE input_holders SET name = 'sam'")
+	if g := refused(c.call("session.interrupt", map[string]any{"agent": "ann", "request_id": rid("i2")})); g != "input_holder" {
+		t.Fatalf("someone else holds its input: %q", g)
+	}
+	r.e.DB.Exec("DELETE FROM input_holders")
+	hold := lock.TakeTerminal(r.e.Home, "ann") // someone is typing at it this moment
+	if g := refused(c.call("session.interrupt", map[string]any{"agent": "ann", "request_id": rid("i3")})); g != "terminal_lock" {
+		t.Fatalf("an Esc into the middle of something being typed: %q", g)
+	}
+	hold.Release()
+	r.e.DB.Exec("UPDATE agent_state SET terminal = '' WHERE agent = 'ann'")
+	if g := refused(c.call("session.interrupt", map[string]any{"agent": "ann", "request_id": rid("i4")})); g != "state" {
+		t.Fatalf("no terminal: %q", g)
+	}
+}
