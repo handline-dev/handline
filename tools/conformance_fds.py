@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "contract"))
 sys.path.insert(0, str(ROOT))
 import conformance  # noqa: E402
-from handline.infra.sessiontoken import NS as SESSION_NS, _proc  # noqa: E402
+from handline.infra.sessiontoken import NS as SESSION_NS, session_line  # noqa: E402
 
 PAIRS = 512
 AGENT_PAIRS = 128
@@ -235,7 +235,7 @@ def agent_pairs(store: Path, n: int) -> tuple[list, socket.socket, int]:
             raise RuntimeError("the agent's session process ended before it made its connections")
         fds += got
     (store / SESSION_NS).mkdir(mode=0o700)
-    (store / SESSION_NS / AGENT).write_text(f"{pid} {_proc(pid)[1]}")
+    (store / SESSION_NS / AGENT).write_text(session_line(pid))
     return [(socket.socket(fileno=fds[i]), socket.socket(fileno=fds[i + 1])) for i in range(0, 2 * n, 2)], ctl, pid
 
 
