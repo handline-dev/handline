@@ -82,7 +82,7 @@ export function Home(props: { store: Store; onUnpair: () => void; pending?: Pend
                 borderTopColor: tab === t ? c.ink : 'transparent',
               }}
             >
-              <Text style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400' }}>
+              <Text numberOfLines={1} adjustsFontSizeToFit style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400' }}>
                 {t === 'agents'
                   ? 'Agents'
                   : t === 'inbox'
