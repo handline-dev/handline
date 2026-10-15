@@ -25,7 +25,7 @@ import { Badges } from './Badges.tsx';
 import { Mark, MARKS } from './RailIcons.tsx';
 import { AgentGauges } from './AgentGauges.tsx';
 import { useNow } from './Gauge.tsx';
-import { Button, Icon, Menu, MenuButton, MenuCheckItem, MenuContent, MenuTrigger } from './ui/index.ts';
+import { Button, Icon, Menu, type At, MenuButton, MenuCheckItem, MenuContent, MenuTrigger } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import {
   goAgent,
@@ -233,7 +233,6 @@ function Row({
 }) {
   const store = useStore();
   const dot = dotOf(a);
-  const wrap = useRef<HTMLDivElement>(null);
   const [ask, setAsk] = useState<Verb | null>(null);
   const [hot, setHot] = useState(false); // the pointer or focus is on the row: its actions show, and only then do they cost a detail read
   const [menuOpen, setMenuOpen] = useState(false);
@@ -250,14 +249,13 @@ function Row({
   const edge = dot === 'waiting' ? 'border-l-wait' : selected ? 'border-l-primary' : 'border-l-transparent';
   const showControls = selected || hot || menuOpen;
   // The ⋯ button asks the row for its own context menu, at the button.
-  const openMenu = (at: { x: number; y: number }) =>
-    wrap.current?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y }));
+  const opener = useRef<((at: At) => void) | null>(null);
+  const openMenu = (at: At) => opener.current?.(at);
   return (
     <>
-      <Menu onOpenChange={setMenuOpen}>
+      <Menu onOpenChange={setMenuOpen} openRef={opener}>
         <MenuTrigger asChild>
           <div
-            ref={wrap}
             className={`row-wrap relative${selected ? ' on bg-canvas' : ''}`}
             data-agent={a.name}
             onPointerEnter={() => setHot(true)}

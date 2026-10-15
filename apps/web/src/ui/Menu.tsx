@@ -1,26 +1,38 @@
 // The one menu (Radix Menu): focus, arrow keys, type-ahead, Escape, a click outside and keeping inside the window come from the library;
-// the look is ours. `MenuButton` opens under its button, `Menu` + `MenuTrigger` at the cursor on a right-click. A menu is modal, so only one is open.
-import { cloneElement, createContext, useContext, useRef, useState, type ComponentProps, type MouseEvent, type ReactElement, type ReactNode } from 'react';
+// the look is ours. `MenuButton` opens under its button, `Menu` + `MenuTrigger` at the cursor on a right-click. A press outside closes it and still reaches what is under it, so a second trigger opens its own menu.
+import { cloneElement, createContext, useContext, useRef, useState, type ComponentProps, type MouseEvent, type MutableRefObject, type ReactElement, type ReactNode } from 'react';
 import * as D from '@radix-ui/react-menu';
 import { Button } from './Button.tsx';
 import { Icon, type IconName } from './Icon.tsx';
 
-const PANEL = 'z-30 min-w-[200px] rounded-card border border-line bg-panel py-1 shadow-[var(--shadow-pop)] outline-none';
+const PANEL = 'z-30 max-h-[var(--radix-popper-available-height)] overflow-y-auto min-w-[200px] rounded-card border border-line bg-panel py-1 shadow-[var(--shadow-pop)] outline-none';
 const ITEM =
   'flex h-8 w-full cursor-default select-none items-center gap-2 px-2 text-left text-body text-ink outline-none data-[highlighted]:bg-raised data-[disabled]:opacity-55 max-sm:min-h-12';
 
-type Point = { x: number; y: number };
-const AtCursor = createContext<((p: Point) => void) | null>(null);
+/** Where a menu opens: a point (a right-click) or a box (a button), which the menu keeps clear of when it flips. */
+export type At = { x: number; y: number; w?: number; h?: number };
+const AtCursor = createContext<((p: At) => void) | null>(null);
 
 /** A menu that opens where a right-click (or `MenuTrigger`'s own `onContextMenu`) lands. */
-export function Menu({ children, onOpenChange }: { children: ReactNode; onOpenChange?: (open: boolean) => void }) {
+export function Menu({
+  children,
+  onOpenChange,
+  openRef,
+}: {
+  children: ReactNode;
+  onOpenChange?: (open: boolean) => void;
+  /** Filled with a function that opens the menu at a point or box: for a button that is not inside the trigger. */
+  openRef?: MutableRefObject<((at: At) => void) | null>;
+}) {
   const [open, setOpen] = useState(false);
-  const at = useRef<Point>({ x: 0, y: 0 });
-  const anchor = useRef({ getBoundingClientRect: () => DOMRect.fromRect({ x: at.current.x, y: at.current.y, width: 0, height: 0 }) });
+  const at = useRef<At>({ x: 0, y: 0 });
+  const anchor = useRef({ getBoundingClientRect: () => DOMRect.fromRect({ x: at.current.x, y: at.current.y, width: at.current.w ?? 0, height: at.current.h ?? 0 }) });
   const change = (o: boolean) => (setOpen(o), onOpenChange?.(o));
+  const openAt = (p: At) => ((at.current = p), change(true));
+  if (openRef) openRef.current = openAt;
   return (
-    <AtCursor.Provider value={(p) => ((at.current = p), change(true))}>
-      <D.Root open={open} onOpenChange={change} modal>
+    <AtCursor.Provider value={openAt}>
+      <D.Root open={open} onOpenChange={change} modal={false}>
         <D.Anchor virtualRef={anchor} />
         {children}
       </D.Root>
@@ -43,7 +55,7 @@ export function MenuTrigger({ children }: { asChild?: boolean; children: ReactEl
 export function MenuContent({ children, ...rest }: ComponentProps<typeof D.Content>) {
   return (
     <D.Portal>
-      <D.Content className={PANEL} collisionPadding={8} onCloseAutoFocus={(e) => e.preventDefault()} {...rest}>
+      <D.Content className={PANEL} align="start" collisionPadding={8} onCloseAutoFocus={(e) => e.preventDefault()} {...rest}>
         {children}
       </D.Content>
     </D.Portal>
@@ -65,11 +77,22 @@ export function MenuButton({
   const [own, setOwn] = useState(false);
   const open = shown ?? own;
   const setOpen = (o: boolean) => (setOwn(o), onOpenChange?.(o));
+  // A press on this button while its menu is open closes the menu first; the click that follows must not open it again.
+  const wasOpen = useRef(false);
   return (
-    <D.Root open={open} onOpenChange={setOpen} modal>
+    <D.Root open={open} onOpenChange={setOpen} modal={false}>
       <D.Anchor asChild>
         <span className="inline-flex">
-          <Button {...button} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} />
+          <Button
+            {...button}
+            aria-haspopup="menu"
+            aria-expanded={open}
+            onPointerDownCapture={() => (wasOpen.current = open)}
+            onClick={() => {
+              if (!wasOpen.current) setOpen(!open);
+              wasOpen.current = false;
+            }}
+          />
         </span>
       </D.Anchor>
       <MenuContent side="bottom" align={align} sideOffset={4} aria-label={name}>
