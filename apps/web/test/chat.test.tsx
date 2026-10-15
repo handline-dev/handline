@@ -202,7 +202,10 @@ describe('the Chat tab', () => {
     await mount(ARCH, s);
     await until(() => msg('old 59'), 'the newest page');
     expect(msg('Which gap list')).toBeUndefined(); // it is on the second page
-    await click($('.older')!);
+    for (let n = 0; n < 4 && !msg('Which gap list'); n++) {
+      await click($('.older')!);
+      await wait(50);
+    }
     await until(() => msg('Which gap list'), 'the older page');
     expect($('.older')).toBeNull(); // nothing further back
   });

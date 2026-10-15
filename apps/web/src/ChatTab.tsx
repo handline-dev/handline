@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { timeline } from '@handline/app-core';
-import { useSelector } from '@handline/app-react';
+import { useNearEnd, useSelector } from '@handline/app-react';
 import {
   Skeleton,
   classify,
@@ -129,6 +129,15 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const e = entries.at(-1);
     seen.current = { scope, last: e ? keyOf(e) : null };
   });
+  // The latest page shows first; the next older one loads as the top comes near, and the view stays on the line it was on.
+  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, chat.loadOlder, chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
+  const before = useRef<{ height: number; first: string | null } | null>(null);
+  useLayoutEffect(() => {
+    const el = stream.current;
+    const first = entries[0] ? keyOf(entries[0]) : null;
+    if (el && before.current && before.current.first !== first && before.current.first !== null) el.scrollTop += el.scrollHeight - before.current.height;
+    before.current = el ? { height: el.scrollHeight, first } : null;
+  });
   const repin = () => {
     const el = stream.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
@@ -219,13 +228,12 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
       </div>
       <ChatBanner detail={detail} />
       <div
-        className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [&>*]:flex-none [&>.skeleton]:self-stretch"
+        className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>.skeleton]:self-stretch"
         ref={stream}
         onScroll={(e) => {
           const el = e.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
           if (pinned.current) setNewer(0);
-          if (el.scrollTop < 60 && chat.hasOlder && !chat.loadingOlder) chat.loadOlder();
         }}
       >
         <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
@@ -234,6 +242,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
             {sentence(classify(chat.error))} <Button variant="outline" size="sm" label="Retry" onClick={chat.refetch} />
           </div>
         ) : null}
+        {chat.hasOlder ? <div ref={top} aria-hidden className="h-px" /> : null}
         {chat.hasOlder ? (
           <button
             className="icon older self-center"

@@ -77,3 +77,35 @@ export function useOnce(): [going: boolean, once: (job: () => Promise<void>) => 
   };
   return [going, once];
 }
+
+/**
+ * Calls `more` when the sentinel element comes within `margin` px of the scroll box `root` (the top of a chat, the end of a list): put the
+ * returned ref on an empty element at that end. Where there is no IntersectionObserver the box's own scroll is watched for the same distance.
+ * `more` is called again only after the sentinel has left the margin and come back, or after `enabled` turns false and true.
+ */
+export function useNearEnd<R extends HTMLElement, S extends HTMLElement>(
+  root: { current: R | null },
+  more: () => void,
+  enabled: boolean,
+  { margin = 200, atTop = false }: { margin?: number; atTop?: boolean } = {},
+): { current: S | null } {
+  const sentinel = useRef<S | null>(null);
+  const call = useRef(more);
+  call.current = more;
+  useEffect(() => {
+    const box = root.current;
+    const el = sentinel.current;
+    if (!enabled || !box || !el) return;
+    if (typeof IntersectionObserver === 'function') {
+      const io = new IntersectionObserver((e) => e.some((x) => x.isIntersecting) && call.current(), { root: box, rootMargin: `${margin}px` });
+      io.observe(el);
+      return () => io.disconnect();
+    }
+    const onScroll = () => {
+      if (atTop ? box.scrollTop < margin : box.scrollHeight - box.scrollTop - box.clientHeight < margin) call.current();
+    };
+    box.addEventListener('scroll', onScroll);
+    return () => box.removeEventListener('scroll', onScroll);
+  }, [root, enabled, margin, atTop]);
+  return sentinel;
+}
