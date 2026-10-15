@@ -283,6 +283,15 @@ func TestRetireArchivesTheFolderAndRenameMovesTheNameAndItsRows(t *testing.T) {
 		t.Fatalf("not while it runs: %v", m)
 	}
 	r.live["bob"] = false
+	// a sandboxed agent's caches, with a read-only folder as Go's module cache keeps them
+	cache := func(name string) string {
+		ro := filepath.Join(r.home, "caches", name, "go-mod", "m@v1")
+		os.MkdirAll(ro, 0o755)
+		os.WriteFile(filepath.Join(ro, "go.mod"), nil, 0o444)
+		os.Chmod(ro, 0o555)
+		return filepath.Join(r.home, "caches", name)
+	}
+	bobs := cache("bob")
 	res := r.decide(id, "approve", p.subject(), "e2")["result"].(map[string]any)
 	if !strings.HasPrefix(res["said"].(string), "bob is now robert") {
 		t.Fatalf("%v", res)
@@ -298,6 +307,10 @@ func TestRetireArchivesTheFolderAndRenameMovesTheNameAndItsRows(t *testing.T) {
 	if len(pairs) == 0 {
 		t.Fatal("the folder moved with the name")
 	}
+	if _, err := os.Stat(bobs); err == nil {
+		t.Fatal("the old name's caches are left behind")
+	}
+	roberts := cache("robert")
 	p2, id2 := r.propose("aaaa0006", "kind", "retire", "agent", "robert")
 	res = r.decide(id2, "approve", p2.subject(), "e3")["result"].(map[string]any)
 	if !strings.Contains(res["said"].(string), "robert is retired; its folder is at") {
@@ -305,6 +318,9 @@ func TestRetireArchivesTheFolderAndRenameMovesTheNameAndItsRows(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(r.home, "agents", "robert")); err == nil {
 		t.Fatal("archived")
+	}
+	if _, err := os.Stat(roberts); err == nil {
+		t.Fatal("a retired agent's caches are left behind")
 	}
 	matches, _ := filepath.Glob(filepath.Join(r.home, "agents", "archive", "*-robert"))
 	if len(matches) != 1 || strings.Contains(r.file("team.yaml"), "robert") {
@@ -614,5 +630,18 @@ func TestTheProposerIsToldHowEachDecisionWentInTheWordsHrPyUsed(t *testing.T) {
 		!strings.HasPrefix(got[2], "proposal aaaa0013 applied: alice may now ask bob.") ||
 		!strings.HasPrefix(got[3], "proposal aaaa0014 was approved but could not be applied: step 2 of 2 (link dave) failed") {
 		t.Fatalf("%q", got)
+	}
+}
+
+func TestACacheThatCannotBeRemovedDoesNotUndoARetire(t *testing.T) {
+	r := newRig(t)
+	caches := filepath.Join(r.home, "caches")
+	os.MkdirAll(filepath.Join(caches, "bob", "go-build"), 0o755)
+	os.Chmod(caches, 0o555) // bob's folder cannot leave it
+	defer os.Chmod(caches, 0o755)
+	p, id := r.propose("aaaa0009", "kind", "retire", "agent", "bob")
+	res := r.decide(id, "approve", p.subject(), "g1")["result"].(map[string]any)
+	if !strings.Contains(res["said"].(string), "bob is retired") || strings.Contains(r.file("team.yaml"), "bob:") {
+		t.Fatalf("the retire stopped half done: %v", res)
 	}
 }

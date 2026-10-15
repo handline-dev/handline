@@ -1,6 +1,15 @@
 package rpc
 
-import "github.com/handline/handline/go/internal/authority"
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/handline/handline/go/internal/authority"
+	"github.com/handline/handline/go/internal/peer"
+	"github.com/handline/handline/go/internal/sessiontoken"
+)
 
 // Roles, lowest first: a call below the method's role is refused.
 var roles = []string{"anonymous", "agent", "member", "founder"}
@@ -65,4 +74,28 @@ func (c Caller) ActorInfo() map[string]any {
 		out["kind"] = "user"
 	}
 	return out
+}
+
+// noteFounderKey keeps an event for each hello the founder key was taken on: the process that presented it, the programs above it and its
+// controlling terminal, so every use can be traced afterwards. A row that cannot be written is logged and refuses nothing.
+func (s *Server) noteFounderKey(pid int, client string) {
+	if s.DB == nil || s.NoEvents {
+		return
+	}
+	var chain []string
+	terminal := ""
+	if pid > 0 { // 0 is a peer the kernel did not name
+		chain = append(chain, fmt.Sprintf("%s:%d", filepath.Base(peer.Exe(pid)), pid))
+		for i, a := range (&sessiontoken.Tokens{Lookup: peer.Lookup}).Chain(pid) {
+			if i == 8 {
+				break
+			}
+			chain = append(chain, fmt.Sprintf("%s:%d", a.Program, a.PID))
+		}
+		terminal = peer.Terminal(pid)
+	}
+	payload := PyJSON(map[string]any{"pid": pid, "chain": strings.Join(chain, " > "), "terminal": terminal, "client": client}, false, false)
+	if _, err := s.DB.Exec("INSERT INTO events(ts, agent, kind, payload) VALUES(?, ?, 'founder_key', ?)", time.Now().Unix(), Human, payload); err != nil && s.Log != nil {
+		s.Log("  founder key: the record of pid %d was not written: %v", pid, err)
+	}
 }

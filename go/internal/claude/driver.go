@@ -84,7 +84,11 @@ func (Driver) LaunchArgv(exe string, o lifecycle.LaunchArgs) []string {
 	if o.MemoryDir != "" {
 		settings.Set("autoMemoryDirectory", o.MemoryDir)
 	}
-	if len(o.Hide) > 0 || len(o.NoWrite) > 0 || len(o.ExtraDirs) > 0 {
+	writable := append(append([]string{}, o.ExtraDirs...), o.AllowWrite...)
+	if o.CacheDir != "" {
+		writable = append(writable, o.CacheDir)
+	}
+	if len(o.Hide) > 0 || len(o.NoWrite) > 0 || len(writable) > 0 || len(o.AllowDomains) > 0 {
 		fs := NewObject()
 		if len(o.Hide) > 0 {
 			fs.Set("denyRead", o.Hide)
@@ -92,16 +96,30 @@ func (Driver) LaunchArgv(exe string, o lifecycle.LaunchArgs) []string {
 		if len(o.NoWrite) > 0 {
 			fs.Set("denyWrite", o.NoWrite)
 		}
-		if len(o.ExtraDirs) > 0 {
-			fs.Set("allowWrite", o.ExtraDirs) // a working directory is readable; Bash may write it only when it is named here
+		if len(writable) > 0 {
+			fs.Set("allowWrite", writable) // a working directory is readable; Bash may write it only when it is named here
 		}
 		sb := NewObject()
 		sb.Set("filesystem", fs)
+		if len(o.AllowDomains) > 0 {
+			net := NewObject()
+			net.Set("allowedDomains", o.AllowDomains)
+			sb.Set("network", net)
+		}
 		settings.Set("sandbox", sb)
 	}
 	// Said either way, so the shared settings never decide it. Off, commands run unsandboxed; the Read/Edit denies below
 	// are permissions, not the sandbox, and stay.
 	settings.setDefault("sandbox", NewObject()).(*Object).Set("enabled", !o.SandboxOff)
+	if o.CacheDir != "" {
+		// Go on macOS verifies TLS through trustd, which the default network isolation blocks: no module downloads
+		settings.block("sandbox").Set("enableWeakerNetworkIsolation", true)
+		env := NewObject()
+		for _, kv := range CacheEnv(o.CacheDir) {
+			env.Set(kv[0], kv[1])
+		}
+		settings.Set("env", env)
+	}
 	var deny []string
 	for _, p := range o.Hide {
 		deny = append(deny, "Read(/"+strings.TrimRight(p, "/")+"/**)") // denyRead binds Bash; the Read tool is a permission
@@ -136,4 +154,15 @@ func (Driver) LaunchArgv(exe string, o lifecycle.LaunchArgs) []string {
 		argv = append(argv, "--settings", Dumps(settings, 0, true))
 	}
 	return argv
+}
+
+// CacheEnv is the Go, npm and pnpm caches of a sandboxed session, in its own folder: a cache the sandbox may write is one an unsandboxed
+// build reads from, so the shared ones stay out of its reach.
+func CacheEnv(dir string) [][2]string {
+	var env [][2]string
+	for _, kv := range [][2]string{{"GOCACHE", "go-build"}, {"GOMODCACHE", "go-mod"}, {"GOPATH", "go-path"}, {"npm_config_cache", "npm"},
+		{"npm_config_store_dir", "pnpm-store"}, {"npm_config_cache_dir", "pnpm-cache"}, {"npm_config_state_dir", "pnpm-state"}} {
+		env = append(env, [2]string{kv[0], dir + "/" + kv[1]})
+	}
+	return env
 }

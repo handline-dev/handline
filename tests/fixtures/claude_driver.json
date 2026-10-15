@@ -173,6 +173,54 @@
    ]
   },
   {
+   "name": "sandbox_allowances",
+   "allow_write": [
+    "/r/.git"
+   ],
+   "cache_dir": "/h/caches/a",
+   "allow_domains": [
+    "registry.npmjs.org",
+    "expo.dev"
+   ],
+   "argv": [
+    "/bin/claude",
+    "--disallowedTools",
+    "Task",
+    "--effort",
+    "high",
+    "--no-chrome",
+    "--settings",
+    "{\"sandbox\": {\"filesystem\": {\"allowWrite\": [\"/r/.git\", \"/h/caches/a\"]}, \"network\": {\"allowedDomains\": [\"registry.npmjs.org\", \"expo.dev\"]}, \"enabled\": true, \"enableWeakerNetworkIsolation\": true}, \"env\": {\"GOCACHE\": \"/h/caches/a/go-build\", \"GOMODCACHE\": \"/h/caches/a/go-mod\", \"GOPATH\": \"/h/caches/a/go-path\", \"npm_config_cache\": \"/h/caches/a/npm\", \"npm_config_store_dir\": \"/h/caches/a/pnpm-store\", \"npm_config_cache_dir\": \"/h/caches/a/pnpm-cache\", \"npm_config_state_dir\": \"/h/caches/a/pnpm-state\"}}"
+   ]
+  },
+  {
+   "name": "allowances_beside_extra_dirs",
+   "extra_dirs": [
+    "/w/2"
+   ],
+   "allow_write": [
+    "/r/.git"
+   ],
+   "hide": [
+    "/k"
+   ],
+   "allow_domains": [
+    "sum.golang.org"
+   ],
+   "argv": [
+    "/bin/claude",
+    "--disallowedTools",
+    "Task",
+    "--effort",
+    "high",
+    "--no-chrome",
+    "--add-dir",
+    "/w/2",
+    "--settings",
+    "{\"sandbox\": {\"filesystem\": {\"denyRead\": [\"/k\"], \"allowWrite\": [\"/w/2\", \"/r/.git\"]}, \"network\": {\"allowedDomains\": [\"sum.golang.org\"]}, \"enabled\": true}, \"permissions\": {\"deny\": [\"Read(//k/**)\"]}}"
+   ]
+  },
+  {
    "name": "everything",
    "model": "sonnet",
    "preamble": "p",

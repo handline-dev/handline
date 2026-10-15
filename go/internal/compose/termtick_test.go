@@ -11,6 +11,7 @@ import (
 
 	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/turns"
 )
 
 // termTickRig is bob, a terminal agent in worktree wt, pane %1, recorded on account a1.
@@ -26,6 +27,8 @@ func termTickRig(t *testing.T) (*Parts, *fakeTerminals, string) {
 		t.Fatal(err)
 	}
 	ft.live["%1"] = true
+	// A session the test runs as has the test's own pid, which never exits: an end waited out in real time costs a minute a test.
+	p.LC.Manager.Sleep = func(time.Duration) {}
 	return p, ft, wt
 }
 
@@ -337,5 +340,40 @@ func TestARefusalThePythonDaemonAlreadyLiftedIsNotMarkedAgain(t *testing.T) {
 	}
 	if acc.LoginExpired("a1") == nil {
 		t.Fatal("a refusal after the last lift is the account's")
+	}
+}
+
+func TestAStopHookWritesATerminalAgentsViewIdleAtOnceThoughItsSessionFileStillSaysBusy(t *testing.T) {
+	p, _, wt := termTickRig(t)
+	tracker := &turns.Tracker{}
+	cfg := p.Run.cfg
+	cfg.Turns = tracker
+	p.Tick(cfg, TickConfig{Terminals: true}) // wires the tracker's changes to the view
+	state := func() string {
+		t.Helper()
+		var raw string
+		if err := p.Sink.DB.QueryRow("SELECT view FROM agent_view WHERE agent = 'bob'").Scan(&raw); err != nil {
+			t.Fatalf("no row: %v", err)
+		}
+		var v map[string]any
+		json.Unmarshal([]byte(raw), &v)
+		s, _ := v["state"].(string)
+		return s
+	}
+	// claude marks its session file idle only after the Stop hook has run
+	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s1","status":"busy"}`)
+	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "RUNNING", 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	tracker.Hook("bob", "UserPromptSubmit", map[string]any{}, 100)
+	if s := state(); s != "running" {
+		t.Fatalf("after the prompt: %s", s)
+	}
+	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "IDLE", 0, ""); err != nil { // what the Stop hook does to the row
+		t.Fatal(err)
+	}
+	tracker.Hook("bob", "Stop", map[string]any{}, 101)
+	if s := state(); s != "idle" {
+		t.Fatalf("after the Stop, with the session file still busy: %s, want idle", s)
 	}
 }
