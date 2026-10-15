@@ -119,13 +119,13 @@ A method marked write takes a required `request_id`.
 | `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?` | `{items, more}` |  |  |
 | `inbox.queue` | agent |  | `whose?`, `all?`, `since?`, `wait_s?` | `{whose, newest, head, history, waiting, lines, dealt}` | `refused`, `bad_request` | listing |
 | `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem` | `not_found`, `bad_request` |  |
-| `request.read` | agent |  | `id`, `wait_s?` | `{id, requester, target, kind, state, created, relation, response, chain_depth, parent, body, answer, dismissal}` | `not_found`, `bad_request` |  |
+| `request.read` | agent |  | `id`, `wait_s?` | `{id, requester, target, kind, state, created, relation, response, chain_depth, parent, body, answer, dismissal, parts}` | `not_found`, `bad_request` |  |
 | `request.withdraw` | agent | yes | `id`, `reason?`, `request_id` | `{ok, said}` | `bad_request` |  |
 | `request.cancel` | founder | yes | `id`, `dry_run?`, `request_id` | `{ok, plan, said}` | `refused`, `bad_request` |  |
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found`, `refused`, `bad_request` |  |
 | `inbox.answer` | member | yes | `id`, `option?`, `text?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `before?`, `limit?`, `all?`, `everyone?`, `reason_gaps?` | `{items, more, reason_gaps}` |  |  |
+| `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `under?`, `before?`, `limit?`, `all?`, `everyone?`, `reason_gaps?` | `{items, more, reason_gaps}` |  |  |
 | `task.get` | agent |  | `task` | `TaskDetail` | `not_found` |  |
 | `task.shot` | member |  | `task`, `n`, `offset?` | `{mime, bytes, offset, data, done}` | `not_found`, `bad_request` |  |
 | `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box?`, `relation?`, `response?`, `parent?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` |  |
@@ -460,7 +460,7 @@ Hand a task to another agent.
 
 ### `task.done`
 
-Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner, when the task answers to someone else (its reporter, or its opener), does not close it: the task turns reported and waits for task.accept or task.reject by them. A done by the founder, or by an owner the task answers to, closes it at once.
+Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner, when the task answers to someone else (its reporter, or its opener), does not close it: the task turns reported and waits for task.accept or task.reject by them. A done by the founder, or by an owner the task answers to, closes it at once. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`.
 
 ### `task.accept`
 

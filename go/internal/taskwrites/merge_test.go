@@ -35,7 +35,7 @@ func TestMergeFoldsTasksIntoOneAndRefusesWhatWouldLoop(t *testing.T) {
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, t.TempDir(), nil)
+		Register(s, t.TempDir(), nil, nil)
 		return s
 	}
 	merge := func(agent, rid string, into int, tasks ...int) map[string]any {
@@ -134,7 +134,7 @@ func TestMergeRefreshesSentFromTheRequestsThatMoved(t *testing.T) {
 	}
 	s := rpc.NewServer(auth{"boss"}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 	s.DB = db
-	Register(s, t.TempDir(), nil)
+	Register(s, t.TempDir(), nil, nil)
 	for i, into := range [][2]int{{1, 2}, {4, 3}} {
 		r := call(t, s, fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.merge","params":{"into":%d,"tasks":[%d],"request_id":"m%d"}}`, into[0], into[1], i))[0]
 		if r["error"] != nil {

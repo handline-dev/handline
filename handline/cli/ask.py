@@ -241,6 +241,25 @@ _NEVER_ANSWERED_HEADERS = {"denied": "refused", "withdrawn": "withdrawn",
                            "replaced": "replaced"}
 
 
+def _size(n: int) -> str:
+    """A file's size as a path line says it (the Go daemon's attachments.size)."""
+    if n < 1024:
+        return f"{n} B"
+    if n < 1 << 20:
+        return f"{(n + 512) // 1024} KB"
+    return f"{n / (1 << 20):.1f} MB"
+
+
+def _path_lines(parts: list) -> list[str]:
+    """Where a message's images are stored, one line each as the daemon types them to an agent; only an agent's request.read carries a path."""
+    out = []
+    for p in parts:
+        img = p.get("image")
+        if p.get("path") and img:
+            out.append(f"[image {len(out) + 1}: {p['path']} ({img['mime']}, {_size(img['bytes'])})]")
+    return out
+
+
 def cmd_read(args) -> int:
     """Print one request whole - what was asked, and what came back (the daemon's request.read).
 
@@ -277,6 +296,8 @@ def cmd_read(args) -> int:
     print(f"relation {row['relation']}   response {row['response']}   depth {row['chain_depth']}")
     print()
     print(textsafe.text(row["body"] or "(empty)"))
+    for line in _path_lines(row.get("parts") or []):
+        print(line)
     if row["dismissal"]:
         by, reason = row["dismissal"]["by"], row["dismissal"]["reason"]
         print()

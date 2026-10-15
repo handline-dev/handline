@@ -28,7 +28,7 @@ func TestSendNamesTheImagesAndTheMessageKeepsThem(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0] != *img {
 		t.Fatalf("the message carries %v %v", got, err)
 	}
-	line := attachments.New(r.home).Lines(r.db, rid)
+	line := attachments.New(r.home).MessageLines(r.db, rid, "look")
 	want := fmt.Sprintf("[image 1: %s/attachments/%s.png (image/png, 2 KB)]", r.home, img.ID)
 	if line != want {
 		t.Fatalf("path line %q, want %q", line, want)
@@ -75,4 +75,54 @@ func TestSendRefusesWhatIsNotAnImageList(t *testing.T) {
 	if n := r.count("SELECT COUNT(*) FROM requests"); n != 0 {
 		t.Fatalf("a refused send wrote %d requests", n)
 	}
+}
+
+func TestASendsBodyNamesImagesAsATasksTextDoes(t *testing.T) {
+	r := newRig(t)
+	s := r.server("")
+	a, b := putImage(t, r), putImage(t, r)
+	body := fmt.Sprintf("see ![the button](attachment:%s)", a.ID)
+	res := r.result(r.one(s, "chat.send", fmt.Sprintf(`{"agent":"alice","body":%q,"attachments":[%q,%q],"request_id":"d1"}`, body, b.ID, a.ID)))
+	rid := int64(res["request"].(float64))
+	if got, _ := attachments.Of(r.db, rid); len(got) != 1 || got[0].ID != b.ID {
+		t.Fatalf("only the listed id the body does not name is recorded: %v", got)
+	}
+	lines := attachments.New(r.home).MessageLines(r.db, rid, body)
+	if !strings.HasPrefix(lines, "[image 1: "+r.home+"/attachments/"+a.ID) || !strings.Contains(lines, "[image 2: "+r.home+"/attachments/"+b.ID) {
+		t.Fatalf("the reference first, then the listed: %q", lines)
+	}
+	r.result(r.one(s, "chat.send", fmt.Sprintf(`{"agent":"alice","body":"again","attachments":[%q],"request_id":"d2"}`, a.ID)))
+	var refs string
+	for _, img := range []*attachments.Info{a, b, putImage(t, r), putImage(t, r)} {
+		refs += fmt.Sprintf("![x](attachment:%s)", img.ID)
+	}
+	more := []*attachments.Info{putImage(t, r), putImage(t, r), putImage(t, r)}
+	e, _ := r.one(s, "chat.send", fmt.Sprintf(`{"agent":"alice","body":%q,"attachments":[%q,%q,%q],"request_id":"d3"}`, refs, more[0].ID, more[1].ID, more[2].ID))["error"].(map[string]any)
+	if e == nil || e["data"].(map[string]any)["field"] != "attachments" {
+		t.Fatalf("4 referenced and 3 listed are over 6: %v", e)
+	}
+	e, _ = r.one(s, "chat.send", `{"agent":"alice","body":"![x](attachment:0000000000000000)","request_id":"d4"}`)["error"].(map[string]any)
+	if e == nil || e["data"].(map[string]any)["what"] != "attachment" {
+		t.Fatalf("a reference to an image that is not there: %v", e)
+	}
+	res = r.result(r.one(s, "chat.send", fmt.Sprintf(`{"agent":"alice","body":%q,"task":{"title":"fix it"},"request_id":"d5"}`, body)))
+	if res["accepted"] != true {
+		t.Fatalf("a message that opens a task may name images: %v", res)
+	}
+	held, _ := attachments.Held(r.db, 1)
+	if _, ok := held[a.ID]; !ok {
+		t.Fatalf("the task's brief holds the image: %v", held)
+	}
+}
+
+func TestAnAgentSaysOnlyImagesAMessageOrTaskAlreadyShows(t *testing.T) {
+	r := newRig(t)
+	founder, alice := r.server(""), r.server("alice")
+	sent, fresh := putImage(t, r), putImage(t, r)
+	r.result(r.one(founder, "chat.send", fmt.Sprintf(`{"agent":"alice","body":"look","attachments":[%q],"request_id":"e1"}`, sent.ID)))
+	e, _ := r.one(alice, "say", fmt.Sprintf(`{"target":"bob","body":"![x](attachment:%s)","request_id":"e2"}`, fresh.ID))["error"].(map[string]any)
+	if e == nil || e["data"].(map[string]any)["gate"] != "role" {
+		t.Fatalf("an upload no one has sent: %v", e)
+	}
+	r.result(r.one(alice, "say", fmt.Sprintf(`{"target":"bob","body":"the founder's ![x](attachment:%s)","request_id":"e3"}`, sent.ID)))
 }

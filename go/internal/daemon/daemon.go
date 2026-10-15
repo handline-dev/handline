@@ -428,7 +428,9 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 				sessionrpc.RegisterTyping(s, d.typing())
 			}
 		},
-		func(s *rpc.Server) { taskwrites.Register(s, d.cfg.Home, d.teller()) },
+		func(s *rpc.Server) {
+			taskwrites.Register(s, d.cfg.Home, d.teller(), chatwrites.DecideCard(d.env(), d.teller()))
+		},
 		func(s *rpc.Server) { taskresult.Register(s, d.cfg.Home, d.db) },
 		func(s *rpc.Server) { termchan.Register(s, d.tchan) },
 	}

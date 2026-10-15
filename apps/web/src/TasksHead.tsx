@@ -35,7 +35,7 @@ export function TasksHead(props: {
   onFilter: (f: TaskFilter) => void;
   onView: (m: Mode) => void;
   onSelecting: () => void;
-  onAct: (what: 'states' | 'keys' | 'new') => void;
+  onAct: (what: 'states' | 'keys' | 'new' | 'graph') => void;
 }) {
   const { filter, mode, selecting } = props;
   return (
@@ -127,6 +127,13 @@ export function TasksHead(props: {
         variant={selecting ? 'outline' : 'ghost'}
         className={`max-sm:min-h-[44px]${selecting ? ' [background:var(--bg-3)]' : ''}`}
         onClick={() => props.onSelecting()}
+      />
+      <Button
+        icon="viewTree"
+        label="Graph"
+        title="Graph of what waits on what"
+        className="max-sm:min-h-[44px]"
+        onClick={() => props.onAct('graph')}
       />
       <Button icon="keys" label="Keys" title="Keys (?)" className="max-sm:min-h-[44px]" onClick={() => props.onAct('keys')} />
       <Button

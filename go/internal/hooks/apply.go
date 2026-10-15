@@ -19,7 +19,7 @@ const hookKeep = 24 * time.Hour
 
 // captured are the hook events that are recorded; PostToolUse is deliberately absent.
 var captured = set("SessionStart", "SessionEnd", "Stop", "StopFailure", "SubagentStop", "PostCompact", "UserPromptSubmit",
-	"PermissionRequest", "TeammateIdle")
+	"PermissionRequest", "TeammateIdle", "Notification")
 
 // answers say a permission prompt was answered or a tool ran: they are never recorded.
 var answers = set("PostToolUse", "PostToolUseFailure")
@@ -29,7 +29,7 @@ var endsWait = set("UserPromptSubmit", "Stop", "StopFailure", "SessionStart", "S
 
 // allowlist is, per event, the stdin fields worth keeping.
 var allowlist = []string{"session_id", "hook_event_name", "source", "reason", "cwd", "prompt_length", "transcript_path",
-	"model", "trigger", "tool_name", "error", "error_details"}
+	"model", "trigger", "tool_name", "error", "error_details", "notification_type"}
 
 func set(names ...string) map[string]bool {
 	m := make(map[string]bool, len(names))
@@ -140,6 +140,7 @@ func Apply(db *sql.DB, home, agent, event string, raw map[string]any, requestID 
 
 func apply(tx *sql.Tx, home, agent, event string, raw map[string]any, at int64, late bool) error {
 	if answers[event] && !late {
+		clearNotified(home, agent)
 		if err := noteToolUse(tx, agent); err != nil {
 			return err
 		}
@@ -174,6 +175,7 @@ func apply(tx *sql.Tx, home, agent, event string, raw map[string]any, at int64, 
 		payload["input_keys"] = keys
 	} else if endsWait[event] && !late {
 		clearWait(home, agent)
+		clearNotified(home, agent)
 	}
 	var body any
 	if len(payload) > 0 {
@@ -201,6 +203,9 @@ func apply(tx *sql.Tx, home, agent, event string, raw map[string]any, at int64, 
 		// After its own row exists, so the id later compared against is this exact prompt's.
 		tool, _ := raw["tool_name"].(string)
 		noteWait(home, agent, tool, raw["tool_input"], eid)
+	}
+	if event == "Notification" && raw["notification_type"] == "permission_prompt" {
+		noteNotified(home, agent, at)
 	}
 	return markActivity(tx, agent, event, payload)
 }
