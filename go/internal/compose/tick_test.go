@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -632,4 +633,58 @@ func TestTheDiskWatchEntryTellsTheFounderOnceFromTheTaskBoard(t *testing.T) {
 	if again := told(); len(again) != 1 {
 		t.Fatalf("a second check at the same level told again: %q", again)
 	}
+}
+
+func TestAStructuredAgentsViewSaysRunningWhileAShortTurnRunsAndIdleWhenItEnds(t *testing.T) {
+	p, _, _, _ := wired(t)
+	d := p.Sink.DB
+	if err := dbpkg.SetAgentState(d, "alice", "IDLE", 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbpkg.ClearClosed(d, "alice"); err != nil { // wired left it closed; it is opened below
+		t.Fatal(err)
+	}
+	p.Tick(p.Run.cfg, TickConfig{}) // the view writer is told each turn's start and end; no tick runs here
+	var mu sync.Mutex
+	var seen []string
+	refresh := *p.refreshView.Load()
+	watch := func(agent string) {
+		refresh(agent)
+		var raw string
+		d.QueryRow("SELECT view FROM agent_view WHERE agent = ?", agent).Scan(&raw)
+		mu.Lock()
+		seen = append(seen, stateOf(raw))
+		mu.Unlock()
+	}
+	p.refreshView.Store(&watch)
+	if err := p.Run.Open(lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "11111111-1111-4111-8111-111111111111"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Run.Send("alice", "op1", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if !p.Run.WaitIdle("alice", 10*time.Second) {
+		t.Fatal("the turn ends")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		got := strings.Join(seen, " ")
+		mu.Unlock()
+		if strings.Contains(got, "running") && strings.HasSuffix(got, "idle") {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("views written as the turn ran: %q, want running then idle", got)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func stateOf(view string) string {
+	var v struct {
+		State string `json:"state"`
+	}
+	json.Unmarshal([]byte(view), &v)
+	return v.State
 }
