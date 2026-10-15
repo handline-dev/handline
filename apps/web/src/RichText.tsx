@@ -2,10 +2,11 @@
 // of its own; the Tasks page where there are no panes), and #N as a link to that message where the caller has messages.
 import type { MouseEvent, ReactNode } from 'react';
 import { findImageRefs, findRefs, openTask, openTaskTab, taskRef } from '@handline/app-core';
-import { useTasks } from '@handline/app-data';
+import { useAgents, useTasks } from '@handline/app-data';
 import { AttachmentImage } from './AttachmentImage.tsx';
 import { PathText } from './PathText.tsx';
 import { goTasks } from './route.ts';
+import { shell } from './shell.ts';
 import { useWorkspaceIfAny } from './Workspace.tsx';
 
 const LINK = 'ref border-0 bg-transparent p-0 font-mono text-[12px] leading-4 text-link underline cursor-pointer';
@@ -33,8 +34,11 @@ export function RichText({ text, agent, onRef }: { text: string; agent?: string;
 function Refs({ text, agent, onRef }: { text: string; agent?: string; onRef?: (id: number) => void }) {
   const ws = useWorkspaceIfAny();
   const known = useKnownTask();
-  const refs = findRefs(text, { messages: !!onRef, task: known });
-  if (!refs.length) return <PathText text={text} agent={agent} />;
+  const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
+  // In the desktop app a #N is a pull request; elsewhere it is a message of this chat, where there are any.
+  const pr = shell('openPr');
+  const refs = findRefs(text, { messages: !!onRef || !!pr, task: known });
+  if (!refs.length) return <PathText text={text} agent={agent} names={names} />;
   const open = (id: number, own: boolean) => {
     if (!ws) goTasks(id);
     else ws.apply((w) => (own ? openTaskTab(w, id) : openTask(w, id)));
@@ -42,10 +46,21 @@ function Refs({ text, agent, onRef }: { text: string; agent?: string; onRef?: (i
   const parts: ReactNode[] = [];
   let at = 0;
   for (const r of refs) {
-    if (r.start > at) parts.push(<PathText key={`t${at}`} text={text.slice(at, r.start)} agent={agent} />);
+    if (r.start > at) parts.push(<PathText key={`t${at}`} text={text.slice(at, r.start)} agent={agent} names={names} whole={text} />);
     const shown = text.slice(r.start, r.end);
     parts.push(
-      r.kind === 'message' ? (
+      r.kind === 'message' && pr ? (
+        <button
+          key={r.start}
+          type="button"
+          className={LINK}
+          data-pr={r.id}
+          title={`Open pull request ${shown} on GitHub`}
+          onClick={() => void pr.openPr!({ number: r.id, ...(agent ? { agent } : {}) })}
+        >
+          {shown}
+        </button>
+      ) : r.kind === 'message' ? (
         <button key={r.start} type="button" className={LINK} title={`Go to ${shown}`} onClick={() => onRef!(r.id)}>
           {shown}
         </button>
@@ -65,6 +80,6 @@ function Refs({ text, agent, onRef }: { text: string; agent?: string; onRef?: (i
     );
     at = r.end;
   }
-  if (at < text.length) parts.push(<PathText key={`t${at}`} text={text.slice(at)} agent={agent} />);
+  if (at < text.length) parts.push(<PathText key={`t${at}`} text={text.slice(at)} agent={agent} names={names} whole={text} />);
   return <>{parts}</>;
 }

@@ -8,6 +8,7 @@ import { unixSocketTransport } from '@handline/client-node';
 import { isDebugWindow } from './debug-window.ts';
 import { Desk } from './desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
+import { gitView, scratch } from './git-view.ts';
 import { Opener } from './open.ts';
 import { followMain, takeRoute } from './follow-app.ts';
 import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from './mode.ts';
@@ -217,9 +218,13 @@ if (!app.requestSingleInstanceLock()) {
       worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,
       open: (p) => shell.openPath(p),
       reveal: (p) => shell.showItemInFolder(p),
+      git: gitView,
+      openExternal: (url) => shell.openExternal(url),
+      scratch: (name, bytes) => scratch(app.getPath('temp'), name, bytes),
     });
     const composer = new Composer(origin, { env: editorEnv, tmp: app.getPath('temp') });
     ipcMain.handle(CHANNELS.openPath, (e, arg) => opener.openPath(e, arg));
+    ipcMain.handle(CHANNELS.openPr, (e, arg) => opener.openPr(e, arg));
     ipcMain.handle(CHANNELS.compose, (e, arg) => composer.compose(e, arg));
     ipcMain.handle(CHANNELS.cancelCompose, (e, arg) => composer.cancel(e, arg));
     app.on('quit', () => composer.dispose());
