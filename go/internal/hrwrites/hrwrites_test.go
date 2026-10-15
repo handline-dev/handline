@@ -660,7 +660,18 @@ func TestTeamSealPlansWritesNothingSealsOnTheGoAheadAndRefusesAnAgent(t *testing
 	if err := os.WriteFile(filepath.Join(r.home, "agents", "alice", "agent.yaml"), []byte(yaml+"# edited behind the seal\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	events := func() (n int) {
+		t.Helper()
+		if err := r.db.QueryRow("SELECT COUNT(*) FROM events WHERE kind != 'founder_key'").Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	before := events()
 	plan := res(r.call("team.seal", `{"dry_run":true,"request_id":"s1"}`))
+	if events() != before {
+		t.Fatal("a dry run left an event")
+	}
 	text, _ := plan["plan"].(string)
 	if plan["ok"] != true || !strings.Contains(text, "agent alice (it did not match its seal) as ") || !strings.Contains(text, "file(s) would be sealed") {
 		t.Fatalf("%v", plan)
