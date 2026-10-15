@@ -1,6 +1,6 @@
 # First run in other agent tools (story 10-1)
 
-How other agent tools take a first-time user from nothing to a first finished piece of work, read from their code, step by step. Research only; nothing here is built. The steps follow 10-0: install and first launch, connect an account, add a project, folder trust, build a team or pick agents, give the first work, watch it, review, merge.
+How other agent tools take a first-time user from nothing to a first finished piece of work, read from their code, step by step. Research only; nothing here is built. A last section reads the 56 App Store screenshots of mobile agent apps against `docs/mobile-apps-reference.md`. The steps follow 10-0: install and first launch, connect an account, add a project, folder trust, build a team or pick agents, give the first work, watch it, review, merge.
 
 ## The tools read
 
@@ -72,7 +72,7 @@ Two approaches, and only Orca of the terminal-based tools writes Claude's config
   - it skips the lock when nothing would change;
   - it writes both the given path and its realpath (`:286`).
   `src/main/agent-workspace-trust.ts` (`applyAgentWorkspaceTrust`) calls it before every launch, with a short deadline, so a miss only means the agent asks. `execution-host-workspace-trust.ts` refuses to pre-trust a home or the root (`wouldTrustAHome`) and holds the same writers for Codex, Cursor and others. An SSH host writes on its own disk.
-- **The rest avoid the dialog** by not running the interactive CLI. Vibe Kanban runs `npx -y @anthropic-ai/claude-code@2.1.119 -p` with stream-json (`claude.rs:150`), and skip-permissions is on by default (`crates/executors/default_profiles.json`). Crystal runs `-p` with stream-json (`main/src/services/panels/claude/claudeCodeManager.ts:66`, `:123`), skip-permissions by default (`:90`). Nimbalyst and CloudCLI use the Agent SDK, whose permission modes and `canUseTool` route prompts into the app. None of these four writes trust; Vibe Kanban, Nimbalyst and CloudCLI write `.claude.json` only to save MCP servers (Nimbalyst `packages/electron/src/main/services/MCPConfigService.ts:370` merges, keeping other keys).
+- **The rest avoid the dialog** by not running the interactive CLI. Vibe Kanban runs `npx -y @anthropic-ai/claude-code@2.1.119 -p` with stream-json (`crates/executors/src/executors/claude.rs:65` pins the version, `:159` adds `-p`), and skip-permissions is on by default (`crates/executors/default_profiles.json`). Crystal runs `-p` with stream-json (`main/src/services/panels/claude/claudeCodeManager.ts:66`, `:123`), skip-permissions by default (`:90`). Nimbalyst and CloudCLI use the Agent SDK, whose permission modes and `canUseTool` route prompts into the app. None of these four writes trust; Vibe Kanban, Nimbalyst and CloudCLI write `.claude.json` only to save MCP servers (Nimbalyst `packages/electron/src/main/services/MCPConfigService.ts:370` merges, keeping other keys).
 - Claude Squad has `session/tmux/tmux.go:161` `CheckAndHandleTrustPrompt`, which reads the pane and presses Enter on "Do you trust the files in this folder?". At this commit nothing calls it, so the user meets the dialog on attach.
 - Conductor's docs do not say how it handles trust.
 
@@ -121,3 +121,32 @@ Borrow: diff comments that go back to the agent as its next message; review stay
 - Claude Squad: `session/git/worktree_git.go:71` commits everything with `--no-verify` and pushes; the PR is made by hand. CloudCLI: commit with an agent-written message (`server/modules/git/git.routes.ts:1047`), then push. opencode: none.
 
 Borrow: Vibe Kanban's refusal to merge when the base moved, with rebase one click away, and Conductor's archive of the workspace after the merge, so a finished task leaves nothing behind.
+
+## Mobile agent apps (App Store screenshots)
+
+`orca-references/apps` holds 56 App Store screenshots (`IMG_8418.PNG` to `IMG_8473.PNG`), each read for this section. `docs/mobile-apps-reference.md` (the phone app research) reads the same set for the phone app: 10 apps and 19 ideas. This section does not repeat those. It adds what the set says about first run and about the PC. As that doc found, no app's screenshots show its first run: the store sets open on the working app. What they show of the first steps is what each app promises a new user and how it starts the first piece of work.
+
+| App | Files | Menu set | Sessions and chat | For first run or the PC |
+|---|---|---|---|---|
+| Moshi | 8418–8424 | Inbox / Usages switch | A Mosh terminal per session, kept through sleep, app exit and network change | "Back to every session" after a reconnect: the promise that nothing was lost |
+| T3 Code | 8425–8430 | `…` menu; Environments sheet | One list across machines: repo, title, branch, machine, state, with an "Unsent: sends on reconnect" group | Machines are added by URL or through its relay. Each one is chosen as trusted to share PR data and GitHub access (8426). "Works with the agents you already use" (8425) |
+| Happy | 8431–8435 | Sessions list, filter, settings | Bots with faces, sessions by project and branch, a team chat of people and agents | A desktop companion: a sidebar of Bots, then Projects with their branches under them (8434). "Use existing Claude, ChatGPT, Grok subscriptions" (8431). MIT licensed (8435) |
+| Hermex | 8436–8443 | Bots, Tasks, Kanban, Skills, Memory, Usage, Active Profile, Projects, Scheduled sessions; Sessions with a Chat button | Chat with Thinking and tool-call rows; a stop button | The approval card says in one line what each scope covers: "Allow session covers every recursive delete in this session; Always allow covers it on this server from now on" (8438) |
+| Railway | 8444–8448 | Bottom bar: overview, services, metrics, logs, chat | Chat that stages a change, then Apply | An empty home that says so plainly: "Zero notifications at the moment. Close the app, touch grass." (8444) |
+| Agent-chat app (no name shown) | 8449–8451 | Menu button | Chat with Thinking and Shell rows; a Changes / Files / Terminals sheet with Commit | The turn ends with a report: commit, message, changed file, and "Unrelated change left untouched" (8449) |
+| Codex client (no name shown) | 8452–8456 | Menu button | Chat; review findings as bug / warning / suggestion chips; Write tests / Refactor / Explain pills | Terminal tabs (Git, SSH) that say "reconnecting to the existing terminal session" (8456) |
+| General AI assistant | 8457–8461 | Explore prompts, Chat, Detect, Recent | Plain chat | Nothing for agent work |
+| Cursor (mobile) | 8462–8467 | All Workspaces: Pinned, Today, by repo | Rows with repo, Working / Passed / No Changes / Merged, +/− lines; a walkthrough video on a finished turn | A "Plan, ask, build…" box at the foot of the workspace list starts new work without a dialog. It names the repo and branch and picks the model (8462, 8463) |
+| BotBus | 8468–8473 | Computers; a computer; New Task | Projects with their agent; chat with a "Wants to run a command" card | New Task is three choices: project, connector (agent), what to do (8469). Each project shows its agent. Pairing is many to many: one computer pairs with several phones (8472) |
+
+### What they add to the first run and the PC
+
+- **Say "bring your own subscription" on the first screen.** Happy and T3 Code both lead with it (8431, 8425); Orca's docs do too. For a new user it answers the first worry: no new account and no API key.
+- **One box to start work.** Cursor, Happy and Hermex put a composer under the list ("Plan, ask, build…") that starts a session in a named repo and branch. BotBus's New Task asks only project, agent and what to do. Our first-work step should be that short.
+- **A sidebar of agents above projects with their branches.** Happy's desktop companion (8434) is the PC layout of a team: bots on top, each project with its worktrees under it. It matches Orca's parent and child worktrees.
+- **Explain a permission choice in one line where it is made.** Hermex's approval card (8438) does it for scopes. The first-run permission choice (Orca's Yolo mode, Vibe Kanban's and Crystal's notices) needs the same one line of what it allows.
+- **Trust per machine, said once.** T3 Code asks which machines may share PR data and GitHub access (8426). When a second machine is added, that is the question to ask.
+- **A calm empty state.** Railway's "Zero notifications at the moment" (8444): a new user's empty inbox should say nothing is waiting, not look broken.
+- **An end-of-turn report that names what was left alone.** "Unrelated change left untouched" (8449) is the review step's first line of trust. Our task done evidence could carry the same line.
+- **Say that a session survived.** Moshi (8418) and the Codex client (8456) say so when they reconnect. The PC app should say it too, after the daemon restarts or the laptop wakes.
+
