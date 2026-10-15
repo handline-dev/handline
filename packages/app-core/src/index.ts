@@ -19,5 +19,6 @@ export * from './task-verbs.ts';
 export * from './task-people.ts';
 export * from './task-graph.ts';
 export * from './images.ts';
+export * from './my-turn.ts';
 export * from './annotation.ts';
 export * from './annotation-raster.ts';

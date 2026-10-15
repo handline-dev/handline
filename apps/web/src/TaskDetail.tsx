@@ -219,9 +219,9 @@ function Body({ t }: { t: Detail }) {
       {ask === 'edit' ? <EditForm t={t} onClose={() => setAsk(null)} /> : null}
 
       {t.body ? (
-        <p className="tbody-text m-0 whitespace-pre-wrap">
+        <div className="tbody-text m-0 whitespace-pre-wrap">
           <RichText text={t.body} />
-        </p>
+        </div>
       ) : null}
 
       {t.blockers.length ? <TaskLinks icon="waiting" label="Waits on" items={t.blockers} /> : null}

@@ -53,7 +53,7 @@ A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, 
 - `needs_you.json`'s dialog-rule fixture needs `--var dialogs_retired=1`: a daemon that answers no dialog and refuses to save a dialog rule (the var only names that it is so). The Python daemon keeps saving them until the cutover.
 - `hr.json`'s three seeded fixtures need `--var hr_seeded=1`: a daemon that holds one open HR proposal and one rejected one (the var only names that the daemon is so seeded). The last of them rejects the open one, so run the file whole and in order.
 - Agent and member cannot be faked: an agent is a peer process that descends from a recorded session, a member a paired device. A CI run supplies them with `--as agent=SOCKET` from a process started inside such a session, and `--as member=SOCKET` over a device token; without them those fixtures SKIP and the run exits 3, which `--allow-skip` turns into 0. The Go run records a child process as an agent's session in its scratch home and takes the agent's socketpairs from it.
-- `--skip-file PATH` names fixtures not to run, one per line (`go/conformance-skip.txt`: those left failing on a known gap, each with its reason). They are counted as skipped by name and do not make the run exit 3.
+- `--skip-file PATH` names fixtures whose failure does not count, one per line (`go/conformance-skip.txt`: those left failing on a known gap, each with its reason). They still run: one that fails is counted as skipped by name and does not make the run exit 3, and one that passes is stale and fails the run.
 - A socket can also be a function returning a connected socket (`conformance.run_all`), which is how the tests serve the Python daemon over a socket pair.
 
 ## Prompt captures

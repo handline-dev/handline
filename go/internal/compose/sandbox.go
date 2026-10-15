@@ -24,6 +24,8 @@ type Confinement struct {
 	AllowWrite, AllowDomains []string
 	// CacheDir is its own build caches (claude.CacheEnv), which it may write too.
 	CacheDir string
+	// Allowed is what the founder allowed its repo beyond the sandbox.
+	Allowed team.RepoAllowances
 }
 
 // SandboxSettings is the sandbox and the permission denies of a session: the shared settings' sandbox (network, writable folders) and
@@ -72,9 +74,18 @@ func SandboxSettings(shared []byte, c Confinement) map[string]any {
 		sandbox["network"] = network
 	}
 	sandbox["enabled"] = !c.SandboxOff
+	if c.Allowed.WeakerNetwork {
+		sandbox["enableWeakerNetworkIsolation"] = true
+	}
+	if len(c.Allowed.Excluded) > 0 {
+		have, _ := sandbox["excludedCommands"].([]any)
+		for _, cmd := range c.Allowed.Excluded {
+			have = append(have, cmd)
+		}
+		sandbox["excludedCommands"] = have
+	}
 	out := map[string]any{"sandbox": sandbox}
 	if c.CacheDir != "" {
-		sandbox["enableWeakerNetworkIsolation"] = true // Go on macOS verifies TLS through trustd, which the default isolation blocks
 		env := map[string]any{}
 		for _, kv := range claude.CacheEnv(c.CacheDir) {
 			env[kv[0]] = kv[1]
@@ -129,6 +140,7 @@ func (r *Runner) confinementOf(agent, worktree string) (Confinement, error) {
 	c := Confinement{Hide: hide, NoWrite: noWrite, ExtraDirs: extra, ReadAllow: []string{filepath.Join(lc.Launch.Home, "attachments")}, SandboxOff: !lc.roster.SandboxOn(agent, cfg)}
 	if !c.SandboxOff {
 		c.AllowWrite, c.AllowDomains, c.CacheDir = lc.Launch.SandboxAllowWrite(agent), team.SandboxDomains(cfg), lc.Launch.SandboxCacheDir(agent)
+		c.Allowed = lc.roster.RepoAllowancesOf(cfg)
 	}
 	return c, nil
 }

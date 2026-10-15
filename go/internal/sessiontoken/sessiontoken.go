@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/handline/handline/go/internal/peer"
 	"github.com/handline/handline/go/internal/protected"
@@ -48,24 +49,45 @@ func (t *Tokens) Record(agent string, pid int) bool {
 	if !ok {
 		return false
 	}
-	lines := []string{fmt.Sprintf("%d %s", pid, info.Start)}
-	for _, s := range t.sessions(agent) {
-		if s.pid != pid && t.running(s) {
-			lines = append(lines, fmt.Sprintf("%d %s", s.pid, s.start))
+	return t.locked(func() bool {
+		lines := []string{fmt.Sprintf("%d %s", pid, info.Start)}
+		for _, s := range t.sessions(agent) {
+			if s.pid != pid && t.running(s) {
+				lines = append(lines, fmt.Sprintf("%d %s", s.pid, s.start))
+			}
 		}
-	}
-	return t.Store.Put(NS, agent, strings.Join(lines, "\n")) == nil
+		return t.Store.Put(NS, agent, strings.Join(lines, "\n")) == nil
+	})
 }
 
 // Forget drops pid from agent's sessions, once that process has exited. False when the store cannot be written.
 func (t *Tokens) Forget(agent string, pid int) bool {
-	var lines []string
-	for _, s := range t.sessions(agent) {
-		if s.pid != pid {
-			lines = append(lines, fmt.Sprintf("%d %s", s.pid, s.start))
+	return t.locked(func() bool {
+		var lines []string
+		for _, s := range t.sessions(agent) {
+			if s.pid != pid {
+				lines = append(lines, fmt.Sprintf("%d %s", s.pid, s.start))
+			}
 		}
+		return t.Store.Put(NS, agent, strings.Join(lines, "\n")) == nil
+	})
+}
+
+// locked runs write holding the store's lock on the sessions, so a Record and a Forget, in this process or another (hl launch), never
+// write over what the other just wrote. False when the lock cannot be taken.
+func (t *Tokens) locked(write func() bool) bool {
+	if t.Store.Ensure(NS) != nil {
+		return false
 	}
-	return t.Store.Put(NS, agent, strings.Join(lines, "\n")) == nil
+	f, err := os.OpenFile(filepath.Join(t.Store.Root, NS+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if syscall.Flock(int(f.Fd()), syscall.LOCK_EX) != nil {
+		return false
+	}
+	return write()
 }
 
 type session struct {

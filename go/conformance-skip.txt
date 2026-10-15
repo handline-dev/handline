@@ -1,3 +1,2 @@
 # Fixtures the Go run plays as an agent that fail on a gap too big for the change that gave the run its agent connection.
-# contract/conformance.py --skip-file reads one per line. Delete a line when its gap closes; a name no fixture has fails the run.
-task.accept.nothing_to_accept_when_the_opener_closed_it  # an agent's task.new for itself: routing refuses "an agent cannot ask itself", as Python's did
+# contract/conformance.py --skip-file reads one per line. The fixtures still run: one that passes, or a name no fixture has, fails the run.
