@@ -300,3 +300,13 @@ func TestAPassOverManyTaskDeliveriesLoadsTheBoardOnce(t *testing.T) {
 		t.Fatalf("the board was loaded %d times for %d task deliveries", pass.ch.loads, n)
 	}
 }
+
+func TestEveryTaskEventNamesWhoDidIt(t *testing.T) {
+	for kind := range transcriptEvents {
+		who := "by." + kind // the writer records the actor as the event's agent
+		item, _, ok := taskItemOf(row{"id": int64(1), "ts": int64(5), "agent": who, "kind": kind, "payload": `{"task_id": 7}`})
+		if !ok || item["task_event"].(map[string]any)["who"] != who {
+			t.Errorf("%s: %v", kind, item)
+		}
+	}
+}
