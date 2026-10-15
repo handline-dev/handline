@@ -146,7 +146,7 @@ func TestAHeldMessageThatLosesItsSessionIsOwedAgain(t *testing.T) {
 }
 
 func TestSessionConfirmedLandsTheRequests(t *testing.T) {
-	r, _ := structuredRig(t)
+	r, fa := structuredRig(t)
 	rid := r.ask("alice", "bob", "do this", "ask")
 	op := requestOp(rid)
 	if state, _ := r.sendOnce(r.DB, "bob", op, "do this", structured.Queue); state != Written {
@@ -157,8 +157,36 @@ func TestSessionConfirmedLandsTheRequests(t *testing.T) {
 	if !row.LandedAt.Valid {
 		t.Fatalf("%+v", row)
 	}
-	if v, _ := db.Cursor(r.DB, ledgerKey("bob", op)); v != sendConfirmed {
-		t.Fatal(v)
+	if v, _ := db.Cursor(r.DB, ledgerKey("bob", op)); v != 0 {
+		t.Fatalf("a landed message stays on the ledger: %d", v)
+	}
+	if sent, _ := r.DeliverQueued(r.DB, "bob"); sent || len(fa.sent) != 1 {
+		t.Fatalf("a landed message was written again: %+v", fa.sent)
+	}
+}
+
+func TestAMessageLeavesTheLedgerWhenEveryRequestItCarriedLandsOrIsClosed(t *testing.T) {
+	r, _ := structuredRig(t)
+	a, b := r.ask("alice", "bob", "one", "say"), r.ask("carol", "bob", "two", "say")
+	op := requestOp(a, b)
+	if state, _ := r.sendOnce(r.DB, "bob", op, "one, two", structured.Now); state != Written {
+		t.Fatal(state)
+	}
+	r.must(db.MarkLanded(r.DB, a))
+	if v, _ := db.Cursor(r.DB, ledgerKey("bob", op)); v != sendWritten {
+		t.Fatalf("one of two landed: the message is still out (%d)", v)
+	}
+	if ok, err := db.CloseIfQueued(r.DB, b, "withdrawn", "", db.CloseOpts{}); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	if v, _ := db.Cursor(r.DB, ledgerKey("bob", op)); v != 0 {
+		t.Fatalf("both settled: the entry goes (%d)", v)
+	}
+	r.must(r.SessionLost(r.DB, "bob"))
+	var n int
+	r.must(r.DB.QueryRow("SELECT count(*) FROM requests WHERE body LIKE '%may or may not%'").Scan(&n))
+	if n != 0 {
+		t.Fatalf("%d senders told about a message whose fate was known", n)
 	}
 }
 
@@ -186,6 +214,36 @@ func TestNoticesAndCancelsGoThroughTheSendPath(t *testing.T) {
 	fa.live["bob"] = false
 	if ok, _ := r.TypeNotice(r.DB, "bob", "later"); ok {
 		t.Fatal("sent with no session")
+	}
+}
+
+func TestAnEchoThatLandsTheRequestDuringTheWriteIsStillSent(t *testing.T) {
+	r, fa := structuredRig(t)
+	rid := r.ask("alice", "bob", "hi", "say")
+	fa.onSend = func() { r.must(r.SessionConfirmed(r.DB, "bob", requestOp(rid))) } // landing it takes it off the ledger
+	what, err := r.TellNow(r.DB, rid)
+	r.must(err)
+	if !strings.HasPrefix(what, "sent") {
+		t.Fatalf("a delivered message read as not sent: %q", what)
+	}
+	if v, _ := db.Cursor(r.DB, ledgerKey("bob", requestOp(rid))); v != 0 {
+		t.Fatalf("ledger %d", v)
+	}
+}
+
+func TestABatchWhoseEchoLandsItDuringTheWriteIsStillDelivered(t *testing.T) {
+	r, fa := structuredRig(t)
+	a, b := r.ask("human", "bob", "one", "task"), r.ask("human", "bob", "two", "task")
+	fa.onSend = func() { r.must(r.SessionConfirmed(r.DB, "bob", requestOp(a, b))) }
+	sent, err := r.DeliverQueued(r.DB, "bob")
+	r.must(err)
+	if !sent {
+		t.Fatal("a delivered batch read as not sent")
+	}
+	for _, rid := range []int64{a, b} {
+		if row, _ := db.GetRequest(r.DB, rid); !row.DeliveredAt.Valid || !row.LandedAt.Valid {
+			t.Fatalf("#%d: %+v", rid, row)
+		}
 	}
 }
 
