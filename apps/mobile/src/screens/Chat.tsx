@@ -16,6 +16,7 @@ import { Line } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
 import { ChatFind } from './ChatFind.tsx';
 import { ChatRefs, type Ref } from './ChatRefs.tsx';
+import { HandoffLine } from './HandoffLine.tsx';
 import { NeedsYouCard } from './NeedsYouCard.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { useChatImages } from './ChatImages.tsx';
@@ -257,6 +258,7 @@ export function Chat(props: { detail: AgentDetail }) {
           </Text>
         )}
       </ScrollView>
+      <HandoffLine handoff={props.detail.handoff ?? null} />
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
       {picked && (
         <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>

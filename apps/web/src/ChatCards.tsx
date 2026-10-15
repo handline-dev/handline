@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail, Proposal } from '@handline/client';
-import { ago } from '@handline/app-core';
+import { ago, handoffLine } from '@handline/app-core';
 import { classify, sentence, useHr, useWrite } from '@handline/app-data';
 import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOf } from './ui/index.ts';
 import { goTeam } from './route.ts';
@@ -189,6 +189,23 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
         <span className="muted">{ago(need.since)}</span>
       </CardWhat>
       <Button icon="terminal" label="Open terminal" size="sm" disabled={!reachable} onClick={openTerminal} />
+    </Card>
+  );
+}
+
+/** While a session hands off: why and what, live, until the session marker takes its place. */
+export function HandoffCard({ detail }: { detail: AgentDetail }) {
+  const h = detail.handoff;
+  if (!h) return null;
+  const { why, what } = handoffLine(h);
+  return (
+    <Card variant="chat" className="card-handoff bg-surface" data-kind="handoff" data-phase={h.phase} role="status">
+      <Icon name="refresh" label="Handing off" />
+      <CardWhat stacked>
+        <strong>{why}</strong>
+        <span className="muted">{what}</span>
+        <span className="muted">{ago(h.since)}</span>
+      </CardWhat>
     </Card>
   );
 }
