@@ -33,9 +33,9 @@ export function timeline(
       if (n?.kind === 'task') return [{ kind: 'note', at: m.at, id: m.id, message: m, task: n.task }];
       return [{ kind: 'message', at: m.at, id: m.id, message: m }];
     }),
-    // A task card sits in the chat of the agent that made the change; the *all* tab shows every one.
+    // A task card sits in the chat of the agent that made the change, or of the founder acting for it (`human`); the *all* tab shows every one.
     ...items
-      .filter((i) => !(scope === 'mine' && agent && i.task_event && i.task_event.who !== agent))
+      .filter((i) => !(scope === 'mine' && agent && i.task_event && i.task_event.who !== agent && i.task_event.who !== 'human'))
       .map((i): TimelineEntry => ({ kind: 'item', at: i.at, id: i.id, item: i })),
   ];
   return out.sort((a, b) =>

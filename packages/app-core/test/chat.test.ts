@@ -176,7 +176,7 @@ test('a task card is in the chat of the agent that made the change; the all tab 
   const card = (id: number, who: string) =>
     ({ id, at: `2026-01-01T00:00:0${id}Z`, kind: 'task_event', task_event: { event: 'changed', task: 7, request: null, evidence: null, who } }) as unknown as TranscriptItem;
   const items = [card(1, 'alice'), card(2, 'bob'), card(3, 'human')];
-  assert.deepEqual(timeline([], items, 'mine', 'alice').map((e) => e.id), [1]);
+  assert.deepEqual(timeline([], items, 'mine', 'alice').map((e) => e.id), [1, 3]); // the founder acts on the agent's behalf
   assert.deepEqual(timeline([], items, 'all', 'alice').map((e) => e.id), [1, 2, 3]);
   assert.equal(taskRow(card(2, 'bob')).who, 'bob');
 });
