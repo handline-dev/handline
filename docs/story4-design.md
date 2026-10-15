@@ -1,7 +1,11 @@
 # Story 4 design: one daemon per app, one leader for shared state
 
 Design only; nothing is built. It builds on [the multi-machine research](story4-multi-machine-research.md)
-(section 5 for the Raft blocks). The founder decides the open questions at the end before any build.
+(section 5 for the Raft blocks). The founder's answers to its open questions are folded into the sections
+they change and listed under Decisions; Build slices at the end order the first build.
+
+**First scope: this Mac and one more Mac.** With two nodes only manual election is possible, so manual is
+built first. Automatic election stays designed (section 4) and is built later, for three nodes or more.
 
 **Names used throughout:** a **node** is one daemon on one machine. Exactly one node is the **leader**;
 every other node is a **follower**. No other pair is used, in this doc, the code or the UI.
@@ -38,7 +42,7 @@ promoted or elected).
 | Place work: which node and agent a new task goes to | leader only | queue: the task stays queued |
 | Triggers (scheduled and idle wakes) | leader only | queue at most one firing per trigger; the next leader runs it once |
 | Timeouts (task clocks, wake timers, the lost-node timer) | leader only | paused: no clock runs, none fires |
-| Shared writes from an app (`task.new`, `chat.send`, memos, edits) | leader applies | refuse, gate `no_leader`, so the app says why |
+| Shared writes from an app (`task.new`, `chat.send`, memos, edits) | leader applies | refuse, gate `no_leader`, so the app says why; not queued, so no write can conflict with the next leader's state |
 | Prune and back up shared state | leader only | skip until there is a leader |
 | Keep its running agents and terminals alive | every node | as always |
 | Record hooks and transcripts; working and idle state | every node | as always; reports to the leader are buffered and sent on promotion |
@@ -79,8 +83,9 @@ For a node that already ran alone, with tasks and chat of its own:
 3. Each picked task is created through the leader as a new task with a **new number**. Its body, memos
    and attachments are copied, and a first memo says "imported from <node> T<old>". Blockers between
    picked tasks are remapped. References to old numbers inside text are left as written.
-4. Chat history and closed tasks are not imported. They stay readable in the source until the founder
-   discards it (`node.import.discard`).
+4. Chat history comes as a **read-only archive**: the app shows it under the source node's name, and
+   nothing in it can be answered, edited or delivered. Closed tasks are not imported; they stay readable
+   in the source until the founder discards it (`node.import.discard`), which drops the archive too.
 
 No row is merged and no number is reused. The source records which tasks were already brought, so a
 second import does not duplicate them.
@@ -94,6 +99,10 @@ second import does not duplicate them.
 | Load: cores, memory, slots, the test lock | Team: agents and their node, links, trust roots |
 | The agent's worktrees and its repo mirror | Who is leader, the election mode, the node list |
 
+One account's login may live on two machines. The leader counts the **account cap across nodes**: each
+node reports its running sessions per account in its heartbeat, and the leader picks the account for a
+launch against the sum.
+
 The leader keeps a **node table** (name, address, tags, last heartbeat, lost or not). Agent state that
 apps show (`agent.changed`: running, idle, needs you) is the agent's own node's. That node sends it to
 the leader as compact state writes, so every app sees every agent. A terminal is attached through the
@@ -101,7 +110,8 @@ agent's node, and the app's own daemon relays the bytes.
 
 ## 4. The leader: chosen by the founder or elected
 
-`node.election {mode: "manual" | "automatic"}` is a founder write. Manual is the default.
+`node.election {mode: "manual" | "automatic"}` is a founder write. Manual is the default, and the only
+mode built first (two Macs); the automatic parts below are built later.
 
 **When the leader goes away**, it is either lost (missed heartbeats for 60 s) or released (the founder
 runs `node.leader.release`, or the leader's machine shuts down cleanly). Every follower stops scheduling
@@ -152,7 +162,8 @@ agent is a process on that machine.
   queued, and no turn is started.
 - Tasks they hold stay `doing`, flagged "agent on a lost node". The founder may hand a task to another
   agent (`task.handoff`). The worktree's last pushed branch is named in the flag, or "unpushed".
-- No automatic re-queue: the founder decides, as with any held task.
+- No automatic re-queue, however long the node stays lost: its tasks never go back to queued without the
+  founder, as with any held task.
 - On the lost machine itself, it is the leader that went away (section 4): its turns finish, nothing new
   starts, and its own app asks the promote question in manual mode. If the founder promotes it there, the
   epoch decides when the machines meet again.
@@ -178,18 +189,40 @@ The pc side changes the app; the daemon provides:
 6. **The election setting** with its refusal (`too_few_nodes`), `node.leader.set` and
    `node.leader.release`.
 
-The phone keeps pairing with one node's gateway, normally the leader's. It sees everything through that
-node's replica and forwarding.
+The phone pairs with **any node's** gateway and follows the leader when it changes. It sees everything
+through that node's replica and forwarding, so it still gets the promote question when the leader is lost.
 
-## Open questions for the founder
+## Decisions
 
-1. Which machines are in scope first: this Mac plus one more Mac, or also a Linux box? With two
-   nodes, only manual election is possible.
-2. May one account's login live on two machines? The account cap would then be counted across nodes.
-3. Import: bring chat history as a read-only archive, or not at all?
-4. Is 60 s right before a node counts as lost? And should a long-lost node's tasks ever go back to
-   queued without the founder?
-5. Where the phone pairs: always the leader, or any node (following the leader when it changes)?
-6. With no leader, shared writes from an app are refused (`no_leader`). Should a follower instead queue
-   them locally and send them on promotion? That is friendlier, but each queued write could then
-   conflict with the new leader's state.
+1. **Scope:** this Mac and one more Mac, so manual election only; automatic stays designed and is built
+   later (the intro and section 4).
+2. **Logins:** one account's login may live on two machines, and the account cap is counted across
+   nodes (section 3).
+3. **Import:** chat history comes as a read-only archive (section 2).
+4. **Lost node:** lost after 60 s of missed heartbeats, and its tasks never go back to queued without the
+   founder (section 5).
+5. **Phone:** pairs with any node and follows the leader (section 6).
+6. **No leader:** shared writes from an app are refused with `no_leader`, not queued (the duty table).
+
+## Build slices
+
+Two Macs, manual election. Each slice lands and is reviewed on its own, in this order.
+
+| # | Slice | Area | Hours |
+|---|---|---|---|
+| 1 | Node identity and the node table; `node.status` and the `nodes` topic on one node | daemon Go | 6 |
+| 2 | The write log on a single node: shared writes become indexed entries, applied in order; a writer reads its own write | daemon Go | 12 |
+| 3 | Node pairing: `device.pair` issues a node credential; `hl node join`; a node with its own data is refused | daemon Go, hl CLI | 6 |
+| 4 | Follower replica: snapshot at N, then the log streamed from N+1 and applied | daemon Go | 12 |
+| 5 | Write forwarding from a follower, and the `no_leader` refusal | daemon Go | 6 |
+| 6 | Heartbeats with load and per-account sessions; lost after 60 s; the `lost` agent state and the task flag | daemon Go | 6 |
+| 7 | Leader-only duties gated: launches, deliveries, placement, triggers and timeouts wait or pause with no leader | daemon Go | 8 |
+| 8 | Agents across nodes: `node.agent.register`, other nodes' agents in `agents.list` and `agent.changed`, the account cap across nodes | daemon Go | 8 |
+| 9 | Terminal attach relayed through the agent's node | daemon Go | 6 |
+| 10 | Manual promotion: the epoch on every entry, the promote card, `hl node promote`, `node.leader.set` and `node.leader.release`; a lower epoch's unsent entries set aside | daemon Go, hl CLI | 10 |
+| 11 | Import: the source set aside, `node.import.list`, `node.import.apply`, `node.import.discard`, the chat archive | daemon Go | 10 |
+| 12 | The Mac app's single mode: no connect mode, node status, the promote card, the join and import setup screen | app | 12 |
+| 13 | The phone pairs with any node, follows the leader and shows the promote question | app | 4 |
+
+About 106 hours in all. Automatic election (Raft, `too_few_nodes`, the switch both ways) is not in this
+list.
