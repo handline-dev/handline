@@ -34,6 +34,7 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 		{Name: "notice-digest", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepNotices(now) })},
 		{Name: "task-queue", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepTaskQueue(now) })},
 		{Name: "task-holds", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepHolds(now) })},
+		{Name: "task-stalls", Run: func(q db.Q, now int64) error { return lc.Env.SweepStalls(now) }},
 		{Name: "subscriptions", Run: fromCutover(cutover, func(q db.Q, now int64) error { return subs.Sweep() })},
 		{Name: "wait-for", Run: fromCutover(cutover, func(q db.Q, now int64) error { return wait.Sweep(q, now) })},
 		{Name: "schedules", Run: fromCutover(cutover, func(q db.Q, now int64) error { return sched.Sweep(now) })},
