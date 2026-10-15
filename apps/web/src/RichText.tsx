@@ -1,6 +1,6 @@
 // The one renderer of free text: openable paths, T<N> as a link to the task (plain click: this pane's Tasks tab; ctrl, cmd or middle click: a tab
 // of its own; the Tasks page where there are no panes), and #N as a link to that message where the caller has messages.
-import type { MouseEvent, ReactNode } from 'react';
+import { useState, type MouseEvent, type ReactNode } from 'react';
 import { findImageRefs, findRefs, openTask, openTaskTab, taskRef } from '@handline/app-core';
 import { useAgents, useTasks } from '@handline/app-data';
 import { AttachmentImage } from './AttachmentImage.tsx';
@@ -33,6 +33,7 @@ export function RichText({ text, agent, onRef }: { text: string; agent?: string;
 
 function Refs({ text, agent, onRef }: { text: string; agent?: string; onRef?: (id: number) => void }) {
   const ws = useWorkspaceIfAny();
+  const [note, setNote] = useState('');
   const known = useKnownTask();
   const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
   // In the desktop app a #N is a pull request; elsewhere it is a message of this chat, where there are any.
@@ -56,7 +57,7 @@ function Refs({ text, agent, onRef }: { text: string; agent?: string; onRef?: (i
           className={LINK}
           data-pr={r.id}
           title={`Open pull request ${shown} on GitHub`}
-          onClick={() => void pr.openPr!({ number: r.id, ...(agent ? { agent } : {}) })}
+          onClick={() => void pr.openPr!({ number: r.id, ...(agent ? { agent } : {}) }).then((x) => setNote(x.ok ? '' : x.message))}
         >
           {shown}
         </button>
@@ -81,5 +82,15 @@ function Refs({ text, agent, onRef }: { text: string; agent?: string; onRef?: (i
     at = r.end;
   }
   if (at < text.length) parts.push(<PathText key={`t${at}`} text={text.slice(at)} agent={agent} names={names} whole={text} />);
-  return <>{parts}</>;
+  return (
+    <>
+      {parts}
+      {note ? (
+        <span className="muted path-note" role="status">
+          {' '}
+          {note}
+        </span>
+      ) : null}
+    </>
+  );
 }

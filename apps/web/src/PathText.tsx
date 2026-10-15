@@ -1,7 +1,7 @@
 // Text with its paths made clickable when the desktop shell can open them (docs/electron-bridge.md §4.1). In a plain browser a path stays text.
 // The call is made only from the click, never from rendering.
 import { useState } from 'react';
-import { branchCandidates, findPaths } from '@handline/app-core';
+import { branchCandidates, findNames, findPaths } from '@handline/app-core';
 import { goAgent } from './route.ts';
 import { shell } from './shell.ts';
 
@@ -9,14 +9,19 @@ import { shell } from './shell.ts';
 export function PathText({ text, agent, names, whole }: { text: string; agent?: string; names?: ReadonlySet<string>; whole?: string }) {
   const [note, setNote] = useState('');
   const api = shell('openPath');
-  const spans = findPaths(text).filter((s) => api || names?.has(text.slice(s.start, s.end)));
+  const agents = names ? findNames(text, names) : [];
+  const overlaps = (s: { start: number; end: number }) => agents.some((a) => s.start < a.end && a.start < s.end);
+  const spans = [
+    ...agents.map((a) => ({ start: a.start, end: a.end, path: a.name })),
+    ...(api ? findPaths(text).filter((s) => !overlaps(s)) : []),
+  ].sort((a, b) => a.start - b.start);
   if (!spans.length) return <>{text}</>;
   const parts: React.ReactNode[] = [];
   let at = 0;
   for (const s of spans) {
     parts.push(text.slice(at, s.start));
     const word = text.slice(s.start, s.end);
-    if (names?.has(word)) {
+    if (agents.some((a) => a.start === s.start)) {
       parts.push(
         <button
           key={s.start}

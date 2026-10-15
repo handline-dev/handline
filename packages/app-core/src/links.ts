@@ -14,3 +14,27 @@ export function branchCandidates(text: string): string[] {
   }
   return out;
 }
+
+export interface NameSpan {
+  start: number;
+  end: number;
+  name: string;
+}
+
+/** Where the text says the name of an agent, bare (`alpha`) or dotted (`handline.pc`): a whole word, not part of a longer name, a path or a file name. */
+export function findNames(text: string, names: Iterable<string>): NameSpan[] {
+  const out: NameSpan[] = [];
+  const longest = [...names].filter(Boolean).sort((a, b) => b.length - a.length);
+  const taken: boolean[] = [];
+  for (const name of longest) {
+    const re = new RegExp(`(?<![\\w@/.~-])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w@/-]|\\.\\w)`, 'g');
+    for (const m of text.matchAll(re)) {
+      const start = m.index!;
+      const end = start + name.length;
+      if (taken[start] || taken[end - 1]) continue;
+      for (let i = start; i < end; i++) taken[i] = true;
+      out.push({ start, end, name });
+    }
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
