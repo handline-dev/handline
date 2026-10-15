@@ -142,6 +142,17 @@ export function activate(ws: Workspace, tab: string): Workspace {
   return { ...ws, active: g.id, root: replaceGroup(ws.root, g.id, (x) => ({ ...x, activeTab: tab })) };
 }
 
+/** The chat / Claude Code switch: from the terminal (or transcript) back to the chat, from anywhere else to the terminal, opened if the tab is not there. Nothing to switch to leaves it as it is. */
+export function toggleView(ws: Workspace, handle?: string, structured = false): Workspace {
+  const here = groupOf(ws, CHAT);
+  const shown = here ? ws.tabs[here.activeTab] : undefined;
+  if (shown && (shown.kind === 'terminal' || shown.kind === 'transcript')) return activate(ws, CHAT);
+  const other = Object.keys(ws.tabs).find((t) => ws.tabs[t]!.kind === 'terminal' || ws.tabs[t]!.kind === 'transcript');
+  if (other) return activate(ws, other);
+  if (structured) return openTab(ws, 'transcript', {}, here?.id);
+  return handle ? openTab(ws, 'terminal', { handle }, here?.id) : ws;
+}
+
 /** Opens a tab in a group (the focused one by default). The same thing already open is focused, not added again. */
 export function openTab(ws: Workspace, kind: TabKind, params: TabParams = {}, into: string = ws.active): Workspace {
   const id = tabId(ws, kind, params);

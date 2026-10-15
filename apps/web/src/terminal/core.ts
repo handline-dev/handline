@@ -121,9 +121,13 @@ export const isEscapeChord = (e: Pick<KeyboardEvent, 'ctrlKey' | 'shiftKey' | 'm
   e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'e';
 
 /** True when a key belongs to the terminal under focus, so the app's own shortcuts (palette, history, ?) must not act on it. */
+/** Cmd or Ctrl and J: the chat / Claude Code switch, which a focused terminal gives to the app as it does the escape chord. */
+export const isSwitchChord = (e: Pick<KeyboardEvent, 'ctrlKey' | 'shiftKey' | 'metaKey' | 'altKey' | 'key'>): boolean =>
+  (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'j';
+
 export function terminalOwnsKey(e: Pick<KeyboardEvent, 'target' | 'ctrlKey' | 'shiftKey' | 'metaKey' | 'altKey' | 'key'>): boolean {
   const t = e.target;
-  return t instanceof HTMLElement && !!t.closest('.xterm') && !isEscapeChord(e);
+  return t instanceof HTMLElement && !!t.closest('.xterm') && !isEscapeChord(e) && !isSwitchChord(e);
 }
 
 /** The bytes xterm sends for a named key, so a key chip takes the path typing takes. */

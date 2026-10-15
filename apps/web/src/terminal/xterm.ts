@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { colors, font } from '@handline/tokens';
-import { DEFAULT_FONT, isEscapeChord, type CreateTerm } from './core.ts';
+import { DEFAULT_FONT, isEscapeChord, isSwitchChord, type CreateTerm } from './core.ts';
 import '@xterm/xterm/css/xterm.css';
 
 /** Opens a link only after the person has seen where it really goes. Only http(s) is ever offered. */
@@ -68,7 +68,7 @@ export const createXterm: CreateTerm = (host) => {
   term.loadAddon(new WebLinksAddon(openLink));
   term.open(host);
   const copy = copyKey(term);
-  term.attachCustomKeyEventHandler((e) => !isEscapeChord(e) && copy(e)); // everything else goes to the program; the escape chord is the app's
+  term.attachCustomKeyEventHandler((e) => !isEscapeChord(e) && !isSwitchChord(e) && copy(e)); // everything else goes to the program; the escape chord and the view switch are the app's
   host.addEventListener(
     'paste',
     pasteGuard((t) => term.paste(t)),
