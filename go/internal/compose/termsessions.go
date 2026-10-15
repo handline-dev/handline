@@ -94,6 +94,14 @@ func (p *Parts) terminalSession(agent string, live map[string]bool) (sessionRec,
 	return sessionRec{}, "", result
 }
 
+// sessionPid is the pid of a terminal agent's running session, 0 when none is found.
+func (p *Parts) sessionPid(agent string) int {
+	if rec, _, found := p.terminalSession(agent, nil); found == sessionFound {
+		return rec.Pid
+	}
+	return 0
+}
+
 func alive(pid int) bool {
 	err := syscall.Kill(pid, 0)
 	return err == nil || err == syscall.EPERM
