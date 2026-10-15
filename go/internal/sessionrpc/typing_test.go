@@ -32,15 +32,13 @@ func (h *host) Send(_, text string, enter bool) (bool, string) {
 
 func typingRig(t *testing.T) (*rig, *host, *conn) {
 	r := newRig(t)
-	r.e.Structured = func(a string) bool { return r.pr.live[a] }
-	r.pr.live["ann"] = false // a terminal agent
 	h := &host{rows: []string{"> "}}
 	r.e.Holds = &inputhold.Store{DB: r.e.DB, Now: r.e.Now}
 	r.e.Term = term.New(h, nil)
 	return r, h, r.dial(false)
 }
 
-func TestTakeAndReleaseAreTheHoldersAloneAndAStructuredAgentHasNoInputToHold(t *testing.T) {
+func TestTakeAndReleaseAreTheHoldersAlone(t *testing.T) {
 	r, _, c := typingRig(t)
 	got := result(t, c.call("input.take", map[string]any{"agent": "ann", "request_id": rid("t1")}))
 	if got["holder"].(map[string]any)["name"] != c.name {
@@ -64,10 +62,6 @@ func TestTakeAndReleaseAreTheHoldersAloneAndAStructuredAgentHasNoInputToHold(t *
 	}
 	if said := result(t, c.call("input.release", map[string]any{"agent": "ann", "request_id": rid("r3")}))["said"]; !strings.Contains(said.(string), "already") {
 		t.Fatalf("said %v", said)
-	}
-	r.pr.live["ann"] = true
-	if g := refused(c.call("input.take", map[string]any{"agent": "ann", "request_id": rid("t3")})); g != "unsupported" {
-		t.Fatalf("a structured agent has no terminal: gate %q", g)
 	}
 }
 
@@ -148,13 +142,11 @@ func TestATypingCallWhileTheTickHoldsTheTerminalLockIsRefusedAtOnce(t *testing.T
 func TestInterruptPressesEscOnATerminalAgentsPaneBehindTheTypingGates(t *testing.T) {
 	r, h, c := typingRig(t)
 	r.e.InterruptTerminal = r.e.PressEsc
+	c = r.dial(false)                                                                        // the method is registered on a dial that has the port
 	result(t, c.call("input.take", map[string]any{"agent": "ann", "request_id": rid("t1")})) // the caller's own hold lets it through
 	got := result(t, c.call("session.interrupt", map[string]any{"agent": "ann", "request_id": rid("i1")}))
 	if got["said"] != "ann: interrupted" || strings.Join(h.sent, "|") != term.Escape {
 		t.Fatalf("%v sent %q", got, h.sent)
-	}
-	if len(r.pr.interrupted) != 0 {
-		t.Fatalf("a terminal agent is not interrupted by control request: %v", r.pr.interrupted)
 	}
 	r.e.DB.Exec("UPDATE input_holders SET name = 'sam'")
 	if g := refused(c.call("session.interrupt", map[string]any{"agent": "ann", "request_id": rid("i2")})); g != "input_holder" {

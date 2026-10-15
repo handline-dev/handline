@@ -59,23 +59,9 @@ func (e *Env) AdvanceCurrentTask(q db.Q, agent string) (changed bool, refused ma
 	}
 	before, hadBefore := ok2(db.CurrentTask(q, agent))
 	for _, w := range must(db.WaitingTasks(q, agent)) {
-		if w.Req != nil {
-			check(db.SetCurrentTask(q, agent, w.Task.ID, true))
-			check(db.PromoteToFront(q, w.Req.ID))
+		if e.makeCurrent(q, agent, w, refused) {
 			return true, refused, nil
 		}
-		out, aerr := e.Ask(q, AskIn{Target: agent, Body: w.Task.Title, Requester: w.Task.QueuedBy.String, Kind: "task", OnBehalfOf: true, Notify: true})
-		if aerr != nil {
-			return false, refused, aerr
-		}
-		msg := out.Finish()
-		if !out.OK {
-			e.noteRefusal(q, agent, w.Task.ID, msg, refused)
-			continue
-		}
-		e.linkDelivery(q, w.Task.ID, agent, out.RID)
-		check(db.SetCurrentTask(q, agent, w.Task.ID, true))
-		return true, refused, nil
 	}
 	// Nothing to advance to. A current task that is merely blocked, and not yet done, stays current; a done task can carry a stale blocker too,
 	// and that one really is finished.
@@ -86,6 +72,51 @@ func (e *Env) AdvanceCurrentTask(q db.Q, agent string) (changed bool, refused ma
 	}
 	check(db.SetCurrentTask(q, agent, 0, false))
 	return hadBefore, refused, nil
+}
+
+// makeCurrent makes w the agent's current task and delivers it: its own queued request goes to the front, or a new one is asked. False when
+// the routing refused the ask (noted in refused).
+func (e *Env) makeCurrent(q db.Q, agent string, w db.WaitingTask, refused map[int64]string) bool {
+	if w.Req != nil {
+		check(db.SetCurrentTask(q, agent, w.Task.ID, true))
+		check(db.PromoteToFront(q, w.Req.ID))
+		return true
+	}
+	out, aerr := e.Ask(q, AskIn{Target: agent, Body: w.Task.Title, Requester: w.Task.QueuedBy.String, Kind: "task", OnBehalfOf: true, Notify: true})
+	check(aerr)
+	msg := out.Finish()
+	if !out.OK {
+		e.noteRefusal(q, agent, w.Task.ID, msg, refused)
+		return false
+	}
+	e.linkDelivery(q, w.Task.ID, agent, out.RID)
+	check(db.SetCurrentTask(q, agent, w.Task.ID, true))
+	return true
+}
+
+// AdvanceToDormantBlocker delivers, while the agent's current task is still asking, a task that current task waits on through a dormant
+// self-block (one agent holds both, so the wait does not count) and that waits behind it: otherwise the held task waits on its own blocker
+// and the blocker on the held task, and everything else of the agent's waits behind both. True when one was delivered.
+func (e *Env) AdvanceToDormantBlocker(q db.Q, agent string) (changed bool, err error) {
+	defer Catch(&err)
+	cur, ok := ok2(db.CurrentTask(q, agent))
+	if !ok {
+		return false, nil
+	}
+	dormant := map[int64]bool{}
+	for _, b := range must(db.DormantBlockers(q, cur)) {
+		dormant[b] = true
+	}
+	if len(dormant) == 0 {
+		return false, nil
+	}
+	refused := map[int64]string{}
+	for _, w := range must(db.WaitingTasks(q, agent)) {
+		if dormant[w.Task.ID] && e.makeCurrent(q, agent, w, refused) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // QueueDeliver is what queuing does after its write commits: the task goes out now if its owner is free. row is the task as it was before.

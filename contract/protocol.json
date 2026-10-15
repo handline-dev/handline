@@ -48,7 +48,8 @@
   "proposal_settled": "hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now.",
   "confirm": "chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do.",
   "limit": "attachment.put: the file or the unsent total is over its limit, or too many uploads are open (x-attachments).",
-  "listing": "inbox.queue: the caller may not list that agent's messages. Only the agent itself, its supervisor and the founder may."
+  "listing": "inbox.queue: the caller may not list that agent's messages. Only the agent itself, its supervisor and the founder may.",
+  "duplicate_title": "task.new: an open task under the same parent, or the parent itself, has nearly the title (same first word, 80% of the shorter title's words, Story prefix, case, punctuation and commit shas ignored). data.task names it; duplicate_ok opens the task anyway."
  },
  "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
  "x-legacy": {
@@ -4905,6 +4906,14 @@
      }
     },
     {
+     "name": "duplicate_ok",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Open the task even when an open task under the same parent, or the parent itself, has nearly its title (gate duplicate_title)."
+     }
+    },
+    {
      "name": "blocked_by",
      "required": false,
      "schema": {
@@ -4998,7 +5007,10 @@
      "$ref": "#/components/errors/refused"
     }
    ],
-   "description": "The owner may not be the caller: a task an agent takes on itself is begun from the founder's message (task.begin)."
+   "description": "The owner may not be the caller: a task an agent takes on itself is begun from the founder's message (task.begin).",
+   "x-gates": [
+    "duplicate_title"
+   ]
   },
   {
    "name": "task.handoff",
@@ -5514,6 +5526,22 @@
      "schema": {
       "type": "integer"
      }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "With limit: the page just older than this memo id."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "1 to 200. The newest limit memos, or the limit just older than before; absent: every memo."
+     }
     }
    ],
    "result": {
@@ -5526,10 +5554,15 @@
        "items": {
         "$ref": "#/components/schemas/Memo"
        }
+      },
+      "more": {
+       "type": "boolean",
+       "description": "There are older memos than the page."
       }
      },
      "required": [
-      "memos"
+      "memos",
+      "more"
      ]
     }
    },
@@ -8488,6 +8521,10 @@
      "plan": {
       "type": "string",
       "description": "With gate confirm: what the call would do and who is told."
+     },
+     "task": {
+      "type": "integer",
+      "description": "With gate duplicate_title: the open task the new one repeats."
      }
     },
     "required": [
@@ -8987,6 +9024,32 @@
        }
       ],
       "description": "Set while the agent waits on a decision only a person at its terminal can make. Fed by hooks (PermissionRequest and the permission and question Notification kinds) and by the session file saying status `waiting` with `waitingFor` (`permission prompt` is the one measured; the file has no needs or tempo key), never by reading the screen; the tool and its target come from the PermissionRequest hook event; cleared by the hook that follows (PostToolUse, UserPromptSubmit, Stop, SessionEnd) or when the session file stops saying it. While set, `state` is `waiting`, `has_dialog` is true and `attention` is `alert`. null when none. Absent from a daemon that does not serve it yet (the Python daemon reads the screen and sets has_dialog and `alert` without it)."
+     },
+     "handoff": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "cause": {
+          "type": "string",
+          "description": "Why the conversation is ending: the words of session.cause (`context_full`, `move`, and the trigger's own word for the rest, such as `usage` or `login`). An open set."
+         },
+         "phase": {
+          "type": "string",
+          "enum": ["writing", "starting"],
+          "description": "`writing`: the agent writes its handoff note and the daemon takes the record. `starting`: the old session is closed and the new one is launching."
+         },
+         "since": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": ["cause", "phase", "since"]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Set while a session hands off, so a chat that sits still can say why. Cleared when the new session's start item appears. Every change is an agent.changed. A handoff that waits for a usage window to reset shows `writing` only; it is not `starting` until a launch is due. null when none. Absent from a daemon that does not serve it."
      }
     },
     "required": [
@@ -12016,6 +12079,10 @@
         "type": "null"
        }
       ]
+     },
+     "proposal": {
+      "type": "integer",
+      "description": "Only on the message that tells an agent how the founder decided its HR proposal: that proposal's id, as hr.list gives it. A client that draws the decided proposal as a card can leave this line out."
      }
     },
     "required": [
@@ -12116,6 +12183,10 @@
          }
         ]
        },
+       "who": {
+        "type": "string",
+        "description": "Who did it: the agent (or human) that opened, changed, closed or withdrew the task, as ChatRequestItem.who."
+       },
        "change": {
         "type": "string",
         "description": "What a `changed` event changed, as chat.requests words it: `assigned to X, priority 2 -> 1`, `title changed`, `handed to X`. Absent when the event word says it all. An open set: a client draws a word it does not know as text."
@@ -12125,7 +12196,8 @@
        "event",
        "task",
        "request",
-       "evidence"
+       "evidence",
+       "who"
       ]
      },
      "session": {

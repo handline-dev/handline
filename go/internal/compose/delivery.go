@@ -2,24 +2,25 @@ package compose
 
 import (
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
 	"github.com/handline/handline/go/internal/usage"
 )
 
-// delivery is reads.Delivery over the lifecycle the parts hold: the three things a queued chat line's reason needs that the database does
+// queueReasons is reads.Delivery over the lifecycle the parts hold: the three things a queued chat line's reason needs that the database does
 // not. It holds no state of its own. Before Lifecycle has built the lifecycle it knows nothing and says so (no wall, no wake cause, no full
 // account).
-type delivery struct{ p *Parts }
+type queueReasons struct{ p *Parts }
 
-var _ reads.Delivery = delivery{}
+var _ reads.Delivery = queueReasons{}
 
 // Delivery is the reads' view of why a queued line waits (daemon.Config.Delivery).
-func (p *Parts) Delivery() reads.Delivery { return delivery{p} }
+func (p *Parts) Delivery() reads.Delivery { return queueReasons{p} }
 
 // WallReason is why typing at the agent would only spend quota: the supervisor's own answer.
-func (d delivery) WallReason(q db.Q, agent string, row *db.AgentState) (string, error) {
+func (d queueReasons) WallReason(q db.Q, agent string, row *db.AgentState) (string, error) {
 	if d.p.LC == nil {
 		return "", nil
 	}
@@ -27,7 +28,7 @@ func (d delivery) WallReason(q db.Q, agent string, row *db.AgentState) (string, 
 }
 
 // ClosedWakeCause is what the next tick wakes a closed agent for: the lifecycle's one list.
-func (d delivery) ClosedWakeCause(agent string, row *db.AgentState) (string, error) {
+func (d queueReasons) ClosedWakeCause(agent string, row *db.AgentState) (string, error) {
 	if d.p.LC == nil {
 		return "", nil
 	}
@@ -39,7 +40,7 @@ func (d delivery) ClosedWakeCause(agent string, row *db.AgentState) (string, err
 }
 
 // AccountFull is the agent's account and its short-window percent, when that is at the block.
-func (d delivery) AccountFull(agent string) (string, int, bool) {
+func (d queueReasons) AccountFull(agent string) (string, int, bool) {
 	if d.p.LC == nil || d.p.db == nil {
 		return "", 0, false
 	}
@@ -55,7 +56,7 @@ func (d delivery) AccountFull(agent string) (string, int, bool) {
 }
 
 // Wall is the account that holds back a wake that is due: the lifecycle's wait for it, only while something is trying to wake the agent.
-func (d delivery) Wall(q db.Q, agent string, row *db.AgentState) (*reads.Wall, error) {
+func (d queueReasons) Wall(q db.Q, agent string, row *db.AgentState) (*reads.Wall, error) {
 	if d.p.LC == nil {
 		return nil, nil
 	}
@@ -74,7 +75,7 @@ func (d delivery) Wall(q db.Q, agent string, row *db.AgentState) (*reads.Wall, e
 }
 
 // ForgottenResolve is the supervisor's: the head request told and still open, with how long the agent has sat idle on it.
-func (d delivery) ForgottenResolve(q db.Q, agent string, row *db.AgentState, now int64) (int64, int64, bool, error) {
+func (d queueReasons) ForgottenResolve(q db.Q, agent string, row *db.AgentState, now int64) (int64, int64, bool, error) {
 	if d.p.LC == nil {
 		return 0, 0, false, nil
 	}
@@ -86,7 +87,7 @@ func (d delivery) ForgottenResolve(q db.Q, agent string, row *db.AgentState, now
 }
 
 // WakeWaitReason is the wording ps prints for a wake that is due and walled.
-func (d delivery) WakeWaitReason(q db.Q, agent string, row *db.AgentState) (string, error) {
+func (d queueReasons) WakeWaitReason(q db.Q, agent string, row *db.AgentState) (string, error) {
 	if d.p.LC == nil {
 		return "", nil
 	}
@@ -98,11 +99,11 @@ func (d delivery) WakeWaitReason(q db.Q, agent string, row *db.AgentState) (stri
 
 // Trigger is what the policy tick would decide: the same reading, context limit and Evaluate it judges by. For an agent whose triggers do
 // not apply, the wording ps prints for a wake that is due and walled.
-func (d delivery) Trigger(q db.Q, agent string, row *db.AgentState, account string) (reads.Trigger, error) {
+func (d queueReasons) Trigger(q db.Q, agent string, row *db.AgentState, account string) (reads.Trigger, error) {
 	if d.p.LC == nil {
 		return reads.Trigger{}, nil
 	}
-	if !d.p.LC.Manager.TriggersApplyTo(agent, row) {
+	if !lifecycle.TriggersApply(row) {
 		why, err := d.WakeWaitReason(q, agent, row)
 		return reads.Trigger{Reason: why}, err
 	}

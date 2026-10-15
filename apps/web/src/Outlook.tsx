@@ -2,7 +2,7 @@
 // a table of each agent's cost and share under it and a click on an agent to draw that one alone. A series has a shape (a dash, a pattern and a
 // letter), not only a hue. The numbers are always in a table behind a toggle, so the picture is never the only way to read them.
 import { useState } from 'react';
-import { duration } from '@handline/app-core';
+import { span } from '@handline/app-core';
 import type { Outlook } from '@handline/client';
 import { useOutlook } from '@handline/app-data';
 import {
@@ -32,7 +32,7 @@ const H = 160;
 
 const runwayWords = (r: Outlook['runway'][number]) =>
   r.runs_out_in_seconds !== null
-    ? `runs out in ${duration(r.runs_out_in_seconds)}`
+    ? `runs out in ${span(r.runs_out_in_seconds * 1000)}`
     : r.week_resets_at
       ? 'lasts until the week resets'
       : 'no burn, or a stale reading';

@@ -154,7 +154,7 @@ export function commands(
   return {
     daemon: {
       file,
-      args: [...homeArgs, '-structured-cli', claude, '-structured-tick', '-terminal-tick', '-cutover'],
+      args: [...homeArgs, '-claude', claude, '-terminal-tick', '-cutover'],
     },
     gateway: {
       file,

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { ago } from '@handline/app-core';
 import type { Worktree } from '@handline/client';
 import { classify, sentence, useRepos, useServes, useWorktrees, useWrite } from '@handline/app-data';
-import { Button, Empty, Segmented, Select } from './ui/index.ts';
+import { Button, Empty, PageHead, PageTitle, ScrollPage, Segmented, Select } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import type { KV } from '@handline/app-core';
 import { WorktreeBoard, type Moves } from './WorktreeBoard.tsx';
@@ -96,9 +96,9 @@ export function Worktrees({ path, storage }: { path: string | null; storage: KV 
   const old = q.dataUpdatedAt > 0 && now - q.dataUpdatedAt > OLD_MS;
   const open = path ? all.find((w) => w.path === path) : undefined;
   return (
-    <section className="worktrees flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-3 pb-6" aria-label="Worktrees">
-      <header className="wt-head flex flex-wrap items-center gap-2 py-3">
-        <h2 className="m-0 mr-2 text-title font-semibold">Worktrees</h2>
+    <ScrollPage className="worktrees" aria-label="Worktrees">
+      <PageHead className="wt-head">
+        <PageTitle>Worktrees</PageTitle>
         <Select
           label="Repo"
           value={repo}
@@ -140,7 +140,7 @@ export function Worktrees({ path, storage }: { path: string | null; storage: KV 
             </Button>
           </span>
         ) : null}
-      </header>
+      </PageHead>
       <View q={q} served={served} shape="worktrees" what="worktrees">
         <div
           className={`wt-body grid grid-cols-[minmax(0,1fr)] items-start gap-4${path ? ' grid-cols-[minmax(0,1fr)_minmax(280px,380px)] max-[760px]:grid-cols-[minmax(0,1fr)]' : ''}`}
@@ -200,6 +200,6 @@ export function Worktrees({ path, storage }: { path: string | null; storage: KV 
           {path && q.data ? <WorktreePanel worktree={open} path={path} all={all} moves={moves} onClose={() => goWorktrees()} /> : null}
         </div>
       </View>
-    </section>
+    </ScrollPage>
   );
 }

@@ -1,14 +1,13 @@
 // Package sessionrpc is the methods that drive an agent's session through the daemon: session.start, wake, stop, restart, park and
 // interrupt, and terminal.close (handline/daemon/rpc_session.py, rpc_typing.py's interrupt).
 //
-// The session methods are thin: validation, the verbs' own state checks, and the request_id effect, over the lifecycle's Controls
-// (structured sessions, S3). A success is recorded under the caller's request_id the moment the action returns, so a retry after a crash
+// The session methods are thin: validation, the verbs' own state checks, and the request_id effect, over the lifecycle's Controls. A success is recorded under the caller's request_id the moment the action returns, so a retry after a crash
 // that lost the reply replays it instead of acting again. A refusal names its gate: terminal_lock when whoever types at a terminal agent
 // holds the lock the tick takes, state for every other reason the action gives.
 //
-// session.input, keys and type and the input holder (typing.go) serve a terminal agent; a structured session has no terminal to hold and
-// chat.send reaches it. Dropped with the design: the exit mode that typed /exit. session.interrupt is a control request to the CLI, not Esc. A method whose port is
-// nil is not registered, so hello never lists what cannot be served.
+// session.input, keys and type and the input holder (typing.go) serve a terminal agent. Dropped with the design: the exit mode that typed
+// /exit, and the kill that ended a structured session's process group (a kill is refused). session.interrupt is Esc on the agent's pane.
+// A method whose port is nil is not registered, so hello never lists what cannot be served.
 package sessionrpc
 
 import (
@@ -51,24 +50,15 @@ type Controls interface {
 	Park(c Call, agent string) (ok bool, said string, err error)
 }
 
-// Procs is the running structured sessions: which agents have one, a turn interrupted by control request, and the process group ended
-// at once. Kill returns once the group is gone, or an error.
-type Procs interface {
-	Structured(agent string) bool
-	Interrupt(agent string) error
-	Kill(agent string) error
-}
-
 // Env is what the methods run on.
 type Env struct {
 	DB       *sql.DB
 	Home     string
 	Controls Controls
-	Procs    Procs
 	// Terminal agents only (frozen): the terminal's close, and whether a session still runs in it.
 	CloseTerminal  func(handle string) (ok bool, why string)
 	SessionPresent func(agent string) (bool, error)
-	// InterruptTerminal interrupts a terminal agent's turn (Env.PressEsc of the typing Env); nil interrupts structured sessions alone.
+	// InterruptTerminal interrupts a terminal agent's turn (Env.PressEsc of the typing Env); nil serves no session.interrupt.
 	InterruptTerminal func(c *rpc.Conn, agent string) error
 	// Fold is control.fold: fold the day's events into the agent's digest, the one model call, run as `hl fold`. nil serves no agent.fold.
 	Fold func(agent string) (ok bool, said string)
@@ -80,8 +70,6 @@ type Env struct {
 	Holds *inputhold.Store
 	Term  *term.Term
 	Wall  func(agent string) string
-	// Structured says whether an agent runs as a structured session, which has no terminal to hold; nil is none.
-	Structured func(agent string) bool
 	// Roster registers the agent of agent.create, and Emit tells the operations topic its progress; with Controls they serve agent.create.
 	Roster *team.Roster
 	Emit   func(topic, typ string, data any, agent string)
@@ -110,7 +98,7 @@ func Register(s *rpc.Server, e *Env) {
 	if e.Fold != nil {
 		s.Register("agent.fold", rpc.Method{Role: "agent", Write: true, Handler: e.fold})
 	}
-	if e.Procs != nil {
+	if e.InterruptTerminal != nil {
 		s.Register("session.interrupt", rpc.Method{Role: "member", Write: true, Handler: e.interrupt})
 	}
 }
@@ -341,13 +329,7 @@ func (e *Env) stop(c *rpc.Conn, params map[string]any) (any, error) {
 			return nil, rpc.Refused(fmt.Sprintf("session.stop kill is for a member or above; this caller is %s", c.Caller.Role), "role", "")
 		}
 		return e.run(c, "session.stop", params, false, func(_ Call, agent string) (map[string]any, error) {
-			if e.Procs == nil || !e.Procs.Structured(agent) {
-				return nil, rpc.Refused(agent+" has no structured session to kill", "state", "")
-			}
-			if err := e.Procs.Kill(agent); err != nil {
-				return nil, rpc.Refused(agent+": could not end its session: "+err.Error(), "state", "")
-			}
-			return done(true, agent+": session ended", nil)
+			return nil, rpc.Refused(agent+" has no structured session to kill", "state", "")
 		})
 	}
 	return e.run(c, "session.stop", params, false, func(call Call, agent string) (map[string]any, error) {
@@ -355,20 +337,11 @@ func (e *Env) stop(c *rpc.Conn, params map[string]any) (any, error) {
 	})
 }
 
-// interrupt stops the running turn: a structured session's by control request, a terminal agent's by Esc on its pane.
+// interrupt stops the running turn by Esc on the agent's pane.
 func (e *Env) interrupt(c *rpc.Conn, params map[string]any) (any, error) {
 	return e.run(c, "session.interrupt", params, false, func(_ Call, agent string) (map[string]any, error) {
-		if !e.Procs.Structured(agent) {
-			if e.InterruptTerminal == nil {
-				return nil, rpc.Refused(agent+" has no structured session to interrupt", "state", "")
-			}
-			if err := e.InterruptTerminal(c, agent); err != nil {
-				return nil, err
-			}
-			return done(true, agent+": interrupted", nil)
-		}
-		if err := e.Procs.Interrupt(agent); err != nil {
-			return nil, rpc.Refused(agent+": not interrupted: "+err.Error(), "state", "")
+		if err := e.InterruptTerminal(c, agent); err != nil {
+			return nil, err
 		}
 		return done(true, agent+": interrupted", nil)
 	})

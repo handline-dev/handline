@@ -8,6 +8,7 @@ export const debugUrl = (here: Pick<Location, 'origin' | 'pathname' | 'search'>)
 export function DebugEntry({ open = (url: string) => window.open(url, 'handline-debug-terminals', 'width=1280,height=820') }) {
   return (
     <footer className="settings-debug mt-8 flex justify-center">
+      <Button variant="ghost" size="sm" label="Admin" onClick={() => void (location.hash = '#/admin')} />
       <Button variant="ghost" size="sm" label="Debug: terminals" onClick={() => void open(debugUrl(location))} />
     </footer>
   );

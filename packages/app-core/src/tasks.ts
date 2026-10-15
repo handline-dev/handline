@@ -1,5 +1,6 @@
 // What a task looks like right after the person's verb, before the daemon has answered: the pure half of an optimistic task write.
 import type { Task } from '@handline/client';
+import { shortSpan } from './time.ts';
 
 export type TaskVerb = 'done' | 'queue' | 'draft' | 'edit' | 'reopen' | 'release' | 'withdraw' | 'cancel';
 export interface TaskEdit {
@@ -52,7 +53,7 @@ export function dueOf(t: Task, now = Date.now()): { text: string; over: boolean 
   const since = t.time?.overdue_since ? Date.parse(t.time.overdue_since) : NaN;
   const over = !Number.isNaN(since) || end <= now;
   const s = Math.abs(Math.round(((over && !Number.isNaN(since) ? since : end) - now) / 1000));
-  const span = s < 60 ? '<1m' : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
+  const span = s < 60 ? '<1m' : shortSpan(s);
   return over ? { text: `${span} overdue`, over: true } : { text: `${span} left`, over: false };
 }
 

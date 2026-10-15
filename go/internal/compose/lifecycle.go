@@ -2,7 +2,6 @@ package compose
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
@@ -81,14 +80,6 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	var ho *handoff.Env
 	ho = &handoff.Env{DB: q, Home: home, Heads: lc.Env, Now: cfg.Now,
 		AgentSession: func(agent, account string) (string, string) {
-			if p.Kind(agent) {
-				// A structured session writes no status file: the session is the one the daemon holds or stored, and the CLI keeps its transcript.
-				session := p.Manager.SessionID(agent)
-				if row, err := db.GetAgentState(q, agent); session == "" && err == nil && row != nil {
-					session = row.ResumeSession.String
-				}
-				return session, ho.FindTranscript(session, account)
-			}
 			st := uenv.ReadForAgent(agent, account)
 			return st.SessionID, st.Transcript
 		}}
@@ -102,7 +93,7 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 		tm.Turns = cfg.Turns
 	}
 	spawns := &lifecycle.Spawns{Q: q, Host: termHost{tm}, Launch: launchPort, Delivery: lc.Env, Roster: roster, Now: cfg.Now,
-		Run: p.Run, Locks: p.Locks}
+		Locks: p.Locks}
 	waiting := func(q db.Q, agent string) bool {
 		head, err := lc.Env.EffectiveHead(q, agent)
 		if err != nil || head != nil {
@@ -113,9 +104,9 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	launcher.Ports.WaitingFor = waiting
 	hp := &handoffPort{env: ho, q: q, now: nowOf(cfg.Now)}
 	m := &lifecycle.Manager{Q: q, Home: home, Log: cfg.Log, Settings: settings,
-		Delivery: lc.Env, Handoff: hp, Term: termPort{tm}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawner{inner: spawns, kind: p.Kind},
-		Agents: agentsPort{home: home, roster: roster, trust: team.NewTrust(home), accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q, Structured: p.Kind},
-		Observe: observer{p: p}, Typing: terminalLock{home: p.home}, Run: p.Run, TermRun: termRun{p}, Locks: p.Locks}
+		Delivery: lc.Env, Handoff: hp, Term: termPort{tm}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawns,
+		Agents: agentsPort{home: home, roster: roster, trust: team.NewTrust(home), accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q},
+		Observe: observer{p: p}, Typing: terminalLock{home: p.home}, TermRun: termRun{p}, Locks: p.Locks}
 	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho, Env: lc.Env, usage: uenv, roster: roster, term: tm}
 	hp.mover = func() *lifecycle.Mover { return p.LC.Mover }
 	p.LC.Mover = p.newMover(m, uenv, lc.Env, func() int64 { return nowOf(cfg.Now)().Unix() })
@@ -129,7 +120,7 @@ func nowOf(f func() time.Time) func() time.Time {
 	return time.Now
 }
 
-// vendors is lifecycle.VendorsPort. A structured session has no driver: the Claude CLI is launched by the runner, not by a vendor's command line.
+// vendors is lifecycle.VendorsPort: this daemon launches no vendor's command line.
 type vendors struct {
 	home   string
 	roster *team.Roster
@@ -294,20 +285,16 @@ func (h *handoffPort) CacheMargin(ttl int64) int64 { return int64(handoff.Margin
 
 func (h *handoffPort) ClearNote(_ db.Q, agent string) { _ = h.env.ClearNote(agent) }
 
-// observer is the process table of the structured sessions: the agents whose session this daemon has open, with its pid.
+// observer is the process table of the terminal agents' sessions, with each one's pid.
 type observer struct{ p *Parts }
 
 var _ lifecycle.Observer = observer{}
 
 func (o observer) LiveSessions() (map[string]int, bool) {
-	out := o.p.terminalSessions()
-	for agent, pid := range o.p.Manager.Live() {
-		out[agent] = pid
-	}
-	return out, true
+	return o.p.terminalSessions(), true
 }
 
-// terminalLock is the right to type at a terminal agent, the lock every typing call takes (a structured agent is never asked for it).
+// terminalLock is the right to type at a terminal agent, the lock every typing call takes.
 type terminalLock struct{ home string }
 
 func (t terminalLock) TakeTerminal(agent string) (func(), bool) {
@@ -341,7 +328,7 @@ func (noTerminal) DriverScope() func()             { return func() {} }
 
 const notServed = "terminal agents are served by the Python daemon"
 
-// noBlocked: a structured session has no dialogs to get past.
+// noBlocked: this daemon gets past no dialogs.
 type noBlocked struct{}
 
 var _ lifecycle.Blocked = noBlocked{}
@@ -349,32 +336,6 @@ var _ lifecycle.Blocked = noBlocked{}
 func (noBlocked) NoteCloseFailure(db.Q, string)          {}
 func (noBlocked) PastDialog(db.Q, string) (bool, string) { return false, notServed }
 func (noBlocked) StopWorkAndExit(db.Q, string) bool      { return false }
-
-// errNoWorktree is a start with nowhere to run: not counted against the agent.
-var errNoWorktree = errors.New("making a worktree for a structured agent is not served by this daemon yet")
-
-// spawner is lifecycle.Spawner for what this daemon can start. A start it cannot do - a structured agent with no
-// worktree yet - is an error, which the lifecycle does not count against the agent: it is not a failed start, it was never tried.
-type spawner struct {
-	inner *lifecycle.Spawns
-	kind  func(agent string) bool
-}
-
-var _ lifecycle.Spawner = spawner{}
-
-func (s spawner) WorktreePath(worktree string) string { return s.inner.WorktreePath(worktree) }
-
-func (s spawner) StartIn(agent, worktree, cmd string) (bool, string, error) {
-	return s.inner.StartIn(agent, worktree, cmd)
-}
-
-func (s spawner) Spawn(agent, repo string) (bool, string, error) {
-	if !s.kind(agent) {
-		return s.inner.Spawn(agent, repo)
-	}
-	// A structured agent with no worktree yet is not started here.
-	return false, "", fmt.Errorf("%s: %w", agent, errNoWorktree)
-}
 
 // noteSettings is handoff.Settings: config.yaml's flags, and an agent.yaml's own boolean under a key.
 type noteSettings struct {
