@@ -37,7 +37,8 @@ const requestSelect = "SELECT id, ts, state_at, requester, target, state, body, 
 	"(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, " +
 	"(SELECT MIN(task_id) FROM task_requests WHERE request_id = requests.id) AS task_id, " +
 	"(SELECT a.id FROM requests a WHERE a.settles = requests.id ORDER BY a.id LIMIT 1) AS answer_id, " +
-	"EXISTS (SELECT 1 FROM events WHERE dedup_key = 'task_question:' || requests.id) AS task_question FROM requests"
+	"EXISTS (SELECT 1 FROM events WHERE dedup_key = 'task_question:' || requests.id) AS task_question, " +
+	"(SELECT json_extract(payload, '$.proposal') FROM events WHERE dedup_key = 'hr_outcome:' || requests.id) AS proposal FROM requests"
 
 // chat is what one call reads with: the database and the task board, loaded when a task delivery needs it.
 type chat struct {
@@ -279,6 +280,9 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 		"parent": r.intOrNil("parent_id"), "kind": orEmpty(r["kind"]), "tasks": tasks, "is_task_question": r.i("task_question") != 0}
 	if receipt != nil {
 		m["receipt"] = receipt
+	}
+	if r["proposal"] != nil {
+		m["proposal"] = r.i("proposal")
 	}
 	images := attachments.New(c.e.Home)
 	if pictures := images.MessageMaps(c.e.DB, r.i("id"), r.str("body")); pictures != nil {
