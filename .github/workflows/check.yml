@@ -62,7 +62,7 @@ jobs:
           fi
 
   go:
-    runs-on: [self-hosted, linux, go-ci]
+    runs-on: [self-hosted, handline-ci]
     timeout-minutes: 30
     env:
       GOFLAGS: -p=1 # 2 cores and 3 GB of memory: one test binary at a time
