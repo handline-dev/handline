@@ -1,5 +1,7 @@
 // What the daemon recorded about an agent, newest first, with Older fetching the page before the oldest shown. A stalled or blocked badge opens it.
+import { useRef } from 'react';
 import { ago } from '@handline/app-core';
+import { useNearEnd } from '@handline/app-react';
 import { classify, sentence, useServes, useTimeline } from '@handline/app-data';
 import { Button } from './ui/index.ts';
 import { View } from './View.tsx';
@@ -9,8 +11,10 @@ export function TimelineTab({ agent }: { agent: string }) {
   const { query: q, items, more, loadOlder, loadingOlder, olderError } = useTimeline(agent);
   const { served } = useServes('agent.timeline');
   const now = useNow();
+  const box = useRef<HTMLElement>(null);
+  const end = useNearEnd<HTMLElement, HTMLDivElement>(box, () => void loadOlder(), more && !loadingOlder && !olderError);
   return (
-    <section className="timeline-tab h-full overflow-auto p-2" aria-label={`Timeline of ${agent}`}>
+    <section ref={box} className="timeline-tab h-full overflow-auto p-2" aria-label={`Timeline of ${agent}`}>
       <View q={q} served={served} shape="inbox" what="the timeline" empty={!items.length && `Nothing is recorded for ${agent} yet.`}>
         <ul className="m-0 flex list-none flex-col gap-1 p-0">
           {items.map((e) => (
@@ -29,6 +33,7 @@ export function TimelineTab({ agent }: { agent: string }) {
             {sentence(classify(olderError))}
           </p>
         ) : null}
+        {more ? <div ref={end} aria-hidden className="h-px" /> : null}
         {more ? (
           <p className="pad">
             <Button

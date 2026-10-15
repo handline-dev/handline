@@ -170,7 +170,7 @@ def test_the_edit_gate_enforce_switch_is_the_founders_to_flip(home: Path) -> Non
 
 def test_the_go_switches_are_the_founders_and_off_until_set(home: Path) -> None:
     _daemon_home(home, 20)
-    for part, name in (("hook", "go_hook"), ("launch", "go_launch")):
+    for part, name in (("hook", "go_hook"),):
         rc, out = _cli(["go", part], as_agent=None)
         check(f"go {part}: off until the founder sets it", rc == 0 and "off - Python does it" in out, out)
         rc, out = _cli(["go", part, "on"], as_agent="backend")
@@ -179,8 +179,22 @@ def test_the_go_switches_are_the_founders_and_off_until_set(home: Path) -> None:
         check(f"go {part}: the founder switches it on, under the name the Go hl reads",
               rc == 0 and f"go {part}: on - the Go hl" in out and protected.get("switches", name) == "on", out)
     rc, out = _cli(["go", "hook", "off"], as_agent=None)
-    check("go hook: off again, and launch stays on", rc == 0 and "off -" in out
-          and protected.get("switches", "go_launch") == "on", out)
+    check("go hook: off again", rc == 0 and "off -" in out and protected.get("switches", "go_hook") == "off", out)
+
+
+def test_a_repos_sandbox_allowances_are_the_founders_to_give(home: Path) -> None:
+    _daemon_home(home, 20)
+    rc, out = _cli(["sandbox-repo", "orcapipe"], as_agent=None)
+    check("sandbox-repo: nothing until the founder gives it", rc == 0 and "nothing beyond the sandbox" in out, out)
+    rc, out = _cli(["sandbox-repo", "orcapipe", "weaker-network"], as_agent="backend")
+    check("sandbox-repo: an agent cannot give it", rc == 1 and protected.get("sandbox_repos", "orcapipe") is None, out)
+    rc, out = _cli(["sandbox-repo", "orcapipe", "everything"], as_agent=None)
+    check("sandbox-repo: only the named allowances", rc == 1 and protected.get("sandbox_repos", "orcapipe") is None, out)
+    rc, out = _cli(["sandbox-repo", "orcapipe", "weaker-network", "pnpm-install"], as_agent=None)
+    check("sandbox-repo: the founder gives them, under the entry a launch reads",
+          rc == 0 and "weaker-network, pnpm-install" in out and protected.get("sandbox_repos", "orcapipe") == "weaker-network\npnpm-install", out)
+    rc, out = _cli(["sandbox-repo", "orcapipe", "--clear"], as_agent=None)
+    check("sandbox-repo: and takes them away", rc == 0 and protected.get("sandbox_repos", "orcapipe") is None, out)
 
 
 def test_record_from_stdin_denies_through_claudes_own_format(home: Path) -> None:
@@ -251,6 +265,7 @@ def main() -> int:
         run(lambda: test_an_agent_with_no_task_may_write_its_own_handoff_note_and_nothing_else(Path(td) / 'et6'))
         run(lambda: _check_hook_guard_fixture(Path(td) / 'et7'))
         run(lambda: test_the_go_switches_are_the_founders_and_off_until_set(Path(td) / 'et8'))
+        run(lambda: test_a_repos_sandbox_allowances_are_the_founders_to_give(Path(td) / 'et9'))
     return run_area(tests)
 
 

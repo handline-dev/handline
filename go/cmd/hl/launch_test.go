@@ -7,15 +7,11 @@ import (
 	"testing"
 
 	"github.com/handline/handline/go/internal/paths"
-	"github.com/handline/handline/go/internal/protected"
 )
 
-// launchRig is a founder's rig whose home runs tmux, with a.one a Claude agent on account alpha, the Go launch switched on.
+// launchRig is a founder's rig whose home runs tmux, with a.one a Claude agent on account alpha.
 func launchRig(t *testing.T) *rig {
 	r := hookRig(t, false)
-	if err := protected.New(r.home).Put("switches", "go_launch", "on"); err != nil {
-		t.Fatal(err)
-	}
 	for p, text := range map[string]string{
 		paths.ConfigFile(r.home):                                               "terminal: tmux\n",
 		filepath.Join(paths.AgentDir(r.home, "a.one"), "agent.yaml"):           "name: a.one\nrepo: " + r.root + "\naccount: alpha\n",
@@ -31,28 +27,31 @@ func launchRig(t *testing.T) *rig {
 	return r
 }
 
-func TestLaunchIsPythonsUnlessSwitchedOnForAClaudeAgentUnderTmux(t *testing.T) {
-	off := hookRig(t, false)
+func TestLaunchRefusesWhatItDoesNotLaunch(t *testing.T) {
 	r := launchRig(t)
 	if err := os.WriteFile(filepath.Join(paths.AgentDir(r.home, "b.two"), "agent.yaml"), []byte("name: b.two\nvendor: opencode\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	use := launchUsage + "\n"
 	for name, c := range map[string]struct {
-		r    *rig
-		env  []string
-		args []string
+		env       []string
+		args      []string
+		out, errs string
+		code      int
 	}{
-		"switched off":            {off, nil, []string{"launch", "a.one"}},
-		"under Orca":              {r, []string{"HANDLINE_TERMINAL=orca"}, []string{"launch", "a.one"}},
-		"another vendor":          {r, nil, []string{"launch", "b.two"}},
-		"an agent with no config": {r, nil, []string{"launch", "z.z"}},
-		"no agent named":          {r, nil, []string{"launch"}},
-		"an option Python parses": {r, nil, []string{"launch", "a.one", "--acount", "x"}},
+		"under Orca":     {[]string{"HANDLINE_TERMINAL=orca"}, []string{"launch", "a.one"}, "", "hl launch: the terminal is orca; this hl launches only under tmux\n", 1},
+		"another vendor": {nil, []string{"launch", "b.two"}, "", "hl launch: b.two runs vendor opencode, which this hl does not launch\n", 1},
+		"no agent named": {nil, []string{"launch"}, "", use, 2},
+		"a typo":         {nil, []string{"launch", "a.one", "--acount", "x"}, "", use, 2},
+		"help":           {nil, []string{"launch", "--help"}, use, "", 0},
 	} {
-		out, _, code := c.r.run(c.env, c.args...)
-		if code != 0 || !strings.HasPrefix(out, "python ") || !strings.HasSuffix(out, " "+strings.Join(c.args, " ")+"\n") {
-			t.Errorf("%s: %q %d", name, out, code)
+		out, errs, code := r.run(c.env, c.args...)
+		if out != c.out || errs != c.errs || code != c.code {
+			t.Errorf("%s: out %q err %q exit %d", name, out, errs, code)
 		}
+	}
+	if _, errs, code := r.run(nil, "launch", "z.z"); code != 1 || !strings.HasPrefix(errs, "hl launch: agent 'z.z' is not registered (") {
+		t.Errorf("no config: err %q exit %d", errs, code)
 	}
 }
 

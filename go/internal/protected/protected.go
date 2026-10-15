@@ -55,6 +55,12 @@ func (s *Store) entry(namespace, name string) (string, error) {
 	return filepath.Join(s.Root, namespace, name), nil
 }
 
+// CheckName is the error a read or write of this entry would refuse it with: a namespace or name that is not plain.
+func (s *Store) CheckName(namespace, name string) error {
+	_, err := s.entry(namespace, name)
+	return err
+}
+
 // Get is the entry; ok is false when there is none, or when the store cannot be read at all, which is what an agent's
 // sandbox says. For a decision or a grant that is the answer that grants nothing.
 func (s *Store) Get(namespace, name string) (string, bool) {

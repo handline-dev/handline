@@ -78,8 +78,9 @@ func (c *Chat) requests(q *sql.DB, emit Emit) error {
 	if err != nil {
 		return err
 	}
+	pass := c.Reads.ChatRequests()
 	for _, t := range touched {
-		req, err := c.Reads.ChatRequest(t.id)
+		req, err := pass.Get(t.id)
 		if err != nil {
 			return err
 		}

@@ -81,24 +81,6 @@ func TestTheUsageAdapterPicksTheAccountFurthestBehindItsPaceAndCountsLoadWithout
 	}
 }
 
-func TestAStructuredAgentsSessionIsTheOneStoredWithIt(t *testing.T) {
-	env := usageHome(t, map[string]map[string]any{"a": liveAccount(5, 5, 90000)})
-	q := openDB(t)
-	db.SetAgentState(q, "s", states.Idle, 0, "")
-	db.SetResumeSession(q, "s", "stored-id")
-	s := &StatusAdapter{Env: env, Q: q, Structured: func(a string) bool { return a == "s" }}
-	if got := s.ReadForAgent("s", "a"); got.SessionID != "stored-id" || got.CtxPct != nil {
-		t.Fatalf("%+v", got)
-	}
-	// a terminal agent with no snapshot of its own knows no session
-	if got := s.ReadForAgent("t", "a"); got.SessionID != "" {
-		t.Fatalf("%+v", got)
-	}
-	if got := s.ReadForAgent("s", ""); got.SessionID != "stored-id" {
-		t.Fatalf("a structured agent on no recorded account still has its session: %+v", got)
-	}
-}
-
 func TestAnAccountIsNotFitWhenItsLoadCannotBeRead(t *testing.T) {
 	env := usageHome(t, map[string]map[string]any{"a": liveAccount(5, 5, 90000)})
 	q := openDB(t)

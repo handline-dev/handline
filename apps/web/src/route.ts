@@ -80,10 +80,10 @@ export const goTeam = (tab: 'team' | 'hr' = 'team'): void => {
   location.hash = tab === 'hr' ? '#/team/hr' : '#/team';
 };
 
-/** Which of the page routes the URL names: `#/stats`, `#/settings` or `#/my-turn`, or '' for neither. */
-export function usePageRoute(): 'stats' | 'settings' | 'my-turn' | '' {
+/** Which of the page routes the URL names: `#/stats`, `#/settings`, `#/my-turn` or `#/admin`, or '' for neither. */
+export function usePageRoute(): 'stats' | 'settings' | 'my-turn' | 'admin' | '' {
   const hash = useSyncExternalStore(subscribe, () => location.hash);
-  return hash === '#/stats' ? 'stats' : hash === '#/settings' ? 'settings' : hash === '#/my-turn' ? 'my-turn' : '';
+  return hash === '#/stats' ? 'stats' : hash === '#/settings' ? 'settings' : hash === '#/my-turn' ? 'my-turn' : hash === '#/admin' ? 'admin' : '';
 }
 
 const WORKTREES = /^#\/worktrees(?:\/(.+))?$/;

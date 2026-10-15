@@ -3,7 +3,7 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { landingLabel, openTask, sessionLine, sideOf, taskRow, tickLevel } from '@handline/app-core';
+import { type TaskChange, clockTime, isPerson, landingLabel, openTask, sessionLine, sideOf, taskRow, tickLevel } from '@handline/app-core';
 import { useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
@@ -17,11 +17,6 @@ export const openTaskOnClick = (apply: ReturnType<typeof useWorkspace>['apply'],
   if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   e.preventDefault();
   apply((w) => openTask(w, task));
-};
-
-const clock = (at: string) => {
-  const d = new Date(at);
-  return Number.isNaN(+d) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
 /** Scrolls the message with this number into view and flashes it; false when it is not drawn (another page, another tab). */
@@ -87,8 +82,12 @@ function Ticks({ level, label, receipt }: { level: 0 | 1 | 2; label: string; rec
       role="img"
       aria-label={label}
     >
-      <Icon name="delivered" size={13} className={level >= 1 ? 'text-ok' : 'text-ink-3'} aria-hidden />
-      <Icon name="delivered" size={13} className={`-ml-[7px] ${level >= 2 ? 'text-ok' : 'text-ink-3'}`} aria-hidden />
+      <Icon name="delivered" size={13} strokeWidth={3} className={level >= 1 ? 'text-ok' : 'text-ink-3'} aria-hidden />
+      {/* The front tick has a ring in the chat background, so it reads as lying on the back one. */}
+      <span className={`relative -ml-[8px] inline-flex ${level >= 2 ? 'text-ok' : 'text-ink-3'}`}>
+        <Icon name="delivered" size={13} strokeWidth={6} className="absolute inset-0 text-canvas" aria-hidden />
+        <Icon name="delivered" size={13} strokeWidth={3} className="relative" aria-hidden />
+      </span>
     </span>
   );
 }
@@ -145,7 +144,7 @@ export function Message(props: {
         ) : null}
         {m.parent_item ? (
           <blockquote
-            className="msg-quote mb-1 flex w-fit max-w-[16rem] min-w-0 items-center gap-1 text-[12px] text-ink-2"
+            className="msg-quote mx-0 mt-0 mb-1 flex w-fit max-w-[16rem] min-w-0 items-center gap-1 text-[12px] text-ink-2"
             data-item={m.parent_item.id}
           >
             <Icon name="reference" size={12} label="Reply to the agent's reply" className="shrink-0" />
@@ -177,7 +176,7 @@ export function Message(props: {
         ) : null}
       </div>
       <Stamp left={side !== 'agent'}>
-        <span>{clock(m.at)}</span>
+        <span>{clockTime(m.at)}</span>
         {side === 'person' && !failed ? <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} /> : null}
       </Stamp>
     </>
@@ -223,7 +222,7 @@ function SessionCard({ i }: { i: TranscriptItem }) {
           Handoff
         </Button>
       ) : null}
-      <span className="card-time">{clock(i.at)}</span>
+      <span className="card-time">{clockTime(i.at)}</span>
       <hr className="m-0 h-px flex-1 border-0 bg-line" />
       {open ? (
         <Dialog title="Handoff" onClose={() => setOpen(false)}>
@@ -243,14 +242,15 @@ const TASK_ACCENT: Record<string, string> = {
 };
 
 /** A task added, edited, done or deleted: a compact bar unlike a message, with the change in brief; a click opens the task in the Tasks tab. */
-function TaskLine({ i, titles }: { i: TranscriptItem; titles?: Map<number, string> }) {
+function TaskLine({ i, titles, agent }: { i: TranscriptItem; titles?: Map<number, string>; agent?: string }) {
   const { apply } = useWorkspace();
   const ev = i.task_event?.event ?? 'changed';
   const row = taskRow(i, titles);
+  const me = useStore().me;
   return (
     <button
       type="button"
-      className={`card-task flex w-full cursor-pointer items-baseline gap-2 rounded-card border border-l-4 border-line bg-panel px-2.5 py-1 text-left text-body ${TASK_ACCENT[ev] ?? 'border-l-wait'}`}
+      className={`card-task flex w-fit max-w-full cursor-pointer flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-card border border-l-4 border-line bg-panel px-2.5 py-1 text-left text-body ${TASK_ACCENT[ev] ?? 'border-l-wait'}`}
       data-kind="task_event"
       data-event={ev}
       title={`Open T${row.task} in the Tasks tab`}
@@ -259,10 +259,32 @@ function TaskLine({ i, titles }: { i: TranscriptItem; titles?: Map<number, strin
       <Icon name={TASK_EVENT[ev] ?? 'changed'} size={14} label={row.label} />
       <span className="card-event text-meta font-semibold uppercase tracking-wide">{row.label}</span>
       <span className="mono">T{row.task}</span>
-      <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-medium">{row.title}</span>
-      {row.detail ? <span className="muted max-w-[45%] overflow-hidden text-ellipsis whitespace-nowrap">{row.detail}</span> : null}
-      <span className="muted card-time">{clock(i.at)}</span>
+      {row.who && row.who !== agent ? <span className="muted">by {isPerson(row.who, me) ? 'you' : row.who}</span> : null}
+      {row.title ? <span className="max-w-[24ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{row.title}</span> : null}
+      {row.parts.length ? <TaskChanges parts={row.parts} /> : null}
+      <span className="muted card-time">{clockTime(i.at)}</span>
     </button>
+  );
+}
+
+/** What changed, one piece per change: the old value struck through, then the new one. */
+function TaskChanges({ parts }: { parts: TaskChange[] }) {
+  return (
+    <span className="muted min-w-0 break-words">
+      {parts.map((c, n) => (
+        <span key={n}>
+          {n ? ', ' : null}
+          {'text' in c ? (
+            c.text
+          ) : (
+            <>
+              {c.field ? `${c.field} ` : null}
+              <s>{c.old}</s> {c.now}
+            </>
+          )}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -274,7 +296,7 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
   return (
     <button
       type="button"
-      className={`card-task flex w-full cursor-pointer items-baseline gap-2 rounded-card border border-l-4 border-line bg-panel px-2.5 py-1 text-left text-body ${TASK_ACCENT[ev]}`}
+      className={`card-task flex w-fit max-w-full cursor-pointer flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-card border border-l-4 border-line bg-panel px-2.5 py-1 text-left text-body ${TASK_ACCENT[ev]}`}
       data-kind="task_event"
       data-event={ev}
       title={`Open T${task} in the Tasks tab`}
@@ -283,9 +305,9 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
       <Icon name={TASK_EVENT[ev]!} size={14} label={`Task ${verb ?? 'changed'}`} />
       <span className="card-event text-meta font-semibold uppercase tracking-wide">{verb ? `Task ${verb}` : 'Task'}</span>
       <span className="mono">T{task}</span>
-      <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-medium">{titles?.get(task)}</span>
-      {rest ? <span className="muted max-w-[45%] overflow-hidden text-ellipsis whitespace-nowrap">{rest}</span> : null}
-      <span className="muted card-time">{clock(m.at)}</span>
+      {titles?.get(task) ? <span className="max-w-[24ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{titles.get(task)}</span> : null}
+      {rest ? <span className="muted min-w-0 break-words">{rest}</span> : null}
+      <span className="muted card-time">{clockTime(m.at)}</span>
     </button>
   );
 }
@@ -294,11 +316,14 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
 export function Item({
   i,
   titles,
+  agent,
   onReply,
   picked,
 }: {
   i: TranscriptItem;
   titles?: Map<number, string>;
+  /** The agent whose chat this is: a task card by someone else names who acted. */
+  agent?: string;
   onReply?: (i: TranscriptItem) => void;
   /** The reply is being written to this item. */
   picked?: boolean;
@@ -321,7 +346,7 @@ export function Item({
           </div>
         </div>
         <Stamp>
-          <span>{clock(i.at)}</span>
+          <span>{clockTime(i.at)}</span>
         </Stamp>
       </>
     );
@@ -340,10 +365,10 @@ export function Item({
         <span className="card-state" title={i.open ? 'Waiting for you' : 'Answered'}>
           <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Waiting for you' : 'Answered'} />
         </span>
-        <span className="muted card-time">{clock(i.at)}</span>
+        <span className="muted card-time">{clockTime(i.at)}</span>
       </Card>
     );
   }
   if (i.kind === 'session') return <SessionCard i={i} />;
-  return <TaskLine i={i} titles={titles} />;
+  return <TaskLine i={i} titles={titles} agent={agent} />;
 }

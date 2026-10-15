@@ -105,6 +105,9 @@ type LaunchArgs struct {
 	AllowWrite, AllowDomains []string
 	// CacheDir is a sandboxed session's own build caches (claude.CacheEnv), which it may write too.
 	CacheDir string
+	// WeakerNetwork and Excluded are what the founder allowed the session's repo (team.RepoAllowances).
+	WeakerNetwork bool
+	Excluded      []string
 }
 
 // Hooks is a vendor's state hooks, which launch keeps current.

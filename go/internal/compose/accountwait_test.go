@@ -31,7 +31,7 @@ func atPct(t *testing.T, home, acct string, pct int) {
 // agent is filed under (Task.waiting.on).
 func TestAWaitOnAClosedAgentIsFiledUnderCapWhenItsAccountIsFullAndWallAtItsLimit(t *testing.T) {
 	p, lc, env, _ := wired(t)
-	d, home := p.Sink.DB, p.home
+	d, home := p.db, p.home
 	d.Exec("UPDATE requests SET state = 'closed'") // wired's begin, ahead of the task
 	dbpkg.SetClosed(d, "alice", "s-alice")
 	dbpkg.SetAccount(d, "alice", "a1", "")

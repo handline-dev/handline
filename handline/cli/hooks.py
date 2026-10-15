@@ -4,6 +4,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
+from ..team import agents
 from ..team import ask as askmod
 from ..session import edittask, events, stopgate
 from ..infra import paths, protected
@@ -29,8 +30,7 @@ def cmd_hooks_gate(args) -> int:
 
 
 # The parts of the Go hl the founder switches on one at a time (go/cmd/hl): each reads its entry and acts only on "on".
-GO_PARTS = {"hook": ("go_hook", "the Go hl answers the tool-call hooks"),
-            "launch": ("go_launch", "the Go hl starts a Claude agent under tmux")}
+GO_PARTS = {"hook": ("go_hook", "the Go hl answers the tool-call hooks")}
 
 
 def cmd_go(args) -> int:
@@ -44,6 +44,26 @@ def cmd_go(args) -> int:
             return 1
     on = (protected.get("switches", name) or "").strip() == "on"
     print(f"go {args.part}: {'on - ' + what if on else 'off - Python does it'}")
+    return 0
+
+
+def cmd_sandbox_repo(args) -> int:
+    """Show or set what the founder allows a repo's sandboxed sessions beyond the sandbox (agents.repo_allowances);
+    a session launched after this takes it."""
+    unknown = [a for a in args.allowance if a not in agents.REPO_ALLOWANCES]
+    if unknown or (args.clear and args.allowance):
+        print(f"allowances are {', '.join(agents.REPO_ALLOWANCES)}; --clear takes none", file=sys.stderr)
+        return 1
+    try:
+        if args.clear:
+            protected.delete(agents.REPO_ALLOWANCE_NS, args.repo)
+        elif args.allowance:
+            protected.put(agents.REPO_ALLOWANCE_NS, args.repo, "\n".join(dict.fromkeys(args.allowance)))
+        now = (protected.get(agents.REPO_ALLOWANCE_NS, args.repo) or "").split()
+    except (protected.NotTheFounder, ValueError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    print(f"{args.repo}: {', '.join(now) or 'nothing beyond the sandbox'}")
     return 0
 
 

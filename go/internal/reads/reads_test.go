@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -229,61 +228,6 @@ func TestChatRefsAreTheAgentsNewestRequestsAndLeaveOutWhatNeverReached(t *testin
 	}
 	if _, err := e.chatRefs(nil, map[string]any{"agent": "nobody"}); err == nil {
 		t.Fatal("an agent that is not registered is not found")
-	}
-}
-
-func TestAStructuredAgentSaysSoInItsViewAndATerminalAgentDoesNot(t *testing.T) {
-	e := testEnv(t)
-	addAgent(t, e, "alice", "")
-	addAgent(t, e, "bob", "")
-	if _, err := e.DB.Exec(`INSERT INTO agent_view(agent, view, updated) VALUES('alice', '{"name":"alice","state":"idle","n":12345678901234567}', 0)`); err != nil {
-		t.Fatal(err)
-	}
-	e.Structured = func(agent string) bool { return agent == "alice" }
-	got, err := e.agentsList(nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := json.Marshal(got)
-	var out struct{ Agents []map[string]any }
-	json.Unmarshal(b, &out)
-	if out.Agents[0]["structured"] != true || out.Agents[1]["structured"] != nil {
-		t.Fatalf("%s", b)
-	}
-	if !strings.Contains(string(b), "12345678901234567") {
-		t.Fatalf("the stored view's numbers are kept exactly: %s", b)
-	}
-}
-
-func TestSessionOpenOfAStructuredAgentIsItsRunningProcessNotATerminal(t *testing.T) {
-	e := testEnv(t)
-	for _, n := range []string{"live", "parked", "term"} {
-		addAgent(t, e, n, "")
-		var terminal any
-		if n == "term" {
-			terminal = "t1"
-		}
-		if _, err := e.DB.Exec(`INSERT INTO agent_state(agent, state, updated, terminal) VALUES(?, 'idle', 0, ?)`, n, terminal); err != nil {
-			t.Fatal(err)
-		}
-	}
-	e.Structured = func(agent string) bool { return agent != "term" }
-	e.SessionOpen = func(agent string) bool { return agent == "live" }
-	for agent, want := range map[string]bool{"live": true, "parked": false, "term": true} {
-		got, err := e.agentGet(nil, map[string]any{"agent": agent})
-		if err != nil {
-			t.Fatal(err)
-		}
-		m := got.(map[string]any)
-		if m["session_open"] != want {
-			t.Fatalf("%s: session_open %v, want %v", agent, m["session_open"], want)
-		}
-		if holders := m["input_holders"].([]any); (agent != "term") != (len(holders) == 0) {
-			t.Fatalf("%s: input_holders %v", agent, holders)
-		}
-		if (agent == "term") != (m["terminal"] != nil) {
-			t.Fatalf("%s: terminal %v", agent, m["terminal"])
-		}
 	}
 }
 

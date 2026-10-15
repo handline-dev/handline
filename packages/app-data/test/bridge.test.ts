@@ -54,12 +54,35 @@ describe('agents', () => {
 
 describe('tasks and inbox', () => {
   const task = (id: number, state = 'queued') => ({ id, title: `t${id}`, state });
-  it('task.changed patches the cached task and reads the lists again, since a filter makes a patch unsafe', () => {
+  const ids = (key: readonly unknown[]) => qc.getQueryData<{ items: { id: number }[] }>(key as never)!.items.map((t) => t.id);
+  it('task.changed patches the cached task and each list by its own filter, reading none again', () => {
     qc.setQueryData(qk.task(D, 7), { ...task(7), body: 'b' });
-    qc.setQueryData([...qk.tasks(D), { state: 'doing' }], { items: [task(7)], more: false });
+    const open = qk.tasks(D);
+    const all = [...qk.tasks(D), { all: true }];
+    const doing = [...qk.tasks(D), { state: 'doing' }];
+    qc.setQueryData(open, { items: [task(9), task(7)], more: false });
+    qc.setQueryData(all, { items: [task(9), task(7), task(3, 'done')], more: false });
+    qc.setQueryData(doing, { items: [], more: false });
     applyEvent(c, ev('task.changed', task(7, 'doing'), { topic: 'tasks' }));
     expect(qc.getQueryData(qk.task(D, 7))).toMatchObject({ state: 'doing', body: 'b' });
-    expect(stale([...qk.tasks(D), { state: 'doing' }])).toBe(true);
+    expect(ids(doing)).toEqual([7]);
+    expect(qc.getQueryData<{ items: { state: string }[] }>(open)!.items[1]!.state).toBe('doing');
+    applyEvent(c, ev('task.changed', task(7, 'done'), { topic: 'tasks' }));
+    expect(ids(open)).toEqual([9]); // closed: out of the open list
+    expect(ids(doing)).toEqual([]);
+    expect(ids(all)).toEqual([9, 7, 3]);
+    applyEvent(c, ev('task.changed', task(12), { topic: 'tasks' }));
+    expect(ids(open)).toEqual([12, 9]);
+    for (const k of [open, all, doing]) expect(stale(k)).toBe(false);
+  });
+  it('task.changed leaves a full page alone for a task that belongs on the next one, and reads a list it cannot judge', () => {
+    const page = [...qk.tasks(D), { limit: 2 }];
+    const under = [...qk.tasks(D), { under: 4 }];
+    qc.setQueryData(page, { items: [task(9), task(7)], more: true });
+    qc.setQueryData(under, { items: [task(5)], more: false });
+    applyEvent(c, ev('task.changed', task(2), { topic: 'tasks' }));
+    expect(ids(page)).toEqual([9, 7]);
+    expect(stale(under)).toBe(true);
   });
   const item = (id: number, read = false) => ({ id, kind: 'result', title: `i${id}`, read });
   it('inbox.added puts the item first in the unfiltered list and reads a filtered list again', () => {

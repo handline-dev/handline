@@ -59,10 +59,9 @@ func (p *Parts) newMover(m *lifecycle.Manager, uenv *usage.Env, env *supervisor.
 			}
 			return *st.TrustedCtxUsed, tickUsage{p: p, u: uenv, roster: p.LC.roster}.ContextLimit(agent, st.ModelID)
 		},
-		RunningAccount: p.OpenedOn,
-		MeasureForget:  func(q db.Q, agent string) { _ = usage.ForgetColdStart(q, agent) },
-		StayWithin:     tick.StayWithin,
-		StayOrMove:     tick.StayOrMove,
-		WakeAfter:      tick.WakeAfter,
+		MeasureForget: func(q db.Q, agent string) { _ = usage.ForgetColdStart(q, agent) },
+		StayWithin:    tick.StayWithin,
+		StayOrMove:    tick.StayOrMove,
+		WakeAfter:     tick.WakeAfter,
 	}}
 }

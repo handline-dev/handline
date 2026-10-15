@@ -9,8 +9,8 @@ import { canCapture, requestCapture } from './Capture.tsx';
 import { Button, Icon } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
-import { AssignSheet, ReplyBox } from './TaskPeople.tsx';
-import { AskBox, CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
+import { AssignSheet } from './TaskPeople.tsx';
+import { CancelSheet, EditForm, MessageBox, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
 import { RichText } from './RichText.tsx';
 import { View } from './View.tsx';
 
@@ -40,7 +40,7 @@ export function TaskDetail({
   return (
     <article
       className={`tdetail flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-4 max-sm:py-3${
-        embedded ? ' pane relative bg-panel -outline-offset-1' : ''
+        embedded ? ' pane relative bg-panel -outline-offset-1' : ' mx-auto w-full max-w-[var(--w-page)]'
       }${
         drawer
           ? ' absolute top-[calc(var(--sp-5)+var(--h-btn)+var(--sp-4))] right-0 bottom-0 left-auto z-[5] w-[min(480px,100%)] border-l border-line bg-surface shadow-[var(--shadow-pop)]'
@@ -279,8 +279,7 @@ function Body({ t }: { t: Detail }) {
         </>
       ) : null}
 
-      <AskBox t={t} />
-      <ReplyBox t={t} me={me} box={replyBox} />
+      <MessageBox t={t} me={me} box={replyBox} />
     </div>
   );
 }
