@@ -118,7 +118,7 @@ export function HrCards({ agent }: { agent: string }) {
                 <span className="muted">{p.reason}</span>
               ) : null}
               {mine && !mine.wait ? (
-                <span className={`banner ${failed ? 'text-bad' : 'text-ok'}`} role="status">
+                <span className={`banner${failed ? '' : ' ok'}`} role="status">
                   {failed ?? outcome(p, mine.choice)}
                 </span>
               ) : null}
