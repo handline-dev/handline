@@ -8,11 +8,11 @@ import {
   rememberAttachment,
   sentence,
   classify,
-  useAttachmentUrl,
   useUploadImage,
   whyNotImage,
 } from '@handline/app-data';
-import { Dialog, Icon } from './ui/index.ts';
+import { AttachmentImage } from './AttachmentImage.tsx';
+import { Icon } from './ui/index.ts';
 
 export interface Draft {
   key: number;
@@ -176,54 +176,12 @@ export function PickButton(props: { onPick: (files: File[]) => void; disabled?: 
   );
 }
 
-function Thumb({ a }: { a: Attachment }) {
-  const small = useAttachmentUrl(a.id, true);
-  const [open, setOpen] = useState(false);
-  if (small.gone)
-    return (
-      <span className="attachment gone muted text-[12px]" title="This image is no longer kept">
-        {a.name}
-      </span>
-    );
-  return (
-    <>
-      <button
-        type="button"
-        className="attachment border-0 bg-transparent p-0"
-        title={a.name}
-        aria-label={`Open ${a.name}`}
-        onClick={() => setOpen(true)}
-      >
-        {small.url ? (
-          <img src={small.url} alt={a.name} className="max-h-40 max-w-full rounded-chip object-cover" />
-        ) : (
-          <span className="muted text-[12px]">{a.name}</span>
-        )}
-      </button>
-      {open ? <Original a={a} onClose={() => setOpen(false)} /> : null}
-    </>
-  );
-}
-
-function Original({ a, onClose }: { a: Attachment; onClose: () => void }) {
-  const full = useAttachmentUrl(a.id, false);
-  return (
-    <Dialog title={a.name} onClose={onClose}>
-      {full.url ? (
-        <img src={full.url} alt={a.name} className="max-h-[70vh] max-w-full" />
-      ) : (
-        <p className="muted">{full.gone ? 'This image is no longer kept.' : 'Loading…'}</p>
-      )}
-    </Dialog>
-  );
-}
-
 /** The pictures of a sent message, in the order they were attached. */
 export function Pictures({ items }: { items: Attachment[] }) {
   return (
     <div className="attachments mt-1 flex flex-wrap gap-1.5">
       {items.map((a) => (
-        <Thumb key={a.id} a={a} />
+        <AttachmentImage key={a.id} id={a.id} name={a.name} />
       ))}
     </div>
   );
