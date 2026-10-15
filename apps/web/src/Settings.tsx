@@ -7,7 +7,7 @@ import type { SettingsChanges } from '@handline/client';
 import { classify, sentence, useServes, useSettings, useWrite } from '@handline/app-data';
 import { Answers } from './Answers.tsx';
 import { DebugEntry } from './debug/DebugEntry.tsx';
-import { Field, Icon, RowControl, RowHint, RowText, RowTitle, SectionHead, SettingsCard, SettingsRow, Switch, type IconName, NOTE } from './ui/index.ts';
+import { Field, PageHead, PageTitle, ScrollPage, Icon, RowControl, RowHint, RowText, RowTitle, SectionHead, SettingsCard, SettingsRow, Switch, type IconName, NOTE } from './ui/index.ts';
 import { useOff } from './useOff.ts';
 import { View } from './View.tsx';
 
@@ -176,11 +176,11 @@ export function SettingsPage() {
   const { served } = useServes('settings.get');
   const v = q.data?.values;
   return (
-    <section className="settings mx-auto h-full w-full overflow-auto px-4 pt-4 pb-6" aria-label="Settings">
-      <header className="settings-head mx-auto mb-4 flex max-w-[calc(var(--w-form)_+_160px_+_var(--sp-7))] flex-wrap items-center gap-x-3 gap-y-1">
-        <h2 className="m-0 text-page font-semibold text-ink">Settings</h2>
+    <ScrollPage className="settings" aria-label="Settings">
+      <PageHead className="settings-head">
+        <PageTitle>Settings</PageTitle>
         <p className="settings-lede m-0 basis-full text-body text-ink-2">Defaults for every agent. Each change saves as you make it.</p>
-      </header>
+      </PageHead>
       <p className="settings-phone muted hidden max-sm:block">Open this on a computer.</p>
       <div className="settings-layout grid grid-cols-[160px_minmax(0,var(--w-form))] justify-center gap-6 max-[960px]:grid-cols-[minmax(0,var(--w-form))]">
         {served ? <SectionNav ready={!!v} /> : null}
@@ -254,6 +254,6 @@ export function SettingsPage() {
         </div>
       </div>
       <DebugEntry />
-    </section>
+    </ScrollPage>
   );
 }
