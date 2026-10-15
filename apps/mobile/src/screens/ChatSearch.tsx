@@ -5,6 +5,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { classify, sentence, useChatSearch, useServes, type ChatScope } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
+import { dateTime } from '@handline/app-core';
 
 const SNIPPET = 90;
 
@@ -14,11 +15,6 @@ function snippet(body: string, query: string): string {
   const from = Math.max(0, flat.toLowerCase().indexOf(query.toLowerCase()) - 30);
   return `${from > 0 ? '…' : ''}${flat.slice(from, from + SNIPPET)}${from + SNIPPET < flat.length ? '…' : ''}`;
 }
-
-const when = (at: string) => {
-  const d = new Date(at);
-  return Number.isNaN(+d) ? '' : d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-};
 
 export function ChatSearch(props: { agent: string; scope: ChatScope; onGo: (id: number) => void }) {
   const c = usePalette();
@@ -71,7 +67,7 @@ export function ChatSearch(props: { agent: string; scope: ChatScope; onGo: (id: 
                 style={{ paddingVertical: space.sm, gap: 2, borderBottomWidth: 1, borderBottomColor: c.line }}
               >
                 <Text style={{ color: c.muted, fontSize: 11 }}>
-                  {m.agent ?? props.agent} · {m.from} → {m.to} · {when(m.at)}
+                  {m.agent ?? props.agent} · {m.from} → {m.to} · {dateTime(m.at)}
                 </Text>
                 <Text style={{ color: c.ink }}>{snippet(m.body, query)}</Text>
               </Pressable>

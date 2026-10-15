@@ -15,7 +15,7 @@ describe('how an error is sorted for a view', () => {
   });
   it("a refusal carries the daemon's own sentence and hint", () => {
     const f = classify(rpc('refused', 'refused', { reason: 'the usage limit is hit', gate: 'wall', hint: 'wait for the reset' }));
-    expect(f).toEqual({ kind: 'refused', reason: 'the usage limit is hit', hint: 'wait for the reset' });
+    expect(f).toMatchObject({ kind: 'refused', reason: 'the usage limit is hit', hint: 'wait for the reset', gate: 'wall' });
     expect(sentence(f)).toBe('the usage limit is hit (wait for the reset)');
   });
   it('gate unsupported and an unknown method are the not-served state', () => {

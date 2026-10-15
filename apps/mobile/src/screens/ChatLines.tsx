@@ -2,15 +2,10 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { TranscriptItem } from '@handline/client';
-import { sessionLine } from '@handline/app-core';
+import { clockTime, sessionLine } from '@handline/app-core';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Sheet } from './TaskActions.tsx';
-
-export const clock = (at: string) => {
-  const d = new Date(at);
-  return Number.isNaN(+d) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-};
 
 /** A transcript line that is not a message. */
 export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: TranscriptItem) => void }) {
@@ -20,7 +15,7 @@ export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: Transcri
     return (
       <View testID={`reply-${i.id}`} style={{ alignSelf: 'flex-start', maxWidth: '88%', padding: space.md }}>
         <Text style={{ color: c.ink }}>{i.text}</Text>
-        <Text style={small}>{clock(i.at)}</Text>
+        <Text style={small}>{clockTime(i.at)}</Text>
         {onReply && (
           <Pressable
             testID={`reply-to-${i.id}`}
@@ -40,7 +35,7 @@ export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: Transcri
     return (
       <Text style={small} numberOfLines={2}>
         {i.open ? '⏳' : '✓'} {p?.kind === 'permission' ? `Asked permission: ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`}
-        {p?.command ? ` ${p.command}` : ''} · {clock(i.at)}
+        {p?.command ? ` ${p.command}` : ''} · {clockTime(i.at)}
       </Text>
     );
   }
@@ -49,7 +44,7 @@ export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: Transcri
   return (
     <Text style={small} numberOfLines={2}>
       ▣ T{e?.task} {e?.event ?? 'changed'}
-      {e?.evidence ? ` · ${e.evidence}` : ''} · {clock(i.at)}
+      {e?.evidence ? ` · ${e.evidence}` : ''} · {clockTime(i.at)}
     </Text>
   );
 }
@@ -101,7 +96,7 @@ function SessionMark({ i }: { i: TranscriptItem }) {
   const { reason, handoff } = sessionLine(i);
   const mark = (
     <Text testID={`session-${i.id}`} style={{ color: c.muted, fontSize: 12, textAlign: 'center' }}>
-      ── {reason} · {clock(i.at)}
+      ── {reason} · {clockTime(i.at)}
       {handoff ? ' · Handoff' : ''} ──
     </Text>
   );

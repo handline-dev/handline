@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -10,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -21,6 +19,7 @@ import (
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/sessiontoken"
+	"github.com/handline/handline/go/internal/usage"
 	_ "modernc.org/sqlite"
 )
 
@@ -31,18 +30,24 @@ func goSwitchOn(home, name string) bool {
 	return strings.TrimSpace(v) == "on"
 }
 
-// goEvents are the hook events the Go hl answers once the switch is on; every other one is Python's.
-var goEvents = map[string]bool{"PreToolUse": true, "PostToolUse": true, "PostToolUseFailure": true}
+// captured are the hook events recorded as they come (events.CAPTURED, without TeammateIdle, which is no longer kept). Notification is
+// installed for permission_prompt only, and the daemon raises the needs-you card from it (-notification-needs-you).
+var captured = map[string]bool{"SessionStart": true, "SessionEnd": true, "Stop": true, "StopFailure": true, "SubagentStop": true,
+	"PostCompact": true, "UserPromptSubmit": true, "PermissionRequest": true, "Notification": true}
 
-// hook is `hl hook <event>` (session/events.record_from_stdin) for the events that fire on every tool call, once the
-// switch is on. PreToolUse runs the guard chain; PostToolUse and its failure take
-// away the wait a permission prompt raised and record the event, and a PostToolUse notes a memory file used and a
-// command started in the background. It always exits 0, as a hook that fails must never take the session with it.
+// collected are the moments the session's own status snapshot is pulled again (events.COLLECT_EVENTS): they fire on a turn's edges and
+// carry the cwd the transcript is found under. SessionEnd is not one: a snapshot written as a session exits would call it fresh.
+var collected = map[string]bool{"SessionStart": true, "UserPromptSubmit": true, "Stop": true, "StopFailure": true, "PostCompact": true}
+
+// hook is `hl hook <event>` (session/events.record_from_stdin). PreToolUse runs the guard chain; PostToolUse and its failure take away the
+// wait a permission prompt raised and record the event, and a PostToolUse notes a memory file used and a command started in the background;
+// Stop runs the stop gate; the captured events are recorded, and the turn-edge ones pull the session's status snapshot. It always exits 0,
+// as a hook that fails must never take the session with it.
 func hook(c *hlclient.Client, args []string) (int, bool) {
-	if len(args) != 1 || !goEvents[args[0]] || !goSwitchOn(c.Home, "go_hook") {
-		return 0, false
+	event := ""
+	if len(args) > 0 {
+		event = args[0]
 	}
-	event := args[0]
 	defer func() {
 		if recover() != nil { // a PreToolUse hook that fails with exit 2 blocks the call: never that
 			fmt.Println("{}")
@@ -56,8 +61,8 @@ func hook(c *hlclient.Client, args []string) (int, bool) {
 			raw = nil
 		}
 	}
-	if ev, given := raw["hook_event_name"]; given && ev != event {
-		return pythonWithStdin(append([]string{"hook"}, args...), text), true
+	if ev, _ := raw["hook_event_name"].(string); ev != "" {
+		event = ev // the payload's own name, as Python took it
 	}
 	agent := hlclient.Agent()
 	if agent == "" || sessiontoken.New(c.Home).Nested(0) {
@@ -70,6 +75,9 @@ func hook(c *hlclient.Client, args []string) (int, bool) {
 	// guard does, and loses a background job's note.
 	d, _ := sql.Open("sqlite", "file:"+paths.DBFile(c.Home)+"?mode=rw&_pragma=busy_timeout(5000)")
 	defer d.Close()
+	if event != "PreToolUse" && event != "PostToolUse" && event != "PostToolUseFailure" {
+		return capture(c, d, agent, event, raw), true
+	}
 	if event != "PreToolUse" {
 		env := &session.Env{DB: d, Home: c.Home}
 		switch name := raw["tool_name"].(type) {
@@ -116,20 +124,28 @@ func newRequestID() string {
 	return hex.EncodeToString(b)
 }
 
-// pythonWithStdin runs the Python entry on argv with stdin already read, and answers its exit code.
-func pythonWithStdin(argv []string, stdin []byte) int {
-	line, err := pythonArgv(argv)
-	if err != nil {
+// capture is the rest of record_from_stdin: the stop gate for a Stop, then the record of an event that is kept and the status snapshot on a
+// turn's edge. Anything else is answered and left alone.
+func capture(c *hlclient.Client, d *sql.DB, agent, event string, raw map[string]any) int {
+	if event == "Stop" {
+		if block, reason := stopDecide(d, c.Home, agent, raw); block {
+			fmt.Println(rpc.PyJSON(map[string]any{"decision": "block", "reason": reason}, true, true))
+			return 0
+		}
+	}
+	if !captured[event] {
 		fmt.Println("{}")
 		return 0
 	}
-	cmd := exec.Command(line[0], line[1:]...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = bytes.NewReader(stdin), os.Stdout, os.Stderr
-	if err := cmd.Run(); err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			return ee.ExitCode()
+	record(c, agent, event, raw)
+	if collected[event] {
+		cwd, _ := raw["cwd"].(string)
+		if cwd == "" {
+			cwd, _ = os.Getwd()
 		}
-		return 0
+		sid, _ := raw["session_id"].(string)
+		usage.CollectSnapshot(c.Home, agent, cwd, sid)
 	}
+	fmt.Println("{}")
 	return 0
 }

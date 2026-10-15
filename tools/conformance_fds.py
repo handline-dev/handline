@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run contract/conformance.py against the built Go daemon without a socket file: tools/conformance_fds.py BINARY [--structured-cli CLI [--structured-tick]] [conformance args]
+"""Run contract/conformance.py against the built Go daemon without a socket file: tools/conformance_fds.py BINARY [--claude CLI] [conformance args]
 
 A sandbox may refuse to bind a socket, so the daemon (`-serve-fds`) serves connections this script made as socketpairs and
 passes to it, one per fixture. It starts on a scratch home with a founder key minted where it reads it, which is given to
@@ -148,67 +148,6 @@ def seed_session_start(con: sqlite3.Connection, agent: str) -> None:
                 (agent, int(time.time())))
 
 
-# The structured agents structured_controls.json needs, by var name. Each is started over the wire (session.start, the fake CLI)
-# and the busy ones are sent the text tools/fake_claude.py answers with a turn that stays open: "fake-hold" until interrupted,
-# "fake-ask" with a permission prompt open.
-STRUCTURED = {"structured_agent": None, "turn_agent": "fake-hold", "interrupt_agent": "fake-hold", "asking_agent": "fake-ask"}
-
-
-def call(conn, rid, method, params):
-    conn.sendall((json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params}) + "\n").encode())
-    buf = b""
-    while True:
-        chunk = conn.recv(65536)
-        if not chunk:
-            raise RuntimeError(f"{method}: connection closed")
-        buf += chunk
-        for line in buf.split(b"\n")[:-1]:
-            msg = json.loads(line)
-            if msg.get("id") == rid:
-                if "error" in msg:
-                    raise RuntimeError(f"{method}: {msg['error']}")
-                return msg["result"]
-
-
-def seed_structured(home: Path, daemon: subprocess.Popen, connect, key: str) -> dict[str, str]:
-    """A running structured session per var of STRUCTURED, started as a client would. Returns the --var for each. The daemon does not
-    make worktrees yet, and starts an agent in the one its row names, so each row is written with a directory."""
-    names = {var: f"c.{var}" for var in STRUCTURED}
-    (home / "accounts" / "main" / ".claude").mkdir(parents=True)  # a session starts on a logged-in account: this one has a credential file
-    (home / "accounts" / "main" / ".claude" / ".credentials.json").write_text("{}")
-    (home / "shared" / ".claude").mkdir(parents=True)  # a session is not started without the shell guard's hook in them
-    (home / "shared" / ".claude" / "settings.json").write_text(json.dumps(
-        {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "/usr/bin/handline hook PreToolUse"}]}]}}))
-    for n in names.values():
-        (home / "agents" / n).mkdir(parents=True)
-        (home / "agents" / n / "agent.yaml").write_text("role: seeded by conformance_fds\nstructured: true\n")
-        (home / "worktrees" / n).mkdir(parents=True)
-    for _ in range(200):
-        try:
-            con = sqlite3.connect(home / "db.sqlite", timeout=5)
-            for n in names.values():
-                con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'queued', 0, ?)",
-                            (n, str(home / "worktrees" / n)))
-            con.commit()
-            con.close()
-            break
-        except sqlite3.Error:
-            if daemon.poll() is not None:
-                raise
-            time.sleep(0.05)
-    else:
-        raise RuntimeError("the daemon's database did not come up to seed")
-    write_team(home, [*names.values(), ASK_AGENT, AGENT])
-    conn = connect()
-    call(conn, 1, "hello", {"client": "conformance-seed/1", "protocol": 1, "key": key})
-    for i, (var, text) in enumerate(STRUCTURED.items()):
-        call(conn, 10 + 2 * i, "session.start", {"agent": names[var], "request_id": f"seed-start-{var}"})
-        if text:
-            call(conn, 11 + 2 * i, "chat.send", {"agent": names[var], "body": text, "request_id": f"seed-send-{var}"})
-    conn.close()
-    return {var: n for var, n in names.items()}
-
-
 def agent_pairs(store: Path, n: int) -> tuple[list, socket.socket, int]:
     """n socketpairs made by a child process recorded in store as AGENT's session: the kernel names their maker as the peer of
     either end, so the daemon takes a connection on them for one from inside that session. The child lives until the
@@ -244,11 +183,9 @@ def main(argv: list[str]) -> int:
         print(__doc__, file=sys.stderr)
         return 2
     binary, rest = argv[0], argv[1:]
-    structured_cli = []
-    if rest[:1] == ["--structured-cli"]:  # the daemon serves the session.* methods over structured sessions run by this CLI
-        structured_cli, rest = ["-structured-cli", rest[1]], rest[2:]
-        if rest[:1] == ["--structured-tick"]:  # and the policy tick runs over them, as in production
-            structured_cli, rest = structured_cli + ["-structured-tick"], rest[1:]
+    claude = []
+    if rest[:1] == ["--claude"]:  # the daemon builds its agent side (the session methods, the supervisor) over this CLI
+        claude, rest = ["-claude", rest[1]], rest[2:]
     with tempfile.TemporaryDirectory(prefix="handlined.") as tmp:
         test_root = Path(tmp).resolve()
         home = test_root / "state"
@@ -264,7 +201,7 @@ def main(argv: list[str]) -> int:
         theirs = [b.fileno() for _a, b in pairs + mine]
         net_theirs = [b.fileno() for _a, b in net_pairs]
         daemon = subprocess.Popen([binary, "-home", str(home), "-listen", "127.0.0.1:0", "-serve-fds", ",".join(map(str, theirs)),
-                                   "-serve-net-fds", ",".join(map(str, net_theirs)), *structured_cli], pass_fds=theirs + net_theirs,
+                                   "-serve-net-fds", ",".join(map(str, net_theirs)), *claude], pass_fds=theirs + net_theirs,
                                   stderr=subprocess.PIPE,
                                   # the founder's daemon, even when an agent runs the check: it writes the protected store
                                   env={**os.environ, "HANDLINE_TEST_ROOT": str(test_root), "OCP_AGENT": "", "HANDLINE_AGENT": ""})
@@ -285,9 +222,9 @@ def main(argv: list[str]) -> int:
         try:
             seeded = seed_states(home, daemon)
             seeded |= {"add_account": "conf-added", "add_used_account": "conf-used", "add_retry_account": "conf-retried"}  # names no account has
-            seeded |= {"account": "main", "schedule_agent": ASK_AGENT, "task_owner": ASK_AGENT}  # main: the account seed_structured makes
-            if structured_cli:
-                seeded |= seed_structured(home, daemon, local, key)
+            (home / "accounts" / "main" / ".claude").mkdir(parents=True)  # a logged-in account: it has a credential file
+            (home / "accounts" / "main" / ".claude" / ".credentials.json").write_text("{}")
+            seeded |= {"account": "main", "schedule_agent": ASK_AGENT, "task_owner": ASK_AGENT}
             rc = conformance.main(["--var", f"founder_key={key}", "--var", "dialogs_retired=1",
                                    *(a for k, v in seeded.items() for a in ("--var", f"{k}={v}")), *rest],
                                   connectors={"founder": local, "anonymous": local, "agent": taker(mine), "unpaired": taker(net_pairs)})

@@ -1,8 +1,8 @@
 // The ⌘K palette (G14): one box for agents, tasks by number or title, the pages and a few actions. Arrows move, Enter goes, Escape closes.
 import { useEffect, useMemo, useState } from 'react';
-import { taskRef } from '@handline/app-core';
+import { dateTime, taskRef } from '@handline/app-core';
 import { useAgents, useChatSearch, useServes, useTasks } from '@handline/app-data';
-import { snippet, when } from './ChatSearch.tsx';
+import { snippet } from './ChatSearch.tsx';
 import { goAgent, goInbox, goMessage, goNew, goTasks, goTeam, goWorktrees } from './route.ts';
 import { Backdrop, Icon, PROW, PROW_HINT, PROW_NAME, type IconName } from './ui/index.ts';
 
@@ -55,7 +55,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
         key: `m:${m.id}`,
         icon: 'chat',
         label: snippet(m.body, messageQuery),
-        hint: `${agent} · ${when(m.at)}`,
+        hint: `${agent} · ${dateTime(m.at)}`,
         run: () => goMessage(agent, m.id),
       };
     });

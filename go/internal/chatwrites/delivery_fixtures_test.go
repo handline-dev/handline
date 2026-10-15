@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/fixtureplay"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
-	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
 )
 
@@ -40,7 +40,7 @@ func TestTheDeliveryFixturesPassAgainstTheChatWritesAndReads(t *testing.T) {
 			reads.Register(srv, reads.Env{DB: r.db, Home: r.home, Started: time.Now()})
 			// dave's operation was written, and the session ended before it was echoed
 			r.one(srv, "chat.send", `{"agent":"dave","body":"in flight when it died","request_id":"crashed-op"}`)
-			f.setState("dave", supervisor.RequestOp(1), structured.Unknown)
+			f.setState("dave", supervisor.RequestOp(1), delivery.Unknown)
 			vars := map[string]any{"founder_key": "founder", "transcript_agent": "bob", "working_agent": "carol", "crashed_agent": "dave", "terminal_agent": "alice"}
 			saved := map[string]any{}
 			cl, sv := net.Pipe()

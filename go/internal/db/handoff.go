@@ -82,8 +82,13 @@ func StartHandoff(q Q, id, agent, sessionID, triggerKind string, deadline int64)
 
 // InFlightFor is db.in_flight_for: the agent's oldest handoff still in flight, nil when none.
 func InFlightFor(q Q, agent string) (*HandoffRow, error) {
+	return handoffRow(q, "agent = ? AND state = 'in_flight' ORDER BY updated", agent)
+}
+
+// handoffRow is the first handoff row matching the clause after WHERE, nil when none does.
+func handoffRow(q Q, where string, args ...any) (*HandoffRow, error) {
 	var h HandoffRow
-	err := q.QueryRow("SELECT id, agent, session_id, trigger_kind, step, deadline, state, detail, updated FROM handoff WHERE agent = ? AND state = 'in_flight' ORDER BY updated LIMIT 1", agent).
+	err := q.QueryRow("SELECT id, agent, session_id, trigger_kind, step, deadline, state, detail, updated FROM handoff WHERE "+where+" LIMIT 1", args...).
 		Scan(&h.ID, &h.Agent, &h.SessionID, &h.TriggerKind, &h.Step, &h.Deadline, &h.State, &h.Detail, &h.Updated)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -124,13 +129,7 @@ func NoteSessionStart(q Q, agent, cause string, resumed bool, sessionID, text, p
 
 // LatestHandoff is the agent's most recently updated handoff row, nil when it has none.
 func LatestHandoff(q Q, agent string) (*HandoffRow, error) {
-	var h HandoffRow
-	err := q.QueryRow("SELECT id, agent, session_id, trigger_kind, step, deadline, state, detail, updated FROM handoff WHERE agent = ? ORDER BY updated DESC LIMIT 1", agent).
-		Scan(&h.ID, &h.Agent, &h.SessionID, &h.TriggerKind, &h.Step, &h.Deadline, &h.State, &h.Detail, &h.Updated)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	return &h, err
+	return handoffRow(q, "agent = ? ORDER BY updated DESC", agent)
 }
 
 // LastSessionStart is when the agent's latest session start was kept, 0 when none was.

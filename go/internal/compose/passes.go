@@ -1,12 +1,10 @@
 package compose
 
 import (
-	"os"
-	"path/filepath"
 	"sort"
-	"strconv"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/schedules"
@@ -14,7 +12,6 @@ import (
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
-	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
 // passes are the guarded passes the tick makes after its per-agent turns, in daemon/evaluate.py's order: the timebox, the notices, the stuck waits and
@@ -117,49 +114,9 @@ func (t timeboxPorts) SupervisorOf(agent string) string {
 	return tm.SupervisorOf(agent)
 }
 
-// StopWaitReason is actions.stop_wait_reason: why the agent should not stop now - it holds a current task with no recorded wait.
+// StopWaitReason is actions.stop_wait_reason (hooks.StopWaitReason): the Stop hook asks the same.
 func (t timeboxPorts) StopWaitReason(q db.Q, agent string) string {
-	tid, has, err := db.CurrentTask(q, agent)
-	if err != nil || !has {
-		return ""
-	}
-	if kids, err := db.OpenChildTasks(q, tid); err != nil || len(kids) > 0 {
-		return ""
-	}
-	if blockers, err := db.TaskBlockers(q, tid); err != nil || len(blockers) > 0 {
-		return ""
-	}
-	var open int
-	if q.QueryRow("SELECT COUNT(*) FROM tasks t JOIN task_requests l ON l.task_id = t.id JOIN requests r ON r.id = l.request_id "+
-		"WHERE t.owner = ? AND t.opened_by = ? AND t.discarded_by IS NULL AND r.state = 'queued'", db.Human, agent).Scan(&open) != nil || open > 0 {
-		return ""
-	}
-	if t.proposalWaiting(agent) {
-		return "" // its roster proposal is waiting on the founder
-	}
-	return "T" + strconv.FormatInt(tid, 10) + " is current with no recorded wait"
-}
-
-// proposalWaiting is whether a roster proposal the agent made still waits on the founder: hr/*.yaml with requested_by and state proposed.
-func (t timeboxPorts) proposalWaiting(agent string) bool {
-	files, _ := filepath.Glob(filepath.Join(t.home, "hr", "*.yaml"))
-	for _, f := range files {
-		raw, err := os.ReadFile(f)
-		if err != nil {
-			continue
-		}
-		doc, err := yamlcompat.Parse(string(raw))
-		m, ok := doc.(map[string]any)
-		if err != nil || !ok {
-			continue
-		}
-		if by, _ := m["requested_by"].(string); by == agent {
-			if state, _ := m["state"].(string); state == "proposed" {
-				return true
-			}
-		}
-	}
-	return false
+	return hooks.StopWaitReason(q, t.home, agent)
 }
 
 func (t timeboxPorts) SendNotice(q db.Q, agent, text string) bool {

@@ -1,4 +1,4 @@
-// Terminal tab: the agent session's live text grid, watch-only. Attached only while this tab is rendered; Start, Stop and Resume are in the sidebar.
+// Terminal tab: the agent session's live text grid, watch-only. Attached only while this tab is rendered.
 import { useEffect, useRef, useState } from 'react';
 import type { AgentDetail, TerminalView } from '@handline/client';
 import { useStore } from '@handline/app-react';

@@ -47,10 +47,8 @@ type MoveEnv struct {
 	// BackgroundWork is what the agent's session still runs behind its prompt, "" for nothing.
 	BackgroundWork func(q db.Q, agent string) string
 	// ContextUse is the context used and its limit, used < 0 when unknown.
-	ContextUse func(q db.Q, agent string) (used, limit int)
-	// RunningAccount is the account the agent's process spends, "" when unknown (never a contradiction).
-	RunningAccount func(agent string) string
-	MeasureForget  func(q db.Q, agent string)
+	ContextUse    func(q db.Q, agent string) (used, limit int)
+	MeasureForget func(q db.Q, agent string)
 	// The policy's pure functions (tick.StayWithin, StayOrMove, WakeAfter), passed in so lifecycle does not import the tick.
 	StayWithin func(coldStartPct *float64, windowS float64) float64
 	StayOrMove func(workWaiting bool, resetInS *float64, stayWithin float64) (bool, string)
@@ -201,12 +199,6 @@ func (v *Mover) moveToRoom(agent string, t HandoffTrigger, dest string) (moved, 
 		v.log("  %s: closed on %s but could not start on %s: %s", agent, here, there, clip(wakeWhy, 120))
 		return false, true
 	}
-	// The session that started must be the one on `there`; unknown is not a contradiction.
-	if actual := v.E.RunningAccount(agent); actual != "" && actual != there {
-		v.E.MeasureForget(m.Q, agent)
-		v.log("  %s: asked to move %s -> %s but its process is on %s - not recorded as moved", agent, here, there, actual)
-		return false, true
-	}
 	check(db.SetAccount(m.Q, agent, there, ""))
 	hookRunning := !must(db.SetStateUnlessRunning(m.Q, agent, states.Queued, fmt.Sprintf("moved %s -> %s (%s)", here, there, t.Kind)))
 	if hookRunning {
@@ -272,15 +264,7 @@ func (v *Mover) PerformHandoff(agent string, t HandoffTrigger, dest string) (ok 
 			v.log("  %s: %s fired but the agent is mid-turn - deferring", agent, t.Kind)
 			return true, nil
 		}
-		// A person's order does not wait for a turn that may never end on its own, an open permission prompt included: the interrupt
-		// denies it, and the act goes on once the turn is over.
-		if err := m.interruptSession(agent); err != nil {
-			return false, fmt.Errorf("%s: the forced move did not happen: %v", agent, err)
-		}
-		if !m.waitSessionIdle(agent, StructuredIdleWait) {
-			v.log("  %s: forced move fired but the turn did not end - not handing off", agent)
-			return true, nil
-		}
+		return false, fmt.Errorf("%s: the forced move did not happen: a terminal's turn cannot be interrupted without typing", agent)
 	}
 	// The agent writes its own part of the record first, one turn while its cache is warm. A person's order is not held for it, and a
 	// session at the wall cannot take a turn.
