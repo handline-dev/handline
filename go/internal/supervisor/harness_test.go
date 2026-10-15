@@ -125,7 +125,10 @@ func (s *fakeSessions) CacheLeft(agent string, _ int64) (int64, bool) {
 	return left, ok
 }
 
-type fakeLife struct{ started, woke []string }
+type fakeLife struct {
+	started, woke []string
+	wait          string // AccountWait's answer
+}
 
 func (l *fakeLife) StartForWork(_ db.Q, a string) string {
 	l.started = append(l.started, a)
@@ -135,6 +138,8 @@ func (l *fakeLife) WakeAgent(_ db.Q, a string) (bool, string) {
 	l.woke = append(l.woke, a)
 	return true, "woken"
 }
+
+func (l *fakeLife) AccountWait(db.Q, string) (string, error) { return l.wait, nil }
 
 type fakeEval struct{ calls []string }
 

@@ -21,8 +21,9 @@ QUIET_NOTIFICATIONS = ("inputNeededNotifEnabled", "agentPushNotifEnabled")
 
 # The tools a hook of ours is limited to, for the events that fire on every
 # call: PreToolUse is ours for the memory budget (T247), the edit gate (T295)
-# and ocp commands, so it looks at file writes and Bash only.
-MATCHERS = {"PreToolUse": "Write|Edit|MultiEdit|NotebookEdit|Bash"}
+# and ocp commands, so it looks at file writes and Bash only. Notification is
+# kept to the unanswered permission prompt.
+MATCHERS = {"PreToolUse": "Write|Edit|MultiEdit|NotebookEdit|Bash", "Notification": "permission_prompt"}
 
 # How we recognize a hook Orca installed, which ocp used to mirror into the shared file (until 2026-10-07,
 # when Orca left maintenance). Every Orca hook command mentions one of these paths or variables.

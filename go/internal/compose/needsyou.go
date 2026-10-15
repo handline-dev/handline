@@ -35,9 +35,10 @@ func (p *Parts) liveTerminals() map[string]bool {
 // there to wait (no row, closed, or no live session) needs nobody; a live session that says it is not waiting is past the prompt whatever a
 // wait file still says, since the file is taken away only by the call that ran or a hook that ends the turn, and the call may run for
 // minutes. The hook's file counts for an agent whose row is running (session.WaitOf): a session at a prompt sends no Stop, so its row stays
-// running, and one that died there leaves the file behind.
+// running, and one that died there leaves the file behind. With Config.NotifiedNeedsYou, a prompt Claude Code's Notification hook reports
+// as unanswered (hooks.Notified) needs a person too, at the terminal.
 func (p *Parts) needsYou() func(agent string) *agentview.NeedsYou {
-	home, q := p.home, p.db
+	home, q, notified := p.home, p.db, p.notified
 	return func(agent string) *agentview.NeedsYou {
 		row, err := db.GetAgentState(q, agent)
 		if err != nil || row == nil || (row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) {
@@ -50,7 +51,12 @@ func (p *Parts) needsYou() func(agent string) *agentview.NeedsYou {
 		if sess != nil && sess.Status != "waiting" {
 			return nil
 		}
-		if w := hooks.ReadWait(home, agent); w != nil && row.State == states.Running && !movedOn(q, agent, w) {
+		w := hooks.ReadWait(home, agent)
+		// Claude Code saying nobody answered comes first; a question is left to its own card.
+		if since, ok := hooks.Notified(home, agent); notified && ok && w["tool"] != "AskUserQuestion" {
+			return &agentview.NeedsYou{Kind: "permission", Source: "notification", Since: since, Text: "handle this in the terminal"}
+		}
+		if w != nil && row.State == states.Running && !movedOn(q, agent, w) {
 			since, _ := w["since"].(float64)
 			tool, _ := w["tool"].(string)
 			command, _ := w["command"].(string)

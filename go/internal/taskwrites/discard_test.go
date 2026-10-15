@@ -34,7 +34,7 @@ func TestDiscardIsTheAskersAndTellsTheOwnerAndFreesWhatWaitedOnIt(t *testing.T) 
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, home, nil)
+		Register(s, home, nil, nil)
 		return s
 	}
 	line := func(id int, task int, reason, rid string) string {
@@ -95,7 +95,7 @@ func discardEnv(t *testing.T) (*sql.DB, func(agent string, tell ...Teller) *rpc.
 		if len(tell) > 0 {
 			teller = tell[0]
 		}
-		Register(s, home, teller)
+		Register(s, home, teller, nil)
 		return s
 	}
 }

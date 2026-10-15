@@ -16,16 +16,7 @@ func (s *Store) Parts(text string, withPath bool) []any {
 			out = append(out, map[string]any{"text": text[at:r.Start]})
 		}
 		at = r.End
-		part := map[string]any{"caption": r.Caption}
-		if info, err := s.Lookup(r.ID); err != nil {
-			part["image"], part["gone"] = map[string]any{"id": r.ID}, true
-		} else {
-			part["image"] = info.Map()
-			if withPath {
-				part["path"] = s.Path(info)
-			}
-		}
-		out = append(out, part)
+		out = append(out, s.imagePart(r.Caption, r.ID, withPath))
 	}
 	if at < len(text) {
 		out = append(out, map[string]any{"text": text[at:]})
@@ -33,23 +24,19 @@ func (s *Store) Parts(text string, withPath bool) []any {
 	return out
 }
 
-// RefLines is the path lines of the images texts name, each once, numbered on from after: what an agent is told after a brief, a memo or
-// a reject note. An image no longer kept is left out.
-func (s *Store) RefLines(after int, texts ...string) []string {
-	var lines []string
-	seen := map[string]bool{}
-	for _, text := range texts {
-		for _, r := range Refs(text) {
-			if seen[r.ID] {
-				continue
-			}
-			seen[r.ID] = true
-			if info, err := s.Lookup(r.ID); err == nil {
-				lines = append(lines, s.line(after+len(lines)+1, info))
-			}
-		}
+// imagePart is the ImagePart of image id: gone when it is no longer kept, with its path for an agent (withPath).
+func (s *Store) imagePart(caption, id string, withPath bool) map[string]any {
+	part := map[string]any{"caption": caption}
+	info, err := s.Lookup(id)
+	if err != nil {
+		part["image"], part["gone"] = map[string]any{"id": id}, true
+		return part
 	}
-	return lines
+	part["image"] = info.Map()
+	if withPath {
+		part["path"] = s.Path(info)
+	}
+	return part
 }
 
 func (s *Store) line(n int, in Info) string { return Line(n, s.Path(in), in.Mime, in.Bytes) }

@@ -1,4 +1,4 @@
-// The fake daemon's images: attachment.put takes a file in chunks, attachment.get gives it back, chat.send names the finished ones.
+// The fake daemon's images: attachment.put takes a file in chunks, attachment.get gives it back, a message or a task's text names the finished ones.
 // Image bytes live here only; the replay store (replies, events) holds a digest or the Attachment, never the data.
 import { createHash, randomBytes } from 'node:crypto';
 import type { Attachment, ImagePart, TextPart } from '@handline/contract';
@@ -21,7 +21,7 @@ const MAGIC: [Mime, number[]][] = [
 const typeOf = (b: Buffer): Mime | undefined => MAGIC.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0];
 const newId = () => randomBytes(8).toString('hex');
 
-/** The ids a task's text names, in order: `![caption](attachment:ID)` and nothing else (x-attachments, tasks). */
+/** The ids a text names, in order: `![caption](attachment:ID)` and nothing else (x-attachments, texts). */
 export const refs = (text: string): string[] => [...text.matchAll(/!\[[^\]]*\]\(attachment:([^)]*)\)/g)].map((m) => m[1]!);
 
 interface Upload {
@@ -94,21 +94,31 @@ export class FakeAttachments {
     };
   }
 
-  /** The images chat.send names: each must be finished and not sent before. They are marked sent and given back as Attachments. */
-  take = (ids: unknown): Attachment[] => {
-    if (ids === undefined) return [];
-    if (!Array.isArray(ids) || ids.length > MAX_PER_MESSAGE) throw badRequest('At most 6 images to a message.', 'attachments');
-    const found = ids.map((id) => this.files.get(String(id)));
-    if (found.some((f) => !f || f.sent)) throw badRequest('An image is unknown, expired or already sent.', 'attachments');
-    return found.map((f) => {
-      f!.sent = true;
-      const { data: _d, sent: _s, ...a } = f!;
+  /**
+   * What a message carries (x-attachments, flow): the images its body names, then the listed ids (chat.send attachments) it does not name,
+   * each once and at most 6 in all, checked as a task's text is and claimed. Not listed with a task. An id may be sent again.
+   */
+  message = (body: string, ids: unknown, task: unknown): { attachments: Attachment[]; parts?: (TextPart | ImagePart)[] } => {
+    if (ids !== undefined && (!Array.isArray(ids) || !ids.length || ids.length > MAX_PER_MESSAGE || task !== undefined))
+      throw badRequest('attachments is 1 to 6 attachment ids, and not with a task.', 'attachments');
+    const named = refs(body);
+    const extra = [...new Set(((ids ?? []) as unknown[]).map(String))].filter((id) => !named.includes(id));
+    if (extra.length && new Set([...named, ...extra]).size > MAX_PER_MESSAGE) throw badRequest('At most 6 images to a message.', 'attachments');
+    this.check(body, '', 'body', false, () => new Set());
+    for (const id of extra) this.checkId(id, 'attachments');
+    for (const id of extra) this.files.get(id)!.sent = true;
+    const image = (id: string): Attachment => {
+      const { data: _d, sent: _s, ...a } = this.files.get(id)!;
       return a;
-    });
+    };
+    const attachments = [...new Set(named)].filter((id) => this.files.has(id)).map(image).concat(extra.map(image));
+    let parts = this.parts(body, false);
+    if (extra.length) parts = [...(parts ?? (body ? [{ text: body }] : [])), ...extra.map((id) => ({ image: image(id), caption: '' }))];
+    return { attachments, ...(parts ? { parts } : {}) };
   };
 
   /**
-   * What a task write may name in `field` (x-attachments, tasks): at most 6 images, each finished and kept, and for an agent only one a task
+   * What a task write may name in `field` (x-attachments, texts): at most 6 images, each finished and kept, and for an agent only one a task
    * already shows. An image the replaced text (`was`) names is not checked again. The new ones are claimed, as a message's are.
    */
   check(text: string, was: string, field: string, agent: boolean, shown: () => Set<string>): void {
@@ -117,12 +127,17 @@ export class FakeAttachments {
     const kept = new Set(refs(was));
     const named = ids.filter((id) => !kept.has(id));
     for (const id of named) {
-      if (!/^[0-9a-f]{16}$/.test(id)) throw invalidParams(`attachment:${id} is not an attachment id`, field);
-      if (this.uploads.has(id)) throw invalidParams(`attachment:${id} is an upload that has not finished`, field);
-      if (!this.files.has(id)) throw new Failure('not_found', `no image ${id}`, { what: 'attachment', name: id });
+      this.checkId(id, field);
       if (agent && !shown().has(id)) throw refused('role', `attachment:${id} is named by no task: an agent names only an image a task shows`);
     }
     for (const id of named) this.files.get(id)!.sent = true;
+  }
+
+  /** Whether a write may name id in field: well formed, its upload finished, still kept. */
+  private checkId(id: string, field: string): void {
+    if (!/^[0-9a-f]{16}$/.test(id)) throw invalidParams(`attachment:${id} is not an attachment id`, field);
+    if (this.uploads.has(id)) throw invalidParams(`attachment:${id} is an upload that has not finished`, field);
+    if (!this.files.has(id)) throw new Failure('not_found', `no image ${id}`, { what: 'attachment', name: id });
   }
 
   /** text cut at the images it names (TextPart, ImagePart), or undefined when it names none; an agent gets each image's path. */

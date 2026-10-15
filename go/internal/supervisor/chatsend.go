@@ -148,24 +148,16 @@ func (e *Env) ReopenConfirmed(q db.Q, row *db.Request) (reopened bool, err error
 	return must(db.ReopenLanded(q, row.ID)), nil
 }
 
-// imageLines is the path lines that follow a message's body when an agent is told of it: the images it carries, then those its text
-// names when it is a task's brief or a note of the task board (a memo or a reject note), then those the task's memos name.
+// imageLines is the path lines that follow a message's body when an agent is told of it: the images of the message (those its text names,
+// then those it was sent with), then for a task's request those the task's memos name.
 func (e *Env) imageLines(q db.Q, row *db.Request) string {
-	s := attachments.New(e.Home)
-	var lines []string
-	if carried := s.Lines(q, row.ID); carried != "" {
-		lines = strings.Split(carried, "\n")
-	}
-	var texts []string
-	if _, _, _, _, handoff := HandoffParts(row.Body); row.Requester == db.NoticeRequester || row.Kind.String == "task" && !handoff {
-		texts = append(texts, row.Body)
-	}
+	var memos []string
 	if row.Kind.String == "task" {
 		if t := taskOf(q, row); t != nil {
-			texts = append(texts, must(db.MemoTexts(q, t.ID))...)
+			memos = must(db.MemoTexts(q, t.ID))
 		}
 	}
-	return strings.Join(append(lines, s.RefLines(len(lines), texts...)...), "\n")
+	return attachments.New(e.Home).MessageLines(q, row.ID, row.Body, memos...)
 }
 
 // DaemonOp is the operation of a message the daemon wrote in its own words, with no one quoted.

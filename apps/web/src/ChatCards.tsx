@@ -115,7 +115,10 @@ const NEEDS: Record<string, string> = {
 
 /** What the agent waits on a person for, with how long and a way to its terminal; gone when the daemon stops saying it. */
 export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
-  const need = detail.needs_you;
+  // A daemon that reads the screen sets has_dialog and serves no needs_you: the card still says it, with the daemon's own line.
+  const need =
+    detail.needs_you ??
+    (detail.has_dialog ? { kind: 'dialog', since: detail.state_since, text: detail.state_detail || null, source: 'screen' } : null);
   const openTerminal = useOpenTerminal(detail);
   if (!need) return null;
   const reachable = detail.structured || !!detail.terminal;

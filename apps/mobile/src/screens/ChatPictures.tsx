@@ -1,7 +1,7 @@
 // The pictures of a sent message: thumbnails in the bubble, and one full screen behind a tap. The bytes are read with attachment.get
 // like the web does and drawn from a data URI (React Native has no object URLs).
 import { useMemo, useState } from 'react';
-import { Image, Modal, Pressable, Text, View } from 'react-native';
+import { Image, Modal, Pressable, SafeAreaView, Text, View } from 'react-native';
 import type { Attachment } from '@handline/client';
 import { useAttachmentBytes } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
@@ -38,27 +38,30 @@ function Full({ a, onClose }: { a: Attachment; onClose: () => void }) {
   const line = read.state === 'gone' ? GONE : read.state === 'failed' || bad ? FAILED : null;
   return (
     <Modal visible animationType="fade" onRequestClose={onClose}>
-      <View testID={`picture-full-${a.id}`} style={{ flex: 1, backgroundColor: c.bg, padding: space.md, gap: space.md }}>
-        <Pressable testID="picture-close" accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={8}>
-          <Text style={{ color: c.accent, fontWeight: '600' }}>Close</Text>
-        </Pressable>
-        {line ? (
-          <Text testID="picture-line" accessibilityRole="alert" style={{ color: c.block }}>
-            {line}
-          </Text>
-        ) : read.state === 'ready' ? (
-          <Image
-            testID="picture-image"
-            accessibilityLabel={a.name}
-            source={{ uri: read.uri }}
-            resizeMode="contain"
-            onError={() => setBad(true)}
-            style={{ flex: 1 }}
-          />
-        ) : (
-          <Text style={{ color: c.muted }}>Loading…</Text>
-        )}
-      </View>
+      {/* The safe area keeps Close out from under the status bar, where it could not be tapped. */}
+      <SafeAreaView testID={`picture-full-${a.id}`} style={{ flex: 1, backgroundColor: c.bg }}>
+        <View style={{ flex: 1, padding: space.md, gap: space.md }}>
+          <Pressable testID="picture-close" accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={8}>
+            <Text style={{ color: c.accent, fontWeight: '600' }}>Close</Text>
+          </Pressable>
+          {line ? (
+            <Text testID="picture-line" accessibilityRole="alert" style={{ color: c.block }}>
+              {line}
+            </Text>
+          ) : read.state === 'ready' ? (
+            <Image
+              testID="picture-image"
+              accessibilityLabel={a.name}
+              source={{ uri: read.uri }}
+              resizeMode="contain"
+              onError={() => setBad(true)}
+              style={{ flex: 1 }}
+            />
+          ) : (
+            <Text style={{ color: c.muted }}>Loading…</Text>
+          )}
+        </View>
+      </SafeAreaView>
     </Modal>
   );
 }

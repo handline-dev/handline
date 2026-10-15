@@ -203,10 +203,6 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 	if task != nil {
 		return w.sendTask(c, agent, body, task)
 	}
-	images, err := w.images.Claim(ids)
-	if err != nil {
-		return nil, err
-	}
 	body = strings.TrimSpace(textsafe.Text(body))
 	var act func(rid int64)
 	var receipt map[string]any
@@ -214,8 +210,11 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 		act = w.sendAct(agent, d, &receipt)
 	}
 	out, err := w.writeResult(c, refuse, func(tx *sql.Tx) (*Result, map[string]any, error) {
+		images, err := w.images.CheckMessage(tx, body, "body", ids, false)
+		if err != nil {
+			return nil, nil, err
+		}
 		var res *Result
-		var err error
 		if parent != 0 {
 			res, err = w.sendUnder(tx, agent, parent, body, act)
 		} else {
@@ -436,10 +435,14 @@ func (w *writes) sendTask(c *rpc.Conn, agent, body string, task any) (any, error
 		tid   int64
 		asked *taskwrites.Asked
 	)
+	brief := strings.TrimSpace(textsafe.Text(body))
 	out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+		if _, err := w.images.CheckMessage(tx, brief, "body", nil, false); err != nil {
+			return nil, err
+		}
 		var err error
 		tid, asked, err = taskwrites.OpenTask(tx, w.tell, me, taskwrites.NewIn{Owner: agent, Title: strings.TrimSpace(textsafe.Oneline(title)),
-			Body: strings.TrimSpace(textsafe.Text(body)), Secs: secs, Prio: db.DefaultPriority, Expects: "report"})
+			Body: brief, Secs: secs, Prio: db.DefaultPriority, Expects: "report"})
 		if err != nil {
 			return nil, err
 		}

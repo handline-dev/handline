@@ -41,9 +41,12 @@ const requestSelect = "SELECT id, ts, state_at, requester, target, state, body, 
 
 // chat is what one call reads with: the database and the task board, loaded when a task delivery needs it.
 type chat struct {
-	e *Env
-	b *board
+	e     *Env
+	b     *board
+	agent bool // the caller is an agent: an image part carries its path
 }
+
+func isAgent(c *rpc.Conn) bool { return c != nil && c.Caller.Role == "agent" }
 
 func (c *chat) taskState(taskID int64) (any, error) {
 	t, err := queryOne(c.e.DB, "SELECT * FROM tasks WHERE id = ?", taskID)
@@ -275,12 +278,12 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 	if receipt != nil {
 		m["receipt"] = receipt
 	}
-	pictures, err := attachments.Maps(c.e.DB, r.i("id"))
-	if err != nil {
-		return nil, err
-	}
-	if pictures != nil {
+	images := attachments.New(c.e.Home)
+	if pictures := images.MessageMaps(c.e.DB, r.i("id"), r.str("body")); pictures != nil {
 		m["attachments"] = pictures
+	}
+	if parts := images.MessageParts(c.e.DB, r.i("id"), r.str("body"), c.agent); parts != nil {
+		m["parts"] = parts
 	}
 	return m, nil
 }
@@ -393,7 +396,7 @@ func (e *Env) chatMessages(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ch := &chat{e: e}
+	ch := &chat{e: e, agent: isAgent(c)}
 	var rs []row
 	var more bool
 	if q.since != nil {
@@ -646,7 +649,7 @@ func (e *Env) chatRequests(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ch := &chat{e: e}
+	ch := &chat{e: e, agent: isAgent(c)}
 	rs, more, err := ch.page(agent, q.everyone, q.before, q.since, q.limit)
 	if err != nil {
 		return nil, err
@@ -818,7 +821,7 @@ func (e *Env) chatLocate(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, noMessage(nothing)
 	}
 	chatAgent, everyone := found.agent, found.tab == "all"
-	ch := &chat{e: e}
+	ch := &chat{e: e, agent: isAgent(c)}
 	back0 := found.request + 1
 	back, older, err := ch.page(chatAgent, everyone, &back0, nil, limit/2+1)
 	if err != nil {
@@ -878,7 +881,7 @@ func (e *Env) chatSearch(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ch := &chat{e: e}
+	ch := &chat{e: e, agent: isAgent(c)}
 	out := []any{}
 	for _, h := range hits {
 		r, err := queryOne(e.DB, "SELECT requester, target FROM requests WHERE id = ?", h.i("id"))
@@ -991,7 +994,7 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ch := &chat{e: e}
+	ch := &chat{e: e, agent: isAgent(c)}
 	rs, _, err := ch.page(agent, false, nil, nil, perSource)
 	if err != nil {
 		return nil, err
