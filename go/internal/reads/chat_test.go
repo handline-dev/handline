@@ -279,3 +279,24 @@ func TestATaskEventSaysWhatAnEditAndAHandoffChanged(t *testing.T) {
 		}
 	}
 }
+
+func TestAPassOverManyTaskDeliveriesLoadsTheBoardOnce(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	const n = 5
+	for i := 1; i <= n; i++ {
+		run(t, e, fmt.Sprintf("INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(%d, 't%d', 'bob', 'human', 1)", i, i))
+		run(t, e, fmt.Sprintf("INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(%d, %d, 'human', 'bob', 'do it', 'queued', 'task')", i, i))
+		run(t, e, fmt.Sprintf("INSERT INTO task_requests(task_id, request_id) VALUES(%d, %d)", i, i))
+	}
+	pass := e.ChatRequests()
+	for i := int64(1); i <= n; i++ {
+		req, err := pass.Get(i)
+		if err != nil || req == nil || req.Message["kind"] != "task" {
+			t.Fatalf("%d: %v %v", i, req, err)
+		}
+	}
+	if pass.ch.loads != 1 {
+		t.Fatalf("the board was loaded %d times for %d task deliveries", pass.ch.loads, n)
+	}
+}

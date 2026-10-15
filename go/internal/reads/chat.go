@@ -43,6 +43,7 @@ const requestSelect = "SELECT id, ts, state_at, requester, target, state, body, 
 type chat struct {
 	e     *Env
 	b     *board
+	loads int  // how many times b was loaded: once per call or pass
 	agent bool // the caller is an agent: an image part carries its path
 }
 
@@ -54,6 +55,7 @@ func (c *chat) taskState(taskID int64) (any, error) {
 		return nil, err
 	}
 	if c.b == nil {
+		c.loads++
 		_, open, err := c.e.boardRows(false)
 		if err != nil {
 			return nil, err
