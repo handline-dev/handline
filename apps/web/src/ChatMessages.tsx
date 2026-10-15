@@ -3,7 +3,7 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { landingLabel, openTask, sessionLine, sideOf, taskRow, tickLevel, type TaskChange } from '@handline/app-core';
+import { isPerson, landingLabel, openTask, sessionLine, sideOf, taskRow, tickLevel, type TaskChange } from '@handline/app-core';
 import { useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
@@ -247,10 +247,11 @@ const TASK_ACCENT: Record<string, string> = {
 };
 
 /** A task added, edited, done or deleted: a compact bar unlike a message, with the change in brief; a click opens the task in the Tasks tab. */
-function TaskLine({ i, titles }: { i: TranscriptItem; titles?: Map<number, string> }) {
+function TaskLine({ i, titles, agent }: { i: TranscriptItem; titles?: Map<number, string>; agent?: string }) {
   const { apply } = useWorkspace();
   const ev = i.task_event?.event ?? 'changed';
   const row = taskRow(i, titles);
+  const me = useStore().me;
   return (
     <button
       type="button"
@@ -263,6 +264,7 @@ function TaskLine({ i, titles }: { i: TranscriptItem; titles?: Map<number, strin
       <Icon name={TASK_EVENT[ev] ?? 'changed'} size={14} label={row.label} />
       <span className="card-event text-meta font-semibold uppercase tracking-wide">{row.label}</span>
       <span className="mono">T{row.task}</span>
+      {row.who && row.who !== agent ? <span className="muted">by {isPerson(row.who, me) ? 'you' : row.who}</span> : null}
       {row.title ? <span className="max-w-[24ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{row.title}</span> : null}
       {row.parts.length ? <TaskChanges parts={row.parts} /> : null}
       <span className="muted card-time">{clock(i.at)}</span>
@@ -319,11 +321,14 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
 export function Item({
   i,
   titles,
+  agent,
   onReply,
   picked,
 }: {
   i: TranscriptItem;
   titles?: Map<number, string>;
+  /** The agent whose chat this is: a task card by someone else names who acted. */
+  agent?: string;
   onReply?: (i: TranscriptItem) => void;
   /** The reply is being written to this item. */
   picked?: boolean;
@@ -370,5 +375,5 @@ export function Item({
     );
   }
   if (i.kind === 'session') return <SessionCard i={i} />;
-  return <TaskLine i={i} titles={titles} />;
+  return <TaskLine i={i} titles={titles} agent={agent} />;
 }

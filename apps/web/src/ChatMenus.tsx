@@ -1,4 +1,4 @@
-// The two menus of the message box (docs/bridge-feature-tree.md §2.4): `/` lists the agent's verbs and `#` a task or a message to refer to,
+// The two menus of the message box (docs/bridge-feature-tree.md §2.4): `/` lists what a person does in chat and `#` a task or a message to refer to,
 // and Ctrl+R lists what was sent before. A menu is entries; the box decides which one is open from its text.
 import { useMemo } from 'react';
 import { openTab, verbsOf, type Verb, taskRef } from '@handline/app-core';
@@ -19,10 +19,7 @@ export interface Entry {
   terminal?: boolean;
 }
 
-const VERB_ICON: Record<string, IconName> = {
-  wake: 'working',
-  clear_stall: 'blocked',
-};
+const VERB_ICON: Record<string, IconName> = { interrupt: 'cancel', clear_stall: 'blocked' };
 
 /** The verbs the slash menu offers: the ones a person reaches for. Restart, close, park, fold and move are automatic and are not shown. */
 const SLASH_VERBS: ReadonlySet<string> = new Set(['interrupt', 'clear_stall']);

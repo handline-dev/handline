@@ -413,13 +413,13 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await until(() => (chatOf(t).seenUpTo.get(ARCH) ?? 0) === idOfBody(t, 'Which gap list should come first?'), 'chat.seen');
   });
 
-  it('/ lists the verbs and the terminal, # a task or message number to refer to, Esc closes a menu', async () => {
+  it('/ lists the terminal, and no verb the daemon does by itself, # a task or message number to refer to, Esc closes a menu', async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
     await typeInto(compose(), '/');
     const verbs = $$('[role="listbox"] [role="option"]').map((o) => o.querySelector('.ui-prow-name')!.textContent);
     expect(verbs).toContain('Terminal');
-    expect(verbs.filter((v) => /restart|park|fold|move|close/i.test(v!))).toEqual([]); // automatic actions are not shown
+    expect(verbs.some((v) => /Restart|Sleep|Fold|Move|Close/.test(v ?? ''))).toBe(false);
     await typeInto(compose(), '/ter');
     expect($$('[role="listbox"] [role="option"]')).toHaveLength(1);
     await press(compose(), 'Escape');
