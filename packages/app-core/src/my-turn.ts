@@ -168,3 +168,11 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
       x.key.localeCompare(y.key),
   );
 }
+
+export type InboxGroup = 'decisions' | 'approvals' | 'fyi';
+
+/** The Inbox's three groups (docs/story9-my-turn.md 9-2), mapped on the client from `kind` and `prompt`: questions the agent cannot go on without, permission prompts, everything else. */
+export function inboxGroup(i: Pick<InboxItem, 'kind' | 'prompt'>): InboxGroup {
+  if (i.prompt?.kind === 'permission') return 'approvals';
+  return KINDS[i.kind] ? 'decisions' : 'fyi';
+}

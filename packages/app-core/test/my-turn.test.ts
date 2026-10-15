@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentView, InboxItem, Task } from '@handline/client';
-import { myTurn } from '../src/my-turn.ts';
+import { inboxGroup, myTurn } from '../src/my-turn.ts';
 
 const item = (o: Partial<InboxItem>): InboxItem =>
   ({
@@ -85,6 +85,15 @@ test('a reported task is an Accept card with Accept first', () => {
     cards[0]!.actions.map((a) => a.type),
     ['accept', 'reject', 'open'],
   );
+});
+
+test('inboxGroup: decision and ask are decisions, a permission prompt is an approval, the rest is FYI', () => {
+  const g = (o: Partial<InboxItem>) => inboxGroup(item(o));
+  assert.equal(g({ kind: 'decision' }), 'decisions');
+  assert.equal(g({ kind: 'ask' }), 'decisions');
+  assert.equal(g({ kind: 'prompt', prompt: { kind: 'permission' } as InboxItem['prompt'] }), 'approvals');
+  assert.equal(g({ kind: 'ask', prompt: { kind: 'permission' } as InboxItem['prompt'] }), 'approvals');
+  for (const kind of ['say', 'result', 'report', 'block', 'refused']) assert.equal(g({ kind }), 'fyi');
 });
 
 test('a report that answers to an agent is no Accept card; one that answers to the caller is', () => {
