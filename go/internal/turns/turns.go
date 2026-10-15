@@ -28,11 +28,12 @@ type Tracker struct {
 	Interrupted func(agent string)
 	Log         func(format string, args ...any)
 
-	mu      sync.Mutex
-	agents  map[string]*turn
-	changed func(agent string)
-	pid     func(agent string) int
-	ended   func(agent string)
+	mu       sync.Mutex
+	agents   map[string]*turn
+	changed  func(agent string)
+	pid      func(agent string) int
+	ended    func(agent string)
+	reapWait time.Duration // reapWait when 0
 }
 
 // OnChange sets what is told, after the fact, each time an agent's turn opens or closes: the agent's view is written then, not
@@ -120,7 +121,7 @@ func (t *Tracker) watchPid(agent string) {
 	find := t.pid
 	t.mu.Unlock()
 	pid := find(agent)
-	if pid <= 0 {
+	if pid <= 0 || zombie(pid) { // the CLI a new session replaced, not yet reaped: a later hook finds the new one
 		return
 	}
 	t.mu.Lock()
@@ -139,12 +140,16 @@ func (t *Tracker) watchPid(agent string) {
 	tr.pid, tr.unwatchPid = pid, stop
 }
 
-// ReapWait bounds how long an exited session may stay a zombie before its end is told: the process table lists it until its shell reaps it.
-var ReapWait = 2 * time.Second
+// reapWait bounds how long an exited session may stay a zombie before its end is told: the process table lists it until its shell reaps it.
+const reapWait = 2 * time.Second
 
 // exited ends the turn of a session whose process has gone, unless a newer session took the agent over meanwhile.
 func (t *Tracker) exited(agent string, pid int) {
-	for deadline := time.Now().Add(ReapWait); time.Now().Before(deadline) && !reaped(pid); {
+	wait := reapWait
+	if t.reapWait != 0 {
+		wait = t.reapWait
+	}
+	for deadline := time.Now().Add(wait); time.Now().Before(deadline) && !reaped(pid); {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.mu.Lock()

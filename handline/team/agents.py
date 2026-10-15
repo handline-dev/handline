@@ -210,6 +210,32 @@ def sandbox_domains(cfg: dict) -> list[str]:
             *(d.strip() for d in (extra if isinstance(extra, str) else "").split(",") if d.strip())]
 
 
+# The protected namespace of the sandbox allowances the founder gave a repo: one entry per repo, named after its folder,
+# one allowance a line (go/internal/team/agents.go RepoAllowancesOf).
+REPO_ALLOWANCE_NS = "sandbox_repos"
+# Each allowance as the session's sandbox takes it: weaker network isolation (Go on macOS verifies TLS through trustd,
+# which the default isolation blocks), or commands that run outside the sandbox.
+REPO_ALLOWANCES = {"weaker-network": {"weaker_network": True}, "pnpm-install": {"excluded": ["pnpm install", "pnpm install --frozen-lockfile"]}}
+
+
+def repo_allowances(cfg: dict) -> dict:
+    """The allowances of the repo agent.yaml names, as launch_argv's weaker_network and excluded. A repo has none
+    until the founder gives them (`hl sandbox-repo`), and a line that names no allowance grants nothing."""
+    out = {"weaker_network": False, "excluded": []}
+    repo = cfg.get("repo")
+    if not isinstance(repo, str) or not repo:
+        return out
+    try:
+        given = protected.get(REPO_ALLOWANCE_NS, Path(repo).name) or ""
+    except ValueError:      # a folder name the store cannot hold has no entry
+        given = ""
+    for name in given.split():
+        grant = REPO_ALLOWANCES.get(name, {})
+        out["weaker_network"] = out["weaker_network"] or grant.get("weaker_network", False)
+        out["excluded"] += grant.get("excluded", [])
+    return out
+
+
 def kind(cfg: dict) -> str:
     """What an agent is, for a column: the model and its effort.
 

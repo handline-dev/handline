@@ -7,8 +7,8 @@
 The format is in contract/README.md. Exit 0 when everything passed, 1 when a fixture failed or one was not run for want of
 a method or a --var (unless its method is named by --allow-missing, repeatable, or in --allow-missing-file, one method per
 line; a fixture named in --allow-needvar-file, one per line, may lack its --var, but a name there that passed or does
-not exist is an error, so the list cannot rot; a fixture named in --skip-file, one per line, is not run, and a name there
-that does not exist is an error), 2 on a usage error, 3 when nothing else is wrong but a role had no socket (--allow-skip says that is meant; it covers
+not exist is an error, so the list cannot rot; a fixture named in --skip-file, one per line, still runs but its failure is not counted, and a
+name there that passed or does not exist is an error), 2 on a usage error, 3 when nothing else is wrong but a role had no socket (--allow-skip says that is meant; it covers
 nothing else). The same fixtures run against the Python daemon, the Go
 one and the web UI's fake daemon: nothing here knows which it is talking to.
 """
@@ -416,19 +416,20 @@ def load(paths: list[Path]) -> list[dict]:
 
 
 def run_all(files: list[Path], sockets: dict, vars_: dict, only: str | None = None, skip: frozenset = frozenset()) -> list[tuple[str, str, str]]:
-    """[(status, fixture name, why)] for every fixture in `files`. One named in `skip` is "named", not run."""
+    """[(status, why, fixture name)] for every fixture in `files`. One named in `skip` still runs, so a gap that closed shows:
+    it is "named" unless it passed."""
     listed = {}
     out = []
     for fx in load(files):
         if only and only not in fx["name"]:
             continue
-        if fx["name"] in skip:
-            out.append(("named", "in --skip-file", fx["name"]))
-            continue
         role = fx.get("as", "founder")
         if role in sockets and role not in listed and role not in ("unpaired", "member"):
             listed[role] = listed_methods(sockets[role])
-        out.append((*run_fixture(fx, sockets, vars_, listed.get(role)), fx["name"]))
+        status, why = run_fixture(fx, sockets, vars_, listed.get(role))
+        if fx["name"] in skip and status != "pass":
+            status, why = "named", "in --skip-file"
+        out.append((status, why, fx["name"]))
     return out
 
 
@@ -495,10 +496,13 @@ def main(argv: list[str], connectors: dict | None = None) -> int:
     stale = {n for n in allow_needvar if not only and n not in spec_of}
     unknown = sorted(n for n in skip if not only and n not in spec_of)
     served: set = set()     # specs a fixture reached on a daemon that lists them
+    passing: list = []      # names in --skip-file whose fixture passed
     for status, why, name in run_all(files, sockets, vars_, only, frozenset(skip)):
         counts[status] += 1
         if status in ("pass", "fail"):
             served.add(spec_of[name])
+        if name in skip and status == "pass":
+            passing.append(name)
         if name in allow_needvar and status != "needvar":
             stale.add(name)
         allowed = status == "needvar" and name in allow_needvar
@@ -517,11 +521,13 @@ def main(argv: list[str], connectors: dict | None = None) -> int:
     gone = sorted(set(listed) & (served | (listed_methods(sockets["founder"]) or set()))) if not only else []
     for name in unknown:
         print(f"STALE {name}  - in --skip-file but there is no such fixture: delete the line")
+    for name in passing:
+        print(f"STALE {name}  - in --skip-file but it passed: delete the line")
     for name in dup:
         print(f"STALE {name}  - listed more than once in --allow-missing-file: keep one line")
     for name in gone:
         print(f"STALE {name}  - in --allow-missing-file but the daemon serves it: delete the line")
-    if counts["fail"] or unallowed or stale or unknown or dup or gone:
+    if counts["fail"] or unallowed or stale or unknown or passing or dup or gone:
         return 1
     return 3 if counts["skip"] and not allow_skip else 0
 

@@ -7,6 +7,7 @@ import {
   groupsOf,
   loadWorkspace,
   MAX_GROUPS,
+  openTab,
   saveWorkspace,
   setSplit,
   splitPane,
@@ -21,6 +22,7 @@ import {
 import type { AgentDetail } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { classify, useAgentDetail, useAgents, useServes } from '@handline/app-data';
+import { takeTerminalWish } from './route.ts';
 import { View } from './View.tsx';
 import { DropZones } from './DropZones.tsx';
 import { Pane } from './Pane.tsx';
@@ -104,6 +106,17 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     setWs((w) => (terminal ? setTerminal(w, terminal, !had.current) : oneTerminal(w)));
     had.current = !!terminal;
   }, [terminal]);
+
+  // "Open terminal" from the My turn page: the terminal (or transcript) comes to the front once.
+  useEffect(() => {
+    const take = () => {
+      if (!takeTerminalWish(agent)) return;
+      setWs((w) => (detail.structured ? openTab(w, 'transcript') : detail.terminal ? openTab(w, 'terminal', { handle: detail.terminal }) : w));
+    };
+    take();
+    addEventListener('handline-terminal', take);
+    return () => removeEventListener('handline-terminal', take);
+  }, [agent, detail.structured, detail.terminal]);
 
   const value: WorkspaceCtx = {
     ws,

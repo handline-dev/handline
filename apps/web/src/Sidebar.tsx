@@ -19,6 +19,7 @@ import {
 import type { AgentView } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { useAgents, useUnreached, useServes, useUnread, useVerbMark } from '@handline/app-data';
+import { useMyTurn } from './MyTurn.tsx';
 import { VerbSheet } from './AgentVerbs.tsx';
 import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
@@ -78,6 +79,7 @@ export function Sidebar({
   const counts = new Map<Dot, number>();
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const unread = useUnread().length;
+  const myTurn = useMyTurn().cards.length;
   const onInbox = useInboxRoute().open;
   const hr = useHrCount();
   const onTeam = !!useTeamRoute();
@@ -108,6 +110,9 @@ export function Sidebar({
         ) : null}
       </div>
       <div className="rail-nav flex flex-wrap gap-0.5 px-1.5">
+        <button className={navOf(onPage === 'my-turn')} aria-current={onPage === 'my-turn' ? 'page' : undefined} onClick={() => void (location.hash = '#/my-turn')}>
+          <Icon name="decision" size={14} aria-hidden /> My turn{myTurn ? ` ${myTurn}` : ''}
+        </button>
         <button className={navOf(onInbox)} aria-current={onInbox ? 'page' : undefined} onClick={goInbox}>
           <Icon name="inbox" size={14} aria-hidden /> Inbox{unread ? ` ${unread}` : ''}
         </button>
