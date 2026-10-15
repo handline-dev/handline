@@ -42,7 +42,7 @@ export function TableHead(props: {
             </th>
           ))
         )}
-        <th className={`${TH} c-act w-[1%] whitespace-nowrap`} aria-label="Actions" />
+        <th className={`${TH} c-act w-32 whitespace-nowrap`} aria-label="Actions" />
       </tr>
     </thead>
   );
