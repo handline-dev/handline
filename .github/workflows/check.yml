@@ -85,9 +85,9 @@ jobs:
           go-version-file: go/go.mod
           cache: false # GOCACHE and GOMODCACHE stay on the runner's disk
       - if: steps.plan.outputs.kind == 'go'
-        run: tools/test-go.sh
-        env:
-          TMPDIR: ${{ runner.temp }} # emptied after every job, and the same path each run, as go test's cache needs
+        # Fails a run that leaves a process, tmux server or temp file behind. Its TMPDIR is <dir>/tmp/: the same path each run,
+        # as go test's cache needs, under the runner's temp directory, which the runner empties after every job.
+        run: tools/leakcheck.py run --dir "$RUNNER_TEMP/hlc" tools/test-go.sh
       - name: Go parity tests
         if: steps.plan.outputs.kind == 'go'
         env:
