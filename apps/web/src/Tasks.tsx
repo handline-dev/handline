@@ -242,7 +242,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
           onAct={act}
           onAll={toggleAll}
         >
-          <VerbMenu tasks={verbs.byId([...marked])} me={me} cans={cans} onPick={verbs.pick} title="More actions" up />
+          <VerbMenu tasks={verbs.byId([...marked])} me={me} cans={cans} onPick={verbs.pick} title="More actions" />
         </TasksBar>
       ) : null}
     </>

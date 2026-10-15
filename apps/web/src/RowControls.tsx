@@ -4,7 +4,7 @@ import type { AgentView } from '@handline/client';
 import { useSelector, useStore } from '@handline/app-react';
 import { useAgentDetail, useVerbMark, useVerbRun, useWrite } from '@handline/app-data';
 import { useServed } from './AgentVerbs.tsx';
-import { Button, Icon, MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger, type IconName } from './ui/index.ts';
+import { Button, Icon, MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger, type At, type IconName } from './ui/index.ts';
 import { shell } from './shell.ts';
 
 const VERB_ICON: Partial<Record<VerbId, IconName>> = {
@@ -19,7 +19,7 @@ const VERB_ICON: Partial<Record<VerbId, IconName>> = {
 };
 
 /** Start, and the button that opens the row's menu at itself. */
-export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (at: { x: number; y: number }) => void }) {
+export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (at: At) => void }) {
   const agent = a.name;
   const d = useAgentDetail(agent).data;
   const start = useWrite('session.start', agent);
@@ -47,7 +47,7 @@ export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (a
         aria-haspopup="menu"
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
-          onMenu({ x: r.right, y: r.bottom });
+          onMenu({ x: r.left, y: r.top, w: r.width, h: r.height });
         }}
       >
         {mark ?? <Icon name="menu" size={14} aria-hidden />}
