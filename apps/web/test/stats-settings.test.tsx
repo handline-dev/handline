@@ -340,3 +340,15 @@ describe('standing answers', () => {
     await until(() => (s.daemon.admin.call('answers.list', {}, () => 0) as { answers: unknown[] }).answers.length === 1, 'the daemon');
   });
 });
+
+describe('admin page', () => {
+  it('says what the daemon does, why agents wake, how full memory is and what just happened', async () => {
+    await mount('#/admin');
+    await until(() => $('.admin-memory [data-agent]'), 'the memory rows');
+    expect(text($('.admin-daemon'))).toContain('Running since');
+    expect(text($('.admin-wakes'))).toContain('wakes: a task arrived');
+    expect(text($('.admin-memory'))).toContain('25% full');
+    await until(() => $('.admin-events li'), 'the events');
+    expect(text($('.admin-events'))).toContain('Task T7 done');
+  });
+});

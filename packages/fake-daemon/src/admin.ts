@@ -10,7 +10,7 @@ const DAY = 24 * HOUR;
 const AGENTS = ['handline.architect', 'handline.auditor', 'handline.term-build'];
 
 /** The methods this answers. */
-const ADMIN = /^(stats\.|settings\.|answers?\.|devices?\.(list|revoke))/;
+const ADMIN = /^(stats\.|settings\.|answers?\.|devices?\.(list|revoke)|agent\.triggers|memory\.status|events\.feed)/;
 const DEFAULTS = { active_cap: 4, park_timeout_s: 1800 };
 
 /** What the outlook_agent_use fixtures name (--var outlook_agent=grp.one outlook_group=grp): two agents of the group grp. */
@@ -68,6 +68,19 @@ export class FakeAdmin {
         return this.settings();
       case 'settings.set':
         return (this.set((p.changes ?? {}) as SettingsChanges), accepted('Saved.'));
+      case 'agent.triggers':
+        return { agents: AGENTS.map((agent, i) => ({ agent, fired: i === 0, reason: i === 0 ? 'a task arrived' : 'nothing to wake it' })) };
+      case 'memory.status':
+        return { agents: AGENTS.map((agent, i) => ({ agent, bytes: 2000 * (i + 1), budget: 8000, entries: 3 * (i + 1), unused: i === 2 ? ['old-note'] : [] })) };
+      case 'events.feed':
+        return {
+          events: [
+            { cursor: 2, topic: 'tasks', type: 'task.changed', at: this.now(), actor: null, agent: AGENTS[1], title: 'Task T7 done', target: null },
+            { cursor: 1, topic: 'agents', type: 'agent.state', at: this.now(), actor: null, agent: AGENTS[0], title: 'Started', target: null },
+          ],
+          cursor: 2,
+          gap: false,
+        };
       case 'devices.list':
         return { devices: this.devices.map((d) => ({ ...d })) };
       case 'device.revoke':
