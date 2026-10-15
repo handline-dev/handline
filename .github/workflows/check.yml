@@ -63,7 +63,6 @@ jobs:
     runs-on: [self-hosted, linux, netcup]
     timeout-minutes: 30
     env:
-      TMPDIR: ${{ runner.temp }} # emptied after every job, and the same path each run, as go test's cache needs
       GOFLAGS: -p=2 # 4 GB of memory: two test binaries at a time
     steps:
       - uses: actions/checkout@v4
@@ -84,8 +83,12 @@ jobs:
           cache: false # GOCACHE and GOMODCACHE stay on the runner's disk
       - if: steps.plan.outputs.kind == 'go'
         run: tools/test-go.sh
+        env:
+          TMPDIR: ${{ runner.temp }} # emptied after every job, and the same path each run, as go test's cache needs
       - name: Go parity tests
         if: steps.plan.outputs.kind == 'go'
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: |
           tools/test.sh tests/infra/test_go_schema.py
           tools/test.sh tests/infra/test_go_tidy.py
