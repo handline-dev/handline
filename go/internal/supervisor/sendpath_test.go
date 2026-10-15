@@ -388,3 +388,33 @@ func TestTheTickTellsAStructuredAgentWhatNobodyToldItAndFindsItsForgottenHead(t 
 		t.Fatalf("%+v", f)
 	}
 }
+
+func TestADeliveryActedOnSinceIsNotReportedWhenItsSessionEnds(t *testing.T) {
+	r, _ := structuredRig(t)
+	read := r.ask("alice", "bob", "read it", "say")
+	settled := r.ask("carol", "bob", "settled since", "say")
+	open := r.ask("dave", "bob", "never seen", "say")
+	for _, rid := range []int64{read, settled, open} {
+		_, err := r.TellNow(r.DB, rid)
+		r.must(err)
+	}
+	r.DB.Exec("UPDATE requests SET read_at = 1 WHERE id = ?", read)       // the agent ran hl read on it
+	r.DB.Exec("UPDATE requests SET state = 'done' WHERE id = ?", settled) // what a daemon start does to an old say
+	r.must(r.SessionLost(r.DB, "bob"))
+	var told []string
+	rows, _ := r.DB.Query("SELECT target FROM requests WHERE body LIKE '%may or may not%' ORDER BY target")
+	for rows.Next() {
+		var to string
+		rows.Scan(&to)
+		told = append(told, to)
+	}
+	rows.Close()
+	if strings.Join(told, ",") != "dave" {
+		t.Fatalf("told %v: only the sender of the one nothing says arrived", told)
+	}
+	for _, rid := range []int64{read, settled} {
+		if v, _ := db.Cursor(r.DB, ledgerKey("bob", requestOp(rid))); v != 0 {
+			t.Fatalf("#%d still on the ledger: %d", rid, v)
+		}
+	}
+}
