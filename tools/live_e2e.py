@@ -19,7 +19,7 @@ step is followed by one agent.get so the table says whether the thing happened w
 finding for the table, not a failure: exit 1 only when a step FAILs.
 
 --terminal runs a terminal agent instead, on a daemon with -turns-from-hooks and the terminal tick, in a tmux server of the
-run's own: a normal turn, an Esc pressed mid-turn, and the CLI killed hard mid-turn. Its checkout is a temporary worktree of
+run's own: a normal turn, an Esc pressed mid-turn, session.interrupt mid-turn, and the CLI killed hard mid-turn. Its checkout is a temporary worktree of
 this repository, which every account already trusts, so no folder-trust dialog shows and no account's .claude.json is written.
 """
 from __future__ import annotations
@@ -364,6 +364,17 @@ def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, group: int) -
         t = time.time()
         subprocess.run(["tmux", "-L", sock, "send-keys", "-t", pane(sock)[0], "Escape"], check=True)
         r.step("Esc: idle after the key", t, agent_changed(a, "idle"))
+
+    t = time.time()
+    d.write("chat.send", {"agent": a, "body": long_turn})
+    running = r.s.wait(t, agent_changed(a, "running"), t + MODEL_S)
+    time.sleep(3)
+    if not running or r.s.wait(running[0], agent_changed(a, "idle"), time.time()):
+        r.fail("kill switch: idle after session.interrupt", "the turn was not running when the interrupt was due")
+    else:
+        t = time.time()
+        d.write("session.interrupt", {"agent": a})
+        r.step("kill switch: idle after session.interrupt", t, agent_changed(a, "idle"))
 
     t = time.time()
     d.write("chat.send", {"agent": a, "body": long_turn})
