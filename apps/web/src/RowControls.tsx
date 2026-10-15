@@ -1,8 +1,7 @@
 // The ⋯ button of an agent row, and the agent's context menu (right-click on the row, or the ⋯ button). No Start or Resume: the daemon wakes, parks, restarts and moves agents by itself, so the person is not shown those.
 import { asks, verbsOf, type Verb, type VerbId } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
-import { useSelector } from '@handline/app-react';
-import { useAgentDetail, useVerbMark, useVerbRun, useWrite } from '@handline/app-data';
+import { useAgentDetail, useVerbMark, useVerbRun } from '@handline/app-data';
 import { useServed } from './AgentVerbs.tsx';
 import { Button, Icon, MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger, type At, type IconName } from './ui/index.ts';
 import { shell } from './shell.ts';
@@ -12,8 +11,8 @@ const VERB_ICON: Partial<Record<VerbId, IconName>> = {
   clear_stall: 'refresh',
 };
 
-/** The only session verbs the menu offers: stopping a turn and clearing a stall are the person's call; the rest the daemon does itself. */
-const MENU_VERBS: VerbId[] = ['interrupt', 'clear_stall'];
+/** The only session verbs the menu offers: stopping a turn is the person's call; the rest the daemon does itself. */
+const MENU_VERBS: VerbId[] = ['interrupt'];
 
 /** The button that opens the row's menu at itself. */
 export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (at: At) => void }) {
@@ -43,8 +42,6 @@ export function AgentMenu({ agent: a, onAsk }: { agent: AgentView; onAsk: (v: Ve
   const run = useVerbRun(agent);
   const served = useServed();
   const busy = !!useVerbMark(agent);
-  const closeServed = useSelector((st) => st.served.has('terminal.close'));
-  const closeTerminal = useWrite('terminal.close', agent);
   const open = shell('openPath');
   if (!d) return null;
   const copy = (text: string) => void navigator.clipboard?.writeText(text);
@@ -78,11 +75,6 @@ export function AgentMenu({ agent: a, onAsk }: { agent: AgentView; onAsk: (v: Ve
           {v.label}
         </MenuItem>
       ))}
-      {d.terminal && !d.session_open && closeServed ? (
-        <MenuItem icon="close" disabled={busy || closeTerminal.isPending} onSelect={() => closeTerminal.mutate({ agent })}>
-          Close terminal
-        </MenuItem>
-      ) : null}
     </>
   );
 }

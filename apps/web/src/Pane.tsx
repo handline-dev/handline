@@ -29,7 +29,6 @@ import { BytesTab } from './BytesTab.tsx';
 import { wantsBytes } from './terminal/choose.ts';
 import { Watch } from './TranscriptTab.tsx';
 import { TerminalTab } from './TerminalTab.tsx';
-import { TerminalBar } from './TerminalBar.tsx';
 import { useWorkspace } from './Workspace.tsx';
 import { RailControls, useFoldedControls } from './RailControls.tsx';
 
@@ -220,7 +219,6 @@ export function Pane({ group }: { group: Group }) {
             structured={structured}
             terminal={
               <div className="flex min-h-0 flex-col [&>:last-child]:flex-1">
-                <TerminalBar agent={agent} detail={detail} />
                 {wantsBytes(store.client.hello?.capabilities.terminal_format, storage) ? (
                   <BytesTab agent={agent} detail={detail} />
                 ) : (

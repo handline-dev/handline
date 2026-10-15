@@ -236,12 +236,6 @@ export function SettingsPage() {
                         on={!!v.auto_accept_dialogs}
                         change={(on) => ({ auto_accept_dialogs: on })}
                       />
-                      <SwitchRow
-                        label="Ignore cache expiry"
-                        hint="Resume the old session even after its cache went cold"
-                        on={!!v.ignore_cache_expiry}
-                        change={(on) => ({ ignore_cache_expiry: on })}
-                      />
                     </SettingsCard>
                   </section>
                   <section id="set-answers">

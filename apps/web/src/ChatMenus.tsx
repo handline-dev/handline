@@ -1,4 +1,4 @@
-// The two menus of the message box (docs/bridge-feature-tree.md §2.4): `/` lists the agent's verbs and `#` a task or a message to refer to,
+// The two menus of the message box (docs/bridge-feature-tree.md §2.4): `/` lists what a person does in chat and `#` a task or a message to refer to,
 // and Ctrl+R lists what was sent before. A menu is entries; the box decides which one is open from its text.
 import { useMemo } from 'react';
 import { openTab, verbsOf, type Verb, taskRef } from '@handline/app-core';
@@ -19,16 +19,7 @@ export interface Entry {
   terminal?: boolean;
 }
 
-const VERB_ICON: Record<string, IconName> = {
-  wake: 'working',
-  restart: 'retry',
-  restart_fresh: 'retry',
-  close: 'close',
-  park: 'idle',
-  fold: 'less',
-  move: 'accounts',
-  clear_stall: 'blocked',
-};
+const VERB_ICON: Record<string, IconName> = { interrupt: 'cancel' };
 
 /** Which menu the text asks for: a line that is only `/word`, a `#` at its end, or none. */
 export function menuOf(text: string): { kind: MenuKind; query: string } | null {
@@ -55,7 +46,7 @@ export function useEntries(
   return useMemo(() => {
     const q = query.toLowerCase();
     if (kind === 'slash') {
-      const verbs = view ? verbsOf(view, detail) : [];
+      const verbs = (view ? verbsOf(view, detail) : []).filter((v) => v.id === 'interrupt'); // the rest the daemon does itself
       const all: Entry[] = [
         ...verbs.map((v): Entry => ({
           key: v.id,

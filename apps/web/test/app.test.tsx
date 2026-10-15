@@ -301,7 +301,7 @@ describe('the sidebar', () => {
     expect($$('.row-actions .ui-btn').some((b) => /Resume|Start/.test(text(b)))).toBe(false);
     await click($('.row-actions [aria-haspopup="menu"]')!);
     await until(() => menuItems().length, 'the row menu');
-    expect(menuItems()).toEqual(['Copy path', 'Copy worktree name', 'Close terminal']);
+    expect(menuItems()).toEqual(['Copy path', 'Copy worktree name']);
   });
 
   it('keeps the selected row short (no model, account or detail block there)', async () => {
