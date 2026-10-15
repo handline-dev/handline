@@ -12,7 +12,8 @@ export class Failure extends Error {
     this.data = { code, ...data };
   }
 }
-export const refused = (gate: string, reason: string, hint?: string) => new Failure('refused', reason, { reason, gate, hint });
+export const refused = (gate: string, reason: string, hint?: string, data?: Record<string, unknown>) =>
+  new Failure('refused', reason, { reason, gate, hint, ...data });
 /** A param of the wrong type or missing: bad_request with the JSON-RPC code for invalid params. */
 export const invalidParams = (message: string, field: string) => Object.assign(badRequest(message, field), { rpc: -32602 });
 export const badRequest = (message: string, field?: string) => new Failure('bad_request', message, { field });
