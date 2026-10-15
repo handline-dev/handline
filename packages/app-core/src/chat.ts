@@ -134,3 +134,17 @@ export function taskRow(i: TranscriptItem, titles?: Map<number, string>): TaskRo
     parts: changeParts(change || e?.evidence || null),
   };
 }
+
+const HANDOFF_WHY: Record<string, string> = {
+  context_full: 'Context full',
+  move: 'Moving to another account',
+  usage: 'Usage limit',
+  login: 'Login needed',
+};
+/** The live line while a session hands off: why it ends (the cause is an open set, so an unknown one is shown as it came) and what is happening now. */
+export function handoffLine(h: { cause: string; phase: 'writing' | 'starting' }): { why: string; what: string } {
+  return {
+    why: HANDOFF_WHY[h.cause] ?? h.cause,
+    what: h.phase === 'writing' ? 'Writing the handoff' : 'Starting a new session',
+  };
+}

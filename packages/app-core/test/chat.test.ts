@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, sideOf, taskRow, changeParts, timeline } from '../src/index.ts';
+import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, handoffLine, sideOf, taskRow, changeParts, timeline } from '../src/index.ts';
 
 const A = 'handline.architect';
 const msg = (over: Partial<ChatMessage>): ChatMessage => ({
@@ -179,4 +179,10 @@ test('a task card is in the chat of the agent that made the change; the all tab 
   assert.deepEqual(timeline([], items, 'mine', 'alice').map((e) => e.id), [1, 3]); // the founder acts on the agent's behalf
   assert.deepEqual(timeline([], items, 'all', 'alice').map((e) => e.id), [1, 2, 3]);
   assert.equal(taskRow(card(2, 'bob')).who, 'bob');
+});
+
+test('handoffLine says why and what for each phase', () => {
+  assert.deepEqual(handoffLine({ cause: 'context_full', phase: 'writing' }), { why: 'Context full', what: 'Writing the handoff' });
+  assert.equal(handoffLine({ cause: 'context_full', phase: 'starting' }).what, 'Starting a new session');
+  assert.equal(handoffLine({ cause: 'odd', phase: 'writing' }).why, 'odd');
 });
