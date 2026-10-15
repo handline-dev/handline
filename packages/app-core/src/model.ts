@@ -36,13 +36,17 @@ export const shortName = (name: string, team: string): string => (name.startsWit
 /** What a row shows of the name in the tree: under a parent only the last segment (`handline.pc.auditor` is `auditor`), at the top the team-relative name. */
 export const rowName = (name: string, depth: number, team: string): string => (depth > 0 ? name.slice(name.lastIndexOf('.') + 1) : shortName(name, team));
 
-/** The agent list as one list: waiting ones sort up, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off. */
+/** The agent list as one list: waiting ones sort up, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off; an agent they hide still shows while a child of it shows. */
 export function railRows(agents: AgentView[], opts: { hidden?: ReadonlySet<Dot>; search?: string } = {}): RailRow[] {
   const q = (opts.search ?? '').trim().toLowerCase();
-  const shown = agents.filter(
-    (a) => !opts.hidden?.has(dotOf(a)) && (!q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q)),
-  );
-  const names = new Set(shown.map((a) => a.name));
+  const found = (a: AgentView) => !q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q);
+  const match = agents.filter((a) => !opts.hidden?.has(dotOf(a)) && found(a));
+  // A dot filter that drops a parent must not cut its children loose: the parents it hides stay while a child shows, so the tree keeps its groups.
+  const byName = new Map(agents.map((a) => [a.name, a]));
+  const names = new Set(match.map((a) => a.name));
+  for (const a of match)
+    for (let p = byName.get(a.parent ?? ''); p && !names.has(p.name) && found(p); p = byName.get(p.parent ?? '')) names.add(p.name);
+  const shown = agents.filter((a) => names.has(a.name));
   const order = (a: AgentView, b: AgentView) => URGENCY[dotOf(a)] - URGENCY[dotOf(b)] || a.name.localeCompare(b.name);
   const rows: RailRow[] = [];
   const walk = (a: AgentView, depth: number) => {
