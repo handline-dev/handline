@@ -93,9 +93,9 @@ export function Sidebar({
     >
       {/* The shell's drag strip: row as tall as a tab strip, centred on the traffic lights (--h-tabs and --lights-w follow the zoom: shell.ts); `rail-top` is the tests' hook. */}
       <div className="rail-top flex items-center gap-0.5 pt-2 px-2.5 pb-1 shell:h-[var(--h-tabs)] shell:py-0 shell:pl-[var(--lights-w,86px)] shell:[-webkit-app-region:drag]">
-        <Button className="shell:[-webkit-app-region:no-drag]" icon="sidebar" label="Hide the agent list (⌘B)" onClick={onToggle} />
-        <Button className="shell:[-webkit-app-region:no-drag]" icon="back" label="Back (⌘[)" onClick={() => history.back()} />
-        <Button className="shell:[-webkit-app-region:no-drag]" icon="forward" label="Forward (⌘])" onClick={() => history.forward()} />
+        <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="sidebar" label="Hide the agent list (⌘B)" onClick={onToggle} />
+        <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="back" label="Back (⌘[)" onClick={() => history.back()} />
+        <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="forward" label="Forward (⌘])" onClick={() => history.forward()} />
         {unread ? (
           <button
             className="bell ml-auto border-0 rounded-[9px] bg-wait px-1.5 text-label text-canvas shell:[-webkit-app-region:no-drag]"

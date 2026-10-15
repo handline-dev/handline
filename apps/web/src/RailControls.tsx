@@ -5,7 +5,8 @@ import { Button } from './ui/index.ts';
 export const FoldedControls = createContext<{ show: () => void } | null>(null);
 export const useFoldedControls = () => useContext(FoldedControls);
 
-const NO_DRAG = 'shell:[-webkit-app-region:no-drag]';
+/** No-drag, and as tall as the strip less 4px (--h-tabs follows the zoom in the shell: shell.ts), so a zoomed strip does not clip them. */
+const NO_DRAG = 'shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]';
 
 /** Show the sidebar, back and forward: the sidebar's own top row, folded away with it. */
 export function RailControls({ show, row }: { show: () => void; row?: boolean }) {
