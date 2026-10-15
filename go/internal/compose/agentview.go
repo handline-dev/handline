@@ -7,6 +7,7 @@ import (
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/prompts"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/tick"
 	"github.com/handline/handline/go/internal/turns"
 )
@@ -55,11 +56,8 @@ func (r rowSessions) Busy(agent string) bool {
 func (p *Parts) agentView(cfg Config, cutover, terminals bool, tu tickUsage) *agentview.Env {
 	lc, q, home := p.LC, p.db, cfg.Home
 	return &agentview.Env{
-		PaneAlive: func(agent string) bool {
-			row, err := db.GetAgentState(q, agent)
-			return err == nil && row != nil && row.Terminal.String != "" && p.liveTerminals()[row.Terminal.String]
-		},
-		Q: q, Home: home,
+		PaneRuns: p.paneRuns,
+		Q:        q, Home: home,
 		Sessions:   rowSessions{p, terminals, cfg.Turns},
 		Background: lc.Env,
 		Wakes:      lc.Manager,
@@ -110,4 +108,26 @@ func (p *Parts) agentView(cfg Config, cutover, terminals bool, tu tickUsage) *ag
 // agentViewPass is the tick's pass that stores the views.
 func agentViewPass(av *agentview.Env) tick.NamedSweep {
 	return tick.NamedSweep{Name: "agent-view", Run: func(db.Q, int64) error { return av.Refresh() }}
+}
+
+// paneRuns is whether the pane agent's row names is up with something other than its shell in front (agentview.Env.PaneRuns).
+func (p *Parts) paneRuns(agent string) bool {
+	row, err := db.GetAgentState(p.db, agent)
+	if err != nil || row == nil || row.Terminal.String == "" || p.LC == nil || p.LC.term == nil {
+		return false
+	}
+	lister, ok := p.LC.term.Backend.(term.PaneLister)
+	if !ok {
+		return false
+	}
+	panes, ok := lister.ListPanes()
+	if !ok {
+		return false
+	}
+	for _, pane := range panes {
+		if pane.Handle == row.Terminal.String {
+			return !pane.Dead && !pane.AtShell()
+		}
+	}
+	return false
 }

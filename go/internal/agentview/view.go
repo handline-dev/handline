@@ -75,10 +75,11 @@ type Env struct {
 	Parent    func(agent string) string
 	CacheLeft func(agent string, now float64) (left float64, ok bool, err error)
 	CtxPct    func(agent, account string) *int // nil: no trusted reading
-	// PaneAlive is whether the terminal pane agent's row names is up; nil is never, so nothing reads as starting.
-	PaneAlive func(agent string) bool
-	Now        func() int64
-	Log        func(string)
+	// PaneRuns is whether the terminal pane agent's row names is up with something other than its shell in front: the launch typed into a
+	// pane's shell, so a claude that died leaves the pane up with the shell. Nil is never, so nothing reads as starting.
+	PaneRuns func(agent string) bool
+	Now      func() int64
+	Log      func(string)
 	// Registered is every registered agent, structured or not: an agent is gone when it is not in it. Nil is Agents.
 	Registered func() []string
 	// DropGone has Refresh delete the row of any agent that is gone. Off while the Python daemon still keeps the rows of terminal
@@ -259,22 +260,22 @@ func (e *Env) wire(agent string, row *db.AgentState, word, detail string) (strin
 	return "idle", detail
 }
 
-// sessionHooks are the hooks a session sends on its own: any of them after a launch says the session is up.
-var sessionHooks = []string{"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "PostCompact"}
+// launchOver are the events that say a launch is no longer starting: a hook of its session (it is up), its end, or the wake that failed.
+var launchOver = []string{"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "PostCompact", "SessionEnd", "wake_failed"}
 
 // starting is whether a launch of agent is in progress, from what is recorded: hl launch kept the start (session_starts) just before it
-// became claude, no hook of that session has come since, and the pane it runs in is up. A launch that died takes its pane with it, so no
-// time limit is needed.
+// became claude, nothing of launchOver has come since, and the pane still runs something other than its shell. A launch that died is
+// back at the shell, so no time limit is needed.
 func (e *Env) starting(agent string) bool {
-	if e.PaneAlive == nil {
+	if e.PaneRuns == nil {
 		return false
 	}
 	at, ok := must2(db.LastSessionStartTS(e.Q, agent))
 	if !ok {
 		return false
 	}
-	last, hooked := must2(db.LastEventOfTS(e.Q, agent, sessionHooks))
-	return (!hooked || last < at) && e.PaneAlive(agent)
+	last, over := must2(db.LastEventOfTS(e.Q, agent, launchOver))
+	return (!over || last < at) && e.PaneRuns(agent)
 }
 
 // Compute is the view of one agent.
