@@ -137,8 +137,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const more = () => {
     const box = stream.current;
     if (!box || anchor.current) return;
-    const top = box.getBoundingClientRect().top;
-    const el = [...box.querySelectorAll('[data-id]')].find((n) => n.getBoundingClientRect().bottom > top);
+    const { top, bottom } = box.getBoundingClientRect();
+    // The last line in view: whatever page lands, it lands above it. The first one may be an old message above the paged window, which a page never moves.
+    const el = [...box.querySelectorAll('[data-id]')].filter((n) => n.getBoundingClientRect().top < bottom && n.getBoundingClientRect().bottom > top).at(-1);
     const id = el?.getAttribute('data-id');
     anchor.current = el && id ? { id, off: el.getBoundingClientRect().top - top } : null;
     setArmed(false);
