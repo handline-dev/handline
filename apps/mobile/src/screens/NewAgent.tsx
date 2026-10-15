@@ -129,7 +129,7 @@ function Page(props: { onClose: () => void; children: React.ReactNode }) {
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: 120 }}
     >
-      <PageHeader title="New agent" back={{ label: 'Agents', onPress: props.onClose, testID: 'na-back' }} />
+      <PageHeader bare title="New agent" back={{ label: 'Agents', onPress: props.onClose, testID: 'na-back' }} />
       {props.children}
     </ScrollView>
   );

@@ -239,7 +239,7 @@ export function Stats() {
   return (
     <View style={{ flex: 1 }}>
       <View style={{ padding: space.lg, gap: space.md }}>
-        <PageHeader title={page === 'stats' ? 'Stats' : 'Settings'} />
+        <PageHeader bare title={page === 'stats' ? 'Stats' : 'Settings'} />
         {founder ? (
           <Choice label="page" value={page} options={['stats', 'settings'] as const} onChange={setPage} />
         ) : (
