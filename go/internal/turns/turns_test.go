@@ -2,7 +2,9 @@ package turns
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -178,5 +180,75 @@ func TestASessionStartIsToldEvenWhenTheTurnStaysUnknown(t *testing.T) {
 	tr.Hook("amy", "SessionStart", nil, 10) // Unknown before and after: the view still has a launch to end
 	if len(told) != 1 || told[0] != "amy" {
 		t.Fatalf("told %v", told)
+	}
+}
+
+// session starts a process standing in for a CLI; kill ends it as SIGKILL would, its parent reaping it.
+func session(t *testing.T) (pid int, kill func()) {
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var once sync.Once
+	kill = func() { once.Do(func() { cmd.Process.Kill(); cmd.Wait() }) }
+	t.Cleanup(kill)
+	return cmd.Process.Pid, kill
+}
+
+func TestAHardKilledSessionEndsItsTurnAndItsTranscriptWatchAtOnce(t *testing.T) {
+	tr, _ := tracker(t)
+	pid, kill := session(t)
+	ended := make(chan string, 4)
+	tr.OnEnd(func(string) int { return pid }, func(a string) { ended <- a })
+	tr.Hook("amy", "UserPromptSubmit", map[string]any{"transcript_path": transcript(t)}, 10)
+	if ok, known := idle(tr, 0); ok || !known {
+		t.Fatalf("mid-turn read as idle=%v known=%v", ok, known)
+	}
+	start := time.Now()
+	kill()
+	select {
+	case a := <-ended:
+		if a != "amy" {
+			t.Fatalf("told %q", a)
+		}
+	case <-time.After(wait):
+		t.Fatal("the exit was not told")
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Fatalf("the exit took %v to be told", took)
+	}
+	if _, known := idle(tr, 0); known {
+		t.Fatal("a session that is gone kept its turn")
+	}
+	tr.mu.Lock()
+	watching := tr.get("amy").unwatch != nil
+	tr.mu.Unlock()
+	if watching {
+		t.Fatal("the transcript of a session that is gone is still watched")
+	}
+}
+
+func TestTheExitOfAReplacedSessionIsNotTold(t *testing.T) {
+	tr, _ := tracker(t)
+	old, kill := session(t)
+	current := old
+	var mu sync.Mutex
+	ended := make(chan string, 4)
+	tr.OnEnd(func(string) int { mu.Lock(); defer mu.Unlock(); return current }, func(a string) { ended <- a })
+	tr.Hook("amy", "UserPromptSubmit", nil, 10)
+	next, _ := session(t)
+	mu.Lock()
+	current = next
+	mu.Unlock()
+	tr.Hook("amy", "SessionStart", nil, 11)
+	tr.Hook("amy", "UserPromptSubmit", nil, 12)
+	kill()
+	select {
+	case a := <-ended:
+		t.Fatalf("the old session's exit was told for %q", a)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if ok, known := idle(tr, 0); ok || !known {
+		t.Fatalf("the new session's turn moved: idle=%v known=%v", ok, known)
 	}
 }

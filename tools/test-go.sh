@@ -42,8 +42,8 @@ if [ ! -f "$harness" ]; then
 fi
 work="$(mktemp -d "${TMPDIR:-/tmp}/handlined.XXXXXX")" || exit 1
 trap 'rm -rf "$work" "$scratch_home"' EXIT
-# The two lists are kept one name per line in byte order, so two branches deleting neighbouring names merge instead of conflicting.
-for list in "$here/../go/conformance-missing.txt" "$here/../go/conformance-needvar.txt"; do
+# The lists are kept one name per line in byte order, so two branches deleting neighbouring names merge instead of conflicting.
+for list in "$here/../go/conformance-missing.txt" "$here/../go/conformance-needvar.txt" "$here/../go/conformance-skip.txt"; do
     grep -v '^#' "$list" | LC_ALL=C sort -c 2>/dev/null || {
         echo "FAIL  $list is not sorted: run  grep -v '^#' it | LC_ALL=C sort -u  and keep the # header lines on top" >&2
         exit 1
@@ -51,29 +51,20 @@ for list in "$here/../go/conformance-missing.txt" "$here/../go/conformance-needv
 done
 "$here/build-go.sh" "$work/handlined" || exit 1
 # No socket file is bound (a sandbox may forbid it): tools/conformance_fds.py hands the daemon socketpairs, one per
-# fixture, and mints the founder key in a scratch home. The founder and anonymous roles run; agent and member have no
-# connection of their own (this daemon cannot tell them apart without a recorded session or a paired device), so
-# their fixtures are reported SKIP and --allow-skip says that is meant. A method the Go daemon does not serve yet is
-# named in go/conformance-missing.txt: delete a line as its method lands. A fixture that needs a --var this run cannot
-# seed yet is named in go/conformance-needvar.txt the same way.
-# The session.* methods are served over structured sessions, so one run starts the daemon with -structured-cli and a fake CLI that answers
-# --version with the version the Go source pins. Production runs without the flag until cutover, so the fixtures are played that way too.
+# fixture, and mints the founder key in a scratch home; the agent role's socketpairs come from a process recorded as an agent's
+# session there. A method the Go daemon does not serve yet is named in go/conformance-missing.txt: delete a line as its method
+# lands. A fixture that needs a --var this run cannot seed yet is named in go/conformance-needvar.txt the same way, and one
+# left failing on a known gap in go/conformance-skip.txt.
+# The daemon runs with -structured-cli and a fake CLI that answers --version with the version the Go source pins, as the
+# service runs it with the real one.
 FAKE_CLAUDE_VERSION="$(sed -n 's/.*PinnedCLI = "\([^"]*\)".*/\1/p' "$here/../go/internal/structured/session.go")"
 [ -n "$FAKE_CLAUDE_VERSION" ] || { echo "tools/test-go.sh: no PinnedCLI in go/internal/structured/session.go" >&2; exit 1; }
 export FAKE_CLAUDE_VERSION
 conformance() {
-    local fixtures=() f
-    for f in "$here"/../contract/fixtures/*.json; do
-        # Flags off there is no structured session to seed, so structured_controls.json is played only with -structured-cli.
-        [ "$1" != "--structured-cli" ] && [ "${f##*/}" = structured_controls.json ] || fixtures+=("$f")
-    done
     python3 "$here/conformance_fds.py" "$work/handlined" "$@" --allow-missing-file "$here/../go/conformance-missing.txt" \
-        --allow-needvar-file "$here/../go/conformance-needvar.txt" "${fixtures[@]}"
+        --allow-needvar-file "$here/../go/conformance-needvar.txt" --skip-file "$here/../go/conformance-skip.txt" \
+        "$here"/../contract/fixtures/*.json
 }
-echo "tools/test-go.sh: conformance fixtures, flags off" >&2
-# Flags off: remove this run at cutover, when -structured-cli becomes the default.
-conformance --allow-missing agent.create --allow-missing agent.fold --allow-missing agent.unstall --allow-missing session.interrupt --allow-missing session.park --allow-missing session.restart \
-    --allow-missing session.start --allow-missing session.stop --allow-missing session.wake || exit 1
 echo "tools/test-go.sh: conformance fixtures, -structured-cli" >&2
 conformance --structured-cli "$here/fake_claude.py" || exit 1
 echo "tools/test-go.sh: conformance fixtures, -structured-cli -structured-tick" >&2

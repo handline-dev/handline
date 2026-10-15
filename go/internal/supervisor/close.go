@@ -42,7 +42,7 @@ func (e *Env) WithdrawWrite(q db.Q, after *After, rid int64, requester, reason s
 		verdict = "withdrawn: " + reason
 	}
 	said := fmt.Sprintf("request #%d to %s withdrawn", rid, row.Target)
-	if !must(db.RetireIfUndelivered(q, rid, "withdrawn", verdict)) {
+	if !must(db.RetireIfUndelivered(q, rid, "withdrawn", verdict, false)) {
 		return false, tooLate, nil // a delivery landed between the read and the write
 	}
 	var why any

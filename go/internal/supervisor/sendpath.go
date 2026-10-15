@@ -170,7 +170,11 @@ func (e *Env) sendOnce(q db.Q, agent, op, text string, d structured.Delivery) (S
 	case structured.Confirmed:
 		check(moveLedger(q, key, sendWritten, sendConfirmed))
 	}
-	return stateOfLedger(must(db.Cursor(q, key))), ""
+	v := must(db.Cursor(q, key))
+	if v == 0 { // the echo landed every request while Send answered, and that took it off the ledger: it is delivered
+		return Confirmed, ""
+	}
+	return stateOfLedger(v), ""
 }
 
 // moveLedger sets a ledger row to to if it is still from, in one statement.
@@ -248,6 +252,10 @@ func (e *Env) SessionLost(q db.Q, agent string) (err error) {
 			}
 			continue
 		}
+		if actedOn(q, l.op) { // its fate is known after all: nothing to ask anyone
+			check(db.ClearCursor(q, key))
+			continue
+		}
 		check(db.SetCursor(q, key, sendUnknown))
 		tell = append(tell, e.deliveryUnknown(q, agent, l.op, "was written to its session, and the session ended before it confirmed it: it may or may not have been read",
 			"ask "+agent+" whether it saw it, or send it again")...)
@@ -256,6 +264,19 @@ func (e *Env) SessionLost(q db.Q, agent string) (err error) {
 		f()
 	}
 	return nil
+}
+
+// actedOn is whether every request a written op carried has since been seen to arrive: landed, read with hl read, or no longer queued
+// (answered, settled, withdrawn). A daemon restart ends every session, and an old delivery like that is not one that may be lost.
+func actedOn(q db.Q, op string) bool {
+	rids := ridsOfOp(op)
+	for _, rid := range rids {
+		row := must(db.GetRequest(q, rid))
+		if row != nil && row.State == "queued" && !row.LandedAt.Valid && !row.ReadAt.Valid {
+			return false
+		}
+	}
+	return len(rids) > 0
 }
 
 // SessionNotDelivered is what a terminal agent's peer inbox calls when a message is not in its transcript after the resend (written: it

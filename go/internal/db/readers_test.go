@@ -162,7 +162,7 @@ func TestEveryWriterChangesItsRow(t *testing.T) {
 		t.Fatal("still delivered")
 	}
 	ClearEdge(q, rid)
-	if ok, _ := RetireIfUndelivered(q, rid, "withdrawn", "taken back"); !ok {
+	if ok, _ := RetireIfUndelivered(q, rid, "withdrawn", "taken back", false); !ok {
 		t.Fatal("not retired")
 	}
 	if r, _ := GetRequest(q, rid); r.State != "withdrawn" || r.Answer.String != "taken back" {

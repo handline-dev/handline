@@ -51,3 +51,12 @@ func Exe(pid int) string {
 	}
 	return string(rest[:end])
 }
+
+// ttyDev is the device of pid's controlling terminal; ok is false when it has none or no such process runs.
+func ttyDev(pid int) (uint64, bool) {
+	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil || int(k.Proc.P_pid) != pid || k.Eproc.Tdev == -1 { // -1 is NODEV
+		return 0, false
+	}
+	return uint64(uint32(k.Eproc.Tdev)), true
+}

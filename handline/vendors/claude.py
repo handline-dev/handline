@@ -46,6 +46,14 @@ def _iso_epoch(v) -> float | None:
         return None
 
 
+
+def cache_env(cache_dir: str) -> dict[str, str]:
+    """The Go, npm and pnpm caches of a sandboxed session, in its own folder: a cache the sandbox may write is one an
+    unsandboxed build reads from, so the shared ones stay out of its reach."""
+    return {"GOCACHE": f"{cache_dir}/go-build", "GOMODCACHE": f"{cache_dir}/go-mod", "GOPATH": f"{cache_dir}/go-path", "npm_config_cache": f"{cache_dir}/npm",
+            "npm_config_store_dir": f"{cache_dir}/pnpm-store", "npm_config_cache_dir": f"{cache_dir}/pnpm-cache",
+            "npm_config_state_dir": f"{cache_dir}/pnpm-state"}
+
 class Claude:
     name = "claude"
     # Nothing is read from the status line any more (D11), so this is no longer
@@ -133,7 +141,10 @@ class Claude:
                     trusted: list[str] | None = None,
                     chrome: bool = False, sandbox: bool = False,
                     mcp_approved: list[str] | None = None,
-                    extra_dirs: list[str] | None = None) -> list[str]:
+                    extra_dirs: list[str] | None = None,
+                    allow_write: list[str] | None = None,
+                    allow_domains: list[str] | None = None,
+                    cache_dir: str | None = None) -> list[str]:
         argv = [exe]
         if model:
             argv += ["--model", str(model)]
@@ -150,18 +161,25 @@ class Claude:
             argv += ["--append-system-prompt", preamble]
         # One --settings object: a second one would replace the first.
         settings = self.memory_settings(memory_dir) if memory_dir else {}
-        if hide or no_write or extra_dirs:
+        writable = [*(extra_dirs or []), *(allow_write or []), *([cache_dir] if cache_dir else [])]
+        if hide or no_write or writable or allow_domains:
             fs = {}
             if hide:
                 fs["denyRead"] = hide
             if no_write:
                 fs["denyWrite"] = no_write
-            if extra_dirs:
-                fs["allowWrite"] = extra_dirs       # a working directory is readable; Bash may write it only when it is named here
+            if writable:
+                fs["allowWrite"] = writable         # a working directory is readable; Bash may write it only when it is named here
             settings["sandbox"] = {"filesystem": fs}
+            if allow_domains:
+                settings["sandbox"]["network"] = {"allowedDomains": allow_domains}
         # Said either way, so the shared settings never decide it. Off, commands run unsandboxed; the
         # Read/Edit denies below are permissions, not the sandbox, and stay.
         settings.setdefault("sandbox", {})["enabled"] = sandbox
+        if cache_dir:
+            # Go on macOS verifies TLS through trustd, which the default network isolation blocks: no module downloads
+            settings["sandbox"]["enableWeakerNetworkIsolation"] = True
+            settings["env"] = cache_env(cache_dir)
         deny = []
         if hide:
             # denyRead binds Bash; the Read tool is a permission, so deny it there too.

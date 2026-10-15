@@ -13,7 +13,8 @@ It answers yes to every permission prompt the agent raises outside the permissio
 the agent works in a scratch checkout, but on this machine and with the real account's config dir.
 
 It subscribes to the agents, tasks, chat and notifications topics and waits on each step's event with a deadline; nothing
-is polled. A step the daemon reflects within 5 s is `pass`, later is `slow`, never is `missing`. A step paced by the model
+is polled. A step the daemon reflects within 5 s is `pass`, later is `slow`, never is `missing`; `merged` is a state the
+stream skipped because the next one came in the same scan. A step paced by the model
 (the answer, the agent's own message, the task closing) gets MODEL_S instead, and its time is mostly the model's. A missing
 step is followed by one agent.get so the table says whether the thing happened without an event. A missing step is a
 finding for the table, not a failure: exit 1 only when a step FAILs.
@@ -46,6 +47,7 @@ from datetime import datetime
 from pathlib import Path
 
 import live_account
+import tmuxsock
 
 DEADLINE_S = 5.0
 SLOW_S = 30.0      # how long past the deadline a step still counts as slow rather than missing
@@ -193,13 +195,16 @@ class Run:
         took = f"  {row['seconds']}s" if row.get("seconds") is not None else ""
         print(f"  {row['result']:8} {row['step']}{took}" + (f"  ({row['note']})" if row.get("note") else ""), flush=True)
 
-    def step(self, name: str, since: float, pred, model: bool = False) -> dict | None:
-        """Wait for one step's event and record it; a missing one is explained by one agent.get."""
+    def step(self, name: str, since: float, pred, model: bool = False, judge=None) -> dict | None:
+        """Wait for one step's event and record it; a missing one is explained by one agent.get. judge(event) may return
+        (result, note) to record in place of the timed result."""
         got = self.s.wait(since, pred, since + (MODEL_S if model else DEADLINE_S + SLOW_S))
         row = {"step": name, "paced_by": "model" if model else "daemon", "result": "missing", "seconds": None}
         if got:
             took = got[0] - since
             row.update(result="pass" if model or took <= DEADLINE_S else "slow", seconds=round(took, 2))
+            if judge and (verdict := judge(got[1])):
+                row["result"], row["note"] = verdict
         else:
             row["note"] = self.explain(since)
         self.record(row)
@@ -262,7 +267,11 @@ def task_and_permission(r: Run) -> None:
     task = d.write("task.new", {"owner": a, "title": "live e2e: close this task",
                                 "body": 'Close this task with hl task done, evidence "e2e", and do nothing else.'}).get("task")
     is_task = lambda *st: lambda ev: ev["type"] == "task.changed" and ev["data"].get("id") == task and ev["data"].get("state") in st
-    r.step("task queued", t, is_task("queued"))
+    # The tasks topic sends a task's state as of each watcher scan (every 250 ms), and the daemon hands a new task to its owner
+    # at once, so queued and doing usually fall in one scan: the first task.changed already says doing.
+    first_seen = lambda ev: None if ev["data"]["state"] == "queued" else \
+        ("merged", f"first seen {ev['data']['state']}: delivered within one scan")
+    r.step("task queued", t, is_task("queued", "doing", "reported", "done"), judge=first_seen)
     r.step("task doing", t, is_task("doing"), model=True)
     asked = r.step("permission prompt shown as needs_you", t,
                    lambda ev: agent_changed(a, "waiting")(ev) and (ev["data"].get("needs_you") or {}).get("kind") == "permission",
@@ -519,7 +528,7 @@ def main() -> int:
         if tmux and args.keep:
             print(f"live-e2e: kept the tmux server (tmux -L {tmux}) and the worktree {root / 'work'}", file=sys.stderr)
         elif tmux:
-            subprocess.run(["tmux", "-L", tmux, "kill-server"], capture_output=True)
+            tmuxsock.stop(tmux)
             subprocess.run(["git", "worktree", "remove", "--force", str(root / "work")], cwd=REPO, capture_output=True)
         if args.keep:
             print(f"live-e2e: kept {root}", file=sys.stderr)

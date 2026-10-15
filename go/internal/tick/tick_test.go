@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/handline/handline/go/internal/db"
 )
 
 func ip(n int) *int { return &n }
@@ -123,5 +125,35 @@ func TestLoopStopsAndRestarts(t *testing.T) {
 	close(stop)
 	if l.Run(nil) || len(log) != 1 || log[0] != "stopped after 0 tick(s)" {
 		t.Fatalf("%v", log)
+	}
+}
+
+type countingReconciler struct {
+	fakeReconciler
+	sweeps chan struct{}
+}
+
+func (r *countingReconciler) Sweep(db.Q, *[]string) { r.sweeps <- struct{}{} }
+
+func TestAWakeSweepsBetweenTicksWithoutEndingTheSleep(t *testing.T) {
+	rec := &countingReconciler{sweeps: make(chan struct{}, 4)}
+	stop, wake := make(chan struct{}), make(chan struct{}, 1)
+	l := &Loop{Tick: &Tick{Reconcile: rec}, Stop: stop, Wake: wake}
+	done := make(chan bool)
+	go func() { done <- l.sleep(time.Hour) }()
+	wake <- struct{}{}
+	select {
+	case <-rec.sweeps:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the wake did not sweep")
+	}
+	select {
+	case <-done:
+		t.Fatal("the wake ended the sleep: a full tick would run early")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(stop)
+	if <-done {
+		t.Fatal("a stop read as a slept interval")
 	}
 }

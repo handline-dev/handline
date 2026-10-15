@@ -1248,7 +1248,8 @@ CLAUDE_DRIVER_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "claude_d
 # Launch lines (vendors/claude.Claude.launch_argv), each the defaults below with its own changes.
 _LAUNCH_BASE = {"exe": "/bin/claude", "model": None, "effort": "high", "disallowed": "Task", "mcp": [], "preamble": None,
                 "hide": None, "no_write": None, "memory_dir": None, "trusted": None, "chrome": False, "sandbox": True,
-                "mcp_approved": None, "extra_dirs": None}
+                "mcp_approved": None, "extra_dirs": None, "allow_write": None, "allow_domains": None,
+                "cache_dir": None}
 CLAUDE_LAUNCH_CASES = [
     {"name": "plain"},
     {"name": "model_and_chrome", "model": "opus", "chrome": True, "preamble": "You are a.one.\nBe brief: é"},
@@ -1258,6 +1259,8 @@ CLAUDE_LAUNCH_CASES = [
     {"name": "unsandboxed_confined", "sandbox": False, "hide": ["/x"], "extra_dirs": ["/w/2"]},
     {"name": "trusted_and_approved", "trusted": ["Source control: github.com/acme", "\"quoted\""], "mcp_approved": ["a", "b"]},
     {"name": "empty_lists_are_none", "hide": [], "no_write": [], "trusted": [], "mcp_approved": [], "extra_dirs": []},
+    {"name": "sandbox_allowances", "allow_write": ["/r/.git"], "cache_dir": "/h/caches/a", "allow_domains": ["registry.npmjs.org", "expo.dev"]},
+    {"name": "allowances_beside_extra_dirs", "extra_dirs": ["/w/2"], "allow_write": ["/r/.git"], "hide": ["/k"], "allow_domains": ["sum.golang.org"]},
     {"name": "everything", "model": "sonnet", "preamble": "p", "hide": ["/a/"], "no_write": ["/b"], "memory_dir": "/m",
      "trusted": ["t"], "chrome": True, "sandbox": False, "mcp_approved": ["s"], "extra_dirs": ["/e"]},
 ]
@@ -1296,7 +1299,9 @@ def claude_driver_cases(root: Path) -> dict:
                                                           no_write=args["no_write"],
                                                           memory_dir=Path(args["memory_dir"]) if args["memory_dir"] else None,
                                                           trusted=args["trusted"], chrome=args["chrome"], sandbox=args["sandbox"],
-                                                          mcp_approved=args["mcp_approved"], extra_dirs=args["extra_dirs"])})
+                                                          mcp_approved=args["mcp_approved"], extra_dirs=args["extra_dirs"],
+                                                          allow_write=args["allow_write"], allow_domains=args["allow_domains"],
+                                                          cache_dir=args["cache_dir"])})
     wanted = evmod.CAPTURED | evmod.ANSWERS | evmod.GUARDS
     settings = []
     # The home is reached through a symlink, so its real path differs on every platform (a macOS tmp dir does by itself, a Linux one does not).
