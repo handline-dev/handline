@@ -22,12 +22,12 @@ Our screens at the same size: [Inbox](img/pc-visual/01-home.png), [Tasks](img/pc
 2. **Workspaces instead of pages (layout).** Orca has one surface: the tab strip of the chosen worktree (chat, files, terminals, diff) with split panes. Ours is a set of pages (Team, Worktrees, Accounts, Stats, Tasks), each with a page title and its own box, and the agent view is a tab strip inside the main area with duplicate truncated tabs ("Claud... no terminal" twice). Moving between "an agent" and "its worktree" and "its tasks" is three screens in ours, one in Orca.
 3. **The bottom bar says something (layout, density).** Orca: per-account usage with a bar, percent used and time to reset; a keep-awake switch; update state; memory; terminal and port counts; remote hosts. Ours: link icon, agent total, per-state counts (which repeat the sidebar) and one unlabeled percentage. Details in section 5.
 4. **Density and quiet rows (density).** Orca rows carry one dot, a name in medium weight and one grey second line. Ours carry up to six marks per agent row (state glyph, inbox count, task count, two gauges, a menu) and the name is bold. Orca's rows are about 60 px for a worktree card with two lines, ours 32 px for one line carrying more symbols. More symbols in less space is what reads as busy.
-5. **Boxes inside boxes (borders).** Ours: the Tasks table sits in a bordered panel next to a bordered detail panel; Team is a row of bordered cards; Inbox rows are bordered cards; the composer is a bordered box inside a column. Orca separates areas with a single 1 px hairline (white at 7% alpha) and uses a filled rounded background only for the selected row. Section 4 gives the rule.
+5. **Boxes inside boxes (borders).** Ours: the Tasks table sits in a bordered panel next to a bordered detail panel; Team is a row of bordered cards; Inbox rows are bordered cards; the composer is a bordered box inside a column. Orca separates areas with one 1 px hairline (white at 7% alpha) and fills only the selected row. Section 4 gives the rule.
 6. **Chrome merged with the title bar (layout).** Orca's tab strip is the window's top bar (traffic lights, sidebar toggle, back/forward, tabs, +). Ours has a 38 px drag strip with the toggle and arrows over the sidebar, and a second strip for tabs: two bars where one would do.
-7. **Colour (colour).** Both are near-black neutral. Orca uses one warm accent, amber, for "needs you" (the bell on a worktree, the tab tint) and a brand glyph for the agent; status dots are small and few. Ours already has Okabe-Ito state hues (blue, amber, orange, green) next to glyphs; they are fine, but they appear on many rows at once and the amber badge sits in two places (the corner badge and the pills). Our tokens are close to Orca's already (section 4), so this is less a palette change than using fewer colours at a time.
+7. **Colour (colour).** Both are near-black neutral. Orca uses one warm accent, amber, for "needs you" (the bell on a worktree, the tab tint) and a brand glyph for the agent; status dots are small and few. Ours already has Okabe-Ito state hues (blue, amber, orange, green) next to glyphs; they are fine, but they appear on many rows at once and the amber badge sits in two places (the corner badge and the pills). Our tokens are close to Orca's (section 4), so the change is fewer colours at a time, not a new palette.
 8. **Type (type).** Orca: Geist, 13 px body, 12 px and 11 px for second lines, names at weight 500, monospace only for terminals and ids. Ours: Inter at the same sizes, names 500 in the token but several screens render them heavier, and monospace is used for times and owners in table rows. No size change is needed; weight and where mono is used.
 9. **Icons (icons).** Both use thin outline icons at 14 to 16 px. Orca uses few and puts a label next to each; ours has icon-only controls in chat and row headers that need a tooltip to read.
-10. **Empty states (empty states).** Orca: the sidebar holds the next step (Add project, +). Ours: "Pick an agent / Choose one in the list", "No accounts configured.", "No agents in the team" with no action beside them; the first-run walkthrough (docs/first-run-walkthrough.md) records these.
+10. **Empty states (empty states).** Orca: the sidebar holds the next step (Add project, +). Ours: "Pick an agent / Choose one in the list", "No accounts configured.", "No agents in the team" with no action beside them (screens 08, 04 and 06).
 
 ## 3. Orca's licence: what we may take
 
@@ -60,7 +60,7 @@ We already have the token layer (`apps/web/src/tokens.css`), and the values belo
 
 **Type.** One sans, one mono, four sizes: 13 body, 12 label, 11 hint, 15 title (page titles go away with section 2, item 2). Names 500, everything else 400; mono only for ids, branches, times in tables and terminals. Keep Inter; Geist is an option if the founder prefers Orca's look after seeing both.
 
-**Spacing and size.** 4 px grid (`--sp-*` as now). Sidebar 264 px (was 240 in tokens, 280 rendered). Tab strip 36 px, merged with the title bar. Status bar 26 px. Row heights: nav row 28, agent row 24, worktree card 56 (name, branch line, agent rows beneath). Content column padding 16 and 24.
+**Spacing and size.** 4 px grid (`--sp-*` as now). Sidebar 264 px (240 in tokens, 280 rendered). Tab strip 36 px (32 now), merged with the title bar. Status bar 26 px (24 now). Row heights: nav row 28, agent row 24, worktree card 56 (name, branch line, agent rows beneath). Content column padding 16 and 24.
 
 **Borders and radius.** One hairline between areas, no border on cards inside a pane; a filled `--bg-3` rounded (6 px) background marks the selected or hovered row. Cards keep a border only where they float (popups, dialogs, the composer). Radius 6 for rows and buttons, 8 for popups, 12 for dialogs (as now).
 
@@ -76,7 +76,7 @@ Main workspace: one sidebar (Inbox, Tasks, Automations, Team, then Projects with
 
 Source: [mock-main.html](img/pc-visual/mock-main.html) (static HTML, token values from the table).
 
-The mock moves Worktrees and Accounts out of the nav. Accounts becomes part of Settings and of the usage popup in the status bar; the Worktrees page becomes the project tree in the sidebar. Pair a phone and Stats move to the menu proposal (T4001 memo 1877). Those moves are for the founder to decide from the picture, not part of this proposal's tokens.
+The mock moves Worktrees and Accounts out of the nav. Accounts becomes part of Settings and of the usage popup in the status bar; the Worktrees page becomes the project tree in the sidebar. Pair a phone and Stats move to the menu proposal (T4001). Those moves are for the founder to decide from the picture, not part of this proposal's tokens.
 
 ## 5. The bottom status bar
 
@@ -108,4 +108,4 @@ Open items that need a daemon method, not a style: a usage runway figure (reset 
 4. Copy Orca code (with the notice) or write our own? Recommended: own, copy only split panes.
 5. Keep Inter or move to Geist.
 
-Section 4 and the mock feed 10-2 (T4136) together with the menu proposal (T4001 memo 1877).
+Section 4 and the mock feed 10-2 (T4136) together with the menu proposal (T4001).
