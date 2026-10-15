@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import fcntl
 import hmac
 import os
 import secrets
@@ -127,10 +128,14 @@ def record(agent: str, pid: int | None = None) -> bool:
     info = _proc(pid)
     if info is None:
         return False
-    lines = [f"{pid} {info[1]}"] + [f"{p} {started}" for p, started in _sessions(agent)
-                                    if p != pid and (_proc(p) or (0, None))[1] == started]
     try:
-        protected.put(NS, agent, "\n".join(lines))
+        # The Go daemon's Record and Forget hold this same lock, so neither writes over the other.
+        protected.ensure(NS)
+        with open(protected.root() / f"{NS}.lock", "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            lines = [f"{pid} {info[1]}"] + [f"{p} {started}" for p, started in _sessions(agent)
+                                            if p != pid and (_proc(p) or (0, None))[1] == started]
+            protected.put(NS, agent, "\n".join(lines))
     except (OSError, ValueError):       # PermissionError, NotTheFounder and a bad name all say no
         return False
     return True
