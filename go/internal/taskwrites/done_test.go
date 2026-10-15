@@ -57,7 +57,7 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, home, f)
+		Register(s, home, f, nil)
 		return s
 	}
 	done := func(agent, rid string, task int, params string) map[string]any {

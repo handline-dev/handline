@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@handline/client": "workspace:*",
-    "@handline/tokens": "workspace:*"
+    "@handline/tokens": "workspace:*",
+    "@handline/app-ui": "workspace:*",
+    "@dagrejs/dagre": "3.1.1"
   },
   "devDependencies": {
     "@handline/config": "workspace:*",

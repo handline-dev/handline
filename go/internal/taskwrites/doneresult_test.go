@@ -64,7 +64,7 @@ func newResultRig(t *testing.T) (home, repo, onMain, offMain string, done func(a
 	srv := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = d
-		Register(s, home, f)
+		Register(s, home, f, nil)
 		taskresult.Register(s, home, d)
 		return s
 	}

@@ -22,8 +22,9 @@ type runningTurn struct{ uuid, session string }
 // by 1, across sessions, never reused) and writes each in one transaction with the number it took. Publish gets the event after it is
 // committed, in order.
 type Sink struct {
-	DB  *sql.DB
-	Now func() time.Time
+	DB   *sql.DB
+	Now  func() time.Time
+	Home string // where the attachments folder is
 	// Session is the id of agent's running session; nil is "".
 	Session func(agent string) string
 	// Prompt is the spec's Prompt of the prompt row block, and when the row was first seen; false when there is none.
@@ -275,8 +276,9 @@ func (s *Sink) pictures(agent, uuid string) []any {
 		if err != nil {
 			continue
 		}
-		if maps, _ := attachments.Maps(s.DB, n); maps != nil {
-			out = append(out, maps...)
+		var body string
+		if s.DB.QueryRow("SELECT COALESCE(body, '') FROM requests WHERE id = ?", n).Scan(&body) == nil {
+			out = append(out, attachments.New(s.Home).MessageMaps(s.DB, n, body)...)
 		}
 	}
 	return out

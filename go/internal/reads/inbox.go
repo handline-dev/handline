@@ -65,6 +65,9 @@ type mailbox struct {
 	waiting   bool // its sender asked for a reply and parked on it
 }
 
+// founderOpen is a request to the founder still in their inbox: not yet dealt with, or a say not yet read or answered.
+const founderOpen = "(state = 'queued' OR (kind = 'say' AND state = 'landed' AND landed_at IS NOT NULL AND read_at IS NULL AND settles IS NULL))"
+
 func (e *Env) mailboxRows() ([]mailbox, error) {
 	gateRows, err := query(e.DB, "SELECT id FROM requests WHERE target = ? AND state = 'queued' AND id IN "+
 		"(SELECT MIN(l.request_id) FROM task_requests l JOIN tasks t ON t.id = l.task_id "+
@@ -76,8 +79,7 @@ func (e *Env) mailboxRows() ([]mailbox, error) {
 	for _, g := range gateRows {
 		gates[g.i("id")] = true
 	}
-	rows, err := query(e.DB, "SELECT id, ts, requester, kind, response, body FROM requests WHERE target = ? AND (state = 'queued' OR "+
-		"(kind = 'say' AND state = 'landed' AND landed_at IS NOT NULL AND read_at IS NULL AND settles IS NULL)) ORDER BY id", human)
+	rows, err := query(e.DB, "SELECT id, ts, requester, kind, response, body FROM requests WHERE target = ? AND "+founderOpen+" ORDER BY id", human)
 	if err != nil {
 		return nil, err
 	}

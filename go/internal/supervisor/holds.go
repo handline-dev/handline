@@ -30,9 +30,11 @@ const (
 
 func holdKey(tid int64) string { return fmt.Sprintf("%s%d", HoldPrefix, tid) }
 
-// holdRec is one kept line: why a task waits, whether the owner looks able, since when, and the clocks of the warning.
+// holdRec is one kept line: why a task waits and the one word for its cause (Task.waiting.on), whether the owner looks able, since when, and
+// the clocks of the warning.
 type holdRec struct {
 	Why       string
+	On        string
 	Able      bool
 	Since     int64
 	AbleSince *int64
@@ -55,6 +57,8 @@ func readHold(q db.Q, tid int64) *holdRec {
 		switch k {
 		case "why":
 			json.Unmarshal(v, &rec.Why)
+		case "on":
+			json.Unmarshal(v, &rec.On)
 		case "able":
 			json.Unmarshal(v, &rec.Able)
 		case "since":
@@ -77,7 +81,8 @@ func readHold(q db.Q, tid int64) *holdRec {
 // write is the record as Python's json.dumps writes it, so a Python reader sees the same text.
 func (r *holdRec) write(q db.Q, tid int64) {
 	yes := map[bool]string{true: "true", false: "false"}
-	parts := []string{fmt.Sprintf(`"why": %s`, pyQuote(r.Why)), fmt.Sprintf(`"able": %s`, yes[r.Able]), fmt.Sprintf(`"since": %d`, r.Since)}
+	parts := []string{fmt.Sprintf(`"why": %s`, pyQuote(r.Why)), fmt.Sprintf(`"on": %s`, pyQuote(r.On)), fmt.Sprintf(`"able": %s`, yes[r.Able]),
+		fmt.Sprintf(`"since": %d`, r.Since)}
 	if r.AbleSince != nil {
 		parts = append(parts, fmt.Sprintf(`"able_since": %d`, *r.AbleSince))
 	}
@@ -113,9 +118,9 @@ func (e *Env) agentReason(q db.Q, agent string, now int64) (string, bool) {
 	return "", true
 }
 
-// TaskReason is why the task, queued or doing, has not been given to its owner, and whether the owner looks able to take it. ok false when it
-// has been (typed, or nothing is waiting to type).
-func (e *Env) taskReason(q db.Q, t *db.Task, now int64) (why string, able, ok bool) {
+// TaskReason is why the task, queued or doing, has not been given to its owner, its cause (task, wall, cap or owner), and whether the owner
+// looks able to take it. ok false when it has been (typed, or nothing is waiting to type).
+func (e *Env) taskReason(q db.Q, t *db.Task, now int64) (why, cause string, able, ok bool) {
 	tid, agent := t.ID, t.Owner
 	linked := must(db.TaskRequests(q, tid))
 	var req *db.Request
@@ -126,17 +131,17 @@ func (e *Env) taskReason(q db.Q, t *db.Task, now int64) (why string, able, ok bo
 		}
 	}
 	if agent == db.Human || (!(t.QueuedBy.Valid && t.QueuedBy.String != "") && req == nil) {
-		return "", false, false
+		return "", "", false, false
 	}
 	if blockers := must(db.TaskBlockers(q, tid)); len(blockers) > 0 {
 		parts := make([]string, len(blockers))
 		for i, b := range blockers {
 			parts[i] = fmt.Sprintf("T%d (%s)", b.ID, b.Owner)
 		}
-		return "blocked by " + strings.Join(parts, ", "), false, true
+		return "blocked by " + strings.Join(parts, ", "), "task", false, true
 	}
 	if !e.registered(agent) {
-		return agent + " is not registered - nothing will take it", false, true
+		return agent + " is not registered - nothing will take it", "owner", false, true
 	}
 	holds := must(db.HoldsCurrent(q, t))
 	if !holds || (req == nil && must(db.CurrentTaskStillAsking(q, agent))) {
@@ -148,7 +153,7 @@ func (e *Env) taskReason(q db.Q, t *db.Task, now int64) (why string, able, ok bo
 			why = "still open"
 		}
 		cur, _ := ok2(db.CurrentTask(q, agent))
-		return fmt.Sprintf("behind T%d, which %s holds (%s)", cur, agent, why), false, true
+		return fmt.Sprintf("behind T%d, which %s holds (%s)", cur, agent, why), "owner", false, true
 	}
 	if req == nil {
 		var kind, payload string
@@ -158,20 +163,32 @@ func (e *Env) taskReason(q db.Q, t *db.Task, now int64) (why string, able, ok bo
 				Why any `json:"why"`
 			}
 			json.Unmarshal([]byte(payload), &p)
-			return fmt.Sprintf("its delivery was refused: %s", pyStr(p.Why)), false, true
+			return fmt.Sprintf("its delivery was refused: %s", pyStr(p.Why)), "owner", false, true
 		}
-		return Ready, true, true
+		return Ready, "owner", true, true
 	}
 	if req.DeliveredAt.Valid && req.DeliveredAt.Int64 != 0 {
-		return "", false, false
+		return "", "", false, false
 	}
 	if head := e.effectiveHead(q, agent); head != nil && head.ID != req.ID {
-		return fmt.Sprintf("behind #%d, which %s has not resolved", head.ID, agent), false, true
+		return fmt.Sprintf("behind #%d, which %s has not resolved", head.ID, agent), "owner", false, true
 	}
 	if why, able := e.agentReason(q, agent, now); why != "" {
-		return why, able, true
+		return why, e.ownerCause(q, agent), able, true
 	}
-	return Ready, true, true
+	return Ready, "owner", true, true
+}
+
+// ownerCause is the cause of a wait on the owner itself: wall when its account is at a usage limit, cap when the account has no free slot,
+// else owner.
+func (e *Env) ownerCause(q db.Q, agent string) string {
+	if e.wallReason(q, agent, nil) != "" {
+		return "wall"
+	}
+	if c := must(e.Lifecycle.AccountWait(q, agent)); c != "" {
+		return c
+	}
+	return "owner"
 }
 
 func pyStr(v any) string {
@@ -191,7 +208,7 @@ func (e *Env) SweepHolds(now int64) (err error) {
 		if t.Owner == db.Human || t.DoneEvidence.String != "" {
 			continue
 		}
-		why, able, found := e.taskReason(q, t, now)
+		why, cause, able, found := e.taskReason(q, t, now)
 		if !found {
 			continue
 		}
@@ -201,10 +218,10 @@ func (e *Env) SweepHolds(now int64) (err error) {
 		if rec == nil {
 			rec = &holdRec{}
 		}
-		changed := rec.Why != why || rec.Able != able || readHold(q, tid) == nil
+		changed := rec.Why != why || rec.On != cause || rec.Able != able || readHold(q, tid) == nil
 		if changed {
 			wasAble := rec.Able
-			rec.Why, rec.Able, rec.Since = why, able, now
+			rec.Why, rec.On, rec.Able, rec.Since = why, cause, able, now
 			if able && !wasAble {
 				rec.AbleSince = &now
 			}

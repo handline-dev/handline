@@ -140,3 +140,17 @@ func TestATaskWriteClaimsTheImagesItNames(t *testing.T) {
 		t.Fatal("the memo claims the image it names")
 	}
 }
+
+func TestAHandoffNoteNamesImagesAsAMemoDoes(t *testing.T) {
+	sdb, s, run := imagesEnv(t)
+	img := putImage(t, sdb, s)
+	if r := run("w", "task.handoff", "h1", `,"task":1,"to":"human","note":"see `+ref(img)+`"`); errData(r)["gate"] != "role" {
+		t.Fatalf("an agent's note names only an image a task or message shows: %v", r)
+	}
+	said(t, run("", "task.memo.add", "m1", params(1, "text", "the founder's "+ref(img))))
+	said(t, run("w", "task.handoff", "h2", `,"task":1,"to":"human","note":"see `+ref(img)+`"`))
+	sdb.Exec("DELETE FROM task_memos")
+	if held, _ := attachments.Held(sdb, 5); held[img] != 5 {
+		t.Fatalf("the note holds the image while the task is open: %v", held)
+	}
+}
