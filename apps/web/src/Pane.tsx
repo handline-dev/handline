@@ -3,22 +3,24 @@ import { useEffect, useRef, useState } from 'react';
 import { useScreenKeys, type KeyRows } from './screenKeys.ts';
 import {
   activate,
-  applyPreset,
   badgesOf,
   needsAttention,
   closeTab,
+  fillTab,
+  splitPane,
   CHAT,
   moveTab,
   moveTabBy,
   openTab,
   taskRef,
   type Group,
-  type Preset,
   type Tab,
+  type TabKind,
+  type TabParams,
 } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { ChatTab } from './ChatTab.tsx';
-import { Button, Icon, Popup, PopupRow, type IconName } from './ui/index.ts';
+import { Button, Icon, MenuButton, MenuItem, type IconName } from './ui/index.ts';
 import { TasksTab } from './TasksTab.tsx';
 import { TimelineTab } from './TimelineTab.tsx';
 import { Badges } from './Badges.tsx';
@@ -27,12 +29,15 @@ import { BytesTab } from './BytesTab.tsx';
 import { wantsBytes } from './terminal/choose.ts';
 import { Watch } from './TranscriptTab.tsx';
 import { TerminalTab } from './TerminalTab.tsx';
-import { TerminalBar } from './TerminalBar.tsx';
+import { ViewSwitch } from './ViewSwitch.tsx';
 import { useWorkspace } from './Workspace.tsx';
+import { RailControls, useFoldedControls } from './RailControls.tsx';
 
 const label = (t: Tab, structured = false): string =>
   t.kind === 'chat'
     ? 'Chat'
+    : t.kind === 'new'
+      ? 'New tab'
     : t.kind === 'tasks'
       ? t.params.pinned
         ? taskRef(Number(t.params.task))
@@ -44,13 +49,7 @@ const label = (t: Tab, structured = false): string =>
           : t.kind === 'terminal'
             ? 'Claude Code'
             : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
-const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history' };
-const PRESETS: [Preset, string][] = [
-  ['single', 'One pane'],
-  ['cols', 'Two columns'],
-  ['rows', 'Two rows'],
-  ['grid', '2 x 2'],
-];
+const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history', new: 'plus' };
 
 const TAB_KEYS: KeyRows = [
   ['Alt+Left Alt+Right', 'move the focused tab along the strip'],
@@ -59,11 +58,22 @@ const TAB_KEYS: KeyRows = [
 
 export function Pane({ group }: { group: Group }) {
   useScreenKeys('On the tabs', TAB_KEYS);
-  const { ws, detail, agent, storage, apply, dragging, setDragging } = useWorkspace();
+  const { ws, detail, agent, storage, apply, canSplit, lead, dragging, setDragging } = useWorkspace();
+  const folded = useFoldedControls();
   const store = useStore();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
   const badges = badgesOf(detail, store.me);
+  // What a new tab can show: the same list for the + menu and for the picker in a freshly split pane.
+  const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; disabled?: boolean }[] = [
+    { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
+    { kind: 'timeline', params: {}, label: 'Timeline', icon: 'history' },
+    detail.structured === true
+      ? { kind: 'transcript', params: {}, label: 'Transcript', icon: 'terminal' }
+      : detail.terminal
+        ? { kind: 'terminal', params: { handle: detail.terminal }, label: 'Claude Code', icon: 'terminal' }
+        : { kind: 'terminal', params: {}, label: 'No terminal: start the agent first', icon: 'noTerminal', disabled: true },
+  ];
   const structured = detail.structured === true;
   // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.
   // The first terminal tab of the group: a group holds one terminal tab per agent, so the unread dot follows that one.
@@ -72,7 +82,6 @@ export function Pane({ group }: { group: Group }) {
   const attention = needsAttention(badges);
   const wasAttention = useRef(attention);
   const [unread, setUnread] = useState(false);
-  const [menu, setMenu] = useState<'tab' | 'layout' | null>(null);
   useEffect(() => {
     if (attention && !wasAttention.current && termId !== undefined && !termShown) setUnread(true);
     wasAttention.current = attention;
@@ -81,6 +90,7 @@ export function Pane({ group }: { group: Group }) {
     if (termShown) setUnread(false);
   }, [termShown]);
 
+  const hiddenActive = group.tabs.includes(CHAT) && ['terminal', 'transcript'].includes(ws.tabs[group.activeTab]?.kind ?? '');
   const dropOnStrip = (e: React.DragEvent) => {
     if (!dragging) return;
     e.preventDefault();
@@ -99,15 +109,23 @@ export function Pane({ group }: { group: Group }) {
       onPointerDownCapture={() => ws.active !== group.id && apply((w) => ({ ...w, active: group.id }))}
     >
       <div className="strip flex h-[var(--h-tabs)] items-stretch border-b border-line bg-surface px-2" role="tablist" ref={strip} onDragOver={(e) => dragging && e.preventDefault()} onDrop={dropOnStrip}>
+        {folded && lead === group.id ? (
+          <div className="mr-1 flex flex-none items-center shell:pl-[var(--lights-w,86px)]">
+            <RailControls show={folded.show} row />
+          </div>
+        ) : null}
         {group.tabs.map((id) => {
           const t = ws.tabs[id]!;
+          // Claude Code is reached by the switch (Cmd/Ctrl+J, /terminal, the icon in the bottom bar), not by a tab, while the chat is in the group.
+          const asleep = id === CHAT && hiddenActive; // Claude Code is showing: the Chat tab stays the strip's one tab, quiet
+          const viaSwitch = (t.kind === 'terminal' || t.kind === 'transcript') && group.tabs.includes(CHAT);
           return (
             <div
               key={id}
               role="tab"
               tabIndex={0}
-              aria-selected={id === group.activeTab}
-              className={`tab group inline-flex max-w-[200px] cursor-default select-none items-center gap-1.5 whitespace-nowrap border-b-2 px-3 font-sans text-body font-medium ${id === group.activeTab ? 'on border-b-ink text-ink' : 'border-b-transparent text-ink-2'}`}
+              aria-selected={id === group.activeTab || asleep}
+              className={`tab group ${viaSwitch ? 'hidden' : 'inline-flex'} max-w-[200px] cursor-default select-none items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 font-sans text-body font-medium ${id === group.activeTab ? 'on border-b-ink text-ink' : asleep ? 'border-b-line-strong text-ink-2' : 'border-b-transparent text-ink-2'}`}
               data-tab={id}
               draggable
               onDragStart={(e) => {
@@ -160,50 +178,42 @@ export function Pane({ group }: { group: Group }) {
             </div>
           );
         })}
-        <span className="strip-end relative ml-auto flex items-center gap-0.5">
-          <Button
-            icon="plus"
-            size="sm"
-            label="Add a tab"
-            aria-haspopup="menu"
-            aria-expanded={menu === 'tab'}
-            onClick={() => setMenu(menu === 'tab' ? null : 'tab')}
-          />
-          <Popup open={menu === 'tab'} onClose={() => setMenu(null)} title="Add a tab" align="right">
-            <PopupRow icon="tasks" label="Tasks" onClick={() => (setMenu(null), apply((w) => openTab(w, 'tasks', {}, group.id)))} />
-            <PopupRow icon="history" label="Timeline" onClick={() => (setMenu(null), apply((w) => openTab(w, 'timeline', {}, group.id)))} />
-            {structured ? (
-              <PopupRow icon="terminal" label="Transcript" onClick={() => (setMenu(null), apply((w) => openTab(w, 'transcript', {}, group.id)))} />
-            ) : detail.terminal ? (
-              <PopupRow
-                icon="terminal"
-                label="Claude Code"
-                onClick={() => (setMenu(null), apply((w) => openTab(w, 'terminal', { handle: detail.terminal! }, group.id)))}
-              />
-            ) : (
-              <span className="ui-prow text-ink-3">
-                <Icon name="noTerminal" size={14} label="No terminal: start the agent first" />
-              </span>
-            )}
-          </Popup>
-          <Button
-            icon="layout"
-            size="sm"
-            label="Layout"
-            aria-haspopup="menu"
-            aria-expanded={menu === 'layout'}
-            onClick={() => setMenu(menu === 'layout' ? null : 'layout')}
-          />
-          <Popup open={menu === 'layout'} onClose={() => setMenu(null)} title="Layout" align="right">
-            {PRESETS.map(([p, name]) => (
-              <PopupRow key={p} label={name} onClick={() => (setMenu(null), apply((w) => applyPreset(w, p)))} />
-            ))}
-          </Popup>
-        </span>
+        <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="ml-0.5 self-center">
+          {choices.map((c) => (
+            <MenuItem key={c.label} icon={c.icon} disabled={c.disabled} onSelect={() => apply((w) => openTab(w, c.kind, c.params, group.id))}>
+              {c.label}
+            </MenuItem>
+          ))}
+        </MenuButton>
+        <Button
+          icon="split"
+          size="sm"
+          label="Split this pane"
+          title={canSplit(group.id) ? undefined : 'The window is too narrow for another pane'}
+          disabled={!canSplit(group.id)}
+          className="ml-auto self-center"
+          onClick={() => apply((w) => splitPane(w, group.id) ?? w)}
+        />
       </div>
       <div className="pane-body relative flex min-h-0 flex-1 flex-col [&>*]:min-h-0 [&>*]:flex-1" role="tabpanel">
         {!tab ? null : tab.kind === 'chat' ? (
           <ChatTab agent={agent} detail={detail} />
+        ) : tab.kind === 'new' ? (
+          <div className="new-tab flex flex-col items-center justify-center gap-1 p-6">
+            <p className="m-0 mb-2 text-ink-2">Open in this pane</p>
+            {choices.map((c) => (
+              <Button
+                key={c.label}
+                variant="outline"
+                icon={c.icon}
+                label={c.label}
+                disabled={c.disabled}
+                onClick={() => apply((w) => fillTab(w, tab.id, c.kind, c.params))}
+              >
+                {c.label}
+              </Button>
+            ))}
+          </div>
         ) : tab.kind === 'tasks' ? (
           <TasksTab agent={agent} task={typeof tab.params.task === 'number' ? tab.params.task : null} />
         ) : tab.kind === 'timeline' ? (
@@ -213,13 +223,15 @@ export function Pane({ group }: { group: Group }) {
             agent={agent}
             structured={structured}
             terminal={
-              <div className="flex min-h-0 flex-col [&>:last-child]:flex-1">
-                <TerminalBar agent={agent} detail={detail} />
+              <div className="flex min-h-0 flex-col [&>:nth-last-child(2)]:flex-1">
                 {wantsBytes(store.client.hello?.capabilities.terminal_format, storage) ? (
                   <BytesTab agent={agent} detail={detail} />
                 ) : (
                   <TerminalTab agent={agent} detail={detail} />
                 )}
+                <div className="chat-foot flex h-8 flex-none items-center border-t border-line px-3">
+                  <ViewSwitch to="chat" />
+                </div>
               </div>
             }
           />

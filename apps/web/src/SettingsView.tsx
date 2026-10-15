@@ -11,9 +11,12 @@ import {
   Button,
   Field as Input,
   Icon,
+  PageHead,
+  PageTitle,
   RowControl,
   RowText,
   RowTitle,
+  ScrollPage,
   SectionHead,
   Segmented,
   Select,
@@ -47,14 +50,14 @@ export function SettingsView({ agent }: { agent: string }) {
   const d: AgentDetail | undefined = q.data;
   const editable = served && (role === 'founder' || role === 'agent'); // agent.set is for the founder and an agent on itself
   return (
-    <section className="settings mx-auto h-full w-full overflow-auto px-4 pt-4 pb-6" aria-label={`${agent} settings`}>
-      <header className="settings-head settings-agent mx-auto flex max-w-[var(--w-form)] flex-wrap items-center gap-x-3 gap-y-1">
+    <ScrollPage className="settings" aria-label={`${agent} settings`}>
+      <PageHead className="settings-head settings-agent">
         <Button className="back self-end mb-4 [&_svg]:rotate-180" icon="chevronRight" label={`Back to ${agent}`} onClick={() => goAgent(agent)}>
           {agent}
         </Button>
-        <h2 className="m-0 text-page font-semibold text-ink">Settings</h2>
+        <PageTitle>Settings</PageTitle>
         <p className="settings-lede m-0 basis-full text-body text-ink-2">Each change saves as you make it.</p>
-      </header>
+      </PageHead>
       {served ? null : <p className="muted pad">This daemon does not edit agent settings.</p>}
       {served && !editable ? <p className="muted pad">Only the founder edits agent settings.</p> : null}
       <View q={q} served shape="settings" what={`${agent} settings`}>
@@ -84,7 +87,7 @@ export function SettingsView({ agent }: { agent: string }) {
           </div>
         ) : null}
       </View>
-    </section>
+    </ScrollPage>
   );
 }
 

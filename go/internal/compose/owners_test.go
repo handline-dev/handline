@@ -13,7 +13,7 @@ import (
 func ownersRig(t *testing.T) (p *Parts, bobRow string, count func(table string) int) {
 	t.Helper()
 	p, _, _, _ = wired(t)
-	d := p.Sink.DB
+	d := p.db
 	bobRow = `{"name":"bob","state":"idle","python":"wrote this"}`
 	for agent, view := range map[string]string{"bob": bobRow, "ghost": `{"name":"ghost"}`} {
 		if _, err := d.Exec("INSERT INTO agent_view(agent, view, updated) VALUES(?, ?, 7)", agent, view); err != nil {
@@ -37,11 +37,11 @@ func storedView(t *testing.T, d dbpkg.Q, agent string) (view string, found bool)
 	return view, err == nil
 }
 
-func TestWhilePythonTicksTheGoTickWritesOnlyTheViewsOfStructuredAgentsAndLeavesTheUsageTablesAlone(t *testing.T) {
+func TestWhilePythonTicksTheGoTickWritesNoViewAndLeavesTheUsageTablesAlone(t *testing.T) {
 	p, bobRow, count := ownersRig(t)
-	d := p.Sink.DB
+	d := p.db
 	samples := count("usage_samples")
-	tk := p.Tick(p.Run.cfg, TickConfig{})
+	tk := p.Tick(cfgOf(p), TickConfig{})
 	for i := 0; i < 2; i++ {
 		if _, err := tk.Tick.Run(nil); err != nil {
 			t.Fatal(err)
@@ -53,8 +53,8 @@ func TestWhilePythonTicksTheGoTickWritesOnlyTheViewsOfStructuredAgentsAndLeavesT
 	if _, ok := storedView(t, d, "ghost"); !ok {
 		t.Fatal("a row nobody here wrote was dropped")
 	}
-	if _, ok := storedView(t, d, "alice"); !ok {
-		t.Fatal("a structured agent has no view")
+	if _, ok := storedView(t, d, "alice"); ok {
+		t.Fatal("this tick wrote a view while the Python daemon ticks")
 	}
 	if got := count("usage_samples"); got != samples {
 		t.Fatalf("the usage poll is Python's until the cutover: %d samples became %d", samples, got)
@@ -63,9 +63,9 @@ func TestWhilePythonTicksTheGoTickWritesOnlyTheViewsOfStructuredAgentsAndLeavesT
 
 func TestAtTheCutoverTheGoTickOwnsTheUsagePollAndDropsTheRowOfAGoneAgent(t *testing.T) {
 	p, bobRow, count := ownersRig(t)
-	d := p.Sink.DB
+	d := p.db
 	samples := count("usage_samples")
-	tk := p.Tick(p.Run.cfg, TickConfig{Cutover: true})
+	tk := p.Tick(cfgOf(p), TickConfig{Cutover: true})
 	if _, err := tk.Tick.Run(nil); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestAtTheCutoverTheGoTickOwnsTheUsagePollAndDropsTheRowOfAGoneAgent(t *test
 func TestAtTheCutoverTheGoTickAsksADueAccountForItsUsageAndWhilePythonTicksItDoesNot(t *testing.T) {
 	for _, cutover := range []bool{false, true} {
 		p, _, _ := ownersRig(t)
-		cfg := p.Run.cfg
+		cfg := cfgOf(p)
 		cfg.Log = t.Logf
 		tk := p.Tick(cfg, TickConfig{Cutover: cutover})
 		if _, err := tk.Tick.Run(nil); err != nil {

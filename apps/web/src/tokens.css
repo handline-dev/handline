@@ -118,6 +118,7 @@
   --trow-h: 34px; /* a table row, compact as the Orca list; the list motion reads this, the skeleton row is rowHeight.task in @handline/tokens */
   --w-side: 240px;
   --w-form: 640px;
+  --w-page: 960px; /* the one content width of every page (ScrollPage) */
   --w-dialog: 460px;
   --icon: 16px;
 }

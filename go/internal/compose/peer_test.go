@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/store"
-	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -29,7 +29,7 @@ func TestATerminalAgentIsDeliveredThroughThePeerInboxUnlessItsYAMLSaysOff(t *tes
 		t.Fatal("an agent with no agent.yaml is on the peer inbox too")
 	}
 	// term goes to the peer port: it has no record to find, so nothing is written; strm goes to the (empty) structured manager
-	if _, err := port.Send("term", "op", "hi", structured.Now); err == nil {
+	if _, err := port.Send("term", "op", "hi", delivery.Now); err == nil {
 		t.Fatal("a peer agent with no session")
 	}
 	if port.Live("term") || port.Live("strm") {

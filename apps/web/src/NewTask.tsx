@@ -1,8 +1,9 @@
 // New task: owner, title, body, time box and priority. The row shows in the list at once with a hollow dot; a refusal leaves the text here.
+// A refusal for a title that repeats an open task names that task and offers to create it anyway.
 import { useRef, useState } from 'react';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { BodyEditor } from './BodyEditor.tsx';
-import { Dialog, FIELD, FIELD_LABEL, Field, Icon, NOTE, Select } from './ui/index.ts';
+import { Button, Dialog, FIELD, FIELD_LABEL, Field, Icon, NOTE, Select } from './ui/index.ts';
 
 export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => void }) {
   const ask = useWrite('task.new');
@@ -14,14 +15,16 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
   const [box, setBox] = useState('2h');
   const [priority, setPriority] = useState<1 | 2 | 3>(2);
   const [missing, setMissing] = useState('');
-  const send = () => {
+  const send = (duplicateOk = false) => {
     if (uploadingNow.current) return;
     if (!owner) return setMissing('Pick who it is for.');
     if (!title.trim()) return setMissing('A task needs a title.');
     setMissing('');
-    ask.mutate({ owner, title: title.trim(), body, time_box: box.trim() || '2h', priority }, { onSuccess: onClose });
+    ask.mutate({ owner, title: title.trim(), body, time_box: box.trim() || '2h', priority, ...(duplicateOk ? { duplicate_ok: true } : {}) }, { onSuccess: onClose });
   };
-  const said = missing || (ask.isError ? sentence(classify(ask.error)) : '');
+  const failure = ask.isError ? classify(ask.error) : null;
+  const duplicate = failure?.kind === 'refused' && failure.gate === 'duplicate_title' ? failure : null;
+  const said = missing || (failure ? (duplicate ? duplicate.reason : sentence(failure)) : '');
   return (
     <Dialog title="New task" onClose={onClose} action={{ label: 'Ask', keys: '⌘↵', form: 'newtask-form', disabled: ask.isPending || uploading }}>
       <form
@@ -68,6 +71,16 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
             <Icon name="failed" size={14} label="Error" />
             {said}
           </p>
+        ) : null}
+        {duplicate ? (
+          <div className="flex items-center gap-2">
+            {duplicate.task !== undefined ? (
+              <a href={`#/tasks/${duplicate.task}`} className="mono" onClick={onClose}>
+                {`Open T${duplicate.task}`}
+              </a>
+            ) : null}
+            <Button label="Create anyway" disabled={ask.isPending} onClick={() => send(true)} />
+          </div>
         ) : null}
       </form>
     </Dialog>

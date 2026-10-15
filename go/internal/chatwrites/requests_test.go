@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	dbpkg "github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/structured"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/supervisor"
 )
 
@@ -114,7 +114,7 @@ func TestCancelTakesAHeldMessageBackFromTheSessionsQueue(t *testing.T) {
 	f.busy = true
 	rid := int64(r.result(r.one(s, "chat.send", send("take me back", "d1", "")))["request"].(float64))
 	res := r.result(r.one(s, "request.cancel", fmt.Sprintf(`{"id":%d,"request_id":"c1"}`, rid)))
-	if op, _ := f.ledger("bob").Get(supervisor.RequestOp(rid)); res["ok"] != true || r.state(rid) != "withdrawn" || op.State != structured.Withdrawn {
+	if op, _ := f.ledger("bob").Get(supervisor.RequestOp(rid)); res["ok"] != true || r.state(rid) != "withdrawn" || op.State != delivery.Withdrawn {
 		t.Fatalf("withdrawn in the row and in the session, so the session never writes it: %v %s %v", res, r.state(rid), op)
 	}
 }

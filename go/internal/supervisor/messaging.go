@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/structured"
+	"github.com/handline/handline/go/internal/delivery"
 )
 
 // A message told to an agent's session at once: the socket's `message` verb and TellNow for a request, and the pending row that survives
@@ -27,7 +27,7 @@ func (e *Env) FinishSay(q db.Q, row *db.Request) {
 func (e *Env) deliverRow(q db.Q, agent string, rowID int64, text string) (bool, string) {
 	if e.structuredAgent(agent) {
 		// Joins the running turn; the ledger holds the operation, so two callers never write the row twice.
-		if state, why := e.sendOnce(q, agent, fmt.Sprintf("pending:%d", rowID), text, structured.Now); state == NotSent {
+		if state, why := e.sendOnce(q, agent, fmt.Sprintf("pending:%d", rowID), text, delivery.Now); state == NotSent {
 			return false, why
 		}
 		check(db.DeletePending(q, rowID))
