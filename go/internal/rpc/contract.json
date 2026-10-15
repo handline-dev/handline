@@ -345,6 +345,9 @@
  "team.get": {
   "role": "agent"
  },
+ "team.seal": {
+  "role": "founder"
+ },
  "terminal.attach": {
   "role": "member"
  },

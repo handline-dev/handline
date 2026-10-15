@@ -4409,6 +4409,63 @@
    ]
   },
   {
+   "name": "team.seal",
+   "summary": "The founder seals team.yaml and every agent.yaml as they are now, as hl team seal does; dry_run names what would be sealed.",
+   "description": "Seals are what lets the daemon tell a file the founder approved from one changed behind their back. The call without `dry_run` is the go-ahead and seals every file that is not sealed as it is, and marks the seals as begun; a file already matching its seal is left. A dry run lists each file it would take on, `new` (no seal before) or `changed` (it did not match its seal), with the digest it would be sealed with, and writes nothing and records nothing. Nothing to seal is `ok` true with that said. An agent's session is refused by role.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "dry_run",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Change nothing: answer `plan`."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "required": [
+      "ok"
+     ],
+     "properties": {
+      "ok": {
+       "type": "boolean",
+       "description": "Always true: a refusal is an error."
+      },
+      "plan": {
+       "type": "string",
+       "description": "Dry run only: one line per file that would be sealed (its label, why, its digest), or that nothing needs sealing."
+      },
+      "said": {
+       "type": "string",
+       "description": "Without dry_run: one line per file sealed, or that nothing needed sealing."
+      }
+     }
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "inbox.mark_read",
    "summary": "Mark items read; an id that is not yours is not_found.",
    "paramStructure": "by-name",

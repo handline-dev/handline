@@ -645,3 +645,45 @@ func TestACacheThatCannotBeRemovedDoesNotUndoARetire(t *testing.T) {
 		t.Fatalf("the retire stopped half done: %v", res)
 	}
 }
+
+func TestTeamSealPlansWritesNothingSealsOnTheGoAheadAndRefusesAnAgent(t *testing.T) {
+	r := newRig(t)
+	res := func(m map[string]any) map[string]any {
+		t.Helper()
+		out, _ := m["result"].(map[string]any)
+		if out == nil {
+			t.Fatalf("%v", m)
+		}
+		return out
+	}
+	yaml := r.file("agents", "alice", "agent.yaml")
+	if err := os.WriteFile(filepath.Join(r.home, "agents", "alice", "agent.yaml"), []byte(yaml+"# edited behind the seal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := res(r.call("team.seal", `{"dry_run":true,"request_id":"s1"}`))
+	text, _ := plan["plan"].(string)
+	if plan["ok"] != true || !strings.Contains(text, "agent alice (it did not match its seal) as ") || !strings.Contains(text, "file(s) would be sealed") {
+		t.Fatalf("%v", plan)
+	}
+	again := res(r.call("team.seal", `{"dry_run":true,"request_id":"s2"}`))
+	if again["plan"] != plan["plan"] {
+		t.Fatalf("a dry run changed something: %v", again)
+	}
+	done := res(r.call("team.seal", `{"request_id":"s3"}`))
+	said, _ := done["said"].(string)
+	if done["ok"] != true || !strings.Contains(said, "sealed agent alice (it did not match its seal)") || !strings.HasSuffix(said, "as they are now") {
+		t.Fatalf("%v", done)
+	}
+	none := res(r.call("team.seal", `{"dry_run":true,"request_id":"s4"}`))
+	if none["plan"] != "nothing to seal: every file already matches its seal" {
+		t.Fatalf("%v", none)
+	}
+	bad, _ := r.call("team.seal", `{"dry_run":"yes","request_id":"s5"}`)["error"].(map[string]any)
+	if bad == nil {
+		t.Fatal("dry_run must be a boolean")
+	}
+	refused, _ := r.callAs("alice", "team.seal", `{"request_id":"s6"}`)["error"].(map[string]any)
+	if refused == nil {
+		t.Fatal("an agent sealed the team")
+	}
+}

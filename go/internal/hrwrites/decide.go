@@ -40,6 +40,7 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("hr.decide", rpc.Method{Role: "member", Write: true, Handler: e.decideMethod})
 	s.Register("agent.set", rpc.Method{Role: "agent", Write: true, Handler: e.agentSetMethod})
 	s.Register("hr.withdraw", rpc.Method{Role: "agent", Write: true, Handler: e.withdrawMethod})
+	s.Register("team.seal", rpc.Method{Role: "founder", Write: true, Unkept: true, OwnEvent: true, Handler: e.teamSealMethod})
 }
 
 const decisionsNS = "hr-decisions"
