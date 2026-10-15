@@ -10,7 +10,7 @@ import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
 import { DebugEntry, debugUrl } from '../src/debug/DebugEntry.tsx';
 import { DebugTerminals } from '../src/debug/DebugTerminals.tsx';
-import { cacheLeft, dash, facts, flags, span, type DebugPane } from '../src/debug/paneFacts.ts';
+import { cacheLeft, dash, facts, flags, type DebugPane } from '../src/debug/paneFacts.ts';
 import type { CreateTerm } from '../src/terminal/core.ts';
 import { dropKept } from '../src/terminal/keep.ts';
 
@@ -55,9 +55,8 @@ const pane = (over: Partial<DebugPane> = {}): DebugPane => ({
 
 describe('pane facts', () => {
   const now = Date.parse('2026-01-01T01:00:00Z');
-  it('says unknown as a dash and spans in short words', () => {
+  it('says unknown as a dash', () => {
     expect([dash(null), dash(''), dash(undefined), dash(0), dash('x')]).toEqual(['-', '-', '-', '0', 'x']);
-    expect([span(45), span(720), span(3720), span(90000)]).toEqual(['45s', '12m', '1h 2m', '1d 1h']);
   });
   it('flags an orphan, a shell left after the agent exited, and a session kept past its cache', () => {
     expect(flags(pane(), now).map((f) => f.word)).toEqual(['orphan']);
@@ -72,7 +71,7 @@ describe('pane facts', () => {
     expect(rows['Agent']).toBe('none (opened for a.b)');
     expect([rows['Account'], rows['Session id'], rows['Worktree'], rows['Orca terminal'], rows['Cache expiry']]).toEqual(['-', '-', '-', '-', '-']);
     expect(rows['Process']).toBe('shell · pane pid 42 · zsh');
-    expect(rows['Last activity']).toBe('2026-01-01T00:00:00Z (1h 2m idle)');
+    expect(rows['Last activity']).toBe('2026-01-01T00:00:00Z (1 h 2 m idle)');
   });
 });
 

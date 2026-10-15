@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Account } from '@handline/client';
-import { FIVE_HOURS_MS, gaugeOf, outUntil, span, stateOf, toneOf } from '../src/index.ts';
+import { FIVE_HOURS_MS, gaugeOf, outUntil, stateOf, toneOf } from '../src/index.ts';
 
 const NOW = Date.parse('2026-10-07T12:00:00Z');
 const at = (ms: number) => new Date(NOW + ms).toISOString();
@@ -28,15 +28,6 @@ test('a window with no reset or no use has no runway, and a percentage is held t
   assert.equal(gaugeOf({ used_pct: 50, resets_at: null, source: 'x' }, FIVE_HOURS_MS, NOW).runway, null);
   assert.equal(gaugeOf({ used_pct: 0, resets_at: at(1000), source: 'x' }, FIVE_HOURS_MS, NOW).runway, null);
   assert.equal(gaugeOf({ used_pct: 140, resets_at: null, source: 'x' }, FIVE_HOURS_MS, NOW).pct, 100);
-});
-
-test('time in words uses its two biggest units', () => {
-  assert.deepEqual([20_000, 45 * 60_000, 130 * 60_000, 3 * 86_400_000 + 4 * 3_600_000].map(span), [
-    'under a minute',
-    '45 m',
-    '2 h 10 m',
-    '3 d 4 h',
-  ]);
 });
 
 test('the state chip: login first, then out, then in use or idle', () => {

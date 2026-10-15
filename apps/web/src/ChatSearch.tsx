@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { ChatMessage } from '@handline/client';
 import { classify, sentence, useChatSearch, useServes, type ChatScope } from '@handline/app-data';
 import { BarInput, Empty, Icon } from './ui/index.ts';
+import { dateTime } from '@handline/app-core';
 
 const SNIPPET = 90;
 
@@ -15,11 +16,6 @@ export function snippet(body: string, query: string): string {
   return `${from > 0 ? '…' : ''}${cut}${from + SNIPPET < flat.length ? '…' : ''}`;
 }
 
-export const when = (at: string) => {
-  const d = new Date(at);
-  return Number.isNaN(+d) ? '' : d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-};
-
 function Hit({ m, query, onGo }: { m: ChatMessage; query: string; onGo: (id: number) => void }) {
   return (
     <button
@@ -29,7 +25,7 @@ function Hit({ m, query, onGo }: { m: ChatMessage; query: string; onGo: (id: num
     >
       <span className="flex w-full items-baseline gap-2 text-label text-ink-2">
         <strong className="font-medium text-ink">{m.from}</strong>
-        <span>{when(m.at)}</span>
+        <span>{dateTime(m.at)}</span>
       </span>
       <span className="text-body text-ink">{snippet(m.body, query)}</span>
     </button>

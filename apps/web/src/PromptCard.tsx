@@ -3,7 +3,7 @@
 // The answer is a decided write: the clicked option shows "…", the rest are disabled, and a prompt that changed sends nothing.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { Prompt } from '@handline/client';
-import { isAlways, promptChoices, promptTitle } from '@handline/app-core';
+import { clockTime, isAlways, promptChoices, promptTitle } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { usePending, useWrite } from '@handline/app-data';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
@@ -81,7 +81,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
       <div className="card-title mb-1.5 font-semibold">
         <Icon name="warn" size={13} aria-hidden className="mr-1 inline-block align-[-2px]" /> {promptTitle(p)}
         <span className="muted font-normal">
-          {p.since ? ` · waiting since ${new Date(p.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+          {p.since ? ` · waiting since ${clockTime(p.since)}` : ''}
         </span>
       </div>
       {changed ? (

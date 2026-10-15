@@ -5,14 +5,14 @@
 // chat that shows it. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { landingLabel, takeBack as canTakeBack, sideOf, timeline } from '@handline/app-core';
+import { clockTime, landingLabel, sideOf, takeBack as canTakeBack, timeline } from '@handline/app-core';
 import { classify, sentence, useAgents, useChat, useChatActions, useInbox, useWrite, type ChatScope } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, Landing, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
-import { Line, clock } from './ChatLines.tsx';
+import { Line } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
 import { ChatFind } from './ChatFind.tsx';
 import { ChatRefs, type Ref } from './ChatRefs.tsx';
@@ -385,7 +385,7 @@ function Bubble(props: {
       {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
       <Text style={{ color: c.muted, fontSize: 11 }}>
         {!unnumbered && `#${m.id} `}
-        {clock(m.at)}
+        {clockTime(m.at)}
         {side === 'person' && !failed && (
           <Text testID={`landing-${m.id}`}>
             {'  '}

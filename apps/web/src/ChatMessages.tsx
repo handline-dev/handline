@@ -3,7 +3,7 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { landingLabel, openTask, sessionLine, sideOf, taskRow, tickLevel, type TaskChange } from '@handline/app-core';
+import { type TaskChange, clockTime, landingLabel, openTask, sessionLine, sideOf, taskRow, tickLevel } from '@handline/app-core';
 import { useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
@@ -17,11 +17,6 @@ export const openTaskOnClick = (apply: ReturnType<typeof useWorkspace>['apply'],
   if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   e.preventDefault();
   apply((w) => openTask(w, task));
-};
-
-const clock = (at: string) => {
-  const d = new Date(at);
-  return Number.isNaN(+d) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
 /** Scrolls the message with this number into view and flashes it; false when it is not drawn (another page, another tab). */
@@ -181,7 +176,7 @@ export function Message(props: {
         ) : null}
       </div>
       <Stamp left={side !== 'agent'}>
-        <span>{clock(m.at)}</span>
+        <span>{clockTime(m.at)}</span>
         {side === 'person' && !failed ? <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} /> : null}
       </Stamp>
     </>
@@ -227,7 +222,7 @@ function SessionCard({ i }: { i: TranscriptItem }) {
           Handoff
         </Button>
       ) : null}
-      <span className="card-time">{clock(i.at)}</span>
+      <span className="card-time">{clockTime(i.at)}</span>
       <hr className="m-0 h-px flex-1 border-0 bg-line" />
       {open ? (
         <Dialog title="Handoff" onClose={() => setOpen(false)}>
@@ -265,7 +260,7 @@ function TaskLine({ i, titles }: { i: TranscriptItem; titles?: Map<number, strin
       <span className="mono">T{row.task}</span>
       {row.title ? <span className="max-w-[24ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{row.title}</span> : null}
       {row.parts.length ? <TaskChanges parts={row.parts} /> : null}
-      <span className="muted card-time">{clock(i.at)}</span>
+      <span className="muted card-time">{clockTime(i.at)}</span>
     </button>
   );
 }
@@ -310,7 +305,7 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
       <span className="mono">T{task}</span>
       {titles?.get(task) ? <span className="max-w-[24ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{titles.get(task)}</span> : null}
       {rest ? <span className="muted min-w-0 break-words">{rest}</span> : null}
-      <span className="muted card-time">{clock(m.at)}</span>
+      <span className="muted card-time">{clockTime(m.at)}</span>
     </button>
   );
 }
@@ -346,7 +341,7 @@ export function Item({
           </div>
         </div>
         <Stamp>
-          <span>{clock(i.at)}</span>
+          <span>{clockTime(i.at)}</span>
         </Stamp>
       </>
     );
@@ -365,7 +360,7 @@ export function Item({
         <span className="card-state" title={i.open ? 'Waiting for you' : 'Answered'}>
           <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Waiting for you' : 'Answered'} />
         </span>
-        <span className="muted card-time">{clock(i.at)}</span>
+        <span className="muted card-time">{clockTime(i.at)}</span>
       </Card>
     );
   }
