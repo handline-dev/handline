@@ -419,7 +419,7 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await typeInto(compose(), '/');
     const verbs = $$('[role="listbox"] [role="option"]').map((o) => o.querySelector('.ui-prow-name')!.textContent);
     expect(verbs).toContain('Terminal');
-    expect(verbs.length).toBeGreaterThan(1);
+    expect(verbs.filter((v) => /restart|park|fold|move|close/i.test(v!))).toEqual([]); // automatic actions are not shown
     await typeInto(compose(), '/ter');
     expect($$('[role="listbox"] [role="option"]')).toHaveLength(1);
     await press(compose(), 'Escape');
