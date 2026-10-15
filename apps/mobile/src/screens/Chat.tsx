@@ -79,7 +79,7 @@ export function Chat(props: { detail: AgentDetail }) {
     setTextState(v);
   };
   const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
-  const entries = timeline(chat.messages, chat.items);
+  const entries = timeline(chat.messages, chat.items, 'mine', agent);
 
   // The agent's messages now in front of the person leave the FOR YOU list (chat.seen); once per newest number.
   const said = chat.messages.filter((m) => m.from === agent && m.id > 0).reduce((n, m) => Math.max(n, m.id), 0);

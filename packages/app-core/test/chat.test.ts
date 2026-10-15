@@ -80,7 +80,7 @@ const taskItem = (event: string, extra: object = {}): TranscriptItem =>
     id: 1,
     at: '2026-10-12T10:00:00Z',
     kind: 'task_event',
-    task_event: { event, task: 7, request: null, evidence: null, ...extra },
+    task_event: { event, task: 7, request: null, evidence: null, who: 'human', ...extra },
   }) as TranscriptItem;
 const titles = new Map([[7, 'Fix the tray']]);
 
@@ -94,6 +94,7 @@ test('a task line says added, edited, done or deleted', () => {
 test('a task line carries the task, its title and only the change or evidence', () => {
   assert.deepEqual(taskRow(taskItem('changed', { change: 'priority 2 -> 1' }), titles), {
     label: 'Task changed',
+    who: 'human',
     task: 7,
     title: 'Fix the tray',
     detail: 'priority 2 -> 1',
@@ -169,4 +170,13 @@ test('a session line says why in plain words, and keeps an unknown cause as it c
   assert.equal(line('idle_close').reason, 'Woke after closing when idle');
   assert.equal(line('crash').reason, 'New session (crash)');
   assert.deepEqual(line(), { reason: 'New session', handoff: null });
+});
+
+test('a task card is in the chat of the agent that made the change; the all tab shows every one', () => {
+  const card = (id: number, who: string) =>
+    ({ id, at: `2026-01-01T00:00:0${id}Z`, kind: 'task_event', task_event: { event: 'changed', task: 7, request: null, evidence: null, who } }) as unknown as TranscriptItem;
+  const items = [card(1, 'alice'), card(2, 'bob'), card(3, 'human')];
+  assert.deepEqual(timeline([], items, 'mine', 'alice').map((e) => e.id), [1]);
+  assert.deepEqual(timeline([], items, 'all', 'alice').map((e) => e.id), [1, 2, 3]);
+  assert.equal(taskRow(card(2, 'bob')).who, 'bob');
 });
