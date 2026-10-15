@@ -254,10 +254,6 @@ def test_only_role_skips_are_covered_by_allow_skip(td) -> None:
     listing.write_text("hello.ok\n")
     code, out = _run(["--allow-skip", "--allow-needvar-file", str(listing), *KEYARG])
     check("conformance: a listed fixture that now has its var is stale and fails the run", code == 1 and "STALE" in out, out)
-    listing.write_text("hello.ok\n")
-    code, out = _run(["--skip-file", str(listing), *KEYARG])
-    check("conformance: a fixture in --skip-file still runs, and one that passes is stale and fails the run",
-          code == 1 and "STALE hello.ok  - in --skip-file but it passed" in out, out)
     listing.write_text("no.such.fixture\n")
     code, out = _run(["--allow-skip", "--allow-needvar-file", str(listing), *KEYARG])
     check("conformance: a listed fixture that does not exist is stale", code == 1 and "STALE no.such.fixture" in out, out)

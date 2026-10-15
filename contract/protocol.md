@@ -452,7 +452,7 @@ A screenshot kept with a finished task. One screenshot of a task whose end recor
 
 ### `task.new`
 
-Create a task. The founder or a member device opens one for an agent only, and it opens queued.
+Create a task. The founder or a member device opens one for an agent only, and it opens queued. The owner may not be the caller: a task an agent takes on itself is begun from the founder's message (task.begin).
 
 ### `task.handoff`
 
