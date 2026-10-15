@@ -349,3 +349,22 @@ func TestAHomeThatIsNotTheLiveOneNeverAddressesTheLiveService(t *testing.T) {
 		t.Fatalf("a scratch home with a label of its own: %v %v", err, calls)
 	}
 }
+
+// A request bigger than the socket's buffer, after a hello whose reply is bigger too, still gets its answer: the daemon answers the hello
+// before it reads the request, so the client must read while it writes, or each waits on the other until the deadline.
+func TestALargeRequestAfterALargeHelloReplyIsAnswered(t *testing.T) {
+	big := strings.Repeat("x", 32<<10)
+	_, to := serve(t, func(m map[string]any) string {
+		if m["method"] == "hello" {
+			return ok(m, `{"pad":"`+big+`"}`)
+		}
+		text, _ := m["params"].(map[string]any)["text"].(string)
+		return ok(m, fmt.Sprintf(`{"got":%d}`, len(text)))
+	})
+	c := client(to)
+	c.Deadline = 3 * time.Second
+	got, err := c.Call("task.memo.add", map[string]any{"text": big})
+	if err != nil || got["got"] != float64(len(big)) {
+		t.Fatalf("%v %v", got, err)
+	}
+}

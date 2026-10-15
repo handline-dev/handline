@@ -256,9 +256,10 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 		}
 		out = append(append(out, b...), '\n')
 	}
-	if _, err := conn.Write(out); err != nil {
-		return nil, err
-	}
+	// Written beside the reading: the daemon answers the hello before it reads the request, and a request and a hello reply each
+	// bigger than the socket's buffer would otherwise leave both sides writing until the deadline.
+	wrote := make(chan error, 1)
+	go func() { _, err := conn.Write(out); wrote <- err }()
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 64<<10), 64<<20)
 	for sc.Scan() {
@@ -270,7 +271,8 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 		if err := json.Unmarshal([]byte(line), &r); err != nil {
 			return nil, fmt.Errorf("the daemon sent what is not JSON: %w", err)
 		}
-		if err := r.err(); err != nil && (r.ID == 1 || r.ID == 2) {
+		// An error with no id is about the connection itself (a line too long to read, say): the request is not answered after it.
+		if err := r.err(); err != nil && (r.ID == 0 || r.ID == 1 || r.ID == 2) {
 			return nil, err
 		}
 		if r.ID == 2 {
@@ -282,6 +284,9 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 		}
 	}
 	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	if err := <-wrote; err != nil {
 		return nil, err
 	}
 	return nil, errors.New("the daemon closed the connection before it replied")
