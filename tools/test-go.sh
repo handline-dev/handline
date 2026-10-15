@@ -26,8 +26,9 @@ protected_unchanged() {
     echo "FAIL  the Go tests wrote to the real $real_protected" >&2
     return 1
 }
-# The whole run also checks go.mod and go.sum are tidy (a run with go test args does not).
+# The whole run also checks go.mod and go.sum are tidy, and that no new copy of Go code came in (a run with go test args does not).
 [ $# -eq 0 ] && { "$here/check-go-tidy.sh" || exit 1; }
+[ $# -eq 0 ] && { "$here/check-go-dupl.sh" || exit 1; }
 race=()
 [ "${HANDLINE_GO_RACE:-}" = 1 ] && race=(-race)
 echo "tools/test-go.sh: go test ${race[*]} ${*:-./...}" >&2
