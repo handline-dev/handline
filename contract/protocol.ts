@@ -1355,6 +1355,23 @@ export type ImagePart = {
   path?: string;
 };
 
+/** One change to a task: who changed which field from what to what, and when. A field's change is one row; an edit of several fields is several rows with the same at. */
+export type HistoryRow = {
+  at: Timestamp;
+  /** Who made the change: an agent, or human. */
+  by: string;
+  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. */
+  field: "title" | "assignee" | "owner" | "body" | "priority" | "timeout" | "state" | "blocked_by" | "merged_into" | "memo";
+  /** The value before; empty when there was none (a task just opened, a wait just added, a memo just added). */
+  was: string;
+  /** The value after; empty when it is gone (a wait removed, a memo deleted). */
+  now: string;
+  /** With a state row: the done evidence, the report, or the reason or note given. Absent when none was. */
+  note?: string;
+  /** With a memo row: the memo's id. */
+  memo?: number;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -1959,6 +1976,12 @@ export interface Methods {
   "task.get": { params: {
   task: number;
 }; result: TaskDetail };
+  "task.history": { params: {
+  task: number;
+}; result: {
+    task: number;
+    rows: HistoryRow[];
+  } };
   "task.shot": { params: {
   task: number;
   /** The screenshot's number in the task's result, from 1. */
@@ -2510,6 +2533,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },
   "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.get": { role: "agent", callers: null, write: false, since: 1 },
+  "task.history": { role: "agent", callers: null, write: false, since: 1 },
   "task.shot": { role: "member", callers: null, write: false, since: 1 },
   "task.new": { role: "agent", callers: null, write: true, since: 1 },
   "task.handoff": { role: "agent", callers: null, write: true, since: 1 },

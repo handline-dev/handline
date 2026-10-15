@@ -4723,6 +4723,52 @@
    ]
   },
   {
+   "name": "task.history",
+   "summary": "Every change to a task, newest first: one row per field changed, with who made it, the value before and after, and when. It is read from the events each task write keeps in its own transaction, so it is never edited or deleted; a fix is a later row. A deleted memo's words stay in it. Anyone may edit a task (task.edit); this history is what makes that safe to undo by hand.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "task": {
+       "type": "integer"
+      },
+      "rows": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/HistoryRow"
+       }
+      }
+     },
+     "required": [
+      "task",
+      "rows"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "task.shot",
    "summary": "A screenshot kept with a finished task.",
    "paramStructure": "by-name",
@@ -13956,6 +14002,58 @@
     "required": [
      "image",
      "caption"
+    ]
+   },
+   "HistoryRow": {
+    "type": "object",
+    "description": "One change to a task: who changed which field from what to what, and when. A field's change is one row; an edit of several fields is several rows with the same at.",
+    "properties": {
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "by": {
+      "type": "string",
+      "description": "Who made the change: an agent, or human."
+     },
+     "field": {
+      "type": "string",
+      "enum": [
+       "title",
+       "assignee",
+       "owner",
+       "body",
+       "priority",
+       "timeout",
+       "state",
+       "blocked_by",
+       "merged_into",
+       "memo"
+      ],
+      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>."
+     },
+     "was": {
+      "type": "string",
+      "description": "The value before; empty when there was none (a task just opened, a wait just added, a memo just added)."
+     },
+     "now": {
+      "type": "string",
+      "description": "The value after; empty when it is gone (a wait removed, a memo deleted)."
+     },
+     "note": {
+      "type": "string",
+      "description": "With a state row: the done evidence, the report, or the reason or note given. Absent when none was."
+     },
+     "memo": {
+      "type": "integer",
+      "description": "With a memo row: the memo's id."
+     }
+    },
+    "required": [
+     "at",
+     "by",
+     "field",
+     "was",
+     "now"
     ]
    }
   },
