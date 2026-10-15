@@ -7,11 +7,11 @@ complaint: approve/reject cards stay on screen, and there is no way to say "not 
 
 | Tool | What it shows | How you defer or clear it |
 |---|---|---|
-| Apple (iOS notifications) | Four interruption levels: passive (no alert, can wait), active (the default), time sensitive (breaks through Focus and the scheduled summary), critical (health and safety only). Time sensitive is for what "directly impacts the user and requires immediate attention" ([HIG, managing notifications](https://developer-rno.apple.com/design/human-interface-guidelines/patterns/managing-notifications), [WWDC21 10091](https://developer.apple.com/videos/play/wwdc2021/10091/)). | The system, not the app, decides whether a level may override Focus. |
-| Linear inbox | One inbox for everything that needs you. | **Snooze** hides the item and brings it back unread at a chosen time (an hour, tomorrow, next week, or typed); new activity on the issue cancels the snooze. A **reminder** is separate and does not hide the item ([snooze](https://linear.app/docs/snooze), [changelog 2021-06-17](https://linear.app/changelog/2021-06-17-inbox-snooze-and-easier-issue-merge)). |
+| Apple (iOS notifications) | Four interruption levels: passive (no alert, can wait), active (the default), time sensitive (breaks through Focus and the scheduled summary), critical (health and safety only). Passive is for what should be seen eventually; active and time sensitive are for what needs immediate attention, such as account security or a package delivery ([WWDC21 10091](https://developer.apple.com/videos/play/wwdc2021/10091/); the HIG page was not readable here). | The system, not the app, decides whether a level may override Focus. |
+| Linear inbox | One inbox for everything that needs you. | **Snooze** hides the item and brings it back unread at a chosen time (an hour, tomorrow, next week, or typed); new activity on the issue cancels the snooze. A **reminder** is separate and does not hide the item ([inbox docs](https://linear.app/docs/inbox), [changelog 2021-06-17](https://linear.app/changelog/2021-06-17-inbox-snooze-and-easier-issue-merge)). |
 | GitHub notifications | An inbox at github.com/notifications, also mobile and email. | **Done** removes an item; **Save** keeps it flagged until you clear it; you can unsubscribe from a thread ([about notifications](https://docs.github.com/en/subscriptions-and-notifications/concepts/about-notifications)). |
 | Slack | A "Remind me about this" on a message sends a notification at a time you pick and lists it under Later. | The weak point reported by a third party: the confirmation banner is gone in about three seconds, so the Later tab is the only way back ([Slack help](https://slack.com/intl/en-gb/help/articles/208423427-Set-a-reminder), [Zapier](https://zapier.com/blog/slack-reminders.md)). |
-| Superhuman | Snooze is called Remind Me (shortcut H, plain-language time); the email returns if no reply came. | Only third-party pages were found, no current official help page ([shortcut list](https://www.pie-menu.com/shortcuts/superhuman)). |
+| Superhuman | Snooze is called Remind Me (shortcut H, plain-language time). | Only third-party pages were found, no current official help page ([shortcut list](https://www.pie-menu.com/shortcuts/superhuman)). |
 | Interruption research | An interruption in the evaluation phase of a task costs more than at other points; an off-topic message costs more to handle and to resume from than a relevant one ([Cutrell et al., CHI 2000](https://www.interruptions.net/literature/Cutrell-CHI00.pdf)). Resumption lag is the cost measure; breakpoints in the task are cheaper moments ([Iqbal and Bailey, CHI 2006](https://interruptions.net/literature/Iqbal-CHI06-p741-iqbal.pdf)). Bounded deferral: hold an alert until the person is not busy, but no longer than a maximum wait ([Horvitz et al., 2005](https://www.interruptions.net/literature/Horvitz-UM05b.pdf)). | Not checked beyond abstracts; Gloria Mark's work did not come up. |
 
 What repeats: one inbox is the home of everything pending; interruption is a rare, system-limited level; every item can be put
@@ -35,7 +35,7 @@ for a Notice-level decision that agent needs. Everything else is an Inbox row, w
 
 **C. Later, on every decision.** A third button next to approve and reject: *Later* with the Linear set (1 hour, tomorrow, next
 week, a typed time). A snoozed item leaves the Inbox and the badge, and returns unread at the time. It returns early only if
-something changes (the proposal changes, or an agent asks about it), as in Linear, never on a timer shorter than the one chosen.
+something changes (the proposal changes, or an agent asks about it), as in Linear, never on a timer shorter than the one chosen. Later hides the notice and card too; an Interrupt-level item can be snoozed only once.
 
 **D. Expiry.** A Quiet decision with no answer is not deleted; after 14 days it is marked *stale* and moves to a Stale group
 the founder can clear in one action. The agent that raised it is told once, so it can withdraw or ask again. A decision whose
@@ -69,13 +69,13 @@ for the HR card tasks started:
 
 - `/private/tmp/claude-501/h4418/state/hr/` holds 8 proposal files, including `4878d766.yaml` (link, beta, "scratch link
   reject", proposed), `64e44318.yaml` (link, alpha, "scratch link approve"), `948658f3.yaml` (rename, alpha, "scratch
-  proposal two", proposed). Created 08:01 on 2026-10-16; the first decision was written 08:04.
+  proposal two", proposed). Created 07:56 to 08:01 on 2026-10-16; the first decision was written 08:00 (the apply failed), the approve at 08:04.
 - That folder also has the auditor's click scripts (`clickcard.js`, `c1.js` clicks the Approve of "scratch link approve") and a
   `daemon.log` of a daemon serving `/private/tmp/claude-501/h4418/state/daemon.sock`.
 - An Electron build from the auditor's scratchpad (`.../handline-pc-auditor/.../scratchpad/wt-after`, `--remote-debugging-port=9333`)
   was running on this Mac at the time; the founder most likely saw that test window (inferred, not confirmed).
-- The live store, `~/.handline/hr/` (159 files), has no file with those reasons: the only files containing "scratch" are
-  ROLE.md context proposals, all approved. The fake daemon's source has no such proposals either.
+- The live store, `~/.handline/hr/` (159 files), has no file with those reasons: the only 5 files containing "scratch" are
+  4 context proposals and 1 add, all applied. The fake daemon's source has no such proposals either.
 
 So nothing is wrong with the live HR list; a click-check window looked like the real app. A test window should say it is one
 (a title or a banner).
