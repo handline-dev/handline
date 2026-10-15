@@ -76,6 +76,8 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
   const [open, setOpen] = useState<Open>(null);
   const [query, setQuery] = useState('');
   const [selecting, setSelecting] = useState(false);
+  /** The row whose menu is open: one at a time. */
+  const [menuId, setMenuId] = useState<number | null>(null);
   const root = useRef<HTMLElement>(null);
 
   const q = useTasks(scope === 'closed' ? { all: true } : {});
@@ -265,7 +267,18 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
 
   function rowProps(t: Task) {
     return {
-      menu: <VerbMenu tasks={[t]} me={me} cans={cans} onPick={(v) => rowVerb(t.id, v)} />,
+      menu: (
+        <VerbMenu
+          tasks={[t]}
+          me={me}
+          cans={cans}
+          onPick={(v) => rowVerb(t.id, v)}
+          open={menuId === t.id}
+          onOpenChange={(o) => setMenuId(o ? t.id : null)}
+        />
+      ),
+      menuOpen: menuId === t.id,
+      onMenu: () => setMenuId(t.id),
       marked: marked.has(t.id),
       cursor: cursor === t.id,
       open: selected === t.id,

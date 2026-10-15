@@ -8,6 +8,7 @@ import {
   Check,
   CheckCheck,
   Circle,
+  Ellipsis,
   CircleDot,
   Clock,
   Gauge,
@@ -121,6 +122,7 @@ const ICONS = {
   filter: [Filter, 'Filter'],
   keys: [Keyboard, 'Keys'],
   more: [ChevronDown, 'Show more'],
+  ellipsis: [Ellipsis, 'Actions'],
   less: [ChevronUp, 'Show less'],
   help: [HelpCircle, 'Help'],
   // chrome
