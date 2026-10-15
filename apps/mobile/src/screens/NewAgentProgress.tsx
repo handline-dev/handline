@@ -7,7 +7,7 @@ import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
 import type { Fields } from './NewAgent.tsx';
-import { Button } from './parts.tsx';
+import { Button, PageHeader } from './parts.tsx';
 
 export function NewAgentProgress(props: {
   operation: string;
@@ -124,8 +124,7 @@ export function NewAgentProgress(props: {
   };
   return (
     <ScrollView testID="new-agent" contentContainerStyle={{ padding: space.lg, gap: space.md }}>
-      <Button testID="na-back" label="‹ Back" onPress={props.onClose} style={{ alignSelf: 'flex-start' }} />
-      <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>New agent</Text>
+      <PageHeader title="New agent" back={{ label: 'Agents', onPress: props.onClose, testID: 'na-back' }} />
       {body()}
     </ScrollView>
   );

@@ -11,7 +11,7 @@ import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { AccountLogin } from './AccountLogin.tsx';
 import { Loadable } from './Loadable.tsx';
-import { Button } from './parts.tsx';
+import { Button, PageHeader } from './parts.tsx';
 import { useWhyNot } from './TaskActions.tsx';
 
 const SPANS = { '5 h': FIVE_HOURS_MS, week: WEEK_MS } as const;
@@ -55,10 +55,7 @@ function List(props: { onSelect: (name: string) => void }) {
   const rows = query.data?.accounts ?? [];
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: space.lg }}>
-        <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>Accounts</Text>
-        <Add />
-      </View>
+      <PageHeader title="Accounts" actions={<Add />} />
       <Loadable
         query={query}
         served={served}
@@ -169,7 +166,7 @@ function One({ name, onBack }: { name: string; onBack: () => void }) {
   const a = query.data?.accounts.find((x) => x.name === name);
   return (
     <View style={{ flex: 1 }}>
-      <Button testID="account-back" label="‹ Accounts" onPress={onBack} style={{ margin: space.lg, alignSelf: 'flex-start' }} />
+      <PageHeader back={{ label: 'Accounts', onPress: onBack, testID: 'account-back' }} />
       <Loadable query={query} served={served} skeleton="accounts" label="accounts" empty="This account no longer exists.">
         {a ? (
           <Body a={a} />

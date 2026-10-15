@@ -11,6 +11,7 @@ import { useSelector } from '@handline/app-react';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
 import { Settings } from './Settings.tsx';
+import { PageHeader } from './parts.tsx';
 
 const WINDOWS = ['24h', '7d'] as const;
 type Window = (typeof WINDOWS)[number];
@@ -238,7 +239,7 @@ export function Stats() {
   return (
     <View style={{ flex: 1 }}>
       <View style={{ padding: space.lg, gap: space.md }}>
-        <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>{page === 'stats' ? 'Stats' : 'Settings'}</Text>
+        <PageHeader title={page === 'stats' ? 'Stats' : 'Settings'} />
         {founder ? (
           <Choice label="page" value={page} options={['stats', 'settings'] as const} onChange={setPage} />
         ) : (
