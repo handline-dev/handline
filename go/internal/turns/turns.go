@@ -31,8 +31,8 @@ type Tracker struct {
 	changed func(agent string)
 }
 
-// OnChange sets what is told, after the fact, each time an agent's turn opens or closes: the agent's view is written then, not
-// at the next tick.
+// OnChange sets what is told, after the fact, each time an agent's turn opens or closes or a session starts: the agent's view is
+// written then, not at the next tick.
 func (t *Tracker) OnChange(f func(agent string)) {
 	t.mu.Lock()
 	t.changed = f
@@ -81,7 +81,7 @@ func (t *Tracker) Hook(agent, event string, raw map[string]any, at int64) {
 	t.hook(tr, agent, event, raw, at)
 	now := tr.state
 	t.mu.Unlock()
-	if now != was && changed != nil {
+	if (now != was || event == "SessionStart") && changed != nil { // a session's first hook also ends its launch's starting
 		changed(agent)
 	}
 }

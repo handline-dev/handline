@@ -254,3 +254,32 @@ func TestARowForAnAgentThatIsGoneGoesAndAFailingAgentKeepsItsLast(t *testing.T) 
 		t.Errorf("gone agent's row kept (%d, %v)", n, err)
 	}
 }
+
+func TestALaunchReadsStartingUntilItsSessionsFirstHook(t *testing.T) {
+	r := newRig(t, "new", "busy")
+	r.state(t, "new", states.Idle, "")
+	r.state(t, "busy", states.Running, "")
+	r.sess.alive["busy"], r.sess.busy["busy"] = true, true
+	launched := map[string]int64{"new": 4990, "busy": 4990}
+	r.env.LaunchedAt = func(a string) int64 { return launched[a] }
+	word := func(a string) any { r.env.RefreshOne(a); return r.stored(t, a)["state"] }
+	if w := word("new"); w != "starting" {
+		t.Fatalf("a launch with no session yet: %v", w)
+	}
+	if w := word("busy"); w != "running" {
+		t.Fatalf("starting never hides a turn that runs: %v", w)
+	}
+	db.AddEventAt(r.env.Q, 4980, "new", "SessionStart") // an earlier session's
+	if w := word("new"); w != "starting" {
+		t.Fatalf("an older session's hook does not end this launch: %v", w)
+	}
+	db.AddEventAt(r.env.Q, 4995, "new", "SessionStart")
+	if w := word("new"); w != "no_terminal" {
+		t.Fatalf("its session's first hook ends starting: %v", w)
+	}
+	launched["new"] = 5000 - StartingS // a launch that never reported, past the limit
+	r.env.Q.Exec("DELETE FROM events")
+	if w := word("new"); w != "no_terminal" {
+		t.Fatalf("a launch past StartingS is judged by what is there: %v", w)
+	}
+}

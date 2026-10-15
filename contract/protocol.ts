@@ -2656,6 +2656,6 @@ export interface Notifications {
 }
 
 /** The state words the daemon sends; an open set, so a client keeps a fallback. */
-export const STATE_WORDS = ["running", "idle", "queued", "parked", "waiting", "stalled", "blocked", "no_terminal"] as const;
+export const STATE_WORDS = ["running", "idle", "queued", "starting", "parked", "waiting", "stalled", "blocked", "no_terminal"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];

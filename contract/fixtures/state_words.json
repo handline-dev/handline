@@ -195,6 +195,57 @@
    ]
   },
   {
+   "name": "agent.get.state_starting",
+   "spec": "agent.get",
+   "about": "An agent in state `starting` is sent as the word `starting`, in agent.get and in agents.list. Needs --var state_starting: an agent in that state (what it means is in x-state-words).",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {
+      "role": "founder"
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{state_starting}}"
+      }
+     },
+     "result": {
+      "state": "starting"
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "state": "starting"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
    "name": "agent.get.state_parked",
    "spec": "agent.get",
    "about": "An agent in state `parked` is sent as the word `parked`, in agent.get and in agents.list. Needs --var state_parked: an agent in that state (what it means is in x-state-words).",

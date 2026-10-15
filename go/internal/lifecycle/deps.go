@@ -175,6 +175,8 @@ type Manager struct {
 	Status   StatusPort
 	Observe  Observer
 	Typing   Typing
+	// Launching is told when a launch of an agent begins (true) and when one failed (false); nil tells no one.
+	Launching func(agent string, on bool)
 	// Run is the structured sessions; nil keeps every agent a terminal agent.
 	Run Runner
 	// TermRun is the terminal agents' sessions as their session files report them; nil keeps a handoff from finding one.

@@ -84,6 +84,7 @@ type Parts struct {
 	opened   map[string]string // the account each agent's last session was opened under
 
 	refreshView atomic.Pointer[func(agent string)] // the tick's view writer, once Tick has built it
+	launches    launches
 }
 
 // OpenedOn is the account the agent's running session was opened under: the daemon chose its config directory, so it knows. "" when no
@@ -342,4 +343,41 @@ func (a *AgentsPort) Withdraw(agent, op string) (structured.Receipt, bool, error
 }
 func (a *AgentsPort) Promote(agent, op string) (structured.Receipt, error) {
 	return a.mgr.Promote(agent, op)
+}
+
+// refresh writes agent's view now, once the tick has built its writer.
+func (p *Parts) refresh(agent string) {
+	if f := p.refreshView.Load(); f != nil {
+		(*f)(agent)
+	}
+}
+
+// launches is when each agent's launch in progress began: the view says starting until the session's first hook.
+type launches struct {
+	mu sync.Mutex
+	at map[string]int64
+}
+
+// set is the lifecycle's Launching: a launch begins, or one failed and is over.
+func (l *launches) set(now func() int64, refresh func(string)) func(agent string, on bool) {
+	return func(agent string, on bool) {
+		l.mu.Lock()
+		if l.at == nil {
+			l.at = map[string]int64{}
+		}
+		if on {
+			l.at[agent] = now()
+		} else {
+			delete(l.at, agent)
+		}
+		l.mu.Unlock()
+		refresh(agent)
+	}
+}
+
+// since is when agent's launch in progress began, 0 for none.
+func (l *launches) since(agent string) int64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.at[agent]
 }

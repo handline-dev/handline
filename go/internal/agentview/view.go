@@ -75,8 +75,10 @@ type Env struct {
 	Parent    func(agent string) string
 	CacheLeft func(agent string, now float64) (left float64, ok bool, err error)
 	CtxPct    func(agent, account string) *int // nil: no trusted reading
-	Now       func() int64
-	Log       func(string)
+	// LaunchedAt is when a launch of agent began that has not failed, 0 for none; nil is none.
+	LaunchedAt func(agent string) int64
+	Now        func() int64
+	Log        func(string)
 	// Registered is every registered agent, structured or not: an agent is gone when it is not in it. Nil is Agents.
 	Registered func() []string
 	// DropGone has Refresh delete the row of any agent that is gone. Off while the Python daemon still keeps the rows of terminal
@@ -257,6 +259,22 @@ func (e *Env) wire(agent string, row *db.AgentState, word, detail string) (strin
 	return "idle", detail
 }
 
+// StartingS is how long a launch reads as starting without its session's first hook: past it the launch is judged by what is there.
+const StartingS = 120
+
+// starting is whether a launch of agent is in progress: begun under StartingS ago, and no SessionStart hook recorded since.
+func (e *Env) starting(agent string, now int64) bool {
+	if e.LaunchedAt == nil {
+		return false
+	}
+	at := e.LaunchedAt(agent)
+	if at == 0 || now-at >= StartingS {
+		return false
+	}
+	last, ok := must2(db.LastEventTS(e.Q, agent, "SessionStart"))
+	return !ok || last < at
+}
+
 // Compute is the view of one agent.
 func (e *Env) Compute(agent string) (view map[string]any, err error) {
 	defer func() {
@@ -283,6 +301,9 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		detail = clip(textsafe.Oneline(wait), DetailCap)
 	}
 	state, detail := e.wire(agent, row, word, detail)
+	if (state == "no_terminal" || state == "idle" || state == "queued") && e.starting(agent, now) {
+		state, detail = "starting", ""
+	}
 
 	var model, effort any
 	if e.Config != nil {

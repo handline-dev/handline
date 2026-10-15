@@ -170,3 +170,13 @@ func TestAChangeIsToldOnceTheTurnOpensOrClosesAndNotOtherwise(t *testing.T) {
 		t.Fatalf("told %d times, want 2 (open, close)", len(told))
 	}
 }
+
+func TestASessionStartIsToldEvenWhenTheTurnStaysUnknown(t *testing.T) {
+	tr, _ := tracker(t)
+	var told []string
+	tr.OnChange(func(a string) { told = append(told, a) })
+	tr.Hook("amy", "SessionStart", nil, 10) // Unknown before and after: the view still has a launch to end
+	if len(told) != 1 || told[0] != "amy" {
+		t.Fatalf("told %v", told)
+	}
+}

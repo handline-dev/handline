@@ -24,7 +24,7 @@ import conformance  # noqa: E402
 
 PAIRS = 512
 # The words a view stores (the spec's x-state-words that fixtures pin): one agent each, as the Python daemon's tick would have left it.
-STATES = ["running", "idle", "queued", "parked", "waiting", "stalled", "no_terminal"]
+STATES = ["running", "idle", "queued", "starting", "parked", "waiting", "stalled", "no_terminal"]
 
 
 def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
