@@ -39,6 +39,13 @@ test('the timeline puts messages and transcript items in time order, a message f
   );
 });
 
+test('the message that tells an agent how an HR proposal was decided is left out of its chat, the card shows it', () => {
+  const outcome = msg({ id: 4, body: 'proposal 858cde9b applied: x', proposal: 7 });
+  const ids = (scope: 'mine' | 'all') => timeline([outcome, msg({ id: 5, body: 'ok' })], [], scope).map((e) => e.id);
+  assert.deepEqual(ids('mine'), [5]);
+  assert.deepEqual(ids('all'), [4, 5]);
+});
+
 test("a reply with the same words as a message is still shown: the agent answering 'ok' to 'ok'", () => {
   const out = timeline([msg({ id: 3, body: 'ok' })], [item({ id: 8, text: 'ok' })]);
   assert.deepEqual(
