@@ -36,6 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import live_account  # noqa: E402
 import live_e2e as le  # noqa: E402
+import tmuxsock  # noqa: E402
 
 WS = Path.home() / "workspaces"
 # name -> (repository, steps that must pass, run from the worktree). Steps are shell; each is logged under its label.
@@ -207,7 +208,7 @@ def main() -> int:
         else:
             for name in names:
                 subprocess.run(["git", "worktree", "remove", "--force", str(root / f"wt-{name}")], cwd=REPOS[name][0], capture_output=True)
-            subprocess.run(["tmux", "-L", tmux, "kill-server"], capture_output=True)
+            tmuxsock.stop(tmux)
             shutil.rmtree(root, ignore_errors=True)
     return 1 if any(r == "FAIL" for rows in table.values() for _, r, _ in rows) else 0
 
