@@ -116,4 +116,41 @@ describe('images in a task body', () => {
     await click(button('Save', $('.tsheet')!)!);
     await until(() => /!\[shot\]\(attachment:[^)]+\)/.test(s.daemon.tasks.get({ task: 1700 }).body), 'the saved body');
   });
+
+  it('after a source-view paste, the rich view shows the picture and keeps the line', async () => {
+    const s = setup();
+    await mount(s);
+    await click(button('Edit')!);
+    await until(() => $('.ProseMirror'), 'the editor');
+    await click(button('Source')!);
+    const file = new File([PNG], 'shot.png', { type: 'image/png' });
+    await act(async () => {
+      const e = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'clipboardData', { value: { files: [file] } });
+      $('.tsheet textarea')!.dispatchEvent(e);
+    });
+    await until(() => /!\[shot\]\(attachment:/.test(($('.tsheet textarea') as HTMLTextAreaElement).value), 'the line in the source');
+    await click(button('Rich view')!);
+    await until(() => $$('.ProseMirror .attachment').length === 1, 'the picture in the rich view');
+    await click(button('Save', $('.tsheet')!)!);
+    await until(() => /!\[shot\]\(attachment:[^)]+\)/.test(s.daemon.tasks.get({ task: 1700 }).body), 'the saved body');
+  });
+
+  it('a Save in the same tick as a paste still waits for the upload', async () => {
+    const s = setup();
+    await mount(s);
+    await click(button('Edit')!);
+    await until(() => $('.ProseMirror'), 'the editor');
+    const file = new File([PNG], 'shot.png', { type: 'image/png' });
+    await act(async () => {
+      const e = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'clipboardData', { value: { files: [file], getData: () => '', types: ['Files'] } });
+      $('.ProseMirror')!.dispatchEvent(e);
+      button('Save', $('.tsheet')!)!.click();
+    });
+    await until(() => $$('.ProseMirror .attachment').length === 1, 'the pasted image');
+    expect(/shot/.test(s.daemon.tasks.get({ task: 1700 }).body)).toBe(false);
+    await click(button('Save', $('.tsheet')!)!);
+    await until(() => /!\[shot\]\(attachment:[^)]+\)/.test(s.daemon.tasks.get({ task: 1700 }).body), 'the saved body');
+  });
 });

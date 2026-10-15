@@ -45,6 +45,7 @@ export function BodyEditor(props: { value: string; onChange: (md: string) => voi
   inSource.current = source;
   const [problem, setProblem] = useState('');
   const [busy, setBusy] = useState(0);
+  const running = useRef(0);
   const change = useRef(props.onChange);
   change.current = props.onChange;
   const last = useRef(props.value);
@@ -52,11 +53,17 @@ export function BodyEditor(props: { value: string; onChange: (md: string) => voi
 
   const take = async (files: File[]) => {
     setProblem('');
-    setBusy((n) => n + 1);
+    // The form hears at once, not after a render: a Save in the same tick must already see the upload.
+    const run = (d: number) => {
+      running.current += d;
+      setBusy(running.current);
+      onBusy?.(running.current > 0);
+    };
+    run(1);
     try {
       await put(files);
     } finally {
-      setBusy((n) => n - 1);
+      run(-1);
     }
   };
   const put = async (files: File[]) => {
@@ -81,13 +88,13 @@ export function BodyEditor(props: { value: string; onChange: (md: string) => voi
         const at = e.state.selection instanceof NodeSelection ? e.state.selection.to : undefined;
         (at === undefined ? e.chain().focus().insertContent(nodes) : e.chain().focus().insertContentAt(at, nodes)).run();
       } else {
-        change.current(insertImageRef(last.current, null, got.map((g) => imageRef(g.id, g.alt)).join('\n')));
+        last.current = insertImageRef(last.current, null, got.map((g) => imageRef(g.id, g.alt)).join('\n'));
+        change.current(last.current);
       }
     }
   };
   const takeRef = useRef(take);
   takeRef.current = take;
-  useEffect(() => onBusy?.(busy > 0), [busy, onBusy]);
 
   const editor = useEditor({
     extensions: [StarterKit, BodyImage, Markdown],

@@ -1,5 +1,5 @@
 // New task: owner, title, body, time box and priority. The row shows in the list at once with a hollow dot; a refusal leaves the text here.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { BodyEditor } from './BodyEditor.tsx';
 import { Dialog, FIELD, FIELD_LABEL, Field, Icon, NOTE, Select } from './ui/index.ts';
@@ -10,10 +10,12 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [uploading, setUploading] = useState(false);
+  const uploadingNow = useRef(false);
   const [box, setBox] = useState('2h');
   const [priority, setPriority] = useState<1 | 2 | 3>(2);
   const [missing, setMissing] = useState('');
   const send = () => {
+    if (uploadingNow.current) return;
     if (!owner) return setMissing('Pick who it is for.');
     if (!title.trim()) return setMissing('A task needs a title.');
     setMissing('');
@@ -43,7 +45,7 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
         <Field label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
         <div className={FIELD}>
           <span className={FIELD_LABEL}>Body</span>
-          <BodyEditor id="newtask-body" label="Body" value={body} onChange={setBody} onBusy={setUploading} />
+          <BodyEditor id="newtask-body" label="Body" value={body} onChange={setBody} onBusy={(b) => ((uploadingNow.current = b), setUploading(b))} />
         </div>
         <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
           <Field label="Time box" value={box} onChange={(e) => setBox(e.target.value)} />

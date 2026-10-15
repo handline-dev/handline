@@ -1,5 +1,5 @@
 // The task detail's presentational parts: the meta grid, one verb button, the link and timeline sections, and the two small sheets.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { taskRef, timeoutText } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
@@ -123,10 +123,12 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
   const [title, setTitle] = useState(t.title);
   const [body, setBody] = useState(t.body);
   const [uploading, setUploading] = useState(false);
+  const uploadingNow = useRef(false);
   const [owner, setOwner] = useState(t.to);
   const [box, setBox] = useState(t.time_box ?? '');
   const [priority, setPriority] = useState<1 | 2 | 3>(t.priority ?? 2);
   const save = () => {
+    if (uploadingNow.current) return;
     const change = {
       ...(title.trim() && title !== t.title ? { title: title.trim() } : {}),
       ...(body !== t.body ? { body } : {}),
@@ -150,7 +152,7 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
         </label>
         <div className="wide">
           <span>Body</span>
-          <BodyEditor value={body} onChange={setBody} onBusy={setUploading} label="Body" />
+          <BodyEditor value={body} onChange={setBody} onBusy={(b) => ((uploadingNow.current = b), setUploading(b))} label="Body" />
         </div>
         <label>
           Time box
