@@ -294,14 +294,16 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         </div>
       </div>
       {newer ? (
-        <button
-          className="newer absolute right-4 bottom-[96px] inline-flex items-center gap-1 rounded-pill bg-panel px-2 py-1 shadow-[var(--shadow-pop)]"
-          onClick={bottom}
-          title="New messages"
-        >
-          <Icon name="newer" size={14} aria-hidden />
-          {newer}
-        </button>
+        // CHAT stretches every direct child to full width, so the row spans it and only the pill takes clicks.
+        <div className="pointer-events-none absolute inset-x-0 bottom-[96px] flex justify-center">
+          <button
+            className="newer pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-pop)]"
+            onClick={bottom}
+          >
+            {newer} new {newer === 1 ? 'message' : 'messages'}
+            <Icon name="newer" size={14} aria-hidden />
+          </button>
+        </div>
       ) : null}
       <div className="cards px-3">
         <PromptSlot agent={agent} prompt={detail.prompt} />
