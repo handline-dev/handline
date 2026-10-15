@@ -8,7 +8,7 @@ import { DataProvider, useAgentDetail, type BoxComponent } from '@handline/app-d
 import { BytesChannel, fromBase64, toBase64, type ByteEvent } from '@handline/client';
 import { second, setup } from '@handline/fake-daemon/helpers';
 import { BytesTab } from '../src/BytesTab.tsx';
-import { clampGrid, gridToSend, guard, isEscapeChord, keySender, paint, terminalOwnsKey, type CreateTerm } from '../src/terminal/core.ts';
+import { clampGrid, gridToSend, guard, isEscapeChord, isSwitchChord, isTerminalSwitch, keySender, paint, terminalOwnsKey, type CreateTerm } from '../src/terminal/core.ts';
 import { KEEP_MS, dropKept, keep } from '../src/terminal/keep.ts';
 import { linkHandler, openLink } from '../src/terminal/xterm.ts';
 import { wantsBytes } from '../src/terminal/choose.ts';
@@ -520,5 +520,20 @@ describe('keySender', () => {
     key(bytes(2));
     await vi.waitFor(() => expect(refused).toHaveBeenCalledTimes(1));
     expect(send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the chat / Claude Code switch chord', () => {
+  const k = (key: string, o: Partial<KeyboardEvent> = {}) => ({ key, ctrlKey: false, shiftKey: false, metaKey: false, altKey: false, ...o });
+  it('is Cmd+J on a Mac and never Ctrl+J there (a line feed)', () => {
+    expect(isSwitchChord(k('j', { metaKey: true }), true)).toBe(true);
+    expect(isSwitchChord(k('j', { ctrlKey: true }), true)).toBe(false);
+    expect(isTerminalSwitch(k('j', { metaKey: true }), true)).toBe(true);
+  });
+  it('is Ctrl+J elsewhere, and from a focused terminal only Ctrl+Shift+J', () => {
+    expect(isSwitchChord(k('j', { ctrlKey: true }), false)).toBe(true);
+    expect(isSwitchChord(k('j', { metaKey: true }), false)).toBe(false);
+    expect(isTerminalSwitch(k('j', { ctrlKey: true }), false)).toBe(false);
+    expect(isTerminalSwitch(k('j', { ctrlKey: true, shiftKey: true }), false)).toBe(true);
   });
 });

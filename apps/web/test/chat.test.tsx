@@ -38,6 +38,16 @@ const typeInto = (el: HTMLTextAreaElement | HTMLInputElement, value: string) =>
 const press = (el: Element, key: string, init: KeyboardEventInit = {}) =>
   act(async () => void el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })));
 const compose = () => $('.compose') as HTMLTextAreaElement;
+/** Loads older pages one at a time, awaiting each, until `found` holds. */
+async function pageBackTo(found: () => unknown, what: string) {
+  while (!found()) {
+    const older = $('.older');
+    if (!older) throw new Error(`no older page to reach ${what}`);
+    const before = $$('.msg').length;
+    await click(older);
+    await until(() => found() || $$('.msg').length !== before, `a page toward ${what}`);
+  }
+}
 const msg = (body: string) => $$('.msg').find((m) => text(m).includes(body));
 const landing = (body: string) => msg(body)?.getAttribute('data-landing');
 const link = (label: string, within: Element) =>
@@ -202,8 +212,7 @@ describe('the Chat tab', () => {
     await mount(ARCH, s);
     await until(() => msg('old 59'), 'the newest page');
     expect(msg('Which gap list')).toBeUndefined(); // it is on the second page
-    await click($('.older')!);
-    await until(() => msg('Which gap list'), 'the older page');
+    await pageBackTo(() => msg('Which gap list'), 'the older page');
     expect($('.older')).toBeNull(); // nothing further back
   });
 });
@@ -379,13 +388,8 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await until(() => msg('filler 59'), 'the newest page');
     expect(msg('Draft the web chat tab plan.')).toBeUndefined(); // the plan message is on an older page
     await until(() => msg('see #100') || $('.older'), 'the page'); // local-ref-ok
-    let ref = $('.ref');
-    for (let i = 0; !ref && i < 5; i++) {
-      await click($('.older')!);
-      await wait(50);
-      ref = $('.ref');
-    }
-    await click(ref!);
+    await pageBackTo(() => $('.ref'), 'the page with the reference');
+    await click($('.ref')!);
     await until(() => msg('Draft the web chat tab plan.')?.hasAttribute('data-flash'), 'the message flashes');
   });
 
@@ -413,13 +417,13 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await until(() => (chatOf(t).seenUpTo.get(ARCH) ?? 0) === idOfBody(t, 'Which gap list should come first?'), 'chat.seen');
   });
 
-  it('/ lists the verbs and the terminal, # a task or message number to refer to, Esc closes a menu', async () => {
+  it('/ lists the terminal, and no verb the daemon does by itself, # a task or message number to refer to, Esc closes a menu', async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
     await typeInto(compose(), '/');
     const verbs = $$('[role="listbox"] [role="option"]').map((o) => o.querySelector('.ui-prow-name')!.textContent);
     expect(verbs).toContain('Terminal');
-    expect(verbs.length).toBeGreaterThan(1);
+    expect(verbs.some((v) => /Restart|Sleep|Fold|Move|Close/.test(v ?? ''))).toBe(false);
     await typeInto(compose(), '/ter');
     expect($$('[role="listbox"] [role="option"]')).toHaveLength(1);
     await press(compose(), 'Escape');
@@ -477,10 +481,11 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await click($('.ui-dialog .ui-btn.solid')!);
     await until(() => $('.card-hr')?.getAttribute('data-state') === 'rejected', 'the same card showing the outcome');
     expect(text($('.card-hr'))).toContain('Rejected');
-    expect(labelled($('.card-hr'), 'Approve')).toBeUndefined();
+    expect(labelled($('.card-hr'), 'Reject')!.getAttribute('aria-pressed')).toBe('true');
+    expect((labelled($('.card-hr'), 'Approve') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('an approved HR proposal stays as the same card saying Applied, with what changed and no buttons', async () => {
+  it('an approved HR proposal stays as the same card saying Applied, with what changed, the Approve button pressed and a banner', async () => {
     const s = setup();
     hrOf(s).raise({ id: 42, title: 'link handline.architect -> handline.auditor', diff: 'link architect to auditor', agent: ARCH });
     await mount(ARCH, s);
@@ -489,8 +494,11 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await until(() => $('.card-hr')?.getAttribute('data-state') === 'approved', 'the card showing Applied');
     expect(text($('.card-hr'))).toContain('Applied');
     expect(text($('.card-hr'))).toContain('link architect to auditor');
-    expect(labelled($('.card-hr'), 'Approve')).toBeUndefined();
-    expect(labelled($('.card-hr'), 'Reject')).toBeUndefined();
+    await until(() => $('.card-hr .banner'), 'the banner');
+    expect(text($('.card-hr .banner'))).toBe('Applied');
+    expect(labelled($('.card-hr'), 'Approve')!.getAttribute('aria-pressed')).toBe('true');
+    expect((labelled($('.card-hr'), 'Reject') as HTMLButtonElement).disabled).toBe(true);
+    expect($$('.msg').some((m) => /applied/i.test(text(m)))).toBe(false); // the app posts nothing in the chat
   });
 });
 

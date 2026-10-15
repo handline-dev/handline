@@ -1,8 +1,9 @@
 // The Inbox page (#/inbox, #/inbox/:id): what waits on the person, newest first, filtered by kind and agent in the page, with the bridge's
 // keys. The cards are InboxCard; the bell and the tab title read the same cached list (useUnread).
-import { useEffect, useMemo, useState } from 'react';
-import { useServes, useInbox, usePending, useUnread, useWrite } from '@handline/app-data';
-import { useConnection } from '@handline/app-react';
+import { useEffect, useRef, useState } from 'react';
+import { useServes, useInboxPages, usePending, useUnread, useWrite } from '@handline/app-data';
+import { inboxGroup, type InboxGroup } from '@handline/app-core';
+import { useConnection, useNearEnd } from '@handline/app-react';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { InboxCard, open, waits } from './InboxCard.tsx';
 import { kindIcon, kindLabel, type Verbs } from './inboxKinds.ts';
@@ -23,6 +24,11 @@ const TOP =
   'inbox-top sticky top-0 z-1 flex flex-wrap items-center gap-2 bg-canvas py-3 [&_select]:rounded-ctl [&_select]:border [&_select]:border-line [&_select]:bg-panel [&_select]:px-1.5 [&_select]:py-[5px] [&_select]:text-ink';
 // A pressed filter is shown by a frame and a heavier stroke, not by colour.
 const KIND = 'icon aria-pressed:outline-2 aria-pressed:outline-offset-1 aria-pressed:outline-current aria-pressed:[&_svg]:stroke-3';
+const GROUPS: [InboxGroup, string][] = [
+  ['decisions', 'Decisions'],
+  ['approvals', 'Approvals'],
+  ['fyi', 'FYI'],
+];
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable]');
 
 function useVerbs(): Verbs {
@@ -50,7 +56,9 @@ function useVerbs(): Verbs {
 }
 
 export function InboxPage({ item }: { item: number | null }) {
-  const list = useInbox();
+  const { query: list, items: loaded, more, loadOlder, loadingOlder } = useInboxPages();
+  const page = useRef<HTMLElement>(null);
+  const end = useNearEnd<HTMLElement, HTMLDivElement>(page, () => void loadOlder(), more && !loadingOlder);
   const { served } = useServes('inbox.list');
   const unread = useUnread();
   const verbs = useVerbs();
@@ -66,16 +74,30 @@ export function InboxPage({ item }: { item: number | null }) {
     reply: usePending('inbox.reply').map((p) => p.id),
   };
   // Read items leave the list at once, those whose mark-read is still on its way too.
-  const all = useMemo(() => list.data?.items ?? [], [list.data]);
+  const all = loaded;
   const waiting = all.filter((i) => waits(i, pending.read.includes(i.id)));
-  const shown = waiting.filter((i) => (!kind || i.kind === kind) && (!agent || i.agent === agent));
+  const matched = waiting.filter((i) => (!kind || i.kind === kind) && (!agent || i.agent === agent));
+  const grouped = Object.fromEntries(GROUPS.map(([g]) => [g, matched.filter((i) => inboxGroup(i) === g)])) as Record<
+    InboxGroup,
+    typeof matched
+  >;
+  // FYI is folded until asked for, but a deep link into it opens it.
+  const [fyiOpen, setFyiOpen] = useState(false);
+  const [fyiClosed, setFyiClosed] = useState(false); // the header closed it while a deep link held it open
+  const fyiShown = fyiOpen || (!fyiClosed && item != null && grouped.fyi.some((i) => i.id === item));
+  // Mark all FYI read ignores the kind and agent filters: it is all of the FYI group.
+  const unreadFyi = waiting.filter((i) => inboxGroup(i) === 'fyi' && !i.read);
+  const shown = [...grouped.decisions, ...grouped.approvals, ...(fyiShown ? grouped.fyi : [])];
   const kinds = [...new Set(waiting.map((i) => i.kind))];
   const agents = [...new Set(waiting.flatMap((i) => (i.agent ? [i.agent] : [])))];
   const filtered = !!(kind || agent);
   // A deep link that names an item the list no longer holds (read and gone) says so instead of showing nothing.
   const missing = item != null && list.isSuccess && !waiting.some((i) => i.id === item);
 
-  useEffect(() => setCursor(item), [item]);
+  useEffect(() => {
+    setCursor(item);
+    setFyiClosed(false);
+  }, [item]);
   useEffect(() => {
     if (item != null) document.querySelector(`[data-item="${item}"]`)?.scrollIntoView?.({ block: 'center' });
   }, [item, all.length]);
@@ -119,7 +141,7 @@ export function InboxPage({ item }: { item: number | null }) {
   });
 
   return (
-    <ScrollPage className="inbox" aria-label="Inbox">
+    <ScrollPage ref={page} className="inbox" aria-label="Inbox">
       <PageHead className={TOP}>
         <h2 className="m-0 mr-auto text-[18px] [&_svg]:align-middle" title="Inbox">
           <Icon name="inbox" size={20} />
@@ -199,22 +221,63 @@ export function InboxPage({ item }: { item: number | null }) {
         what="the inbox"
         empty={!waiting.length && 'Nothing waits on you. Results, questions and blocks from your agents land here.'}
       >
-        {shown.length ? (
-          <div className="inbox-list flex flex-col gap-1">
-            <AnimatedList>
-              {shown.map((i) => (
-                <AnimatedItem key={i.id} layout={shown.length <= 60}>
-                  <InboxCard
-                    item={i}
-                    on={i.id === cursor}
-                    pending={
-                      pending.read.includes(i.id) || (i.task != null && pending.decide.includes(i.task)) || pending.reply.includes(i.id)
-                    }
-                    verbs={verbs}
-                  />
-                </AnimatedItem>
-              ))}
-            </AnimatedList>
+        {matched.length ? (
+          <div className="inbox-list flex flex-col gap-3">
+            {GROUPS.map(([g, label]) => {
+              const rows = grouped[g];
+              if (!rows.length) return null;
+              const fyi = g === 'fyi';
+              return (
+                <section key={g} className={`inbox-group inbox-${g} flex flex-col gap-1`} aria-label={label}>
+                  <h3 className="m-0 flex items-center gap-2 text-[13px] text-ink-2">
+                    {fyi ? (
+                      <button
+                        className="flex items-center gap-1 border-0 bg-transparent p-0 text-inherit"
+                        aria-expanded={fyiShown}
+                        onClick={() => (setFyiOpen(!fyiShown), setFyiClosed(fyiShown))}
+                      >
+                        <Icon name={fyiShown ? 'chevron' : 'chevronRight'} size={14} aria-hidden />
+                        {label}
+                      </button>
+                    ) : (
+                      label
+                    )}
+                    <span className="muted" aria-label={`${rows.length} items`}>
+                      {rows.length}
+                    </span>
+                    {fyi ? (
+                      <Button
+                        icon="markAllRead"
+                        label="Mark all FYI read"
+                        className="ml-auto"
+                        disabled={!unreadFyi.length || !!verbs.off.read}
+                        title={verbs.off.read ?? (filtered ? 'Mark all FYI read, filters ignored' : 'Mark all FYI read')}
+                        onClick={() => markAll.mutate({ ids: unreadFyi.map((i) => i.id) })}
+                      />
+                    ) : null}
+                  </h3>
+                  {fyi && !fyiShown ? null : (
+                    <AnimatedList>
+                      {rows.map((i) => (
+                        <AnimatedItem key={i.id} layout={rows.length <= 60}>
+                          <InboxCard
+                            item={i}
+                            on={i.id === cursor}
+                            pending={
+                              pending.read.includes(i.id) ||
+                              (i.task != null && pending.decide.includes(i.task)) ||
+                              pending.reply.includes(i.id)
+                            }
+                            verbs={verbs}
+                          />
+                        </AnimatedItem>
+                      ))}
+                    </AnimatedList>
+                  )}
+                </section>
+              );
+            })}
+            {more ? <div ref={end} aria-hidden className="h-px" /> : null}
           </div>
         ) : (
           <div className="empty">

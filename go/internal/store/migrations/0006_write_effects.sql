@@ -7,4 +7,4 @@ CREATE TABLE write_effects (
           created_at  INTEGER NOT NULL,
           PRIMARY KEY (caller, request_id)
         );
-CREATE INDEX write_effects_created ON write_effects(created_at);
+CREATE INDEX IF NOT EXISTS write_effects_created ON write_effects(created_at);

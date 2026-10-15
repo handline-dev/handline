@@ -144,7 +144,9 @@ class Claude:
                     extra_dirs: list[str] | None = None,
                     allow_write: list[str] | None = None,
                     allow_domains: list[str] | None = None,
-                    cache_dir: str | None = None) -> list[str]:
+                    cache_dir: str | None = None,
+                    weaker_network: bool = False,
+                    excluded: list[str] | None = None) -> list[str]:
         argv = [exe]
         if model:
             argv += ["--model", str(model)]
@@ -176,9 +178,11 @@ class Claude:
         # Said either way, so the shared settings never decide it. Off, commands run unsandboxed; the
         # Read/Edit denies below are permissions, not the sandbox, and stay.
         settings.setdefault("sandbox", {})["enabled"] = sandbox
-        if cache_dir:
-            # Go on macOS verifies TLS through trustd, which the default network isolation blocks: no module downloads
+        if weaker_network:
             settings["sandbox"]["enableWeakerNetworkIsolation"] = True
+        if excluded:
+            settings["sandbox"]["excludedCommands"] = excluded
+        if cache_dir:
             settings["env"] = cache_env(cache_dir)
         deny = []
         if hide:

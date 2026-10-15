@@ -39,6 +39,13 @@ test('the timeline puts messages and transcript items in time order, a message f
   );
 });
 
+test('the message that tells an agent how an HR proposal was decided is left out of its chat, the card shows it', () => {
+  const outcome = msg({ id: 4, body: 'proposal 858cde9b applied: x', proposal: 7 });
+  const ids = (scope: 'mine' | 'all') => timeline([outcome, msg({ id: 5, body: 'ok' })], [], scope).map((e) => e.id);
+  assert.deepEqual(ids('mine'), [5]);
+  assert.deepEqual(ids('all'), [4, 5]);
+});
+
 test("a reply with the same words as a message is still shown: the agent answering 'ok' to 'ok'", () => {
   const out = timeline([msg({ id: 3, body: 'ok' })], [item({ id: 8, text: 'ok' })]);
   assert.deepEqual(
@@ -73,7 +80,7 @@ const taskItem = (event: string, extra: object = {}): TranscriptItem =>
     id: 1,
     at: '2026-10-12T10:00:00Z',
     kind: 'task_event',
-    task_event: { event, task: 7, request: null, evidence: null, ...extra },
+    task_event: { event, task: 7, request: null, evidence: null, who: 'human', ...extra },
   }) as TranscriptItem;
 const titles = new Map([[7, 'Fix the tray']]);
 
@@ -87,6 +94,7 @@ test('a task line says added, edited, done or deleted', () => {
 test('a task line carries the task, its title and only the change or evidence', () => {
   assert.deepEqual(taskRow(taskItem('changed', { change: 'priority 2 -> 1' }), titles), {
     label: 'Task changed',
+    who: 'human',
     task: 7,
     title: 'Fix the tray',
     detail: 'priority 2 -> 1',
@@ -162,4 +170,13 @@ test('a session line says why in plain words, and keeps an unknown cause as it c
   assert.equal(line('idle_close').reason, 'Woke after closing when idle');
   assert.equal(line('crash').reason, 'New session (crash)');
   assert.deepEqual(line(), { reason: 'New session', handoff: null });
+});
+
+test('a task card is in the chat of the agent that made the change; the all tab shows every one', () => {
+  const card = (id: number, who: string) =>
+    ({ id, at: `2026-01-01T00:00:0${id}Z`, kind: 'task_event', task_event: { event: 'changed', task: 7, request: null, evidence: null, who } }) as unknown as TranscriptItem;
+  const items = [card(1, 'alice'), card(2, 'bob'), card(3, 'human')];
+  assert.deepEqual(timeline([], items, 'mine', 'alice').map((e) => e.id), [1, 3]); // the founder acts on the agent's behalf
+  assert.deepEqual(timeline([], items, 'all', 'alice').map((e) => e.id), [1, 2, 3]);
+  assert.equal(taskRow(card(2, 'bob')).who, 'bob');
 });

@@ -1,8 +1,9 @@
 // The task detail's presentational parts: the meta grid, one verb button, the link and timeline sections, and the two small sheets.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { dateTime, replyTargets, taskRef, timeoutText } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
+import { BodyEditor } from './BodyEditor.tsx';
 import { useCan } from './taskui.tsx';
 import { Icon, type IconName } from './ui/Icon.tsx';
 import { Sheet } from './taskui.tsx';
@@ -121,10 +122,13 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
   const edit = useWrite('task.edit');
   const [title, setTitle] = useState(t.title);
   const [body, setBody] = useState(t.body);
+  const [uploading, setUploading] = useState(false);
+  const uploadingNow = useRef(false);
   const [owner, setOwner] = useState(t.to);
   const [box, setBox] = useState(t.time_box ?? '');
   const [priority, setPriority] = useState<1 | 2 | 3>(t.priority ?? 2);
   const save = () => {
+    if (uploadingNow.current) return;
     const change = {
       ...(title.trim() && title !== t.title ? { title: title.trim() } : {}),
       ...(body !== t.body ? { body } : {}),
@@ -136,7 +140,7 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
     edit.mutate({ task: t.id, ...change }, { onSuccess: onClose });
   };
   return (
-    <Sheet label={`Edit ${taskRef(t.id)}`} submit="Save" onCancel={onClose} onSubmit={save} busy={edit.isPending}>
+    <Sheet label={`Edit ${taskRef(t.id)}`} submit="Save" onCancel={onClose} onSubmit={save} busy={edit.isPending || uploading}>
       <div className="tform grid gap-5">
         <label>
           Title
@@ -146,10 +150,10 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
           Owner
           <Input grow className="tinput" value={owner} onChange={(e) => setOwner(e.target.value)} />
         </label>
-        <label className="wide">
-          Body
-          <Textarea grow className="tinput" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
-        </label>
+        <div className="wide">
+          <span>Body</span>
+          <BodyEditor value={body} onChange={setBody} onBusy={(b) => ((uploadingNow.current = b), setUploading(b))} label="Body" />
+        </div>
         <label>
           Time box
           <Input grow className="tinput" value={box} onChange={(e) => setBox(e.target.value)} />

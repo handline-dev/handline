@@ -40,9 +40,6 @@ const click = (el: Element) =>
 const text = (el: Element | null) => el?.textContent ?? '';
 // The row's context menu is Radix's, in a portal: it opens on the row's contextmenu event.
 const menuItems = () => [...document.querySelectorAll('[role=menuitem]')].map((b) => text(b));
-const menuItem = (label: string) => [...document.querySelectorAll('[role=menuitem]')].find((b) => text(b) === label)!;
-const openMenu = (agent: string) =>
-  act(async () => void $(`[data-agent="${agent}"]`)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
 const termTab = `[data-tab="terminal:term:${ARCH}"]`;
 
 // The text grid is what these tests drive; the xterm pane has its own file.
@@ -110,8 +107,8 @@ describe('the workspace', () => {
     expect($('.side')).toBeNull();
     const top = $$('.rail-top button').map((b) => b.getAttribute('aria-label') ?? '');
     expect(top.slice(0, 3)).toEqual(['Hide the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']);
-    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*Team.*Worktrees.*Accounts.*Stats/);
-    expect($$('.rail-nav .nav svg').length).toBe(6);
+    expect(text($('.rail-nav'))).toMatch(/My turn.*Inbox.*Tasks.*Team.*Worktrees.*Accounts.*Stats/);
+    expect($$('.rail-nav .nav svg').length).toBe(7);
     expect($$('.rail-foot button').map((b) => b.getAttribute('aria-label'))).toEqual(['Settings', 'Keys (?)']);
     expect($('.rail-status')).toBeNull();
     const bar = $('.statusbar')!;
@@ -298,22 +295,13 @@ describe('the workspace', () => {
 });
 
 describe('the sidebar', () => {
-  it('starts an agent from its row, then the row menu sleeps it, and a closed agent shows no Resume', async () => {
-    const { daemon } = await mount(TB);
+  it('shows no Start on a row, and the row menu keeps only Open in, the copies and what stops a turn', async () => {
+    await mount(TB);
     await until(() => $$('.row-wrap').length === 3, 'rows');
-    await until(() => $('.row-actions .ui-btn.solid'), 'Start on the selected row');
+    expect($$('.row-actions .ui-btn').some((b) => /Resume|Start/.test(text(b)))).toBe(false);
     await click($('.row-actions [aria-haspopup="menu"]')!);
     await until(() => menuItems().length, 'the row menu');
-    expect(menuItems()).toEqual(['Copy path', 'Copy worktree name', 'Move account', 'Close terminal']); // nothing to stop yet; its terminal can be closed
-    await act(async () => void document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
-    await click($('.row-actions .ui-btn.solid')!);
-    await until(() => daemon.sessions.get(TB)!.state !== 'parked', 'session started');
-    await openMenu(TB);
-    expect(menuItems()).toEqual(['Copy path', 'Copy worktree name', 'Restart', 'Restart fresh', 'Close', 'Sleep', 'Fold into handoff', 'Move account']);
-    await click(menuItem('Close'));
-    await click($$('.verb-sheet .ui-btn').find((b) => text(b) === 'Confirm')!); // Close always asks first
-    await until(() => daemon.sessions.get(TB)!.open === false, 'the session closed');
-    expect($$('.row-actions .ui-btn').some((b) => /Resume|Start/.test(text(b)))).toBe(false);
+    expect(menuItems()).toEqual(['Copy path', 'Copy worktree name']);
   });
 
   it('keeps the selected row short (no model, account or detail block there)', async () => {

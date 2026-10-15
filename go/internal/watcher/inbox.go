@@ -34,6 +34,7 @@ type Inbox struct {
 	floorAt time.Time        // when floor was last worked out
 	floor   int64            // the oldest request still looked at
 	last    int64            // the newest touch handled
+	handled map[int64]string // request -> its row as handled, for the requests touched in the second last is at, which each look reads again
 	cursors string           // the for_you_seen cursors as last read
 	seen    map[int64]string // agent items as last said, by request
 	founder map[int64]string // the founder's items as last said
@@ -96,6 +97,9 @@ type requestRow struct {
 	notice            bool
 	ts                int64
 }
+
+// requestPrint is a request's row and its newest answer, which is all of it an inbox item is made from.
+const requestPrint = "SELECT r.*, (SELECT MAX(a.id) FROM requests a WHERE a.settles = r.id) FROM requests r WHERE r.id = ?"
 
 func requestOf(q *sql.DB, id int64) (*requestRow, error) {
 	var r requestRow
@@ -179,9 +183,21 @@ func (n *Inbox) Scan(q *sql.DB, emit Emit) error {
 	}
 	dirty := cursors != n.cursors
 	n.cursors = cursors
-	ids := map[int64]bool{}
+	// A request read again whose row is as it was handled has not changed: it neither dirties the founder's inbox nor is read again.
+	at, prints := map[int64]int64{}, map[int64]string{}
 	for _, r := range touchedRows {
-		ids[r.id] = true
+		at[r.id] = max(at[r.id], r.when.Int64)
+	}
+	ids := map[int64]bool{}
+	for id := range at {
+		p, err := rowsPrint(q, requestPrint, id)
+		if err != nil {
+			return err
+		}
+		prints[id] = p[id]
+		if seen, ok := n.handled[id]; !ok || seen != p[id] {
+			ids[id] = true
+		}
 	}
 	sorted := make([]int64, 0, len(ids))
 	for id := range ids {
@@ -228,6 +244,13 @@ func (n *Inbox) Scan(q *sql.DB, emit Emit) error {
 			n.last = max(n.last, r.when.Int64)
 		}
 	}
+	handled := map[int64]string{}
+	for id, when := range at {
+		if when >= n.last {
+			handled[id] = prints[id]
+		}
+	}
+	n.handled = handled
 	return nil
 }
 

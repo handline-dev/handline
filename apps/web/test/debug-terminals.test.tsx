@@ -130,7 +130,7 @@ describe('the debug window', () => {
   it('opens from a button at the bottom of Settings in a window of its own', async () => {
     const open = vi.fn();
     await mount(<DebugEntry open={open} />);
-    await act(async () => $('button')!.click());
+    await act(async () => $('button[title="Debug: terminals"]')!.click());
     expect(open).toHaveBeenCalledWith(debugUrl(location));
     expect(debugUrl({ origin: 'http://h', pathname: '/', search: '?a=1' })).toBe('http://h/?a=1#/debug/terminals');
   });

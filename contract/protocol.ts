@@ -50,6 +50,8 @@ export type RefusalData = {
   proposal?: Proposal;
   /** With gate confirm: what the call would do and who is told. */
   plan?: string;
+  /** With gate duplicate_title: the open task the new one repeats. */
+  task?: number;
 };
 
 /** Like 2h, 30m, 1d. */
@@ -843,6 +845,8 @@ export type ChatMessage = {
     /** The reply's first 300 characters (Unicode code points, no ellipsis) when the message was sent. */
     text: string;
   } | null;
+  /** Only on the message that tells an agent how the founder decided its HR proposal: that proposal's id, as hr.list gives it. A client that draws the decided proposal as a card can leave this line out. */
+  proposal?: number;
 };
 
 export type TranscriptItem = {
@@ -864,6 +868,8 @@ export type TranscriptItem = {
     task: number;
     request: number | null;
     evidence: string | null;
+    /** Who did it: the agent (or human) that opened, changed, closed or withdrew the task, as ChatRequestItem.who. */
+    who: string;
     /** What a `changed` event changed, as chat.requests words it: `assigned to X, priority 2 -> 1`, `title changed`, `handed to X`. Absent when the event word says it all. An open set: a client draws a word it does not know as text. */
     change?: string;
   };
@@ -1984,6 +1990,8 @@ export interface Methods {
   relation?: string;
   response?: string;
   parent?: number;
+  /** Open the task even when an open task under the same parent, or the parent itself, has nearly its title (gate duplicate_title). */
+  duplicate_ok?: boolean;
   /** Cannot be worked until this task closes. */
   blocked_by?: number;
   /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */

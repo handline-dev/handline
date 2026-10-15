@@ -1,25 +1,32 @@
 // New task: owner, title, body, time box and priority. The row shows in the list at once with a hollow dot; a refusal leaves the text here.
-import { useState } from 'react';
+// A refusal for a title that repeats an open task names that task and offers to create it anyway.
+import { useRef, useState } from 'react';
 import { classify, sentence, useWrite } from '@handline/app-data';
-import { Dialog, FIELD, FIELD_LABEL, Field, Icon, NOTE, Select, Textarea } from './ui/index.ts';
+import { BodyEditor } from './BodyEditor.tsx';
+import { Button, Dialog, FIELD, FIELD_LABEL, Field, Icon, NOTE, Select } from './ui/index.ts';
 
 export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => void }) {
   const ask = useWrite('task.new');
   const [owner, setOwner] = useState('');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const uploadingNow = useRef(false);
   const [box, setBox] = useState('2h');
   const [priority, setPriority] = useState<1 | 2 | 3>(2);
   const [missing, setMissing] = useState('');
-  const send = () => {
+  const send = (duplicateOk = false) => {
+    if (uploadingNow.current) return;
     if (!owner) return setMissing('Pick who it is for.');
     if (!title.trim()) return setMissing('A task needs a title.');
     setMissing('');
-    ask.mutate({ owner, title: title.trim(), body, time_box: box.trim() || '2h', priority }, { onSuccess: onClose });
+    ask.mutate({ owner, title: title.trim(), body, time_box: box.trim() || '2h', priority, ...(duplicateOk ? { duplicate_ok: true } : {}) }, { onSuccess: onClose });
   };
-  const said = missing || (ask.isError ? sentence(classify(ask.error)) : '');
+  const failure = ask.isError ? classify(ask.error) : null;
+  const duplicate = failure?.kind === 'refused' && failure.gate === 'duplicate_title' ? failure : null;
+  const said = missing || (failure ? (duplicate ? duplicate.reason : sentence(failure)) : '');
   return (
-    <Dialog title="New task" onClose={onClose} action={{ label: 'Ask', keys: '⌘↵', form: 'newtask-form', disabled: ask.isPending }}>
+    <Dialog title="New task" onClose={onClose} action={{ label: 'Ask', keys: '⌘↵', form: 'newtask-form', disabled: ask.isPending || uploading }}>
       <form
         id="newtask-form"
         name="newtask-form"
@@ -40,10 +47,8 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
         </div>
         <Field label="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
         <div className={FIELD}>
-          <label htmlFor="newtask-body" className={FIELD_LABEL}>
-            Body
-          </label>
-          <Textarea id="newtask-body" className="bg-panel border-line-strong px-3 py-2 resize-y" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
+          <span className={FIELD_LABEL}>Body</span>
+          <BodyEditor id="newtask-body" label="Body" value={body} onChange={setBody} onBusy={(b) => ((uploadingNow.current = b), setUploading(b))} />
         </div>
         <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
           <Field label="Time box" value={box} onChange={(e) => setBox(e.target.value)} />
@@ -66,6 +71,16 @@ export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => 
             <Icon name="failed" size={14} label="Error" />
             {said}
           </p>
+        ) : null}
+        {duplicate ? (
+          <div className="flex items-center gap-2">
+            {duplicate.task !== undefined ? (
+              <a href={`#/tasks/${duplicate.task}`} className="mono" onClick={onClose}>
+                {`Open T${duplicate.task}`}
+              </a>
+            ) : null}
+            <Button label="Create anyway" disabled={ask.isPending} onClick={() => send(true)} />
+          </div>
         ) : null}
       </form>
     </Dialog>

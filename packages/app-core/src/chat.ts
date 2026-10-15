@@ -19,15 +19,24 @@ export function noticeOf(m: ChatMessage): { kind: 'task'; task: number } | { kin
 }
 
 /** Everything on screen for one agent, oldest first: the messages and the agent's transcript by time. In the agent's own chat (`mine`) nothing the task board sent is shown: it still reaches the agent and stays on the task. */
-export function timeline(messages: ChatMessage[], items: TranscriptItem[], scope: 'mine' | 'all' = 'mine'): TimelineEntry[] {
+export function timeline(
+  messages: ChatMessage[],
+  items: TranscriptItem[],
+  scope: 'mine' | 'all' = 'mine',
+  agent?: string,
+): TimelineEntry[] {
   const out: TimelineEntry[] = [
     ...messages.flatMap((m): TimelineEntry[] => {
       if (scope === 'mine' && m.from === NOTICE_SENDER) return [];
+      if (scope === 'mine' && m.proposal != null) return []; // the outcome of an HR proposal is drawn as its card, not as this line
       const n = noticeOf(m);
       if (n?.kind === 'task') return [{ kind: 'note', at: m.at, id: m.id, message: m, task: n.task }];
       return [{ kind: 'message', at: m.at, id: m.id, message: m }];
     }),
-    ...items.map((i): TimelineEntry => ({ kind: 'item', at: i.at, id: i.id, item: i })),
+    // A task card sits in the chat of the agent that made the change, or of the founder acting for it (`human`); the *all* tab shows every one.
+    ...items
+      .filter((i) => !(scope === 'mine' && agent && i.task_event && i.task_event.who !== agent && i.task_event.who !== 'human'))
+      .map((i): TimelineEntry => ({ kind: 'item', at: i.at, id: i.id, item: i })),
   ];
   return out.sort((a, b) =>
     a.at < b.at ? -1 : a.at > b.at ? 1 : (a.kind === 'item') === (b.kind === 'item') ? a.id - b.id : a.kind === 'item' ? 1 : -1,
@@ -95,6 +104,8 @@ export interface TaskRow {
   label: string;
   task: number;
   title: string | null;
+  /** Who made the change (the agent, or `human`). */
+  who: string | null;
   /** The change (`priority 2 -> 1`) or the evidence (done note, deletion reason); null when there is none. */
   detail: string | null;
   /** The detail as pieces: a change written `<field> <old> -> <new>` is one piece with both values, anything else is plain text. */
@@ -118,6 +129,7 @@ export function taskRow(i: TranscriptItem, titles?: Map<number, string>): TaskRo
     label: TASK_LABEL[ev] ?? 'Task changed',
     task: e?.task ?? NaN,
     title: titles?.get(e?.task ?? NaN) ?? null,
+    who: e?.who ?? null,
     detail: change || e?.evidence || null,
     parts: changeParts(change || e?.evidence || null),
   };
