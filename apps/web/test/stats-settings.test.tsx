@@ -253,7 +253,7 @@ describe('settings', () => {
     }
     vi.stubGlobal('IntersectionObserver', Watch);
     await mount('#/settings');
-    await until(() => Watch.last?.els.length === 4, 'the sections watched');
+    await until(() => Watch.last?.els.length === 5, 'the sections watched');
     expect(Watch.last!.opts.root).toBe($('.settings'));
     const see = (id: string, isIntersecting: boolean) => ({ target: $(`#set-${id}`)!, isIntersecting });
     await act(async () => Watch.last!.cb([see('closing', true)]));
@@ -261,6 +261,17 @@ describe('settings', () => {
     await act(async () => Watch.last!.cb([see('closing', false), see('answers', true)]));
     expect(navItem('Standing answers').getAttribute('aria-current')).toBe('true');
     expect(navItem('Closing windows').getAttribute('aria-current')).toBeNull();
+  });
+
+  it('lists the paired devices and revokes one only after a confirm', async () => {
+    await mount('#/settings');
+    await until(() => $('[data-device="d2"]'), 'the devices');
+    expect(text($('[data-device="d1"]'))).toContain('connected');
+    await click($('[aria-label="Revoke phone-3b54"]')!);
+    expect($('[data-device="d2"]')).not.toBeNull(); // nothing yet: the confirm comes first
+    await click($('.ui-dialog .ui-btn.solid')!);
+    await until(() => !$('[data-device="d2"]'), 'the device gone');
+    expect($('[data-device="d1"]')).not.toBeNull();
   });
 
   it('a number shows its unit as a suffix inside the field', async () => {
