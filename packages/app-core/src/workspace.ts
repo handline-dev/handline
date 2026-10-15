@@ -104,6 +104,12 @@ export function addTab(ws: Workspace, kind: TabKind, params: TabParams = {}, int
   };
 }
 
+/** With no session to name, saved Claude Code tabs of old handles still collapse to the first in reading order. */
+export function oneTerminal(ws: Workspace): Workspace {
+  const all = groupsOf(ws.root).flatMap((g) => g.tabs).filter((t) => ws.tabs[t]?.kind === 'terminal');
+  return all.slice(1).reduce(closeTab, ws);
+}
+
 /** Gives the agent its one Claude Code tab for `handle`. A restarted session has a new handle: the old tab is renamed in place (keeping its place and whether it shows), any others go. None yet: it is added, not shown (unless `add` is false: a tab the person closed stays closed). */
 export function setTerminal(ws: Workspace, handle: string, add = true): Workspace {
   const id = tabId(ws, 'terminal', { handle });

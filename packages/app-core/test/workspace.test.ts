@@ -9,6 +9,7 @@ import {
   arrange,
   closeTab,
   addTab,
+  oneTerminal,
   setTerminal,
   splitPane,
   fillTab,
@@ -349,4 +350,21 @@ test('Split halves a pane with a new tab; choosing fills it, moving a tab alread
   for (let i = 0; i < MAX_GROUPS; i++) full = splitPane(full, 'g1') ?? full;
   assert.equal(groupsOf(full.root).length, MAX_GROUPS);
   assert.equal(splitPane(full, 'g1'), null);
+});
+
+test('Split after a collapse still opens a new right half', () => {
+  const split = splitPane(defaultWorkspace(), 'g1')!;
+  const collapsed = moveTab(split, 'new:1', 'g1');
+  assert.equal(groupsOf(collapsed.root).length, 1);
+  const again = splitPane(collapsed, groupsOf(collapsed.root)[0]!.id)!;
+  assert.equal(groupsOf(again.root).length, 2);
+  assert.deepEqual(groupsOf(again.root).map((g) => g.tabs.length), [2, 1]);
+  assert.notEqual(groupsOf(again.root)[1]!.tabs[0], 'new:1');
+});
+
+test('without a session, saved Claude Code tabs of old handles collapse to one', () => {
+  const two = addTab(addTab(defaultWorkspace(), 'terminal', { handle: 'term:a' }), 'terminal', { handle: 'term:b' });
+  const one = oneTerminal(two);
+  assert.deepEqual(groupsOf(one.root)[0]!.tabs, [CHAT, 'terminal:term:a']);
+  assert.equal(oneTerminal(one), one);
 });

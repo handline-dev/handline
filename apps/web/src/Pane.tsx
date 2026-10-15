@@ -57,7 +57,7 @@ const TAB_KEYS: KeyRows = [
 
 export function Pane({ group }: { group: Group }) {
   useScreenKeys('On the tabs', TAB_KEYS);
-  const { ws, detail, agent, storage, apply, dragging, setDragging } = useWorkspace();
+  const { ws, detail, agent, storage, apply, canSplit, dragging, setDragging } = useWorkspace();
   const store = useStore();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
@@ -178,6 +178,8 @@ export function Pane({ group }: { group: Group }) {
           icon="split"
           size="sm"
           label="Split this pane"
+          title={canSplit(group.id) ? undefined : 'The window is too narrow for another pane'}
+          disabled={!canSplit(group.id)}
           className="ml-auto self-center"
           onClick={() => apply((w) => splitPane(w, group.id) ?? w)}
         />
