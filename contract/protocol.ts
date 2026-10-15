@@ -50,6 +50,13 @@ export type RefusalData = {
   proposal?: Proposal;
   /** With gate confirm: what the call would do and who is told. */
   plan?: string;
+  /** With gate open_children: the task's open child tasks. */
+  children?: {
+    task: number;
+    state: string;
+    assignee: string;
+    title: string;
+  }[];
 };
 
 /** Like 2h, 30m, 1d. */
