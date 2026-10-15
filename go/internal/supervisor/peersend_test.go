@@ -42,6 +42,8 @@ func (f *fakeInbox) count() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f
 // peerRig is bob, a terminal agent delivered to through its peer inbox, under the real supervisor.
 func peerRig(t *testing.T, outcome peerinbox.Result) (*rig, *fakeInbox) {
 	r := newRig(t)
+	// bob is a live agent, so it has a row: the session a tell went to is kept on it, and a second pass knows the head was told
+	db.SetAgentState(r.DB, "bob", "IDLE", 0, "")
 	in := &fakeInbox{outcome: outcome}
 	var settled atomic.Int32
 	// A delivery runs on its own goroutine and tells the database when it ends: the test does not end, and the database does not close,
