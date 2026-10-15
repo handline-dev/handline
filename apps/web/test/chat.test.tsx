@@ -38,6 +38,16 @@ const typeInto = (el: HTMLTextAreaElement | HTMLInputElement, value: string) =>
 const press = (el: Element, key: string, init: KeyboardEventInit = {}) =>
   act(async () => void el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })));
 const compose = () => $('.compose') as HTMLTextAreaElement;
+/** Loads older pages one at a time, awaiting each, until `found` holds. */
+async function pageBackTo(found: () => unknown, what: string) {
+  while (!found()) {
+    const older = $('.older');
+    if (!older) throw new Error(`no older page to reach ${what}`);
+    const before = $$('.msg').length;
+    await click(older);
+    await until(() => found() || $$('.msg').length !== before, `a page toward ${what}`);
+  }
+}
 const msg = (body: string) => $$('.msg').find((m) => text(m).includes(body));
 const landing = (body: string) => msg(body)?.getAttribute('data-landing');
 const link = (label: string, within: Element) =>
@@ -202,11 +212,7 @@ describe('the Chat tab', () => {
     await mount(ARCH, s);
     await until(() => msg('old 59'), 'the newest page');
     expect(msg('Which gap list')).toBeUndefined(); // it is on the second page
-    for (let n = 0; n < 4 && !msg('Which gap list'); n++) {
-      await click($('.older')!);
-      await wait(50);
-    }
-    await until(() => msg('Which gap list'), 'the older page');
+    await pageBackTo(() => msg('Which gap list'), 'the older page');
     expect($('.older')).toBeNull(); // nothing further back
   });
 });
@@ -382,13 +388,8 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await until(() => msg('filler 59'), 'the newest page');
     expect(msg('Draft the web chat tab plan.')).toBeUndefined(); // the plan message is on an older page
     await until(() => msg('see #100') || $('.older'), 'the page'); // local-ref-ok
-    let ref = $('.ref');
-    for (let i = 0; !ref && i < 5; i++) {
-      await click($('.older')!);
-      await wait(50);
-      ref = $('.ref');
-    }
-    await click(ref!);
+    await pageBackTo(() => $('.ref'), 'the page with the reference');
+    await click($('.ref')!);
     await until(() => msg('Draft the web chat tab plan.')?.hasAttribute('data-flash'), 'the message flashes');
   });
 
