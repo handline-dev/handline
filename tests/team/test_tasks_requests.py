@@ -1111,10 +1111,21 @@ edges:
         ro.mkdir(parents=True)
         (ro / "go.mod").write_text("")
         ro.chmod(0o555)
+        private = home / "private"     # a link in the caches to a folder of someone else's
+        private.mkdir(mode=0o700)
+        (home / "caches" / "dohyun" / "link").symlink_to(private)
         ok, said = hr.propose("retire", "dohyun", requester="hr", why="branch landed")
         pid2 = said.split()[1]
         ok, said = apply_hr(pid2)
         check("hr: and removes its build caches", not (home / "caches" / "dohyun").exists())
+        check("hr: without changing what a link in them points to", (private.stat().st_mode & 0o777) == 0o700 and private.exists(),
+              oct(private.stat().st_mode))
+        (private / "sub").mkdir(mode=0o700)       # caches/<agent> itself a link: the link goes, its target stays as it was
+        (home / "caches" / "dohyun").symlink_to(private)
+        paths.remove_cache_dir("dohyun")
+        check("hr: a cache folder that is a link is removed as a link",
+              not (home / "caches" / "dohyun").is_symlink() and (private / "sub").stat().st_mode & 0o777 == 0o700,
+              oct((private / "sub").stat().st_mode))
         table = yamlcompat.load((home / "team.yaml").read_text())
         archived = list((home / "agents" / "archive").glob("*dohyun*"))
         check("hr: retiring takes it out of the table", ok and "dohyun" not in table["agents"], said)

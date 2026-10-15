@@ -174,11 +174,16 @@ def cache_dir(name: str) -> Path:
 def remove_cache_dir(name: str) -> None:
     """Remove an agent's build caches. Go keeps its module cache read-only, so folders are made writable first."""
     d = cache_dir(name)
+    if d.is_symlink():      # the link goes, never what it points to
+        d.unlink()
+        return
     if not d.exists():
         return
     for root, dirs, _ in os.walk(d):
         for x in dirs:
-            os.chmod(os.path.join(root, x), 0o755)
+            p = os.path.join(root, x)
+            if not os.path.islink(p):   # a link's target is not ours to change
+                os.chmod(p, 0o755)
     shutil.rmtree(d, ignore_errors=True)
 
 
