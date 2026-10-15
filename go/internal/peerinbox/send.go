@@ -342,8 +342,8 @@ func transcriptPath(sess Session) string {
 	return m[0]
 }
 
-// scan reads what was appended since the last scan. seen: a user record from a peer carries id. queued: a queue-operation
-// enqueue carries it.
+// scan reads what was appended since the last scan. seen: a user record from a peer carries id, or a queued_command attachment from a
+// peer does (a message taken into the running turn). queued: a queue-operation enqueue carries it.
 func (t *tail) scan(id string) (seen, queued bool) {
 	if t.path == "" {
 		if t.path = transcriptPath(t.sess); t.path == "" {
@@ -391,9 +391,13 @@ const (
 
 func classify(line string) recKind {
 	var r struct {
-		Type      string                `json:"type"`
-		Operation string                `json:"operation"`
-		Origin    struct{ Kind string } `json:"origin"`
+		Type       string                `json:"type"`
+		Operation  string                `json:"operation"`
+		Origin     struct{ Kind string } `json:"origin"`
+		Attachment struct {
+			Type   string                `json:"type"`
+			Origin struct{ Kind string } `json:"origin"`
+		} `json:"attachment"`
 	}
 	if json.Unmarshal([]byte(line), &r) != nil {
 		return recOther
@@ -401,7 +405,8 @@ func classify(line string) recKind {
 	switch {
 	case r.Type == "queue-operation" && r.Operation == "enqueue":
 		return recQueued
-	case r.Type == "user" && r.Origin.Kind == "peer":
+	case r.Type == "user" && r.Origin.Kind == "peer",
+		r.Type == "attachment" && r.Attachment.Type == "queued_command" && r.Attachment.Origin.Kind == "peer":
 		return recSeen
 	}
 	return recOther
