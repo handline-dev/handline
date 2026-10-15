@@ -1,8 +1,14 @@
 // Stored task bodies are plain Markdown written by people and agents, so the editor must give back what it was given. Tiptap parses raw HTML,
 // decodes `&amp;` and escapes `_` in paths when it saves; these two functions keep the text as written.
 
-/** The stored text as the editor should read it: `<` and `&` are text, not HTML. */
-export const forEditor = (md: string) => md.replace(/([<&])/g, '\\$1');
+const IMAGE = String.raw`!\[[^\]\n]*\]\(attachment:[^)\s]+\)`;
+
+/** The stored text as the editor should read it: `<` and `&` are text, not HTML. An image after a single newline gets its own paragraph, or an edit drops it. */
+export const forEditor = (md: string) =>
+  md
+    .replace(/([<&])/g, '\\$1')
+    .replace(new RegExp(`([^\\n])\\n(?=${IMAGE})`, 'g'), '$1\n\n')
+    .replace(new RegExp(`(${IMAGE})\\n(?=[^\\n])`, 'g'), '$1\n\n');
 
 /** Escapes only what would turn into formatting again: `_` between two word characters (snake_case, paths) and `<`, `&` are left as typed. */
 export function escapeText(text: string): string {

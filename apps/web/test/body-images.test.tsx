@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
+import Image from '@tiptap/extension-image';
 import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
@@ -63,6 +64,17 @@ describe('the body keeps its text', () => {
   it('paths, snake_case, HTML-looking text and ampersands come back as written', () => {
     for (const md of ['/tmp/a_b_c.ts and snake_case_name', 'a <b>x</b> and <script>1</script>', '1 < 2 & 3 &amp; 4', '- one\n- two', '**bold** and `a_b`'])
       expect(same(md)).toBe(md);
+  });
+});
+
+describe('an image after a single newline', () => {
+  it('survives a rich edit', () => {
+    const md = 'text\n![a](attachment:x)\nmore';
+    const e = new Editor({ extensions: [StarterKit, Image, Markdown], content: forEditor(md), contentType: 'markdown' });
+    keepTyped(e);
+    e.commands.insertContentAt(1, 'Z');
+    expect(e.getMarkdown()).toContain('![a](attachment:x)');
+    expect(e.getMarkdown()).toContain('Ztext');
   });
 });
 
