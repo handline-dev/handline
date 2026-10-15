@@ -103,6 +103,31 @@ export function addTab(ws: Workspace, kind: TabKind, params: TabParams = {}, int
   };
 }
 
+/** Gives the agent its one Claude Code tab for `handle`. A restarted session has a new handle: the old tab is renamed in place (keeping its place and whether it shows), any others go. None yet: it is added, not shown. */
+export function setTerminal(ws: Workspace, handle: string): Workspace {
+  const id = tabId(ws, 'terminal', { handle });
+  const old = Object.keys(ws.tabs).filter((t) => ws.tabs[t]!.kind === 'terminal');
+  if (old.length === 0) return addTab(ws, 'terminal', { handle }, groupOf(ws, CHAT)?.id);
+  if (old.length === 1 && old[0] === id) return ws;
+  const keep = old.includes(id) ? id : old[0]!;
+  const tabs = { ...ws.tabs };
+  for (const t of old) delete tabs[t];
+  tabs[id] = { id, kind: 'terminal', params: { handle } };
+  let root = ws.root;
+  for (const g of groupsOf(ws.root)) {
+    if (!g.tabs.some((t) => old.includes(t))) continue;
+    root = replaceGroup(root, g.id, (x) => {
+      const list: string[] = [];
+      for (const t of x.tabs) {
+        const next = t === keep ? id : old.includes(t) ? null : t;
+        if (next && !list.includes(next)) list.push(next);
+      }
+      return { ...x, tabs: list, activeTab: old.includes(x.activeTab) ? id : x.activeTab };
+    });
+  }
+  return { ...ws, tabs, root };
+}
+
 /** Shows the tab and gives its group the focus. */
 export function activate(ws: Workspace, tab: string): Workspace {
   const g = groupOf(ws, tab);

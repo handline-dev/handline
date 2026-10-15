@@ -9,6 +9,7 @@ import {
   arrange,
   closeTab,
   addTab,
+  setTerminal,
   defaultWorkspace,
   groupOf,
   groupsOf,
@@ -316,4 +317,18 @@ test('openTask opens the Tasks tab on that task, and moves an open one to anothe
   assert.equal(b.tabs.tasks!.params.task, 9);
   assert.equal(Object.keys(b.tabs).filter((k) => k === 'tasks').length, 1);
   assert.deepEqual(openTask(b, null).tabs.tasks!.params, {});
+});
+
+test('an agent has one terminal tab: a new handle takes the old one place', () => {
+  const none = setTerminal(defaultWorkspace(), 'term:a');
+  assert.deepEqual(groupsOf(none.root)[0]!.tabs, [CHAT, 'terminal:term:a']);
+  assert.equal(setTerminal(none, 'term:a'), none);
+  const shown = activate(none, 'terminal:term:a');
+  const restarted = setTerminal(shown, 'term:b');
+  assert.deepEqual(groupsOf(restarted.root)[0]!.tabs, [CHAT, 'terminal:term:b']);
+  assert.equal(groupsOf(restarted.root)[0]!.activeTab, 'terminal:term:b');
+  assert.deepEqual(Object.keys(restarted.tabs), [CHAT, 'terminal:term:b']);
+  const two = addTab(none, 'terminal', { handle: 'term:b' });
+  const merged = setTerminal(two, 'term:b');
+  assert.deepEqual(groupsOf(merged.root)[0]!.tabs, [CHAT, 'terminal:term:b']);
 });
