@@ -201,8 +201,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
     <section className={CHAT}>
-      <div className="chat-head flex h-[var(--h-tabs)] items-center justify-between gap-2 border-b border-line px-2">
-        <ChatStrip detail={detail} />
+      <div className="chat-head flex h-[var(--h-tabs)] items-center justify-end gap-2 border-b border-line px-2">
         <ChatSearch agent={agent} scope={scope} onGo={jump} />
         <Segmented
           label="Which messages"
@@ -321,6 +320,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         onClear={() => (setPicked(null), setPickedItem(null))}
         running={chat.working.turn_running}
       />
+      <div className="chat-foot flex h-8 items-center border-t border-line px-3">
+        <ChatStrip detail={detail} />
+      </div>
     </section>
   );
 }
