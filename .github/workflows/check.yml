@@ -1,6 +1,6 @@
-# The required check of a pull request: what tools/check.sh runs for the change, split in jobs so the apps and Go run side by side.
-# One job, `check`, always reports and is the one required check on main; the areas a change does not touch are skipped, and
-# a skipped area counts as passed.
+# The check of a pull request: what tools/check.sh runs for the change, in two jobs that each plan for themselves. The apps run
+# on GitHub's runners; the Go suite runs on the founder's own runner (docs/ci-runner.md), whose build and test caches stay on
+# its disk between runs, so go test reruns only what a change touched. Python is not checked here: it is being removed.
 name: check
 
 on:
@@ -17,100 +17,80 @@ concurrency:
 permissions:
   contents: read
 
-jobs:
-  plan:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      kind: ${{ steps.plan.outputs.kind }}
-      apps: ${{ steps.plan.outputs.apps }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: plan
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
-        run: |
-          # A push to main (no pull request) runs everything: its job is the caches.
-          if [ "${{ github.event_name }}" = push ]; then
-            echo "kind=python" >> "$GITHUB_OUTPUT"; echo "apps=turbo" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          plan="$(CHECK_PLAN=1 tools/check.sh "$BASE")"
-          echo "$plan"
-          echo "${plan%% *}" >> "$GITHUB_OUTPUT"
-          echo "apps=${plan##*apps=}" >> "$GITHUB_OUTPUT"
+env:
+  BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
 
+jobs:
   apps:
-    needs: plan
-    if: needs.plan.outputs.apps != 'no'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+        with:
+          fetch-depth: 0
+      - name: Plan
+        id: plan
+        run: |
+          # A push to main runs everything: its job is the caches.
+          if [ "${{ github.event_name }}" = push ]; then echo "apps=turbo" >> "$GITHUB_OUTPUT"; exit 0; fi
+          plan="$(CHECK_PLAN=1 tools/check.sh "$BASE")"
+          echo "$plan"
+          echo "apps=${plan##*apps=}" >> "$GITHUB_OUTPUT"
+      - if: steps.plan.outputs.apps != 'no'
+        uses: pnpm/action-setup@v4
+      - if: steps.plan.outputs.apps != 'no'
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - uses: actions/cache@v4
+      - if: steps.plan.outputs.apps != 'no'
+        run: pnpm install --frozen-lockfile
+      - if: steps.plan.outputs.apps != 'no'
+        uses: actions/cache@v4
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-${{ github.sha }}
           restore-keys: turbo-${{ runner.os }}-
       - name: Tests, typecheck and lint of the apps
+        if: steps.plan.outputs.apps != 'no'
         run: |
-          if [ "${{ needs.plan.outputs.apps }}" = turbo ]; then
+          if [ "${{ steps.plan.outputs.apps }}" = turbo ]; then
             pnpm turbo test typecheck lint --continue
           else
             pnpm --dir packages/app-data test
           fi
 
   go:
-    needs: plan
-    if: needs.plan.outputs.kind == 'go'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, netcup]
     timeout-minutes: 30
+    env:
+      GOFLAGS: -p=2 # 4 GB of memory: two test binaries at a time
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+        with:
+          fetch-depth: 0
+      - name: Plan
+        id: plan
+        run: |
+          if [ "${{ github.event_name }}" = push ]; then echo "kind=go" >> "$GITHUB_OUTPUT"; exit 0; fi
+          plan="$(CHECK_PLAN=1 tools/check.sh "$BASE")"
+          echo "$plan"
+          kind="${plan%% *}"; kind="${kind#kind=}"
+          # A change outside go/ and the apps (python, before) still runs the Go suite: the Python suite is not run in CI.
+          case "$kind" in go|python) echo "kind=go" ;; *) echo "kind=$kind" ;; esac >> "$GITHUB_OUTPUT"
+      - if: steps.plan.outputs.kind == 'go'
+        uses: actions/setup-go@v5
         with:
           go-version-file: go/go.mod
-          cache-dependency-path: go/go.sum
-      - name: tmux for the terminal tests
-        run: sudo apt-get install -y -qq tmux
-      - run: tools/leakcheck.py run tools/test-go.sh # fails a run that leaves a process, tmux server or temp file behind
+          cache: false # GOCACHE and GOMODCACHE stay on the runner's disk
+      - if: steps.plan.outputs.kind == 'go'
+        run: tools/test-go.sh
+        env:
+          TMPDIR: ${{ runner.temp }} # emptied after every job, and the same path each run, as go test's cache needs
       - name: Go parity tests
+        if: steps.plan.outputs.kind == 'go'
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: |
           tools/test.sh tests/infra/test_go_schema.py
           tools/test.sh tests/infra/test_go_tidy.py
-
-  python:
-    needs: plan
-    if: needs.plan.outputs.kind == 'python'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go/go.mod
-          cache-dependency-path: go/go.sum
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
-      - name: tmux for the terminal tests
-        run: sudo apt-get install -y -qq tmux
-      - run: tools/leakcheck.py run tools/suite.sh # its own TMPDIR and TMUX_TMPDIR; fails a run that leaves anything behind
-
-  check:
-    if: always()
-    needs: [plan, apps, go, python]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Every area that ran passed
-        run: |
-          echo '${{ toJSON(needs) }}'
-          if ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then exit 1; fi

@@ -11,8 +11,10 @@ fi
 . "$here/go-env.sh"
 # The live tests spend real tokens: a shell that exported HANDLINE_LIVE still does not run them here.
 unset HANDLINE_LIVE
-# A scratch home for anything a test starts that reads one: never the live home of the agent running this.
-scratch_home="$(mktemp -d "${TMPDIR:-/tmp}/handline-go-home.XXXXXX")" || exit 1
+# A scratch home for anything a test starts that reads one: never the live home of the agent running this. Its path is fixed
+# per checkout, since go test keys its cache on the environment a test reads, and a fresh path each run would miss it.
+scratch_home="${TMPDIR:-/tmp}/handline-go-home.$(printf %s "$here" | cksum | cut -d' ' -f1)"
+rm -rf "$scratch_home" && mkdir -p "$scratch_home" || exit 1
 trap 'rm -rf "$scratch_home"' EXIT
 export HANDLINE_HOME="$scratch_home" OCP_HOME="$scratch_home"
 # The user home the tests and the daemons they start see: nothing they write lands in the real ~/.config or ~/.claude.
