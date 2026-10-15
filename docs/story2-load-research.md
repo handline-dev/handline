@@ -99,6 +99,44 @@ agent):
 Attribution is by process tree from each agent's session pid; processes with no agent are listed
 under "other" so the sum matches the machine.
 
+## Host cap rethink (founder memo 1803 on T3923)
+
+The memo: `cores/2` has no measurement behind it, and an idle agent uses 2 to 6 % of a core. Measured again on
+2026-10-15 07:27 to 07:29 on the same Mac (10 logical cores of which 4 performance, 24 GiB).
+
+### What runs out first
+
+| Resource | Measured now | How far from the limit |
+|---|---|---|
+| Disk | Data volume 460 GiB, 420 used, **10 GiB free (98 %)**; 14 worktrees take 20 GB (about 1.4 GB each, mostly `node_modules`), `~/.handline` 4.9 GB | Nearest: about seven more worktrees. The earlier sample today said 21 GB free |
+| CPU (heavy runs) | Full web suite: 18.6 s wall, 115 s user + 12.6 s sys, about 6.8 cores busy; one test file 2.4 s. The root run measured above peaked at 454 % | Two full runs at once fill the 10 cores; the 15-minute load average reads 86 from such bursts |
+| CPU (agents) | 17 `claude` processes sum to 32 % of one core, 0.1 to 4 % each | Not a limit |
+| Memory | The same 17 agents: mean 229 MB, median 257, max 465 MB, about 5 GB; free memory 56 %, pressure level 1 (normal) | About 50 agents before pressure; one full web run adds 470 MB in its main process |
+| File handles | `kern.maxfiles` 184 320, per process 92 160, 26 963 open; an agent holds 8 to 28 | Not a limit |
+| Model rate limits | Not measured in this pass | The account cap already counts agents mid-turn per account |
+
+Trust: one sample each, on a shared machine that was not idle (about 15 `handlined` and 17 agents running, load
+5.4 over one minute but 51 and 89 over five and fifteen: a burst had just ended, some of it these runs). RSS counts shared pages twice. The disk
+figure is exact; the CPU and memory figures are upper bounds.
+
+### Where the cap belongs
+
+Not on agents mid-turn for CPU or memory: agents cost little of either. The load comes from heavy runs (test,
+build), and on this machine the first thing to run out is disk. So the limits are three, each from a live
+reading and none from a core-count constant:
+
+1. **Heavy runs** (tests and builds, which the founder already limits to the auditor): a slot count of
+   `floor(idle cores / cores one run used)`, the second number recorded from the last run on this machine
+   (about 7 here), minimum 1. A run waits for a slot; load per core above 1 at the start also holds it.
+2. **Agents mid-turn**: the account cap stays the main limit. A memory ceiling is added from live numbers:
+   `(available memory - what the system keeps) / median agent RSS`, shown, rarely binding.
+3. **Disk guard**: a new worktree or agent start is held when free space is under three times the median
+   worktree size already on disk (about 4.5 GB here), with the reason shown and a force-start way out.
+
+Startup measures nothing fixed: it reads cores and memory once, and the per-run and per-agent costs are
+rolling medians of what the daemon sees (`ps`, `vm_stat`, `df`), so a smaller or larger machine gets its own
+numbers. Until a cost has a sample, the 2-1 doc's 400 MB per agent is the stand-in.
+
 ## Sources
 
 Fetched 2026-10-14: the READMEs of the five repositories above through `gh api`;

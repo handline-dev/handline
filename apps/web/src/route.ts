@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { DEBUG_HASH } from './debug/paneFacts.ts';
 
 const read = () => location.hash.match(/^#\/agents\/(.+?)(\/settings)?(?:\?m=(\d+))?$/);
-const readTasks = () => location.hash.match(/^#\/tasks(?:\/(\d+))?$/)?.[1] ?? (/^#\/tasks\/?$/.test(location.hash) ? '' : null);
+const readTasks = () => location.hash.match(/^#\/tasks(?:\/(\d+|graph))?$/)?.[1] ?? (/^#\/tasks\/?$/.test(location.hash) ? '' : null);
 const subscribe = (cb: () => void) => {
   addEventListener('hashchange', cb);
   return () => removeEventListener('hashchange', cb);
@@ -37,7 +37,7 @@ export const goInbox = (): void => {
 
 /** The Tasks page the URL names: null off it, '' for the list, the task number (as text) for a detail. */
 export const useTasksRoute = (): string | null => useSyncExternalStore(subscribe, readTasks);
-export const goTasks = (task?: number): void => {
+export const goTasks = (task?: number | 'graph'): void => {
   location.hash = task === undefined ? '#/tasks' : `#/tasks/${task}`;
 };
 /** Opens the agent's chat on this message: the number rides in the URL (`#/agents/:name?m=:id`) until the Chat tab has scrolled to it. */

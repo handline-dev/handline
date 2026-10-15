@@ -25,7 +25,7 @@ func seconds(v any) float64 {
 
 // taskTimeline is TaskDetail.timeline, as actions.task_timeline: the task's memos, handoffs (a request that carried one is that handoff's
 // row), the other requests linked to it, the edits of its brief, its marks done and the notes it was sent back with, oldest first to the
-// fraction of a second. parts cuts a text at the images it names; a memo, an edit and a reject row carry them.
+// fraction of a second. parts cuts a text at the images it names; a memo, a handoff, an edit and a reject row carry them.
 func (e *Env) taskTimeline(tid int64, memos, reqs []row, parts func(string) []any) ([]any, error) {
 	type entry struct {
 		at  float64
@@ -80,7 +80,7 @@ func (e *Env) taskTimeline(tid int64, memos, reqs []row, parts func(string) []an
 				at = seconds(p["at"])
 			}
 			note, _ := p["note"].(string)
-			add(at, fmt.Sprintf("%v → %v", p["from"], p["to"]), "handoff", note, nil, nil, false)
+			add(at, fmt.Sprintf("%v → %v", p["from"], p["to"]), "handoff", note, nil, nil, true)
 		case "edit_task":
 			if b, ok := p["body"].(map[string]any); ok {
 				text, _ := b["new"].(string)

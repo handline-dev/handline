@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/base64"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -318,8 +319,8 @@ func TestPartsCutATextAtItsImagesAndSayWhichAreGone(t *testing.T) {
 	if p := s.Parts(text, true)[1].(map[string]any)["path"]; p != s.Path(*kept) {
 		t.Fatalf("an agent gets the path: %v", p)
 	}
-	if lines := s.RefLines(1, text, text); len(lines) != 1 || !strings.HasPrefix(lines[0], "[image 2: "+s.Path(*kept)+" (image/png, ") {
-		t.Fatalf("one line per kept image, numbered on: %v", lines)
+	if lines := s.MessageLines(q, 0, text, text); !strings.HasPrefix(lines, "[image 1: "+s.Path(*kept)+" (image/png, ") || strings.Contains(lines, "\n") {
+		t.Fatalf("one line per kept image: %q", lines)
 	}
 }
 
@@ -333,5 +334,49 @@ func TestKeepRefsPutsBackWhatACutLost(t *testing.T) {
 	}
 	if KeepRefs(whole, whole) != whole {
 		t.Fatal("a cut that lost nothing is unchanged")
+	}
+}
+
+func TestAMessagesImagesAreItsReferencesThenWhatItWasSentWith(t *testing.T) {
+	s, _, q := testStore(t)
+	var ids []string
+	for i := range 7 {
+		ids = append(ids, putAll(t, s, q, "i.png", "image/png", pngOf(2+i, 2), 1000).ID)
+	}
+	ref := func(id string) string { return "![c](attachment:" + id + ")" }
+	body := "look " + ref(ids[0]) + " and " + ref(ids[1])
+	_, err := s.CheckMessage(q, body+ref(ids[2])+ref(ids[3]), "body", ids[3:7], false)
+	wantErr(t, err, "bad_request", "attachments", "")
+	listed, err := s.CheckMessage(q, body, "body", []string{ids[2], ids[1]}, false)
+	if err != nil || len(listed) != 1 || listed[0].ID != ids[2] {
+		t.Fatalf("an id in both is counted once and recorded only as listed: %v %v", listed, err)
+	}
+	if err := Record(q, 7, listed); err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	for _, m := range s.MessageMaps(q, 7, body) {
+		order = append(order, m.(map[string]any)["id"].(string))
+	}
+	if fmt.Sprint(order) != fmt.Sprint(ids[:3]) {
+		t.Fatalf("references first, then the listed: %v", order)
+	}
+	parts := s.MessageParts(q, 7, body, false)
+	if last := parts[len(parts)-1].(map[string]any); len(parts) != 5 || last["caption"] != "" || last["image"].(map[string]any)["id"] != ids[2] {
+		t.Fatalf("a listed image is a part after the text: %v", parts)
+	}
+	lines := strings.Split(s.MessageLines(q, 7, body, ref(ids[4])), "\n")
+	if len(lines) != 4 || !strings.Contains(lines[2], ids[2]) || !strings.HasPrefix(lines[3], "[image 4: ") {
+		t.Fatalf("lines number the message's images, then the memos': %v", lines)
+	}
+	if _, err := s.CheckMessage(q, ref(ids[5]), "body", nil, true); err == nil {
+		t.Fatal("an agent may not name an image no task or message shows")
+	}
+	if _, err := s.CheckMessage(q, ref(ids[2]), "body", nil, true); err != nil {
+		t.Fatalf("an agent may pass on an image a message was sent with: %v", err)
+	}
+	q.Exec("INSERT INTO requests(id, requester, target, kind, state, ts, body) VALUES(8, 'human', 'w', 'say', 'landed', 1, ?)", ref(ids[6]))
+	if _, err := s.CheckMessage(q, ref(ids[6]), "text", nil, true); err != nil {
+		t.Fatalf("or one a message names: %v", err)
 	}
 }

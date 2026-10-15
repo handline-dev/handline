@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -6,7 +6,9 @@ import path from 'node:path';
 import { helloOf, Link, offerFrom, parseMode, pairRemote, plainRemoteHost, SettingsFile, type Open } from '../src/mode.ts';
 import { trayMenu } from '../src/tray.ts';
 
-const tmp = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mode-')), 'settings.json');
+const dirs: string[] = [];
+const tmp = () => path.join(dirs[dirs.push(fs.mkdtempSync(path.join(os.tmpdir(), 'mode-'))) - 1]!, 'settings.json');
+after(() => dirs.forEach((d) => fs.rmSync(d, { recursive: true, force: true })));
 const remote = { host: 'mac.tail1.ts.net:7443', fingerprint: null, token: 't0k', device: 'd1' };
 
 test('the default mode is connect, a kept choice stays, and HANDLINE_MODE wins without being kept', () => {

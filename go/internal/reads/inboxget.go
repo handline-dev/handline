@@ -6,6 +6,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/supervisor"
@@ -108,6 +109,9 @@ func (e *Env) requestRead(c *rpc.Conn, params map[string]any) (any, error) {
 		out["dismissal"] = map[string]any{"by": by, "reason": reason}
 	} else if text, has := r["answer"].(string); has && text != "" {
 		out["answer"] = text
+	}
+	if parts := attachments.New(e.Home).MessageParts(e.DB, id, r.str("body"), isAgent(c)); parts != nil {
+		out["parts"] = parts
 	}
 	return out, nil
 }

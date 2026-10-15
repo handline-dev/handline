@@ -602,6 +602,327 @@
    ]
   },
   {
+   "name": "chat.send.a_body_names_images_and_the_list_adds_more",
+   "spec": "chat.send",
+   "about": "A message's images are those its body names, then the listed ids it does not name, each once: ChatMessage.attachments lists them in that order and request.read cuts the body into parts, with no path for a founder.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-40"
+      }
+     },
+     "result": {
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "a"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-41"
+      }
+     },
+     "result": {
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "b"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "see ![the button](attachment:{{a}})",
+       "attachments": [
+        "{{b}}",
+        "{{a}}"
+       ],
+       "request_id": "conf-at-42"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$save": "rid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "request.read",
+      "params": {
+       "id": "{{rid}}"
+      }
+     },
+     "result": {
+      "body": "see ![the button](attachment:{{a}})",
+      "parts": [
+       {
+        "text": "see "
+       },
+       {
+        "image": {
+         "id": "{{a}}",
+         "name": "a.png",
+         "mime": "image/png",
+         "bytes": 70
+        },
+        "caption": "the button",
+        "path": {
+         "$absent": true
+        }
+       },
+       {
+        "image": {
+         "id": "{{b}}",
+         "name": "a.png",
+         "mime": "image/png",
+         "bytes": 70
+        },
+        "caption": ""
+       }
+      ]
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "id": "{{rid}}",
+        "attachments": [
+         {
+          "id": "{{a}}",
+          "name": "a.png",
+          "mime": "image/png",
+          "bytes": 70
+         },
+         {
+          "id": "{{b}}",
+          "name": "a.png",
+          "mime": "image/png",
+          "bytes": 70
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.an_image_may_be_sent_again",
+   "spec": "chat.send",
+   "about": "An id already sent with one message may be sent with another, listed or named in the body.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "attachment.put",
+      "params": {
+       "name": "a.png",
+       "mime": "image/png",
+       "bytes": 70,
+       "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+       "request_id": "conf-at-43"
+      }
+     },
+     "result": {
+      "attachment": {
+       "id": {
+        "$regex": "^[0-9a-f]{16}$",
+        "$save": "a"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "one",
+       "attachments": [
+        "{{a}}"
+       ],
+       "request_id": "conf-at-44"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "two ![again](attachment:{{a}})",
+       "attachments": [
+        "{{a}}"
+       ],
+       "request_id": "conf-at-45"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.references_and_the_list_together_are_at_most_six",
+   "spec": "chat.send",
+   "about": "Four images named in the body and three more listed are seven: bad_request naming attachments, before any id is looked up.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "![1](attachment:0000000000000001)![2](attachment:0000000000000002)![3](attachment:0000000000000003)![4](attachment:0000000000000004)",
+       "attachments": [
+        "0000000000000005",
+        "0000000000000006",
+        "0000000000000007"
+       ],
+       "request_id": "conf-at-46"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "attachments"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.send.a_body_naming_an_image_not_kept_is_not_found",
+   "spec": "chat.send",
+   "about": "A body that names an image never put is not_found, what attachment, and nothing is sent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "see ![x](attachment:0000000000000000)",
+       "request_id": "conf-at-47"
+      }
+     },
+     "error": {
+      "data": {
+       "code": "not_found",
+       "what": "attachment"
+      }
+     }
+    }
+   ]
+  },
+  {
    "name": "task.new.an_image_not_kept_is_not_found",
    "spec": "task.new",
    "about": "A brief naming an image the daemon does not keep is not_found, what attachment, and no task is opened.",

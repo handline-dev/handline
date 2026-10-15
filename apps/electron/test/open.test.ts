@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -10,6 +10,7 @@ const ORIGIN = 'http://127.0.0.1:5000';
 const top: Sender = { senderFrame: { url: `${ORIGIN}/`, parent: null } };
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hl-open-')));
+after(() => fs.rmSync(root, { recursive: true, force: true }));
 const wt = path.join(root, 'wt');
 const home = path.join(root, 'home');
 fs.mkdirSync(path.join(wt, 'docs'), { recursive: true });
