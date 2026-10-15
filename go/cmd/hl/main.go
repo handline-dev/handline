@@ -26,6 +26,7 @@ var commands = map[string]command{
 	"idle-background":     idleBackground,
 	"idle-timeout":        idleTimeout,
 	"ignore-cache-expiry": ignoreCacheExpiry,
+	"land":                land,
 	"launch":              launch,
 	"notice-digest":       noticeDigest,
 	"progress":            progress,
