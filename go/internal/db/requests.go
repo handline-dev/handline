@@ -598,8 +598,9 @@ func RetireQueued(q Q, rid int64, state, verdict string) (bool, error) {
 	return true, settle(q, rid, state, verdict, "")
 }
 
-// RetireIfUndelivered is db.retire_if_undelivered: a still-queued, undelivered request to a terminal state, atomically.
-func RetireIfUndelivered(q Q, rid int64, state, verdict string) (bool, error) {
+// RetireIfUndelivered is db.retire_if_undelivered: a still-queued, undelivered request to a terminal state, atomically. noSettle is
+// CloseOpts.NoSettle: the decision task stays open.
+func RetireIfUndelivered(q Q, rid int64, state, verdict string, noSettle bool) (bool, error) {
 	stored, err := StoredState(q, rid, state)
 	if err != nil {
 		return false, err
@@ -619,6 +620,9 @@ func RetireIfUndelivered(q Q, rid int64, state, verdict string) (bool, error) {
 		if err := AddReason(q, rid, verdict); err != nil {
 			return false, err
 		}
+	}
+	if noSettle {
+		return true, RefreshSentOfRequest(q, rid)
 	}
 	return true, settle(q, rid, state, verdict, "")
 }
