@@ -477,10 +477,11 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await click($('.ui-dialog .ui-btn.solid')!);
     await until(() => $('.card-hr')?.getAttribute('data-state') === 'rejected', 'the same card showing the outcome');
     expect(text($('.card-hr'))).toContain('Rejected');
-    expect(labelled($('.card-hr'), 'Approve')).toBeUndefined();
+    expect(labelled($('.card-hr'), 'Reject')!.getAttribute('aria-pressed')).toBe('true');
+    expect((labelled($('.card-hr'), 'Approve') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('an approved HR proposal stays as the same card saying Applied, with what changed and no buttons', async () => {
+  it('an approved HR proposal stays as the same card saying Applied, with what changed, the Approve button pressed and a banner', async () => {
     const s = setup();
     hrOf(s).raise({ id: 42, title: 'link handline.architect -> handline.auditor', diff: 'link architect to auditor', agent: ARCH });
     await mount(ARCH, s);
@@ -489,8 +490,11 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await until(() => $('.card-hr')?.getAttribute('data-state') === 'approved', 'the card showing Applied');
     expect(text($('.card-hr'))).toContain('Applied');
     expect(text($('.card-hr'))).toContain('link architect to auditor');
-    expect(labelled($('.card-hr'), 'Approve')).toBeUndefined();
-    expect(labelled($('.card-hr'), 'Reject')).toBeUndefined();
+    await until(() => $('.card-hr .banner'), 'the banner');
+    expect(text($('.card-hr .banner'))).toBe('Applied');
+    expect(labelled($('.card-hr'), 'Approve')!.getAttribute('aria-pressed')).toBe('true');
+    expect((labelled($('.card-hr'), 'Reject') as HTMLButtonElement).disabled).toBe(true);
+    expect($$('.msg').some((m) => /applied/i.test(text(m)))).toBe(false); // the app posts nothing in the chat
   });
 });
 
