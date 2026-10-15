@@ -27,6 +27,8 @@ func termTickRig(t *testing.T) (*Parts, *fakeTerminals, string) {
 		t.Fatal(err)
 	}
 	ft.live["%1"] = true
+	// A session the test runs as has the test's own pid, which never exits: an end waited out in real time costs a minute a test.
+	p.LC.Manager.Sleep = func(time.Duration) {}
 	return p, ft, wt
 }
 

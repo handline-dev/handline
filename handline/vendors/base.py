@@ -235,7 +235,9 @@ class Driver(Protocol):
                     trusted: list[str] | None = None,
                     chrome: bool = False, sandbox: bool = False,
                     mcp_approved: list[str] | None = None,
-                    extra_dirs: list[str] | None = None) -> list[str]:
+                    extra_dirs: list[str] | None = None,
+                    allow_write: list[str] | None = None,
+                    allow_domains: list[str] | None = None) -> list[str]:
         """argv for one session, before any caller-supplied extras. `hide` is
         paths the session may not read; `memory_dir` is the folder the session
         keeps its own memory in (`memory_settings`); `trusted` is prose naming
@@ -243,7 +245,8 @@ class Driver(Protocol):
         boundary. `chrome` is the agent's opt-in to the browser integration;
         `sandbox` False starts the session with the vendor's sandbox off.
         `mcp_approved` names the project's own MCP servers the session may enable without asking. `extra_dirs` are the agent's further
-        worktrees: working directories of this session that it may write, and nothing else beyond its own."""
+        worktrees: working directories of this session that it may write, and nothing else beyond its own. `allow_write` and
+        `allow_domains` are what a sandboxed session may write beyond its worktrees and reach on the network."""
 
     def auto_mode_argv(self) -> list[str]:
         """argv that starts the session in the vendor's classifier-approved
