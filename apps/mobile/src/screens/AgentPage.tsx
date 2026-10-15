@@ -147,7 +147,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         {(structured ? ctl.interrupt : ctl.stop) && <Button label="Interrupt" disabled={busy} onPress={() => stop('interrupt')} />}
         {ctl.stop && !structured && <Button label="Exit" disabled={busy} onPress={() => stop('exit')} />}
         {ctl.stop && <Button label="Close" disabled={busy} onPress={() => stop('close')} />}
-        {ctl.stop && (stalled || busy) && <Button label="Kill" disabled={busy} onPress={() => stop('kill')} kind="no" />}
+        {ctl.stop && stalled &&<Button label="Kill" disabled={busy} onPress={() => stop('kill')} kind="no" />}
         {mark && (
           <Text testID="pending-mark" style={{ color: c.muted, alignSelf: 'center' }}>
             {mark}
