@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/peerinbox"
 	"github.com/handline/handline/go/internal/peerport"
-	"github.com/handline/handline/go/internal/structured"
 )
 
 // fakeInbox is the peer inbox: it keeps what it was given and answers outcome.
@@ -155,7 +155,7 @@ func TestAMessageTheTranscriptNeverShowsNeedsAPersonAndIsNotWrittenAgain(t *test
 	if told != 1 || needs != 1 {
 		t.Fatalf("sender told %d, needs-you events %d", told, needs)
 	}
-	if state, _ := r.sendOnce(r.DB, "bob", op, "psst", structured.Now); state != Unknown || in.count() != 1 {
+	if state, _ := r.sendOnce(r.DB, "bob", op, "psst", delivery.Now); state != Unknown || in.count() != 1 {
 		t.Fatalf("written again: %v %d", state, in.count())
 	}
 }
@@ -175,7 +175,7 @@ func TestAMessageNeverWrittenSaysSoAndOneWrittenAndUnseenSaysItMayHaveBeenRead(t
 		r, in := peerRigHeld(t, peerinbox.Result{Kind: peerinbox.Delivered})
 		rid := r.ask("alice", "bob", "psst", "say")
 		op := requestOp(rid)
-		if state, _ := r.sendOnce(r.DB, "bob", op, "psst", structured.Now); state != Written {
+		if state, _ := r.sendOnce(r.DB, "bob", op, "psst", delivery.Now); state != Written {
 			t.Fatal(state)
 		}
 		eventually(t, func() bool { return in.enteredCount() == 1 })
@@ -201,7 +201,7 @@ func TestAMessageTheLastDaemonLeftWrittenIsUnknownWhenTheNextSettlesIt(t *testin
 	r, in := peerRigHeld(t, peerinbox.Result{Kind: peerinbox.Delivered})
 	rid := r.ask("alice", "bob", "psst", "say")
 	op := requestOp(rid)
-	if state, _ := r.sendOnce(r.DB, "bob", op, "psst", structured.Now); state != Written {
+	if state, _ := r.sendOnce(r.DB, "bob", op, "psst", delivery.Now); state != Written {
 		t.Fatal(state)
 	}
 	eventually(t, func() bool { return in.enteredCount() == 1 })

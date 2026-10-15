@@ -12,8 +12,7 @@ import (
 const tailBytes = 8 << 20
 
 // lastContext is what the newest reply in a Claude transcript says the context holds: its input, cache-read and cache-write tokens, and the
-// model that gave it. ok false when the file has no reply in its tail. A structured session writes no status file; the transcript the CLI
-// keeps is the one place its context shows.
+// model that gave it. ok false when the file has no reply in its tail.
 func lastContext(path string) (used int64, model string, ok bool) {
 	f, err := os.Open(path)
 	if err != nil {

@@ -1,23 +1,24 @@
-package structured
+package claudecli
 
 import (
+	"github.com/handline/handline/go/internal/delivery"
 	"sync"
 	"testing"
 	"time"
 )
 
 // heldBehindATurn is a session with a turn running (the fake holds "HOLD" until interrupted) and one message held behind it.
-func heldBehindATurn(t *testing.T, l Launch) (*Session, *events, Receipt) {
+func heldBehindATurn(t *testing.T, l Launch) (*Session, *events, delivery.Receipt) {
 	t.Helper()
 	s, ev := openWith(t, l, Handlers{})
-	if _, err := s.Send("op-1", "HOLD", Now); err != nil {
+	if _, err := s.Send("op-1", "HOLD", delivery.Now); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.WaitConfirmed(ctx(t), "op-1"); err != nil {
 		t.Fatal(err)
 	}
-	q, err := s.Send("op-2", "later", Queue)
-	if err != nil || q.State != Queued {
+	q, err := s.Send("op-2", "later", delivery.Queue)
+	if err != nil || q.State != delivery.Queued {
 		t.Fatalf("not held: %v %v", q, err)
 	}
 	return s, ev, q
@@ -26,7 +27,7 @@ func heldBehindATurn(t *testing.T, l Launch) (*Session, *events, Receipt) {
 func TestAWithdrawnMessageIsNeverWritten(t *testing.T) {
 	s, ev, q := heldBehindATurn(t, launch(t))
 	r, ok, err := s.Withdraw("op-2")
-	if err != nil || !ok || r.State != Withdrawn {
+	if err != nil || !ok || r.State != delivery.Withdrawn {
 		t.Fatalf("withdraw: %v %v %v", r, ok, err)
 	}
 	if err := s.WaitConfirmed(ctx(t), "op-2"); err == nil {
@@ -37,20 +38,20 @@ func TestAWithdrawnMessageIsNeverWritten(t *testing.T) {
 	if ev.count(isEcho(q.UUID)) != 0 {
 		t.Fatal("the withdrawn message reached the CLI")
 	}
-	if r, ok, _ := s.Withdraw("op-2"); !ok || r.State != Withdrawn {
+	if r, ok, _ := s.Withdraw("op-2"); !ok || r.State != delivery.Withdrawn {
 		t.Errorf("a repeat must answer the same: %v %v", r, ok)
 	}
-	if r, _ := s.Send("op-2", "later", Queue); r.State != Withdrawn {
+	if r, _ := s.Send("op-2", "later", delivery.Queue); r.State != delivery.Withdrawn {
 		t.Errorf("a retried send of a withdrawn op is %v", r.State)
 	}
 }
 
 func TestAWrittenMessageIsNotWithdrawn(t *testing.T) {
 	s, _ := open(t, Handlers{})
-	s.Send("op-1", "hello", Now)
+	s.Send("op-1", "hello", delivery.Now)
 	s.WaitConfirmed(ctx(t), "op-1")
 	r, ok, err := s.Withdraw("op-1")
-	if err != nil || ok || r.State != Confirmed {
+	if err != nil || ok || r.State != delivery.Confirmed {
 		t.Errorf("withdraw of a confirmed message: %v %v %v", r, ok, err)
 	}
 	if _, _, err := s.Withdraw("nope"); err == nil {
@@ -79,13 +80,13 @@ func TestWithdrawRacingTheReleaseIsConsistent(t *testing.T) {
 func TestPromoteWritesAHeldMessageOnceWithPriorityNow(t *testing.T) {
 	s, ev, q := heldBehindATurn(t, launch(t))
 	r, err := s.Promote("op-2")
-	if err != nil || r.State != Sent {
+	if err != nil || r.State != delivery.Sent {
 		t.Fatalf("promote: %v %v", r, err)
 	}
 	if err := s.WaitConfirmed(ctx(t), "op-2"); err != nil {
 		t.Fatal(err)
 	}
-	if again, err := s.Promote("op-2"); err != nil || again.State != Confirmed {
+	if again, err := s.Promote("op-2"); err != nil || again.State != delivery.Confirmed {
 		t.Errorf("a second promote answers the record: %v %v", again, err)
 	}
 	s.Interrupt(ctx(t))
@@ -98,10 +99,10 @@ func TestPromoteWritesAHeldMessageOnceWithPriorityNow(t *testing.T) {
 func TestPromoteOfAnythingNotHeldWritesNothing(t *testing.T) {
 	s, ev, q := heldBehindATurn(t, launch(t))
 	s.Withdraw("op-2")
-	if r, err := s.Promote("op-2"); err != nil || r.State != Withdrawn {
+	if r, err := s.Promote("op-2"); err != nil || r.State != delivery.Withdrawn {
 		t.Errorf("promote of a withdrawn op: %v %v", r, err)
 	}
-	if r, err := s.Promote("op-1"); err != nil || r.State != Confirmed {
+	if r, err := s.Promote("op-1"); err != nil || r.State != delivery.Confirmed {
 		t.Errorf("promote of a written op: %v %v", r, err)
 	}
 	if _, err := s.Promote("nope"); err == nil {
@@ -115,7 +116,7 @@ func TestPromoteOfAnythingNotHeldWritesNothing(t *testing.T) {
 }
 
 func TestAWithdrawnMessageStaysWithdrawnAfterARestart(t *testing.T) {
-	led := &DBLedger{DB: testDB(t), Agent: "backend"}
+	led := &delivery.DBLedger{DB: testDB(t), Agent: "backend"}
 	l := launch(t)
 	l.Ledger = led
 	s, _, _ := heldBehindATurn(t, l)
@@ -126,17 +127,17 @@ func TestAWithdrawnMessageStaysWithdrawnAfterARestart(t *testing.T) {
 	l2 := launch(t)
 	l2.Ledger = led
 	s2, ev := openWith(t, l2, Handlers{})
-	if r, _ := s2.Send("op-2", "later", Queue); r.State != Withdrawn {
+	if r, _ := s2.Send("op-2", "later", delivery.Queue); r.State != delivery.Withdrawn {
 		t.Errorf("after a restart: %v", r.State)
 	}
-	if r, ok, _ := s2.Withdraw("op-2"); !ok || r.State != Withdrawn {
+	if r, ok, _ := s2.Withdraw("op-2"); !ok || r.State != delivery.Withdrawn {
 		t.Errorf("withdraw after a restart: %v %v", r, ok)
 	}
-	if r, _ := s2.Promote("op-2"); r.State != Withdrawn {
+	if r, _ := s2.Promote("op-2"); r.State != delivery.Withdrawn {
 		t.Errorf("promote after a restart: %v", r.State)
 	}
 	time.Sleep(200 * time.Millisecond)
-	if ev.count(isEcho(UUIDFor("op-2"))) != 0 {
+	if ev.count(isEcho(delivery.UUIDFor("op-2"))) != 0 {
 		t.Error("written after the restart")
 	}
 }
