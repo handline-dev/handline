@@ -20,7 +20,7 @@ import type { AgentView } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { useAgents, useUnreached, useServes, useUnread, useVerbMark } from '@handline/app-data';
 import { useMyTurn } from './MyTurn.tsx';
-import { VerbSheet } from './AgentVerbs.tsx';
+import { DeleteSheet, VerbSheet } from './AgentVerbs.tsx';
 import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
 import { Mark, MARKS } from './RailIcons.tsx';
@@ -102,9 +102,24 @@ export function Sidebar({
     >
       {/* The shell's drag strip: row as tall as a tab strip, centred on the traffic lights (--h-tabs and --lights-w follow the zoom: shell.ts); `rail-top` is the tests' hook. */}
       <div className="rail-top flex items-center gap-0.5 pt-2 px-2.5 pb-1 shell:h-[var(--h-tabs)] shell:py-0 shell:pl-[var(--lights-w,86px)] shell:[-webkit-app-region:drag]">
-        <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="sidebar" label="Hide the agent list (⌘B)" onClick={onToggle} />
-        <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="back" label="Back (⌘[)" onClick={() => history.back()} />
-        <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="forward" label="Forward (⌘])" onClick={() => history.forward()} />
+        <Button
+          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]"
+          icon="sidebar"
+          label="Hide the agent list (⌘B)"
+          onClick={onToggle}
+        />
+        <Button
+          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]"
+          icon="back"
+          label="Back (⌘[)"
+          onClick={() => history.back()}
+        />
+        <Button
+          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]"
+          icon="forward"
+          label="Forward (⌘])"
+          onClick={() => history.forward()}
+        />
         {unread ? (
           <button
             className="bell ml-auto border-0 rounded-[9px] bg-wait px-1.5 text-label text-canvas shell:[-webkit-app-region:no-drag]"
@@ -117,7 +132,11 @@ export function Sidebar({
         ) : null}
       </div>
       <div className="rail-nav flex flex-wrap gap-0.5 px-1.5">
-        <button className={navOf(onPage === 'my-turn')} aria-current={onPage === 'my-turn' ? 'page' : undefined} onClick={() => void (location.hash = '#/my-turn')}>
+        <button
+          className={navOf(onPage === 'my-turn')}
+          aria-current={onPage === 'my-turn' ? 'page' : undefined}
+          onClick={() => void (location.hash = '#/my-turn')}
+        >
           <Icon name="decision" size={14} aria-hidden /> My turn{myTurn ? ` ${myTurn}` : ''}
         </button>
         <button className={navOf(onInbox)} aria-current={onInbox ? 'page' : undefined} onClick={goInbox}>
@@ -246,6 +265,7 @@ function Row({
   const store = useStore();
   const dot = dotOf(a);
   const [ask, setAsk] = useState<Verb | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [hot, setHot] = useState(false); // the pointer or focus is on the row: its actions show, and only then do they cost a detail read
   const [menuOpen, setMenuOpen] = useState(false);
   const mark = useVerbMark(a.name);
@@ -314,7 +334,9 @@ function Row({
                 title={tip}
               >
                 <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
-                <span className="name h-5 min-w-[4.5rem] flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-5">{rowName(a.name, depth, team)}</span>
+                <span className="name h-5 min-w-[4.5rem] flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-5">
+                  {rowName(a.name, depth, team)}
+                </span>
                 {a.needs_you ? (
                   <span
                     className="needs inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-pill bg-wait px-1.5 text-label text-canvas"
@@ -355,10 +377,11 @@ function Row({
           </div>
         </MenuTrigger>
         <MenuContent>
-          <AgentMenu agent={a} onAsk={setAsk} />
+          <AgentMenu agent={a} onAsk={setAsk} onDelete={() => setDeleting(true)} />
         </MenuContent>
       </Menu>
       {ask ? <VerbSheet a={a} verb={ask} onClose={() => setAsk(null)} /> : null}
+      {deleting ? <DeleteSheet a={a} onClose={() => setDeleting(false)} /> : null}
     </>
   );
 }
