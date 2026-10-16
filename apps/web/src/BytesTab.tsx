@@ -18,6 +18,7 @@ import {
   type CreateTerm,
   type PaneTerm,
 } from './terminal/core.ts';
+import { traceResize } from './terminal/trace.ts';
 import { Button } from './ui/index.ts';
 
 const SKELETON_DELAY_MS = 150;
@@ -102,12 +103,16 @@ export function BytesTab({
       const sendSize = () => {
         const v = live.current?.view;
         const g = v && v.state === 'live' && sizes() ? gridToSend(pane.propose(), v) : null;
-        if (v && g) void store.client.bytes.resize(v, g.cols, g.rows).catch(() => {}); // a refused size leaves the grid as it is
+        if (v && g) {
+          traceResize('ask', `${g.cols}x${g.rows} (host ${v.cols}x${v.rows})`);
+          void store.client.bytes.resize(v, g.cols, g.rows).catch(() => {}); // a refused size leaves the grid as it is
+        }
       };
       /** The window changed (or the pane just went live): ask the host for the grid that fits it, after a short debounce. */
       const layout = () => {
         const v = live.current?.view;
         if (!v) return;
+        traceResize('observer', `${el.clientWidth}x${el.clientHeight}`);
         if (!sizes()) return pane.setFontSize(fontFor(el.clientWidth, v.cols));
         clearTimeout(timer);
         timer = setTimeout(sendSize, RESIZE_MS);
@@ -118,7 +123,9 @@ export function BytesTab({
         const v = live.current?.view;
         if (!v) return;
         const fits = sizes() && gridToSend(pane.propose(), v) === null;
-        pane.setFontSize(fits ? DEFAULT_FONT : fontFor(el.clientWidth, v.cols));
+        const px = fits ? DEFAULT_FONT : fontFor(el.clientWidth, v.cols);
+        traceResize('host', `${v.cols}x${v.rows}, font ${px}, sizes ${sizes()} holders ${v.holders.map((h) => h.kind).join()}`);
+        pane.setFontSize(px);
       };
       const watch = new ResizeObserver(layout);
       const sendKeys = keySender(
