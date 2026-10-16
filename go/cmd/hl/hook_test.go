@@ -123,6 +123,22 @@ func TestStopIsRefusedOncePerSessionWhileTheCurrentTaskHasNoWait(t *testing.T) {
 	}
 }
 
+func TestNotificationReachesTheDaemon(t *testing.T) {
+	r := hookRig(t, false)
+	calls := r.daemon(nil)
+	note := `{"hook_event_name": "Notification", "session_id": "s1", "notification_type": "permission_prompt", "message": "Claude needs your permission"}`
+	if out, _, code := r.runIn(note, asAgent, "hook", "Notification"); code != 0 || out != "{}\n" {
+		t.Fatalf("%q %d", out, code)
+	}
+	got := calls()
+	if len(got) != 1 || got[0]["method"] != "hook.record" {
+		t.Fatalf("calls %v", got)
+	}
+	if p := got[0]["params"].(map[string]any); p["kind"] != "Notification" || p["data"].(map[string]any)["notification_type"] != "permission_prompt" {
+		t.Fatalf("params %v", p)
+	}
+}
+
 func postToolUse(event, tool string, input map[string]any, more map[string]any) string {
 	m := map[string]any{"hook_event_name": event, "session_id": "s", "tool_name": tool, "tool_input": input}
 	for k, v := range more {
