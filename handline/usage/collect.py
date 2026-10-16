@@ -59,9 +59,9 @@ def encode_cwd(account: str, cwd: str | Path) -> str:
 
     Claude Code's answer, which this was written against, maps every character
     outside [A-Za-z0-9] to `-`: `/Users/you/orca/workspaces/orcapipe` becomes
-    `-Users-ron-orca-workspaces-orcapipe`, the dot going the same way as the
+    `-Users-you-orca-workspaces-orcapipe`, the dot going the same way as the
     slashes. Read off the live directories rather than guessed: they keep case
-    (`-Users-ron-Library-Application-Support-...`) and collapse `/.claude` to
+    (`-Users-you-Library-Application-Support-...`) and collapse `/.claude` to
     `--claude`.
     """
     return vendors.for_account(account).memory_project_dir(str(cwd))

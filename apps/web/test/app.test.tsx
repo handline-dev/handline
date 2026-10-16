@@ -309,7 +309,7 @@ describe('the sidebar', () => {
     await until(() => $('.row-wrap.on'), 'the selected row');
     expect($('.row-detail')).toBeNull();
     const r = text($('.row-wrap.on'));
-    expect(r).not.toMatch(/opus|alpha|buddyron/);
+    expect(r).not.toMatch(/opus|alpha|yourname/);
     expect($('.row-wrap.on .name')?.textContent).toBe('architect'); // the team prefix is the group's title
     await until(() => $('.terminal-tab'), 'terminal tab');
     expect($('.row-actions .ui-btn.solid')).toBeNull();
