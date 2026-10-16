@@ -54,7 +54,7 @@ func (e *Env) noteRefusal(q db.Q, agent string, tid int64, msg string, refused m
 func (e *Env) AdvanceCurrentTask(q db.Q, agent string) (changed bool, refused map[int64]string, err error) {
 	defer Catch(&err)
 	refused = map[int64]string{}
-	if !e.canAdvance(q, agent) {
+	if agent == db.Human || must(db.CurrentTaskStillAsking(q, agent)) {
 		return false, refused, nil
 	}
 	before, hadBefore := ok2(db.CurrentTask(q, agent))
@@ -72,11 +72,6 @@ func (e *Env) AdvanceCurrentTask(q db.Q, agent string) (changed bool, refused ma
 	}
 	check(db.SetCurrentTask(q, agent, 0, false))
 	return hadBefore, refused, nil
-}
-
-// canAdvance is whether AdvanceCurrentTask may move the agent on at all: not the founder, and not while its current task still asks.
-func (e *Env) canAdvance(q db.Q, agent string) bool {
-	return agent != db.Human && !must(db.CurrentTaskStillAsking(q, agent))
 }
 
 // makeCurrent makes w the agent's current task and delivers it: its own queued request goes to the front, or a new one is asked. False when
@@ -179,7 +174,7 @@ func (e *Env) notifyUnblocked(q db.Q, depTID int64, owner, closer string, closed
 	check(db.LinkRequest(q, depTID, rid))
 	must(db.AddEvent(q, closer, "task_unblocked", db.KV{K: "task_id", V: depTID}, db.KV{K: "request_id", V: rid}, db.KV{K: "closed_task", V: closedTID},
 		db.KV{K: "after_request", V: must(db.NewestRequest(q))}))
-	return db.Notice{RID: rid, To: owner, Text: text, Unblocked: true}
+	return db.Notice{RID: rid, To: owner, Text: text, Unblocked: depTID}
 }
 
 func oneSpace(s string) string { return strings.Join(strings.Fields(s), " ") }
@@ -294,18 +289,24 @@ func (e *Env) freeBlockedBy(q db.Q, tid int64, by string) ([]db.Notice, []string
 }
 
 // deliverUnblocked is the half of a release that happens after the write: tell the owners, and give each freed owner its next task now. An
-// "unblocked" notice is typed (it tells a waiting owner to go on), unless the owner is free to take its next task now, whose delivery says as
-// much; a result notice is not - it rides on the owner's next delivery.
+// "unblocked" notice is typed (it tells a waiting owner to go on), unless that task itself goes out to its owner in this same step, whose
+// delivery says as much; a result notice is not - it rides on the owner's next delivery. The owners are advanced before anything is typed,
+// so a delivery is pushed after the says it follows.
 func (e *Env) deliverUnblocked(q db.Q, notices []db.Notice, freed []string) {
-	// Decided before advancing: a queued say linked to the task would otherwise be taken for the task's own delivery.
-	advances := map[string]bool{}
+	moved := map[string]bool{}
 	for _, owner := range freed {
-		advances[owner] = e.canAdvance(q, owner)
+		changed, _, err := e.AdvanceCurrentTask(q, owner)
+		if err != nil {
+			panic(dbFailure{err})
+		}
+		moved[owner] = changed
 	}
 	for _, n := range notices {
-		if n.Unblocked && advances[n.To] {
-			must(db.RetireIfUndelivered(q, n.RID, "withdrawn", "its owner's next task goes out in the same step", false))
-			continue
+		if n.Unblocked != 0 && moved[n.To] {
+			if cur, ok := ok2(db.CurrentTask(q, n.To)); ok && cur == n.Unblocked {
+				must(db.RetireIfUndelivered(q, n.RID, "withdrawn", "the task itself went out to its owner in the same step", false))
+				continue
+			}
 		}
 		queued := must(db.GetRequest(q, n.RID)).State == "queued" // a notice is born landed
 		if queued {
@@ -319,9 +320,7 @@ func (e *Env) deliverUnblocked(q db.Q, notices []db.Notice, freed []string) {
 		}
 	}
 	for _, owner := range freed {
-		if changed, _, err := e.AdvanceCurrentTask(q, owner); err != nil {
-			panic(dbFailure{err})
-		} else if changed {
+		if moved[owner] {
 			e.Push(q, owner, 0)
 		}
 	}

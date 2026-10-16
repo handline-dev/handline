@@ -384,7 +384,7 @@ func notifyUnblocked(tx *sql.Tx, dep int64, owner, closer string, closed int64, 
 	if err := addEvent(tx, closer, "task_unblocked", kv{"task_id", dep}, kv{"request_id", rid}, kv{"closed_task", closed}, kv{"after_request", after}); err != nil {
 		return told{}, err
 	}
-	return told{RID: rid, To: owner, Text: text, Unblocked: true}, nil
+	return told{RID: rid, To: owner, Text: text, Unblocked: dep}, nil
 }
 
 // childResultNotice tells the owner of the parent how a child ended, once per finish (a reopen voids it).

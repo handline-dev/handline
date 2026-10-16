@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -215,6 +216,43 @@ func TestAnOwnerBusyWithItsCurrentTaskIsStillToldTheUnblock(t *testing.T) {
 	}
 	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != busy {
 		t.Fatalf("current %d", cur)
+	}
+}
+
+func TestTheUnblockIsStillTypedWhenTheAdvanceSendsSomethingElseOrNothing(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		draft bool
+		setup func(r *rig) int64 // answers the task bob should hold after the release, 0 for none
+	}{
+		{"a draft goes nowhere", true, func(r *rig) int64 { return 0 }},
+		{"a higher task goes first", false, func(r *rig) int64 {
+			tid, _ := db.NewTask(r.DB, "urgent", "bob", "alice", 0, 1, "", 0, "")
+			db.SetTaskQueued(r.DB, tid, "alice")
+			return tid
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t)
+			r.agentUp("bob")
+			blocker := r.newTask("alice", "alice", "blocker")
+			waiting, _ := db.NewTask(r.DB, "second", "bob", "alice", 0, db.DefaultPriority, "", 0, "")
+			if !c.draft {
+				db.SetTaskQueued(r.DB, waiting, "alice")
+			}
+			db.AddBlock(r.DB, waiting, blocker)
+			other := c.setup(r)
+			db.DiscardTask(r.DB, blocker, "alice", "not needed")
+			if _, err := r.ReleaseEndedBlockers(); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(strings.Join(r.term.typed, "\n"), fmt.Sprintf("task T%d is unblocked - T%d, its last open blocker, discarded", waiting, blocker)) {
+				t.Fatalf("%q", r.term.typed)
+			}
+			if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != other {
+				t.Fatalf("current %d, want %d", cur, other)
+			}
+		})
 	}
 }
 
