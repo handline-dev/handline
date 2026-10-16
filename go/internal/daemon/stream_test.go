@@ -140,7 +140,7 @@ func TestDevicesEventsReachAFounderSubscriber(t *testing.T) {
 	}
 }
 
-func TestDevicesIsSubscribedAloneAndOnlyByTheFounder(t *testing.T) {
+func TestDevicesIsSubscribedAloneAndByTheFounderAndAPairedDevice(t *testing.T) {
 	d, f := startStream(t)
 	fo := pipeTo(t, d, "k")
 	for _, topics := range []string{`["devices","tasks"]`, `["tasks","devices"]`} {
@@ -153,7 +153,7 @@ func TestDevicesIsSubscribedAloneAndOnlyByTheFounder(t *testing.T) {
 		t.Fatal("unsubscribe with devices and another topic")
 	}
 	m := helloAs(t, d, mustPair(t, d))
-	if r := m.ask(`{"jsonrpc":"2.0","id":2,"method":"subscribe","params":{"topics":["devices"]}}`); gate(r) != "role" {
+	if r := m.ask(`{"jsonrpc":"2.0","id":2,"method":"subscribe","params":{"topics":["devices"]}}`); r["result"] == nil { // a paired device is the founder
 		t.Fatalf("%v", r)
 	}
 	if r := m.ask(`{"jsonrpc":"2.0","id":3,"method":"subscribe","params":{"topics":["devices","tasks"]}}`)["error"].(map[string]any); r["data"].(map[string]any)["field"] != "topics" {
