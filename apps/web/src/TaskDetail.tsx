@@ -145,7 +145,7 @@ function Body({ t }: { t: Detail }) {
         <h2 className="m-0 text-title font-semibold">
           <span className="mono">{taskRef(t.id)}</span> {t.title}
         </h2>
-        <StateChip state={t.state} mark={mark} word />
+        <StateChip state={t.state} mark={mark} word to={t.to} />
       </header>
       <TaskMeta t={t} now={now} />
       <div

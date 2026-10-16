@@ -102,7 +102,7 @@ export function Row(props: {
             </span>
           </AnimatedCell>
           <AnimatedCell className={`c-state w-16 ${TD} max-sm:[grid-area:state]`}>
-            <StateChip state={t.state} mark={props.mark} />
+            <StateChip state={t.state} mark={props.mark} to={t.to} />
             {props.failed ? <span className="not-changed text-bad text-hint"> not changed</span> : null}
           </AnimatedCell>
         </>
@@ -117,7 +117,7 @@ export function Row(props: {
             P{t.priority ?? 2}
           </AnimatedCell>
           <AnimatedCell className={`c-state w-16 ${TD} max-sm:[grid-area:state]`}>
-            <StateChip state={t.state} mark={props.mark} />
+            <StateChip state={t.state} mark={props.mark} to={t.to} />
             {props.failed ? <span className="not-changed text-bad text-hint"> not changed</span> : null}
           </AnimatedCell>
           <AnimatedCell
