@@ -679,7 +679,18 @@ def test_the_tmux_backend_drives_windows_over_tmux_verbs(home: Path) -> None:
               and st["panes"]["%0"]["cwd"] == str(home), str(st))
         made = next(a for a in st["log"] if "new-session" in a)
         saved_sock = os.environ.pop("OCP_TMUX_SOCKET")
-        check("tmux: with no OCP_TMUX_SOCKET the dedicated server socket is ocp", tmuxbackend._socket() == "ocp")
+        own = tmuxbackend._socket()
+        os.environ["OCP_TMUX_SOCKET"] = "ocp"
+        check("tmux: a scratch home's server is its own, never the live ocp, even when OCP_TMUX_SOCKET names ocp",
+              own.startswith("ocp-") and tmuxbackend._socket() == own, own)
+        real_user_home = paths._real_user_home
+        paths._real_user_home = lambda: home.parent
+        try:
+            live = paths.tmux_socket(home.parent / ".handline")
+            os.environ.pop("OCP_TMUX_SOCKET")
+            check("tmux: the live home's server is ocp", paths.tmux_socket(home.parent / ".handline") == "ocp" and live == "ocp")
+        finally:
+            paths._real_user_home = real_user_home
         os.environ["OCP_TMUX_SOCKET"] = saved_sock
         check("tmux: every call is on the dedicated server socket, the session detached and of a usable size, the home passed on",
               all(a[:2] == ["-L", SUITE_TMUX_SOCKET] for a in st["log"]) and "-d" in made and "200" in made
@@ -762,10 +773,12 @@ def test_tmux_own_terminal_is_a_pane_on_our_server_only(home: Path) -> None:
     tm = tmuxbackend.TmuxBackend()
     env = {k: os.environ.get(k) for k in ("TMUX", "TMUX_PANE", "OCP_TMUX_SOCKET")}
     try:
-        os.environ["TMUX"], os.environ["TMUX_PANE"] = "/tmp/tmux-501/ocp,123,0", "%7"
         os.environ.pop("OCP_TMUX_SOCKET", None)
+        os.environ["TMUX"], os.environ["TMUX_PANE"] = f"/tmp/tmux-501/{paths.tmux_socket(home)},123,0", "%7"
         check("tmux own: a pane of our own server is the terminal, and its worktree is the directory",
               tm.own_terminal() == ("%7", os.getcwd()))
+        os.environ["TMUX"] = "/tmp/tmux-501/ocp,123,0"
+        check("tmux own: a scratch home's hl in a pane of the live server is not on its own", tm.own_terminal() == (None, None))
         os.environ["TMUX"] = "/tmp/tmux-501/default,123,0"
         check("tmux own: a pane of someone else's tmux means nothing on ours", tm.own_terminal() == (None, None))
         os.environ["TMUX"] = "/tmp/tmux-501/ocp,123,0"

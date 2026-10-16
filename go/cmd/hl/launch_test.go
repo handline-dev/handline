@@ -75,10 +75,17 @@ func TestLaunchKeepsTheHooksCurrentAndRefusesALoggedOutAccount(t *testing.T) {
 func TestOwnTerminalIsAPaneOnOurServerOnly(t *testing.T) {
 	wd, _ := os.Getwd()
 	real, _ := filepath.EvalSymlinks(wd)
+	home := t.TempDir()
+	t.Setenv("HANDLINE_HOME", home)
+	t.Setenv("OCP_HOME", home)
+	t.Setenv("HANDLINE_TMUX_SOCKET", "")
+	own := paths.TmuxSocket(home)
 	for _, c := range []struct {
 		pane, server, sock, handle string
 	}{
-		{"%12", "/tmp/tmux-501/ocp,123,0", "", "%12"},
+		{"%12", "/tmp/tmux-501/" + own + ",123,0", "", "%12"},
+		{"%12", "/tmp/tmux-501/ocp,123,0", "", ""}, // a scratch home's hl in a pane of the live server
+		{"%12", "/tmp/tmux-501/ocp,123,0", "ocp", ""},
 		{"%12", "/tmp/tmux-501/default,123,0", "", ""},
 		{"%12", "/tmp/tmux-501/suite,1,0", "suite", "%12"},
 		{"12", "/tmp/tmux-501/ocp,1,0", "", ""},

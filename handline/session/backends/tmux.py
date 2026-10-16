@@ -21,10 +21,9 @@ import subprocess
 import time
 from pathlib import Path
 
-from ...infra import ansi, names, textsafe
+from ...infra import ansi, names, paths, textsafe
 from .base import Backend, not_a_repo_root
 
-SOCKET = "ocp"
 SESSION = "ocp"
 # A detached session has no client to size it, and a TUI drawn at 80x24 hides what the screen readers look for.
 SESSION_SIZE = ("-x", "200", "-y", "50")
@@ -47,7 +46,7 @@ _NO_SERVER = ("no server running", "no sessions", "can't find session",
 
 
 def _socket() -> str:
-    return names.getenv("OCP_TMUX_SOCKET") or SOCKET
+    return paths.tmux_socket(paths.home())
 
 
 def _tmux(args: list[str], timeout: int = TMUX_TIMEOUT_S, stdin: str | None = None) -> tuple[int, str, str]:
