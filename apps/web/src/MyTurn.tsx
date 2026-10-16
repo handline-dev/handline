@@ -90,7 +90,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
       case 'done':
         return void (done.mutate({ task: a.item.task!, evidence: 'decided in My turn', reason: true }), read.mutate({ ids: [a.item.id] }));
       case 'open':
-        return void (location.hash = a.to);
+        return card.task != null ? onOpen(card.task) : void (location.hash = a.to);
       case 'terminal':
         return goTerminal(a.agent);
       case 'read':
@@ -135,9 +135,9 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
           <h3 className="m-0 min-w-0 flex-1 truncate text-[15px] font-medium">{card.title}</h3>
         </header>
         <p className="muted m-0 mt-0.5 flex flex-wrap gap-x-3 text-hint">
-          {card.agent ? <span className="mono">{card.agent}</span> : null}
+          {card.from ? <span>from <span className="mono">{card.from}</span></span> : null}
           {card.task != null ? <span className="mono">T{card.task}</span> : null}
-          {card.due != null ? <span>{dueText(card.due)}</span> : <span>no deadline</span>}
+          {card.due != null ? <span>{dueText(card.due)}</span> : null}
           {card.since ? <span>waiting {ago(new Date(card.since).toISOString())}</span> : null}
         </p>
         {card.detail ? (
@@ -178,7 +178,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
             setText('');
           }}
         >
-          <Input grow autoFocus aria-label="Your reply" value={text} onChange={(e) => setText(e.target.value)} />
+          <Input grow autoFocus aria-label="Your reply" placeholder={card.from ? `Reply to ${card.from}` : 'Reply'} value={text} onChange={(e) => setText(e.target.value)} />
           <Button label="Send reply" type="submit" disabled={!text.trim()}>
             <Icon name="reply" aria-hidden /> Send
           </Button>
