@@ -54,6 +54,19 @@ export function timeoutText(t: Task, now: number): string {
   return left >= 0 ? `${span(left)} left` : `over by ${span(-left)}`;
 }
 
+/** The detail's time box as one meaning: what is left of it ("2h10m left of 4h"), why the clock stands ("paused: waiting on you"), "over by 1h", or just the box before it runs. */
+export function timeBoxText(t: Pick<Task, 'state' | 'time_box' | 'time' | 'waiting'>, now: number): string {
+  const clock = t.time;
+  const box = clock?.length_s ? span(clock.length_s * 1000) : (t.time_box ?? '');
+  if (CLOSED.includes(t.state)) return box;
+  if (clock?.end) {
+    const left = Date.parse(clock.end) - now;
+    return left >= 0 ? `${span(left)} left${box ? ` of ${box}` : ''}` : `over by ${span(-left)}`;
+  }
+  if (clock && clock.left_s != null) return `paused: ${t.waiting?.text ?? 'not running'}`;
+  return box;
+}
+
 export const isOver = (t: Task, now: number): boolean => timeoutText(t, now).startsWith('over');
 
 const value = (t: Task, c: TaskColumn, now: number): string | number => {
