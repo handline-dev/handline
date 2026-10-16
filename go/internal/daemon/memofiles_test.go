@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/handline/handline/go/internal/attachments"
 )
 
 // onePNG is a 1x1 PNG.
@@ -77,5 +79,24 @@ func TestAMemoFileOfAnotherTypeIsRefused(t *testing.T) {
 	task := result(t, f.ask(`{"jsonrpc":"2.0","id":3,"method":"task.get","params":{"task":1}}`))
 	if memos := task["memos"].([]any); len(memos) != 0 {
 		t.Fatalf("a refused memo was kept: %v", memos)
+	}
+}
+
+func TestAMemosFileIsHeldWhileItsTaskIsOpenAndNotOnceTheMemoIsDeleted(t *testing.T) {
+	d, _ := tellDaemon(t, true)
+	doing(t, d, "bob")
+	md := filepath.Join(t.TempDir(), "plan.md")
+	os.WriteFile(md, []byte("# plan"), 0o644)
+	f := pipeTo(t, d, "k")
+	files, _ := json.Marshal([]string{md})
+	result(t, f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.memo.add","params":{"task":1,"text":"x","files":`+string(files)+`,"request_id":"m1"}}`))
+	task := result(t, f.ask(`{"jsonrpc":"2.0","id":3,"method":"task.get","params":{"task":1}}`))
+	id := task["memos"].([]any)[0].(map[string]any)["files"].([]any)[0].(map[string]any)["id"].(string)
+	if held, err := attachments.Held(d.db, 12345); err != nil || held[id] != 12345 {
+		t.Fatalf("held from %d (%v), want now", held[id], err)
+	}
+	result(t, f.ask(`{"jsonrpc":"2.0","id":4,"method":"task.memo.delete","params":{"task":1,"memo":1,"request_id":"m2"}}`))
+	if held, _ := attachments.Held(d.db, 12345); len(held) != 0 {
+		t.Fatalf("a deleted memo's file is still held: %v", held)
 	}
 }
