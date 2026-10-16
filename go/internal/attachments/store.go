@@ -370,8 +370,8 @@ func (s *Store) finish(uploadID string, up upload) (*Info, error) {
 	return &im.Info, nil
 }
 
-// Path is where the image is stored: named by its id and the extension of its type, never by the name a client gave.
-func (s *Store) Path(i Info) string { return s.sub(i.ID + "." + kinds[i.Mime]) }
+// Path is where the image (or a memo's file) is stored: named by its id and the extension of its type, never by the name a client gave.
+func (s *Store) Path(i Info) string { return s.sub(i.ID + "." + ext(i.Mime)) }
 
 // Lookup is the Attachment of id; not_found when it was never put or has been removed.
 func (s *Store) Lookup(id string) (Info, error) {

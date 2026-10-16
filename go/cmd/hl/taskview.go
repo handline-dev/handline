@@ -83,6 +83,9 @@ func memoList(c *hlclient.Client, tid int) int {
 			edited = ", edited " + stamp(m["edited_at"])
 		}
 		fmt.Printf("memo %s  %s  %s%s\n  %s\n", str(m, "id"), str(m, "author"), stamp(m["at"]), edited, str(m, "text"))
+		for _, l := range fileLines(list(m, "files"), "  ") {
+			fmt.Println(l)
+		}
 	}
 	if len(memos) == 0 {
 		fmt.Printf("T%d has no memos\n", tid)
@@ -150,6 +153,7 @@ func detailLines(t obj, now float64, home string) []string {
 		for _, m := range memos {
 			out = append(out, fmt.Sprintf("  memo %s  %s  %s\n    %s", str(m, "id"), str(m, "author"), stamp(m["at"]), str(m, "text")))
 			out = append(out, pathLines(list(m, "parts"), "    ")...)
+			out = append(out, fileLines(list(m, "files"), "    ")...)
 		}
 	}
 	var rejects []string
@@ -198,6 +202,23 @@ func pathLines(parts []obj, indent string) []string {
 		if path := str(p, "path"); path != "" && img != nil {
 			out = append(out, indent+attachments.Line(len(out)+1, path, str(img, "mime"), num(img, "bytes")))
 		}
+	}
+	return out
+}
+
+// fileLines are a memo's files: where each is stored for an agent, its name for the founder, or that it is gone.
+func fileLines(files []obj, indent string) []string {
+	out := make([]string, len(files))
+	for i, f := range files {
+		where := str(f, "path")
+		if where == "" {
+			where = str(f, "name")
+		}
+		if f["gone"] == true {
+			out[i] = fmt.Sprintf("%s[file %d: %s (gone)]", indent, i+1, str(f, "name"))
+			continue
+		}
+		out[i] = indent + attachments.FileLine(i+1, where, str(f, "mime"), num(f, "bytes"))
 	}
 	return out
 }

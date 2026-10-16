@@ -3263,7 +3263,7 @@
   },
   {
    "name": "attachment.get",
-   "summary": "Read an attached image, or a small copy of it, for drawing.",
+   "summary": "Read an attached image or a memo's file, or a small copy of an image, for drawing.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3302,7 +3302,8 @@
         "image/png",
         "image/jpeg",
         "image/gif",
-        "image/webp"
+        "image/webp",
+        "text/markdown"
        ]
       },
       "bytes": {
@@ -5664,6 +5665,18 @@
      "schema": {
       "type": "boolean",
       "description": "Tell every reader at once, even mid-turn."
+     }
+    },
+    {
+     "name": "files",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+       "type": "string"
+      },
+      "description": "Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files)."
      }
     },
     {
@@ -11911,6 +11924,13 @@
        ]
       },
       "description": "`text` cut at the images it names, as TaskDetail.body_parts; present only when it names one."
+     },
+     "files": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/MemoFile"
+      },
+      "description": "The files the memo carries, in the order they were given; present only when it carries one."
      }
     },
     "required": [
@@ -14183,6 +14203,55 @@
      "image",
      "caption"
     ]
+   },
+   "MemoFile": {
+    "type": "object",
+    "description": "A file a memo carries (task.memo.add files): an image or a Markdown text, kept on the daemon's machine like an attached image and read with attachment.get by its id.",
+    "properties": {
+     "id": {
+      "$ref": "#/components/schemas/AttachmentId"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "image",
+       "markdown"
+      ]
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "The file's name as its writer gave it, with no folder. Shown to the person; never used as a path."
+     },
+     "mime": {
+      "type": "string",
+      "enum": [
+       "image/png",
+       "image/jpeg",
+       "image/gif",
+       "image/webp",
+       "text/markdown"
+      ]
+     },
+     "bytes": {
+      "type": "integer"
+     },
+     "path": {
+      "type": "string",
+      "description": "Where the daemon keeps it; only in an agent's reads, which read it with their own file tool."
+     },
+     "gone": {
+      "type": "boolean",
+      "description": "True when it is no longer kept: attachment.get then answers not_found."
+     }
+    },
+    "required": [
+     "id",
+     "kind",
+     "name",
+     "mime",
+     "bytes"
+    ]
    }
   },
   "errors": {
@@ -14258,6 +14327,7 @@
   "limits": "Types: PNG, JPEG, GIF, WebP, checked by the file's first bytes, not by the mime the client says (a mismatch is bad_request, field data). SVG and everything else is refused. At most 10 MiB per image and 6 per message; chunks of at most 512 KiB of file (a 700 KiB base64 string) so a frame stays under the 1 MiB line. More than 20 unsent uploads open at once, or more than 100 MiB unsent, is refused, gate limit.",
   "storage": "The daemon's attachments folder under its home (mode 0700; files 0600, owner the daemon's user), one file per image named by its id and the extension of its type: the name the client gave is never part of the path. An upload not finished within 1 hour is dropped with its partial file; a finished image no message names is dropped after 24 hours; one a message names is kept 30 days after the last message naming it, and one a task names as texts says; then it is removed: attachment.get for it is not_found and the client shows the name without the picture.",
   "reach": "The daemon makes the folder readable by the agent without a prompt (a session setting that allows reads of that folder), so an agent in any worktree can Read the path. A client never sees the path.",
-  "roles": "member and founder may put and get, and name any kept image in a text; an agent may not put or get (refused, gate role) in v1, and names only an image a task's text or a message already names or was sent with (else refused, gate role), so it can pass on a picture it was shown."
+  "roles": "member and founder may put and get, and name any kept image in a text; an agent may not put or get (refused, gate role) in v1, and names only an image a task's text or a message already names or was sent with (else refused, gate role), so it can pass on a picture it was shown.",
+  "memo-files": "task.memo.add may also carry files by path (files): images and Markdown, read by the daemon, kept in the same store and linked to the memo, never named in its text. task.get and task.memo.list list them in Memo.files, each read with attachment.get (a Markdown file is served whole, never as a thumbnail). A memo's files are kept like the images its task names: while the task is open, then 30 days after it ends; deleting the memo unlinks them, and they go 30 days after the memo was added. An agent told of the memo reads one line per file after its text: `[file N: /absolute/path.md (text/markdown, 2 KB)]`."
  }
 }

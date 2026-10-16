@@ -1,6 +1,7 @@
 package attachments
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -35,27 +36,50 @@ UNION ALL SELECT task_id, body FROM task_memos WHERE body LIKE '%](attachment:%'
 UNION ALL SELECT json_extract(payload, '$.task_id'), json_extract(payload, '$.note') FROM events
 	WHERE kind IN ('reject_task', 'task_handoff') AND json_valid(payload) AND payload LIKE '%](attachment:%'`
 
-// Held is every image a task names, with the time it is kept from: now while a task naming it is open, else when the last task naming it
-// was done or discarded.
+// Held is every image a task names, and every file its memos carry, with the time it is kept from: now while a task naming it is open,
+// else when the last task naming it was done or discarded.
 func Held(q db.Q, now int64) (map[string]int64, error) {
-	rows, err := q.Query(`SELECT x.text, CASE WHEN COALESCE(t.done_evidence, '') = '' AND COALESCE(t.discarded_by, '') = '' THEN ?
-		ELSE MAX(COALESCE(t.done_at, 0), COALESCE(t.discarded_at, 0)) END FROM (`+taskTexts+`) x JOIN tasks t ON t.id = x.tid`, now)
+	held := map[string]int64{}
+	err := heldBy(q, now, taskTexts, func(text string) []string {
+		var ids []string
+		for _, r := range Refs(text) {
+			ids = append(ids, r.ID)
+		}
+		return ids
+	}, held)
 	if err != nil {
 		return nil, err
 	}
+	return held, heldBy(q, now, memoFilesHeld, func(files string) []string {
+		var infos []Info
+		json.Unmarshal([]byte(files), &infos)
+		ids := make([]string, len(infos))
+		for i, in := range infos {
+			ids[i] = in.ID
+		}
+		return ids
+	}, held)
+}
+
+// heldBy adds to held the ids that ids reads from each row of rowsOf (a task and a text), kept from the time its task says.
+func heldBy(q db.Q, now int64, rowsOf string, ids func(string) []string, held map[string]int64) error {
+	rows, err := q.Query(`SELECT x.text, CASE WHEN COALESCE(t.done_evidence, '') = '' AND COALESCE(t.discarded_by, '') = '' THEN ?
+		ELSE MAX(COALESCE(t.done_at, 0), COALESCE(t.discarded_at, 0)) END FROM (`+rowsOf+`) x JOIN tasks t ON t.id = x.tid`, now)
+	if err != nil {
+		return err
+	}
 	defer rows.Close()
-	held := map[string]int64{}
 	for rows.Next() {
 		var text string
 		var from int64
 		if err := rows.Scan(&text, &from); err != nil {
-			return nil, err
+			return err
 		}
-		for _, r := range Refs(text) {
-			held[r.ID] = max(held[r.ID], from)
+		for _, id := range ids(text) {
+			held[id] = max(held[id], from)
 		}
 	}
-	return held, rows.Err()
+	return rows.Err()
 }
 
 // Check is what a write that sets field to text may name: at most MaxPerMessage images, each finished and still kept, and for an agent

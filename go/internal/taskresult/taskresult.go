@@ -146,30 +146,37 @@ func under(path string, roots []string) bool {
 }
 
 func readPNG(p string, roots []string) ([]byte, error) {
+	b, err := ReadUnder(p, roots, MaxShot, "screenshot", "shots")
+	if err == nil && !bytes.HasPrefix(b, pngMagic) {
+		return nil, bad(p+" is not a PNG", "shots")
+	}
+	return b, err
+}
+
+// ReadUnder reads the file an agent names by path for the daemon to keep (a screenshot, a memo's file): absolute, a regular file of at most
+// max bytes and, when roots is not nil, under one of them. A refusal is bad_request on field and calls the file a what.
+func ReadUnder(p string, roots []string, max int64, what, field string) ([]byte, error) {
 	if !filepath.IsAbs(p) {
-		return nil, bad("a screenshot is named by its absolute path: "+p, "shots")
+		return nil, bad("a "+what+" is named by its absolute path: "+p, field)
 	}
 	if roots != nil && !under(p, roots) {
-		return nil, bad(p+" is outside the places a screenshot may be taken from: the agent's worktree, its folder and the scratch folder", "shots")
+		return nil, bad(p+" is outside the places a "+what+" may be taken from: the agent's worktree, its folder and the scratch folder", field)
 	}
 	f, err := os.Open(p)
 	if err != nil {
-		return nil, bad("cannot read the screenshot "+p, "shots")
+		return nil, bad("cannot read the "+what+" "+p, field)
 	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil || !st.Mode().IsRegular() {
-		return nil, bad(p+" is not a file", "shots")
+		return nil, bad(p+" is not a file", field)
 	}
-	if st.Size() > MaxShot {
-		return nil, bad(fmt.Sprintf("%s is over %d MiB", p, MaxShot>>20), "shots")
+	if st.Size() > max {
+		return nil, bad(fmt.Sprintf("%s is over %d MiB", p, max>>20), field)
 	}
-	b, err := io.ReadAll(io.LimitReader(f, MaxShot+1))
-	if err != nil || int64(len(b)) > MaxShot {
-		return nil, bad("cannot read the screenshot "+p, "shots")
-	}
-	if !bytes.HasPrefix(b, pngMagic) {
-		return nil, bad(p+" is not a PNG", "shots")
+	b, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil || int64(len(b)) > max {
+		return nil, bad("cannot read the "+what+" "+p, field)
 	}
 	return b, nil
 }

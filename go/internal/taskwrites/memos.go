@@ -5,12 +5,14 @@ package taskwrites
 import (
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/taskresult"
 )
 
 const human = "human"
@@ -174,6 +176,57 @@ func guard(by, author string, mid int64) error {
 	return refusal(fmt.Sprintf("memo %d is %s's: only its author or the founder edits or deletes it", mid, author))
 }
 
+// filePaths is task.memo.add's files: absolute paths, at most as many as a message's images.
+func filePaths(p map[string]any) ([]string, error) {
+	v, ok := p["files"]
+	if !ok || v == nil {
+		return nil, nil
+	}
+	list, ok := v.([]any)
+	if !ok || len(list) > attachments.MaxPerMessage {
+		return nil, badParam(fmt.Sprintf("files is a list of at most %d absolute file paths", attachments.MaxPerMessage), "files")
+	}
+	paths := make([]string, len(list))
+	for i, x := range list {
+		if paths[i], ok = x.(string); !ok {
+			return nil, badParam(fmt.Sprintf("files is a list of at most %d absolute file paths", attachments.MaxPerMessage), "files")
+		}
+	}
+	return paths, nil
+}
+
+// memoFiles reads the files a memo names and keeps them in the store. One the write then fails to link is swept like an upload never sent.
+// The founder may name any file; an agent only its own places, since the daemon reads it outside the agent's sandbox.
+func memoFiles(tx *sql.Tx, home, by string, store *attachments.Store, paths []string) ([]attachments.Info, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	var roots []string
+	if by != human {
+		var err error
+		if roots, err = shotRoots(tx, home, by); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]attachments.Info, 0, len(paths))
+	for _, path := range paths {
+		b, err := taskresult.ReadUnder(path, roots, attachments.MaxImage, "file", "files")
+		if err != nil {
+			return nil, err
+		}
+		mime, err := attachments.FileMime(path, b)
+		if err != nil {
+			return nil, err
+		}
+		info, err := store.Add(filepath.Base(path), mime, b)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
 // The holder of a doing task is not told of a memo change here: the telling is a typed say, the delivery layer's.
 
 func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
@@ -190,6 +243,12 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 		if err != nil {
 			return nil, err
 		}
+		paths, err := filePaths(p)
+		if err != nil {
+			return nil, err
+		}
+		store := attachments.New(home)
+		var files []attachments.Info
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 			if ok, err := hasTask(tx, tid); err != nil || !ok {
 				if err != nil {
@@ -206,10 +265,29 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 				return nil, err
 			}
 			mid, _ := res.LastInsertId()
+			if files, err = memoFiles(tx, home, c.Caller.Actor(), store, paths); err != nil {
+				return nil, err
+			}
+			if len(files) > 0 {
+				if err := attachments.LinkMemo(tx, mid, files); err != nil {
+					return nil, err
+				}
+				ids := make([]string, len(files))
+				for i, f := range files {
+					ids[i] = f.ID
+				}
+				if _, err := store.Claim(ids); err != nil {
+					return nil, err
+				}
+			}
 			return accepted(fmt.Sprintf("memo %d added to T%d", mid, tid), map[string]any{"memo": mid}), nil
 		})
 		if err == nil && tell != nil {
-			tell.MemoChanged(tid, c.Caller.Actor(), "added", body, now)
+			told := body
+			if lines := store.FileLines(files); lines != "" {
+				told += "\n" + lines
+			}
+			tell.MemoChanged(tid, c.Caller.Actor(), "added", told, now)
 		}
 		return out, err
 	}
@@ -286,6 +364,9 @@ func memoDelete(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 				return nil, err
 			}
 			if _, err := tx.Exec("DELETE FROM task_memos WHERE id = ?", mid); err != nil {
+				return nil, err
+			}
+			if err := attachments.UnlinkMemo(tx, mid); err != nil {
 				return nil, err
 			}
 			return accepted(fmt.Sprintf("memo %d deleted from T%d", mid, tid), nil), nil
