@@ -1,6 +1,6 @@
 // My turn (#/my-turn, docs/story9-my-turn.md 9-1): everything that waits on the person as cards, most urgent first. A card has its primary
 // button(s) and a menu for the rest; a dialog the daemon does not know has only Open terminal.
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type KeyboardEvent } from 'react';
 import { ago, myTurn, type Card, type CardAction } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAgents, useInbox, useTasks, useWrite } from '@handline/app-data';
@@ -74,7 +74,6 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
   const [box, setBox] = useState(false);
   const [text, setText] = useState('');
   const [back, setBack] = useState(false);
-  const [whole, setWhole] = useState(false);
   // The daemon's own words for a refused write; the buttons stay usable.
   const refused = [answer, prompt, accept, reject, done, read].find((w) => w.isError)?.error;
   const run = (a: CardAction) => {
@@ -108,20 +107,23 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
       data-card={card.key}
       aria-current={selected || undefined}
     >
-      {/* The row opens its whole body: a task in the detail beside the list, a card with no task by unfolding its text. */}
+      {/* A row with a task opens it in the detail beside the list; a card with no task shows its whole text and has nothing to open. */}
       <div
-        role="button"
-        tabIndex={0}
-        className="cursor-pointer rounded-card outline-offset-2"
-        aria-label={card.task != null ? `Open T${card.task}` : 'Show all'}
-        onClick={() => (card.task != null ? onOpen(card.task) : setWhole(!whole))}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            if (card.task != null) onOpen(card.task);
-            else setWhole(!whole);
-          }
-        }}
+        {...(card.task != null
+          ? {
+              role: 'button',
+              tabIndex: 0,
+              'aria-label': `Open T${card.task}`,
+              onClick: () => onOpen(card.task!),
+              onKeyDown: (e: KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onOpen(card.task!);
+                }
+              },
+            }
+          : {})}
+        className={`rounded-card outline-offset-2${card.task != null ? ' cursor-pointer' : ''}`}
       >
         <header className="flex min-w-0 items-baseline gap-2">
           {card.priority <= 3 ? (
@@ -139,7 +141,9 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
           {card.since ? <span>waiting {ago(new Date(card.since).toISOString())}</span> : null}
         </p>
         {card.detail ? (
-          <p className={`m-0 mt-1 text-ink-2 [overflow-wrap:anywhere]${whole ? ' whitespace-pre-wrap' : ' line-clamp-3'}`}>{card.detail}</p>
+          <p className={`m-0 mt-1 text-ink-2 [overflow-wrap:anywhere]${card.task != null ? ' line-clamp-3' : ' whitespace-pre-wrap'}`}>
+            {card.detail}
+          </p>
         ) : null}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">

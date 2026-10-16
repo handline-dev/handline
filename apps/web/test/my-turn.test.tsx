@@ -121,6 +121,8 @@ describe('my turn', () => {
     await until(() => box.querySelector('.tdetail'), 'the task detail');
     expect(box.querySelector('.my-turn-split .my-turn')).not.toBeNull(); // beside the list, not instead of it
     expect(box.querySelector('[data-card="accept:9002"]')!.getAttribute('aria-current')).toBe('true');
+    await until(() => box.querySelector('.tdetail .tbody'), 'the task body');
+    expect(box.querySelector('.tdetail .tbody')!.classList.contains('outline-none')).toBe(true); // focus moves there without a ring
     await click(box.querySelector('.tdetail .back') ?? undefined);
     expect(box.querySelector('.tdetail')).toBeNull();
   });
@@ -141,6 +143,8 @@ describe('my turn', () => {
     const s = await open();
     await until(() => box.querySelector('[data-card="item:3"]'), 'the decision card');
     const c = box.querySelector('[data-card="item:3"]')!;
+    expect(c.querySelector('[role=button]')).toBeNull(); // no task to open, and no clamped text to unfold
+    expect(c.querySelector('.line-clamp-3')).toBeNull();
     await click(button(c, 'Reply'));
     await type(c.querySelector('input')!, 'Yes, relay it.');
     await click(button(c, 'Send reply'));
