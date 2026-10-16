@@ -10,6 +10,7 @@ import { AgentList } from './AgentList.tsx';
 import { AgentPage } from './AgentPage.tsx';
 import { Inbox } from './Inbox.tsx';
 import { NewAgent, type Pending } from './NewAgent.tsx';
+import { SettingsPage } from './Settings.tsx';
 import { Stats } from './Stats.tsx';
 import { Tasks } from './Tasks.tsx';
 import { Worktrees } from './Worktrees.tsx';
@@ -18,7 +19,7 @@ import { Banner } from './parts.tsx';
 const TABS = ['agents', 'inbox', 'tasks', 'accounts', 'stats'] as const;
 type Tab = (typeof TABS)[number];
 
-type Page = 'worktrees' | 'new' | null;
+type Page = 'worktrees' | 'new' | 'settings' | null;
 
 /** `pending` is where New agent was left: with an operation in it, the app starts on that page. */
 export function Home(props: { store: Store; onUnpair: () => void; pending?: Pending }) {
@@ -48,6 +49,8 @@ export function Home(props: { store: Store; onUnpair: () => void; pending?: Pend
           <AgentPage />
         ) : page === 'worktrees' ? (
           <Worktrees onClose={() => setPage(null)} onAgent={toAgent} />
+        ) : page === 'settings' ? (
+          <SettingsPage onClose={() => setPage(null)} onUnpair={props.onUnpair} />
         ) : page === 'new' ? (
           <NewAgent pending={pending} onClose={() => setPage(null)} onAgent={toAgent} />
         ) : tab === 'inbox' ? (
@@ -59,7 +62,7 @@ export function Home(props: { store: Store; onUnpair: () => void; pending?: Pend
         ) : tab === 'stats' ? (
           <Stats />
         ) : (
-          <AgentList onUnpair={props.onUnpair} onPage={setPage} />
+          <AgentList onPage={setPage} />
         )}
       </View>
       {!open && !page && (
