@@ -1684,7 +1684,7 @@ export interface Methods {
     title: string;
     time_box?: Duration;
   };
-  /** The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is the new message. */
+  /** The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found. The message goes to agent whoever the parent's requester or target is, so a row relayed from another agent can be quoted in this agent's chat. request in the result is the new message. */
   parent?: number;
   /** Images from attachment.put to send with this message, drawn after those the body names (x-attachments, flow); an id the body names too counts once, and the two together are at most 6 (bad_request, field attachments when the list goes over). Then body may be empty. An id may be sent again. A malformed id or an unfinished upload is bad_request, field attachments; an image never put or no longer kept is not_found, what attachment. Not with task (bad_request): a brief names its images in its text. */
   attachments?: AttachmentId[];

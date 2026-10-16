@@ -2861,7 +2861,7 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "description": "The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is the new message."
+      "description": "The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found. The message goes to agent whoever the parent's requester or target is, so a row relayed from another agent can be quoted in this agent's chat. request in the result is the new message."
      }
     },
     {
