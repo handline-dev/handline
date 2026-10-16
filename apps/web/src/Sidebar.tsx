@@ -102,9 +102,24 @@ export function Sidebar({
     >
       {/* The shell's drag strip: row as tall as a tab strip, centred on the traffic lights (--h-tabs and --lights-w follow the zoom: shell.ts); `rail-top` is the tests' hook. */}
       <div className="rail-top flex items-center gap-0.5 pt-2 px-2.5 pb-1 shell:h-[var(--h-tabs)] shell:py-0 shell:pl-[var(--lights-w,86px)] shell:[-webkit-app-region:drag]">
-        <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="sidebar" label="Hide the agent list (⌘B)" onClick={onToggle} />
-        <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="back" label="Back (⌘[)" onClick={() => history.back()} />
-        <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="forward" label="Forward (⌘])" onClick={() => history.forward()} />
+        <Button
+          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]"
+          icon="sidebar"
+          label="Hide the agent list (⌘B)"
+          onClick={onToggle}
+        />
+        <Button
+          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]"
+          icon="back"
+          label="Back (⌘[)"
+          onClick={() => history.back()}
+        />
+        <Button
+          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]"
+          icon="forward"
+          label="Forward (⌘])"
+          onClick={() => history.forward()}
+        />
         {unread ? (
           <button
             className="bell ml-auto border-0 rounded-[9px] bg-wait px-1.5 text-label text-canvas shell:[-webkit-app-region:no-drag]"
@@ -117,7 +132,11 @@ export function Sidebar({
         ) : null}
       </div>
       <div className="rail-nav flex flex-wrap gap-0.5 px-1.5">
-        <button className={navOf(onPage === 'my-turn')} aria-current={onPage === 'my-turn' ? 'page' : undefined} onClick={() => void (location.hash = '#/my-turn')}>
+        <button
+          className={navOf(onPage === 'my-turn')}
+          aria-current={onPage === 'my-turn' ? 'page' : undefined}
+          onClick={() => void (location.hash = '#/my-turn')}
+        >
           <Icon name="decision" size={14} aria-hidden /> My turn{myTurn ? ` ${myTurn}` : ''}
         </button>
         <button className={navOf(onInbox)} aria-current={onInbox ? 'page' : undefined} onClick={goInbox}>
@@ -157,36 +176,40 @@ export function Sidebar({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <MenuButton
-          icon="filter"
-          label={hidden.size ? `Filter: ${hidden.size} hidden` : 'Filter'}
-          name="Show agents that are"
-          className={hidden.size ? 'text-primary' : ''}
-        >
-          {RAIL_FILTERS.map((f) => {
-            const on = f.dots.some((d) => !hidden.has(d));
-            const n = f.dots.reduce((t, d) => t + (counts.get(d) ?? 0), 0);
-            return (
-              <MenuCheckItem
-                key={f.id}
-                checked={on}
-                icon={<Mark dot={f.dots[0]!} title={MARKS[f.dots[0]!].label} />}
-                onCheckedChange={() => {
-                  const next = new Set(hidden);
-                  for (const d of f.dots) {
-                    if (on) next.add(d);
-                    else next.delete(d);
-                  }
-                  setting(storage, 'hiddenDots', '').save([...next].join(','));
-                  setHidden(next);
-                }}
-              >
-                <span className="flex-1">{f.label}</span>
-                <span className="muted count">{n}</span>
-              </MenuCheckItem>
-            );
-          })}
-        </MenuButton>
+        <span className="relative inline-flex">
+          <MenuButton icon="filter" label={hidden.size ? `Filter: ${hidden.size} hidden` : 'Filter'} name="Show agents that are">
+            {RAIL_FILTERS.map((f) => {
+              const on = f.dots.every((d) => !hidden.has(d));
+              const n = f.dots.reduce((t, d) => t + (counts.get(d) ?? 0), 0);
+              return (
+                <MenuCheckItem
+                  key={f.id}
+                  checked={on}
+                  icon={<Mark dot={f.dots[0]!} title={MARKS[f.dots[0]!].label} />}
+                  onCheckedChange={() => {
+                    const next = new Set(hidden);
+                    for (const d of f.dots) {
+                      if (on) next.add(d);
+                      else next.delete(d);
+                    }
+                    setting(storage, 'hiddenDots', '').save([...next].join(','));
+                    setHidden(next);
+                  }}
+                >
+                  <span className="flex-1">{f.label}</span>
+                  <span className="muted count">{n}</span>
+                </MenuCheckItem>
+              );
+            })}
+          </MenuButton>
+          {hidden.size ? (
+            <span
+              aria-hidden
+              data-testid="filter-active"
+              className="pointer-events-none absolute right-1 top-1 size-2 rounded-full bg-focus"
+            />
+          ) : null}
+        </span>
       </div>
       <div className="rail-list min-h-0 flex-1 overflow-auto">
         {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
@@ -314,7 +337,9 @@ function Row({
                 title={tip}
               >
                 <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
-                <span className="name h-5 min-w-[4.5rem] flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-5">{rowName(a.name, depth, team)}</span>
+                <span className="name h-5 min-w-[4.5rem] flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-5">
+                  {rowName(a.name, depth, team)}
+                </span>
                 {a.needs_you ? (
                   <span
                     className="needs inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-pill bg-wait px-1.5 text-label text-canvas"
