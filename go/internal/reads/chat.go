@@ -957,7 +957,7 @@ func taskItemOf(ev row) (item map[string]any, task int64, ok bool) {
 	} else if event == "withdrawn" {
 		evidence = p["reason"]
 	}
-	body := map[string]any{"event": event, "task": tid, "request": p["request_id"], "evidence": evidence}
+	body := map[string]any{"event": event, "task": tid, "request": p["request_id"], "evidence": evidence, "who": ev.str("agent")}
 	if change := changeOf(ev.str("kind"), p); change != "" {
 		body["change"] = change
 	}
