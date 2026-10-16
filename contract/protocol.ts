@@ -2046,7 +2046,7 @@ export interface Methods {
   task: number;
   to: string;
   /** Markdown. It may name images (x-attachments, texts); they are the task's while it is open. */
-  note: string;
+  note?: string;
   request_id: RequestId;
 }; result: Accepted };
   "task.done": { params: {
@@ -2155,7 +2155,7 @@ export interface Methods {
   "task.release": { params: {
   task: number;
   to?: "queued" | "draft";
-  reason: string;
+  reason?: string;
   request_id: RequestId;
 }; result: Accepted };
   "task.discard": { params: {

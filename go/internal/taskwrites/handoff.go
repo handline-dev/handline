@@ -45,8 +45,6 @@ func handoffRefusal(t *task, me, to, note string, agents []string) string {
 	switch {
 	case t.done() || t.DiscardedBy.Valid && t.DiscardedBy.String != "":
 		return fmt.Sprintf("task T%d is already finished - nothing to hand over", t.ID)
-	case note == "":
-		return "a handoff needs a note: what changed, and what the receiver should know"
 	case to != human && !contains(agents, to):
 		return "no agent named " + to
 	case to == t.Owner:
@@ -74,10 +72,7 @@ func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 		if err != nil {
 			return nil, err
 		}
-		note, err := text(p, "note")
-		if err != nil {
-			return nil, err
-		}
+		note, _ := p["note"].(string)
 		to, err := text(p, "to")
 		if err != nil {
 			return nil, err

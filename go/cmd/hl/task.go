@@ -272,10 +272,16 @@ func taskHandoff(c *hlclient.Client, args []string) (int, bool) {
 		inline = &p.pos[2]
 	}
 	file, _ := p.opt("--file")
-	note, why := textArg(inline, file, "note")
-	if why != "" {
+	note := ""
+	if inline == nil && file == "" { // a note is optional: none given is none sent
+		if !hlclient.StdinIsTerminal() {
+			note = readStdin()
+		}
+	} else if text, why := textArg(inline, file, "note"); why != "" {
 		fmt.Println(why)
 		return 1, true
+	} else {
+		note = text
 	}
 	return said(c.Write("task.handoff", map[string]any{"task": tid, "to": p.pos[1], "note": note})), true
 }
@@ -558,17 +564,17 @@ func taskDone(c *hlclient.Client, args []string) (int, bool) {
 }
 
 func taskReopen(c *hlclient.Client, args []string) (int, bool) {
-	return taskWithReason(c, args, "reopen", "reopen a task", "task.reopen", "note")
+	return taskWithReason(c, args, "reopen", "reopen a task", "task.reopen", "note", true)
 }
 
 func taskDiscard(c *hlclient.Client, args []string) (int, bool) {
-	return taskWithReason(c, args, "discard", "discard a task", "task.discard", "reason")
+	return taskWithReason(c, args, "discard", "discard a task", "task.discard", "reason", false)
 }
 
-// taskWithReason is a subcommand taking T<n> and a reason, sent as key.
-func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key string) (int, bool) {
+// taskWithReason is a subcommand taking T<n> and a reason, sent as key; with optional the reason may be left out.
+func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key string, optional bool) (int, bool) {
 	p, ok := parse(args, nil, nil, nil)
-	if !ok || len(p.pos) != 2 {
+	if !ok || len(p.pos) > 2 || len(p.pos) < 2 && !(optional && len(p.pos) == 1) {
 		return 0, false
 	}
 	tid, ok := taskRef(p.pos[0])
@@ -579,7 +585,11 @@ func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key st
 	if !asking(c, verb) {
 		return 1, true
 	}
-	return said(c.Write(method, map[string]any{"task": tid, key: p.pos[1]})), true
+	params := map[string]any{"task": tid}
+	if len(p.pos) == 2 {
+		params[key] = p.pos[1]
+	}
+	return said(c.Write(method, params)), true
 }
 
 func taskAccept(c *hlclient.Client, args []string) (int, bool) {
@@ -595,9 +605,9 @@ func taskAccept(c *hlclient.Client, args []string) (int, bool) {
 }
 
 func taskReject(c *hlclient.Client, args []string) (int, bool) {
-	return taskWithReason(c, args, "reject", "reject a task", "task.reject", "note")
+	return taskWithReason(c, args, "reject", "reject a task", "task.reject", "note", false)
 }
 
 func taskRelease(c *hlclient.Client, args []string) (int, bool) {
-	return taskWithReason(c, args, "release", "release a task", "task.release", "reason")
+	return taskWithReason(c, args, "release", "release a task", "task.release", "reason", true)
 }

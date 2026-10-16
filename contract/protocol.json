@@ -5093,7 +5093,7 @@
     },
     {
      "name": "note",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string",
       "description": "Markdown. It may name images (x-attachments, texts); they are the task's while it is open."
@@ -5978,7 +5978,7 @@
     },
     {
      "name": "reason",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string"
      }
