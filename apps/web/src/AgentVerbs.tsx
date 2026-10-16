@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { askOf, VERBS, verbsOf, type Verb } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useSelector } from '@handline/app-react';
-import { useAccounts, useAgentDetail, useAgents, classify, sentence, useVerbRun } from '@handline/app-data';
+import { useAccounts, useAgentDetail, useAgents, classify, sentence, useRetireAgent, useVerbRun } from '@handline/app-data';
 import { Button, Sheet, SheetActions } from './ui/index.ts';
 
 /** Whether the daemon lists the verb's method; a verb it does not list is left out of the menu. */
@@ -93,6 +93,43 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
           />
         ) : null}
         <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" onClick={onClose} />
+      </SheetActions>
+    </Sheet>
+  );
+}
+
+/** Delete agent: the inline sheet in danger style says what goes and what stays; a refusal (a running session, agents under it) shows as the daemon says it. */
+export function DeleteSheet({ a, onClose }: { a: AgentView; onClose: () => void }) {
+  const retire = useRetireAgent(a.name);
+  const [refused, setRefused] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', esc);
+    return () => window.removeEventListener('keydown', esc);
+  }, [onClose]);
+  const go = () => {
+    setBusy(true);
+    setRefused(null);
+    retire({
+      onSuccess: onClose,
+      onError: (e) => {
+        setBusy(false);
+        setRefused(sentence(classify(e)));
+      },
+    });
+  };
+  return (
+    <Sheet role="alertdialog" aria-label={`Delete ${a.name}`} danger>
+      <strong>Delete {a.name}?</strong>
+      <span className="muted">
+        Its team entry, schedule and keys go, and its folder is moved to the archive. Past messages, tasks, events and the git worktree
+        stay.
+      </span>
+      {refused ? <span role="alert">{refused}</span> : null}
+      <SheetActions>
+        <Button variant="solid" label="Delete" className="max-sm:min-h-12 max-sm:flex-1" disabled={busy} onClick={go} />
+        <Button variant="outline" label="Cancel" autoFocus className="max-sm:min-h-12 max-sm:flex-1" onClick={onClose} />
       </SheetActions>
     </Sheet>
   );

@@ -1,9 +1,9 @@
-package structured
+package claudecli
 
 import (
 	"context"
 	"errors"
-	"sync"
+	"github.com/handline/handline/go/internal/delivery"
 	"testing"
 	"time"
 )
@@ -25,58 +25,22 @@ func TestAFailedCloseIsNotReportedAsDoneByTheNextCall(t *testing.T) {
 	}
 }
 
-func TestTwoStartsForOneAgentRunOneCLI(t *testing.T) {
-	m := &Manager{}
-	l := launch(t)
-	var wg sync.WaitGroup
-	errs := make(chan error, 2)
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, err := m.Start(context.Background(), "a", l)
-			errs <- err
-		}()
-	}
-	wg.Wait()
-	close(errs)
-	ok := 0
-	for err := range errs {
-		if err == nil {
-			ok++
-		}
-	}
-	t.Cleanup(func() { m.Stop("a") })
-	if ok != 1 {
-		t.Fatalf("%d Starts succeeded for one agent", ok)
-	}
-	// An exited session is replaced, and its group proven gone first.
-	old := m.Get("a")
-	old.Close()
-	if _, err := m.Start(context.Background(), "a", l); err != nil {
-		t.Fatalf("restart after exit: %v", err)
-	}
-	if m.Get("a") == old {
-		t.Fatal("the exited session was kept")
-	}
-}
-
 func TestAMessageTheCLIQueuedAndThenCancelledIsUnknown(t *testing.T) {
 	l := launch(t)
 	l.Env = append(l.Env, "FAKE_LIFECYCLE_ONLY=1")
 	t.Setenv("FAKE_LIFECYCLE_ONLY", "1")
-	led := &MemLedger{}
+	led := &delivery.MemLedger{}
 	l.Ledger = led
 	s, _ := openWith(t, l, Handlers{})
-	r, _ := s.Send("op-1", "hello", Now)
+	r, _ := s.Send("op-1", "hello", delivery.Now)
 	if err := s.WaitConfirmed(ctx(t), "op-1"); err != nil {
 		t.Fatal(err)
 	}
 	s.handle(map[string]any{"type": "command_lifecycle", "command_uuid": r.UUID, "state": "cancelled"})
-	if again, _ := s.Send("op-1", "hello", Now); again.State != Unknown {
+	if again, _ := s.Send("op-1", "hello", delivery.Now); again.State != delivery.Unknown {
 		t.Fatalf("a dropped message is %v, not unknown", again.State)
 	}
-	if got, _ := led.Get("op-1"); got.State != Unknown {
+	if got, _ := led.Get("op-1"); got.State != delivery.Unknown {
 		t.Fatalf("ledger: %+v", got)
 	}
 }
@@ -89,13 +53,13 @@ func TestALostEchoBecomesUnknownAndFreesTheCounts(t *testing.T) {
 	l.Env = append(l.Env, "FAKE_SILENT=1")
 	t.Setenv("FAKE_SILENT", "1")
 	s, _ := openWith(t, l, Handlers{})
-	if _, err := s.Send("op-1", "hello", Now); err != nil {
+	if _, err := s.Send("op-1", "hello", delivery.Now); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.WaitConfirmed(ctx(t), "op-1"); err == nil {
 		t.Fatal("a message nobody acknowledged was confirmed")
 	}
-	if r, _ := s.Send("op-1", "hello", Now); r.State != Unknown {
+	if r, _ := s.Send("op-1", "hello", delivery.Now); r.State != delivery.Unknown {
 		t.Fatalf("%v", r.State)
 	}
 	s.mu.Lock()
@@ -107,12 +71,12 @@ func TestALostEchoBecomesUnknownAndFreesTheCounts(t *testing.T) {
 }
 
 func TestAWriteErrorGivesBackTheCountsAndLeavesTheMessageUnknown(t *testing.T) {
-	led := &MemLedger{}
+	led := &delivery.MemLedger{}
 	l := launch(t)
 	l.Ledger = led
 	s, _ := openWith(t, l, Handlers{})
 	s.in.Close() // the pipe is gone: the write fails
-	if _, err := s.Send("op-1", "hello", Now); err == nil {
+	if _, err := s.Send("op-1", "hello", delivery.Now); err == nil {
 		t.Fatal("a failed write returned a receipt")
 	}
 	s.mu.Lock()
@@ -121,27 +85,8 @@ func TestAWriteErrorGivesBackTheCountsAndLeavesTheMessageUnknown(t *testing.T) {
 	if n != 0 || busy {
 		t.Fatalf("echoing %d busy %v", n, busy)
 	}
-	if got, _ := led.Get("op-1"); got.State != Unknown {
+	if got, _ := led.Get("op-1"); got.State != delivery.Unknown {
 		t.Fatalf("ledger: %+v", got)
-	}
-}
-
-func TestAnAnswerAfterTheTimeoutIsRefusedAndReportsNothing(t *testing.T) {
-	b, _, ev := broker(t)
-	b.Timeout = 100 * time.Millisecond
-	done := make(chan Decision, 1)
-	go func() { d, _ := b.CanUseTool("a")(context.Background(), bash("ls")); done <- d }()
-	fp := bash("ls").ToolUse // the prompt's id is its call's: no poll for a row that a short timeout may close before it is seen
-	if d := <-done; d.Allow {
-		t.Fatalf("%+v", d)
-	}
-	if err := b.Answer("a", fp, true, "", "casey"); !errors.Is(err, ErrNoPrompt) {
-		t.Fatalf("an answer to a prompt that already timed out: %v", err)
-	}
-	for _, e := range ev.snapshot() {
-		if e.Type == "permission_answer" && e.Data["allow"] == true {
-			t.Fatal("an allow was reported for a prompt that was denied")
-		}
 	}
 }
 
@@ -155,7 +100,7 @@ func TestAHandlerThatIgnoresItsContextIsDeniedAtTheTimeout(t *testing.T) {
 		<-stuck
 		return Decision{Allow: true}, nil
 	}})
-	if _, err := s.Send("op-1", "NEEDPERM", Now); err != nil {
+	if _, err := s.Send("op-1", "NEEDPERM", delivery.Now); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, assistantText(ev), "tool deny")

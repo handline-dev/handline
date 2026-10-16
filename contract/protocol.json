@@ -1293,6 +1293,47 @@
    ]
   },
   {
+   "name": "agent.retire",
+   "summary": "Retire an agent, as an approved HR retire does: it leaves team.yaml (team.yaml.bak keeps the old one), its scheduling row is deleted, its folder (ROLE.md, memory, settings) moves to agents/archive/<date>-<name>, its build caches are removed and its sealed key is forgotten. Its past messages, requests and events stay, and its git worktree is left as it is. Founder only. Refused (gate state) while the agent has a session running, or while another agent reports to it or hangs under its name (<agent>.<rest>): the reason names them. An agent the daemon does not have is not_found.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "state"
+   ]
+  },
+  {
    "name": "agent.create",
    "summary": "Register a new agent, give it a worktree on a branch of a repo, and start it there, as hl spawn does. A long-running operation: the reply carries the operation id, and the operations topic and operation.get follow it to done or failed. Founder only. Parameters are checked before anything is looked up, in this order: request_id, name, role, effort, account, then the repo, the parent, the name against its parent, and whether the name is used.",
    "description": "The operation has kind agent.create and its agent is the new name from the first event. steps_total may be null while it is unknown; a client shows step as the daemon sent it and invents none. When it is done, result is {agent, registered: true}. When it failed, result is {agent, registered}: registered says whether the agent was added to the team before the failure, so a failed operation can leave a registered agent that is not started; nothing is cleaned up. A name already used by an agent is refused (gate state) and no operation starts. A name with a parent must be '<parent>.<rest>'; anything else is bad_request, field name. base omitted means the daemon's default branch name, which is main today; a client that knows the repo's default_branch sends it.",
@@ -5485,6 +5526,22 @@
      "schema": {
       "type": "integer"
      }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "With limit: the page just older than this memo id."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "1 to 200. The newest limit memos, or the limit just older than before; absent: every memo."
+     }
     }
    ],
    "result": {
@@ -5497,10 +5554,15 @@
        "items": {
         "$ref": "#/components/schemas/Memo"
        }
+      },
+      "more": {
+       "type": "boolean",
+       "description": "There are older memos than the page."
       }
      },
      "required": [
-      "memos"
+      "memos",
+      "more"
      ]
     }
    },

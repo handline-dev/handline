@@ -2,6 +2,7 @@
 import { asks, verbsOf, type Verb, type VerbId } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useAgentDetail, useVerbMark, useVerbRun } from '@handline/app-data';
+import { useSelector } from '@handline/app-react';
 import { useServed } from './AgentVerbs.tsx';
 import { Button, Icon, MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger, type At, type IconName } from './ui/index.ts';
 import { shell } from './shell.ts';
@@ -36,11 +37,12 @@ export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (a
 }
 
 /** The items of the agent's menu: Open in (the folder, on the desktop), the copies, and the session verbs its state allows and the daemon serves. */
-export function AgentMenu({ agent: a, onAsk }: { agent: AgentView; onAsk: (v: Verb) => void }) {
+export function AgentMenu({ agent: a, onAsk, onDelete }: { agent: AgentView; onAsk: (v: Verb) => void; onDelete: () => void }) {
   const agent = a.name;
   const d = useAgentDetail(agent).data;
   const run = useVerbRun(agent);
   const served = useServed();
+  const canRetire = useSelector((s) => s.served).has('agent.retire');
   const busy = !!useVerbMark(agent);
   const open = shell('openPath');
   if (!d) return null;
@@ -75,6 +77,14 @@ export function AgentMenu({ agent: a, onAsk }: { agent: AgentView; onAsk: (v: Ve
           {v.label}
         </MenuItem>
       ))}
+      {canRetire ? (
+        <>
+          <MenuSeparator />
+          <MenuItem icon="close" danger disabled={busy} onSelect={onDelete}>
+            Delete agent
+          </MenuItem>
+        </>
+      ) : null}
     </>
   );
 }

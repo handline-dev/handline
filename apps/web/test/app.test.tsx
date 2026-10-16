@@ -295,13 +295,13 @@ describe('the workspace', () => {
 });
 
 describe('the sidebar', () => {
-  it('shows no Start on a row, and the row menu keeps only Open in, the copies and what stops a turn', async () => {
+  it('shows no Start on a row, and the row menu keeps only Open in, the copies, what stops a turn and Delete agent', async () => {
     await mount(TB);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     expect($$('.row-actions .ui-btn').some((b) => /Resume|Start/.test(text(b)))).toBe(false);
     await click($('.row-actions [aria-haspopup="menu"]')!);
     await until(() => menuItems().length, 'the row menu');
-    expect(menuItems()).toEqual(['Copy path', 'Copy worktree name']);
+    expect(menuItems()).toEqual(['Copy path', 'Copy worktree name', 'Delete agent']);
   });
 
   it('keeps the selected row short (no model, account or detail block there)', async () => {

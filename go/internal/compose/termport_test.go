@@ -104,7 +104,7 @@ func gitRepo(t *testing.T) string {
 func TestATerminalAgentIsStartedInANewWorktreeThroughTheHostAndItsHandleKept(t *testing.T) {
 	ft := newFakeTerminals()
 	p, lc, _, _ := wiredWith(t, ft)
-	d := p.Sink.DB
+	d := p.db
 	repo, _ := filepath.EvalSymlinks(gitRepo(t))
 	// the session `hl launch` would start: its record under the account's config directory, for a process that is running
 	dir, _ := team.AccountConfigDir(p.home, "a1")
@@ -152,7 +152,7 @@ func TestAClosedTerminalAgentIsEndedAtItsShellAndItsTerminalClosed(t *testing.T)
 func TestAClosedTerminalAgentIsWokenInANewTerminalResumingItsSession(t *testing.T) {
 	ft := newFakeTerminals()
 	p, lc, _, _ := wiredWith(t, ft)
-	d := p.Sink.DB
+	d := p.db
 	wt, _ := filepath.EvalSymlinks(t.TempDir())
 	dir, _ := team.AccountConfigDir(p.home, "a1")
 	if err := dbpkg.SetAccount(d, "bob", "a1", "recorded"); err != nil {

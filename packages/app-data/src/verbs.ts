@@ -31,6 +31,12 @@ export function useVerbRun(agent: string) {
   };
 }
 
+/** Retires the agent (the founder's Delete agent): the daemon refuses while it has a running session or others hang under it, and says why. */
+export function useRetireAgent(agent: string) {
+  const retire = useWrite('agent.retire', agent);
+  return (on?: VerbDone) => retire.mutate({ agent }, on);
+}
+
 /** The gerund of the verb in flight on this agent ("parking…"), for the state cell; null when none. `skip` leaves out verbs the caller marks itself. */
 export function useVerbMark(agent: string, skip: VerbId[] = []): string | null {
   const mine = <T extends { agent: string }>(l: T[]) => l.filter((v) => v.agent === agent);

@@ -22,9 +22,10 @@ import (
 	"github.com/handline/handline/go/internal/usage"
 )
 
-// launch is `hl launch <agent>` (session/launch.exec_agent) once the founder switched it on (`hl go launch on`): build
-// the session's command line and become it. A Claude agent under tmux is the Go hl's; another vendor, or Orca, whose
-// Runs a launch joins the agent to, is Python's.
+const launchUsage = "usage: hl launch [--force] [--account ACCOUNT] [--prompt-file PROMPT_FILE] [--why WHY] [--by BY] agent [extra ...]"
+
+// launch is `hl launch <agent>` (session/launch.exec_agent): build the session's command line and become it. Only a
+// Claude agent under tmux is launched: another vendor (opencode) or terminal (Orca) is refused, as nothing runs either.
 func launch(c *hlclient.Client, args []string) (int, bool) {
 	before, extra := args, []string(nil)
 	for i, a := range args {
@@ -34,18 +35,24 @@ func launch(c *hlclient.Client, args []string) (int, bool) {
 		}
 	}
 	p, ok := parse(before, []string{"--account", "--prompt-file", "--why", "--by"}, []string{"--force"}, nil)
-	if !ok || len(p.pos) == 0 || !goSwitchOn(c.Home, "go_launch") || term.ConfiguredName(c.Home) != "tmux" {
-		return 0, false
+	if !ok || len(p.pos) == 0 {
+		return badArgs(launchUsage, before), true
 	}
 	agent := p.pos[0]
 	extra = append(p.pos[1:], extra...)
+	if t := term.ConfiguredName(c.Home); t != "tmux" {
+		fmt.Fprintf(os.Stderr, "hl launch: the terminal is %s; this hl launches only under tmux\n", t)
+		return 1, true
+	}
 	roster := team.NewRoster(c.Home)
 	cfg, err := roster.Read(agent)
 	if err != nil {
-		return 0, false // Python says what is wrong with it
+		fmt.Fprintf(os.Stderr, "hl launch: %v\n", err)
+		return 1, true
 	}
 	if vendor, _, _ := team.Parts(cfg); vendor != "claude" {
-		return 0, false
+		fmt.Fprintf(os.Stderr, "hl launch: %s runs vendor %s, which this hl does not launch\n", agent, vendor)
+		return 1, true
 	}
 	d, err := store.Open(paths.DBFile(c.Home))
 	if err != nil {
@@ -106,7 +113,7 @@ func launcher(home string, d *sql.DB, roster *team.Roster) *lifecycle.Launcher {
 	}}
 }
 
-// launchVendors is lifecycle.VendorsPort with the Claude driver; another vendor is refused, as launch leaves it to Python.
+// launchVendors is lifecycle.VendorsPort with the Claude driver; another vendor is refused, as launch refuses it.
 type launchVendors struct {
 	home   string
 	roster *team.Roster

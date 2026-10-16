@@ -1,4 +1,4 @@
-package structured
+package claudecli
 
 import (
 	"bufio"
@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/handline/handline/go/internal/delivery"
 	"os"
 	"os/exec"
 	"strings"
@@ -154,8 +155,8 @@ func isEcho(uid string) func(map[string]any) bool {
 
 func TestAMessageIsDeliveredNowAndConfirmedByItsEcho(t *testing.T) {
 	s, ev := open(t, Handlers{})
-	r, err := s.Send("op-1", "hello", Now)
-	if err != nil || r.State != Sent {
+	r, err := s.Send("op-1", "hello", delivery.Now)
+	if err != nil || r.State != delivery.Sent {
 		t.Fatalf("%v %v", r, err)
 	}
 	if err := s.WaitConfirmed(ctx(t), "op-1"); err != nil {
@@ -168,8 +169,8 @@ func TestAMessageIsDeliveredNowAndConfirmedByItsEcho(t *testing.T) {
 
 func TestARetryWithTheSameOperationIdIsNeverSentTwice(t *testing.T) {
 	s, ev := open(t, Handlers{})
-	a, _ := s.Send("op-1", "hello", Now)
-	b, err := s.Send("op-1", "hello", Now)
+	a, _ := s.Send("op-1", "hello", delivery.Now)
+	b, err := s.Send("op-1", "hello", delivery.Now)
 	if err != nil || a.UUID != b.UUID {
 		t.Fatalf("%v %v", b, err)
 	}
@@ -182,10 +183,10 @@ func TestARetryWithTheSameOperationIdIsNeverSentTwice(t *testing.T) {
 
 func TestAQueuedMessageWaitsForTheTurnToEndAndThenGoes(t *testing.T) {
 	s, ev := open(t, Handlers{})
-	s.Send("op-1", "HOLD", Now)
+	s.Send("op-1", "HOLD", delivery.Now)
 	s.WaitConfirmed(ctx(t), "op-1")
-	q, err := s.Send("op-2", "later", Queue)
-	if err != nil || q.State != Queued {
+	q, err := s.Send("op-2", "later", delivery.Queue)
+	if err != nil || q.State != delivery.Queued {
 		t.Fatalf("a queue send behind a running turn is held: %v %v", q, err)
 	}
 	time.Sleep(150 * time.Millisecond)
@@ -202,31 +203,16 @@ func TestAQueuedMessageWaitsForTheTurnToEndAndThenGoes(t *testing.T) {
 
 func TestANowMessageDuringATurnIsWrittenAtOnce(t *testing.T) {
 	s, _ := open(t, Handlers{})
-	s.Send("op-1", "HOLD", Now)
+	s.Send("op-1", "HOLD", delivery.Now)
 	s.WaitConfirmed(ctx(t), "op-1")
-	r, _ := s.Send("op-2", "steer", Now)
-	if r.State != Sent {
+	r, _ := s.Send("op-2", "steer", delivery.Now)
+	if r.State != delivery.Sent {
 		t.Fatalf("%v", r)
 	}
 	if err := s.WaitConfirmed(ctx(t), "op-2"); err != nil {
 		t.Fatal(err)
 	}
 	s.Interrupt(ctx(t))
-}
-
-func assistantText(ev *events) func() string {
-	return func() string {
-		ev.mu.Lock()
-		defer ev.mu.Unlock()
-		for _, m := range ev.all {
-			if m["type"] == "assistant" {
-				if t := Translate(m); len(t) > 0 {
-					return t[0].Data["text"].(string)
-				}
-			}
-		}
-		return ""
-	}
 }
 
 func waitFor(t *testing.T, f func() string, want string) {
@@ -246,7 +232,7 @@ func TestAPermissionPromptIsAnsweredByTheCallback(t *testing.T) {
 		got = r
 		return Decision{Allow: true}, nil
 	}})
-	s.Send("op-1", "NEEDPERM", Now)
+	s.Send("op-1", "NEEDPERM", delivery.Now)
 	waitFor(t, assistantText(ev), "tool allow")
 	if got.ToolName != "Bash" || got.Input["command"] != "ls" || got.ToolUse != "tu1" {
 		t.Fatalf("%+v", got)
@@ -255,13 +241,13 @@ func TestAPermissionPromptIsAnsweredByTheCallback(t *testing.T) {
 
 func TestAPermissionPromptIsDeniedWhenNoOneAnswersOrTheCallbackFails(t *testing.T) {
 	s, ev := open(t, Handlers{})
-	s.Send("op-1", "NEEDPERM", Now)
+	s.Send("op-1", "NEEDPERM", delivery.Now)
 	waitFor(t, assistantText(ev), "tool deny")
 
 	s2, ev2 := open(t, Handlers{CanUseTool: func(context.Context, ToolRequest) (Decision, error) {
 		return Decision{Allow: true}, fmt.Errorf("boom")
 	}})
-	s2.Send("op-1", "NEEDPERM", Now)
+	s2.Send("op-1", "NEEDPERM", delivery.Now)
 	waitFor(t, assistantText(ev2), "tool deny")
 }
 
@@ -285,8 +271,8 @@ func TestAnUnpinnedCLIIsRefused(t *testing.T) {
 }
 
 func TestAnOperationIdIsAValidUUIDAndTheSameEachTime(t *testing.T) {
-	a := UUIDFor("x")
-	if a != UUIDFor("x") || a == UUIDFor("y") || len(a) != 36 || a[14] != '5' {
+	a := delivery.UUIDFor("x")
+	if a != delivery.UUIDFor("x") || a == delivery.UUIDFor("y") || len(a) != 36 || a[14] != '5' {
 		t.Fatal(a)
 	}
 }
@@ -305,5 +291,27 @@ func TestAStartThatCannotBeRecordedKillsTheCLIAndOpenFails(t *testing.T) {
 	}
 	if ended {
 		t.Fatal("a session that never opened is told ended")
+	}
+}
+
+// assistantText is the text of the first assistant frame the session reported.
+func assistantText(ev *events) func() string {
+	return func() string {
+		ev.mu.Lock()
+		defer ev.mu.Unlock()
+		for _, m := range ev.all {
+			if m["type"] != "assistant" {
+				continue
+			}
+			msg, _ := m["message"].(map[string]any)
+			blocks, _ := msg["content"].([]any)
+			for _, b := range blocks {
+				if b, _ := b.(map[string]any); b["type"] == "text" {
+					text, _ := b["text"].(string)
+					return text
+				}
+			}
+		}
+		return ""
 	}
 }

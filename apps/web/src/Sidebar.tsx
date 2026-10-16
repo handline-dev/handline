@@ -20,7 +20,7 @@ import type { AgentView } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { useAgents, useUnreached, useServes, useUnread, useVerbMark } from '@handline/app-data';
 import { useMyTurn } from './MyTurn.tsx';
-import { VerbSheet } from './AgentVerbs.tsx';
+import { DeleteSheet, VerbSheet } from './AgentVerbs.tsx';
 import { useHrCount } from './TeamPage.tsx';
 import { Badges } from './Badges.tsx';
 import { Mark, MARKS } from './RailIcons.tsx';
@@ -269,6 +269,7 @@ function Row({
   const store = useStore();
   const dot = dotOf(a);
   const [ask, setAsk] = useState<Verb | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [hot, setHot] = useState(false); // the pointer or focus is on the row: its actions show, and only then do they cost a detail read
   const [menuOpen, setMenuOpen] = useState(false);
   const mark = useVerbMark(a.name);
@@ -380,10 +381,11 @@ function Row({
           </div>
         </MenuTrigger>
         <MenuContent>
-          <AgentMenu agent={a} onAsk={setAsk} />
+          <AgentMenu agent={a} onAsk={setAsk} onDelete={() => setDeleting(true)} />
         </MenuContent>
       </Menu>
       {ask ? <VerbSheet a={a} verb={ask} onClose={() => setAsk(null)} /> : null}
+      {deleting ? <DeleteSheet a={a} onClose={() => setDeleting(false)} /> : null}
     </>
   );
 }
