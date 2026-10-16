@@ -22,7 +22,11 @@ export interface ShellApi {
   openPath?(a: {
     path: string;
     agent?: string;
-  }): Promise<{ ok: true; how: 'opened' | 'revealed' } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
+    /** Branch names the message holds: a repo path opens the version on one of them (read-only), else the worktree's file, else main, else GitHub. */
+    branches?: string[];
+  }): Promise<{ ok: true; how: 'opened' | 'revealed' | 'branch' | 'main' | 'github' } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
+  /** Open #N as that pull request on GitHub; the repo is the agent's worktree's origin. Absent in a shell that lacks it. */
+  openPr?(a: { number: number; agent?: string }): Promise<{ ok: true; how: 'github' } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
   /** Edit text in the person's editor and read it back. Absent in a shell that lacks it. */
   compose?(a: {
     text?: string;

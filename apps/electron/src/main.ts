@@ -9,10 +9,11 @@ import { isDebugWindow } from './debug-window.ts';
 import { Desk } from './desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
 import { serveCapture } from './capture.ts';
+import { gitView, scratch } from './git-view.ts';
 import { Opener } from './open.ts';
 import { followMain, takeRoute } from './follow-app.ts';
 import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from './mode.ts';
-import { ownDaemon, type Own } from './own.ts';
+import { ownDaemon, readFounderKey, type Own } from './own.ts';
 import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from './tailnet.ts';
 import { Connection, Page, CHANNELS } from './bridge.ts';
 import { serveDir } from './serve.ts';
@@ -183,7 +184,8 @@ if (!app.requestSingleInstanceLock()) {
     const web = await pageServer();
     const origin = new URL(web.url).origin;
     const page = new Page(origin);
-    const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket) });
+    // The shell's own calls (an agent's worktree, the badge) are the founder's: hello carries the key from the protected store, as pairing does.
+    const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: () => readFounderKey(home) });
     // Follow-main mode (pnpm app:main): the app runs from its own checkout of main and offers to restart when main moves.
     const following = env('FOLLOW') ? followMain({ dir: root, window: () => win, changed: () => own.redraw() }) : null;
     const f = following?.follower;
@@ -219,9 +221,13 @@ if (!app.requestSingleInstanceLock()) {
       worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,
       open: (p) => shell.openPath(p),
       reveal: (p) => shell.showItemInFolder(p),
+      git: gitView,
+      openExternal: (url) => shell.openExternal(url),
+      scratch: (name, bytes) => scratch(app.getPath('temp'), name, bytes),
     });
     const composer = new Composer(origin, { env: editorEnv, tmp: app.getPath('temp') });
     ipcMain.handle(CHANNELS.openPath, (e, arg) => opener.openPath(e, arg));
+    ipcMain.handle(CHANNELS.openPr, (e, arg) => opener.openPr(e, arg));
     ipcMain.handle(CHANNELS.compose, (e, arg) => composer.compose(e, arg));
     ipcMain.handle(CHANNELS.cancelCompose, (e, arg) => composer.cancel(e, arg));
     app.on('quit', () => composer.dispose());
