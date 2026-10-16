@@ -102,7 +102,7 @@ func TestSweepNoticesRunsTheStoppedAndDigestSweeps(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	db.AddRequest(r.DB, db.NewRequest{Requester: db.NoticeRequester, Target: "bob", Body: "T3 done by alice: ok", Kind: "say", Notice: true})
-	r.must(r.SweepNotices(r.clock))
+	r.must(r.SweepNotices(r.clock + 900))
 	if !strings.Contains(r.term.last(), "Result digest - 1 result") {
 		t.Fatalf("%q", r.term.last())
 	}

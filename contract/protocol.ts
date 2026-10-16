@@ -1010,7 +1010,7 @@ export type SettingsValues = {
   bg_grace_s?: number;
   /** How often an agent with background work is asked which to stop. Per agent. */
   bg_check_s?: number;
-  /** Seconds after the first waiting result before the agent is woken once with a digest. Per agent. */
+  /** Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. */
   notice_digest_s?: number;
   /** Backstop for a stop-wait. */
   stop_wait_backstop_s?: number;
@@ -1040,7 +1040,7 @@ export type SettingsChanges = {
   bg_grace_s?: number | null;
   /** How often an agent with background work is asked which to stop. Per agent. null removes the key (back to the default). */
   bg_check_s?: number | null;
-  /** Seconds after the first waiting result before the agent is woken once with a digest. Per agent. null removes the key (back to the default). */
+  /** Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. null removes the key (back to the default). */
   notice_digest_s?: number | null;
   /** Backstop for a stop-wait. null removes the key (back to the default). */
   stop_wait_backstop_s?: number | null;
