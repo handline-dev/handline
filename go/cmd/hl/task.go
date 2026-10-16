@@ -277,6 +277,12 @@ func taskHandoff(c *hlclient.Client, args []string) (int, bool) {
 		if !hlclient.StdinIsTerminal() {
 			note = readStdin()
 		}
+	} else if file == "-" || inline != nil && *inline == "-" { // an empty stdin is an empty note
+		if file != "" && inline != nil {
+			fmt.Println("give note inline or with --file, not both")
+			return 1, true
+		}
+		note = readStdin()
 	} else if text, why := textArg(inline, file, "note"); why != "" {
 		fmt.Println(why)
 		return 1, true

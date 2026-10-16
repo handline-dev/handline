@@ -71,3 +71,14 @@ func TestHandoffMovesTheTaskToItsNewOwnerWithOneRequestAndRetiresTheOldOnes(t *t
 		t.Fatalf("a handoff needs no note: %v", r[0])
 	}
 }
+
+func TestHandoffRefusesANoteThatIsNotText(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, sent_at) VALUES(1, 'build', 'worker', 'manager', 1, 1)",
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('worker', 'IDLE', 1, 1)")
+	r := call(t, mk("worker", &fakeTeller{}), `{"jsonrpc":"2.0","id":2,"method":"task.handoff","params":{"task":1,"to":"manager","note":7,"request_id":"h1"}}`)
+	if e := errText(r[0]); e != "note is text" {
+		t.Fatalf("%v", r[0])
+	}
+}

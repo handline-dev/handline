@@ -72,7 +72,10 @@ func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 		if err != nil {
 			return nil, err
 		}
-		note, _ := p["note"].(string)
+		note, ok := p["note"].(string)
+		if p["note"] != nil && !ok {
+			return nil, badParam("note is text", "note")
+		}
 		to, err := text(p, "to")
 		if err != nil {
 			return nil, err

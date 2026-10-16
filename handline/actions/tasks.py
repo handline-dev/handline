@@ -1621,8 +1621,6 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     new_body, body_rid = None, None
     if body is not None:
         text = textsafe.text(body).strip()
-        if not text:
-            return False, "a task needs a body: the work itself, what done looks like"
         first = _brief_of(con, row)
         if first is None:
             return False, (f"task T{tid} has no brief its opener wrote to edit - a task begun from a "
