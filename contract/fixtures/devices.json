@@ -56,7 +56,7 @@
   {
    "name": "devices.pair_and_redeem_once",
    "spec": "device.redeem",
-   "about": "A code from device.pair redeems once for a token; a second redeem of the same code is refused (pairing_code); the token's hello is a member device; devices.list shows it.",
+   "about": "A code from device.pair redeems once for a token; a second redeem of the same code is refused (pairing_code); the token's hello is the founder (a paired device is the founder); devices.list shows it.",
    "as": "unpaired",
    "with": {
     "admin": "founder"
@@ -164,7 +164,7 @@
       }
      },
      "result": {
-      "role": "member",
+      "role": "founder",
       "caller": {
        "kind": "device",
        "device": "{{device}}"
@@ -179,7 +179,7 @@
       "params": {}
      },
      "result": {
-      "role": "member"
+      "role": "founder"
      }
     },
     {
@@ -416,7 +416,7 @@
       }
      },
      "result": {
-      "role": "member",
+      "role": "founder",
       "caller": {
        "kind": "device",
        "device": "{{device}}"
@@ -595,7 +595,7 @@
       }
      },
      "result": {
-      "role": "member",
+      "role": "founder",
       "caller": {
        "kind": "device",
        "device": "{{device}}"
@@ -610,7 +610,7 @@
       "params": {}
      },
      "result": {
-      "role": "member"
+      "role": "founder"
      }
     },
     {
@@ -742,7 +742,7 @@
       }
      },
      "result": {
-      "role": "member",
+      "role": "founder",
       "caller": {
        "kind": "device",
        "device": "{{device}}"
@@ -1061,7 +1061,7 @@
       }
      },
      "result": {
-      "role": "member"
+      "role": "founder"
      }
     },
     {
