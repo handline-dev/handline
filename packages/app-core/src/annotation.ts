@@ -1,13 +1,14 @@
 // Marking up a picture, with no platform in it: the shapes, the tool state and undo. A view feeds it points in image pixels and draws
 // `state.shapes` (plus `state.draft` while a stroke is down); `annotation-raster.ts` turns the same shapes into pixels.
 
-export type AnnotationTool = 'pen' | 'arrow' | 'box' | 'text';
+export type AnnotationTool = 'pen' | 'arrow' | 'box' | 'ellipse' | 'text';
 export interface Point { x: number; y: number }
 interface ShapeBase { id: number; color: string; width: number }
 export type Shape =
   | (ShapeBase & { kind: 'pen'; points: Point[] })
   | (ShapeBase & { kind: 'arrow'; from: Point; to: Point })
   | (ShapeBase & { kind: 'box'; from: Point; to: Point })
+  | (ShapeBase & { kind: 'ellipse'; from: Point; to: Point })
   | (ShapeBase & { kind: 'text'; at: Point; text: string; size: number });
 
 export interface AnnotationState {
@@ -101,6 +102,12 @@ export function scaleShape(s: Shape, k: number): Shape {
   }
 }
 
+/** The outline of the ellipse inscribed in the box `from`..`to`, as a closed polyline (first point repeated at the end). */
+export function ellipsePoints(from: Point, to: Point, steps = 48): Point[] {
+  const cx = (from.x + to.x) / 2, cy = (from.y + to.y) / 2, rx = Math.abs(to.x - from.x) / 2, ry = Math.abs(to.y - from.y) / 2;
+  return Array.from({ length: steps + 1 }, (_, i) => ({ x: cx + rx * Math.cos((2 * Math.PI * i) / steps), y: cy + ry * Math.sin((2 * Math.PI * i) / steps) }));
+}
+
 /** The two barb end points of an arrow's head; empty for a zero-length arrow. */
 export function arrowBarbs(from: Point, to: Point, width: number): Point[] {
   const len = Math.hypot(to.x - from.x, to.y - from.y);
@@ -128,6 +135,7 @@ export function shapesToSvg(shapes: readonly Shape[], width: number, height: num
     if (s.kind === 'text') return { type: 'text', x: s.at.x, y: s.at.y, fontSize: Number(num(s.size / CAP_HEIGHT)), fill: s.color, text: s.text.toUpperCase() };
     let d: string;
     if (s.kind === 'pen') d = s.points.length === 1 ? poly([s.points[0]!, s.points[0]!]) : poly(s.points);
+    else if (s.kind === 'ellipse') d = `${poly(ellipsePoints(s.from, s.to))}Z`;
     else if (s.kind === 'box') d = `${poly([s.from, { x: s.to.x, y: s.from.y }, s.to, { x: s.from.x, y: s.to.y }])}Z`;
     else d = poly([s.from, s.to]) + arrowBarbs(s.from, s.to, s.width).map((b) => `M${num(s.to.x)} ${num(s.to.y)}L${num(b.x)} ${num(b.y)}`).join('');
     return { type: 'path', d, stroke: s.color, strokeWidth: s.width };

@@ -99,4 +99,21 @@ describe('capture', () => {
     expect(t.memos.at(-1)!.text).toMatch(/!\[Simulator\]\(attachment:/);
     expect(t.memos.at(-1)!.parts).toBeTruthy();
   });
+
+  it('adds the picture as a comment on a task picked from the list, from a page that is not a task', async () => {
+    const s = await mount('#/tasks');
+    await until(() => button('Capture'), 'the Capture button');
+    await click(button('Capture'));
+    await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
+    await click($$('[aria-label="Windows"] button')[0]);
+    await until(() => $('[data-testid="capture-preview"]'), 'the preview');
+    await choose($('select[aria-label="Send as"]') as HTMLSelectElement, 'comment');
+    await click(button('Comment'));
+    expect($('[role="alert"]')?.textContent).toBe('Pick the task.');
+    await choose($('select[aria-label="Task"]') as HTMLSelectElement, '1684');
+    await click(button('Comment'));
+    await until(() => !$('[data-testid="capture-preview"]'), 'the dialog to close', 600);
+    const t = (await s.client.call('task.get', { task: 1684 } as never)) as { memos: { text: string }[] };
+    expect(t.memos.at(-1)!.text).toMatch(/!\[Simulator\]\(attachment:/);
+  });
 });

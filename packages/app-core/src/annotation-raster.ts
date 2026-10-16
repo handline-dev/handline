@@ -1,7 +1,7 @@
 // Draws annotation shapes onto an RGBA bitmap in plain arithmetic, so the web and the phone produce the same pixels from the same shapes.
 // Lines are round-capped discs, boxes are outlines, an arrow is a line with two barbs, text is a built-in 5x7 capital font.
 
-import { arrowBarbs, scaleShape, type Point, type Shape } from './annotation.ts';
+import { arrowBarbs, ellipsePoints, scaleShape, type Point, type Shape } from './annotation.ts';
 
 export interface Bitmap { width: number; height: number; /** RGBA, row by row. */ data: Uint8ClampedArray }
 
@@ -132,6 +132,9 @@ export function drawShapes(bitmap: Bitmap, shapes: readonly Shape[], scale = 1):
       for (const p of rest) { line(bitmap, prev, p, s.width, rgb); prev = p; }
     } else if (s.kind === 'arrow') {
       arrow(bitmap, s.from, s.to, s.width, rgb);
+    } else if (s.kind === 'ellipse') {
+      const ring = ellipsePoints(s.from, s.to);
+      for (let i = 0; i < ring.length - 1; i++) line(bitmap, ring[i]!, ring[i + 1]!, s.width, rgb);
     } else if (s.kind === 'box') {
       const { from: f, to: t } = s;
       const corners = [f, { x: t.x, y: f.y }, t, { x: f.x, y: t.y }, f];
