@@ -393,6 +393,25 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await until(() => msg('Draft the web chat tab plan.')?.hasAttribute('data-flash'), 'the message flashes');
   });
 
+  it('in the all room the sender is named on the left, once per run, with no "from -> to"; an agent\'s say to another agent is not in its room', async () => {
+    const s = setup();
+    const at = (n: number) => new Date(Date.UTC(2031, 2, 1, 0, n)).toISOString();
+    s.daemon.chat.seed(ARCH, { from: 'handline.auditor', to: ARCH, body: 'first from auditor', at: at(1) });
+    s.daemon.chat.seed(ARCH, { from: 'handline.auditor', to: ARCH, body: 'second from auditor', at: at(2) });
+    s.daemon.chat.seed(ARCH, { from: 'handline.term-build', to: ARCH, body: 'from builder', at: at(3) });
+    s.daemon.chat.seed(ARCH, { from: ARCH, to: 'handline.auditor', body: 'architect says to auditor', at: at(4) });
+    await mount(ARCH, s);
+    await until(() => msg('Which gap list'), 'history');
+    await click($('[aria-label="Which messages"] [aria-label^="All"]') ?? $('[aria-label="Which messages"] button:last-child')!);
+    await until(() => msg('first from auditor'), 'the all room');
+    const name = (b: string) => msg(b)?.querySelector('.msg-from, [class*="muted"]')?.textContent ?? '';
+    expect(name('first from auditor')).toBe('handline.auditor');
+    expect(name('second from auditor')).toBe(''); // the same sender as the one before
+    expect(name('from builder')).toBe('handline.term-build');
+    expect(text(msg('from builder'))).not.toContain('→');
+    expect(msg('architect says to auditor')).toBeUndefined();
+  });
+
   it('new messages while scrolled up are counted in a pill that takes you down', async () => {
     const t = await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');

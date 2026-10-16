@@ -102,6 +102,8 @@ export function Message(props: {
   byId?: Map<number, ChatMessage>;
   /** A message number in the text was clicked. */
   onRef?: (id: number) => void;
+  /** In the all-messages room: the sender's name over a message that is not the person's (null when the one before is from the same sender), never `from -> to`. */
+  group?: { name: string | null };
 }) {
   const { m, agent } = props;
   const act = useChatActions(agent);
@@ -125,7 +127,11 @@ export function Message(props: {
         aria-current={props.picked ? 'true' : undefined}
         onClick={pick}
       >
-        {side === 'other' ? (
+        {props.group && side !== 'person' ? (
+          props.group.name ? (
+            <div className={`${MSG_FROM} muted`}>{props.group.name}</div>
+          ) : null
+        ) : side === 'other' ? (
           <div className={`${MSG_FROM} muted`}>
             {m.from} <Icon name="forward" size={11} aria-hidden className="inline-block align-[-1px]" /> {m.to}
           </div>
@@ -305,7 +311,9 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
       <Icon name={TASK_EVENT[ev]!} size={14} label={`Task ${verb ?? 'changed'}`} />
       <span className="card-event text-meta font-semibold uppercase tracking-wide">{verb ? `Task ${verb}` : 'Task'}</span>
       <span className="mono">T{task}</span>
-      {titles?.get(task) ? <span className="max-w-[24ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{titles.get(task)}</span> : null}
+      {titles?.get(task) ? (
+        <span className="max-w-[24ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{titles.get(task)}</span>
+      ) : null}
       {rest ? <span className="muted min-w-0 break-words">{rest}</span> : null}
       <span className="muted card-time">{clockTime(m.at)}</span>
     </button>

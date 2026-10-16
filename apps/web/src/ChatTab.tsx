@@ -5,8 +5,8 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { timeline } from '@handline/app-core';
-import { useNearEnd, useSelector } from '@handline/app-react';
+import { timeline, type TimelineEntry } from '@handline/app-core';
+import { useNearEnd, useSelector, useStore } from '@handline/app-react';
 import {
   Skeleton,
   classify,
@@ -89,9 +89,13 @@ function Typing({ line }: { line: string }) {
   );
 }
 
+/** Whether the entry before is a message from the same sender: the name over a run of one sender's messages is said once. */
+const sameSender = (prev: TimelineEntry | undefined, m: ChatMessage) => prev?.kind === 'message' && prev.message.from === m.from;
+
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const { storage } = useWorkspace();
   const canSend = useSelector((s) => s.can('chat.send'));
+  const me = useStore().me;
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
   // The scope comes back next visit, as the bridge kept it.
@@ -105,7 +109,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const locate = useChatLocate({ request: going ?? 0 }, going !== null);
   const stream = useRef<HTMLDivElement>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
-  const entries = timeline(chat.messages, chat.items, scope, agent);
+  const entries = timeline(chat.messages, chat.items, scope, agent, me);
   // Task titles for the transcript's task lines, so a card can say what it is about without opening the task.
   const { served } = useServes('tasks.list');
   const tasks = useTasks({ all: true, limit: 200 }); // done tasks too: a card of a closed task keeps its title
@@ -138,7 +142,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     if (!box || anchor.current) return;
     const { top, bottom } = box.getBoundingClientRect();
     // The last line in view: whatever page lands, it lands above it. The first one may be an old message above the paged window, which a page never moves.
-    const el = [...box.querySelectorAll('[data-id]')].filter((n) => n.getBoundingClientRect().top < bottom && n.getBoundingClientRect().bottom > top).at(-1);
+    const el = [...box.querySelectorAll('[data-id]')]
+      .filter((n) => n.getBoundingClientRect().top < bottom && n.getBoundingClientRect().bottom > top)
+      .at(-1);
     const id = el?.getAttribute('data-id');
     anchor.current = el && id ? { id, off: el.getBoundingClientRect().top - top } : null;
     setArmed(false);
@@ -161,7 +167,12 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const id = requestAnimationFrame(() => setArmed(true));
     return () => cancelAnimationFrame(id);
   }, [chat.loadingOlder, entries.length]);
-  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
+  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(
+    stream,
+    more,
+    armed && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready',
+    { atTop: true },
+  );
   const repin = () => {
     const el = stream.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
@@ -290,7 +301,15 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-start"
               >
                 {e.kind === 'message' ? (
-                  <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} onRef={jump} />
+                  <Message
+                    m={e.message}
+                    agent={agent}
+                    picked={e.id === picked}
+                    onPick={pick}
+                    byId={byId}
+                    onRef={jump}
+                    group={scope === 'all' ? { name: sameSender(entries[i - 1], e.message) ? null : e.message.from } : undefined}
+                  />
                 ) : e.kind === 'note' ? (
                   <TaskNote m={e.message} task={e.task} titles={titles} />
                 ) : (
