@@ -174,6 +174,16 @@ func TestAChangeIsToldOnceTheTurnOpensOrClosesAndNotOtherwise(t *testing.T) {
 	}
 }
 
+func TestASessionStartIsToldEvenWhenTheTurnStaysUnknown(t *testing.T) {
+	tr, _ := tracker(t)
+	var told []string
+	tr.OnChange(func(a string) { told = append(told, a) })
+	tr.Hook("amy", "SessionStart", nil, 10) // Unknown before and after: the view still has a launch to end
+	if len(told) != 1 || told[0] != "amy" {
+		t.Fatalf("told %v", told)
+	}
+}
+
 // session starts a process standing in for a CLI; kill ends it as SIGKILL would, its parent reaping it.
 func session(t *testing.T) (pid int, kill func()) {
 	cmd := exec.Command("sleep", "60")
