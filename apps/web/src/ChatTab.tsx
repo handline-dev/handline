@@ -24,7 +24,7 @@ import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { PromptSlot } from './PromptCard.tsx';
 import { Compose } from './ChatCompose.tsx';
 import { Item, Message, TaskNote, jumpTo } from './ChatMessages.tsx';
-import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, useDecided } from './ChatCards.tsx';
+import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, RoomTitle, useDecided } from './ChatCards.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { Button, Empty, Icon, Segmented, Textarea, ComposeRow } from './ui/index.ts';
 import { setting } from './daemon.ts';
@@ -240,7 +240,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   return (
     <section className={CHAT}>
       <div className="chat-head flex h-[var(--h-tabs)] items-center gap-2 border-b border-line px-2">
-        <h2 className="m-0 min-w-0 flex-1 truncate text-body font-medium">{agent} <span className="muted text-hint font-normal">{detail.state}</span></h2>
+        <RoomTitle agent={agent} state={detail.state} />
         <ChatSearch agent={agent} scope={scope} onGo={jump} />
         <Segmented
           label="Which messages"
@@ -297,7 +297,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
               >
                 {e.kind === 'message' ? (
                   <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} onRef={jump} group={groupOf(scope, entries[i - 1], e.message)} />
-                ) : e.kind === 'proposal' ? <DecidedCard p={e.proposal} /> : e.kind === 'note' ? (
+                ) : e.kind === 'proposal' ? (
+                  <DecidedCard p={e.proposal} />
+                ) : e.kind === 'note' ? (
                   <TaskNote m={e.message} task={e.task} titles={titles} />
                 ) : (
                   <Item
