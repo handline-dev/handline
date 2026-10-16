@@ -85,7 +85,7 @@ export function Row(props: {
       {props.tree ? (
         <>
           <AnimatedCell
-            className={`c-title ${TD} max-sm:[grid-area:title] max-sm:whitespace-normal max-sm:[display:-webkit-box] max-sm:[-webkit-line-clamp:2] max-sm:[-webkit-box-orient:vertical]`}
+            className={`c-title min-w-40 ${TD} max-sm:[grid-area:title] max-sm:whitespace-normal max-sm:[display:-webkit-box] max-sm:[-webkit-line-clamp:2] max-sm:[-webkit-box-orient:vertical]`}
             style={{ paddingLeft: 8 + (props.depth ?? 0) * 18 }}
             title={detail}
           >
@@ -121,7 +121,7 @@ export function Row(props: {
             {props.failed ? <span className="not-changed text-bad text-hint"> not changed</span> : null}
           </AnimatedCell>
           <AnimatedCell
-            className={`c-title ${TD} max-sm:[grid-area:title] max-sm:whitespace-normal max-sm:[display:-webkit-box] max-sm:[-webkit-line-clamp:2] max-sm:[-webkit-box-orient:vertical]`}
+            className={`c-title min-w-40 ${TD} max-sm:[grid-area:title] max-sm:whitespace-normal max-sm:[display:-webkit-box] max-sm:[-webkit-line-clamp:2] max-sm:[-webkit-box-orient:vertical]`}
             title={detail}
           >
             <span className={`ttitle text-body font-medium${authored ? ' ghost italic text-ink-2' : ''}`}>{t.title}</span>
