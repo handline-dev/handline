@@ -54,10 +54,10 @@ export function timeoutText(t: Task, now: number): string {
   return left >= 0 ? `${span(left)} left` : `over by ${span(-left)}`;
 }
 
-/** The detail's time box as one meaning: what is left of it ("2h10m left of 4h"), why the clock stands ("paused: waiting on you"), "over by 1h", or just the box before it runs. */
+/** The detail's time box as one meaning: time left ("2h10m left of 4h"), "over by 1h", "paused: <why>", or the box before it runs. */
 export function timeBoxText(t: Pick<Task, 'state' | 'time_box' | 'time' | 'waiting'>, now: number): string {
   const clock = t.time;
-  const box = clock?.length_s ? span(clock.length_s * 1000) : (t.time_box ?? '');
+  const box = t.time_box || (clock?.length_s ? span(clock.length_s * 1000) : ''); // the box as last written: the clock's length lags an edit
   if (CLOSED.includes(t.state)) return box;
   if (clock?.end) {
     const left = Date.parse(clock.end) - now;

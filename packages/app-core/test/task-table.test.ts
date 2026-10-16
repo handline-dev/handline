@@ -104,3 +104,8 @@ test('the time box is one meaning: what is left of it, why it stands still, or h
   assert.equal(timeBoxText(t({ state: 'queued', time: clock({}) }), now), '4h');
   assert.equal(timeBoxText(t({ state: 'done', time: null }), now), '4h');
 });
+
+test('a time box just edited shows at once, before the clock has caught up', () => {
+  const t = { state: 'queued', time_box: '3h', waiting: null, time: { length_s: 3600, default: false, start: null, end: null, overdue_since: null, told: 0, left_s: null } } as never;
+  assert.equal(timeBoxText(t, 0), '3h');
+});

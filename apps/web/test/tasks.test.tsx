@@ -530,6 +530,19 @@ describe('the detail', () => {
     );
   });
 
+  it('keeps the assign sheet open and says why when the daemon refuses the new owner', async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks/1688', s);
+    await until(() => button('Change the owner'), 'the owner button');
+    await click(button('Change the owner')!);
+    const ask = sheet('Assign T1688 to…')!; // local-ref-ok
+    await click(button('handline.architect', ask)!);
+    s.daemon.knobs.refuse('task.edit', 'state', 'cannot move it now');
+    await click(button('Assign to handline.architect', ask)!);
+    await until(() => text($('.tsheet-err', sheet('Assign T1688 to…')!)).includes('cannot move it now'), 'the reason in the sheet'); // local-ref-ok
+    expect(s.daemon.tasks.get({ task: 1688 }).to).not.toBe('handline.architect');
+  });
+
   it('shows every action and state as a word', async () => {
     await mount('#/tasks/1688');
     await until(() => $('.tverbs'), 'the verbs');

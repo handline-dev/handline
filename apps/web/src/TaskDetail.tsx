@@ -203,76 +203,72 @@ function Body({ t }: { t: Detail }) {
       <Comments t={t} box={commentBox} />
 
       <div className="sticky bottom-0 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-canvas px-4 py-2">
-      {ask === 'done' ? (
-        <ReasonSheet
-          label="done: what came of it?"
-          submit="Done"
-          onCancel={() => setAsk(null)}
-          onSubmit={(evidence) => (setAsk(null), done.mutate({ task: t.id, evidence, reason: true }))}
-        />
-      ) : null}
-      {ask === 'reopen' ? (
-        <ReasonSheet
-          label="reopen: why?"
-          submit="Reopen"
-          onCancel={() => setAsk(null)}
-          onSubmit={(note) => (setAsk(null), reopen.mutate({ task: t.id, note }))}
-        />
-      ) : null}
-      {ask === 'discard' ? (
-        <ReasonSheet
-          label={reasonLabel('discard')}
-          submit="Discard"
-          onCancel={() => setAsk(null)}
-          onSubmit={(reason) => (setAsk(null), discard.mutate({ task: t.id, reason }))}
-        />
-      ) : null}
-      {ask === 'withdraw' ? (
-        <Sheet
-          label={`withdraw ${taskRef(t.id)}?`}
-          submit="Withdraw"
-          onCancel={() => setAsk(null)}
-          onSubmit={() => (setAsk(null), withdraw.mutate({ task: t.id }))}
-        >
-          <span className="muted">Takes the task back before anyone has started it.</span>
-        </Sheet>
-      ) : null}
-      {ask === 'cancel' ? (
-        <CancelSheet
-          running={running}
-          id={t.id}
-          onCancel={() => setAsk(null)}
-          onSubmit={(reason) => (setAsk(null), cancel.mutate({ task: t.id, reason }))}
-        />
-      ) : null}
-      {ask === 'release' ? (
-        <ReasonSheet
-          label={`release ${taskRef(t.id)} - why:`}
-          submit="Release"
-          onCancel={() => setAsk(null)}
-          onSubmit={(reason) => (setAsk(null), release.mutate({ task: t.id, reason }))}
-        />
-      ) : null}
-      {ask === 'assign' ? <AssignSheet t={t} me={me} onClose={() => setAsk(null)} /> : null}
+        {ask === 'done' ? (
+          <ReasonSheet
+            label="done: what came of it?"
+            submit="Done"
+            onCancel={() => setAsk(null)}
+            onSubmit={(evidence) => (setAsk(null), done.mutate({ task: t.id, evidence, reason: true }))}
+          />
+        ) : null}
+        {ask === 'reopen' ? (
+          <ReasonSheet
+            label="reopen: why?"
+            submit="Reopen"
+            onCancel={() => setAsk(null)}
+            onSubmit={(note) => (setAsk(null), reopen.mutate({ task: t.id, note }))}
+          />
+        ) : null}
+        {ask === 'discard' ? (
+          <ReasonSheet
+            label={reasonLabel('discard')}
+            submit="Discard"
+            onCancel={() => setAsk(null)}
+            onSubmit={(reason) => (setAsk(null), discard.mutate({ task: t.id, reason }))}
+          />
+        ) : null}
+        {ask === 'withdraw' ? (
+          <Sheet
+            label={`withdraw ${taskRef(t.id)}?`}
+            submit="Withdraw"
+            onCancel={() => setAsk(null)}
+            onSubmit={() => (setAsk(null), withdraw.mutate({ task: t.id }))}
+          >
+            <span className="muted">Takes the task back before anyone has started it.</span>
+          </Sheet>
+        ) : null}
+        {ask === 'cancel' ? (
+          <CancelSheet
+            running={running}
+            id={t.id}
+            onCancel={() => setAsk(null)}
+            onSubmit={(reason) => (setAsk(null), cancel.mutate({ task: t.id, reason }))}
+          />
+        ) : null}
+        {ask === 'release' ? (
+          <ReasonSheet
+            label={`release ${taskRef(t.id)} - why:`}
+            submit="Release"
+            onCancel={() => setAsk(null)}
+            onSubmit={(reason) => (setAsk(null), release.mutate({ task: t.id, reason }))}
+          />
+        ) : null}
+        {ask === 'assign' ? <AssignSheet t={t} me={me} onClose={() => setAsk(null)} /> : null}
 
-      <div
-        className="tverbs flex flex-wrap gap-1.5"
-        role="toolbar"
-        aria-label="Task actions"
-      >
-        {open && t.state === 'draft' ? (
-          <Verb k="u" icon="taskQueued" label="Queue" can={can.queue} onClick={verbs.u} busy={queue.isPending} />
-        ) : null}
-        {open && t.state === 'queued' ? (
-          <Verb k="u" icon="taskDraft" label="Back to draft" can={can.draft} onClick={verbs.u} busy={draft.isPending} />
-        ) : null}
-        {open ? <Verb k="x" icon="taskDone" label="Done" can={can.done} onClick={verbs.x} /> : null}
-        {t.state === 'done' && mine ? <Verb k="r" icon="retry" label="Reopen" can={can.reopen} onClick={verbs.r} /> : null}
-        {startable && mine ? <Verb k="w" icon="withdrawn" label="Withdraw" can={can.withdraw} onClick={verbs.w} /> : null}
-        {running ? <Verb k="l" icon="retry" label="Release" can={can.release} onClick={verbs.l} busy={release.isPending} /> : null}
-        {open ? <Verb k="c" icon="cancel" label="Cancel" can={can.cancel} onClick={verbs.c} /> : null}
-        {open ? <Verb k="d" icon="dismiss" label="Discard" can={can.discard} onClick={verbs.d} /> : null}
-      </div>
+        <div className="tverbs flex flex-wrap gap-1.5" role="toolbar" aria-label="Task actions">
+          {open && t.state === 'draft' ? (
+            <Verb k="u" icon="taskQueued" label="Queue" can={can.queue} onClick={verbs.u} busy={queue.isPending} />
+          ) : null}
+          {open && t.state === 'queued' ? (
+            <Verb k="u" icon="taskDraft" label="Back to draft" can={can.draft} onClick={verbs.u} busy={draft.isPending} />
+          ) : null}
+          {open ? <Verb k="x" icon="taskDone" label="Done" can={can.done} onClick={verbs.x} /> : null}
+          {t.state === 'done' && mine ? <Verb k="r" icon="retry" label="Reopen" can={can.reopen} onClick={verbs.r} /> : null}
+          {startable && mine ? <Verb k="w" icon="withdrawn" label="Withdraw" can={can.withdraw} onClick={verbs.w} /> : null}
+          {running ? <Verb k="l" icon="retry" label="Release" can={can.release} onClick={verbs.l} busy={release.isPending} /> : null}
+          {open ? <Verb k="c" icon="cancel" label="Cancel" can={can.cancel} onClick={verbs.c} /> : null}
+          {open ? <Verb k="d" icon="dismiss" label="Discard" can={can.discard} onClick={verbs.d} /> : null}
+        </div>
       </div>
     </div>
   );
