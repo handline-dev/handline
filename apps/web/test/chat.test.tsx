@@ -249,6 +249,20 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(text(msg('and the transcripts')!.querySelector('.msg-ref'))).toContain('Use the contract fixtures.');
   });
 
+  it("a reply quoting another agent's message goes to this chat's agent, with the quote as its parent", async () => {
+    const s = setup();
+    s.daemon.chat.seed(ARCH, { from: 'handline.pr', to: ARCH, body: 'PR note from elsewhere' });
+    const t = await mount(ARCH, s);
+    await until(() => msg('PR note from elsewhere'), 'the quoted row');
+    await click(msg('PR note from elsewhere')!.querySelector('.msg-body')!);
+    await typeInto(compose(), 'answer here');
+    await press(compose(), 'Enter');
+    await until(() => sentMsgs(t).some((m) => m.body === 'answer here'), 'the daemon got it');
+    const m = sentMsgs(t).find((x) => x.body === 'answer here')!;
+    expect(m.to).toBe(ARCH);
+    expect(m.parent).toBe(idOf('PR note from elsewhere'));
+  });
+
   it("a reply to the agent's open question is a linked message, never an answer", async () => {
     const t = await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
