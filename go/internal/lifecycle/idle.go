@@ -176,6 +176,15 @@ func (s *Settings) SecondsSetting(agent, key string, def int64) int64 {
 	return def
 }
 
+// TextSetting is a text setting: the agent's own when it sets one that is not empty, then config.yaml's, "" for neither.
+func (s *Settings) TextSetting(agent, key string) string {
+	if t, ok := s.agentConfig(agent)[key].(string); ok && t != "" {
+		return t
+	}
+	t, _ := s.config()[key].(string)
+	return t
+}
+
 // BgNoticeS is how long an agent with background work may show nothing before it is told to finish or stop it: its idle-close window
 // unless bg_notice_s says otherwise.
 func (s *Settings) BgNoticeS(agent string) int64 {
