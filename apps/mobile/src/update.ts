@@ -19,7 +19,9 @@ export interface Update {
   url: string;
 }
 
-export const RELEASES_URL = 'https://api.github.com/repos/handline-dev/handline/releases?per_page=30';
+const API = 'https://api.github.com/repos/handline-dev/handline/releases';
+// Stable asks for the newest full release itself: a page of mixed releases would push it out after about 30 nightlies.
+export const releasesUrl = (channel: Channel) => (channel === 'stable' ? `${API}/latest` : `${API}?per_page=30`);
 
 const codeOf = (r: Release): number | null => {
   const m = /^versionCode:\s*(\d+)\s*$/m.exec(r.body ?? '');
@@ -42,7 +44,8 @@ export function pickUpdate(releases: Release[], channel: Channel, installed: num
 }
 
 export async function checkForUpdate(channel: Channel, installed: number, fetchFn: typeof fetch = fetch): Promise<Update | null> {
-  const res = await fetchFn(RELEASES_URL, { headers: { Accept: 'application/vnd.github+json' } });
+  const res = await fetchFn(releasesUrl(channel), { headers: { Accept: 'application/vnd.github+json' } });
   if (!res.ok) throw new Error(`could not read releases (${res.status})`);
-  return pickUpdate((await res.json()) as Release[], channel, installed);
+  const body = (await res.json()) as Release | Release[];
+  return pickUpdate(Array.isArray(body) ? body : [body], channel, installed);
 }

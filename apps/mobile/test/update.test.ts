@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { pickUpdate, type Release } from '../src/update.ts';
+import { checkForUpdate, pickUpdate, type Release } from '../src/update.ts';
 
 const rel = (tag: string, code: number, prerelease: boolean, name = `handline-${tag}.apk`): Release => ({
   tag_name: tag,
@@ -36,4 +36,11 @@ test('drafts, releases without a number or without an apk are skipped', () => {
     { ...rel('c', 22, true), assets: [] },
   ];
   assert.equal(pickUpdate(bad, 'nightly', 1), null);
+});
+
+test('stable reads the latest full release, a single object', async () => {
+  const urls: string[] = [];
+  const f = ((url: string) => (urls.push(url), Promise.resolve({ ok: true, json: () => Promise.resolve(rel('v0.2.0', 7, false)) }))) as unknown as typeof fetch;
+  assert.equal((await checkForUpdate('stable', 5, f))?.versionCode, 7);
+  assert.match(urls[0]!, /releases\/latest$/);
 });
