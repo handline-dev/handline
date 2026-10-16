@@ -27,7 +27,10 @@ const home =
 /** The daemon's socket for this shell's own connection (badge, notices); the web app reaches the daemon by its WebSocket. */
 const socket = env('SOCKET') ?? path.join(home, 'daemon.sock');
 // The founder key goes only to a daemon socket inside the daemon's home: HANDLINE_SOCKET can name another process's socket.
-const founderKey = () => (path.relative(home, socket).startsWith('..') ? null : readFounderKey(home));
+const founderKey = () => {
+  const rel = path.relative(home, socket);
+  return rel === '..' || rel.startsWith(`..${path.sep}`) ? null : readFounderKey(home);
+};
 /** The Go gateway (host:port): the web app reaches it at /rpc with a device token the app got for itself. An explicit WS address with no gateway is the old plain mode. */
 let gateway = env('WS') && !env('GATEWAY') ? undefined : gatewayAddress(env('GATEWAY'), os.networkInterfaces());
 const gatewaySocket = path.join(home, 'gateway.sock');
@@ -148,8 +151,7 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
  */
 function confine(contents: WebContents, origin: string): void {
   contents.setWindowOpenHandler(({ url }) => {
-    if (isDebugWindow(url, origin))
-      return { action: 'allow', overrideBrowserWindowOptions: { width: 1280, height: 820, title: 'Terminals (debug)' } };
+    if (isDebugWindow(url, origin)) return { action: 'allow', overrideBrowserWindowOptions: { width: 1280, height: 820, title: 'Terminals (debug)' } };
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
