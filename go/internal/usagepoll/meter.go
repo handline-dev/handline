@@ -11,7 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/handline/handline/go/internal/structured"
+	"github.com/handline/handline/go/internal/claudecli"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/usage"
 )
@@ -31,12 +32,12 @@ const (
 // CLI is the part of a structured session the meter uses.
 type CLI interface {
 	GetUsage(ctx context.Context) (map[string]any, error)
-	Send(op, text string, d structured.Delivery) (structured.Receipt, error)
+	Send(op, text string, d delivery.Delivery) (delivery.Receipt, error)
 	Close() error
 }
 
-// OpenFunc starts a CLI. The default is structured.Open.
-type OpenFunc func(ctx context.Context, l structured.Launch, h structured.Handlers) (CLI, error)
+// OpenFunc starts a CLI. The default is claudecli.Open.
+type OpenFunc func(ctx context.Context, l claudecli.Launch, h claudecli.Handlers) (CLI, error)
 
 // Meter asks a CLI process, one per question.
 type Meter struct {
@@ -49,11 +50,11 @@ type Meter struct {
 	Now  func() time.Time
 }
 
-func (m *Meter) open(ctx context.Context, l structured.Launch, h structured.Handlers) (CLI, error) {
+func (m *Meter) open(ctx context.Context, l claudecli.Launch, h claudecli.Handlers) (CLI, error) {
 	if m.Open != nil {
 		return m.Open(ctx, l, h)
 	}
-	return structured.Open(ctx, l, h, openTimeout)
+	return claudecli.Open(ctx, l, h, openTimeout)
 }
 
 func (m *Meter) now() time.Time {
@@ -65,7 +66,7 @@ func (m *Meter) now() time.Time {
 
 // launch is the process for a question with no session in it: an empty working directory, and only project settings, so the account's
 // hooks (which report to the daemon as an agent) and allow rules do not run in it. The login is not in settings.json.
-func (m *Meter) launch(acct string) (l structured.Launch, cleanup func(), err error) {
+func (m *Meter) launch(acct string) (l claudecli.Launch, cleanup func(), err error) {
 	dir, err := team.AccountConfigDir(m.Home, acct)
 	if err != nil {
 		return l, nil, err
@@ -74,7 +75,7 @@ func (m *Meter) launch(acct string) (l structured.Launch, cleanup func(), err er
 	if err != nil {
 		return l, nil, err
 	}
-	return structured.Launch{Path: m.Claude, Cwd: cwd, ConfigDir: dir, Args: []string{"--setting-sources", "project"}, Env: m.Env},
+	return claudecli.Launch{Path: m.Claude, Cwd: cwd, ConfigDir: dir, Args: []string{"--setting-sources", "project"}, Env: m.Env},
 		func() { os.RemoveAll(cwd) }, nil
 }
 
@@ -88,7 +89,7 @@ func (m *Meter) Read(ctx context.Context, acct string) (r *usage.Reading, authFa
 	defer cleanup()
 	c, cancel := context.WithTimeout(ctx, askTimeout+openTimeout)
 	defer cancel()
-	s, err := m.open(c, l, structured.Handlers{})
+	s, err := m.open(c, l, claudecli.Handlers{})
 	if err != nil {
 		return nil, refused(err)
 	}
@@ -129,7 +130,7 @@ func (m *Meter) RunModel(ctx context.Context, acct, prompt, model string) (ok bo
 	done := make(chan map[string]any, 1)
 	c, cancel := context.WithTimeout(ctx, FoldTimeout)
 	defer cancel()
-	s, err := m.open(c, l, structured.Handlers{OnEvent: func(ev map[string]any) {
+	s, err := m.open(c, l, claudecli.Handlers{OnEvent: func(ev map[string]any) {
 		if ev["type"] == "result" {
 			select {
 			case done <- ev:
@@ -141,7 +142,7 @@ func (m *Meter) RunModel(ctx context.Context, acct, prompt, model string) (ok bo
 		return false, err.Error()
 	}
 	defer s.Close()
-	if _, err := s.Send("recover", prompt, structured.Queue); err != nil {
+	if _, err := s.Send("recover", prompt, delivery.Queue); err != nil {
 		return false, err.Error()
 	}
 	select {

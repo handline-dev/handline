@@ -75,8 +75,11 @@ type Env struct {
 	Parent    func(agent string) string
 	CacheLeft func(agent string, now float64) (left float64, ok bool, err error)
 	CtxPct    func(agent, account string) *int // nil: no trusted reading
-	Now       func() int64
-	Log       func(string)
+	// PaneRuns is whether the terminal pane agent's row names is up with something other than its shell in front: the launch typed into a
+	// pane's shell, so a claude that died leaves the pane up with the shell. Nil is never, so nothing reads as starting.
+	PaneRuns func(agent string) bool
+	Now      func() int64
+	Log      func(string)
 	// Registered is every registered agent, structured or not: an agent is gone when it is not in it. Nil is Agents.
 	Registered func() []string
 	// DropGone has Refresh delete the row of any agent that is gone. Off while the Python daemon still keeps the rows of terminal
@@ -257,6 +260,24 @@ func (e *Env) wire(agent string, row *db.AgentState, word, detail string) (strin
 	return "idle", detail
 }
 
+// launchOver are the events that say a launch is no longer starting: a hook of its session (it is up), its end, or the wake that failed.
+var launchOver = []string{"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "PostCompact", "SessionEnd", "wake_failed"}
+
+// starting is whether a launch of agent is in progress, from what is recorded: hl launch kept the start (session_starts) just before it
+// became claude, nothing of launchOver has come since, and the pane still runs something other than its shell. A launch that died is
+// back at the shell, so no time limit is needed.
+func (e *Env) starting(agent string) bool {
+	if e.PaneRuns == nil {
+		return false
+	}
+	at, ok := must2(db.LastSessionStartTS(e.Q, agent))
+	if !ok {
+		return false
+	}
+	last, over := must2(db.LastEventOfTS(e.Q, agent, launchOver))
+	return (!over || last < at) && e.PaneRuns(agent)
+}
+
 // Compute is the view of one agent.
 func (e *Env) Compute(agent string) (view map[string]any, err error) {
 	defer func() {
@@ -283,6 +304,9 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		detail = clip(textsafe.Oneline(wait), DetailCap)
 	}
 	state, detail := e.wire(agent, row, word, detail)
+	if (state == "no_terminal" || state == "idle" || state == "queued") && e.starting(agent) {
+		state, detail = "starting", ""
+	}
 
 	var model, effort any
 	if e.Config != nil {
@@ -344,7 +368,7 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		"block": block, "wall_reason": wall, "background_since": bg,
 		"would_wake": row != nil && must(e.WouldWake(row)),
 		"blocker":    blocker, "account": account, "task": task, "cache_until": cache, "ctx_pct": ctx,
-		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(needs),
+		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(needs), "handoff": must(e.handoffView(agent, row, now)),
 	}, nil
 }
 
@@ -417,4 +441,46 @@ func (e *Env) Refresh() error {
 		}
 	}
 	return nil
+}
+
+// handoffView is the handoff the agent is in the middle of, nil for none: its note is awaited or its record taken (writing), or the
+// session is closed for it and the next not yet begun (starting). A handoff that parks the agent until a usage window resets is
+// not starting. The cause is session.cause's word.
+func (e *Env) handoffView(agent string, row *db.AgentState, now int64) (any, error) {
+	h, err := db.LatestHandoff(e.Q, agent)
+	if err != nil {
+		return nil, err
+	}
+	view := func(kind, phase string, since int64) any {
+		switch kind {
+		case "context":
+			kind = "context_full"
+		case "forced":
+			kind = "move"
+		}
+		return map[string]any{"cause": kind, "phase": phase, "since": stamp(since)}
+	}
+	if h != nil && h.State == "in_flight" {
+		since := h.Updated
+		if h.Deadline.Valid {
+			since = h.Deadline.Int64 - states.HandoffDeadlineS
+		}
+		return view(h.TriggerKind.String, "writing", since), nil
+	}
+	if kind, since, ok, err := db.NoteWait(e.Q, agent); err != nil {
+		return nil, err
+	} else if ok && now-since <= db.NoteWaitStaleS {
+		return view(kind, "writing", since), nil
+	}
+	if h == nil || row == nil || (row.State != states.Parked && row.ClosedAt.Int64 == 0) || now-h.Updated > db.NoteWaitStaleS {
+		return nil, nil
+	}
+	if k := h.TriggerKind.String; k == "usage" || k == "usage_7d" || k == states.ByHandMark {
+		return nil, nil
+	}
+	last, err := db.LastSessionStart(e.Q, agent)
+	if err != nil || last >= h.Updated {
+		return nil, err
+	}
+	return view(h.TriggerKind.String, "starting", h.Updated), nil
 }

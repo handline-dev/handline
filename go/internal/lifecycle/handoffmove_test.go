@@ -1,7 +1,6 @@
 package lifecycle
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,25 +26,10 @@ func (l *moveLaunch) RoomOn(db.Q, string, *db.AgentState, string) string { retur
 
 type moveRig struct {
 	m  *Manager
-	r  *fakeRunner
 	l  *moveLaunch
 	v  *Mover
 	bg string
 	h  map[string]bool
-}
-
-func newMoveRig(t *testing.T) *moveRig {
-	t.Helper()
-	m, r, d, _ := structuredManager(t)
-	d.waitingMsg = "work"
-	l := &moveLaunch{dest: "beta"}
-	m.Launch = l
-	db.SetTerminal(m.Q, "a", "", "/wt")
-	db.SetResumeSession(m.Q, "a", "sess-1")
-	r.alive["a"] = true
-	rig := newMoveRigOn(m, l)
-	rig.r = r
-	return rig
 }
 
 // newMoveRigOn is the mover over a manager that is already set up.
@@ -59,7 +43,6 @@ func newMoveRigOn(m *Manager, l *moveLaunch) *moveRig {
 		NoteHold:       func(db.Q, string, int64) bool { return false },
 		BackgroundWork: func(db.Q, string) string { return rig.bg },
 		ContextUse:     func(db.Q, string) (int, int) { return 190000, 200000 },
-		RunningAccount: func(string) string { return "" },
 		MeasureForget:  func(db.Q, string) {},
 		StayWithin:     func(*float64, float64) float64 { return 0 },
 		StayOrMove:     func(bool, *float64, float64) (bool, string) { return true, "" },
@@ -77,38 +60,14 @@ func (g *moveRig) row(t *testing.T) *db.AgentState {
 	return row
 }
 
-func TestAnAgentAtTheWallIsClosedMovedAndWokenOnTheOtherAccountOnce(t *testing.T) {
-	g := newMoveRig(t)
-	if ok, err := g.v.PerformHandoff("a", HandoffTrigger{"usage", "5h wall"}, ""); !ok || err != nil {
-		t.Fatalf("%v %v", ok, err)
-	}
-	if len(g.r.closed) != 1 || len(g.r.opened) != 1 || g.r.opened[0].Account != "beta" || g.r.opened[0].Resume {
-		t.Fatalf("closed %v opened %+v", g.r.closed, g.r.opened)
-	}
-	if len(g.r.sent) != 1 || !strings.Contains(g.r.sent[0], "started on beta") {
-		t.Fatalf("sent %v", g.r.sent)
-	}
-	row := g.row(t)
-	if row.Account.String != "beta" || isClosed(row) || row.State != states.Queued {
-		t.Fatalf("%+v", row)
-	}
-	if _, ok, _ := db.LastEventID(g.m.Q, "a", "moved_account"); !ok {
-		t.Fatal("no moved_account event")
-	}
-	// the trigger fires again at once: nothing is closed or sent twice
-	if ok, _ := g.v.PerformHandoff("a", HandoffTrigger{"usage", "5h wall"}, ""); !ok || len(g.r.closed) != 1 || len(g.r.sent) != 1 {
-		t.Fatalf("closed %v sent %v", g.r.closed, g.r.sent)
-	}
-}
-
 func TestADeferredHandoffThreeTicksRunningLeavesTheCountersAtZero(t *testing.T) {
-	g := newMoveRig(t)
+	g := newTermMoveRig(t)
 	for _, c := range []struct {
 		name  string
 		setup func()
 	}{
-		{"mid-turn", func() { g.r.busy["a"] = true }},
-		{"note hold", func() { g.r.busy["a"] = false; g.v.E.NoteHold = func(db.Q, string, int64) bool { return true } }},
+		{"mid-turn", func() { g.run.status = "busy" }},
+		{"note hold", func() { g.run.status = "idle"; g.v.E.NoteHold = func(db.Q, string, int64) bool { return true } }},
 	} {
 		c.setup()
 		for i := 0; i < 3; i++ {
@@ -117,49 +76,20 @@ func TestADeferredHandoffThreeTicksRunningLeavesTheCountersAtZero(t *testing.T) 
 			}
 		}
 		row := g.row(t)
-		if row.ThrottleCount != 0 || row.FailedAttempts != 0 || row.State == states.Handoff || len(g.r.closed) != 0 {
-			t.Fatalf("%s: %+v closed %v", c.name, row, g.r.closed)
+		if row.ThrottleCount != 0 || row.FailedAttempts != 0 || row.State == states.Handoff || len(g.pane.handles) != 0 {
+			t.Fatalf("%s: %+v closed %v", c.name, row, g.pane.handles)
 		}
 		if h, _ := db.InFlightFor(g.m.Q, "a"); h != nil {
 			t.Fatalf("%s: a handoff row was started", c.name)
 		}
-	}
-}
-
-func TestAContextHandoffClosesFreshAndParksWithAnImmediateWake(t *testing.T) {
-	g := newMoveRig(t)
-	if ok, _ := g.v.PerformHandoff("a", HandoffTrigger{"context", "190k of 200k"}, ""); !ok {
-		t.Fatal("degraded")
-	}
-	row := g.row(t)
-	if len(g.r.closed) != 1 || !isClosed(row) || row.ResumeSession.String != "" || row.State != states.Parked {
-		t.Fatalf("closed %v %+v", g.r.closed, row)
-	}
-	if row.WakeAt.Int64 > g.m.now() {
-		t.Fatalf("wake in the future: %+v", row)
-	}
-	if len(g.r.opened) != 0 || len(g.r.sent) != 0 {
-		t.Fatalf("a context handoff starts nothing itself: %v %v", g.r.opened, g.r.sent)
-	}
-	if ok, said, _ := g.m.WakeAgent("a", WakeOpts{}); !ok || len(g.r.opened) != 1 || g.r.opened[0].Resume {
-		t.Fatalf("%v %q", g.r.opened, said)
-	}
-}
-
-func TestACloseThatIsRefusedLeavesTheAgentOnItsAccountAndLooksAgainSoon(t *testing.T) {
-	g := newMoveRig(t)
-	g.r.closeErr = errors.New("a child is still running")
-	if ok, _ := g.v.PerformHandoff("a", HandoffTrigger{"usage", "wall"}, ""); !ok {
-		t.Fatal("degraded")
-	}
-	row := g.row(t)
-	if !g.r.alive["a"] || len(g.r.opened) != 0 || row.State != states.Parked || !strings.HasPrefix(row.Detail.String, states.MovingMark) {
-		t.Fatalf("%+v", row)
+		if _, _, waits, _ := db.NoteWait(g.m.Q, "a"); waits != (c.name == "note hold") {
+			t.Fatalf("%s: note wait kept %v", c.name, waits)
+		}
 	}
 }
 
 func TestAWakeWaitsOnItsWallOnlyForAResetWithinThePromptCachesLife(t *testing.T) {
-	g := newMoveRig(t)
+	g := newTermMoveRig(t)
 	g.v.E.StayWithin = func(*float64, float64) float64 { return 2 * 3600 } // a cold start measured dearer than the cache lives
 	g.v.E.StayOrMove = func(work bool, resetIn *float64, within float64) (bool, string) {
 		if !work {
@@ -186,7 +116,7 @@ func TestAWakeWaitsOnItsWallOnlyForAResetWithinThePromptCachesLife(t *testing.T)
 }
 
 func TestAMoveLeavesOutTheAccountItIsAtAndTheOneItJustLeftUntilItResets(t *testing.T) {
-	g := newMoveRig(t)
+	g := newTermMoveRig(t)
 	db.AddEvent(g.m.Q, "a", "moved_account", db.KV{K: "from", V: "gamma"}, db.KV{K: "to", V: "acct"})
 	g.v.E.Windows = func(acct string) Windows {
 		if acct == "gamma" {
@@ -212,55 +142,28 @@ func TestAMoveLeavesOutTheAccountItIsAtAndTheOneItJustLeftUntilItResets(t *testi
 }
 
 func TestAForcedMoveTheRoomTestRefusesLeavesTheSessionAndTheRecordAlone(t *testing.T) {
-	g := newMoveRig(t)
+	g := newTermMoveRig(t)
 	db.SetHandoff(g.m.Q, "a", "earlier record")
 	g.l.roomOn = "has no free slot"
 	if ok, _ := g.v.PerformHandoff("a", HandoffTrigger{"forced", "by hand"}, "beta"); ok {
 		t.Fatal("reported as done")
 	}
 	row := g.row(t)
-	if len(g.r.closed) != 0 || !g.r.alive["a"] || row.State != states.Idle {
-		t.Fatalf("closed %v %+v", g.r.closed, row)
+	if len(g.pane.handles) != 0 || g.run.status == "" || row.State != states.Idle {
+		t.Fatalf("closed %v %+v", g.pane.handles, row)
 	}
 	if h, _ := db.GetHandoff(g.m.Q, "a"); h != "earlier record" {
 		t.Fatalf("record %q", h)
 	}
 }
 
-func TestAClearThatBackgroundWorkHoldsOffIsOwedToldOnceAndSettledWhenTheWorkEnds(t *testing.T) {
-	g := newMoveRig(t)
-	g.bg = "npm test"
-	if ok, _ := g.v.PerformHandoff("a", HandoffTrigger{"context", "full"}, ""); !ok {
-		t.Fatal("degraded")
-	}
-	if len(g.r.sent) != 1 || !strings.Contains(g.r.sent[0], "will be cleared in 5 minutes") || len(g.r.closed) != 0 {
-		t.Fatalf("sent %v closed %v", g.r.sent, g.r.closed)
-	}
-	if row := g.row(t); row.State != states.Idle || !strings.HasPrefix(row.Detail.String, "clear owed") {
-		t.Fatalf("%+v", row)
-	}
-	if owed, _ := g.v.SettleOwedClear("a"); !owed || len(g.r.closed) != 0 || len(g.r.sent) != 1 {
-		t.Fatalf("owed %v closed %v sent %v", owed, g.r.closed, g.r.sent)
-	}
-	g.bg = ""
-	if owed, _ := g.v.SettleOwedClear("a"); !owed || len(g.r.closed) != 1 {
-		t.Fatalf("owed %v closed %v", owed, g.r.closed)
-	}
-	if row := g.row(t); row.State != states.Parked || !isClosed(row) {
-		t.Fatalf("%+v", row)
-	}
-	if owed, _ := g.v.SettleOwedClear("a"); owed {
-		t.Fatal("still owed after the close")
-	}
-}
-
 func TestAnOwedClearIsForcedThroughWhenItsTimeIsUpAndTheRecordSaysWhatWasCutOff(t *testing.T) {
-	g := newMoveRig(t)
+	g := newTermMoveRig(t)
 	g.bg = "npm test"
 	g.v.PerformHandoff("a", HandoffTrigger{"context", "full"}, "")
 	db.SetCursor(g.m.Q, "clear_owed:a", g.m.now()-ClearWaitS-1)
-	if owed, _ := g.v.SettleOwedClear("a"); !owed || len(g.r.closed) != 1 {
-		t.Fatalf("owed %v closed %v", owed, g.r.closed)
+	if owed, _ := g.v.SettleOwedClear("a"); !owed || len(g.pane.handles) != 1 {
+		t.Fatalf("owed %v closed %v", owed, g.pane.handles)
 	}
 	if h, _ := db.GetHandoff(g.m.Q, "a"); !strings.Contains(h, "Cut off by the clear") || !strings.Contains(h, "npm test") {
 		t.Fatalf("record %q", h)
@@ -279,7 +182,7 @@ func (g *moveRig) account(t *testing.T, name string, loggedIn bool) {
 }
 
 func TestAForcedMoveIsRefusedForAnAccountThatCannotTakeItAndNothingIsEnded(t *testing.T) {
-	g := newMoveRig(t)
+	g := newTermMoveRig(t)
 	g.account(t, "beta", true)
 	g.account(t, "out", false)
 	g.account(t, "acct", true)
@@ -301,20 +204,20 @@ func TestAForcedMoveIsRefusedForAnAccountThatCannotTakeItAndNothingIsEnded(t *te
 	if ok, said, _ := g.v.ForceMove("a", "beta", "human"); ok || said != "a is STALLED" {
 		t.Fatalf("%v %q", ok, said)
 	}
-	if len(g.r.closed) != 0 || len(g.r.opened) != 0 {
-		t.Fatalf("a refusal ended or started a session: %v %v", g.r.closed, g.r.opened)
+	if len(g.pane.handles) != 0 || len(g.sp.startedIn) != 0 {
+		t.Fatalf("a refusal ended or started a session: %v %v", g.pane.handles, g.sp.startedIn)
 	}
 }
 
 func TestAForcedMoveEndsTheSessionStartsItOnTheOtherAccountAndRecordsWhoDidIt(t *testing.T) {
-	g := newMoveRig(t)
+	g := newTermMoveRig(t)
 	g.account(t, "beta", true)
 	ok, said, err := g.v.ForceMove("a", "beta", "human (screen)")
 	if !ok || err != nil || said != "a moved acct -> beta (forced by human (screen))" {
 		t.Fatalf("%v %q %v", ok, said, err)
 	}
-	if len(g.r.closed) != 1 || len(g.r.opened) != 1 || g.r.opened[0].Account != "beta" || g.row(t).Account.String != "beta" {
-		t.Fatalf("closed %v opened %+v %+v", g.r.closed, g.r.opened, g.row(t))
+	if len(g.pane.handles) != 1 || len(g.sp.startedIn) != 1 || g.row(t).Account.String != "beta" {
+		t.Fatalf("closed %v opened %+v %+v", g.pane.handles, g.sp.startedIn, g.row(t))
 	}
 	var payload string
 	if err := g.m.Q.QueryRow("SELECT payload FROM events WHERE agent = 'a' AND kind = 'forced_move'").Scan(&payload); err != nil || !strings.Contains(payload, `"by": "human (screen)"`) && !strings.Contains(payload, `"by":"human (screen)"`) {
@@ -323,15 +226,15 @@ func TestAForcedMoveEndsTheSessionStartsItOnTheOtherAccountAndRecordsWhoDidIt(t 
 }
 
 func TestAForcedMoveOfAClosedAgentIsOwedToItsNextWake(t *testing.T) {
-	g := newMoveRig(t)
+	g := newTermMoveRig(t)
 	g.account(t, "beta", true)
 	db.SetClosed(g.m.Q, "a", "sess-1")
-	g.r.alive["a"] = false
+	g.run.status = ""
 	ok, said, err := g.v.ForceMove("a", "beta", "human")
 	if !ok || err != nil || said != "a is closed: its next wake starts it on beta (moved by human)" {
 		t.Fatalf("%v %q %v", ok, said, err)
 	}
-	if _, found, _ := db.LastEventID(g.m.Q, "a", MoveOwedKind); !found || len(g.r.opened) != 0 {
-		t.Fatalf("owed %v opened %v", found, g.r.opened)
+	if _, found, _ := db.LastEventID(g.m.Q, "a", MoveOwedKind); !found || len(g.sp.startedIn) != 0 {
+		t.Fatalf("owed %v opened %v", found, g.sp.startedIn)
 	}
 }

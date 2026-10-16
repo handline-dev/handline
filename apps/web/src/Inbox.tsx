@@ -1,13 +1,13 @@
 // The Inbox page (#/inbox, #/inbox/:id): what waits on the person, newest first, filtered by kind and agent in the page, with the bridge's
 // keys. The cards are InboxCard; the bell and the tab title read the same cached list (useUnread).
-import { useEffect, useMemo, useState } from 'react';
-import { useServes, useInbox, usePending, useUnread, useWrite } from '@handline/app-data';
+import { useEffect, useRef, useState } from 'react';
+import { useServes, useInboxPages, usePending, useUnread, useWrite } from '@handline/app-data';
 import { inboxGroup, type InboxGroup } from '@handline/app-core';
-import { useConnection } from '@handline/app-react';
+import { useConnection, useNearEnd } from '@handline/app-react';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { InboxCard, open, waits } from './InboxCard.tsx';
 import { kindIcon, kindLabel, type Verbs } from './inboxKinds.ts';
-import { Button, Icon, Kbd, Select } from './ui/index.ts';
+import { Button, Icon, PageHead, ScrollPage, Kbd, Select } from './ui/index.ts';
 import { View } from './View.tsx';
 
 const CONFIRM_ABOVE = 10;
@@ -56,7 +56,9 @@ function useVerbs(): Verbs {
 }
 
 export function InboxPage({ item }: { item: number | null }) {
-  const list = useInbox();
+  const { query: list, items: loaded, more, loadOlder, loadingOlder } = useInboxPages();
+  const page = useRef<HTMLElement>(null);
+  const end = useNearEnd<HTMLElement, HTMLDivElement>(page, () => void loadOlder(), more && !loadingOlder);
   const { served } = useServes('inbox.list');
   const unread = useUnread();
   const verbs = useVerbs();
@@ -72,7 +74,7 @@ export function InboxPage({ item }: { item: number | null }) {
     reply: usePending('inbox.reply').map((p) => p.id),
   };
   // Read items leave the list at once, those whose mark-read is still on its way too.
-  const all = useMemo(() => list.data?.items ?? [], [list.data]);
+  const all = loaded;
   const waiting = all.filter((i) => waits(i, pending.read.includes(i.id)));
   const matched = waiting.filter((i) => (!kind || i.kind === kind) && (!agent || i.agent === agent));
   const grouped = Object.fromEntries(GROUPS.map(([g]) => [g, matched.filter((i) => inboxGroup(i) === g)])) as Record<
@@ -139,8 +141,8 @@ export function InboxPage({ item }: { item: number | null }) {
   });
 
   return (
-    <section className="inbox mx-auto h-full max-w-[760px] overflow-auto px-4 pb-6" aria-label="Inbox">
-      <header className={TOP}>
+    <ScrollPage ref={page} className="inbox" aria-label="Inbox">
+      <PageHead className={TOP}>
         <h2 className="m-0 mr-auto text-[18px] [&_svg]:align-middle" title="Inbox">
           <Icon name="inbox" size={20} />
           <span className="muted" aria-label={`${unread.length} unread`}>
@@ -176,7 +178,7 @@ export function InboxPage({ item }: { item: number | null }) {
           onClick={askReadAll}
         />
         <Button icon="keys" label="Keys" aria-expanded={sheet} onClick={() => setSheet(!sheet)} />
-      </header>
+      </PageHead>
       {sheet ? (
         <dl
           className="inbox-keys m-0 mb-2 flex flex-wrap gap-x-4 gap-y-1 rounded-ctl border border-line bg-panel px-2.5 py-2"
@@ -275,6 +277,7 @@ export function InboxPage({ item }: { item: number | null }) {
                 </section>
               );
             })}
+            {more ? <div ref={end} aria-hidden className="h-px" /> : null}
           </div>
         ) : (
           <div className="empty">
@@ -297,6 +300,6 @@ export function InboxPage({ item }: { item: number | null }) {
           </div>
         )}
       </View>
-    </section>
+    </ScrollPage>
   );
 }

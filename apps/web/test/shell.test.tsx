@@ -100,12 +100,18 @@ describe('with the shell', () => {
 
   it('says unsent while a write is in flight, and not after', async () => {
     const sh = stubShell();
-    const s = await mount('handline.term-build');
+    const s = await mount('handline.auditor');
     await until(() => sh.log.unsent.length > 0, 'the first value');
-    const start = () => [...box.querySelectorAll('button')].find((b) => /Start$/.test(b.textContent ?? ''));
-    await until(start, 'Start');
+    const row = () => box.querySelector<HTMLElement>('[data-agent="handline.auditor"]')!;
+    await until(row, 'the row');
+    s.daemon.sessions.get('handline.auditor')!.state = 'running';
+    await act(async () => s.daemon.chat.setTurn('handline.auditor', true));
+    s.daemon.dropConnections(); // the rows are read again
+    await until(() => row().querySelector('.row-main')?.getAttribute('title')?.includes('running'), 'the row running', 600);
+    await act(async () => void row().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+    const item = [...document.querySelectorAll('[role=menuitem]')].find((b) => b.textContent === 'Interrupt') as HTMLElement;
     s.daemon.knobs.latency(400);
-    await act(async () => void start()!.click());
+    await act(async () => void item.click());
     await until(() => sh.log.unsent.at(-1) === true, 'unsent while the write is in flight');
     await until(() => sh.log.unsent.at(-1) === false, 'not unsent after', 600);
   });

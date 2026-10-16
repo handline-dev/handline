@@ -28,6 +28,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Secrets in the commits of this change
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb # gitleaks_<version>_checksums.txt, linux_x64
+        run: |
+          # The release binary, pinned and checked: gitleaks-action needs a paid licence for an organisation's repository.
+          f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$f" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$f"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$f" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP" gitleaks
+          # Only what the change adds: BASE..HEAD. A first push to a branch has no base, so it scans the head commit alone.
+          case "$BASE" in ""|0000000000000000000000000000000000000000) range="-1 HEAD" ;; *) range="$BASE..HEAD" ;; esac
+          "$RUNNER_TEMP/gitleaks" git --no-banner --redact --log-opts="$range" .
       - name: Plan
         id: plan
         run: |
@@ -62,6 +75,8 @@ jobs:
           fi
 
   go:
+    # The runner is the founder's own machine: a pull request from a fork never reaches it.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, handline-ci]
     timeout-minutes: 30
     env:
@@ -85,9 +100,9 @@ jobs:
           go-version-file: go/go.mod
           cache: false # GOCACHE and GOMODCACHE stay on the runner's disk
       - if: steps.plan.outputs.kind == 'go'
-        run: tools/test-go.sh
-        env:
-          TMPDIR: ${{ runner.temp }} # emptied after every job, and the same path each run, as go test's cache needs
+        # Fails a run that leaves a process, tmux server or temp file behind. Its TMPDIR is <dir>/tmp/: the same path each run,
+        # as go test's cache needs, under the runner's temp directory, which the runner empties after every job.
+        run: tools/leakcheck.py run --dir "$RUNNER_TEMP/hlc" tools/test-go.sh
       - name: Go parity tests
         if: steps.plan.outputs.kind == 'go'
         env:

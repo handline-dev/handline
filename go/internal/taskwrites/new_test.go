@@ -161,3 +161,42 @@ func TestNewRefusesAWaitThatWouldLoopThroughTheParent(t *testing.T) {
 		t.Fatalf("a sibling's wait is kept: %v", r)
 	}
 }
+
+// A child that repeats its parent or an open sibling is refused with that task named; a duplicate child once held its parent, and every task
+// blocked on the parent, for a day.
+func TestNewRefusesATitleThatRepeatsAnOpenTaskUnderTheSameParent(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'Story 1-0: research similar tools + overall UX frame', 'worker', 'manager', 1), "+
+			"(2, 'review T9 step 1 @d1751ebd', 'worker', 'manager', 1), (3, 'Turn on the dev instance for pc', 'worker', 'manager', 1)",
+		"UPDATE tasks SET parent_task = 1 WHERE id IN (2, 3)",
+		"UPDATE tasks SET discarded_by = 'manager', discarded_at = 2 WHERE id = 3")
+	line := func(id int, title, extra, rid string) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.new","params":{"owner":"worker","title":%q,"body":"b","parent":1,%s"request_id":%q}}`,
+			id, title, extra, rid)
+	}
+	data := func(r map[string]any) map[string]any {
+		e, _ := r["error"].(map[string]any)
+		d, _ := e["data"].(map[string]any)
+		return d
+	}
+	r := call(t, mk("manager", &fakeTeller{}),
+		line(2, "Story 1-0: research similar tools + propose one UX frame (doc only)", "", "d1"), // the case it is for: the child repeats its parent
+		line(3, "Review T9 step 1 @5fc0bcef", "", "d2"),                                          // an open sibling, a new sha
+		line(4, "merge T9 step 1 @d1751ebd", "", "d3"),                                           // another kind of work
+		line(5, "Turn on the dev instance for pc", "", "d4"),                                     // its twin is discarded
+		line(6, "Story 1-0: research similar tools + propose one UX frame (doc only)", `"duplicate_ok":true,`, "d5"))
+	for i, want := range []float64{1, 2} {
+		if d := data(r[i]); d["gate"] != DuplicateGate || d["task"] != want || !strings.Contains(d["reason"].(string), fmt.Sprintf("T%d", int(want))) {
+			t.Errorf("call %d: %v", i+2, r[i])
+		}
+	}
+	for i := 2; i < 5; i++ {
+		if r[i]["error"] != nil {
+			t.Errorf("call %d: %v", i+2, r[i])
+		}
+	}
+	if n := count(t, db, "SELECT COUNT(*) FROM tasks WHERE parent_task = 1 AND title LIKE 'Story 1-0%'"); n != 1 {
+		t.Fatalf("only the insisted one opens: %d", n)
+	}
+}

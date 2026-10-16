@@ -35,8 +35,6 @@ type Env struct {
 	Trust *team.Trust
 	// Reads draws the Prompt a stale answer carries.
 	Reads *reads.Env
-	// Structured answers the prompts of agents that run as structured sessions; nil when there are none.
-	Structured Structured
 	// Holds is who holds each terminal's input; nil leaves an answer ungated.
 	Holds *inputhold.Store
 }

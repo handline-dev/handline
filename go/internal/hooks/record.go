@@ -55,11 +55,16 @@ func (h *Recorder) record(c *rpc.Conn, params map[string]any) (any, error) {
 }
 
 func (h *Recorder) apply(agent, kind string, data map[string]any, requestID string, at int64) error {
+	_, noted := Notified(h.Home, agent)
 	if err := Apply(h.DB, h.Home, agent, kind, data, requestID, at); err != nil {
 		return err
 	}
 	if h.Turns != nil {
 		h.Turns.Hook(agent, kind, data, at)
+		// A Notification raises the needs-you card and the call run after a person answered takes it away, neither moving the turn.
+		if _, still := Notified(h.Home, agent); still != noted {
+			h.Turns.Refresh(agent)
+		}
 	}
 	return nil
 }

@@ -1,6 +1,11 @@
 package db
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // GetHandoff is db.get_handoff: the record, "" when there is none.
 func GetHandoff(q Q, agent string) (string, error) {
@@ -77,8 +82,13 @@ func StartHandoff(q Q, id, agent, sessionID, triggerKind string, deadline int64)
 
 // InFlightFor is db.in_flight_for: the agent's oldest handoff still in flight, nil when none.
 func InFlightFor(q Q, agent string) (*HandoffRow, error) {
+	return handoffRow(q, "agent = ? AND state = 'in_flight' ORDER BY updated", agent)
+}
+
+// handoffRow is the first handoff row matching the clause after WHERE, nil when none does.
+func handoffRow(q Q, where string, args ...any) (*HandoffRow, error) {
 	var h HandoffRow
-	err := q.QueryRow("SELECT id, agent, session_id, trigger_kind, step, deadline, state, detail, updated FROM handoff WHERE agent = ? AND state = 'in_flight' ORDER BY updated LIMIT 1", agent).
+	err := q.QueryRow("SELECT id, agent, session_id, trigger_kind, step, deadline, state, detail, updated FROM handoff WHERE "+where+" LIMIT 1", args...).
 		Scan(&h.ID, &h.Agent, &h.SessionID, &h.TriggerKind, &h.Step, &h.Deadline, &h.State, &h.Detail, &h.Updated)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -115,4 +125,44 @@ func NoteSessionStart(q Q, agent, cause string, resumed bool, sessionID, text, p
 	id, _ := res.LastInsertId()
 	_, err = q.Exec("DELETE FROM session_starts WHERE agent = ? AND id NOT IN (SELECT id FROM session_starts WHERE agent = ? ORDER BY id DESC LIMIT ?)", agent, agent, SessionStartsKept)
 	return id, err
+}
+
+// LatestHandoff is the agent's most recently updated handoff row, nil when it has none.
+func LatestHandoff(q Q, agent string) (*HandoffRow, error) {
+	return handoffRow(q, "agent = ? ORDER BY updated DESC", agent)
+}
+
+// LastSessionStart is when the agent's latest session start was kept, 0 when none was.
+func LastSessionStart(q Q, agent string) (int64, error) {
+	var ts int64
+	err := q.QueryRow("SELECT COALESCE(MAX(ts), 0) FROM session_starts WHERE agent = ?", agent).Scan(&ts)
+	return ts, err
+}
+
+func noteWaitKey(agent string) string { return "handoff_note_wait:" + agent }
+
+// NoteWaitStaleS is how long a wait for the agent's note counts as one: a trigger that went away before it was acted on, or a session that
+// ended mid-wait, leaves no handoff showing and does not hold the next wait to its time.
+const NoteWaitStaleS = 600
+
+// MarkNoteWait keeps that a handoff of this kind waits for the agent's note, since now; a call within a wait keeps its time.
+func MarkNoteWait(q Q, agent, kind string, now int64) error {
+	if _, since, ok, err := NoteWait(q, agent); err != nil || (ok && now-since <= NoteWaitStaleS) {
+		return err
+	}
+	return SetMeta(q, noteWaitKey(agent), fmt.Sprintf("%d:%s", now, kind))
+}
+
+// ClearNoteWait ends the wait MarkNoteWait kept.
+func ClearNoteWait(q Q, agent string) error { return SetMeta(q, noteWaitKey(agent), "") }
+
+// NoteWait is the kind and start of the wait MarkNoteWait kept, ok false when none is kept.
+func NoteWait(q Q, agent string) (kind string, since int64, ok bool, err error) {
+	v, _, err := Meta(q, noteWaitKey(agent))
+	if err != nil || v == "" {
+		return "", 0, false, err
+	}
+	n, k, found := strings.Cut(v, ":")
+	since, perr := strconv.ParseInt(n, 10, 64)
+	return k, since, found && perr == nil, nil
 }

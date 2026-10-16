@@ -106,7 +106,7 @@ describe('outlook', () => {
     expect($('.outlook-svg .line.future')!.getAttribute('stroke-dasharray')).toBeTruthy();
     expect(text($('.outlook-legend'))).toContain('guess');
     expect($$('.outlook-legend li svg .line.future')[0]!.getAttribute('stroke-dasharray')).toBeTruthy();
-    expect(text($('[data-runway="beta"]'))).toContain('runs out in 2 h 0 m');
+    expect(text($('[data-runway="beta"]'))).toContain('runs out in 2 h');
     expect(text($('[data-runway="alpha"]'))).toContain('lasts until the week resets');
     expect($('.data-table')).toBeNull();
     await click(button('Table'));
@@ -253,7 +253,7 @@ describe('settings', () => {
     }
     vi.stubGlobal('IntersectionObserver', Watch);
     await mount('#/settings');
-    await until(() => Watch.last?.els.length === 4, 'the sections watched');
+    await until(() => Watch.last?.els.length === 5, 'the sections watched');
     expect(Watch.last!.opts.root).toBe($('.settings'));
     const see = (id: string, isIntersecting: boolean) => ({ target: $(`#set-${id}`)!, isIntersecting });
     await act(async () => Watch.last!.cb([see('closing', true)]));
@@ -261,6 +261,17 @@ describe('settings', () => {
     await act(async () => Watch.last!.cb([see('closing', false), see('answers', true)]));
     expect(navItem('Standing answers').getAttribute('aria-current')).toBe('true');
     expect(navItem('Closing windows').getAttribute('aria-current')).toBeNull();
+  });
+
+  it('lists the paired devices and revokes one only after a confirm', async () => {
+    await mount('#/settings');
+    await until(() => $('[data-device="d2"]'), 'the devices');
+    expect(text($('[data-device="d1"]'))).toContain('connected');
+    await click($('[aria-label="Revoke phone-3b54"]')!);
+    expect($('[data-device="d2"]')).not.toBeNull(); // nothing yet: the confirm comes first
+    await click($('.ui-dialog .ui-btn.solid')!);
+    await until(() => !$('[data-device="d2"]'), 'the device gone');
+    expect($('[data-device="d1"]')).not.toBeNull();
   });
 
   it('a number shows its unit as a suffix inside the field', async () => {
@@ -327,5 +338,17 @@ describe('standing answers', () => {
     await click($('[data-answer="trust"] button'));
     expect($$('[data-answer]')).toHaveLength(1);
     await until(() => (s.daemon.admin.call('answers.list', {}, () => 0) as { answers: unknown[] }).answers.length === 1, 'the daemon');
+  });
+});
+
+describe('admin page', () => {
+  it('says what the daemon does, why agents wake, how full memory is and what just happened', async () => {
+    await mount('#/admin');
+    await until(() => $('.admin-memory [data-agent]'), 'the memory rows');
+    expect(text($('.admin-daemon'))).toContain('Running since');
+    expect(text($('.admin-wakes'))).toContain('wakes: a task arrived');
+    expect(text($('.admin-memory'))).toContain('25% full');
+    await until(() => $('.admin-events li'), 'the events');
+    expect(text($('.admin-events'))).toContain('Task T7 done');
   });
 });

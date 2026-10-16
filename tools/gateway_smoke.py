@@ -333,8 +333,8 @@ print(json.dumps({"task": tid, "say": say, "ask_inbox": ask1, "ask_chat": ask2, 
 
     def start_daemon(self) -> None:
         out = open(self.log("daemon"), "w")
-        p = subprocess.Popen([str(self.binary()), "-home", str(self.home), "-structured-cli", str(self.root / "bin" / "claude"),
-                              "-structured-tick", "-terminal-tick", "-cutover"],
+        p = subprocess.Popen([str(self.binary()), "-home", str(self.home), "-claude", str(self.root / "bin" / "claude"),
+                              "-terminal-tick", "-cutover"],
                              env=self.env, stdout=out, stderr=subprocess.STDOUT, cwd=str(self.user))
         self.procs.append(p)
         self.wait_for(lambda: (self.home / "daemon.sock").exists() and (self.home / "relay.sock").exists(), 60, "the daemon's sockets", p, "daemon")

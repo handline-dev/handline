@@ -22,8 +22,9 @@ const CancelVerdict = "withdrawn by the founder"
 // Teller is what follows a write once it has committed: the typed says and the deliveries the Python write did after its commit
 // (the supervisor's telling layer). A nil Teller tells nothing.
 type Teller interface {
-	// MemoChanged tells the holder of a doing task that a memo was added, edited or deleted (what), with the memo's text.
-	MemoChanged(tid int64, by, what, text string)
+	// MemoChanged tells whom a memo concerns (the holder of a doing task, who the task answers to, the agents it names with @) that it was
+	// added, edited or deleted (what), with the memo's text: at once when now, else a reader mid-turn hears at the end of its turn.
+	MemoChanged(tid int64, by, what, text string, now bool)
 	// QueueDelivered sends a queued task to its free owner, or raises the founder's card, and answers what happened.
 	QueueDelivered(tid int64, by string, queued bool) string
 	// Discarded types the says a discard wrote, moves the owner on to its next task, advances the owners it freed, and removes the inbox
@@ -185,6 +186,10 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 		if err != nil {
 			return nil, err
 		}
+		now, err := optionalBool(p, "now")
+		if err != nil {
+			return nil, err
+		}
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 			if ok, err := hasTask(tx, tid); err != nil || !ok {
 				if err != nil {
@@ -204,7 +209,7 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 			return accepted(fmt.Sprintf("memo %d added to T%d", mid, tid), map[string]any{"memo": mid}), nil
 		})
 		if err == nil && tell != nil {
-			tell.MemoChanged(tid, c.Caller.Actor(), "added", body)
+			tell.MemoChanged(tid, c.Caller.Actor(), "added", body, now)
 		}
 		return out, err
 	}
@@ -250,7 +255,7 @@ func memoEdit(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, er
 			return accepted(fmt.Sprintf("memo %d on T%d edited", mid, tid), nil), nil
 		})
 		if err == nil && tell != nil {
-			tell.MemoChanged(tid, c.Caller.Actor(), "edited", body)
+			tell.MemoChanged(tid, c.Caller.Actor(), "edited", body, false)
 		}
 		return out, err
 	}
@@ -286,7 +291,7 @@ func memoDelete(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 			return accepted(fmt.Sprintf("memo %d deleted from T%d", mid, tid), nil), nil
 		})
 		if err == nil && tell != nil {
-			tell.MemoChanged(tid, c.Caller.Actor(), "deleted", "")
+			tell.MemoChanged(tid, c.Caller.Actor(), "deleted", "", false)
 		}
 		return out, err
 	}

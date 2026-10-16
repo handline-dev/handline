@@ -1,6 +1,6 @@
-// Package transcript numbers a structured session's events per agent, keeps them in the database and serves them as pages
-// (contract/protocol.md, "Transcript stream"). The sink is what the structured package emits into; reads and the topic take the
-// rows from here.
+// Package transcript keeps an agent's transcript events in the database and serves them as pages
+// (contract/protocol.md, "Transcript stream"). Structured sessions wrote these rows; nothing writes them now, and the reads stay
+// until the stream and its app tab are removed together.
 package transcript
 
 import (
@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Keep is how many events per agent are kept; older ones go and first_seq moves up, which a reader sees as a gap.
@@ -265,4 +266,25 @@ func toolText(input map[string]any) string {
 		}
 	}
 	return ""
+}
+
+// cutText is s cut to at most max bytes at a character boundary, and whether it was cut.
+func cutText(s string, max int) (string, bool) {
+	if len(s) <= max {
+		return s, false
+	}
+	s = s[:max]
+	for !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s, true
+}
+
+// linesIn is how many lines s holds, a last one with no newline included: a cut that leaves anything out cuts at least one.
+func linesIn(s string) int {
+	n := strings.Count(s, "\n")
+	if s != "" && !strings.HasSuffix(s, "\n") {
+		n++
+	}
+	return n
 }
