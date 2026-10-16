@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/textsafe/textsafe.go; do not change, change the Go
 """What a terminal would obey, and how to show text without it.
 
 Text that someone else wrote - a request body, a verdict, an agent's state

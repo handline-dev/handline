@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/team/team.go; do not change, change the Go
 """team.yaml routing policy (team model sections 2-4, 6).
 
 An agent only ever knows a target and a message. Everything else - whether the

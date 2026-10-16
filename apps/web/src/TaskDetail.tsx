@@ -5,6 +5,7 @@ import { taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useWrite } from '@handline/app-data';
+import { canCapture, requestCapture } from './Capture.tsx';
 import { Button, Icon } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
@@ -47,9 +48,12 @@ export function TaskDetail({
       }`}
       aria-label={`Task ${taskRef(id)}`}
     >
-      <Button icon="close" label="Back" title="Back (Esc)" className="back self-end mb-4" onClick={onBack}>
-        Back
-      </Button>
+      <div className="mb-4 flex items-center justify-end gap-2">
+        {canCapture() ? <Button icon="select" label="Capture" title="Capture a window (⌘⇧C)" onClick={requestCapture} /> : null}
+        <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
+          Back
+        </Button>
+      </div>
       {gone ? (
         <div className="empty">
           <p>This task no longer exists.</p>

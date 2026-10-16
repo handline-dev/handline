@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findImageRefs, fitLongEdge, imageRef, insertImageRef } from '../src/images.ts';
+import { findImageRefs, fitLongEdge, imageRef, insertImageRef, titleFromNote, withImages } from '../src/images.ts';
 
 test('the long edge shrinks to 2048 and keeps the shape', () => {
   assert.deepEqual(fitLongEdge(4096, 2048), { width: 2048, height: 1024 });
@@ -16,6 +16,12 @@ test('the line goes on its own at the cursor', () => {
   assert.equal(insertImageRef('abcdef', 3, 'R'), 'abc\nR\ndef');
   assert.equal(insertImageRef('abc', null, 'R'), 'abc\nR');
   assert.equal(insertImageRef('', 0, 'R'), 'R');
+});
+
+test('a capture note carries one reference per image and a title from its first line', () => {
+  assert.equal(withImages(' look ', ['a1', 'b2']), 'look\n![capture](attachment:a1)\n![capture](attachment:b2)');
+  assert.equal(titleFromNote('', 'Capture'), 'Capture');
+  assert.equal(titleFromNote('x'.repeat(80), 'C').length, 60);
 });
 
 test('image references are found with their caption and id', () => {

@@ -52,6 +52,13 @@ export type RefusalData = {
   plan?: string;
   /** With gate duplicate_title: the open task the new one repeats. */
   task?: number;
+  /** With gate open_children: the task's open child tasks. */
+  children?: {
+    task: number;
+    state: string;
+    assignee: string;
+    title: string;
+  }[];
 };
 
 /** Like 2h, 30m, 1d. */
@@ -949,6 +956,8 @@ export type HrArgs = {
   repos?: { [key: string]: string };
   /** settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` or `base.md`; empty text or control characters other than tab and newline is bad_request. */
   sets?: { [key: string]: string };
+  /** bundle: the steps, at most 40, each judged against the roster the earlier ones leave. name is then ignored (send the count, `3 changes`). */
+  changes?: { [key: string]: unknown }[];
 };
 
 export type StandingAnswer = {
@@ -1463,6 +1472,10 @@ export interface Methods {
   request_id: RequestId;
 }; result: Accepted };
   "agent.unstall": { params: {
+  agent: AgentName;
+  request_id: RequestId;
+}; result: Accepted };
+  "agent.retire": { params: {
   agent: AgentName;
   request_id: RequestId;
 }; result: Accepted };
@@ -2096,6 +2109,8 @@ export interface Methods {
   task: number;
   /** Markdown. It may name images (x-attachments, texts). */
   text: string;
+  /** Tell every reader at once, even mid-turn. */
+  now?: boolean;
   request_id: RequestId;
 }; result: Accepted & {
     memo: number;
@@ -2484,6 +2499,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "agent.fold": { role: "agent", callers: null, write: true, since: 1 },
   "agent.move": { role: "agent", callers: null, write: true, since: 1 },
   "agent.unstall": { role: "founder", callers: null, write: true, since: 1 },
+  "agent.retire": { role: "founder", callers: null, write: true, since: 1 },
   "agent.create": { role: "founder", callers: null, write: true, since: 1 },
   "session.start": { role: "agent", callers: null, write: true, since: 1 },
   "session.wake": { role: "agent", callers: null, write: true, since: 1 },
@@ -2678,6 +2694,6 @@ export interface Notifications {
 }
 
 /** The state words the daemon sends; an open set, so a client keeps a fallback. */
-export const STATE_WORDS = ["running", "idle", "queued", "parked", "waiting", "stalled", "blocked", "no_terminal"] as const;
+export const STATE_WORDS = ["running", "idle", "queued", "starting", "parked", "waiting", "stalled", "blocked", "no_terminal"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];
