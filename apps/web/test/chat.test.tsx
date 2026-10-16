@@ -402,11 +402,11 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     s.daemon.chat.seed(ARCH, { from: ARCH, to: 'handline.auditor', body: 'architect says to auditor', at: at(4) });
     await mount(ARCH, s);
     await until(() => msg('Which gap list'), 'history');
-    await click($('[aria-label="Which messages"] [aria-label^="All"]') ?? $('[aria-label="Which messages"] button:last-child')!);
+    await click($('[aria-label="All: also what other agents say to each other"]')!);
     await until(() => msg('first from auditor'), 'the all room');
-    const name = (b: string) => msg(b)?.querySelector('.msg-from, [class*="muted"]')?.textContent ?? '';
+    const name = (b: string) => msg(b)!.querySelector('.msg-from')?.textContent;
     expect(name('first from auditor')).toBe('handline.auditor');
-    expect(name('second from auditor')).toBe(''); // the same sender as the one before
+    expect(name('second from auditor')).toBeUndefined(); // the same sender as the one before
     expect(name('from builder')).toBe('handline.term-build');
     expect(text(msg('from builder'))).not.toContain('→');
     expect(msg('architect says to auditor')).toBeUndefined();

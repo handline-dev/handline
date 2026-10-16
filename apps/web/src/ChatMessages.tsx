@@ -311,9 +311,7 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
       <Icon name={TASK_EVENT[ev]!} size={14} label={`Task ${verb ?? 'changed'}`} />
       <span className="card-event text-meta font-semibold uppercase tracking-wide">{verb ? `Task ${verb}` : 'Task'}</span>
       <span className="mono">T{task}</span>
-      {titles?.get(task) ? (
-        <span className="max-w-[24ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{titles.get(task)}</span>
-      ) : null}
+      {titles?.get(task) ? <span className="max-w-[24ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{titles.get(task)}</span> : null}
       {rest ? <span className="muted min-w-0 break-words">{rest}</span> : null}
       <span className="muted card-time">{clockTime(m.at)}</span>
     </button>

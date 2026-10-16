@@ -89,8 +89,9 @@ function Typing({ line }: { line: string }) {
   );
 }
 
-/** Whether the entry before is a message from the same sender: the name over a run of one sender's messages is said once. */
-const sameSender = (prev: TimelineEntry | undefined, m: ChatMessage) => prev?.kind === 'message' && prev.message.from === m.from;
+/** In the all room, the sender's name over a message, left out when the entry before is a message from the same sender. */
+const groupOf = (scope: ChatScope, prev: TimelineEntry | undefined, m: ChatMessage) =>
+  scope === 'all' ? { name: prev?.kind === 'message' && prev.message.from === m.from ? null : m.from } : undefined;
 
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const { storage } = useWorkspace();
@@ -142,9 +143,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     if (!box || anchor.current) return;
     const { top, bottom } = box.getBoundingClientRect();
     // The last line in view: whatever page lands, it lands above it. The first one may be an old message above the paged window, which a page never moves.
-    const el = [...box.querySelectorAll('[data-id]')]
-      .filter((n) => n.getBoundingClientRect().top < bottom && n.getBoundingClientRect().bottom > top)
-      .at(-1);
+    const el = [...box.querySelectorAll('[data-id]')].filter((n) => n.getBoundingClientRect().top < bottom && n.getBoundingClientRect().bottom > top).at(-1);
     const id = el?.getAttribute('data-id');
     anchor.current = el && id ? { id, off: el.getBoundingClientRect().top - top } : null;
     setArmed(false);
@@ -167,12 +166,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const id = requestAnimationFrame(() => setArmed(true));
     return () => cancelAnimationFrame(id);
   }, [chat.loadingOlder, entries.length]);
-  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(
-    stream,
-    more,
-    armed && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready',
-    { atTop: true },
-  );
+  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
   const repin = () => {
     const el = stream.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
@@ -301,15 +295,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-start"
               >
                 {e.kind === 'message' ? (
-                  <Message
-                    m={e.message}
-                    agent={agent}
-                    picked={e.id === picked}
-                    onPick={pick}
-                    byId={byId}
-                    onRef={jump}
-                    group={scope === 'all' ? { name: sameSender(entries[i - 1], e.message) ? null : e.message.from } : undefined}
-                  />
+                  <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} onRef={jump} group={groupOf(scope, entries[i - 1], e.message)} />
                 ) : e.kind === 'note' ? (
                   <TaskNote m={e.message} task={e.task} titles={titles} />
                 ) : (
