@@ -35,18 +35,6 @@ export function gaugeOf(w: Window, spanMs: number, now: number): Gauge {
   return { pct, tone: toneOf(pct), through, resetIn, runway, source: w.source };
 }
 
-/** "2 h 10 m", "45 m", "3 d 4 h": the two biggest units that are not zero. */
-export function span(ms: number): string {
-  const m = Math.max(0, Math.round(ms / 60_000));
-  if (m < 1) return 'under a minute';
-  const d = Math.floor(m / 1440);
-  const h = Math.floor((m % 1440) / 60);
-  const min = m % 60;
-  if (d) return h ? `${d} d ${h} h` : `${d} d`;
-  if (h) return min ? `${h} h ${min} m` : `${h} h`;
-  return `${min} m`;
-}
-
 /** The popup's warning for an account (docs/story9-my-turn.md 9-3): amber from 90% of the 5 h window or when the agents stop before it resets, red from 95% or in under 15 minutes. */
 export interface Headroom {
   tone: Tone;

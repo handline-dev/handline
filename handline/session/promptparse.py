@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/term/promptparse.go; do not change, change the Go
 """What an open prompt says about itself, read from its screen text and nothing else: the tool, command and reason of a permission
 prompt, and which dialog an unnumbered-title dialog is. A field the screen does not state is None, never a guess; a prompt this
 cannot read is still listed, with its raw lines.

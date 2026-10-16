@@ -440,3 +440,25 @@ func TestAwaitConfirmsAQueuedMessageWhenItShows(t *testing.T) {
 		t.Fatal("the shown message was not confirmed")
 	}
 }
+
+// A message the receiver queued and then took into its running turn shows as a queued_command attachment from the peer, never as a user
+// record: that is it read, and it confirms.
+func TestAwaitConfirmsAQueuedMessageTheRunningTurnAbsorbed(t *testing.T) {
+	r := newRig(t)
+	r.s.QueuedWait = time.Minute
+	var body string
+	r.onUser = func(r *rig, b string) { body = b; r.receive(b, true, false) }
+	res := r.s.Deliver(context.Background(), r.sess, "hello", From{})
+	if res.Kind != Queued || res.Await == nil {
+		t.Fatalf("result %+v", res)
+	}
+	r.append(map[string]any{"type": "queue-operation", "operation": "remove", "reason": "absorbed_mid_turn", "content": body})
+	if res.Await(context.Background()) {
+		t.Fatal("confirmed on the queue's remove alone")
+	}
+	r.append(map[string]any{"type": "attachment", "attachment": map[string]any{"type": "queued_command", "prompt": body,
+		"origin": map[string]any{"kind": "peer", "body": body}}})
+	if !res.Await(context.Background()) {
+		t.Fatal("a message absorbed into the running turn was not confirmed")
+	}
+}

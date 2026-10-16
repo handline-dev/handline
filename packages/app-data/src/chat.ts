@@ -11,7 +11,7 @@ import { forgetRow, newOperationId, operationOf, type Delivery } from './send-op
 import { useWrite } from './write.ts';
 
 export type ChatScope = 'mine' | 'all';
-const PAGE = 50;
+const PAGE = 30;
 
 export interface Chat {
   /** off: the daemon does not serve chat; loading: nothing cached yet (draw a skeleton); error; ready. */

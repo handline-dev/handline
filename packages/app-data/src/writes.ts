@@ -302,6 +302,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'agent.move': 'move',
     'agent.unstall': 'clear stall',
     'agent.create': 'create',
+    'agent.retire': 'retire',
     'worktree.set_status': 'set status',
     'input.take': 'take control',
     'input.release': 'release',
@@ -384,4 +385,5 @@ export const NOT_FROM_UI = [
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',
+  'team.seal', // `hl team seal`; no screen yet
 ] as const;

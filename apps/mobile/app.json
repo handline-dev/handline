@@ -12,6 +12,7 @@
     },
     "plugins": [
       "./plugins/tailscale-cleartext.cjs",
+      "./plugins/android-release.cjs",
       [
         "expo-camera",
         {

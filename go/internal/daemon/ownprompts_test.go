@@ -149,27 +149,6 @@ func TestTheScreenWatchRunsOnlyForTheDaemonThatTakesTheSingleton(t *testing.T) {
 	}
 }
 
-// Structured sessions are kept to one launch by a lock inside the process, so a second process on the home would launch them again.
-func TestASecondDaemonRunningStructuredSessionsOnTheHomeIsRefused(t *testing.T) {
-	dir := homeDir(t)
-	start := func() (*Daemon, error) {
-		return Start(Config{Home: dir, DBFile: filepath.Join(dir, "db.sqlite"), Auth: fakeAuth{}, Structured: func(string) bool { return true }})
-	}
-	first, err := start()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := start(); err == nil {
-		t.Fatal("a second daemon started beside the first")
-	}
-	first.Close()
-	second, err := start()
-	if err != nil {
-		t.Fatalf("the hold outlived its daemon: %v", err)
-	}
-	second.Close()
-}
-
 func TestADaemonMakesTheFounderKeyBeforeItServes(t *testing.T) {
 	dir := homeDir(t)
 	made := false

@@ -160,6 +160,28 @@ func TestAnUnansweredPermissionPromptIsNotedUntilTheAgentMovesOn(t *testing.T) {
 	}
 }
 
+func TestTheViewIsToldWhenAHookRaisesOrClearsTheNeedsYouCard(t *testing.T) {
+	h := testRecorder(t)
+	h.Turns = &turns.Tracker{Agent: func(string) string { return "w" }}
+	var told int
+	h.Turns.OnChange(func(string) { told++ })
+	now := time.Now().Unix()
+	apply := func(kind, rid string, raw map[string]any, want int) {
+		t.Helper()
+		told = 0
+		if err := h.apply("w", kind, raw, rid, now); err != nil {
+			t.Fatal(err)
+		}
+		if told != want {
+			t.Errorf("%s: the view was told %d times, want %d", kind, told, want)
+		}
+	}
+	apply("UserPromptSubmit", "a", map[string]any{}, 1)
+	apply("Notification", "b", map[string]any{"notification_type": "permission_prompt"}, 1)
+	apply("PostToolUse", "c", map[string]any{"tool_name": "Bash"}, 1)
+	apply("PostToolUse", "d", map[string]any{"tool_name": "Bash"}, 0)
+}
+
 func TestAnInterruptIsWhatAStopWouldHaveDone(t *testing.T) {
 	h := testRecorder(t)
 	h.Turns = &turns.Tracker{Agent: func(string) string { return "w" }}

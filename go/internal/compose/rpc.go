@@ -13,7 +13,7 @@ import (
 func (p *Parts) SessionRPC(cfg Config) *sessionrpc.Env {
 	c := controls{p: p, lc: p.LC}
 	f := &fold.Env{Home: cfg.Home, Today: today(cfg)}
-	return &sessionrpc.Env{DB: p.db, Home: cfg.Home, Controls: c, Move: c.Move, Procs: procs{p: p, lc: p.LC}, Now: cfg.Now, Fold: f.Fold, Roster: p.LC.roster}
+	return &sessionrpc.Env{DB: p.db, Home: cfg.Home, Controls: c, Move: c.Move, Now: cfg.Now, Fold: f.Fold, Roster: p.LC.roster}
 }
 
 // controls is sessionrpc.Controls over the lifecycle manager.
@@ -33,9 +33,6 @@ func (c controls) status(agent string) lifecycle.SessionStatus {
 // new one branched from base.
 func (c controls) Start(call sessionrpc.Call, agent, repo, base string) (bool, string, error) {
 	m := c.lc.Manager
-	if c.p.Run.Alive(agent) {
-		return false, agent + ": already has a running session - wake it instead", nil
-	}
 	row, err := db.GetAgentState(m.Q, agent)
 	if err != nil {
 		return false, "", err
@@ -58,9 +55,6 @@ func (c controls) Wake(call sessionrpc.Call, agent string) (bool, string, error)
 }
 
 func (c controls) Close(call sessionrpc.Call, agent string, fresh bool) (bool, string, error) {
-	if c.p.Run.Busy(agent) { // a person's close does not end a turn that runs: it is interrupted first
-		return false, agent + " is mid-turn; interrupt it first", nil
-	}
 	st, o := c.status(agent), lifecycle.CloseOpts{Force: call.Person}
 	if fresh {
 		return c.lc.Manager.CloseFresh(agent, st, o)
@@ -84,32 +78,6 @@ func (c controls) Move(call sessionrpc.Call, agent, account string) (bool, strin
 		return false, agent + ": the move is the handoff's, which this daemon has not built", nil
 	}
 	return c.lc.Mover.ForceMove(agent, account, call.By)
-}
-
-// procs is sessionrpc.Procs over the structured sessions. A kill holds the agent's lock as a close does, so it never runs beside a wake.
-type procs struct {
-	p  *Parts
-	lc *Lifecycle
-}
-
-var _ sessionrpc.Procs = procs{}
-
-func (r procs) Structured(agent string) bool { return r.p.Kind(agent) }
-
-func (r procs) Interrupt(agent string) error {
-	ok, said, err := r.lc.Manager.InterruptAgent(agent)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("%s", said)
-	}
-	return nil
-}
-
-func (r procs) Kill(agent string) error {
-	defer r.p.Locks.Lock(agent)()
-	return r.p.Manager.Kill(agent)
 }
 
 // Context is the model id and context figures of an agent on an account (agent.strip). The percent is the status file's own, nil when

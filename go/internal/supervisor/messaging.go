@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/structured"
+	"github.com/handline/handline/go/internal/delivery"
 )
 
 // A message told to an agent's session at once: the socket's `message` verb and TellNow for a request, and the pending row that survives
@@ -27,7 +27,7 @@ func (e *Env) FinishSay(q db.Q, row *db.Request) {
 func (e *Env) deliverRow(q db.Q, agent string, rowID int64, text string) (bool, string) {
 	if e.structuredAgent(agent) {
 		// Joins the running turn; the ledger holds the operation, so two callers never write the row twice.
-		if state, why := e.sendOnce(q, agent, fmt.Sprintf("pending:%d", rowID), text, structured.Now); state == NotSent {
+		if state, why := e.sendOnce(q, agent, fmt.Sprintf("pending:%d", rowID), text, delivery.Now); state == NotSent {
 			return false, why
 		}
 		check(db.DeletePending(q, rowID))
@@ -82,19 +82,15 @@ func (e *Env) TellNow(q db.Q, rid int64) (what string, err error) {
 	if row.State != "queued" {
 		return "refused at delivery", nil
 	}
-	if e.structuredAgent(agent) {
-		if !e.Agents.Live(agent) {
-			e.Lifecycle.StartForWork(q, agent) // a structured agent has no terminal to look for: starting it opens its session
-		}
-	} else {
-		state := stateOf(q, agent)
-		if !(state != nil && state.Terminal.String != "") {
-			e.Lifecycle.StartForWork(q, agent)
-			state = stateOf(q, agent)
-		}
-		if state != nil && state.ClosedAt.Valid && state.ClosedAt.Int64 != 0 {
-			e.Lifecycle.WakeAgent(q, agent)
-		}
+	// A structured agent has no terminal to look for: starting it opens its session. A closed one of either kind is woken here, not left
+	// to the next tick.
+	state := stateOf(q, agent)
+	if !e.openSession(agent, state) {
+		e.Lifecycle.StartForWork(q, agent)
+		state = stateOf(q, agent)
+	}
+	if state != nil && state.ClosedAt.Valid && state.ClosedAt.Int64 != 0 {
+		e.Lifecycle.WakeAgent(q, agent)
 	}
 	// A resume's first prompt may already have told it (WaitingPrompt); a fresh start does not.
 	row = must(db.GetRequest(q, rid))

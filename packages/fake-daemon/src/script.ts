@@ -191,6 +191,17 @@ export class Script {
     } else if (s.prompt?.options.some((o) => o.key === key)) this.answer(s, key, actor);
   }
 
+  /** agent.retire: refused while the session is open or another agent hangs under the name; otherwise the agent is gone. */
+  retire(s: Session, actor: Actor) {
+    const name = s.fx.name;
+    if (s.open) throw refused('state', `${name} has a session running. Close it first: an agent is not retired under a running session.`);
+    const under = [...this.sessions.keys()].filter((n) => n.startsWith(`${name}.`));
+    if (under.length) throw refused('state', `${name} has agents under it (${under.join(', ')}): retire or move them first.`);
+    this.sessions.delete(name);
+    this.host.emit('agents', 'agent.removed', { agent: name, actor, data: { name } });
+    return this.accepted(`${name} is retired.`);
+  }
+
   accepted(said: string, extra: Record<string, unknown> = {}) {
     return { accepted: true, said, ...extra };
   }
@@ -211,6 +222,7 @@ export class Script {
     this.edit(s, () => {
       s.lines.push(...BANNER.map((l) => l.replace('{worktree}', s.fx.worktree)));
     });
+    this.setState(s, 'starting', actor); // the launch, then its session ready at once
     this.setState(s, 'idle', actor);
     return this.accepted('Session started.');
   }

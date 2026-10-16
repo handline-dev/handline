@@ -1,7 +1,7 @@
 // The Stats page (#/stats): the window's four counts, how long each agent worked, from stats.get; the usage outlook below them when the daemon
 // serves it. The accounts' use is the Accounts page (a link here). The previous window's figures stay on screen until the new ones arrive.
 import { useEffect, useState } from 'react';
-import { agentTime, duration } from '@handline/app-core';
+import { agentTime, dateTime, span } from '@handline/app-core';
 import type { Stats } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useServes, useStats } from '@handline/app-data';
@@ -12,9 +12,6 @@ import { View } from './View.tsx';
 const WINDOWS = ['24h', '7d'] as const;
 type Window = (typeof WINDOWS)[number];
 const WORD: Record<Window, string> = { '24h': '24 h', '7d': '7 d' };
-
-const when = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 const TILES: [string, keyof Pick<Stats, 'tasks_done' | 'moves' | 'handoffs' | 'blocks'>, IconName][] = [
   ['tasks done', 'tasks_done', 'done'],
@@ -54,7 +51,7 @@ function AgentTime({ s }: { s: Stats }) {
             <span className="bar h-2 overflow-hidden rounded-chip bg-raised">
               <span className="bar-fill accent block h-full bg-ink-2" style={{ width: `${(r.seconds / top) * 100}%` }} />
             </span>
-            <span className="bar-value font-mono text-label">{duration(r.seconds)}</span>
+            <span className="bar-value font-mono text-label">{span(r.seconds * 1000)}</span>
           </div>
         ))
       ) : (
@@ -105,7 +102,7 @@ export function StatsPage() {
         {s ? (
           <>
             <p className="muted" data-span>
-              {when(s.since)} to {when(s.until)}
+              {dateTime(s.since)} to {dateTime(s.until)}
             </p>
             <Tiles s={s} />
             <div className="charts mt-3 flex flex-col gap-3">

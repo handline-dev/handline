@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { CLOSED, LISTED, TASK_STATES, type TaskColumn, type TaskFilter } from '@handline/app-core';
 import { BarInput, Button, Icon, Popup, Segmented, Select, Toolbar } from './ui/index.ts';
 import { STATE_GLYPH } from './taskui.tsx';
+import { canCapture, requestCapture } from './Capture.tsx';
 
 /** Which tasks the pills show: the open ones, the ones I own, or the closed ones. */
 export type Scope = 'open' | 'mine' | 'closed';
@@ -12,7 +13,7 @@ export const HEADS: { col: TaskColumn; label: string; cls: string }[] = [
   { col: 'priority', label: 'P', cls: 'c-pri w-10' },
   { col: 'state', label: 'state', cls: 'c-state w-16' },
   { col: 'title', label: 'title', cls: 'c-title' },
-  { col: 'timeout', label: 'time', cls: 'c-time w-20' },
+  { col: 'timeout', label: 'time', cls: 'c-time w-28' },
 ];
 /** What the `s` key steps through: the columns shown and the ones folded into the title line. */
 export const SORTS: TaskColumn[] = ['number', 'priority', 'state', 'title', 'owner', 'idle', 'timeout', 'asker'];
@@ -128,6 +129,15 @@ export function TasksHead(props: {
         className={`max-sm:min-h-[44px]${selecting ? ' [background:var(--bg-3)]' : ''}`}
         onClick={() => props.onSelecting()}
       />
+      {canCapture() ? (
+        <Button
+          icon="select"
+          label="Capture"
+          title="Capture a window (⌘⇧C)"
+          className="max-sm:min-h-[44px]"
+          onClick={requestCapture}
+        />
+      ) : null}
       <Button
         icon="viewTree"
         label="Graph"

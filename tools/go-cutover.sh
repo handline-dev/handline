@@ -23,7 +23,7 @@ fail() { echo "go-cutover: $*" >&2; exit 1; }
 command -v hl >/dev/null 2>&1 || fail "hl is not on PATH"
 [ -z "${OCP_SERVICE_LABEL:-}" ] || fail "OCP_SERVICE_LABEL is set ($OCP_SERVICE_LABEL): that is a rehearsal's label, not the live service. Unset it."
 command -v python3 >/dev/null 2>&1 || fail "python3 is not on PATH: hl runs with it"
-command -v claude >/dev/null 2>&1 || fail "claude is not on PATH: the Go job takes it as -structured-cli"
+command -v claude >/dev/null 2>&1 || fail "claude is not on PATH: the Go job takes it as -claude"
 [ -x "$top/go/handlined" ] || fail "$top/go/handlined is not built: run tools/build-go.sh"
 
 steps="  2. record the current daemon (hl service status)

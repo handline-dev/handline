@@ -231,7 +231,7 @@ def reaches_live_tmux(argv: list[str]) -> bool:
     if "-S" in argv:
         return False
     sock = argv[argv.index("-L") + 1] if "-L" in argv and argv.index("-L") + 1 < len(argv) else None
-    return sock in (None, "", tmuxbackend.SOCKET)
+    return sock in (None, "", paths.LIVE_TMUX_SOCKET)
 
 
 _TEMP_ROOTS = tuple({os.path.realpath(tempfile.gettempdir()), "/private/tmp", "/tmp"})
@@ -902,7 +902,7 @@ _RULE_ROW = "▔" * 60
 # parse_dialog does not read at all. It pins a general rule, so its tests
 # stand. To model the trust screen itself, copy LIVE_TRUST_PROMPT_CAPTURE.
 TRUST_DIALOG = ["  where the work is", _RULE_ROW, "   Do you trust the files in this folder?",
-                "   /Users/ron/somewhere", "   ❯ 1. Yes, proceed", "     2. No, exit",
+                "   /Users/you/somewhere", "   ❯ 1. Yes, proceed", "     2. No, exit",
                 "   Enter to confirm · Esc to cancel"]
 PERMISSION_PROMPT = ["  earlier output", _RULE_ROW, "   Bash command", "     rm -rf build",
                      "   Do you want to proceed?", "   ❯ 1. Yes",
@@ -1805,7 +1805,7 @@ LIVE_TRUST_PROMPT_CAPTURE = "\n".join([
     "cd '/private/tmp/claude-501/-Users",
     "-ron-orca-workspaces-orcapipe-keeper-2/592b2fde-6685-4f79-b057-8931a4b64d3a/"
     "scratchpad/trust-probe' && CLAUDE_CONFIG_DIR",
-    "=/Users/ron/.orcapipe/accounts/gamma/.claude claude",
+    "=/Users/you/.orcapipe/accounts/gamma/.claude claude",
     "─" * 124,
     " Accessing workspace:",
     " /private/tmp/claude-501/-Users-ron-orca-workspaces-orcapipe-keeper-2/"

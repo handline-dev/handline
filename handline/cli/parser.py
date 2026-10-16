@@ -148,9 +148,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
     p.set_defaults(fn=cmd_hooks_gate)
 
-    p = sub.add_parser("go", help="show or set whether the Go hl runs a part itself: hook (the tool-call hooks) or "
-                                  "launch (a Claude agent's start under tmux); off, Python does")
-    p.add_argument("part", choices=["hook", "launch"])
+    p = sub.add_parser("go", help="show or set whether the Go hl runs a part itself: hook (the tool-call hooks); "
+                                  "off, Python does")
+    p.add_argument("part", choices=["hook"])
     p.add_argument("state", choices=["on", "off"], nargs="?", default=None)
     p.set_defaults(fn=cmd_go)
 
@@ -610,8 +610,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("text")
     p.set_defaults(fn=cmd_task_note)
     p = tk.add_parser("memo", help="memos beside T<n>: list, add TEXT, edit ID TEXT, delete ID - "
-                                   "anyone adds, the author or founder edits; a change on a doing "
-                                   "task is told to its holder at once. A correction to a task "
+                                   "anyone adds, the author or founder edits; a change is told to "
+                                   "the holder of a doing task at once, and to whom the task answers "
+                                   "and each @name at the end of their turn. A correction to a task "
                                    "you gave is a memo, not a message behind it")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("verb", choices=("list", "add", "edit", "delete"))
@@ -619,6 +620,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--file", default=None, metavar="PATH",
                    help="add or edit: read the memo text from this file, or from stdin with '-' "
                         "(the text may be '-' too) - safe against a shell expanding backticks or $()")
+    p.add_argument("--now", action="store_true",
+                   help="add: tell every reader at once, even mid-turn")
     p.set_defaults(fn=cmd_task_memo)
     p = tk.add_parser("show", help="one task whole: its brief, memos, blockers, children and handoffs")
     p.add_argument("task", type=_task_arg, metavar="T")

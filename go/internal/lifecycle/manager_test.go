@@ -19,6 +19,7 @@ type fakeDelivery struct {
 	gone       bool
 	waitingMsg string
 	tookPrompt bool
+	told       []string // the session each waiting message was recorded as told to
 }
 
 func (f *fakeDelivery) BgHolds(db.Q, string, int64) (bool, error)       { return false, nil }
@@ -26,6 +27,9 @@ func (f *fakeDelivery) BgOwesNothing(db.Q, string) (bool, error)        { return
 func (f *fakeDelivery) BgMayStop(db.Q, string, int64) (bool, error)     { return false, nil }
 func (f *fakeDelivery) IdleSince(db.Q, string) (int64, bool, error)     { return f.idle, f.idle != 0, nil }
 func (f *fakeDelivery) EffectiveHead(db.Q, string) (*db.Request, error) { return nil, nil }
+func (f *fakeDelivery) HeadTaskBlocked(q db.Q, agent string, head *db.Request) (bool, error) {
+	return db.HeadTaskBlocked(q, agent, head)
+}
 func (f *fakeDelivery) TypeGate(db.Q, string, string, bool, bool) (string, error) {
 	return "", nil
 }
@@ -36,7 +40,7 @@ func (f *fakeDelivery) SessionStillDrawn(string, bool) bool          { return fa
 func (f *fakeDelivery) PastDialog(db.Q, string) (string, error)      { return "", nil }
 func (f *fakeDelivery) EnforceEdges(db.Q, string) (bool, error)      { return true, nil }
 func (f *fakeDelivery) WaitingPrompt(db.Q, string) (string, func(string) error, bool, error) {
-	return f.waitingMsg, func(string) error { return nil }, f.waitingMsg != "", nil
+	return f.waitingMsg, func(s string) error { f.told = append(f.told, s); return nil }, f.waitingMsg != "", nil
 }
 func (f *fakeDelivery) WaitForSession(string, int, string) bool { return f.tookPrompt }
 
@@ -280,6 +284,10 @@ func TestWakePromptByCase(t *testing.T) {
 	got, _ = m.WakePrompt("a", false, WakePromptIn{WasClosed: true})
 	if !strings.Contains(got, "There is no handoff") || !strings.Contains(got, "recorded at /t/s0.jsonl") {
 		t.Fatalf("%q", got)
+	}
+	got, _ = m.WakePrompt("a", false, WakePromptIn{WasClosed: true, Cold: true, Waiting: "msg"})
+	if !strings.HasPrefix(got, "Your session was closed while idle") || !strings.HasSuffix(got, "take it first:\n\nmsg") {
+		t.Fatalf("a fresh start is handed what woke it, last: %q", got)
 	}
 }
 

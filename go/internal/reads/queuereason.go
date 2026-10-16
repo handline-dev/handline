@@ -81,9 +81,6 @@ func (e *Env) deliveryState(agent, none string) (string, error) {
 		return "stalled", nil
 	}
 	closed := row.ClosedAt.Valid && row.ClosedAt.Int64 != 0
-	if !closed && row.Terminal.String != "" && e.Structured != nil && e.Structured(agent) {
-		return "switched with its terminal open", nil
-	}
 	if closed {
 		return e.closedState(agent, row)
 	}

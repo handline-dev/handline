@@ -710,7 +710,7 @@ def test_service_plist_runs_the_go_daemon_and_the_live_home_needs_a_word(home: P
         del os.environ["OCP_SERVICE_LABEL"]
         args = go["ProgramArguments"]
         check("service: the Go daemon runs on the scratch home with the production flags",
-              args == [str(exe), "-home", str(home), "-structured-cli", "/opt/claude", "-structured-tick", "-terminal-tick", "-cutover"], str(args))
+              args == [str(exe), "-home", str(home), "-claude", "/opt/claude", "-terminal-tick", "-cutover"], str(args))
         check("service: the Go job carries a PATH that holds python3's directory",
               "/opt" in go["EnvironmentVariables"]["PATH"].split(":"), str(go["EnvironmentVariables"]))
         try:

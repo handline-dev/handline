@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/structured"
+	"github.com/handline/handline/go/internal/delivery"
 )
 
 // Typing the tell and recording what it left behind (daemon/delivery.py).
@@ -69,7 +69,7 @@ func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, ah
 		text = batchText(q, live, folded, aheadOf)
 	}
 	// Held behind a running turn: a task batch does not interrupt it. The ledger holds the operation, so a retry writes nothing.
-	state, _ := e.sendOnce(q, agent, requestOp(requestIDs(live)...), text, structured.Queue)
+	state, _ := e.sendOnce(q, agent, requestOp(requestIDs(live)...), text, delivery.Queue)
 	if state == NotSent {
 		for _, r := range live {
 			check(db.ClearDelivered(q, r.ID))
@@ -105,8 +105,8 @@ func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, ah
 	return true
 }
 
-// WaitingPrompt is the message waiting for a parked agent, as the first prompt of the session that resumes it, and what to record once that
-// session is up (told, called with the session id; q must stay usable until then); ok false when nothing waits. It is the tell DeliverQueued and DeliverAnswers would type
+// WaitingPrompt is the message waiting for a parked agent, as the first prompt of the session that resumes or restarts it, and what to record
+// once that session is up (told, called with the session id, "" for a fresh one; q must stay usable until then); ok false when nothing waits. It is the tell DeliverQueued and DeliverAnswers would type
 // on the next tick. Marked delivered here, before the launch, for the reason tellBatch is.
 func (e *Env) WaitingPrompt(q db.Q, agent string) (text string, told func(session string) error, ok bool, err error) {
 	defer Catch(&err)
@@ -121,6 +121,9 @@ func (e *Env) WaitingPrompt(q db.Q, agent string) (text string, told func(sessio
 		folded := foldedNotices(q, agent)
 		return tellText(q, head, depth, nil, false, folded, e.imageLines(q, head)), func(session string) (err error) {
 			defer Catch(&err)
+			if session == "" { // a fresh start: its id is the live session's
+				session = e.liveSession(q, agent)
+			}
 			e.recordTold(q, agent, head, depth, session, nil, false)
 			if head.Kind.String == "say" {
 				e.FinishSay(q, head)
@@ -164,7 +167,7 @@ func (e *Env) DeliverAnswers(q db.Q, agent string) (sent bool, err error) {
 		return false, nil
 	}
 	ids := requestIDs(answered)
-	state, _ := e.sendOnce(q, agent, answersOp(ids), AnswersText(answered), structured.Queue)
+	state, _ := e.sendOnce(q, agent, answersOp(ids), AnswersText(answered), delivery.Queue)
 	if state == NotSent || state == Held {
 		return false, nil
 	}
@@ -177,7 +180,7 @@ func (e *Env) NotifyCancelled(q db.Q, row *db.Request, verdict string) (typed bo
 	defer Catch(&err)
 	agent := row.Target
 	if e.structuredAgent(agent) {
-		state, why := e.sendOnce(q, agent, fmt.Sprintf("cancelled:%d", row.ID), cancelledText(q, row, verdict), structured.Now)
+		state, why := e.sendOnce(q, agent, fmt.Sprintf("cancelled:%d", row.ID), cancelledText(q, row, verdict), delivery.Now)
 		return state != NotSent, why, nil
 	}
 	return false, agent + " has no live session", nil

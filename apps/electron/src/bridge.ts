@@ -15,6 +15,8 @@ export const CHANNELS = {
   pairRemote: 'handline:pairRemote',
   phone: 'handline:phone',
   token: 'handline:token',
+  captureWindows: 'handline:captureWindows',
+  captureWindow: 'handline:captureWindow',
 } as const;
 
 /** The part of an IPC event this checks: the frame that sent it. */

@@ -1,4 +1,4 @@
-// Ask about a task: a question to the holder from the task detail; empty is not sent, a refusal keeps the text and says why.
+// Message about a task: a question to the holder from the task detail; empty is not sent, a refusal keeps the text and says why.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -23,7 +23,7 @@ const memory = (): KV => {
 
 let root: Root | null = null;
 let box: HTMLElement;
-const section = () => box.querySelector<HTMLElement>('section[aria-label="Ask about this task"]');
+const section = () => box.querySelector<HTMLElement>('section[aria-label="Message about this task"]');
 const field = () => section()!.querySelector<HTMLTextAreaElement>('textarea')!;
 const submit = () => section()!.querySelector<HTMLButtonElement>('button[type=submit]')!;
 const typeInto = (el: HTMLTextAreaElement, value: string) =>
@@ -51,10 +51,10 @@ afterEach(async () => {
   location.hash = '';
 });
 
-describe('Ask about a task', () => {
+describe('Message about a task', () => {
   it('does not send an empty question', async () => {
     const s = await mount();
-    const holder = () => section()!.querySelector('h3')!.textContent!.replace('Ask ', '');
+    const holder = () => section()!.querySelector('button[aria-pressed=true]')!.textContent!;
     const count = async () => (await s.client.call('chat.messages', { agent: holder(), scope: 'all', limit: 50 })).messages.length;
     const before = await count();
     await typeInto(field(), '   ');
@@ -69,7 +69,7 @@ describe('Ask about a task', () => {
     await typeInto(field(), 'why this way?');
     await act(async () => void submit().click());
     await until(() => field().value === '', 'the box to clear');
-    const to = box.querySelector('section[aria-label="Ask about this task"] h3')!.textContent!.replace('Ask ', '');
+    const to = section()!.querySelector('button[aria-pressed=true]')!.textContent!;
     const page = await s.client.call('chat.messages', { agent: to, scope: 'all', limit: 5 });
     const q = page.messages.find((m) => m.body.includes('why this way?'))!;
     expect(q.tasks.map((t) => t.id)).toEqual([1688]);
