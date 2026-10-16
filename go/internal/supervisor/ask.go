@@ -25,9 +25,6 @@ import (
 // TerminalStates are the states an agent may not move itself out of. STALLED is a task defect and only a human clears it (section 8.6).
 var TerminalStates = map[string]bool{states.Stalled: true}
 
-// ReviewPingpongLimit: a review that bounces on the same file this many times is not a review problem any more.
-const ReviewPingpongLimit = 3
-
 // CancelVerdict is what a cancelled request says, to the requester as its answer and to anyone who reads the row.
 const CancelVerdict = taskwrites.CancelVerdict
 
@@ -195,48 +192,6 @@ func cycleInChain(q db.Q, chainID, requester, target, kind string) string {
 	return ""
 }
 
-func fileSet(files string) map[string]bool {
-	out := map[string]bool{}
-	for _, f := range strings.Split(files, ",") {
-		if f != "" {
-			out[f] = true
-		}
-	}
-	return out
-}
-
-// reviewPingpong counts review round-trips on the same file within one chain.
-func reviewPingpong(q db.Q, chainID, target, files string) string {
-	if chainID == "" || target != "reviewer" || files == "" {
-		return ""
-	}
-	wanted := fileSet(files)
-	if len(wanted) == 0 {
-		return ""
-	}
-	trips := 0
-	for _, r := range must(db.ChainMembers(q, chainID)) {
-		if r.Target != "reviewer" {
-			continue
-		}
-		for f := range fileSet(r.Files.String) {
-			if wanted[f] {
-				trips++
-				break
-			}
-		}
-	}
-	if trips < ReviewPingpongLimit {
-		return ""
-	}
-	names := make([]string, 0, len(wanted))
-	for f := range wanted {
-		names = append(names, f)
-	}
-	sortStrings(names)
-	return fmt.Sprintf("review ping-pong: %d rounds on %s in this chain. Two agents who cannot agree is usually a spec question.", trips, strings.Join(names, ", "))
-}
-
 // ---------------------------------------------------------------- ask and say
 
 // AskIn is ask's arguments. Speaker is who is really typing the command: the daemon has no environment of its own and takes the caller's
@@ -306,13 +261,11 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 		}
 	}
 	// A loop is stopped and raised to the founder, never silently dropped.
-	for _, detect := range []string{cycleInChain(q, chainID, requester, in.Target, in.Kind), reviewPingpong(q, chainID, in.Target, in.Files)} {
-		if detect != "" {
-			eid := e.stopRunaway(q, after, requester, in.Target, in.Body, in.Files, chainID, depth, in.ParentID, detect)
-			o := refuse(fmt.Sprintf("%s\nRaised to the founder as #%d.", detect, eid))
-			o.After = after
-			return o, nil
-		}
+	if detect := cycleInChain(q, chainID, requester, in.Target, in.Kind); detect != "" {
+		eid := e.stopRunaway(q, after, requester, in.Target, in.Body, in.Files, chainID, depth, in.ParentID, detect)
+		o := refuse(fmt.Sprintf("%s\nRaised to the founder as #%d.", detect, eid))
+		o.After = after
+		return o, nil
 	}
 	d := t.Route(requester, in.Target, int(depth), isReply)
 	now := e.now()

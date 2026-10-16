@@ -24,11 +24,6 @@ from . import team
 # its own STALLED away just by sending a request.
 TERMINAL_STATES = {"STALLED"}
 
-# A review that bounces on the same file this many times is not a review
-# problem any more. Two agents that cannot agree is usually a spec question.
-REVIEW_PINGPONG_LIMIT = 3
-
-
 # Who a shell with no OCP_AGENT belongs to. Every agent's terminal has it set,
 # because `hl launch` sets it before exec'ing claude - so an interactive shell
 # without it is a human at their own prompt, and that is who this is.
@@ -221,26 +216,6 @@ def _cycle_in_chain(con, chain_id: str | None, requester: str, target: str,
     return None
 
 
-def _review_pingpong(con, chain_id: str | None, target: str, files: str | None) -> str | None:
-    """Count review round-trips on the same file within one chain."""
-    if not chain_id or target != "reviewer" or not files:
-        return None
-    wanted = {f for f in files.split(",") if f}
-    if not wanted:
-        return None
-    trips = 0
-    for r in db.chain_members(con, chain_id):
-        if r["target"] != "reviewer":
-            continue
-        have = {f for f in (r["files"] or "").split(",") if f}
-        if have & wanted:
-            trips += 1
-    if trips >= REVIEW_PINGPONG_LIMIT:
-        return (f"review ping-pong: {trips} rounds on {', '.join(sorted(wanted))} "
-                f"in this chain. Two agents who cannot agree is usually a spec question.")
-    return None
-
-
 SAY_KIND = "say"
 
 
@@ -314,12 +289,11 @@ def ask(target: str, body: str, files: str | None = None, requester: str | None 
 
         # A loop is stopped and raised to the founder, never silently dropped: a request
         # that vanishes leaves the team stuck with nobody knowing why.
-        for detect in (_cycle_in_chain(con, chain_id, requester, target, kind=kind),
-                       _review_pingpong(con, chain_id, target, files)):
-            if detect:
-                eid = _stop_runaway(con, requester, target, body, files, chain_id,
+        detect = _cycle_in_chain(con, chain_id, requester, target, kind=kind)
+        if detect:
+            eid = _stop_runaway(con, requester, target, body, files, chain_id,
                                 depth, parent_id, detect)
-                return False, f"{detect}\nRaised to the founder as #{eid}.", None
+            return False, f"{detect}\nRaised to the founder as #{eid}.", None
 
         decision = t.route(requester, target, chain_depth=depth, reply=is_reply)
         if not decision.allowed:
