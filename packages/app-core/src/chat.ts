@@ -10,6 +10,10 @@ export type TimelineEntry =
   /** An HR proposal that was decided: it keeps its place at the time it was settled. */
   | { kind: 'proposal'; at: string; id: number; proposal: Proposal };
 
+/** The proposals about this agent that were decided: they sit in the timeline where they were settled. */
+export const decidedProposals = (all: readonly Proposal[] | undefined, agent: string): Proposal[] =>
+  (all ?? []).filter((p) => (p.agent === agent || p.requested_by === agent) && (p.state === 'approved' || p.state === 'rejected'));
+
 /** The sender of the daemon's own notices; its words are never the person's. */
 export const NOTICE_SENDER = 'task-board';
 /** What a task-board message is: a task's news (`T<N> done by ...`), or a delivery notice (`#<N> to x was written ...`) that only concerns the sender. */

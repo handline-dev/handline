@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail, Proposal } from '@handline/client';
-import { ago, clockTime, handoffLine } from '@handline/app-core';
+import { ago, clockTime, decidedProposals, handoffLine } from '@handline/app-core';
 import { classify, sentence, useHr, useWrite } from '@handline/app-data';
 import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOf } from './ui/index.ts';
 import { goTeam } from './route.ts';
@@ -73,11 +73,8 @@ export const RoomTitle = ({ agent, state }: { agent: string; state: string }) =>
 /** The proposals that concern this agent. */
 export const proposalsOf = (all: readonly Proposal[] | undefined, agent: string) =>
   (all ?? []).filter((p) => p.agent === agent || p.requested_by === agent);
-/** The ones decided: they sit in the timeline where they were settled. */
-export const isDecided = (p: Proposal) => p.state === 'approved' || p.state === 'rejected';
-
 /** The decided proposals of this agent, for the timeline. */
-export const useDecided = (agent: string) => proposalsOf(useHr({}).data?.proposals, agent).filter(isDecided);
+export const useDecided = (agent: string) => decidedProposals(useHr({}).data?.proposals, agent);
 
 /** A decided proposal in the timeline: one compact line with the result. Only the person decides (hr.decide), so it was them. */
 export function DecidedCard({ p }: { p: Proposal }) {
