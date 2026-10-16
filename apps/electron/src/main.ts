@@ -26,6 +26,8 @@ const home =
   (fs.existsSync(path.join(os.homedir(), '.handline')) ? path.join(os.homedir(), '.handline') : path.join(os.homedir(), '.orcapipe'));
 /** The daemon's socket for this shell's own connection (badge, notices); the web app reaches the daemon by its WebSocket. */
 const socket = env('SOCKET') ?? path.join(home, 'daemon.sock');
+// The founder key goes only to a daemon socket inside the daemon's home: HANDLINE_SOCKET can name another process's socket.
+const founderKey = () => (path.relative(home, socket).startsWith('..') ? null : readFounderKey(home));
 /** The Go gateway (host:port): the web app reaches it at /rpc with a device token the app got for itself. An explicit WS address with no gateway is the old plain mode. */
 let gateway = env('WS') && !env('GATEWAY') ? undefined : gatewayAddress(env('GATEWAY'), os.networkInterfaces());
 const gatewaySocket = path.join(home, 'gateway.sock');
@@ -146,7 +148,8 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
  */
 function confine(contents: WebContents, origin: string): void {
   contents.setWindowOpenHandler(({ url }) => {
-    if (isDebugWindow(url, origin)) return { action: 'allow', overrideBrowserWindowOptions: { width: 1280, height: 820, title: 'Terminals (debug)' } };
+    if (isDebugWindow(url, origin))
+      return { action: 'allow', overrideBrowserWindowOptions: { width: 1280, height: 820, title: 'Terminals (debug)' } };
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
@@ -185,7 +188,7 @@ if (!app.requestSingleInstanceLock()) {
     const origin = new URL(web.url).origin;
     const page = new Page(origin);
     // The shell's own calls (an agent's worktree, the badge) are the founder's: hello carries the key from the protected store, as pairing does.
-    const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: () => readFounderKey(home) });
+    const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: founderKey });
     // Follow-main mode (pnpm app:main): the app runs from its own checkout of main and offers to restart when main moves.
     const following = env('FOLLOW') ? followMain({ dir: root, window: () => win, changed: () => own.redraw() }) : null;
     const f = following?.follower;
