@@ -41,6 +41,7 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("agent.set", rpc.Method{Role: "agent", Write: true, Handler: e.agentSetMethod})
 	s.Register("hr.propose", rpc.Method{Role: "agent", Write: true, Handler: e.proposeMethod})
 	s.Register("hr.withdraw", rpc.Method{Role: "agent", Write: true, Handler: e.withdrawMethod})
+	s.Register("team.seal", rpc.Method{Role: "founder", Write: true, Unkept: true, OwnEvent: true, Handler: e.teamSealMethod})
 	s.Register("agent.retire", rpc.Method{Role: "founder", Write: true, Handler: e.retireMethod})
 }
 

@@ -488,6 +488,17 @@ def test_leakcheck_fails_a_command_that_leaves_a_tmux_server(td: Path) -> None:
     leakcheck, where, pid = str(ROOT / "tools" / "leakcheck.py"), td / "tmux-tmpdir", td / "tmux-pid"
     clean = subprocess.run([leakcheck, "run", "true"], capture_output=True, text=True, env=env)
     check("leakcheck: a command that leaves nothing passes", clean.returncode == 0, clean.stderr)
+    # --dir: the run's directory is the one named, emptied of an earlier run's files, so TMPDIR is the same path each run.
+    fixed = td / "fixed-run"
+    (fixed / "tmp").mkdir(parents=True)
+    (fixed / "tmp" / "earlier").write_text("x")
+    seen = [subprocess.run([leakcheck, "run", "--dir", str(fixed), "sh", "-c", 'printf %s "$TMPDIR"'], capture_output=True, text=True, env=env)
+            for _ in range(2)]
+    check("leakcheck: --dir runs in the directory named, the same TMPDIR each run, after clearing an earlier run's files",
+          all(r.returncode == 0 for r in seen) and seen[0].stdout == seen[1].stdout == f"{fixed.resolve()}/tmp/", [r.stdout + r.stderr for r in seen])
+    left = subprocess.run([leakcheck, "run", "--dir", str(fixed), "sh", "-c", 'touch "$TMPDIR/left"'], capture_output=True, text=True, env=env)
+    check("leakcheck: --dir fails a run that leaves a temp file", left.returncode == 1 and "temp file:" in left.stderr, left.stderr)
+    shutil.rmtree(fixed, ignore_errors=True)
     tmux = f"{real} -L leakprobe"
     leak = f'printf %s "$TMUX_TMPDIR" > {where}; {tmux} new-session -d sh && {tmux} display-message -p "#{{pid}}" > {pid}'
     left = subprocess.run([leakcheck, "run", "sh", "-c", leak], capture_output=True, text=True, env=env)

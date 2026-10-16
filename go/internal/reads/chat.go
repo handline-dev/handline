@@ -68,11 +68,13 @@ func (c *chat) taskState(taskID int64) (any, error) {
 	return c.b.state(t), nil
 }
 
+// chatScope is the requests a chat draws. A notice the digest has listed is left out: the digest line carries it, and drawing both shows it twice.
 func chatScope(agent string, everyone bool) (string, []any) {
+	const undigested = " AND NOT (notice = 1 AND delivered_at IS NOT NULL AND typed_at IS NULL)"
 	if everyone {
-		return "(requester = ? OR target = ?)", []any{agent, agent}
+		return "((requester = ? OR target = ?)" + undigested + ")", []any{agent, agent}
 	}
-	return "((requester = ? AND target = ?) OR (requester = ? AND target = ?))", []any{human, agent, agent, human}
+	return "(((requester = ? AND target = ?) OR (requester = ? AND target = ?))" + undigested + ")", []any{human, agent, agent, human}
 }
 
 // rows adds the live state of the task a task delivery carries (the only row drawn as a card).

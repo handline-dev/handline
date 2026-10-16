@@ -231,7 +231,7 @@ def reaches_live_tmux(argv: list[str]) -> bool:
     if "-S" in argv:
         return False
     sock = argv[argv.index("-L") + 1] if "-L" in argv and argv.index("-L") + 1 < len(argv) else None
-    return sock in (None, "", tmuxbackend.SOCKET)
+    return sock in (None, "", paths.LIVE_TMUX_SOCKET)
 
 
 _TEMP_ROOTS = tuple({os.path.realpath(tempfile.gettempdir()), "/private/tmp", "/tmp"})

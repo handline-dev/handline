@@ -199,6 +199,13 @@ func TestWaitingPromptIsTheTellTheNextTickWouldType(t *testing.T) {
 		t.Fatal(s)
 	}
 	r.must(db.MarkLanded(r.DB, rid)) // the resumed session read it: it leaves the line
+	rid = r.ask("alice", "bob", "start fresh", "ask")
+	_, told, _, _ = r.WaitingPrompt(r.DB, "bob")
+	told("") // a fresh start: recorded as told to the session now live, so it is not told again
+	if s, _ := db.NotifiedSession(r.DB, "bob"); s != "s1" {
+		t.Fatal(s)
+	}
+	r.must(db.MarkLanded(r.DB, rid))
 	db.AddPending(r.DB, "bob", "a bare line", 5)
 	text, told, ok, _ = r.WaitingPrompt(r.DB, "bob")
 	if !ok || text != "a bare line" {
