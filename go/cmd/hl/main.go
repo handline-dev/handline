@@ -27,13 +27,16 @@ var commands = map[string]command{
 	"idle-background":     idleBackground,
 	"hr":                  hr,
 	"idle-timeout":        idleTimeout,
+	"init":                initCmd,
 	"inbox":               inbox,
 	"ignore-cache-expiry": ignoreCacheExpiry,
+	"land":                land,
 	"launch":              launch,
 	"notice-digest":       noticeDigest,
 	"progress":            progress,
 	"read":                read,
 	"restart":             restart,
+	"sandbox-repo":        sandboxRepo,
 	"say":                 say,
 	"task":                task,
 	"team":                teamCmd,
@@ -41,7 +44,7 @@ var commands = map[string]command{
 }
 
 // ported are the verbs with no Python behind them (a subset of commands; keep in step): arguments Go does not take are refused here, not handed to a parser that is gone.
-var ported = map[string]bool{"say": true, "task": true, "progress": true, "read": true, "inbox": true, "withdraw": true, "team": true, "hr": true}
+var ported = map[string]bool{"say": true, "task": true, "progress": true, "read": true, "inbox": true, "withdraw": true, "team": true, "hr": true, "land": true}
 
 func main() {
 	argv := os.Args[1:]

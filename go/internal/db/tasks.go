@@ -424,6 +424,25 @@ func EditTask(q Q, tid int64, by string, ed TaskEdit) error {
 	return err
 }
 
+// DormantBlockers are the open tasks tid waits on through a dormant block (one agent holds both ends).
+func DormantBlockers(q Q, tid int64) ([]int64, error) {
+	rows, err := q.Query("SELECT b.blocks_on FROM task_blocks b JOIN tasks t ON t.id = b.blocks_on WHERE b.task_id = ? AND b.dormant = 1 "+
+		"AND t.discarded_by IS NULL AND t.done_evidence IS NULL ORDER BY b.blocks_on", tid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // SyncSelfBlocks is db.sync_self_blocks, after tid changed owner from oldOwner: a wait that one agent now holds both ends of goes dormant
 // (nobody else could finish it), and a dormant one whose ends differ again counts again. A same-owner wait added on purpose is left as it was.
 // It answers the (blocked, blocker) pairs that went dormant.

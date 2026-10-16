@@ -123,6 +123,16 @@ func TestWhatIsNotPortedRunsPythonWithTheSameArgv(t *testing.T) {
 	}
 }
 
+func TestNoPortedVerbFallsBackToPython(t *testing.T) {
+	r := newRig(t)
+	for _, verb := range []string{"say", "task", "progress", "read", "inbox", "withdraw", "team", "hr", "land"} {
+		out, errs, code := r.run(nil, verb, "--no-such-flag")
+		if code != 2 || strings.Contains(out, "python") || !strings.Contains(errs, "arguments not understood") {
+			t.Errorf("%s: %q %q %d", verb, out, errs, code)
+		}
+	}
+}
+
 func TestProgressRefusesWhatItDoesNotParse(t *testing.T) {
 	r := newRig(t)
 	for _, args := range [][]string{{"progress", "--help"}, {"progress", "a", "b"}} {

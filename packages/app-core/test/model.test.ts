@@ -16,6 +16,7 @@ import {
   RAIL_FILTERS,
   stopModesOf,
   shortName,
+  rowName,
   teamOf,
   type Dot,
   saveLayout,
@@ -78,6 +79,10 @@ test('the rail sorts waiting up, nests children, and filters by dot and search',
   assert.deepEqual(names({ search: 'KID' }), [['t.kid', 0]]);
   assert.equal(teamOf('t', ['t', 't.a']), 't');
   assert.equal(shortName('t.a', 't'), 'a');
+  assert.equal(rowName('handline.pc.auditor', 2, 'handline'), 'auditor');
+  assert.equal(rowName('handline.pc', 1, 'handline'), 'pc');
+  assert.equal(rowName('handline.pc', 0, 'handline'), 'pc');
+  assert.equal(rowName('handline', 0, 'handline'), 'handline');
   assert.equal(shortName('t', 't'), 't');
   assert.equal(dotOf(agent('x', { state: 'queued' })), 'waking');
 });

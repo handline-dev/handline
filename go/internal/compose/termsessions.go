@@ -53,9 +53,6 @@ func (p *Parts) terminalSessions() map[string]int {
 	}
 	live := p.LC.term.LiveTerminals()
 	for _, agent := range paths.ListAgents(p.home) {
-		if p.Kind(agent) {
-			continue
-		}
 		if rec, _, found := p.terminalSession(agent, live); found == sessionFound {
 			out[agent] = rec.Pid
 		}
@@ -171,9 +168,6 @@ type termRun struct{ p *Parts }
 var _ lifecycle.TermSessions = termRun{}
 
 func (t termRun) Session(agent string) (int, string) {
-	if t.p.Kind(agent) {
-		return 0, ""
-	}
 	switch rec, _, found := t.p.terminalSession(agent, t.p.LC.term.LiveTerminals()); {
 	case found == sessionNone:
 		return 0, ""

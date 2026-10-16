@@ -252,16 +252,6 @@ func settled(state string) bool {
 	return never || state == "landed"
 }
 
-func size(n int64) string {
-	switch {
-	case n < 1024:
-		return fmt.Sprintf("%d B", n)
-	case n < 1<<20:
-		return fmt.Sprintf("%d KB", (n+512)/1024)
-	}
-	return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
-}
-
 // read prints one request whole, with its answer (cli/ask.cmd_read).
 func read(c *hlclient.Client, args []string) (int, bool) {
 	p, ok := parse(args, []string{"--timeout"}, []string{"--wait"}, nil)
@@ -324,13 +314,8 @@ func read(c *hlclient.Client, args []string) (int, bool) {
 		body = "(empty)"
 	}
 	fmt.Println(textsafe.Text(body))
-	n := 0
-	for _, part := range rows(row["parts"]) {
-		img, _ := part["image"].(map[string]any)
-		if path := text(part["path"]); path != "" && img != nil {
-			n++
-			fmt.Printf("[image %d: %s (%s, %s)]\n", n, path, text(img["mime"]), size(anum(img["bytes"])))
-		}
+	for _, l := range pathLines(rows(row["parts"]), "") {
+		fmt.Println(l)
 	}
 	if d, ok := row["dismissal"].(map[string]any); ok && d != nil {
 		by, reason := text(d["by"]), text(d["reason"])

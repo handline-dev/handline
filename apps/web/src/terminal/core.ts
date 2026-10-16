@@ -120,10 +120,20 @@ export function gridToSend(proposed: { cols: number; rows: number } | null, now:
 export const isEscapeChord = (e: Pick<KeyboardEvent, 'ctrlKey' | 'shiftKey' | 'metaKey' | 'altKey' | 'key'>): boolean =>
   e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'e';
 
+type Keys = Pick<KeyboardEvent, 'ctrlKey' | 'shiftKey' | 'metaKey' | 'altKey' | 'key'>;
+export const IS_MAC = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform ?? '');
+
+/** The chat / Claude Code switch: Cmd+J on a Mac (Ctrl+J is a line feed there and everywhere in a terminal), Ctrl+J elsewhere. */
+export const isSwitchChord = (e: Keys, mac = IS_MAC): boolean =>
+  e.key.toLowerCase() === 'j' && !e.altKey && (mac ? e.metaKey && !e.ctrlKey && !e.shiftKey : e.ctrlKey && !e.metaKey);
+
+/** The same switch from a focused terminal, which gives the app only a chord it does not use: Cmd+J on a Mac, Ctrl+Shift+J elsewhere (plain Ctrl+J is Claude Code's newline). */
+export const isTerminalSwitch = (e: Keys, mac = IS_MAC): boolean => isSwitchChord(e, mac) && (mac || e.shiftKey);
+
 /** True when a key belongs to the terminal under focus, so the app's own shortcuts (palette, history, ?) must not act on it. */
 export function terminalOwnsKey(e: Pick<KeyboardEvent, 'target' | 'ctrlKey' | 'shiftKey' | 'metaKey' | 'altKey' | 'key'>): boolean {
   const t = e.target;
-  return t instanceof HTMLElement && !!t.closest('.xterm') && !isEscapeChord(e);
+  return t instanceof HTMLElement && !!t.closest('.xterm') && !isEscapeChord(e) && !isTerminalSwitch(e);
 }
 
 /** The bytes xterm sends for a named key, so a key chip takes the path typing takes. */
