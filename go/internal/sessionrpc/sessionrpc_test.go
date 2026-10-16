@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -49,25 +48,9 @@ func (c *controls) Restart(_ Call, a string, f, g bool) (bool, string, error) {
 }
 func (c *controls) Park(_ Call, a string) (bool, string, error) { return c.rec("park", a) }
 
-// procs is the structured sessions: ann has one.
-type procs struct {
-	live        map[string]bool
-	interrupted []string
-	killed      []string
-	err         error
-}
-
-func (p *procs) Structured(a string) bool { return p.live[a] }
-func (p *procs) Interrupt(a string) error {
-	p.interrupted = append(p.interrupted, a)
-	return p.err
-}
-func (p *procs) Kill(a string) error { p.killed = append(p.killed, a); return p.err }
-
 type rig struct {
 	e       *Env
 	ctl     *controls
-	pr      *procs
 	closed  []string
 	present bool
 	t       *testing.T
@@ -83,8 +66,8 @@ func newRig(t *testing.T) *rig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { d.Close() })
-	r := &rig{t: t, ctl: &controls{ok: true, said: "done"}, pr: &procs{live: map[string]bool{"ann": true}}}
-	r.e = &Env{DB: d, Home: home, Controls: r.ctl, Procs: r.pr, Now: func() time.Time { return time.Unix(1_000_000, 0) },
+	r := &rig{t: t, ctl: &controls{ok: true, said: "done"}}
+	r.e = &Env{DB: d, Home: home, Controls: r.ctl, Now: func() time.Time { return time.Unix(1_000_000, 0) },
 		CloseTerminal:  func(h string) (bool, string) { r.closed = append(r.closed, h); return true, "" },
 		SessionPresent: func(string) (bool, error) { return r.present, nil }}
 	dir := filepath.Join(paths.AgentsDir(home), "ann")
@@ -242,35 +225,24 @@ func TestStopTakesAModeAndKillIsForAMemberAndAbove(t *testing.T) {
 	if g := refused(r.dial(true).call("session.stop", map[string]any{"agent": "ann", "mode": "kill", "request_id": rid("4")})); g != "role" {
 		t.Fatalf("an agent session may not kill: %q", g)
 	}
-	got := result(t, c.call("session.stop", map[string]any{"agent": "ann", "mode": "kill", "request_id": rid("5")}))
-	if got["said"] != "ann: session ended" || len(r.pr.killed) != 1 {
-		t.Fatalf("%v %v", got, r.pr.killed)
-	}
-	r.pr.live["ann"] = false
-	if g := refused(c.call("session.stop", map[string]any{"agent": "ann", "mode": "kill", "request_id": rid("6")})); g != "state" {
-		t.Fatalf("no structured session: %q", g)
-	}
-	r.pr.live["ann"], r.pr.err = true, errors.New("a process would not die")
-	if g := refused(c.call("session.stop", map[string]any{"agent": "ann", "mode": "kill", "request_id": rid("7")})); g != "state" {
-		t.Fatalf("a group that is not gone is a refusal, not a success: %q", g)
+	if g := refused(c.call("session.stop", map[string]any{"agent": "ann", "mode": "kill", "request_id": rid("5")})); g != "state" {
+		t.Fatalf("a kill ended a structured session's process group, and no agent has one: %q", g)
 	}
 }
 
-func TestInterruptIsAControlRequestForAStructuredSessionAndRecordedOnce(t *testing.T) {
+func TestInterruptIsRecordedOnceAndNotServedWithoutATerminalToPressEscAt(t *testing.T) {
 	r := newRig(t)
+	var pressed []string
+	r.e.InterruptTerminal = func(_ *rpc.Conn, a string) error { pressed = append(pressed, a); return nil }
 	c := r.dial(false)
 	got := result(t, c.call("session.interrupt", map[string]any{"agent": "ann", "request_id": rid("1")}))
 	again := result(t, c.call("session.interrupt", map[string]any{"agent": "ann", "request_id": rid("1")}))
-	if got["said"] != "ann: interrupted" || again["replayed"] != true || len(r.pr.interrupted) != 1 {
-		t.Fatalf("%v %v %v", got, again, r.pr.interrupted)
+	if got["said"] != "ann: interrupted" || again["replayed"] != true || len(pressed) != 1 {
+		t.Fatalf("%v %v %v", got, again, pressed)
 	}
-	r.pr.live["ann"] = false
-	if g := refused(c.call("session.interrupt", map[string]any{"agent": "ann", "request_id": rid("2")})); g != "state" {
-		t.Fatalf("a terminal agent has no turn to interrupt from here: %q", g)
-	}
-	r.pr.live["ann"], r.pr.err = true, errors.New("closed")
-	if g := refused(c.call("session.interrupt", map[string]any{"agent": "ann", "request_id": rid("3")})); g != "state" {
-		t.Fatalf("an error is a refusal: %q", g)
+	r.e.InterruptTerminal = nil
+	if r.dialHas(r.dial(false), "session.interrupt") {
+		t.Fatal("with no terminal to press Esc at the method is not served")
 	}
 }
 

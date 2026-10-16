@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/structured"
+	"github.com/handline/handline/go/internal/delivery"
 )
 
 // Typing the tell and recording what it left behind (daemon/delivery.py).
@@ -69,7 +69,7 @@ func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, ah
 		text = batchText(q, live, folded, aheadOf)
 	}
 	// Held behind a running turn: a task batch does not interrupt it. The ledger holds the operation, so a retry writes nothing.
-	state, _ := e.sendOnce(q, agent, requestOp(requestIDs(live)...), text, structured.Queue)
+	state, _ := e.sendOnce(q, agent, requestOp(requestIDs(live)...), text, delivery.Queue)
 	if state == NotSent {
 		for _, r := range live {
 			check(db.ClearDelivered(q, r.ID))
@@ -164,7 +164,7 @@ func (e *Env) DeliverAnswers(q db.Q, agent string) (sent bool, err error) {
 		return false, nil
 	}
 	ids := requestIDs(answered)
-	state, _ := e.sendOnce(q, agent, answersOp(ids), AnswersText(answered), structured.Queue)
+	state, _ := e.sendOnce(q, agent, answersOp(ids), AnswersText(answered), delivery.Queue)
 	if state == NotSent || state == Held {
 		return false, nil
 	}
@@ -177,7 +177,7 @@ func (e *Env) NotifyCancelled(q db.Q, row *db.Request, verdict string) (typed bo
 	defer Catch(&err)
 	agent := row.Target
 	if e.structuredAgent(agent) {
-		state, why := e.sendOnce(q, agent, fmt.Sprintf("cancelled:%d", row.ID), cancelledText(q, row, verdict), structured.Now)
+		state, why := e.sendOnce(q, agent, fmt.Sprintf("cancelled:%d", row.ID), cancelledText(q, row, verdict), delivery.Now)
 		return state != NotSent, why, nil
 	}
 	return false, agent + " has no live session", nil

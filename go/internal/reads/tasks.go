@@ -631,18 +631,9 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ms := []any{}
-	for _, m := range memos {
-		var edited any
-		if m.set("edited_at") {
-			edited = ts(m["edited_at"])
-		}
-		memo := map[string]any{"id": m.i("id"), "task": m.i("task_id"), "author": m.str("author"),
-			"at": ts(m["created_at"]), "text": m.str("body"), "edited_at": edited}
-		if p := parts(m.str("body")); p != nil {
-			memo["parts"] = p
-		}
-		ms = append(ms, memo)
+	ms := make([]any, len(memos))
+	for i, m := range memos {
+		ms[i] = memoJSON(m, parts)
 	}
 	task["memos"] = ms
 	if task["timeline"], err = e.taskTimeline(*tid, memos, reqs, parts); err != nil {
@@ -736,4 +727,69 @@ func (e *Env) taskResultOf(tid int64, task map[string]any) error {
 		task["ui"] = true
 	}
 	return nil
+}
+
+func memoJSON(m row, parts func(string) []any) map[string]any {
+	var edited any
+	if m.set("edited_at") {
+		edited = ts(m["edited_at"])
+	}
+	memo := map[string]any{"id": m.i("id"), "task": m.i("task_id"), "author": m.str("author"),
+		"at": ts(m["created_at"]), "text": m.str("body"), "edited_at": edited}
+	if p := parts(m.str("body")); p != nil {
+		memo["parts"] = p
+	}
+	return memo
+}
+
+// task.memo.list: a task's memos, oldest first. With limit, the newest limit memos, or the limit just older than before.
+func (e *Env) taskMemoList(c *rpc.Conn, params map[string]any) (any, error) {
+	tid, err := optInt(params, "task")
+	if err != nil || tid == nil {
+		return nil, badParam("task is a task number", "task")
+	}
+	before, err := rangedInt(params, "before", 1, 0)
+	if err != nil {
+		return nil, err
+	}
+	limit, err := rangedInt(params, "limit", 1, maxLimit)
+	if err != nil {
+		return nil, err
+	}
+	if before != nil && limit == nil {
+		return nil, badParam("before needs limit", "limit")
+	}
+	t, err := queryOne(e.DB, "SELECT id FROM tasks WHERE id = ?", *tid)
+	if err != nil {
+		return nil, err
+	}
+	if t == nil {
+		nf := rpc.NotFoundError(fmt.Sprintf("no task T%d", *tid))
+		nf.Data = map[string]any{"what": "task", "id": *tid}
+		return nil, nf
+	}
+	var b, n any
+	if before != nil {
+		b = *before
+	}
+	n = -1
+	if limit != nil {
+		n = *limit + 1
+	}
+	rows, err := query(e.DB, "SELECT * FROM (SELECT * FROM task_memos WHERE task_id = ? AND (? IS NULL OR id < ?) ORDER BY id DESC LIMIT ?) ORDER BY id",
+		*tid, b, b, n)
+	if err != nil {
+		return nil, err
+	}
+	more := limit != nil && int64(len(rows)) > *limit
+	if more {
+		rows = rows[1:]
+	}
+	images, agent := attachments.New(e.Home), c != nil && c.Caller.Role == "agent"
+	parts := func(text string) []any { return images.Parts(text, agent) }
+	memos := make([]any, len(rows))
+	for i, m := range rows {
+		memos[i] = memoJSON(m, parts)
+	}
+	return map[string]any{"memos": memos, "more": more}, nil
 }

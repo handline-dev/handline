@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { grant } from '../src/grant.ts';
 import { commands, Owner, resolveClaude, type Child, type Cmd } from '../src/owner.ts';
 
-const DAEMON: Cmd = { file: 'daemon', args: ['-structured-tick'] };
+const DAEMON: Cmd = { file: 'daemon', args: ['-terminal-tick'] };
 const GO: Cmd = { file: 'go', args: ['-gateway'] };
 
 function rig(up: { socket: boolean; gateway: boolean }, over: { exitAtStart?: Cmd; neverUp?: Cmd } = {}) {
@@ -93,13 +93,13 @@ test('commands: a checkout runs go/handlined as the daemon and the gateway; the 
   const none = commands(() => undefined, '/repo', '127.0.0.1:7443');
   assert.deepEqual(none.daemon, {
     file: '/repo/go/handlined',
-    args: ['-allow-real-home', '-structured-cli', 'claude', '-structured-tick', '-terminal-tick', '-cutover'],
+    args: ['-allow-real-home', '-claude', 'claude', '-terminal-tick', '-cutover'],
   });
   assert.deepEqual(none.gateway.args, ['-gateway', '-allow-real-home', '-listen', '127.0.0.1:7443']);
   const named = commands((k) => ({ HOME: '/h', CLAUDE: '/x/claude', HANDLINED: '/x/h' })[k], '/repo', ':1');
   const ts = commands(() => undefined, '/repo', '100.101.2.3:7443', 'mac.tail1.ts.net:7443');
   assert.deepEqual(ts.gateway.args.slice(-4), ['-listen', '100.101.2.3:7443', '-advertise', 'mac.tail1.ts.net:7443']);
-  assert.deepEqual(named.daemon.args.slice(0, 4), ['-home', '/h', '-structured-cli', '/x/claude']);
+  assert.deepEqual(named.daemon.args.slice(0, 4), ['-home', '/h', '-claude', '/x/claude']);
   assert.equal(named.daemon.file, '/x/h');
   assert.deepEqual(named.gateway, { file: '/x/h', args: ['-gateway', '-home', '/h', '-listen', ':1'] });
 });
@@ -234,7 +234,7 @@ test('the daemon is resolved when it is spawned: a resolved path reaches the com
   };
   const ok = await run(async () => commands(() => undefined, '/repo', ':1', null, '/home/u/.local/bin/claude').daemon);
   assert.equal(ok.owner.state, 'running');
-  assert.deepEqual(ok.spawned[0].args.slice(0, 2), ['-allow-real-home', '-structured-cli']);
+  assert.deepEqual(ok.spawned[0].args.slice(0, 2), ['-allow-real-home', '-claude']);
   assert.equal(ok.spawned[0].args[2], '/home/u/.local/bin/claude');
   const none = await run(async () => resolveClaude(undefined, [], () => false) as never);
   assert.equal(none.owner.state, 'failed');

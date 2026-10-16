@@ -26,6 +26,9 @@ func (f *fakeDelivery) BgOwesNothing(db.Q, string) (bool, error)        { return
 func (f *fakeDelivery) BgMayStop(db.Q, string, int64) (bool, error)     { return false, nil }
 func (f *fakeDelivery) IdleSince(db.Q, string) (int64, bool, error)     { return f.idle, f.idle != 0, nil }
 func (f *fakeDelivery) EffectiveHead(db.Q, string) (*db.Request, error) { return nil, nil }
+func (f *fakeDelivery) HeadTaskBlocked(q db.Q, agent string, head *db.Request) (bool, error) {
+	return db.HeadTaskBlocked(q, agent, head)
+}
 func (f *fakeDelivery) TypeGate(db.Q, string, string, bool, bool) (string, error) {
 	return "", nil
 }

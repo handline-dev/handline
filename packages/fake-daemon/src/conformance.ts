@@ -1,8 +1,7 @@
 // What contract/fixtures/delivery.json needs of a daemon: two more structured sessions, one with a turn running and one whose last
 // message was lost after it was written. `node src/serve.ts --conformance` serves them; the vars are
 //   transcript_agent=handline.auditor working_agent=conf.working crashed_agent=conf.crashed terminal_agent=handline.term-build
-// and, for structured_controls.json, structured_agent=handline.auditor (idle) turn_agent=conf.working interrupt_agent=conf.interrupt (its turn is ended by
-// the fixture) asking_agent=conf.asking (a permission is open); and, for agent_view_fields.json, view_ready_agent=view.ready view_blocked_agent=view.blocked
+// and, for agent_view_fields.json, view_ready_agent=view.ready view_blocked_agent=view.blocked
 // view_busy_agent=view.busy view_walled_agent=view.walled view_plain_agent=view.plain; and, for agent_view_attention.json, view_fire_agent=view.fire
 // view_ask_agent=view.ask view_alert_agent=view.alert view_stuck_agent=view.stuck view_ignored_agent=view.ignored view_broken_agent=view.broken (plus busy and plain); and, for account_login.json and account_add.json, login_account=conf.login login_code=good-code login_wrong_code=wrong-code add_account=conf.added
 // add_used_account=conf.used add_retry_account=conf.retried; and, for tasks_list_fields.json,
@@ -17,13 +16,10 @@ export async function seedConformance(daemon: FakeDaemon): Promise<void> {
   for (const [name, state] of [
     ['conf.working', 'running'],
     ['conf.crashed', 'idle'],
-    ['conf.interrupt', 'running'],
-    ['conf.asking', 'running'],
   ] as const) {
     daemon.sessions.set(name, newSession({ ...base, name, state }, new Date().toISOString()));
     daemon.transcript.structure(name);
     if (state === 'running') daemon.chat.setTurn(name, true);
-    if (name === 'conf.asking') daemon.transcript.ask(name, '6f1c0a52-0000-4000-8000-0000000000a1', 'Bash', 'ls');
   }
   daemon.accounts.add({ name: 'conf.login', login_state: 'needs_login' });
   const wall = { account: 'alpha', clock: 1_790_000_000, assumed: true };

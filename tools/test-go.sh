@@ -26,8 +26,9 @@ protected_unchanged() {
     echo "FAIL  the Go tests wrote to the real $real_protected" >&2
     return 1
 }
-# The whole run also checks go.mod and go.sum are tidy (a run with go test args does not).
+# The whole run also checks go.mod and go.sum are tidy, and that no new copy of Go code came in (a run with go test args does not).
 [ $# -eq 0 ] && { "$here/check-go-tidy.sh" || exit 1; }
+[ $# -eq 0 ] && { "$here/check-go-dupl.sh" || exit 1; }
 race=()
 [ "${HANDLINE_GO_RACE:-}" = 1 ] && race=(-race)
 echo "tools/test-go.sh: go test ${race[*]} ${*:-./...}" >&2
@@ -57,18 +58,16 @@ done
 # session there. A method the Go daemon does not serve yet is named in go/conformance-missing.txt: delete a line as its method
 # lands. A fixture that needs a --var this run cannot seed yet is named in go/conformance-needvar.txt the same way, and one
 # left failing on a known gap in go/conformance-skip.txt.
-# The daemon runs with -structured-cli and a fake CLI that answers --version with the version the Go source pins, as the
-# service runs it with the real one.
-FAKE_CLAUDE_VERSION="$(sed -n 's/.*PinnedCLI = "\([^"]*\)".*/\1/p' "$here/../go/internal/structured/session.go")"
-[ -n "$FAKE_CLAUDE_VERSION" ] || { echo "tools/test-go.sh: no PinnedCLI in go/internal/structured/session.go" >&2; exit 1; }
+# The daemon runs with -claude and a fake CLI that answers --version with the version the Go source pins, as the service runs
+# it with the real one.
+FAKE_CLAUDE_VERSION="$(sed -n 's/.*PinnedCLI = "\([^"]*\)".*/\1/p' "$here/../go/internal/claudecli/session.go")"
+[ -n "$FAKE_CLAUDE_VERSION" ] || { echo "tools/test-go.sh: no PinnedCLI in go/internal/claudecli/session.go" >&2; exit 1; }
 export FAKE_CLAUDE_VERSION
 conformance() {
     python3 "$here/conformance_fds.py" "$work/handlined" "$@" --allow-missing-file "$here/../go/conformance-missing.txt" \
         --allow-needvar-file "$here/../go/conformance-needvar.txt" --skip-file "$here/../go/conformance-skip.txt" \
         "$here"/../contract/fixtures/*.json
 }
-echo "tools/test-go.sh: conformance fixtures, -structured-cli" >&2
-conformance --structured-cli "$here/fake_claude.py" || exit 1
-echo "tools/test-go.sh: conformance fixtures, -structured-cli -structured-tick" >&2
-conformance --structured-cli "$here/fake_claude.py" --structured-tick || exit 1
+echo "tools/test-go.sh: conformance fixtures, -claude" >&2
+conformance --claude "$here/fake_claude.py" || exit 1
 protected_unchanged
