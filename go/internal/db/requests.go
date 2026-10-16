@@ -807,8 +807,9 @@ func StandingDenial(q Q, requester, target, body, files string, since int64) (in
 
 // Notice is a say the board wrote for its target in a transaction, to be told after the commit.
 type Notice struct {
-	RID      int64
-	To, Text string
+	RID       int64
+	To, Text  string
+	Unblocked bool // "task T is unblocked": not typed when the owner's next task goes out in the same step
 }
 
 // InboxFile names the inbox file a request wrote for its target, which goes when the request leaves the queue.
