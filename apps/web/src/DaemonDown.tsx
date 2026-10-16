@@ -1,20 +1,39 @@
-// Shown above the page while the daemon is not reachable: says so, and what to do about it.
+// The one line that says the daemon is not reachable, with Retry. Everything else keeps quiet while it shows: no skeletons, no
+// "Connecting…", no "Pick an agent" (they would say the same three times).
+import { useEffect, useState } from 'react';
 import { useConnection } from '@handline/app-react';
-import { Icon } from './ui/index.ts';
+import { Button, Icon } from './ui/index.ts';
+
+/** Whether the daemon cannot be reached: lost, or a first connect that has taken over a second (a quick one just shows the skeletons). */
+export const useOffline = (): boolean => {
+  const conn = useConnection();
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    setSlow(false);
+    if (conn !== 'connecting') return;
+    const t = setTimeout(() => setSlow(true), 1000);
+    return () => clearTimeout(t);
+  }, [conn]);
+  return conn === 'closed' || conn === 'reconnecting' || (conn === 'connecting' && slow);
+};
 
 export function DaemonDown() {
   const conn = useConnection();
-  if (conn !== 'closed' && conn !== 'reconnecting') return null;
+  if (!useOffline()) return null;
   return (
-    <section className="daemon-down m-2 flex items-start gap-2.5 rounded-card border-2 border-bad bg-panel px-3 py-2.5" role="alert" aria-label="Daemon not running">
-      <Icon name="offline" size={18} aria-hidden />
-      <div>
-        <strong>Daemon not running</strong>
-        <p className="muted m-0 mt-0.5">
-          {conn === 'reconnecting' ? 'Reconnecting… ' : ''}What you see is the last it told this window. To start it, run{' '}
-          <code>hl service install</code> in a terminal on the host; this page reconnects by itself.
-        </p>
-      </div>
+    <section
+      className="daemon-down flex flex-none items-center gap-2 border-t border-bad bg-panel px-3 py-1.5"
+      role="alert"
+      aria-label="Daemon not running"
+    >
+      <Icon name="offline" size={14} aria-hidden />
+      <span className="min-w-0 flex-1">
+        {conn === 'closed' ? 'Daemon not running. ' : 'Reconnecting to the daemon… '}
+        <span className="muted">
+          What you see is the last it told this window; to start it run <code>hl service install</code> on the host.
+        </span>
+      </span>
+      <Button variant="outline" size="sm" label="Retry" onClick={() => location.reload()} />
     </section>
   );
 }

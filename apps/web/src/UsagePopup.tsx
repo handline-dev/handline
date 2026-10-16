@@ -60,8 +60,8 @@ export function UsagePopup() {
     setOpen(!open);
   };
   const now = useNow();
-  if (!served) return null;
   const list = data?.accounts ?? [];
+  if (!served || !list.length) return null; // nothing to show without usage data
   const summary = list.map((a) => `${a.label} ${a.five_hour ? `${Math.round(a.five_hour.used_pct)}%` : '–'}`).join(' · ');
   const worst = Math.max(0, ...list.map((a) => Math.round(a.five_hour?.used_pct ?? 0)));
   return (

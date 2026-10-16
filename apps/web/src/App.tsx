@@ -32,7 +32,7 @@ import { KeysSheet } from './KeysSheet.tsx';
 import { Palette } from './Palette.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { FoldedControls, RailControls } from './RailControls.tsx';
-import { DaemonDown } from './DaemonDown.tsx';
+import { DaemonDown, useOffline } from './DaemonDown.tsx';
 import { HrBanner } from './HrBanner.tsx';
 import { terminalOwnsKey } from './terminal/core.ts';
 import { StatusBar } from './StatusBar.tsx';
@@ -70,6 +70,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const inbox = useInboxRoute();
   const unread = useUnread().length;
   const error = useError();
+  const offline = useOffline();
   const store = useStore();
   const [railOpen, setRail] = useState(() => setting(storage, 'rail', '1').value === '1');
   const toggle = () => {
@@ -80,7 +81,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   toggleRef.current = toggle;
   const [palette, setPalette] = useState(false);
   const [keys, setKeys] = useState(false);
-  const own = inbox.open || tasks !== null; // these pages answer `?` with their own keys
+  const own = tasks !== null; // the Tasks page answers `?` with its own keys
   useEffect(() => {
     const typing = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable]');
     const onKey = (e: KeyboardEvent) => {
@@ -138,7 +139,6 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           )
         )}
         <main className={`main flex min-h-0 min-w-0 flex-1 bg-canvas${railOpen ? ' max-[900px]:ml-0' : ''}`} aria-label="Agent workspace">
-          <DaemonDown />
           {team ? (
             <TeamPage />
           ) : worktrees.open ? (
@@ -162,15 +162,17 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           ) : agent ? (
             <AgentWorkspace key={agent} agent={agent} daemon={daemon} storage={storage} />
           ) : (
-            <div className="empty big">
-              <strong>Pick an agent</strong>
-              <p>Choose one in the list to open its workspace.</p>
-            </div>
+            offline ? null : (
+              <div className="empty big">
+                <strong>Pick an agent</strong>
+                <p>Choose one in the list to open its workspace.</p>
+              </div>
+            )
           )}
         </main>
         <HrBanner />
         {newAgent.open ? <NewAgent onClose={() => void (location.hash = '')} /> : null}
-        {error ? (
+        {error && !offline ? (
           <div
             className="toast fixed right-4 bottom-10 max-w-[420px] rounded-[8px] bg-ink px-3.5 py-2.5 text-canvas shadow-[var(--shadow-pop)]"
             role="status"
@@ -181,6 +183,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           </div>
         ) : null}
       </div>
+      <DaemonDown />
       <StatusBar />
       {palette ? <Palette onClose={() => setPalette(false)} /> : null}
       {keys ? <KeysSheet onClose={() => setKeys(false)} /> : null}

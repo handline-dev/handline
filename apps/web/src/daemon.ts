@@ -13,11 +13,13 @@ export function daemonUrl(
   built = false,
   /** A host the desktop shell says is this machine's own (its Tailscale address, which Tailscale encrypts): plain ws to it is not clear text on the wire. */
   ownHost: string | null = null,
+  /** The URL `dev:fake` serves its fake daemon at: the default when nothing is asked for, so the page opens populated. */
+  fake: string | null = null,
 ): { url: string; insecure: boolean } {
   const ws = loc.protocol === 'https:' ? 'wss' : 'ws';
   const given = new URLSearchParams(search).get('daemon');
   if (given === null && built) return { url: `${ws}://${loc.host}/rpc`, insecure: false };
-  const url = given ?? `${ws}://${loc.hostname || '127.0.0.1'}:7777`;
+  const url = given ?? fake ?? `${ws}://${loc.hostname || '127.0.0.1'}:7777`;
   let insecure = true;
   try {
     const u = new URL(url);

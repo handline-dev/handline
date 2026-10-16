@@ -7,23 +7,21 @@ import { useConnection, useNearEnd } from '@handline/app-react';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { InboxCard, open, waits } from './InboxCard.tsx';
 import { kindIcon, kindLabel, type Verbs } from './inboxKinds.ts';
-import { Button, Icon, PageHead, ScrollPage, Kbd, Select } from './ui/index.ts';
+import { Button, Icon, MenuButton, MenuCheckItem, MenuSeparator, PageHead, ScrollPage } from './ui/index.ts';
+import { useScreenKeys, type KeyRows } from './screenKeys.ts';
 import { View } from './View.tsx';
 
 const CONFIRM_ABOVE = 10;
-const KEYS: [string, string][] = [
+const KEYS: KeyRows = [
   ['↵', 'open chat or task'],
   ['a', 'reply'],
   ['m', 'mark read'],
   ['M', 'mark all read'],
   ['j / k', 'next / previous'],
-  ['?', 'this list'],
 ];
-// The header sticks; its agent picker takes the page's frame over the Select's own.
+// The header sticks.
 const TOP =
-  'inbox-top sticky top-0 z-1 flex flex-wrap items-center gap-2 bg-canvas py-3 [&_select]:rounded-ctl [&_select]:border [&_select]:border-line [&_select]:bg-panel [&_select]:px-1.5 [&_select]:py-[5px] [&_select]:text-ink';
-// A pressed filter is shown by a frame and a heavier stroke, not by colour.
-const KIND = 'icon aria-pressed:outline-2 aria-pressed:outline-offset-1 aria-pressed:outline-current aria-pressed:[&_svg]:stroke-3';
+  'inbox-top sticky top-0 z-1 flex flex-wrap items-center gap-2 bg-canvas py-3 ';
 const GROUPS: [InboxGroup, string][] = [
   ['decisions', 'Decisions'],
   ['approvals', 'Approvals'],
@@ -66,8 +64,8 @@ export function InboxPage({ item }: { item: number | null }) {
   const [kind, setKind] = useState('');
   const [agent, setAgent] = useState('');
   const [cursor, setCursor] = useState<number | null>(item);
-  const [sheet, setSheet] = useState(false);
-  const [confirm, setConfirm] = useState(false);
+    const [confirm, setConfirm] = useState(false);
+  useScreenKeys('In the inbox', KEYS);
   const pending = {
     read: usePending('inbox.mark_read').flatMap((p) => p.ids),
     decide: usePending('task.done').map((p) => ('task' in p ? p.task : 0)),
@@ -111,7 +109,7 @@ export function InboxPage({ item }: { item: number | null }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === 'Escape') return void (sheet ? setSheet(false) : confirm ? setConfirm(false) : setCursor(null));
+      if (e.key === 'Escape') return void (confirm ? setConfirm(false) : setCursor(null));
       if (typing(e.target)) return;
       const at = shown.findIndex((i) => i.id === cursor);
       const cur = shown[at];
@@ -132,8 +130,6 @@ export function InboxPage({ item }: { item: number | null }) {
           return void (cur && !cur.read && !verbs.off.read && verbs.read(cur.id));
         case 'M':
           return void (!verbs.off.read && askReadAll());
-        case '?':
-          return setSheet((s) => !s);
       }
     };
     addEventListener('keydown', onKey);
@@ -150,26 +146,24 @@ export function InboxPage({ item }: { item: number | null }) {
             {unread.length}
           </span>
         </h2>
-        <div className="inbox-kinds flex gap-1" role="group" aria-label="Kind">
+        <MenuButton
+          icon="filter"
+          label={filtered ? 'Filter: on' : 'Filter'}
+          name="Show items that are"
+          className={filtered ? 'text-primary' : ''}
+        >
           {kinds.map((k) => (
-            <button
-              key={k}
-              className={KIND}
-              aria-pressed={kind === k}
-              aria-label={kindLabel(k)}
-              title={kindLabel(k)}
-              onClick={() => setKind(kind === k ? '' : k)}
-            >
-              <Icon name={kindIcon(k)} label={kindLabel(k)} />
-            </button>
+            <MenuCheckItem key={k} checked={kind === k} icon={<Icon name={kindIcon(k)} size={14} aria-hidden />} onCheckedChange={() => setKind(kind === k ? '' : k)}>
+              {kindLabel(k)}
+            </MenuCheckItem>
           ))}
-        </div>
-        <Select
-          label="Agent"
-          value={agent}
-          onChange={(e) => setAgent(e.target.value)}
-          options={[{ value: '', label: 'All agents' }, ...agents.map((a) => ({ value: a, label: a }))]}
-        />
+          {kinds.length && agents.length ? <MenuSeparator /> : null}
+          {agents.map((a) => (
+            <MenuCheckItem key={a} checked={agent === a} onCheckedChange={() => setAgent(agent === a ? '' : a)}>
+              {a}
+            </MenuCheckItem>
+          ))}
+        </MenuButton>
         <Button
           icon="markAllRead"
           label="Mark all read"
@@ -177,23 +171,7 @@ export function InboxPage({ item }: { item: number | null }) {
           title={verbs.off.read ?? 'Mark all read'}
           onClick={askReadAll}
         />
-        <Button icon="keys" label="Keys" aria-expanded={sheet} onClick={() => setSheet(!sheet)} />
       </PageHead>
-      {sheet ? (
-        <dl
-          className="inbox-keys m-0 mb-2 flex flex-wrap gap-x-4 gap-y-1 rounded-ctl border border-line bg-panel px-2.5 py-2"
-          aria-label="Keys of this page"
-        >
-          {KEYS.map(([k, what]) => (
-            <div key={k} className="flex gap-1.5">
-              <dt className="m-0">
-                <Kbd>{k}</Kbd>
-              </dt>
-              <dd className="m-0 text-ink-2">{what}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
       {confirm ? (
         <div
           className="inbox-confirm m-0 mb-2 rounded-ctl border border-line bg-panel px-2.5 py-2"
