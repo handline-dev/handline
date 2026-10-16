@@ -7,9 +7,10 @@ import { KIND } from './NeedsYouCard.tsx';
 import { usePalette } from '../theme.ts';
 import { StateMark } from './StateMark.tsx';
 import { Button, PageHeader } from './parts.tsx';
+import { TeamButton } from './TeamEntry.tsx';
 import { Loadable } from './Loadable.tsx';
 
-export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'settings') => void }) {
+export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'settings' | 'team') => void }) {
   const c = usePalette();
   const store = useStore();
   const query = useAgents();
@@ -24,6 +25,7 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
         title="Agents"
         actions={
           <>
+            <TeamButton onPress={() => props.onPage('team')} />
             <Button testID="settings-open" label="⚙" accessibilityLabel="Settings" onPress={() => props.onPage('settings')} style={{ paddingVertical: space.sm }} />
             <Button testID="worktrees-open" label="Worktrees" onPress={() => props.onPage('worktrees')} style={{ paddingVertical: space.sm }} />
             {founder && create ? (
