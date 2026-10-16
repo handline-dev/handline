@@ -83,6 +83,10 @@ button:disabled {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
+/* A pane body takes focus when its content opens, for the keys; it is not a control, so it draws no ring. A utility class would lose to the rule above. */
+.tbody:focus-visible {
+  outline: none;
+}
 .muted {
   color: var(--muted);
 }

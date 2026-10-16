@@ -1,4 +1,6 @@
 // The My turn page: cards from the inbox, agents that need the person and reports to accept, most urgent first.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -122,7 +124,11 @@ describe('my turn', () => {
     expect(box.querySelector('.my-turn-split .my-turn')).not.toBeNull(); // beside the list, not instead of it
     expect(box.querySelector('[data-card="accept:9002"]')!.getAttribute('aria-current')).toBe('true');
     await until(() => box.querySelector('.tdetail .tbody'), 'the task body');
-    expect(box.querySelector('.tdetail .tbody')!.classList.contains('outline-none')).toBe(true); // focus moves there without a ring
+    // jsdom does not match :focus-visible, so the cascade is checked in the rules: a later, more specific one than the base ring.
+    const css = readFileSync(join(process.cwd(), 'src/styles/base.css'), 'utf8');
+    expect(css.indexOf('.tbody:focus-visible')).toBeGreaterThan(css.indexOf('\n:focus-visible'));
+    expect(/\.tbody:focus-visible\s*\{\s*outline:\s*none;/.test(css)).toBe(true);
+    expect(box.querySelector('.tdetail .tbody')).not.toBeNull();
     await click(box.querySelector('.tdetail .back') ?? undefined);
     expect(box.querySelector('.tdetail')).toBeNull();
   });

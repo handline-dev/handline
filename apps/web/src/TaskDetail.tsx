@@ -136,7 +136,7 @@ function Body({ t }: { t: Detail }) {
   const reasonLabel = (verb: string) => (running ? `stop it and discard - why:` : `${verb} - why:`);
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
   return (
-    <div className="tbody outline-none" ref={root} tabIndex={-1} onKeyDown={key}>
+    <div className="tbody" ref={root} tabIndex={-1} onKeyDown={key}>
       <header className="tdetail-head flex flex-wrap items-baseline gap-2">
         <h2 className="m-0 text-title font-semibold">
           <span className="mono">{taskRef(t.id)}</span> {t.title}
