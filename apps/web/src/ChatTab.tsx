@@ -5,8 +5,8 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { timeline } from '@handline/app-core';
-import { useNearEnd, useSelector } from '@handline/app-react';
+import { timeline, type TimelineEntry } from '@handline/app-core';
+import { useNearEnd, useSelector, useStore } from '@handline/app-react';
 import {
   Skeleton,
   classify,
@@ -89,9 +89,14 @@ function Typing({ line }: { line: string }) {
   );
 }
 
+/** In the all room, the sender's name over a message, left out when the entry before is a message from the same sender. */
+const groupOf = (scope: ChatScope, prev: TimelineEntry | undefined, m: ChatMessage) =>
+  scope === 'all' ? { name: prev?.kind === 'message' && prev.message.from === m.from ? null : m.from } : undefined;
+
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const { storage } = useWorkspace();
   const canSend = useSelector((s) => s.can('chat.send'));
+  const me = useStore().me;
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
   // The scope comes back next visit, as the bridge kept it.
@@ -105,7 +110,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const locate = useChatLocate({ request: going ?? 0 }, going !== null);
   const stream = useRef<HTMLDivElement>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
-  const entries = timeline(chat.messages, chat.items, scope, agent);
+  const entries = timeline(chat.messages, chat.items, scope, agent, me);
   // Task titles for the transcript's task lines, so a card can say what it is about without opening the task.
   const { served } = useServes('tasks.list');
   const tasks = useTasks({ all: true, limit: 200 }); // done tasks too: a card of a closed task keeps its title
@@ -290,7 +295,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-start"
               >
                 {e.kind === 'message' ? (
-                  <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} onRef={jump} />
+                  <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} onRef={jump} group={groupOf(scope, entries[i - 1], e.message)} />
                 ) : e.kind === 'note' ? (
                   <TaskNote m={e.message} task={e.task} titles={titles} />
                 ) : (

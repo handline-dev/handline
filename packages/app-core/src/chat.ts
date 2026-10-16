@@ -24,11 +24,14 @@ export function timeline(
   items: TranscriptItem[],
   scope: 'mine' | 'all' = 'mine',
   agent?: string,
+  me = '',
 ): TimelineEntry[] {
   const out: TimelineEntry[] = [
     ...messages.flatMap((m): TimelineEntry[] => {
       if (scope === 'mine' && m.from === NOTICE_SENDER) return [];
       if (scope === 'mine' && m.proposal != null) return []; // the outcome of an HR proposal is drawn as its card, not as this line
+      // What this agent says to another agent is that agent's room's, not this one's: the all tab shows what reaches the agent and what it says to the person.
+      if (scope === 'all' && agent && m.from === agent && m.to !== agent && !isPerson(m.to, me)) return [];
       const n = noticeOf(m);
       if (n?.kind === 'task') return [{ kind: 'note', at: m.at, id: m.id, message: m, task: n.task }];
       return [{ kind: 'message', at: m.at, id: m.id, message: m }];
