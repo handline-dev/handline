@@ -216,7 +216,7 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		return nil, err
 	}
 	if len(kids) > 0 {
-		return nil, refusal(fmt.Sprintf("task T%d still has open child tasks (%s) - it is done once they are", tid, taskList(kids)))
+		return nil, openChildrenRefusal(tx, tid, kids)
 	}
 	blockers, err := taskBlockers(tx, tid)
 	if err != nil {
@@ -294,4 +294,27 @@ func shaOnMain(repo, sha string) (full, why string) {
 		msg = r.Stdout
 	}
 	return "", textsafe.Oneline(strings.TrimSpace(msg))
+}
+
+// openChildrenRefusal refuses a parent's done while children are open, naming each child (number, state, assignee, title) and the
+// commands that close them, so the one refused can clear them from the refusal itself; data.children carries the same for the app.
+func openChildrenRefusal(tx *sql.Tx, tid int64, kids []int64) error {
+	lines := []string{fmt.Sprintf("task T%d still has open child tasks - it is done once they are closed:", tid)}
+	var children []map[string]any
+	for _, id := range kids {
+		t, err := db.GetTask(tx, id)
+		if err != nil {
+			return err
+		}
+		state, err := db.TaskState(tx, t)
+		if err != nil {
+			return err
+		}
+		lines = append(lines, fmt.Sprintf("  T%d  %s  %s  %s", id, state, t.Owner, t.Title))
+		children = append(children, map[string]any{"task": id, "state": state, "assignee": t.Owner, "title": t.Title})
+	}
+	hint := fmt.Sprintf("close each: `hl task discard T%d \"<reason>\"` for one not needed (a duplicate of T%d, say), or its assignee's `hl task done T%d` for one finished", kids[0], tid, kids[0])
+	err := rpc.Refused(strings.Join(append(lines, hint), "\n"), "open_children", hint)
+	err.Data["children"] = children
+	return err
 }

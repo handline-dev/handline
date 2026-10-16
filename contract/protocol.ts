@@ -52,6 +52,13 @@ export type RefusalData = {
   plan?: string;
   /** With gate duplicate_title: the open task the new one repeats. */
   task?: number;
+  /** With gate open_children: the task's open child tasks. */
+  children?: {
+    task: number;
+    state: string;
+    assignee: string;
+    title: string;
+  }[];
 };
 
 /** Like 2h, 30m, 1d. */

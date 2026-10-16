@@ -58,6 +58,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `limit` | attachment.put: the file or the unsent total is over its limit, or too many uploads are open (x-attachments). |
 | `listing` | inbox.queue: the caller may not list that agent's messages. Only the agent itself, its supervisor and the founder may. |
 | `duplicate_title` | task.new: an open task under the same parent, or the parent itself, has nearly the title (same first word, 80% of the shorter title's words, Story prefix, case, punctuation and commit shas ignored). data.task names it; duplicate_ok opens the task anyway. |
+| `open_children` | task.done: the task has open child tasks. The reason names each (number, state, assignee, title), the hint the commands that close one, and the refusal's `children` lists them, so a client can offer to discard them from the same prompt. |
 
 ## Methods
 
@@ -131,7 +132,7 @@ A method marked write takes a required `request_id`.
 | `task.shot` | member |  | `task`, `n`, `offset?` | `{mime, bytes, offset, data, done}` | `not_found`, `bad_request` |  |
 | `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box?`, `relation?`, `response?`, `parent?`, `duplicate_ok?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` | duplicate_title |
 | `task.handoff` | agent | yes | `task`, `to`, `note`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `commit?`, `shots?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `commit?`, `shots?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | open_children |
 | `task.accept` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reject` | agent | yes | `task`, `note`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
