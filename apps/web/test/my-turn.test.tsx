@@ -1,7 +1,7 @@
 // The My turn page: cards from the inbox, agents that need the person and reports to accept, most urgent first.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
@@ -97,7 +97,7 @@ describe('my turn', () => {
     await until(() => box.querySelector('[data-card="accept:9001"]'), 'the accept card');
     const c = box.querySelector('[data-card="accept:9001"]')!;
     await click(button(c, 'More'));
-    await click([...c.querySelectorAll('[role=menuitem]')].find((b) => b.textContent === 'Send back'));
+    await click([...document.body.querySelectorAll('[role=menuitem]')].find((b) => b.textContent === 'Send back')); // the menu is a portal
     const field = c.querySelector('input, textarea')!;
     await act(async () => {
       const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
@@ -106,6 +106,23 @@ describe('my turn', () => {
     });
     await click(button(c, 'Send back'));
     await until(() => s.daemon.tasks.get({ task: 9001 }).state === 'queued', 'the daemon');
+  });
+
+  it('a row opens its task in a detail beside the list on a wide window; Back closes it', async () => {
+    const media = (matches: boolean) => vi.stubGlobal('matchMedia', () => ({ matches, addEventListener() {}, removeEventListener() {} }));
+    media(true);
+    keep = () => void vi.unstubAllGlobals();
+    const s = setup();
+    report(s, 9002, ME);
+    await open(s);
+    await until(() => box.querySelector('[data-card="accept:9002"]'), 'the accept card');
+    const c = box.querySelector('[data-card="accept:9002"]')!;
+    await click(c.querySelector('[role=button]') ?? undefined);
+    await until(() => box.querySelector('.tdetail'), 'the task detail');
+    expect(box.querySelector('.my-turn-split .my-turn')).not.toBeNull(); // beside the list, not instead of it
+    expect(box.querySelector('[data-card="accept:9002"]')!.getAttribute('aria-current')).toBe('true');
+    await click(box.querySelector('.tdetail .back') ?? undefined);
+    expect(box.querySelector('.tdetail')).toBeNull();
   });
 
   it("shows the daemon's refusal on the card and keeps Accept usable", async () => {
