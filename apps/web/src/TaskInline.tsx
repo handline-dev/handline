@@ -39,10 +39,24 @@ export function Inline({
   const [on, setOn] = useState(false);
   if (!can) return <>{children}</>;
   if (on) return <>{input(() => setOn(false))}</>;
+  // A div, not a button: a link or a picture inside the value keeps its own click.
   return (
-    <button type="button" className={LOOK} title={`Click to edit the ${label.toLowerCase()}`} aria-label={`Edit ${label}`} onClick={() => setOn(true)}>
+    <div
+      role="button"
+      tabIndex={0}
+      className={`${LOOK} inline-block max-w-full`}
+      title={`Click to edit the ${label.toLowerCase()}`}
+      aria-label={`Edit ${label}`}
+      onClick={(e) => !(e.target as Element).closest('a, button') && setOn(true)}
+      onKeyDown={(e) => {
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          setOn(true);
+        }
+      }}
+    >
       {children}
-    </button>
+    </div>
   );
 }
 
@@ -98,10 +112,11 @@ export function BodyInline({ t, onClose }: { t: Detail; onClose: () => void }) {
   const edit = useEditTask(t);
   const [body, setBody] = useState(t.body);
   const [busy, setBusy] = useState(false);
-  const save = () => (body === t.body ? onClose() : edit.save({ body }, onClose));
+  const uploading = useRef(false); // a Save in the tick of a paste must already see the upload
+  const save = () => (uploading.current ? undefined : body === t.body ? onClose() : edit.save({ body }, onClose));
   return (
     <div className="grid gap-2" onKeyDown={(e) => e.key === 'Escape' && (e.stopPropagation(), onClose())}>
-      <BodyEditor value={body} onChange={setBody} onBusy={setBusy} label="Body" />
+      <BodyEditor value={body} onChange={setBody} onBusy={(b) => ((uploading.current = b), setBusy(b))} label="Body" />
       <div className="flex items-center gap-2">
         <Button variant="solid" label="Save" disabled={busy || edit.pending} onClick={save}>
           Save
