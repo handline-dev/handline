@@ -153,7 +153,7 @@ export function AgentRow({
                       {queue.messages}
                     </span>
                   ) : null}
-                  {queue.tasks ? (
+                  {queue.tasks && !sub ? (
                     <span
                       className="q-tasks inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
                       title={`${queue.tasks} tasks queued or doing`}
@@ -166,11 +166,20 @@ export function AgentRow({
                 </button>
                 {sub ? (
                   <span
-                    className="row-sub block cursor-pointer truncate pl-[22px] text-hint text-ink-2"
+                    className="row-sub flex cursor-pointer items-center gap-1 pl-[22px] text-hint text-ink-2"
                     title={sub}
                     onClick={() => goAgent(a.name)}
                   >
-                    {sub}
+                    <span className="truncate">{sub}</span>
+                    {queue.tasks ? (
+                      <span
+                        className="q-tasks ml-auto inline-flex flex-none items-center gap-0.5"
+                        title={`${queue.tasks} tasks queued or doing`}
+                      >
+                        <Icon name="tasks" size={12} aria-hidden />
+                        {queue.tasks}
+                      </span>
+                    ) : null}
                   </span>
                 ) : null}
                 {live ? (

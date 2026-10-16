@@ -8,7 +8,7 @@ import { useAgents, useUnreached, useServes, useUnread, useWorktrees } from '@ha
 import { useMyTurn } from './MyTurn.tsx';
 import { useHrCount } from './TeamPage.tsx';
 import { Mark, MARKS } from './RailIcons.tsx';
-import { Button, Icon, MenuButton, MenuCheckItem, MenuItem, MenuSeparator } from './ui/index.ts';
+import { Button, Icon, MenuButton, MenuCheckItem, MenuItem, MenuLabel, MenuSeparator } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import {
   goInbox,
@@ -66,10 +66,15 @@ export function Sidebar({
   const trees = useWorktrees();
   const where = new Map<string, string>();
   for (const w of trees.data?.worktrees ?? []) if (w.owner && !where.has(w.owner)) where.set(w.owner, `${w.repo}/${w.branch}`);
-  const rows = visibleRows(railRows(agents, { hidden, search }), collapsed);
   const names = agents.map((x) => x.name);
+  const rows = byTeam(visibleRows(railRows(agents, { hidden, search }), collapsed), grouped, names);
+  // A team's heading counts the rows under it, a child with its parent.
   const teamSize = new Map<string, number>();
-  for (const a of agents) teamSize.set(teamOf(a.name, names), (teamSize.get(teamOf(a.name, names)) ?? 0) + 1);
+  let blockTeam = '';
+  for (const { agent, depth } of rows) {
+    if (depth === 0) blockTeam = teamOf(agent.name, names);
+    teamSize.set(blockTeam, (teamSize.get(blockTeam) ?? 0) + 1);
+  }
   const counts = new Map<Dot, number>();
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const unread = useUnread().length;
@@ -131,9 +136,10 @@ export function Sidebar({
         <MenuButton
           icon="filter"
           label={hidden.size ? `View: ${hidden.size} hidden` : 'View'}
-          name="Show agents that are"
+          name="View"
           className={hidden.size ? 'text-primary' : ''}
         >
+          <MenuLabel>Show agents that are</MenuLabel>
           {RAIL_FILTERS.map((f) => {
             const on = f.dots.some((d) => !hidden.has(d));
             const n = f.dots.reduce((t, d) => t + (counts.get(d) ?? 0), 0);
@@ -158,6 +164,7 @@ export function Sidebar({
             );
           })}
           <MenuSeparator />
+          <MenuLabel>List</MenuLabel>
           <MenuCheckItem checked={grouped} onCheckedChange={(on) => toggle('groupTeams', on, setGrouped)}>
             Group by team
           </MenuCheckItem>
@@ -250,6 +257,18 @@ export function Sidebar({
   );
 }
 
+/** Grouped: each top-level row with the rows under it moves up beside the first of its team, so a heading stands once; the order within a team is kept. */
+export function byTeam<R extends { agent: AgentView; depth: number }>(rows: R[], grouped: boolean, names: string[]): R[] {
+  if (!grouped) return rows;
+  const blocks = new Map<string, R[]>();
+  let team = '';
+  for (const r of rows) {
+    if (r.depth === 0) team = teamOf(r.agent.name, names);
+    blocks.set(team, [...(blocks.get(team) ?? []), r]);
+  }
+  return [...blocks.values()].flat();
+}
+
 /** The team of the last top-level row above row `i`, '' for the first. */
 const lastTop = (rows: { agent: AgentView; depth: number }[], i: number, names: string[]): string => {
   for (let j = i - 1; j >= 0; j--) if (rows[j]!.depth === 0) return teamOf(rows[j]!.agent.name, names);
@@ -263,6 +282,7 @@ function MoreMenu({ on, hint, children }: { on: boolean; hint: number; children:
       icon="more"
       label={hint ? `More (${hint} waiting)` : 'More'}
       aria-label={hint ? `More (${hint} waiting)` : 'More'}
+      aria-current={on ? 'page' : undefined}
       trigger={hint ? `More ${hint}` : 'More'}
       name="More"
       align="start"
