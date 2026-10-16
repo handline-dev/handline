@@ -111,83 +111,89 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   }, [unread]);
   // Everything but the workspace lives in the sidebar, so the main view gets the whole window height.
   // The pages with no tab strip keep the rail's handle; on the agent workspace the controls ride the first strip.
-  const hasStrip = !team && !worktrees.open && !inbox.open && !accounts.open && tasks === null && page !== 'stats' && page !== 'settings' && page !== 'admin' && !!agent && !settings;
+  const hasStrip =
+    !team &&
+    !worktrees.open &&
+    !inbox.open &&
+    !accounts.open &&
+    tasks === null &&
+    page !== 'stats' &&
+    page !== 'settings' &&
+    page !== 'admin' &&
+    !!agent &&
+    !settings;
   return (
     <FoldedControls.Provider value={railOpen ? null : { show: toggle }}>
-    <div className="frame flex h-screen flex-col">
-      <CaptureHost />
-      <div id="app" data-rail={railOpen ? 'open' : 'closed'} style={{ '--rail-w': `${railW}px` } as React.CSSProperties}>
-        {railOpen ? (
-          <>
-            <Sidebar selected={agent} onTasks={tasks !== null} storage={storage} onToggle={toggle} />
-            <div
-              className="rail-divider z-[1] -ml-0.75 w-[5px] flex-none cursor-col-resize touch-none hover:bg-primary max-[760px]:hidden"
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize the sidebar"
-              title="Drag to resize; double-click to reset"
-              onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
-              onPointerMove={(e) => e.buttons & 1 && sizeRail(e.clientX)}
-              onDoubleClick={() => sizeRail(RAIL_W)}
-            />
-          </>
-        ) : (
-          hasStrip ? null : (
+      <div className="frame flex h-screen flex-col">
+        <CaptureHost />
+        <div id="app" data-rail={railOpen ? 'open' : 'closed'} style={{ '--rail-w': `${railW}px` } as React.CSSProperties}>
+          {railOpen ? (
+            <>
+              <Sidebar selected={agent} onTasks={tasks !== null} storage={storage} onToggle={toggle} />
+              <div
+                className="rail-divider z-[1] -ml-0.75 w-[5px] flex-none cursor-col-resize touch-none hover:bg-primary max-[760px]:hidden"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize the sidebar"
+                title="Drag to resize; double-click to reset"
+                onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+                onPointerMove={(e) => e.buttons & 1 && sizeRail(e.clientX)}
+                onDoubleClick={() => sizeRail(RAIL_W)}
+              />
+            </>
+          ) : hasStrip ? null : (
             <div className="rail-handle flex w-9 flex-none justify-start self-stretch border-r border-line bg-panel px-1 shell:pt-[calc(var(--h-tabs)+4px)] pt-2">
               <RailControls show={toggle} />
             </div>
-          )
-        )}
-        <main className={`main flex min-h-0 min-w-0 flex-1 bg-canvas${railOpen ? ' max-[900px]:ml-0' : ''}`} aria-label="Agent workspace">
-          {team ? (
-            <TeamPage />
-          ) : worktrees.open ? (
-            <Worktrees path={worktrees.path} storage={storage} />
-          ) : inbox.open ? (
-            <InboxPage item={inbox.item} />
-          ) : accounts.open ? (
-            <AccountsPage name={accounts.name} />
-          ) : tasks !== null ? (
-            <TasksPage storage={storage} route={tasks} />
-          ) : page === 'my-turn' ? (
-            <MyTurnPage />
-          ) : page === 'stats' ? (
-            <StatsPage />
-          ) : page === 'settings' ? (
-            <SettingsPage />
-          ) : page === 'admin' ? (
-            <AdminPage />
-          ) : agent && settings ? (
-            <SettingsView key={agent} agent={agent} />
-          ) : agent ? (
-            <AgentWorkspace key={agent} agent={agent} daemon={daemon} storage={storage} />
-          ) : (
-            offline ? null : (
+          )}
+          <main className={`main flex min-h-0 min-w-0 flex-1 bg-canvas${railOpen ? ' max-[900px]:ml-0' : ''}`} aria-label="Agent workspace">
+            {team ? (
+              <TeamPage />
+            ) : worktrees.open ? (
+              <Worktrees path={worktrees.path} storage={storage} />
+            ) : inbox.open ? (
+              <InboxPage item={inbox.item} />
+            ) : accounts.open ? (
+              <AccountsPage name={accounts.name} />
+            ) : tasks !== null ? (
+              <TasksPage storage={storage} route={tasks} />
+            ) : page === 'my-turn' ? (
+              <MyTurnPage />
+            ) : page === 'stats' ? (
+              <StatsPage />
+            ) : page === 'settings' ? (
+              <SettingsPage />
+            ) : page === 'admin' ? (
+              <AdminPage />
+            ) : agent && settings ? (
+              <SettingsView key={agent} agent={agent} />
+            ) : agent ? (
+              <AgentWorkspace key={agent} agent={agent} daemon={daemon} storage={storage} />
+            ) : offline ? null : (
               <div className="empty big">
                 <strong>Pick an agent</strong>
                 <p>Choose one in the list to open its workspace.</p>
               </div>
-            )
-          )}
-        </main>
-        <HrBanner />
-        {newAgent.open ? <NewAgent onClose={() => void (location.hash = '')} /> : null}
-        {error && !offline ? (
-          <div
-            className="toast fixed right-4 bottom-10 max-w-[420px] rounded-[8px] bg-ink px-3.5 py-2.5 text-canvas shadow-[var(--shadow-pop)]"
-            role="status"
-            onClick={() => store.dismissError()}
-            title="Click to dismiss"
-          >
-            {error}
-          </div>
-        ) : null}
+            )}
+          </main>
+          <HrBanner />
+          {newAgent.open ? <NewAgent onClose={() => void (location.hash = '')} /> : null}
+          {error && !offline ? (
+            <div
+              className="toast fixed right-4 bottom-10 max-w-[420px] rounded-[8px] bg-ink px-3.5 py-2.5 text-canvas shadow-[var(--shadow-pop)]"
+              role="status"
+              onClick={() => store.dismissError()}
+              title="Click to dismiss"
+            >
+              {error}
+            </div>
+          ) : null}
+        </div>
+        <DaemonDown />
+        <StatusBar />
+        {palette ? <Palette onClose={() => setPalette(false)} /> : null}
+        {keys ? <KeysSheet onClose={() => setKeys(false)} /> : null}
       </div>
-      <DaemonDown />
-      <StatusBar />
-      {palette ? <Palette onClose={() => setPalette(false)} /> : null}
-      {keys ? <KeysSheet onClose={() => setKeys(false)} /> : null}
-    </div>
     </FoldedControls.Provider>
   );
 }

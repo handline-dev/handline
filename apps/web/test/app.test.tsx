@@ -114,7 +114,11 @@ describe('the workspace', () => {
     await openMore();
     expect(menuItems().map((t) => t.trim().split(' ')[0])).toEqual(['Inbox', 'Team', 'Worktrees', 'Accounts', 'Stats']);
     await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
-    expect($$('.statusbar button').map((b) => b.getAttribute('aria-label')).slice(0, 2)).toEqual(['Settings', 'Keys (?)']); // the one footer
+    expect(
+      $$('.statusbar button')
+        .map((b) => b.getAttribute('aria-label'))
+        .slice(0, 2),
+    ).toEqual(['Settings', 'Keys (?)']); // the one footer
     expect($('.rail-foot')).toBeNull();
     const bar = $('.statusbar')!;
     expect($('#app')!.parentElement).toBe($('.frame'));

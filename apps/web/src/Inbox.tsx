@@ -20,8 +20,7 @@ const KEYS: KeyRows = [
   ['j / k', 'next / previous'],
 ];
 // The header sticks.
-const TOP =
-  'inbox-top sticky top-0 z-1 flex flex-wrap items-center gap-2 bg-canvas py-3 ';
+const TOP = 'inbox-top sticky top-0 z-1 flex flex-wrap items-center gap-2 bg-canvas py-3 ';
 const GROUPS: [InboxGroup, string][] = [
   ['decisions', 'Decisions'],
   ['approvals', 'Approvals'],
@@ -64,7 +63,7 @@ export function InboxPage({ item }: { item: number | null }) {
   const [kind, setKind] = useState('');
   const [agent, setAgent] = useState('');
   const [cursor, setCursor] = useState<number | null>(item);
-    const [confirm, setConfirm] = useState(false);
+  const [confirm, setConfirm] = useState(false);
   useScreenKeys('In the inbox', KEYS);
   const pending = {
     read: usePending('inbox.mark_read').flatMap((p) => p.ids),
@@ -154,7 +153,12 @@ export function InboxPage({ item }: { item: number | null }) {
         >
           {kinds.length ? <MenuLabel>Kind</MenuLabel> : null}
           {kinds.map((k) => (
-            <MenuCheckItem key={k} checked={kind === k} icon={<Icon name={kindIcon(k)} size={14} aria-hidden />} onCheckedChange={() => setKind(kind === k ? '' : k)}>
+            <MenuCheckItem
+              key={k}
+              checked={kind === k}
+              icon={<Icon name={kindIcon(k)} size={14} aria-hidden />}
+              onCheckedChange={() => setKind(kind === k ? '' : k)}
+            >
               {kindLabel(k)}
             </MenuCheckItem>
           ))}

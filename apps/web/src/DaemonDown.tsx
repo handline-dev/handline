@@ -30,7 +30,7 @@ export function DaemonDown() {
       <span className="min-w-0 flex-1">
         {conn === 'closed' ? 'Daemon not running. ' : 'Reconnecting to the daemon… '}
         <span className="muted">
-          To start it, run <code>hl service install</code> on the host.
+          To start it, run <code>hl service install</code> on the host. Showing the last known state.
         </span>
       </span>
       <Button variant="outline" size="sm" label="Retry" onClick={() => location.reload()} />
