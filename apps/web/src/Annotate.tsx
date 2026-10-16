@@ -1,7 +1,15 @@
 // The annotation editor of the capture dialog: the picture with an SVG over it to draw on (pen, arrow, box, circle, text), undo, redo and clear.
 // The shapes are app-core's (image pixels, shared with the phone); each change exports the marked picture as a PNG through `onChange`.
 import { useEffect, useReducer, useRef, useState, type PointerEvent, type ReactNode } from 'react';
-import { ANNOTATION_COLORS, annotate, exportAnnotated, initialAnnotation, shapesToSvg, type AnnotationTool, type Bitmap } from '@handline/app-core';
+import {
+  ANNOTATION_COLORS,
+  annotate,
+  exportAnnotated,
+  initialAnnotation,
+  shapesToSvg,
+  type AnnotationTool,
+  type Bitmap,
+} from '@handline/app-core';
 import { Button } from './ui/index.ts';
 
 const TOOLS: [AnnotationTool, string][] = [
@@ -53,7 +61,10 @@ export function Annotator({ image, onChange }: { image: Blob; onChange: (marked:
   useEffect(() => {
     const mine = ++seq.current;
     if (!shapes.length) return sendOn.current(image);
-    void marked(img.current!, shapes).then((b) => b && mine === seq.current && sendOn.current(b), () => undefined);
+    void marked(img.current!, shapes).then(
+      (b) => b && mine === seq.current && sendOn.current(b),
+      () => undefined,
+    );
   }, [shapes, image]);
 
   const at = (e: PointerEvent<SVGSVGElement>) => {
@@ -67,10 +78,16 @@ export function Annotator({ image, onChange }: { image: Blob; onChange: (marked:
   };
 
   return (
-    <div className="annotator grid gap-2">
+    <div className="annotator grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
       <div className="flex flex-wrap items-center gap-1" role="toolbar" aria-label="Markup">
         {TOOLS.map(([tool, label]) => (
-          <Button key={tool} variant={state.tool === tool ? 'outline' : 'ghost'} aria-pressed={state.tool === tool} label={label} onClick={() => dispatch({ type: 'tool', tool })} />
+          <Button
+            key={tool}
+            variant={state.tool === tool ? 'outline' : 'ghost'}
+            aria-pressed={state.tool === tool}
+            label={label}
+            onClick={() => dispatch({ type: 'tool', tool })}
+          />
         ))}
         <span className="mx-1 flex gap-1" role="group" aria-label="Colour">
           {ANNOTATION_COLORS.map((c) => (
@@ -90,25 +107,46 @@ export function Annotator({ image, onChange }: { image: Blob; onChange: (marked:
         <Button label="Clear" disabled={!shapes.length} onClick={() => dispatch({ type: 'clear' })} />
       </div>
       <div className="relative mx-auto max-h-[50vh] w-fit max-w-full">
-        <img ref={img} src={src} alt="The capture" data-testid="capture-preview" className="block max-h-[50vh] max-w-full select-none" draggable={false} onLoad={loaded} />
+        <img
+          ref={img}
+          src={src}
+          alt="The capture"
+          data-testid="capture-preview"
+          className="block max-h-[50vh] max-w-full select-none"
+          draggable={false}
+          onLoad={loaded}
+        />
         <svg
           className="absolute inset-0 h-full w-full cursor-crosshair touch-none"
           viewBox={draw.viewBox}
           aria-label="Draw here"
           onPointerDown={(e) => {
-            const p = at(e);
-            if (state.tool === 'text') return setTyping({ ...p, text: '' });
+            if (state.tool === 'text') return; // the words are asked for at pointer up: a field opened here loses focus to the click that is still going on
             e.currentTarget.setPointerCapture(e.pointerId);
             down.current = true;
-            dispatch({ type: 'strokeStart', ...p });
+            dispatch({ type: 'strokeStart', ...at(e) });
           }}
           onPointerMove={(e) => down.current && dispatch({ type: 'strokeMove', ...at(e) })}
-          onPointerUp={(e) => down.current && ((down.current = false), dispatch({ type: 'strokeEnd', ...at(e) }))}
+          onPointerUp={(e) => {
+            if (state.tool === 'text') return setTyping({ ...at(e), text: '' });
+            if (down.current) {
+              down.current = false;
+              dispatch({ type: 'strokeEnd', ...at(e) });
+            }
+          }}
           onPointerCancel={() => ((down.current = false), dispatch({ type: 'strokeCancel' }))}
         >
           {draw.elements.map((el, i) =>
             el.type === 'path' ? (
-              <path key={i} d={el.d} fill="none" stroke={el.stroke} strokeWidth={el.strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                key={i}
+                d={el.d}
+                fill="none"
+                stroke={el.stroke}
+                strokeWidth={el.strokeWidth}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             ) : (
               <text key={i} x={el.x} y={el.y} fontSize={el.fontSize} fill={el.fill} dominantBaseline="hanging" fontFamily="monospace">
                 {el.text}

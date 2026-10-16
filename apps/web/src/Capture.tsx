@@ -144,7 +144,7 @@ export function CaptureDialog({
           <Button label="Refresh" onClick={() => void list()} />
         </div>
       ) : (
-        <div className="grid gap-3">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
           <Annotator image={shot.blob} onChange={setMarked} />
           <div className={FIELD}>
             <label htmlFor="capture-note" className={FIELD_LABEL}>
@@ -166,7 +166,10 @@ export function CaptureDialog({
               label="Task"
               value={target === null ? '' : String(target)}
               onChange={(e) => setTarget(e.target.value ? Number(e.target.value) : null)}
-              options={[{ value: '', label: 'pick a task' }, ...open.map((t) => ({ value: String(t.id), label: `${taskRef(t.id)} ${t.title}` }))]}
+              options={[
+                { value: '', label: 'pick a task' },
+                ...open.map((t) => ({ value: String(t.id), label: `${taskRef(t.id)} ${t.title}` })),
+              ]}
             />
           ) : null}
           {as === 'task' ? (
