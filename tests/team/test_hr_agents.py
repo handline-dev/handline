@@ -886,14 +886,14 @@ def test_agent_yaml_is_written_by_dump_so_what_was_typed_reads_back(home: Path) 
     use_home(home)
     agents.register("plain")
     agents.register("full", model="opus", effort="high", weight="heavy",
-                    repo="/Users/ron/some repo")
+                    repo="/Users/you/some repo")
     check("agent.yaml: the ordinary file is byte for byte what it was",
           agents.agent_file("plain").read_text()
           == f"name: plain\nmodel: {agents.DEFAULT_MODEL}\n"
              f"effort: {agents.DEFAULT_EFFORT}\nweight: light\nenabled: true\n"
           and agents.agent_file("full").read_text()
           == "name: full\nmodel: opus\neffort: high\nweight: heavy\n"
-             "enabled: true\nrepo: /Users/ron/some repo\n")
+             "enabled: true\nrepo: /Users/you/some repo\n")
     typed = [("model", "2026-09-20"), ("model", "no"), ("model", "4.5"), ("weight", "on"),
              ("repo", "1_000")]
     for i, (field, value) in enumerate(typed):
@@ -1673,13 +1673,13 @@ def test_the_opencode_driver(home: Path) -> None:
         accounts._present.clear()
 
         # A session: the TUI's own command line, as `ps` shows it.
-        tui = "/Users/ron/.opencode/bin/opencode -m zai-coding-plan/glm-5.2"
+        tui = "/Users/you/.opencode/bin/opencode -m zai-coding-plan/glm-5.2"
         for line, want in ((tui, True),
                            ("opencode", True),
-                           ("/Users/ron/.opencode/bin/opencode -m m -s ses_1", True),
-                           ("/Users/ron/.opencode/bin/opencode run fix it", False),
-                           ("/Users/ron/.opencode/bin/opencode auth list", False),
-                           ("/Users/ron/.opencode/bin/opencode serve", False),
+                           ("/Users/you/.opencode/bin/opencode -m m -s ses_1", True),
+                           ("/Users/you/.opencode/bin/opencode run fix it", False),
+                           ("/Users/you/.opencode/bin/opencode auth list", False),
+                           ("/Users/you/.opencode/bin/opencode serve", False),
                            (f"script -q /dev/null {tui}", False),
                            ("/usr/local/bin/claude --append-system-prompt see "
                             f"{tui}", False),

@@ -30,9 +30,10 @@ func goSwitchOn(home, name string) bool {
 	return strings.TrimSpace(v) == "on"
 }
 
-// captured are the hook events recorded as they come (events.CAPTURED, without TeammateIdle and Notification, which are no longer kept).
+// captured are the hook events recorded as they come (events.CAPTURED, without TeammateIdle, which is no longer kept). Notification is
+// installed for permission_prompt only, and the daemon raises the needs-you card from it (-notification-needs-you).
 var captured = map[string]bool{"SessionStart": true, "SessionEnd": true, "Stop": true, "StopFailure": true, "SubagentStop": true,
-	"PostCompact": true, "UserPromptSubmit": true, "PermissionRequest": true}
+	"PostCompact": true, "UserPromptSubmit": true, "PermissionRequest": true, "Notification": true}
 
 // collected are the moments the session's own status snapshot is pulled again (events.COLLECT_EVENTS): they fire on a turn's edges and
 // carry the cwd the transcript is found under. SessionEnd is not one: a snapshot written as a session exits would call it fresh.
