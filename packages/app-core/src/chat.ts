@@ -1,12 +1,14 @@
 // The pure side of chat: how messages and transcript items are ordered, who a message is from, and what can still be done to it.
 // Fetching and keeping the conversation current is the apps' shared query layer (@handline/app-data).
-import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
+import type { ChatMessage, Landing, Proposal, TranscriptItem } from '@handline/client';
 
 export type TimelineEntry =
   | { kind: 'message'; at: string; id: number; message: ChatMessage }
   /** The task board's word about a task (`T<N> done by x: ...`), drawn as a task card, not a bubble. */
   | { kind: 'note'; at: string; id: number; message: ChatMessage; task: number }
-  | { kind: 'item'; at: string; id: number; item: TranscriptItem };
+  | { kind: 'item'; at: string; id: number; item: TranscriptItem }
+  /** An HR proposal that was decided: it keeps its place at the time it was settled. */
+  | { kind: 'proposal'; at: string; id: number; proposal: Proposal };
 
 /** The sender of the daemon's own notices; its words are never the person's. */
 export const NOTICE_SENDER = 'task-board';
@@ -25,6 +27,7 @@ export function timeline(
   scope: 'mine' | 'all' = 'mine',
   agent?: string,
   me = '',
+  decided: readonly Proposal[] = [],
 ): TimelineEntry[] {
   const out: TimelineEntry[] = [
     ...messages.flatMap((m): TimelineEntry[] => {
@@ -40,10 +43,10 @@ export function timeline(
     ...items
       .filter((i) => !(scope === 'mine' && agent && i.task_event && i.task_event.who !== agent && i.task_event.who !== 'human'))
       .map((i): TimelineEntry => ({ kind: 'item', at: i.at, id: i.id, item: i })),
+    ...decided.flatMap((p): TimelineEntry[] => (p.settled ? [{ kind: 'proposal', at: p.settled, id: p.id, proposal: p }] : [])),
   ];
-  return out.sort((a, b) =>
-    a.at < b.at ? -1 : a.at > b.at ? 1 : (a.kind === 'item') === (b.kind === 'item') ? a.id - b.id : a.kind === 'item' ? 1 : -1,
-  );
+  const rank = (e: TimelineEntry) => (e.kind === 'item' ? 1 : e.kind === 'proposal' ? 2 : 0); // at one instant: messages, then the transcript, then a decision
+  return out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : rank(a) - rank(b) || a.id - b.id));
 }
 
 /** The name the daemon records for the person's own words: the CLI's `human`, or the device they typed on (`me`, e.g. "Handline desktop"). */
