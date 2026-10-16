@@ -13,7 +13,7 @@ import { AgentSettings } from './AgentSettings.tsx';
 import { AgentStrip } from './AgentStrip.tsx';
 import { AgentTasks } from './AgentTasks.tsx';
 import { AgentTimeline } from './AgentTimeline.tsx';
-import { AgentVerbs } from './AgentVerbs.tsx';
+import { AgentVerbs, type Control } from './AgentVerbs.tsx';
 import { Chat } from './Chat.tsx';
 import { Loadable } from './Loadable.tsx';
 import { PromptSlot } from './PromptCard.tsx';
@@ -139,23 +139,18 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   // A structured session is watched as a transcript in place of its terminal; its permission cards are in the transcript.
   // The daemon says which agents it runs as a structured session: those are watched as a transcript, the rest keep the terminal.
   const structured = detail.structured === true;
+  const controls: Control[] = [
+    ...(ctl.start ? [{ id: 'start', label: 'Start', onPress: () => start.mutate({ agent: name }) }] : []),
+    ...(ctl.resume ? [{ id: 'start-new', label: 'Start new', onPress: startNew }] : []),
+    ...((structured ? ctl.interrupt : ctl.stop) ? [{ id: 'interrupt', label: 'Interrupt', onPress: () => stop('interrupt') }] : []),
+    ...(ctl.stop && !structured ? [{ id: 'exit', label: 'Exit', onPress: () => stop('exit') }] : []),
+    ...(ctl.stop ? [{ id: 'close', label: 'Close', onPress: () => stop('close') }] : []),
+    ...(ctl.stop && stalled ? [{ id: 'kill', label: 'Kill', onPress: () => stop('kill'), kind: 'no' as const }] : []),
+  ].map((x) => ({ ...x, disabled: busy }));
   return (
     <View style={{ flex: 1 }}>
-      <Row style={{ paddingHorizontal: space.md, flexWrap: 'wrap' }}>
-        {ctl.start && <Button label="Start" disabled={busy} onPress={() => start.mutate({ agent: name })} />}
-        {ctl.resume && <Button label="Start new" disabled={busy} onPress={startNew} />}
-        {(structured ? ctl.interrupt : ctl.stop) && <Button label="Interrupt" disabled={busy} onPress={() => stop('interrupt')} />}
-        {ctl.stop && !structured && <Button label="Exit" disabled={busy} onPress={() => stop('exit')} />}
-        {ctl.stop && <Button label="Close" disabled={busy} onPress={() => stop('close')} />}
-        {ctl.stop && stalled &&<Button label="Kill" disabled={busy} onPress={() => stop('kill')} kind="no" />}
-        {mark && (
-          <Text testID="pending-mark" style={{ color: c.muted, alignSelf: 'center' }}>
-            {mark}
-          </Text>
-        )}
-      </Row>
       <View style={{ paddingHorizontal: space.md }}>
-        <AgentVerbs detail={detail} row={row} onSettings={props.onSettings} />
+        <AgentVerbs detail={detail} row={row} onSettings={props.onSettings} controls={controls} note={mark} />
         {stalled && hasTimeline && !showTimeline && (
           <Button
             testID="badge-stalled"

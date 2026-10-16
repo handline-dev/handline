@@ -13,10 +13,21 @@ import { Button, Row } from './parts.tsx';
 
 const HIDDEN: VerbId[] = ['interrupt', 'close', 'clear_stall'];
 
-export function AgentVerbs(props: { detail: AgentDetail; row: AgentView | undefined; onSettings: () => void }) {
+/** One of the page's own session controls, listed first in the menu. */
+export type Control = { id: string; label: string; onPress: () => void; disabled?: boolean; kind?: 'no' };
+
+export function AgentVerbs(props: {
+  detail: AgentDetail;
+  row: AgentView | undefined;
+  onSettings: () => void;
+  controls: Control[];
+  /** What a control in flight says while the daemon decides. */
+  note: string | null;
+}) {
   const { detail, row } = props;
   const [open, setOpen] = useState(false);
   const [verb, setVerb] = useState<Verb | null>(null);
+  const c = usePalette();
   const run = useVerbRun(detail.name);
   const verbs = row ? verbsOf(row, detail).filter((v) => !HIDDEN.includes(v.id)) : [];
   if (!row) return null;
@@ -27,15 +38,35 @@ export function AgentVerbs(props: { detail: AgentDetail; row: AgentView | undefi
   };
   return (
     <View style={{ gap: space.sm }}>
-      <Button
-        testID="verbs-open"
-        label="⋯"
-        onPress={() => setOpen(!open)}
-        style={{ alignSelf: 'flex-start' }}
-        accessibilityLabel="More verbs"
-      />
+      <Row>
+        <Button
+          testID="verbs-open"
+          label="⋯"
+          onPress={() => setOpen(!open)}
+          style={{ alignSelf: 'flex-start' }}
+          accessibilityLabel="More verbs"
+        />
+        {props.note && (
+          <Text testID="pending-mark" style={{ color: c.muted, alignSelf: 'center' }}>
+            {props.note}
+          </Text>
+        )}
+      </Row>
       {open && (
         <View testID="verbs" style={{ gap: space.xs }}>
+          {props.controls.map((x) => (
+            <Button
+              key={x.id}
+              testID={`control-${x.id}`}
+              label={x.label}
+              kind={x.kind}
+              disabled={x.disabled}
+              onPress={() => {
+                setOpen(false);
+                x.onPress();
+              }}
+            />
+          ))}
           {verbs.map((v) => (
             <VerbButton key={v.id} v={v} onPress={() => pick(v)} />
           ))}
