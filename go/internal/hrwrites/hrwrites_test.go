@@ -633,6 +633,29 @@ func TestTheProposerIsToldHowEachDecisionWentInTheWordsHrPyUsed(t *testing.T) {
 	}
 }
 
+func TestEachOutcomeMessageNamesTheProposalItIsAbout(t *testing.T) {
+	r := newRig(t)
+	_, rejected := r.propose("aaaa0015", "kind", "link", "agent", "alice", "to", "bob")
+	r.decide(rejected, "reject", "", "o1")
+	p, applied := r.propose("aaaa0016", "kind", "link", "agent", "alice", "to", "bob")
+	r.decide(applied, "approve", p.subject(), "o2")
+	rows, err := r.db.Query("SELECT json_extract(e.payload, '$.proposal') FROM requests q LEFT JOIN events e ON e.dedup_key = 'hr_outcome:' || q.id " +
+		"WHERE q.target = 'alice' AND q.requester = 'human' ORDER BY q.id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []int64
+	for rows.Next() {
+		var n sql.NullInt64
+		rows.Scan(&n)
+		got = append(got, n.Int64)
+	}
+	if fmt.Sprint(got) != fmt.Sprint([]int64{rejected, applied}) {
+		t.Fatalf("each told message links its proposal %d and %d: %v", rejected, applied, got)
+	}
+}
+
 func TestACacheThatCannotBeRemovedDoesNotUndoARetire(t *testing.T) {
 	r := newRig(t)
 	caches := filepath.Join(r.home, "caches")
