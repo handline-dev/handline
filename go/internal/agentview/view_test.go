@@ -331,3 +331,38 @@ func TestANoteWaitThatEndedWithItsSessionDoesNotHoldTheNextOneToItsTimeOrKind(t 
 		t.Fatalf("got %v", h)
 	}
 }
+
+func TestALaunchReadsStartingFromWhatIsRecordedUntilItsSessionsFirstHook(t *testing.T) {
+	r := newRig(t, "new", "busy")
+	r.state(t, "new", states.Idle, "")
+	r.state(t, "busy", states.Running, "")
+	r.sess.alive["busy"], r.sess.busy["busy"] = true, true
+	pane := map[string]bool{"new": true, "busy": true} // whether claude, not the shell, is in front of the pane
+	r.env.PaneRuns = func(a string) bool { return pane[a] }
+	for _, a := range []string{"new", "busy"} { // hl launch kept the start just before it became claude
+		r.env.Q.Exec("INSERT INTO session_starts(agent, ts, cause, resumed, text, prompt) VALUES(?, 4990, 'wake', 0, '', '')", a)
+	}
+	word := func(a string) any { r.env.RefreshOne(a); return r.stored(t, a)["state"] }
+	if w := word("new"); w != "starting" {
+		t.Fatalf("a launch whose session has sent nothing yet: %v", w)
+	}
+	if w := word("busy"); w != "running" {
+		t.Fatalf("starting never hides a turn that runs: %v", w)
+	}
+	db.AddEventAt(r.env.Q, 4980, "new", "Stop") // the session before this launch
+	if w := word("new"); w != "starting" {
+		t.Fatalf("an older session's hook does not end this launch: %v", w)
+	}
+	pane["new"] = false
+	if w := word("new"); w == "starting" {
+		t.Fatal("a launch whose claude died is back at the shell, or its pane is gone: not starting, however long ago it began")
+	}
+	pane["new"] = true
+	for _, over := range []string{"wake_failed", "SessionEnd", "UserPromptSubmit"} {
+		r.env.Q.Exec("DELETE FROM events WHERE ts > 4990")
+		db.AddEventAt(r.env.Q, 4995, "new", over)
+		if w := word("new"); w == "starting" {
+			t.Fatalf("%s after the start ends starting", over)
+		}
+	}
+}
