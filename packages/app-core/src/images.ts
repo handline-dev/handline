@@ -23,6 +23,16 @@ export function insertImageRef(text: string, cursor: number | null | undefined, 
   return `${before}${before && !before.endsWith('\n') ? '\n' : ''}${ref}${after && !after.startsWith('\n') ? '\n' : ''}${after}`;
 }
 
+/** A note, then one reference per image, each on its own line. */
+export const withImages = (note: string, ids: readonly string[], alt = 'capture'): string =>
+  [note.trim(), ...ids.map((id) => imageRef(id, alt))].filter(Boolean).join('\n');
+
+/** A task title from the first line of a note: its first 60 characters, or `fallback` when the note is empty. */
+export function titleFromNote(note: string, fallback: string): string {
+  const line = note.trim().split('\n')[0]?.trim() ?? '';
+  return line ? (line.length > 60 ? `${line.slice(0, 59)}…` : line) : fallback;
+}
+
 /** An image reference in a text: where it sits, the caption and the attachment id. */
 export interface ImageSpan {
   start: number;

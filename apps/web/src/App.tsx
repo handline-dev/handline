@@ -36,6 +36,7 @@ import { DaemonDown } from './DaemonDown.tsx';
 import { HrBanner } from './HrBanner.tsx';
 import { terminalOwnsKey } from './terminal/core.ts';
 import { StatusBar } from './StatusBar.tsx';
+import { CaptureHost } from './Capture.tsx';
 import { TasksPage } from './Tasks.tsx';
 import { AgentWorkspace } from './Workspace.tsx';
 
@@ -113,6 +114,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   return (
     <FoldedControls.Provider value={railOpen ? null : { show: toggle }}>
     <div className="frame flex h-screen flex-col">
+      <CaptureHost />
       <div id="app" data-rail={railOpen ? 'open' : 'closed'} style={{ '--rail-w': `${railW}px` } as React.CSSProperties}>
         {railOpen ? (
           <>
