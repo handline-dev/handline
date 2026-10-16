@@ -69,8 +69,9 @@ export function MenuButton({
   align = 'end',
   open: shown,
   onOpenChange,
+  trigger,
   ...button
-}: { children: ReactNode; name?: string; align?: 'start' | 'end'; open?: boolean; onOpenChange?: (open: boolean) => void } & Omit<
+}: { children: ReactNode; trigger?: ReactNode; name?: string; align?: 'start' | 'end'; open?: boolean; onOpenChange?: (open: boolean) => void } & Omit<
   ComponentProps<typeof Button>,
   'onClick' | 'aria-haspopup' | 'aria-expanded'
 >) {
@@ -92,7 +93,9 @@ export function MenuButton({
               if (!wasOpen.current) setOpen(!open);
               wasOpen.current = false;
             }}
-          />
+          >
+            {trigger}
+          </Button>
         </span>
       </D.Anchor>
       <MenuContent side="bottom" align={align} sideOffset={4} aria-label={name}>

@@ -158,16 +158,19 @@ describe('Pair a phone', () => {
     Object.assign(window, { handline: api });
   };
   const button = () =>
-    [...box.querySelectorAll('.rail-nav button')].find((b) => b.textContent?.includes('Pair a phone')) as HTMLElement | undefined;
+    [...document.querySelectorAll('[role=menuitem]')].find((b) => b.textContent?.includes('Pair a phone')) as HTMLElement | undefined;
+  const openMore = () => act(async () => void (box.querySelector('.rail-nav [aria-label^="More"]') as HTMLElement).click());
 
   it('is a row in the sidebar that opens the QR, and shows why when it cannot', async () => {
     let n = 0;
     withMode(true, async () => (n++ ? { ok: false, code: 'cannot_pair', message: 'no network listener' } : { ok: true }));
     await mount(ARCH);
+    await openMore();
     await until(button, 'the Pair a phone row');
     await act(async () => button()!.click());
     expect(n).toBe(1);
     expect(box.querySelector('[role=alert]')).toBeNull();
+    await openMore();
     await act(async () => button()!.click());
     await until(() => box.querySelector('[role=alert]')?.textContent === 'no network listener', 'the reason');
   });
@@ -177,6 +180,7 @@ describe('Pair a phone', () => {
     await mount(ARCH);
     await until(() => box.querySelector('.rail-list'), 'the page');
     await wait(50);
+    await openMore();
     expect(button()).toBeUndefined();
   });
 });
