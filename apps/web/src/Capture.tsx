@@ -55,6 +55,7 @@ export function CaptureDialog({
   onClose: () => void;
 }) {
   const [windows, setWindows] = useState<Win[] | null>(null);
+  const [taking, setTaking] = useState(false);
   const [problem, setProblem] = useState('');
   const [shot, setShot] = useState<{ name: string; blob: Blob } | null>(null);
   const [marked, setMarked] = useState<Blob | null>(null);
@@ -83,8 +84,13 @@ export function CaptureDialog({
 
   const pick = async (w: Win) => {
     setProblem('');
+    // The picture may be of this very window: take the other windows' thumbnails off it first.
+    setWindows(null);
+    setTaking(true);
+    await new Promise((r) => setTimeout(r, 150));
     const r = await shell('captureWindow')?.captureWindow?.({ id: w.id });
     if (gone.current) return;
+    setTaking(false);
     if (!r) return setProblem('This app cannot capture a window.');
     if (!r.ok) return setProblem(r.message);
     setShot({ name: r.name, blob: asBlob(r.png) });
@@ -134,7 +140,7 @@ export function CaptureDialog({
               </button>
             ))}
           </div>
-          {windows === null && !problem ? <p className={NOTE}>Looking for windows…</p> : null}
+          {windows === null && !problem ? <p className={NOTE}>{taking ? 'Taking the picture…' : 'Looking for windows…'}</p> : null}
           <Button label="Refresh" onClick={() => void list()} />
         </div>
       ) : (
