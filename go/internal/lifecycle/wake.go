@@ -741,7 +741,8 @@ func (m *Manager) ownLateSession(agent string) (bool, int) {
 // with it - in a new terminal in its worktree. started says whether a typed launch took.
 func (m *Manager) launchInPane(agent, handle, wt, cmd string, started func() bool) (bool, string) {
 	if handle != "" {
-		return m.Term.Relaunch(handle, cmd, started)
+		// Relaunch asks started right after the line is typed.
+		return m.Term.Relaunch(handle, cmd, func() bool { check(NoteLaunch(m.Q, m.OnLaunch, agent)); return started() })
 	}
 	ok, why, err := m.Spawn.StartIn(agent, wt, cmd)
 	check(err)

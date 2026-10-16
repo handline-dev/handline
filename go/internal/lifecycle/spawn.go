@@ -65,9 +65,23 @@ type Spawns struct {
 	Sleep    func(time.Duration)
 	Now      func() time.Time
 	Locks    *AgentLocks
+	// OnLaunch is told each time a launch has begun (NoteLaunch); nil tells no one.
+	OnLaunch func(agent string)
 }
 
 var _ Spawner = (*Spawns)(nil)
+
+// NoteLaunch records that the daemon has begun a launch for agent (the "launching" event, which the view reads as starting) and tells
+// on, so the view shows it now: hl launch keeps its own start only once it runs, which under load can be many seconds later.
+func NoteLaunch(q db.Q, on func(agent string), agent string) error {
+	if _, err := db.AddEvent(q, agent, "launching"); err != nil {
+		return err
+	}
+	if on != nil {
+		on(agent)
+	}
+	return nil
+}
 
 func (s *Spawns) sleep(d time.Duration) {
 	if s.Sleep != nil {
@@ -355,6 +369,9 @@ func (s *Spawns) StartIn(agent, worktree, cmd string) (bool, string, error) {
 		if _, err := s.RegisterWorker(agent, handle); err != nil {
 			return false, "", err
 		}
+		if err := NoteLaunch(s.Q, s.OnLaunch, agent); err != nil {
+			return false, "", err
+		}
 	}
 	shown := handle
 	if shown == "" {
@@ -446,6 +463,9 @@ func (s *Spawns) SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error
 			return false, "", err
 		}
 		if _, err := s.RegisterWorker(agent, handle); err != nil {
+			return false, "", err
+		}
+		if err := NoteLaunch(s.Q, s.OnLaunch, agent); err != nil {
 			return false, "", err
 		}
 	}
