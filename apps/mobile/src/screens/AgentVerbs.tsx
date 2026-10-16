@@ -43,7 +43,14 @@ export function AgentVerbs(props: {
     <View>
       <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line }}>
         {props.tabs}
-        <Pressable testID="verbs-open" onPress={() => setOpen(!open)} accessibilityRole="button" accessibilityLabel="More verbs" hitSlop={8} style={{ padding: space.md }}>
+        <Pressable
+          testID="verbs-open"
+          onPress={() => setOpen(!open)}
+          accessibilityRole="button"
+          accessibilityLabel="More verbs"
+          hitSlop={8}
+          style={{ paddingVertical: space.md, paddingHorizontal: space.sm }}
+        >
           <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>⋯</Text>
         </Pressable>
       </Row>

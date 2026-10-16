@@ -120,12 +120,15 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       style={{
         flex: 1,
         alignItems: 'center',
-        padding: space.md,
+        paddingVertical: space.md,
+        paddingHorizontal: space.xs,
         borderBottomWidth: 2,
         borderBottomColor: on ? c.accent : 'transparent',
       }}
     >
-      <Text style={{ color: on ? c.accent : c.muted, fontWeight: '600' }}>{label}</Text>
+      <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: '600' }}>
+        {label}
+      </Text>
     </Pressable>
   );
   const pageTab = (t: 'chat' | 'terminal', label: string) =>
