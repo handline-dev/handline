@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
+import { SectionList, Pressable, Text, View } from 'react-native';
 import { useAgents, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { rowHeight, space } from '@handline/tokens';
@@ -18,7 +18,12 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
   const query = useAgents();
   const { served } = useServes('agents.list');
   // Who needs the person comes first; the daemon's order otherwise.
-  const agents = [...(query.data?.agents ?? [])].sort((a, b) => Number(!!b.needs_you) - Number(!!a.needs_you));
+  const agents = query.data?.agents ?? [];
+  const groups = [
+    { title: 'Needs you', data: agents.filter((a) => a.needs_you) },
+    { title: 'Working', data: agents.filter((a) => !a.needs_you && a.state === 'working') },
+    { title: 'Idle', data: agents.filter((a) => !a.needs_you && a.state !== 'working') },
+  ].filter((g) => g.data.length > 0);
   const founder = store.client.hello?.role === 'founder';
   const create = useServes('agent.create').served;
   const hr = useHrCount();
@@ -51,12 +56,19 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
         </View>
       )}
       <Loadable query={query} served={served} isEmpty={agents.length === 0} skeleton="agents" label="agents" empty="No agents.">
-        <FlatList
-          data={agents}
+        <SectionList
+          sections={groups}
           keyExtractor={(a) => a.name}
+          renderSectionHeader={({ section }) => (
+            <Text style={{ color: c.muted, fontSize: 12, paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.xs }}>
+              {section.title}
+            </Text>
+          )}
           renderItem={({ item: a }) => {
-            const sub = a.task?.title;
-            const need = a.needs_you ? `${a.needs_you.text ?? KIND[a.needs_you.kind]} · ${ago(a.needs_you.since)}` : '';
+            const need = a.needs_you ? a.needs_you.text ?? KIND[a.needs_you.kind] : '';
+            const doing = need || a.task?.title || a.state_detail || '';
+            const word = a.needs_you ? 'asks' : a.block ? a.block.kind : a.state;
+            const age = a.needs_you ? a.needs_you.since : a.state_since;
             return (
               <Pressable
                 testID={`agent-${a.name}`}
@@ -74,15 +86,14 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
                 <StateMark agent={a} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: c.ink, fontWeight: '600' }}>{a.name}</Text>
-                  <Text testID={need ? `needs-${a.name}` : undefined} style={{ color: need ? c.wait : c.muted, fontSize: 12 }}>
-                    {need || `${a.state}${sub ? ` · ${sub}` : ''}`}
+                  <Text numberOfLines={1} testID={need ? `needs-${a.name}` : undefined} style={{ color: need ? c.wait : c.muted, fontSize: 12 }}>
+                    {doing || ' '}
                   </Text>
                 </View>
-                {a.has_dialog ? (
-                  <Text style={{ color: c.wait }}>asks</Text>
-                ) : a.block ? (
-                  <Text style={{ color: c.block }}>{a.block.kind}</Text>
-                ) : null}
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={{ color: need ? c.wait : a.block ? c.block : c.muted, fontSize: 12 }}>{word}</Text>
+                  {age ? <Text style={{ color: c.muted, fontSize: 11 }}>{ago(age)}</Text> : null}
+                </View>
               </Pressable>
             );
           }}
