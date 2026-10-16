@@ -81,4 +81,19 @@ describe('Comments on a task', () => {
     await until(() => section()!.textContent!.includes('the task is closed'), 'the refusal');
     expect(section()!.querySelector('textarea')!.value).toBe('still there?');
   });
+
+  it('Escape in an inline field leaves it as it was and saves nothing', async () => {
+    const s = await mount();
+    const before = s.daemon.tasks.get({ task: 1688 }).title;
+    await act(async () => void box.querySelector<HTMLElement>('[aria-label="Edit Title"]')!.click());
+    const field = box.querySelector<HTMLInputElement>('input[aria-label="Title"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, 'Never saved');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(box.querySelector('input[aria-label="Title"]')).toBeNull();
+    await wait(50);
+    expect(s.daemon.tasks.get({ task: 1688 }).title).toBe(before);
+  });
 });
