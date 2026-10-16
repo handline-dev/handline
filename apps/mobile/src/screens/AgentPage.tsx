@@ -136,8 +136,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       store.setTab(t);
     });
   const busy = mark !== null;
-  // A structured session is watched as a transcript in place of its terminal; its permission cards are in the transcript.
-  // The daemon says which agents it runs as a structured session: those are watched as a transcript, the rest keep the terminal.
+  // The daemon says which agents run as a structured session: those are watched as a transcript (permission cards included), the rest keep the terminal.
   const structured = detail.structured === true;
   const controls: Control[] = [
     ...(ctl.start ? [{ id: 'start', label: 'Start', onPress: () => start.mutate({ agent: name }) }] : []),
