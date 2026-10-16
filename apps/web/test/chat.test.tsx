@@ -547,6 +547,26 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     expect((labelled($('.card-hr'), 'Reject') as HTMLButtonElement).disabled).toBe(true);
     expect($$('.msg').some((m) => /applied/i.test(text(m)))).toBe(false); // the app posts nothing in the chat
   });
+
+  it('a proposal already decided is not a card at the bottom of the chat', async () => {
+    const s = setup();
+    const hr = (s.daemon as unknown as { script: { hr: { raise: (p: object) => { id: number }; settle: (p: object, st: string) => void } } }).script.hr;
+    const p = hr.raise({ id: 43, title: 'context handline.pr', diff: 'replace ROLE.md', agent: ARCH });
+    hr.settle(p, 'approved');
+    await mount(ARCH, s);
+    await until(() => msg('Which gap list'), 'history');
+    expect($('.card-hr')).toBeNull();
+  });
+
+  it('a card decided here shows its outcome, then folds away', async () => {
+    const s = setup();
+    hrOf(s).raise({ id: 44, title: 'link handline.architect -> handline.auditor', diff: 'link', agent: ARCH });
+    await mount(ARCH, s);
+    await until(() => $('.card-hr'), 'the HR card');
+    await click(labelled($('.card-hr'), 'Approve')!);
+    await until(() => $('.card-hr .banner'), 'the outcome');
+    await until(() => !$('.card-hr'), 'the card folded away', 7000);
+  });
 });
 
 describe('loading and writes with latency and refusals', () => {

@@ -70,10 +70,11 @@ function outcome(p: Proposal, choice: 'approve' | 'reject', error?: string): str
   if (choice === 'reject') return 'Rejected';
   return p.kind === 'add' && p.asked?.team ? `${p.agent} added to ${p.asked.team}` : 'Applied';
 }
-const settledRecently = (iso?: string | null) => !!iso && Date.now() - Date.parse(iso) < 60 * 60_000;
+/** How long a card keeps its outcome after the button was pressed here, before it folds away. */
+const OUTCOME_MS = 5000;
 
-/** The HR proposals that concern this agent: open ones with approve and reject as icons, a failed one with a retry, and a decided one as the same
- *  card showing the outcome for an hour. */
+/** The HR proposals that concern this agent: open ones with approve and reject as icons, a failed one with a retry, and one decided here as the same
+ *  card showing the outcome for a few seconds. A decided one is a past event and never sits at the bottom. */
 export function HrCards({ agent }: { agent: string }) {
   const q = useHr({});
   const decide = useWrite('hr.decide');
@@ -82,12 +83,16 @@ export function HrCards({ agent }: { agent: string }) {
   const [note, setNote] = useState('');
   // The button pressed on a card, while it waits and after: the card stays and says how it went (the app posts nothing in the chat).
   const [sent, setSent] = useState<Record<number, { choice: 'approve' | 'reject'; wait: boolean; error?: string }>>({});
+  const [folded, setFolded] = useState<Record<number, true>>({});
   const send = (p: { id: number; subject: string }, choice: 'approve' | 'reject', why?: string) => {
     setSent((m) => ({ ...m, [p.id]: { choice, wait: true } }));
     decide
       .mutateAsync({ proposal: p.id, decision: choice, subject: p.subject, ...(why ? { note: why } : {}) })
       .then(
-        () => setSent((m) => ({ ...m, [p.id]: { choice, wait: false } })),
+        () => {
+          setSent((m) => ({ ...m, [p.id]: { choice, wait: false } }));
+          setTimeout(() => setFolded((m) => ({ ...m, [p.id]: true })), OUTCOME_MS);
+        },
         (e) => setSent((m) => ({ ...m, [p.id]: { choice, wait: false, error: sentence(classify(e)) } })),
       );
   };
@@ -98,7 +103,7 @@ export function HrCards({ agent }: { agent: string }) {
     setNote('');
   };
   const mine = (q.data?.proposals ?? []).filter((p) => p.agent === agent || p.requested_by === agent);
-  const shown = mine.filter((p) => p.state === 'open' || p.state === 'apply_failed' || (p.state in DONE && settledRecently(p.settled)));
+  const shown = mine.filter((p) => p.state === 'open' || p.state === 'apply_failed' || (p.state in DONE && sent[p.id] && !folded[p.id]));
   return (
     <>
       {shown.map((p) => {
