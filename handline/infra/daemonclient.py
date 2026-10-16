@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/hlclient/client.go; do not change, change the Go
 """The thin client every caller (core, ui) reaches the daemon's socket
 through (T351): one request in, one {ok, said} reply out, or None when the
 daemon is not there to answer.

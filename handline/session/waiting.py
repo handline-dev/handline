@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/hooks/waiting.go; do not change, change the Go
 """An agent stopped at a permission prompt only the founder can answer.
 
 Such an agent emits no Stop, so its state stays RUNNING and nothing else says a

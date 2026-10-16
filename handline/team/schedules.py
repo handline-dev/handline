@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/schedules/schedules.go; do not change, change the Go
 """An agent's schedules as its agent.yaml holds them: a JSON list of {"cron", "message"} under `schedules`."""
 from __future__ import annotations
 

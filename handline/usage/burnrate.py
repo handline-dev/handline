@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/usage/burn.go; do not change, change the Go
 """burnrate - what one more agent costs an account, from what the daemon watches.
 
 Whether an account can take one more agent depends on how long it lasts with

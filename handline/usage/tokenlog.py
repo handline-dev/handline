@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/usage/tokenlog.go; do not change, change the Go
 """What each API call spent, per account, kept beside the percentages.
 
 `usage_samples` holds only how full an account's windows are. What the plan
