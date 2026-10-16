@@ -94,7 +94,7 @@ def test_a_preamble_with_a_dash_p_in_it_does_not_make_a_session_headless(home: P
     its whole preamble, the last session's handoff note among it, and one `git commit-tree -p main` in that
     note read as claude's `-p`, so the live session was not a session."""
     drv = vendors.get("claude")
-    exe = "/Users/ron/.local/bin/claude"
+    exe = "/Users/you/.local/bin/claude"
     note = "--append-system-prompt written by the agent: made it with commit-tree $T -p main -p abc, then mkdir -p x"
     sessions = (f"{exe} --model opus --effort high --no-chrome {note}",
                 f"{exe} --model opus --append-system-prompt {note} --settings {{\"deny\": [\"-p \"]}}",
