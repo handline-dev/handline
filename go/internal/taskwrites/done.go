@@ -43,13 +43,9 @@ func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, ma
 		if (evidence == nil) == (request == nil) {
 			return nil, badParam("done takes exactly one of evidence or request", "evidence")
 		}
-		forceWords := false
-		if v := p["reason"]; v != nil {
-			b, ok := v.(bool)
-			if !ok {
-				return nil, badParam("reason is true or false", "reason")
-			}
-			forceWords = b
+		forceWords, err := optionalBool(p, "reason")
+		if err != nil {
+			return nil, err
 		}
 		in := DoneIn{Task: tid}
 		if in.Commit, in.Shots, err = resultParams(p); err != nil {

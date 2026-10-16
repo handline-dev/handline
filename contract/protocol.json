@@ -5583,7 +5583,7 @@
   },
   {
    "name": "task.memo.add",
-   "summary": "Add a memo; anyone may. A memo on a doing task is told to its holder.",
+   "summary": "Add a memo; anyone may. It is told to the holder of a doing task, to whom the task answers (its reporter, else its opener) and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. memo.edit and memo.delete are told the same way.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5599,6 +5599,14 @@
      "schema": {
       "type": "string",
       "description": "Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "now",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Tell every reader at once, even mid-turn."
      }
     },
     {
