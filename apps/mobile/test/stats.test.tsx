@@ -23,6 +23,7 @@ async function mount(opts: { admin?: boolean; latency?: number; role?: 'member' 
 // Settings is a page behind the gear in the Agents header; the tests that change settings open it from the Agents tab.
 const settings = async () => {
   await press($('nav-agents'));
+  await press($('agents-menu'));
   await press($('settings-open'));
 };
 

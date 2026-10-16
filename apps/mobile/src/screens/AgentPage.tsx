@@ -10,7 +10,6 @@ import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
 import { StateMark } from './StateMark.tsx';
 import { AgentSettings } from './AgentSettings.tsx';
-import { AgentStrip } from './AgentStrip.tsx';
 import { AgentTasks } from './AgentTasks.tsx';
 import { AgentTimeline } from './AgentTimeline.tsx';
 import { AgentVerbs, type Control } from './AgentVerbs.tsx';
@@ -67,7 +66,6 @@ export function AgentPage() {
           </Text>
         </View>
       </Row>
-      <AgentStrip agent={name} />
       <Loadable query={detailQuery} served={served} skeleton="agentDetail" label="the agent" empty={`${name} is gone`}>
         {detail &&
           (settings ? (
@@ -148,23 +146,31 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   ].map((x) => ({ ...x, disabled: busy }));
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ paddingHorizontal: space.md }}>
-        <AgentVerbs detail={detail} row={row} onSettings={props.onSettings} controls={controls} note={mark} />
-        {stalled && hasTimeline && !showTimeline && (
+      {stalled && hasTimeline && !showTimeline && (
+        <View style={{ paddingHorizontal: space.md, paddingBottom: space.sm }}>
           <Button
             testID="badge-stalled"
             label={stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`}
             kind="no"
             onPress={() => setExtra('timeline')}
           />
-        )}
-      </View>
-      <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }}>
-        {pageTab('chat', 'Chat')}
-        {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
-        {hasTasks && tab('tasks', 'Tasks', showTasks, () => setExtra('tasks'))}
-        {hasTimeline && tab('timeline', 'Timeline', showTimeline, () => setExtra('timeline'))}
-      </Row>
+        </View>
+      )}
+      <AgentVerbs
+        detail={detail}
+        row={row}
+        onSettings={props.onSettings}
+        controls={controls}
+        note={mark}
+        tabs={
+          <>
+            {pageTab('chat', 'Chat')}
+            {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
+            {hasTasks && tab('tasks', 'Tasks', showTasks, () => setExtra('tasks'))}
+            {hasTimeline && tab('timeline', 'Timeline', showTimeline, () => setExtra('timeline'))}
+          </>
+        }
+      />
       {showTimeline ? (
         <AgentTimeline agent={name} />
       ) : showTasks ? (

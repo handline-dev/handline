@@ -15,7 +15,6 @@ export function TeamButton(props: { onPress: () => void }) {
       label={count ? `● Team ${count}` : 'Team'}
       accessibilityLabel={count ? `Team, ${count} HR waiting` : 'Team'}
       onPress={props.onPress}
-      style={{ paddingVertical: space.sm }}
     />
   );
 }

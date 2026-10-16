@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { useAgents, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
@@ -7,6 +8,7 @@ import { KIND } from './NeedsYouCard.tsx';
 import { usePalette } from '../theme.ts';
 import { StateMark } from './StateMark.tsx';
 import { Button, PageHeader } from './parts.tsx';
+import { useHrCount } from './Hr.tsx';
 import { TeamButton } from './TeamEntry.tsx';
 import { Loadable } from './Loadable.tsx';
 
@@ -19,21 +21,35 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
   const agents = [...(query.data?.agents ?? [])].sort((a, b) => Number(!!b.needs_you) - Number(!!a.needs_you));
   const founder = store.client.hello?.role === 'founder';
   const create = useServes('agent.create').served;
+  const hr = useHrCount();
+  const [menu, setMenu] = useState(false);
+  const go = (page: 'worktrees' | 'settings' | 'team') => (setMenu(false), props.onPage(page));
   return (
     <View style={{ flex: 1 }}>
       <PageHeader
         title="Agents"
         actions={
           <>
-            <TeamButton onPress={() => props.onPage('team')} />
-            <Button testID="settings-open" label="⚙" accessibilityLabel="Settings" onPress={() => props.onPage('settings')} style={{ paddingVertical: space.sm }} />
-            <Button testID="worktrees-open" label="Worktrees" onPress={() => props.onPage('worktrees')} style={{ paddingVertical: space.sm }} />
             {founder && create ? (
-              <Button testID="new-agent-open" label="New agent" onPress={() => props.onPage('new')} style={{ paddingVertical: space.sm }} />
+              <Button testID="new-agent-open" label="+" accessibilityLabel="New agent" onPress={() => props.onPage('new')} style={{ paddingVertical: space.sm }} />
             ) : null}
+            <Button
+              testID="agents-menu"
+              label={hr ? '⋯ ●' : '⋯'}
+              accessibilityLabel="More"
+              onPress={() => setMenu(!menu)}
+              style={{ paddingVertical: space.sm }}
+            />
           </>
         }
       />
+      {menu && (
+        <View testID="agents-menu-list" style={{ gap: space.xs, paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+          <TeamButton onPress={() => go('team')} />
+          <Button testID="worktrees-open" label="Worktrees" onPress={() => go('worktrees')} />
+          <Button testID="settings-open" label="Settings" onPress={() => go('settings')} />
+        </View>
+      )}
       <Loadable query={query} served={served} isEmpty={agents.length === 0} skeleton="agents" label="agents" empty="No agents.">
         <FlatList
           data={agents}

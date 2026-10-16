@@ -9,6 +9,7 @@ const text = (el: Element | null) => el?.textContent ?? '';
 const AUDITOR = '/work/handline.auditor'; // todo
 const OTHER = '/work/docs-site.writer'; // blocked
 const open = async (m: Awaited<ReturnType<typeof mount>>) => {
+  await press($('agents-menu'));
   await press($('worktrees-open'));
   await until(() => $(`wt-${AUDITOR}`), 'the cards');
   return m;

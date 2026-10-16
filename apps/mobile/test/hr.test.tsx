@@ -62,7 +62,8 @@ async function mount(prepare: (s: ReturnType<typeof setup>) => void = () => {}, 
   return { ...s, store };
 }
 async function openHr() {
-  await until(() => $('team-open'), 'the entry');
+  await until(() => $('agents-menu'), 'the entry');
+  await press($('agents-menu'));
   await press($('team-open'));
   await until(() => $('team-tab-hr'), 'the HR tab');
   await press($('team-tab-hr'));
@@ -77,6 +78,7 @@ afterEach(async () => {
 describe('the team page', () => {
   it('lists the team with who may ask whom, and opens a card for its edges', async () => {
     const m = await mount();
+    await press($('agents-menu'));
     await press($('team-open'));
     await until(() => $(`team-${ARCH}`), 'the cards');
     expect(text()).toContain('Top of the team');
@@ -90,6 +92,7 @@ describe('the team page', () => {
 
   it('shows its skeleton while the daemon is slow', async () => {
     const m = await mount((s) => s.daemon.knobs.latency(600));
+    await press($('agents-menu'));
     await press($('team-open'));
     await until(() => $('skeleton-team'), 'the skeleton');
     expect($(`team-${ARCH}`)).toBeNull();
@@ -99,6 +102,7 @@ describe('the team page', () => {
 
   it('says so when the daemon refuses team.get, and Retry brings the list', async () => {
     const m = await mount((s) => s.daemon.knobs.refuse('team.get', 'state', 'the team is resting'));
+    await press($('agents-menu'));
     await press($('team-open'));
     await until(() => $('error'), 'the error');
     expect(text()).toContain('the team is resting');
@@ -314,6 +318,7 @@ describe('the HR list', () => {
     const m = await mount((s) => {
       Object.defineProperty(s.daemon, 'served', { get: () => [{ lists: (n: string) => !n.startsWith('hr.') && n !== 'team.get' }] });
     });
+    await press($('agents-menu'));
     await press($('team-open'));
     await until(() => $('not-served'), 'the sentence');
     expect($('not-served')?.textContent).toBe('This daemon does not serve the team.');

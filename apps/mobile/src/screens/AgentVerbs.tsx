@@ -2,13 +2,14 @@
 // write that shows its gerund until the daemon answers; the ones the bridge asks about ask first in a sheet that checks the row again on
 // Confirm. Close is the page's own button; clear stall waits for the founder's decision (N4).
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { askOf, needsAsk, verbsOf, type Verb, type VerbId } from '@handline/app-core';
 import { useAccounts, useAgents, useVerbRun } from '@handline/app-data';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Sheet, useWhyNot } from './TaskActions.tsx';
+import { AgentStrip } from './AgentStrip.tsx';
 import { Button, Row } from './parts.tsx';
 
 const HIDDEN: VerbId[] = ['interrupt', 'close', 'clear_stall'];
@@ -23,6 +24,8 @@ export function AgentVerbs(props: {
   controls: Control[];
   /** What a control in flight says while the daemon decides. */
   note: string | null;
+  /** The page's tab row; the ⋯ sits at its end. */
+  tabs: React.ReactNode;
 }) {
   const { detail, row } = props;
   const [open, setOpen] = useState(false);
@@ -37,23 +40,21 @@ export function AgentVerbs(props: {
     setOpen(false);
   };
   return (
-    <View style={{ gap: space.sm }}>
-      <Row>
-        <Button
-          testID="verbs-open"
-          label="⋯"
-          onPress={() => setOpen(!open)}
-          style={{ alignSelf: 'flex-start' }}
-          accessibilityLabel="More verbs"
-        />
-        {props.note && (
-          <Text testID="pending-mark" style={{ color: c.muted, alignSelf: 'center' }}>
-            {props.note}
-          </Text>
-        )}
+    <View>
+      <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line }}>
+        {props.tabs}
+        <Pressable testID="verbs-open" onPress={() => setOpen(!open)} accessibilityRole="button" accessibilityLabel="More verbs" hitSlop={8} style={{ padding: space.md }}>
+          <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>⋯</Text>
+        </Pressable>
       </Row>
+      {props.note && (
+        <Text testID="pending-mark" style={{ color: c.muted, padding: space.sm }}>
+          {props.note}
+        </Text>
+      )}
       {open && (
-        <View testID="verbs" style={{ gap: space.xs }}>
+        <View testID="verbs" style={{ gap: space.xs, padding: space.md }}>
+          <AgentStrip agent={detail.name} />
           {props.controls.map((x) => (
             <Button
               key={x.id}
