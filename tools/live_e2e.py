@@ -7,7 +7,8 @@ Spends real tokens: run it only on purpose, never from tools/suite.sh, check.sh 
 account tools/live_account.py picks (the most usage headroom now). It never touches the live daemon: it starts its own
 on a scratch home under a temp test root, with one haiku agent in permission mode `default` (the permission step needs a
 real prompt), the real shared settings, and the picked account's real config dir (HANDLINE_LIVE_ACCOUNTS: the keychain
-keeps the login under that path). The agent's own hl and hooks reach the test daemon. --daemon is the handlined to run;
+keeps the login under that path). Its hooks are that config dir's, so they run the installed hl: a change to `hl hook` shows here
+only once it is installed. The agent's own hl and hooks reach the test daemon. --daemon is the handlined to run;
 by default this checkout's is built.
 It answers yes to every permission prompt the agent raises outside the permission step, so the run is unattended:
 the agent works in a scratch checkout, but on this machine and with the real account's config dir.
@@ -19,8 +20,9 @@ stream skipped because the next one came in the same scan. A step paced by the m
 step is followed by one agent.get so the table says whether the thing happened without an event. A missing step is a
 finding for the table, not a failure: exit 1 only when a step FAILs.
 
---terminal runs a terminal agent instead, on a daemon with -turns-from-hooks and the terminal tick, in a tmux server of the
-run's own: a normal turn, an Esc pressed mid-turn, session.interrupt mid-turn, and the CLI killed hard mid-turn. Its checkout is a temporary worktree of
+--terminal runs a terminal agent instead, on a daemon with -turns-from-hooks, -notification-needs-you and the terminal tick, in a
+tmux server of the run's own: a normal turn, a permission prompt left unanswered until Claude Code's Notification hook reports it,
+an Esc pressed mid-turn, session.interrupt mid-turn, and the CLI killed hard mid-turn. Its checkout is a temporary worktree of
 this repository, which every account already trusts, so no folder-trust dialog shows and no account's .claude.json is written.
 """
 from __future__ import annotations
@@ -339,8 +341,39 @@ def pane(sock: str) -> tuple[str, int | None]:
     return pane_id, int(kids[0]) if kids else None
 
 
-def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, group: int) -> None:
-    """Working and idle from hooks, timed: a normal turn, an Esc mid-turn, and a CLI killed hard mid-turn."""
+def terminal_permission(r: Run, sock: str, home: Path) -> None:
+    """A permission prompt nobody answers: Claude Code's Notification hook reports it about 6 s after it is drawn, and the needs-you
+    card then says so (source notification), timed from the hook writing home/needs-you/<agent>.json to the agent.changed event. The
+    card says to handle it in the terminal, so the run answers there, with Enter on the default Yes, as a person at the pane would."""
+    d, a = r.d, r.agent
+    nonce = uuid.uuid4().hex[:8]
+    t = time.time()
+    d.write("chat.send", {"agent": a, "body": f"Run this Bash command and nothing else: touch e2e-{nonce}.txt"})
+    asked = r.step("permission prompt shown as needs_you", t,
+                   lambda ev: agent_changed(a, "waiting")(ev) and (ev["data"].get("needs_you") or {}).get("kind") == "permission",
+                   model=True)
+    if asked:
+        r.rows[-1]["note"] = f"needs_you {asked['data']['needs_you']!r}"
+    from_note = lambda ev: agent_changed(a, "waiting")(ev) and (ev["data"].get("needs_you") or {}).get("source") == "notification"
+    notified = r.s.wait(t, from_note, time.time() + 30)
+    noted = home / "needs-you" / f"{a}.json"
+    if notified and noted.exists():
+        took = round(notified[0] - noted.stat().st_mtime, 2)
+        r.record({"step": "needs_you from the Notification hook", "paced_by": "daemon", "result": "pass" if took <= DEADLINE_S else "slow",
+                  "seconds": took, "note": f"needs_you {notified[1]['data']['needs_you']!r}"})
+    else:
+        r.record({"step": "needs_you from the Notification hook", "paced_by": "daemon", "result": "missing", "seconds": None,
+                  "note": f"event {'seen' if notified else 'never'}, {noted.name} {'written' if noted.exists() else 'not written'}; {r.explain(t)}"})
+    t = time.time()
+    subprocess.run(["tmux", "-L", sock, "send-keys", "-t", pane(sock)[0], "Enter"], check=True)
+    r.step("answered at the terminal: needs_you cleared", t,
+           lambda ev: ev["type"] == "agent.changed" and ev.get("agent") == a and not ev["data"].get("needs_you")
+           and ev["data"].get("state") in ("running", "idle"))
+    r.s.wait(t, agent_changed(a, "idle"), time.time() + MODEL_S)
+
+
+def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, home: Path, group: int) -> None:
+    """Working and idle from hooks, timed: a normal turn, a permission prompt, an Esc mid-turn, and a CLI killed hard mid-turn."""
     d, a = r.d, r.agent
     t = time.time()
     d.write("session.start", {"agent": a})
@@ -361,6 +394,8 @@ def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, group: int) -
     else:
         r.record({"step": "idle after the Stop hook (transcript time to agent.changed)", "paced_by": "daemon", "result": "missing",
                   "seconds": None, "note": f"idle event {'seen' if idle else 'never'}, Stop in the transcript {'found' if replied else 'not found'}"})
+
+    terminal_permission(r, sock, home)
 
     long_turn = "Write a 1500-word short story about a lighthouse keeper, in plain prose, with no tools."
     t = time.time()
@@ -447,13 +482,12 @@ def start_daemon(binary: str, root: Path, home: Path, account: dict, tmux: str |
         subprocess.run([str(REPO / "tools" / "build-hl.sh")], check=True, stdout=subprocess.DEVNULL)
         env |= {"HANDLINE_TMUX_SOCKET": tmux, "OCP_TMUX_SOCKET": tmux, "HANDLINE_HOME": str(home), "OCP_HOME": str(home),
                 "HANDLINE_BIN": hl, "OCP_BIN": hl}
-        terminal = ["-terminal-tick", "-turns-from-hooks"]
+        terminal = ["-terminal-tick", "-turns-from-hooks", "-notification-needs-you"]
     claude = shutil.which("claude")
     if not claude:
         raise Refused("no claude on PATH")
-    version = subprocess.run([claude, "--version"], capture_output=True, text=True).stdout.split()[0]
-    sh = subprocess.Popen(["/bin/sh", "-c", '"$@" >/dev/null 2>"$LOG" & echo $!', "sh", binary, "-home", str(home), "-structured-cli",
-                           claude, "-claude-version", version, "-structured-tick", "-cutover", *terminal],
+    sh = subprocess.Popen(["/bin/sh", "-c", '"$@" >/dev/null 2>"$LOG" & echo $!', "sh", binary, "-home", str(home), "-claude",
+                           claude, "-cutover", *terminal],
                           env=env | {"LOG": str(root / "daemon.log")}, stdout=subprocess.PIPE, start_new_session=True)
     pid = int(sh.stdout.readline())
     sh.wait()
@@ -520,7 +554,7 @@ def main() -> int:
         r = Run(d, s, Answerer(home / "daemon.sock", key, s, AGENT), AGENT)
         print(f"live-e2e: {AGENT} on a test daemon {d.hello.get('daemon')}, home {home}", flush=True)
         if args.terminal:
-            terminal_turns(r, tmux, account["config_dir"], root, daemon)
+            terminal_turns(r, tmux, account["config_dir"], root, home, daemon)
         else:
             lifecycle(r)
             chat_and_attachment(r)
