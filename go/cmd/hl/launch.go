@@ -151,10 +151,7 @@ var paneRE = regexp.MustCompile(`^%\d+$`)
 // pane id of someone else's tmux means nothing on ours (backends/tmux.own_terminal).
 func tmuxOwnTerminal() (string, string) {
 	pane, server := os.Getenv("TMUX_PANE"), os.Getenv("TMUX")
-	sock, _ := paths.Getenv("TMUX_SOCKET")
-	if sock == "" {
-		sock = "ocp"
-	}
+	sock := paths.TmuxSocket(paths.Home())
 	if first, _, _ := strings.Cut(server, ","); !paneRE.MatchString(pane) || filepath.Base(first) != sock {
 		return "", ""
 	}

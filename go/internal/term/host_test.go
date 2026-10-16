@@ -190,3 +190,27 @@ func TestOnlyTmuxIsAHostAndAnyOtherNameIsNeverAvailable(t *testing.T) {
 		t.Fatalf("a host the daemon does not drive: %q %v %q", b.Name(), b.Available(), why)
 	}
 }
+
+// A daemon on a scratch home never reaches the live tmux server (-L ocp), whether the socket setting is missing or names ocp: a
+// scratch daemon that did put a window among the live agents'.
+func TestAScratchDaemonNeverReachesTheLiveTmuxServer(t *testing.T) {
+	log := fakeTmux(t)
+	home := t.TempDir()
+	for _, sock := range []string{"", "ocp"} {
+		t.Setenv("HANDLINE_TMUX_SOCKET", sock)
+		t.Setenv("OCP_TMUX_SOCKET", sock)
+		tm := Current(home).(Tmux)
+		tm.ListTerminals()
+		tm.CreateTerminal("hl launch alice", home, "alice")
+		for _, argv := range [][]string{tm.ControlCommand(), tm.AttachCommand()} {
+			if argv[1] != "-L" || argv[2] == "ocp" {
+				t.Errorf("socket %q: %q", sock, argv)
+			}
+		}
+	}
+	for _, line := range calls(t, log) {
+		if !strings.HasPrefix(line, "-L ocp-") {
+			t.Errorf("not on the scratch home's own server: %q", line)
+		}
+	}
+}
