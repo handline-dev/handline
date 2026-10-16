@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { branchCandidates } from '../src/links.ts';
+import { branchCandidates, findNames } from '../src/links.ts';
 
 test('words that look like a branch name, once each, in order', () => {
   assert.deepEqual(branchCandidates('Proposal on branch pr-review-loop-review @2728429a0, file docs/pr-review-loop.md; also story/4153 and pr-review-loop-review'), [
@@ -10,8 +10,6 @@ test('words that look like a branch name, once each, in order', () => {
   ]);
   assert.deepEqual(branchCandidates('main 2026-10-16 a/ b//c plain'), []);
 });
-
-import { findNames } from '../src/links.ts';
 
 test('an agent name is found bare or dotted, as a whole word, not inside a path, file name or longer name', () => {
   const names = ['alpha', 'handline.pc', 'handline.pc.worker2', 'gamma'];
