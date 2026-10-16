@@ -65,28 +65,20 @@ func (u *UsageAdapter) ActiveOn(q db.Q, acct, agent string) int {
 	return by[acct]
 }
 
-// StatusAdapter is the StatusPort: what the daemon knows of an agent's session. A terminal agent's session id and context come from
-// its status file; a structured agent has none, and its session id is the one stored with it.
+// StatusAdapter is the StatusPort: what the daemon knows of an agent's session, its id and context from its status file.
 type StatusAdapter struct {
-	Env        *usage.Env
-	Q          db.Q
-	Structured func(agent string) bool
+	Env *usage.Env
+	Q   db.Q
 }
 
 var _ StatusPort = (*StatusAdapter)(nil)
 
-// ReadForAgent is status.read_for_agent, with the stored session for a structured agent.
+// ReadForAgent is status.read_for_agent.
 func (s *StatusAdapter) ReadForAgent(agent, account string) SessionStatus {
 	st := s.Env.ReadForAgent(agent, account)
 	out := SessionStatus{SessionID: st.SessionID}
 	if st.CtxPct != nil {
 		out.CtxPct = *st.CtxPct
-	}
-	if s.Structured != nil && s.Structured(agent) {
-		out = SessionStatus{}
-		if row, err := db.GetAgentState(s.Q, agent); err == nil && row != nil {
-			out.SessionID = row.ResumeSession.String
-		}
 	}
 	return out
 }

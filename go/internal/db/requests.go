@@ -134,19 +134,19 @@ func AddRequest(q Q, n NewRequest) (int64, error) {
 		state = "queued"
 	}
 	now := Now()
-	landed := (n.Notice || n.TurnEnd || n.Target == Human && n.Kind == "say") && state == "queued"
+	var landedAt, notice, parent any
+	switch {
+	case n.TurnEnd:
+		notice = 2
+	case n.Notice:
+		notice = 1
+	}
+	landed := (notice != nil || n.Target == Human && n.Kind == "say") && state == "queued"
 	if landed || state == "done" {
 		state = Landed
 	}
-	var landedAt, notice, parent any
 	if landed {
 		landedAt = now
-	}
-	if n.Notice {
-		notice = 1
-	}
-	if n.TurnEnd {
-		notice = 2
 	}
 	if n.ParentID != 0 {
 		parent = n.ParentID

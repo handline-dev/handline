@@ -18,16 +18,25 @@ export function noticeOf(m: ChatMessage): { kind: 'task'; task: number } | { kin
   return /^#\d+\s/.test(m.body) ? { kind: 'delivery' } : null;
 }
 
-/** Everything on screen for one agent, oldest first: the messages and the agent's transcript by time. In the agent's own chat (`mine`) the task board's delivery notices are left out. */
-export function timeline(messages: ChatMessage[], items: TranscriptItem[], scope: 'mine' | 'all' = 'mine'): TimelineEntry[] {
+/** Everything on screen for one agent, oldest first: the messages and the agent's transcript by time. In the agent's own chat (`mine`) nothing the task board sent is shown: it still reaches the agent and stays on the task. */
+export function timeline(
+  messages: ChatMessage[],
+  items: TranscriptItem[],
+  scope: 'mine' | 'all' = 'mine',
+  agent?: string,
+): TimelineEntry[] {
   const out: TimelineEntry[] = [
     ...messages.flatMap((m): TimelineEntry[] => {
+      if (scope === 'mine' && m.from === NOTICE_SENDER) return [];
+      if (scope === 'mine' && m.proposal != null) return []; // the outcome of an HR proposal is drawn as its card, not as this line
       const n = noticeOf(m);
       if (n?.kind === 'task') return [{ kind: 'note', at: m.at, id: m.id, message: m, task: n.task }];
-      if (n?.kind === 'delivery' && scope === 'mine') return [];
       return [{ kind: 'message', at: m.at, id: m.id, message: m }];
     }),
-    ...items.map((i): TimelineEntry => ({ kind: 'item', at: i.at, id: i.id, item: i })),
+    // A task card sits in the chat of the agent that made the change, or of the founder acting for it (`human`); the *all* tab shows every one.
+    ...items
+      .filter((i) => !(scope === 'mine' && agent && i.task_event && i.task_event.who !== agent && i.task_event.who !== 'human'))
+      .map((i): TimelineEntry => ({ kind: 'item', at: i.at, id: i.id, item: i })),
   ];
   return out.sort((a, b) =>
     a.at < b.at ? -1 : a.at > b.at ? 1 : (a.kind === 'item') === (b.kind === 'item') ? a.id - b.id : a.kind === 'item' ? 1 : -1,
@@ -89,23 +98,53 @@ export function sessionLine(i: TranscriptItem): { reason: string; handoff: strin
   return { reason, handoff: i.session?.handoff || null };
 }
 
-const TASK_LABEL: Record<string, string> = { opened: 'Task added', changed: 'Task edited', done: 'Task done', withdrawn: 'Task deleted' };
+const TASK_LABEL: Record<string, string> = { opened: 'Task added', changed: 'Task changed', done: 'Task done', withdrawn: 'Task deleted' };
 /** What a task line in the chat shows: the label (added / edited / done / deleted), the task, and only what changed, briefly. */
 export interface TaskRow {
   label: string;
   task: number;
   title: string | null;
+  /** Who made the change (the agent, or `human`). */
+  who: string | null;
   /** The change (`priority 2 -> 1`) or the evidence (done note, deletion reason); null when there is none. */
   detail: string | null;
+  /** The detail as pieces: a change written `<field> <old> -> <new>` is one piece with both values, anything else is plain text. */
+  parts: TaskChange[];
+}
+export type TaskChange = { field: string; old: string; now: string } | { text: string };
+
+/** Splits `assigned to X, priority 2 -> 1` at its commas; a piece of the form `[field ]old -> new` keeps its two values. */
+export function changeParts(detail: string | null): TaskChange[] {
+  if (!detail) return [];
+  return detail.split(', ').map((piece): TaskChange => {
+    const m = /^(?:(.+) )?(\S+) -> (.+)$/.exec(piece);
+    return m ? { field: m[1] ?? '', old: m[2]!, now: m[3]! } : { text: piece };
+  });
 }
 export function taskRow(i: TranscriptItem, titles?: Map<number, string>): TaskRow {
   const e = i.task_event;
   const ev = e?.event ?? 'changed';
   const change = (e as { change?: string | null } | undefined)?.change;
   return {
-    label: TASK_LABEL[ev] ?? 'Task edited',
+    label: TASK_LABEL[ev] ?? 'Task changed',
     task: e?.task ?? NaN,
     title: titles?.get(e?.task ?? NaN) ?? null,
+    who: e?.who ?? null,
     detail: change || e?.evidence || null,
+    parts: changeParts(change || e?.evidence || null),
+  };
+}
+
+const HANDOFF_WHY: Record<string, string> = {
+  context_full: 'Context full',
+  move: 'Moving to another account',
+  usage: 'Usage limit',
+  login: 'Login needed',
+};
+/** The live line while a session hands off: why it ends (the cause is an open set, so an unknown one is shown as it came) and what is happening now. */
+export function handoffLine(h: { cause: string; phase: 'writing' | 'starting' }): { why: string; what: string } {
+  return {
+    why: HANDOFF_WHY[h.cause] ?? h.cause,
+    what: h.phase === 'writing' ? 'Writing the handoff' : 'Starting a new session',
   };
 }

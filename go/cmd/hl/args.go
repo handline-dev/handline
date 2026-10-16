@@ -209,3 +209,16 @@ func pyPath(p string) string {
 	}
 	return out
 }
+
+// badArgs answers a command line its parser does not take: asked for with -h or --help it is printed and exits 0,
+// otherwise it goes to stderr and exits 2, as argparse does.
+func badArgs(text string, args []string) int {
+	for _, a := range args {
+		if a == "-h" || a == "--help" {
+			fmt.Println(text)
+			return 0
+		}
+	}
+	fmt.Fprintln(os.Stderr, text)
+	return 2
+}

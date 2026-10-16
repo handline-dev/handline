@@ -248,6 +248,37 @@ func TestSweepTaskQueueDeliversAWaitingTaskToAFreeOwnerAndBacksOffWhenNothingLan
 	}
 }
 
+// The deadlock that held an agent's whole queue for a day: its current task, begun, waits on a task of its own through a block that went
+// dormant (one agent holds both), and that task waits behind it.
+func TestSweepDeliversTheDormantBlockerOfABegunTaskBeforeTheRestOfTheQueue(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	held := r.newTask("bob", "alice", "the graph")
+	_, _, err := r.AdvanceCurrentTask(r.DB, "bob")
+	r.must(err)
+	_, err = db.AddEvent(r.DB, "bob", "task_begin", db.KV{K: "task_id", V: held})
+	r.must(err)
+	blocker := r.newTask("bob", "alice", "the frame the graph follows")
+	other := r.newTask("bob", "alice", "something else")
+	_, err = r.DB.Exec("INSERT INTO task_blocks(task_id, blocks_on, dormant, created_at) VALUES(?, ?, 1, 1)", held, blocker)
+	r.must(err)
+	r.must(r.SweepTaskQueue(r.clock))
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != blocker {
+		t.Fatalf("current is T%d, want its dormant blocker T%d (not T%d)", cur, blocker, other)
+	}
+	if !r.logged("bob: its current task waits on a task of its own behind it - delivered that one first") {
+		t.Fatal(r.logs)
+	}
+	// the blocker done, the task that waited on it is current again, ahead of the rest of the queue
+	_, err = db.MarkTaskDone(r.DB, blocker, "framed", "test")
+	r.must(err)
+	_, _, err = r.AdvanceCurrentTask(r.DB, "bob")
+	r.must(err)
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != held {
+		t.Fatalf("current is T%d, want T%d back once its blocker is done (not T%d)", cur, held, other)
+	}
+}
+
 // register gives each name an agent directory, so the daemon knows it.
 func (r *rig) register(names ...string) {
 	for _, a := range names {

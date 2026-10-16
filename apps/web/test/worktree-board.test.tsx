@@ -123,19 +123,19 @@ describe('X4 worktree board', () => {
     await mount(s);
     await board();
     await fire(card(AUDITOR), 'keydown', { key: 'm' });
-    const menu = $('.wt-menu')!;
+    const menu = document.querySelector('[role=menu]')!;
     expect([...menu.querySelectorAll('[role=menuitem]')].map((b) => text(b))).toEqual(['in progress', 'in review', 'done']);
-    await click([...menu.querySelectorAll('button')].find((b) => text(b) === 'in review'));
+    await click([...menu.querySelectorAll('[role=menuitem]')].find((b) => text(b) === 'in review'));
     await until(() => inColumn('in review').includes(AUDITOR), 'the card to move');
     expect(sets(spy)).toHaveLength(1);
-    expect($('.wt-menu')).toBeNull();
+    expect(document.querySelector('[role=menu]')).toBeNull();
   });
 
   it('opens the Move to… menu from the button too', async () => {
     await mount();
     await board();
     await click([...card(AUDITOR).querySelectorAll('button')].find((b) => text(b) === 'Move to…'));
-    expect($('.wt-menu')).not.toBeNull();
+    expect(document.querySelector('[role=menu]')).not.toBeNull();
   });
 
   it('changes the status from the select in the panel, in the list view too', async () => {

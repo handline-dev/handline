@@ -1,11 +1,11 @@
 // The agent list. A row shows an agent's state, its queue and a fold button when it has children; its actions (Start, the ⋯ menu)
 // show while the pointer is on it or it is selected. One filter button opens the menu of what to show.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ago,
   dotOf,
   railRows,
-  shortName,
+  rowName,
   teamOf,
   visibleRows,
   queueOf,
@@ -26,7 +26,7 @@ import { Badges } from './Badges.tsx';
 import { Mark, MARKS } from './RailIcons.tsx';
 import { AgentGauges } from './AgentGauges.tsx';
 import { useNow } from './Gauge.tsx';
-import { Button, Icon, Menu, MenuContent, MenuTrigger, Popup, PROW } from './ui/index.ts';
+import { Button, Icon, Menu, type At, MenuButton, MenuCheckItem, MenuContent, MenuTrigger } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import {
   goAgent,
@@ -44,6 +44,13 @@ import { AgentMenu, RowControls } from './RowControls.tsx';
 import { NewAgentButton } from './NewAgent.tsx';
 import { View } from './View.tsx';
 import { navOf, PairPhone } from './NavRows.tsx';
+
+// What a row's one line holds, in px: the state mark, the name's least width, a chip's icon and padding, a letter of it, and the gap between items.
+const MARK_W = 14;
+const NAME_MIN = 72;
+const CHIP_PAD = 28;
+const CHAR_W = 7;
+const GAP = 8;
 
 export function Sidebar({
   selected,
@@ -67,7 +74,6 @@ export function Sidebar({
   const [collapsed, setCollapsed] = useState<Set<string>>(
     () => new Set(setting(storage, 'collapsed', '').value.split('|').filter(Boolean)),
   );
-  const [menu, setMenu] = useState(false);
   const flip = <T extends string>(set: Set<T>, k: T, key: string, sep: string): Set<T> => {
     const next = new Set(set);
     if (!next.delete(k)) next.add(k);
@@ -94,11 +100,11 @@ export function Sidebar({
       className="rail flex w-[var(--rail-w,280px)] flex-none flex-col overflow-hidden border-r border-line bg-panel min-h-0 max-[900px]:fixed max-[900px]:z-10 max-[900px]:[inset:0_auto_0_0] max-[900px]:w-[min(320px,90vw)] max-[900px]:shadow-[var(--shadow-pop)]"
       aria-label="Agents"
     >
-      {/* The shell's drag strip: 38 px row centred on the traffic lights; `rail-top` is the tests' hook. */}
-      <div className="rail-top flex items-center gap-0.5 pt-2 px-2.5 pb-1 shell:h-[38px] shell:py-0 shell:pl-[86px] shell:[-webkit-app-region:drag]">
-        <Button className="shell:[-webkit-app-region:no-drag]" icon="sidebar" label="Hide the agent list (⌘B)" onClick={onToggle} />
-        <Button className="shell:[-webkit-app-region:no-drag]" icon="back" label="Back (⌘[)" onClick={() => history.back()} />
-        <Button className="shell:[-webkit-app-region:no-drag]" icon="forward" label="Forward (⌘])" onClick={() => history.forward()} />
+      {/* The shell's drag strip: row as tall as a tab strip, centred on the traffic lights (--h-tabs and --lights-w follow the zoom: shell.ts); `rail-top` is the tests' hook. */}
+      <div className="rail-top flex items-center gap-0.5 pt-2 px-2.5 pb-1 shell:h-[var(--h-tabs)] shell:py-0 shell:pl-[var(--lights-w,86px)] shell:[-webkit-app-region:drag]">
+        <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="sidebar" label="Hide the agent list (⌘B)" onClick={onToggle} />
+        <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="back" label="Back (⌘[)" onClick={() => history.back()} />
+        <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="forward" label="Forward (⌘])" onClick={() => history.forward()} />
         {unread ? (
           <button
             className="bell ml-auto border-0 rounded-[9px] bg-wait px-1.5 text-label text-canvas shell:[-webkit-app-region:no-drag]"
@@ -151,26 +157,21 @@ export function Sidebar({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <Button
+        <MenuButton
           icon="filter"
           label={hidden.size ? `Filter: ${hidden.size} hidden` : 'Filter'}
-          aria-haspopup="menu"
-          aria-expanded={menu}
+          name="Show agents that are"
           className={hidden.size ? 'text-primary' : ''}
-          onClick={() => setMenu(!menu)}
-        />
-        <Popup open={menu} onClose={() => setMenu(false)} title="Show agents that are" align="right">
+        >
           {RAIL_FILTERS.map((f) => {
             const on = f.dots.some((d) => !hidden.has(d));
             const n = f.dots.reduce((t, d) => t + (counts.get(d) ?? 0), 0);
             return (
-              <button
+              <MenuCheckItem
                 key={f.id}
-                type="button"
-                role="menuitemcheckbox"
-                aria-checked={on}
-                className={`${PROW} filter`}
-                onClick={() => {
+                checked={on}
+                icon={<Mark dot={f.dots[0]!} title={MARKS[f.dots[0]!].label} />}
+                onCheckedChange={() => {
                   const next = new Set(hidden);
                   for (const d of f.dots) {
                     if (on) next.add(d);
@@ -180,14 +181,12 @@ export function Sidebar({
                   setHidden(next);
                 }}
               >
-                <span className="w-3.5 flex-none">{on ? <Icon name="markRead" size={12} aria-hidden /> : null}</span>
-                <Mark dot={f.dots[0]!} title={MARKS[f.dots[0]!].label} />
                 <span className="flex-1">{f.label}</span>
                 <span className="muted count">{n}</span>
-              </button>
+              </MenuCheckItem>
             );
           })}
-        </Popup>
+        </MenuButton>
       </div>
       <div className="rail-list min-h-0 flex-1 overflow-auto">
         {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
@@ -246,11 +245,23 @@ function Row({
 }) {
   const store = useStore();
   const dot = dotOf(a);
-  const wrap = useRef<HTMLDivElement>(null);
   const [ask, setAsk] = useState<Verb | null>(null);
   const [hot, setHot] = useState(false); // the pointer or focus is on the row: its actions show, and only then do they cost a detail read
   const [menuOpen, setMenuOpen] = useState(false);
   const mark = useVerbMark(a.name);
+  // The needs-you chip comes right after the name (the lesser chips drop first) and is the word when the word fits beside the name, else the icon.
+  const main = useRef<HTMLButtonElement>(null);
+  const [wide, setWide] = useState(true);
+  const kindLen = a.needs_you?.kind.length ?? 0;
+  useEffect(() => {
+    const el = main.current;
+    if (!el) return;
+    const fit = () => setWide(el.clientWidth >= MARK_W + NAME_MIN + CHIP_PAD + CHAR_W * kindLen + 2 * GAP);
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [kindLen]);
   const now = useNow();
   const cache = cacheLeft(a.cache_until, now);
   const ctx = ctxOf(a);
@@ -263,14 +274,13 @@ function Row({
   const edge = dot === 'waiting' ? 'border-l-wait' : selected ? 'border-l-primary' : 'border-l-transparent';
   const showControls = selected || hot || menuOpen;
   // The ⋯ button asks the row for its own context menu, at the button.
-  const openMenu = (at: { x: number; y: number }) =>
-    wrap.current?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: at.x, clientY: at.y }));
+  const opener = useRef<((at: At) => void) | null>(null);
+  const openMenu = (at: At) => opener.current?.(at);
   return (
     <>
-      <Menu onOpenChange={setMenuOpen}>
+      <Menu onOpenChange={setMenuOpen} openRef={opener}>
         <MenuTrigger asChild>
           <div
-            ref={wrap}
             className={`row-wrap relative${selected ? ' on bg-canvas' : ''}`}
             data-agent={a.name}
             onPointerEnter={() => setHot(true)}
@@ -295,20 +305,26 @@ function Row({
               ) : (
                 <span className="w-3 flex-none" aria-hidden />
               )}
+              {/* One line tall and wrapping: a chip that does not fit drops below the box whole, never cut off. */}
               <button
-                className="row-main flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left"
+                ref={main}
+                className="row-main flex h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden border-0 bg-transparent p-0 text-left"
                 onClick={() => goAgent(a.name)}
                 aria-current={selected ? 'true' : undefined}
                 title={tip}
               >
                 <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
-                <span className="name min-w-0 flex-1 whitespace-nowrap">{shortName(a.name, team)}</span>
-                <Badges badges={badges} />
+                <span className="name h-5 min-w-[4.5rem] flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-5">{rowName(a.name, depth, team)}</span>
                 {a.needs_you ? (
-                  <span className="needs flex-none rounded-pill bg-wait px-1.5 text-label text-canvas" title={a.needs_you.text ?? undefined}>
-                    {a.needs_you.kind}
+                  <span
+                    className="needs inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-pill bg-wait px-1.5 text-label text-canvas"
+                    title={[a.needs_you.kind, a.needs_you.text].filter(Boolean).join(': ')}
+                  >
+                    <Icon name={a.needs_you.kind === 'permission' ? 'permission' : 'answer'} size={12} label={a.needs_you.kind} />
+                    {wide ? <span>{a.needs_you.kind}</span> : null}
                   </span>
                 ) : null}
+                <Badges badges={badges} />
                 {queue.messages ? (
                   <span
                     className="q-msgs inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"

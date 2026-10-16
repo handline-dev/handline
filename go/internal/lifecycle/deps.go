@@ -175,11 +175,8 @@ type Manager struct {
 	Status   StatusPort
 	Observe  Observer
 	Typing   Typing
-	// Run is the structured sessions; nil keeps every agent a terminal agent.
-	Run Runner
 	// TermRun is the terminal agents' sessions as their session files report them; nil keeps a handoff from finding one.
 	TermRun TermSessions
-	NewID   func() string // a new session id; random when nil
 
 	Locks *AgentLocks // shared with Spawns, so a spawn and a wake take the same lock; made on first use when nil
 	once  sync.Once

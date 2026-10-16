@@ -12,7 +12,7 @@ export const HEADS: { col: TaskColumn; label: string; cls: string }[] = [
   { col: 'priority', label: 'P', cls: 'c-pri w-10' },
   { col: 'state', label: 'state', cls: 'c-state w-16' },
   { col: 'title', label: 'title', cls: 'c-title' },
-  { col: 'timeout', label: 'time', cls: 'c-time w-20' },
+  { col: 'timeout', label: 'time', cls: 'c-time w-28' },
 ];
 /** What the `s` key steps through: the columns shown and the ones folded into the title line. */
 export const SORTS: TaskColumn[] = ['number', 'priority', 'state', 'title', 'owner', 'idle', 'timeout', 'asker'];

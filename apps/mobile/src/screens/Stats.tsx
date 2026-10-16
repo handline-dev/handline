@@ -3,7 +3,7 @@
 // Home settings are one tap away on the same tab. Every number is text too; a bar is never the only way to read it.
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { agentTime, duration } from '@handline/app-core';
+import { agentTime, span } from '@handline/app-core';
 import type { Outlook, Stats as StatsData } from '@handline/client';
 import { useOutlook, useServes, useStats } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
@@ -79,7 +79,7 @@ function Counts({ s }: { s: StatsData }) {
             <View key={r.agent} testID={`time-${r.agent}`} style={{ gap: 2 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: c.ink }}>{r.agent}</Text>
-                <Text style={{ color: c.muted }}>{duration(r.seconds)}</Text>
+                <Text style={{ color: c.muted }}>{span(r.seconds * 1000)}</Text>
               </View>
               <View style={{ height: 6, borderRadius: 3, backgroundColor: c.line }}>
                 <View style={{ width: `${(r.seconds / top) * 100}%`, height: 6, borderRadius: 3, backgroundColor: c.run }} />
@@ -101,7 +101,7 @@ function Counts({ s }: { s: StatsData }) {
 
 const runwayWords = (r: Outlook['runway'][number]) =>
   r.runs_out_in_seconds !== null
-    ? `runs out in ${duration(r.runs_out_in_seconds)}`
+    ? `runs out in ${span(r.runs_out_in_seconds * 1000)}`
     : r.week_resets_at
       ? 'lasts until the week resets'
       : 'no burn, or a stale reading';

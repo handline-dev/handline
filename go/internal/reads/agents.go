@@ -57,10 +57,6 @@ func (e *Env) viewMap(name string, stored map[string]json.RawMessage, x *viewCtx
 	if err := dec.Decode(&view); err != nil {
 		return nil, err
 	}
-	// A structured agent says so: a client shows its transcript where a terminal agent's terminal would be. Absent means a terminal agent.
-	if e.Structured != nil && e.Structured(name) {
-		view["structured"] = true
-	}
 	if x != nil {
 		if err := e.addFields(name, view, x); err != nil {
 			return nil, err
@@ -224,15 +220,9 @@ func (e *Env) agentGet(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	out["terminal"] = st.strOrNil("terminal")
 	out["session_id"] = st.strOrNil("resume_session")
-	if e.Structured != nil && e.Structured(name) {
-		// No terminal and no typing: the session is open while its process runs, and nobody holds an input that is not served.
-		out["session_open"] = e.SessionOpen != nil && e.SessionOpen(name)
-		out["input_holders"] = []any{}
-	} else {
-		out["session_open"] = st.set("terminal") && st.str("terminal") != "" && st.i("closed_at") == 0
-		if out["input_holders"], err = e.inputHolders(name); err != nil {
-			return nil, err
-		}
+	out["session_open"] = st.set("terminal") && st.str("terminal") != "" && st.i("closed_at") == 0
+	if out["input_holders"], err = e.inputHolders(name); err != nil {
+		return nil, err
 	}
 	out["account_pick"] = map[string]any{"account": nil, "reason": "this daemon does not place sessions yet"}
 	if out["prompt"], err = e.openPrompt(name); err != nil {

@@ -59,23 +59,9 @@ func (e *Env) AdvanceCurrentTask(q db.Q, agent string) (changed bool, refused ma
 	}
 	before, hadBefore := ok2(db.CurrentTask(q, agent))
 	for _, w := range must(db.WaitingTasks(q, agent)) {
-		if w.Req != nil {
-			check(db.SetCurrentTask(q, agent, w.Task.ID, true))
-			check(db.PromoteToFront(q, w.Req.ID))
+		if e.makeCurrent(q, agent, w, refused) {
 			return true, refused, nil
 		}
-		out, aerr := e.Ask(q, AskIn{Target: agent, Body: w.Task.Title, Requester: w.Task.QueuedBy.String, Kind: "task", OnBehalfOf: true, Notify: true})
-		if aerr != nil {
-			return false, refused, aerr
-		}
-		msg := out.Finish()
-		if !out.OK {
-			e.noteRefusal(q, agent, w.Task.ID, msg, refused)
-			continue
-		}
-		e.linkDelivery(q, w.Task.ID, agent, out.RID)
-		check(db.SetCurrentTask(q, agent, w.Task.ID, true))
-		return true, refused, nil
 	}
 	// Nothing to advance to. A current task that is merely blocked, and not yet done, stays current; a done task can carry a stale blocker too,
 	// and that one really is finished.
@@ -86,6 +72,51 @@ func (e *Env) AdvanceCurrentTask(q db.Q, agent string) (changed bool, refused ma
 	}
 	check(db.SetCurrentTask(q, agent, 0, false))
 	return hadBefore, refused, nil
+}
+
+// makeCurrent makes w the agent's current task and delivers it: its own queued request goes to the front, or a new one is asked. False when
+// the routing refused the ask (noted in refused).
+func (e *Env) makeCurrent(q db.Q, agent string, w db.WaitingTask, refused map[int64]string) bool {
+	if w.Req != nil {
+		check(db.SetCurrentTask(q, agent, w.Task.ID, true))
+		check(db.PromoteToFront(q, w.Req.ID))
+		return true
+	}
+	out, aerr := e.Ask(q, AskIn{Target: agent, Body: w.Task.Title, Requester: w.Task.QueuedBy.String, Kind: "task", OnBehalfOf: true, Notify: true})
+	check(aerr)
+	msg := out.Finish()
+	if !out.OK {
+		e.noteRefusal(q, agent, w.Task.ID, msg, refused)
+		return false
+	}
+	e.linkDelivery(q, w.Task.ID, agent, out.RID)
+	check(db.SetCurrentTask(q, agent, w.Task.ID, true))
+	return true
+}
+
+// AdvanceToDormantBlocker delivers, while the agent's current task is still asking, a task that current task waits on through a dormant
+// self-block (one agent holds both, so the wait does not count) and that waits behind it: otherwise the held task waits on its own blocker
+// and the blocker on the held task, and everything else of the agent's waits behind both. True when one was delivered.
+func (e *Env) AdvanceToDormantBlocker(q db.Q, agent string) (changed bool, err error) {
+	defer Catch(&err)
+	cur, ok := ok2(db.CurrentTask(q, agent))
+	if !ok {
+		return false, nil
+	}
+	dormant := map[int64]bool{}
+	for _, b := range must(db.DormantBlockers(q, cur)) {
+		dormant[b] = true
+	}
+	if len(dormant) == 0 {
+		return false, nil
+	}
+	refused := map[int64]string{}
+	for _, w := range must(db.WaitingTasks(q, agent)) {
+		if dormant[w.Task.ID] && e.makeCurrent(q, agent, w, refused) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // QueueDeliver is what queuing does after its write commits: the task goes out now if its owner is free. row is the task as it was before.
@@ -348,10 +379,9 @@ func (e *Env) queueSay(q db.Q, owner, body, why string) int64 {
 	return rid
 }
 
-// TellMemo tells a memo's change to whom it concerns: the holder of a doing task (one not yet doing reads its memos when it is delivered), who
-// the task answers to, and every agent the memo names with @. Never the writer or the founder, who reads the board. The holder of a doing task
-// (it is its current task), a reader at its prompt, and every reader of one sent now, are typed it at once like a say; any other reader gets
-// it at the end of its turn, with whatever else waits for it then (SweepDigests), and its lead hears of it if it waits an hour (SweepHeldMemos).
+// TellMemo tells a memo's change to each of its readers (memoReaders). The holder of a doing task, a reader at its prompt, and every reader
+// when now are typed it at once like a say; any other reader gets it at the end of its turn (SweepDigests), and its lead hears of it if it
+// waits an hour (SweepHeldMemos).
 func (e *Env) TellMemo(q db.Q, tid int64, by, what, text string, now bool) (err error) {
 	defer Catch(&err)
 	row := must(db.GetTask(q, tid))
@@ -362,35 +392,51 @@ func (e *Env) TellMemo(q db.Q, tid int64, by, what, text string, now bool) (err 
 	if must(db.TaskState(q, row)) == "doing" {
 		holder = row.Owner
 	}
-	to := []string{holder, row.AnswersTo()}
-	for _, m := range mentionRe.FindAllStringSubmatch(text, -1) {
-		if name := strings.TrimRight(m[1], ".-"); e.registered(name) {
-			to = append(to, name)
-		}
-	}
-	body := fmt.Sprintf("T%d memo %s by %s", tid, what, by)
-	if text != "" {
-		t := textsafe.Oneline(text)
-		if r := []rune(t); len(r) > 400 {
-			t = attachments.KeepRefs(string(r[:400]), t)
-		}
-		body += ": " + t
-	}
-	told := map[string]bool{"": true, by: true, db.Human: true}
-	for _, a := range to {
-		if told[a] {
-			continue
-		}
-		told[a] = true
+	body := memoLine(tid, what, by, text)
+	for _, a := range e.memoReaders(row, holder, by, text) {
 		if now || a == holder || e.idleWithSession(q, a) {
 			e.typeSay(q, a, body, "task memo")
-			continue
+		} else {
+			rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: a, Body: body, Response: "fire_and_forget", Kind: "say", TurnEnd: true}))
+			check(db.LinkRequest(q, tid, rid))
+			e.log("  %s: T%d memo held for the end of its turn (#%d)", a, tid, rid)
 		}
-		rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: a, Body: body, Response: "fire_and_forget", Kind: "say", TurnEnd: true}))
-		check(db.LinkRequest(q, tid, rid))
-		e.log("  %s: T%d memo held for the end of its turn (#%d)", a, tid, rid)
 	}
 	return nil
+}
+
+// memoReaders is whom a memo on row concerns, each once: its holder (empty unless the task is doing; one not yet doing reads its memos when it
+// is delivered), who the task answers to, and every registered agent the memo names with @. Never the writer, or the founder, who reads the
+// board.
+func (e *Env) memoReaders(row *db.Task, holder, by, text string) []string {
+	named := []string{holder, row.AnswersTo()}
+	for _, m := range mentionRe.FindAllStringSubmatch(text, -1) {
+		if name := strings.TrimRight(m[1], ".-"); e.registered(name) {
+			named = append(named, name)
+		}
+	}
+	skip := map[string]bool{"": true, by: true, db.Human: true}
+	var out []string
+	for _, a := range named {
+		if !skip[a] {
+			skip[a] = true
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// memoLine is the line a memo's reader is told: `T<n> memo <what> by <who>: <text>`, the text on one line and cut at 400 runes.
+func memoLine(tid int64, what, by, text string) string {
+	line := fmt.Sprintf("T%d memo %s by %s", tid, what, by)
+	if text == "" {
+		return line
+	}
+	t := textsafe.Oneline(text)
+	if r := []rune(t); len(r) > 400 {
+		t = attachments.KeepRefs(string(r[:400]), t)
+	}
+	return line + ": " + t
 }
 
 // MemoLeadS is how long a memo held for the end of its reader's turn may go unread before the reader's lead is told.
@@ -412,11 +458,9 @@ func (e *Env) SweepHeldMemos(now int64) (err error) {
 			continue
 		}
 		check(db.SetCursor(q, key, 1))
-		lead := t.SupervisorOf(r.Target)
-		if lead == "" || lead == db.Human || !e.registered(lead) {
-			continue
+		if lead := t.SupervisorOf(r.Target); lead != "" && lead != db.Human && e.registered(lead) {
+			e.tellNowSay(q, lead, fmt.Sprintf("%s has not read this memo in an hour, held for the end of its turn (#%d): %s", r.Target, r.ID, r.Body), "memo unread 1h")
 		}
-		e.tellNowSay(q, lead, fmt.Sprintf("%s has not read this memo in an hour, held for the end of its turn (#%d): %s", r.Target, r.ID, r.Body), "memo unread 1h")
 	}
 	return nil
 }
