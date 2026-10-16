@@ -65,6 +65,9 @@ type Spawns struct {
 	Sleep    func(time.Duration)
 	Now      func() time.Time
 	Locks    *AgentLocks
+	// TrustFolder marks folder trusted in every account agent's vendor may start it on, so the session opens without the folder-trust
+	// dialog. nil: nothing is marked.
+	TrustFolder func(agent, folder string)
 }
 
 var _ Spawner = (*Spawns)(nil)
@@ -202,6 +205,13 @@ func (s *Spawns) PromptLanded(agent string, sinceID int64, timeout time.Duration
 			return false, nil
 		}
 		s.sleep(2 * time.Second)
+	}
+}
+
+// Trust marks the folder the daemon is about to start agent in as trusted. Only a folder it launches in is marked, never one a caller names.
+func (s *Spawns) Trust(agent, folder string) {
+	if s.TrustFolder != nil {
+		s.TrustFolder(agent, folder)
 	}
 }
 
@@ -344,6 +354,7 @@ func (s *Spawns) StartIn(agent, worktree, cmd string) (bool, string, error) {
 			return false, "", err
 		}
 	}
+	s.Trust(agent, worktree)
 	handle, why := s.Host.OpenTerminal(cmd, worktree, agent)
 	if handle == "" && why != "" {
 		return false, fmt.Sprintf("%s: could not start in %s: %s", agent, worktree, why), nil
@@ -437,6 +448,7 @@ func (s *Spawns) SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error
 	if err != nil {
 		return false, "", err
 	}
+	s.Trust(agent, wt)
 	handle, failed := s.Host.OpenTerminal(cmd, wt, agent)
 	if handle == "" && failed != "" {
 		return false, fmt.Sprintf("worktree %s is ready, but starting the agent failed: %s", wt, failed), nil

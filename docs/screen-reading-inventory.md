@@ -29,13 +29,13 @@ The screen key is `Is this a project you created or one you trust` or `This fold
 
 | Where | What it decides |
 |---|---|
-| `lifecycle/trust.go:28`, `:96`, `:105`, `:106` | A launch stopped at trust: which folder, and whether it is gone after the answer |
+| `lifecycle/trust.go` (`startupScreens`) | A launch stopped at trust anyway: which folder, for the log line and the decision |
 | `lifecycle/reconciler.go:381` (`TrustPromptGone`) | A trust stall can be cleared |
 | `prompts/dialogs.go:43`, `:51` | The trust dialog shown to the founder |
 
-**Replacement:** none from a hook, because the dialog comes before the session and its hooks. It can be avoided rather than read: `hasTrustDialogAccepted` for the project in the account's `.claude.json` (the key is in 2.1.299) means the dialog never shows, and trusting the main checkout covers its worktrees ([hook-probes.md](hook-probes.md) §2). **Kept:** the launch read (`clearTrustPrompt` in `lifecycle/trust.go:17`, via `Term.TrustPromptShowing`) stays a screen read, because the dialog is drawn before any hook loads, so no event exists. **No event; avoidable by config.**
+**Replacement:** none from a hook, because the dialog comes before the session and its hooks. It can be avoided rather than read: `hasTrustDialogAccepted` for the project in the account's `.claude.json` (the key is in 2.1.299) means the dialog never shows, and trusting the main checkout covers its worktrees ([hook-probes.md](hook-probes.md) §2). **Done:** before every launch the daemon writes that key for the worktree in each claude account's config (`go/internal/claudetrust`), and nothing presses the dialog any more. The launch read (`startupScreens`, via `Term.TrustPromptShowing`) stays only to log and raise the dialog if it shows anyway.
 
-**Status: kept.** No event exists, because the dialog is drawn before any hook loads. Writing `hasTrustDialogAccepted` instead is a separate task, waiting on the founder.
+**Status: avoided by config.** The read is kept as a check that the write worked.
 
 ## 3. Working or idle (mid-turn)
 

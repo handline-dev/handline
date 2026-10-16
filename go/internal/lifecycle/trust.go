@@ -9,76 +9,26 @@ import (
 	"github.com/handline/handline/go/internal/term"
 )
 
-// clearTrustPrompt is the wake paths' gate before the wake prompt: a no-op when nothing is showing, else standing consent or a
-// decision. It runs ahead of typeable_now, which refuses this screen as a dialog and would leave it unanswered. The deliver paths only
-// check typeable_now, so they wait and the blocked sweep reports it. launched: this wake has just started the session, so any other
-// dialog is a start-up one; without it the session may be mid-work, and its dialogs (a tool's permission prompt) are the hooks' to
-// report, not a stall.
-func (m *Manager) clearTrustPrompt(agent, handle string, launched bool) (bool, string) {
-	// One driver scope for the whole check: the reads and the poll all ask this handle's driver.
+// startupScreens is the relaunch's gate before the wake prompt: a no-op when nothing is showing, else a decision. It runs ahead of
+// typeable_now, which refuses these screens as dialogs and would leave them unanswered. The session has just started, so any dialog is a
+// start-up one. The deliver paths only check typeable_now, so they wait and the blocked sweep reports it.
+func (m *Manager) startupScreens(agent, handle string) (bool, string) {
 	defer m.Term.DriverScope()()
-	// A screen left standing would take the wake's Enter.
-	for i := 0; i < MaxStartupScreens; i++ {
-		var ok bool
-		var why string
-		switch {
-		case m.Term.TrustPromptShowing(handle):
-			ok, why = m.handleTrustPrompt(agent, handle)
-		default:
-			if !launched {
-				return true, "clear"
-			}
-			handled, hok, hwhy := m.handleStartupDialog(agent, handle)
-			if !handled {
-				return true, "clear"
-			}
-			ok, why = hok, hwhy
+	if m.Term.TrustPromptShowing(handle) {
+		// The launch marked the worktree trusted in the account's config (Spawns.Trust), so this screen means that write did not happen.
+		shown := m.Term.TrustPromptFolder(handle)
+		m.Log("  %s: the folder-trust dialog showed for %s although the launch marks its worktree trusted", agent, shown)
+		recorded := ""
+		if row := must(db.GetAgentState(m.Q, agent)); row != nil {
+			recorded = m.Spawn.WorktreePath(row.Worktree.String)
 		}
-		if !ok {
-			return false, why
-		}
-	}
-	return false, fmt.Sprintf("%s's terminal still shows a startup screen after %d answers", agent, MaxStartupScreens)
-}
-
-// handleTrustPrompt is standing consent: press "Yes" only for the folder the dialog itself names, only when that folder is both a
-// declared root and the one on record for this agent, and only while `hl auto-accept` is on. Anything else - unreadable, undeclared, a
-// mismatch with the recorded worktree, or the setting off - raises a decision task, as does a press whose keys did not land.
-func (m *Manager) handleTrustPrompt(agent, handle string) (bool, string) {
-	shown, recorded, consented := m.trustConsent(agent, handle)
-	if !consented {
 		return m.raiseTrustPrompt(agent, handle, shown, recorded)
 	}
-	return m.pressTrust(agent, handle, shown, recorded)
-}
-
-func samePath(a, b string) bool { return realpath(expandUser(a)) == realpath(expandUser(b)) }
-
-// trustConsent is (folder on screen, folder on record, whether standing consent covers it): the folder is a declared root and the agent's
-// own recorded worktree. The consent is the founder's trust root alone; no setting switches it off, and it is asked at launch only.
-func (m *Manager) trustConsent(agent, handle string) (shown, recorded string, consented bool) {
-	if row := must(db.GetAgentState(m.Q, agent)); row != nil {
-		recorded = m.Spawn.WorktreePath(row.Worktree.String)
+	handled, ok, why := m.handleStartupDialog(agent, handle)
+	if !handled {
+		return true, "clear"
 	}
-	shown = m.Term.TrustPromptFolder(handle)
-	consented = shown != "" && recorded != "" && m.Agents.IsDeclared(shown) && samePath(shown, recorded)
-	return
-}
-
-func (m *Manager) pressTrust(agent, handle, shown, recorded string) (bool, string) {
-	ok, _ := m.Term.ConfirmTrust(handle)
-	// The redraw is not instant; checking on the very next line risks reading the screen the vendor was still drawing, and raising a
-	// decision for a trust that actually went through.
-	m.Term.WaitForTrustPrompt(handle, false)
-	if !ok || m.Term.TrustPromptShowing(handle) {
-		return m.raiseTrustPrompt(agent, handle, shown, recorded)
-	}
-	must(db.AddEvent(m.Q, agent, "trust_confirmed", db.KV{K: "path", V: shown}))
-	m.Log("  %s: trusted %s (standing consent)", agent, shown)
-	// The screen just changed under us; typing the wake prompt before the vendor has finished drawing its ordinary TUI loses the
-	// opening characters.
-	m.Term.WaitIdle(handle)
-	return true, "trusted"
+	return ok, why
 }
 
 // handleStartupDialog is any other dialog a launch stops at - the vendor's screens change, and each one that was not named left the

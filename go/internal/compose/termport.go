@@ -40,15 +40,10 @@ func (p termPort) TypeableNow(handle string) bool              { return p.t.Type
 func (p termPort) ScreenBlocker(handle string) *term.Blocker   { return p.t.ScreenBlocker(handle) }
 func (p termPort) BackgroundWork(handle string) (string, bool) { return p.t.BackgroundWork(handle) }
 
-// The routine dialog, answered at launch: the folder-trust screen. The lifecycle decides whether to press (a folder the founder declared);
-// these only read and press.
-func (p termPort) TrustPromptShowing(handle string) bool     { return p.t.TrustPromptShowing(handle) }
-func (p termPort) TrustPromptFolder(handle string) string    { return p.t.TrustPromptFolder(handle) }
-func (p termPort) ConfirmTrust(handle string) (bool, string) { return p.t.ConfirmTrust(handle) }
-func (p termPort) WaitForTrustPrompt(handle string, showing bool) {
-	p.t.WaitForTrustPrompt(handle, showing)
-}
-func (p termPort) DriverScope() func() { return p.t.DriverScope() }
+// The folder-trust screen, read only: a launch marks its worktree trusted, so the screen showing is a fault the lifecycle reports.
+func (p termPort) TrustPromptShowing(handle string) bool  { return p.t.TrustPromptShowing(handle) }
+func (p termPort) TrustPromptFolder(handle string) string { return p.t.TrustPromptFolder(handle) }
+func (p termPort) DriverScope() func()                    { return p.t.DriverScope() }
 
 func (p termPort) CloseSession(handle string) (bool, string)  { return p.t.CloseSession(handle) }
 func (p termPort) CloseTerminal(handle string) (bool, string) { return p.t.CloseTerminal(handle) }

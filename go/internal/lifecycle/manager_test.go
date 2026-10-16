@@ -105,11 +105,13 @@ func (fakeLaunch) CommandFor(agent, _, why, _ string) (string, error) {
 type fakeSpawn struct {
 	Spawner
 	startedIn, spawned []string
+	trusted            []string
 	ok                 bool
 	err                error
 }
 
 func (*fakeSpawn) WorktreePath(w string) string { return w }
+func (f *fakeSpawn) Trust(agent, wt string)      { f.trusted = append(f.trusted, agent+"@"+wt) }
 func (f *fakeSpawn) StartIn(agent, wt, _ string) (bool, string, error) {
 	f.startedIn = append(f.startedIn, agent+"@"+wt)
 	return f.ok, "start-in said", f.err

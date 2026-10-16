@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -60,6 +61,10 @@ func TestWakeAgentLockedWakesWithoutTakingTheTerminal(t *testing.T) {
 	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true})
 	if err != nil || !ok || said != "relaunched with the wake prompt" || len(tm.relaunched) != 1 {
 		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	// The relaunch typed into the pane marks the worktree trusted too.
+	if sp := m.Spawn.(*fakeSpawn); !slices.Equal(sp.trusted, []string{"a@/wt"}) {
+		t.Fatalf("trusted %v", sp.trusted)
 	}
 }
 

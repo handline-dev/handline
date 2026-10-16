@@ -55,18 +55,19 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 ## Hard rules
 
 1. Never read, write or copy a credential: `.credentials.json`, the Keychain.
-   Never write or copy `.claude.json`. Adding an account is one
-   `CLAUDE_CONFIG_DIR=<dir> claude /login` run by a person; a refresh token rotates
+   Adding an account is one `CLAUDE_CONFIG_DIR=<dir> claude /login` run by a person; a refresh token rotates
    once, so copies invalidate each other. Two exceptions: a driver's meter
    path may read an opencode `auth.json` in memory, once, for the usage question
-   only; `Driver.profile` and `Driver.login_id` in the claude driver are the only readers of
+   only; `Driver.profile` and `Driver.login_id` in the claude driver are the only readers of account values in
    `.claude.json`: the first returns only the subscription start and the two rate-limit
    tier strings, the second only a one-way fingerprint of the account id, which keys the
    stored email, so it is asked of claude only when the login is new. The founder:
    "Go with A. Reading is fine. Just do not expose a token or the like that you read."
    Read is allowed; exposing a token, key or other secret from it is not. No key,
    token, email or other value from either file reaches an agent's env, prompt,
-   terminal, log, db or any file ocp writes. One more, temporary, by the founder's word: a claude
+   terminal, log, db or any file ocp writes. The daemon writes one key there: the worktree
+   it launches an agent in is marked trusted (`projects[<path>].hasTrustDialogAccepted`), under
+   claude's own lock, every other byte left as it was. One more, temporary, by the founder's word: a claude
    account's coding-plan key goes into the env of the agent launched on it, nowhere else.
 2. Do not code on an assumption nobody verified. Probe it first.
 3. No logic in `SKILL.md`: it is a stub of at most 20 lines, and detail loads on

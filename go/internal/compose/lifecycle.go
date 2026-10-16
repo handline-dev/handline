@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/handline/handline/go/internal/claudetrust"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/lock"
+	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/supervisor"
@@ -93,7 +95,7 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 		tm.Turns = cfg.Turns
 	}
 	spawns := &lifecycle.Spawns{Q: q, Host: termHost{tm}, Launch: launchPort, Delivery: lc.Env, Roster: roster, Now: cfg.Now,
-		Locks: p.Locks}
+		Locks: p.Locks, TrustFolder: trustFolder(home, vendors{home: home, roster: roster}, cfg.Log)}
 	waiting := func(q db.Q, agent string) bool {
 		head, err := lc.Env.EffectiveHead(q, agent)
 		if err != nil || head != nil {
@@ -105,7 +107,7 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	hp := &handoffPort{env: ho, q: q, now: nowOf(cfg.Now)}
 	m := &lifecycle.Manager{Q: q, Home: home, Log: cfg.Log, Settings: settings,
 		Delivery: lc.Env, Handoff: hp, Term: termPort{tm}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawns,
-		Agents: agentsPort{home: home, roster: roster, trust: team.NewTrust(home), accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q},
+		Agents: agentsPort{home: home, roster: roster, accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q},
 		Observe: observer{p: p}, Typing: terminalLock{home: p.home}, TermRun: termRun{p}, Locks: p.Locks}
 	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho, Env: lc.Env, usage: uenv, roster: roster, term: tm}
 	hp.mover = func() *lifecycle.Mover { return p.LC.Mover }
@@ -151,11 +153,41 @@ func (v vendors) ConfigDir(acct string) string {
 
 var _ lifecycle.VendorsPort = vendors{}
 
-// agentsPort is lifecycle.AgentsPort over the roster, the trust store and the accounts.
+// trustFolder marks folder trusted in every claude account's config, so the session opens without claude's folder-trust dialog on
+// whichever account it starts or later moves to. Only a write that happened or failed is logged; a launch never waits on it.
+func trustFolder(home string, v vendors, log func(string, ...any)) func(agent, folder string) {
+	if log == nil {
+		log = func(string, ...any) {}
+	}
+	return func(agent, folder string) {
+		if v.AgentVendor(agent) != team.DefaultVendor {
+			return
+		}
+		keys := claudetrust.Keys(folder)
+		for _, acct := range paths.ListAccounts(home) {
+			dir := ""
+			if v.AccountVendor(acct) == team.DefaultVendor {
+				dir = v.ConfigDir(acct)
+			}
+			if dir == "" {
+				continue
+			}
+			switch out, err := claudetrust.Grant(claudetrust.ConfigFile(dir), keys); {
+			case err != nil:
+				log("  %s: could not mark %s trusted for account %s: %v", agent, folder, acct, err)
+			case out == claudetrust.Granted:
+				log("  %s: marked %s trusted for account %s", agent, folder, acct)
+			case out == claudetrust.Locked || out == claudetrust.Unreadable:
+				log("  %s: did not mark %s trusted for account %s (%s config)", agent, folder, acct, out)
+			}
+		}
+	}
+}
+
+// agentsPort is lifecycle.AgentsPort over the roster and the accounts.
 type agentsPort struct {
 	home     string
 	roster   *team.Roster
-	trust    *team.Trust
 	accounts team.Accounts
 	env      *supervisor.Env
 	usage    *usage.Env
@@ -174,8 +206,6 @@ func (a agentsPort) CurrentAccount(q db.Q, agent string) string {
 	acct, _ := team.CurrentAccount(q, agent)
 	return acct
 }
-
-func (a agentsPort) IsDeclared(folder string) bool { return a.trust.IsDeclared(folder) }
 
 // MeasureBegin starts the cold-start measurement of a move: what the new account's usage was when the agent was put on it.
 func (a agentsPort) MeasureBegin(q db.Q, agent, account string) {
@@ -317,14 +347,12 @@ func (noTerminal) ScreenBlocker(string) *term.Blocker   { return nil }
 func (noTerminal) BackgroundWork(string) (string, bool) { return "", false }
 func (noTerminal) TrustPromptShowing(string) bool       { return false }
 func (noTerminal) TrustPromptFolder(string) string      { return "" }
-func (noTerminal) ConfirmTrust(string) (bool, string)   { return false, notServed }
 func (noTerminal) CloseSession(string) (bool, string)   { return false, notServed }
 func (noTerminal) CloseTerminal(string) (bool, string)  { return false, notServed }
 func (noTerminal) Relaunch(string, string, func() bool) (bool, string) {
 	return false, notServed
 }
-func (noTerminal) WaitForTrustPrompt(string, bool) {}
-func (noTerminal) DriverScope() func()             { return func() {} }
+func (noTerminal) DriverScope() func() { return func() {} }
 
 const notServed = "terminal agents are served by the Python daemon"
 
