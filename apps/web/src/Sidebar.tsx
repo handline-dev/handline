@@ -161,10 +161,10 @@ export function Sidebar({
           icon="filter"
           label={hidden.size ? `Filter: ${hidden.size} hidden` : 'Filter'}
           name="Show agents that are"
-          className={hidden.size ? 'text-primary' : ''}
+          className={hidden.size ? '!text-primary bg-raised' : ''}
         >
           {RAIL_FILTERS.map((f) => {
-            const on = f.dots.some((d) => !hidden.has(d));
+            const on = f.dots.every((d) => !hidden.has(d));
             const n = f.dots.reduce((t, d) => t + (counts.get(d) ?? 0), 0);
             return (
               <MenuCheckItem
