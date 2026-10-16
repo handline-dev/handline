@@ -750,7 +750,7 @@ func (m *Manager) launchInPane(agent, handle, wt, cmd string, started func() boo
 	}
 	if ok {
 		if nh := must(db.Terminal(m.Q, agent)); nh != "" {
-			m.Term.WaitIdle(nh)
+			m.Term.WaitDrawn(nh)
 		}
 	}
 	return ok, why
