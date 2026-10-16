@@ -692,9 +692,10 @@ def test_the_tmux_backend_drives_windows_over_tmux_verbs(home: Path) -> None:
         finally:
             paths._real_user_home = real_user_home
         os.environ["OCP_TMUX_SOCKET"] = saved_sock
-        check("tmux: every call is on the dedicated server socket, the session detached and of a usable size, the home passed on",
+        check("tmux: every call is on the dedicated server socket, the session detached and of a usable size, the home and socket passed on",
               all(a[:2] == ["-L", SUITE_TMUX_SOCKET] for a in st["log"]) and "-d" in made and "200" in made
-              and f"OCP_HOME={home}" in st["panes"]["%0"]["env"], str(st["log"]))
+              and f"OCP_HOME={home}" in st["panes"]["%0"]["env"]
+              and f"HANDLINE_TMUX_SOCKET={SUITE_TMUX_SOCKET}" in st["panes"]["%0"]["env"], str(st["log"]))
         check("tmux: the window name cannot carry a `.` or `:` that tmux reads as a target",
               st["panes"]["%0"]["name"] == "back_end_1", st["panes"]["%0"]["name"])
         pane2, _ = tm.create_terminal("hl launch reviewer")
