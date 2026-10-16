@@ -341,13 +341,16 @@ def cmd_task_note(args) -> int:
 
 def cmd_task_memo(args) -> int:
     """T493: `ocp task memo T<n> list | add TEXT | edit ID TEXT | delete ID`. Anyone reads and
-    adds; the author or the founder edits and deletes. A change on a doing task is told to its
-    holder at once."""
+    adds; the author or the founder edits and deletes. The daemon tells whom a change concerns;
+    --now has an add told at once to every reader."""
     me = askmod.asking_agent()
     if me is None:
         print(_who_refusal("write a memo"))
         return 1
     verb, rest = args.verb, list(args.rest)
+    if args.now and verb != "add":
+        print("--now goes with add")
+        return 1
     if verb in ("add", "edit") and (args.file or rest[-1:] == ["-"]):
         text, err = _text_arg(rest.pop() if rest[-1:] == ["-"] else None, args.file, "memo text")
         if err:
@@ -376,7 +379,10 @@ def cmd_task_memo(args) -> int:
             print(f"T{args.task} has no memos")
         return 0
     if verb == "add":
-        return client.said(*client.write("task.memo.add", {"task": args.task, "text": rest[0]}))
+        params = {"task": args.task, "text": rest[0]}
+        if args.now:
+            params["now"] = True
+        return client.said(*client.write("task.memo.add", params))
     try:
         mid = int(rest[0])
     except ValueError:

@@ -49,7 +49,8 @@
   "confirm": "chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do.",
   "limit": "attachment.put: the file or the unsent total is over its limit, or too many uploads are open (x-attachments).",
   "listing": "inbox.queue: the caller may not list that agent's messages. Only the agent itself, its supervisor and the founder may.",
-  "duplicate_title": "task.new: an open task under the same parent, or the parent itself, has nearly the title (same first word, 80% of the shorter title's words, Story prefix, case, punctuation and commit shas ignored). data.task names it; duplicate_ok opens the task anyway."
+  "duplicate_title": "task.new: an open task under the same parent, or the parent itself, has nearly the title (same first word, 80% of the shorter title's words, Story prefix, case, punctuation and commit shas ignored). data.task names it; duplicate_ok opens the task anyway.",
+  "open_children": "task.done: the task has open child tasks. The reason names each (number, state, assignee, title), the hint the commands that close one, and the refusal's `children` lists them, so a client can offer to discard them from the same prompt."
  },
  "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
  "x-legacy": {
@@ -246,6 +247,7 @@
    "running": "A turn is running (a hand-off in progress counts: moving is working).",
    "idle": "At its prompt with nothing to do, or nothing pending for it (a park with no work behind it, a finished one). state_detail may say what it waits on (a child task, background work).",
    "queued": "Has work and will start at the daemon's next tick, with no time to wait for. state_detail may say why it is not running yet (a restart retry).",
+   "starting": "A terminal agent's launch in progress: hl launch kept the session start, no hook of that session, no session end and no failed wake has come since, and its pane runs something other than its shell. A launch that died is back at the shell, so it never reads as starting. Never hides a running turn, a dialog or a stall.",
    "parked": "Waits for a time: the usage window rolling over, a park a person asked for, a throttle or degraded retry, or an account move settling. state_detail is the clock (`due` once it has passed; `moving` for an account move, which has no clock).",
    "waiting": "A person must answer: a dialog or a prompt is open (has_dialog is true).",
    "stalled": "Stopped until a person unstalls it (the daemon will not wake it).",
@@ -256,6 +258,7 @@
    "RUNNING, HANDOFF": "running",
    "IDLE, DONE, PARKED with no work behind it": "idle",
    "QUEUED, a restart retry (PENDING with no clock)": "queued",
+   "a terminal launch in progress, before its session's first hook, with claude and not the shell in its pane (checked over idle, queued and no_terminal)": "starting",
    "PARKED, THROTTLED, DEGRADED with a wake time (PENDING with a clock); MOVING": "parked",
    "DIALOG (an open prompt or modal)": "waiting",
    "STALLED (FATAL)": "stalled",
@@ -1289,6 +1292,47 @@
    ],
    "x-gates": [
     "terminal_lock",
+    "state"
+   ]
+  },
+  {
+   "name": "agent.retire",
+   "summary": "Retire an agent, as an approved HR retire does: it leaves team.yaml (team.yaml.bak keeps the old one), its scheduling row is deleted, its folder (ROLE.md, memory, settings) moves to agents/archive/<date>-<name>, its build caches are removed and its sealed key is forgotten. Its past messages, requests and events stay, and its git worktree is left as it is. Founder only. Refused (gate state) while the agent has a session running, or while another agent reports to it or hangs under its name (<agent>.<rest>): the reason names them. An agent the daemon does not have is not_found.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
     "state"
    ]
   },
@@ -5163,6 +5207,9 @@
    "x-role": "agent",
    "x-write": true,
    "x-since": 1,
+   "x-gates": [
+    "open_children"
+   ],
    "errors": [
     {
      "$ref": "#/components/errors/refused"
@@ -5593,7 +5640,7 @@
   },
   {
    "name": "task.memo.add",
-   "summary": "Add a memo; anyone may. A memo on a doing task is told to its holder.",
+   "summary": "Add a memo; anyone may. It is told to the holder of a doing task, to whom the task answers (its reporter, else its opener) and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. memo.edit and memo.delete are told the same way.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5609,6 +5656,14 @@
      "schema": {
       "type": "string",
       "description": "Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "now",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Tell every reader at once, even mid-turn."
      }
     },
     {
@@ -8541,6 +8596,33 @@
      "task": {
       "type": "integer",
       "description": "With gate duplicate_title: the open task the new one repeats."
+     },
+     "children": {
+      "type": "array",
+      "description": "With gate open_children: the task's open child tasks.",
+      "items": {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        },
+        "state": {
+         "type": "string"
+        },
+        "assignee": {
+         "type": "string"
+        },
+        "title": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "task",
+        "state",
+        "assignee",
+        "title"
+       ]
+      }
      }
     },
     "required": [
@@ -9052,14 +9134,21 @@
          },
          "phase": {
           "type": "string",
-          "enum": ["writing", "starting"],
+          "enum": [
+           "writing",
+           "starting"
+          ],
           "description": "`writing`: the agent writes its handoff note and the daemon takes the record. `starting`: the old session is closed and the new one is launching."
          },
          "since": {
           "$ref": "#/components/schemas/Timestamp"
          }
         },
-        "required": ["cause", "phase", "since"]
+        "required": [
+         "cause",
+         "phase",
+         "since"
+        ]
        },
        {
         "type": "null"
@@ -12463,6 +12552,14 @@
        "type": "string"
       },
       "description": "settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` or `base.md`; empty text or control characters other than tab and newline is bad_request."
+     },
+     "changes": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "description": "A step: kind (add, retire, rename, link, unlink, team, context) and the other fields of this type, name included."
+      },
+      "description": "bundle: the steps, at most 40, each judged against the roster the earlier ones leave. name is then ignored (send the count, `3 changes`)."
      }
     }
    },

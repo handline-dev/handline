@@ -379,22 +379,91 @@ func (e *Env) queueSay(q db.Q, owner, body, why string) int64 {
 	return rid
 }
 
-// TellMemoHolder: a memo changing on a task that is doing is told to its holder at once, typed like a say; on any other task, or when the
-// holder made the change, nothing is sent.
-func (e *Env) TellMemoHolder(q db.Q, tid int64, by, what, text string) (err error) {
+// TellMemo tells a memo's change to each of its readers (memoReaders). The holder of a doing task, a reader at its prompt, and every reader
+// when now are typed it at once like a say; any other reader gets it at the end of its turn (SweepDigests), and its lead hears of it if it
+// waits an hour (SweepHeldMemos).
+func (e *Env) TellMemo(q db.Q, tid int64, by, what, text string, now bool) (err error) {
 	defer Catch(&err)
 	row := must(db.GetTask(q, tid))
-	if row == nil || row.Owner == db.Human || row.Owner == by || must(db.TaskState(q, row)) != "doing" {
+	if row == nil {
 		return nil
 	}
-	body := fmt.Sprintf("T%d memo %s by %s", tid, what, by)
-	if text != "" {
-		t := textsafe.Oneline(text)
-		if r := []rune(t); len(r) > 400 {
-			t = attachments.KeepRefs(string(r[:400]), t)
-		}
-		body += ": " + t
+	holder := ""
+	if must(db.TaskState(q, row)) == "doing" {
+		holder = row.Owner
 	}
-	e.typeSay(q, row.Owner, body, "task memo")
+	body := memoLine(tid, what, by, text)
+	for _, a := range e.memoReaders(row, holder, by, text) {
+		if now || a == holder || e.idleWithSession(q, a) {
+			e.typeSay(q, a, body, "task memo")
+		} else {
+			rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: a, Body: body, Response: "fire_and_forget", Kind: "say", TurnEnd: true}))
+			check(db.LinkRequest(q, tid, rid))
+			e.log("  %s: T%d memo held for the end of its turn (#%d)", a, tid, rid)
+		}
+	}
 	return nil
 }
+
+// memoReaders is whom a memo on row concerns, each once: its holder (empty unless the task is doing; one not yet doing reads its memos when it
+// is delivered), who the task answers to, and every registered agent the memo names with @. Never the writer, or the founder, who reads the
+// board.
+func (e *Env) memoReaders(row *db.Task, holder, by, text string) []string {
+	named := []string{holder, row.AnswersTo()}
+	for _, m := range mentionRe.FindAllStringSubmatch(text, -1) {
+		if name := strings.TrimRight(m[1], ".-"); e.registered(name) {
+			named = append(named, name)
+		}
+	}
+	skip := map[string]bool{"": true, by: true, db.Human: true}
+	var out []string
+	for _, a := range named {
+		if !skip[a] {
+			skip[a] = true
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// memoLine is the line a memo's reader is told: `T<n> memo <what> by <who>: <text>`, the text on one line and cut at 400 runes.
+func memoLine(tid int64, what, by, text string) string {
+	line := fmt.Sprintf("T%d memo %s by %s", tid, what, by)
+	if text == "" {
+		return line
+	}
+	t := textsafe.Oneline(text)
+	if r := []rune(t); len(r) > 400 {
+		t = attachments.KeepRefs(string(r[:400]), t)
+	}
+	return line + ": " + t
+}
+
+// MemoLeadS is how long a memo held for the end of its reader's turn may go unread before the reader's lead is told.
+const MemoLeadS = 3600
+
+// SweepHeldMemos tells the reader's lead, at once and once, of each memo held for the end of the reader's turn that has gone MemoLeadS
+// unread. The memo stays held for the reader.
+func (e *Env) SweepHeldMemos(now int64) (err error) {
+	defer Catch(&err)
+	q := db.Q(e.DB)
+	rows := must(db.TurnEndNoticesBefore(q, now-MemoLeadS))
+	if len(rows) == 0 {
+		return nil
+	}
+	t := must(team.LoadTeam(e.Home))
+	for _, r := range rows {
+		key := fmt.Sprintf("memo_lead:%d", r.ID)
+		if must(db.Cursor(q, key)) != 0 {
+			continue
+		}
+		check(db.SetCursor(q, key, 1))
+		if lead := t.SupervisorOf(r.Target); lead != "" && lead != db.Human && e.registered(lead) {
+			e.tellNowSay(q, lead, fmt.Sprintf("%s has not read this memo in an hour, held for the end of its turn (#%d): %s", r.Target, r.ID, r.Body), "memo unread 1h")
+		}
+	}
+	return nil
+}
+
+// mentionRe is an @name in a memo: at the start or after a character that is not part of a name, so an email address names nobody.
+var mentionRe = regexp.MustCompile(`(?:^|[^A-Za-z0-9._@-])@([A-Za-z0-9][A-Za-z0-9._-]*)`)

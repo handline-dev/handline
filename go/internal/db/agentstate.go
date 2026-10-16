@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // AgentState is one agent_state row (db.get_agent_state).
@@ -338,6 +339,20 @@ func LastAccountActivity(q Q, account string) (int64, bool, error) {
 // LastEventTS is db.last_event_ts.
 func LastEventTS(q Q, agent, kind string) (int64, bool, error) {
 	return maxInt(q, "SELECT MAX(ts) FROM events WHERE agent = ? AND kind = ?", agent, kind)
+}
+
+// LastEventOfTS is when the agent's latest event of any of kinds was.
+func LastEventOfTS(q Q, agent string, kinds []string) (int64, bool, error) {
+	args := []any{agent}
+	for _, k := range kinds {
+		args = append(args, k)
+	}
+	return maxInt(q, "SELECT MAX(ts) FROM events WHERE agent = ? AND kind IN (?"+strings.Repeat(", ?", len(kinds)-1)+")", args...)
+}
+
+// LastSessionStartTS is when the agent's latest kept session start (hl launch, just before it becomes claude) was.
+func LastSessionStartTS(q Q, agent string) (int64, bool, error) {
+	return maxInt(q, "SELECT MAX(ts) FROM session_starts WHERE agent = ?", agent)
 }
 
 // LastEventID is db.last_event_id.

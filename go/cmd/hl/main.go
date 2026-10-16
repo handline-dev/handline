@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/handline/handline/go/internal/hlclient"
@@ -24,18 +25,26 @@ var commands = map[string]command{
 	"dev-mode":            devMode,
 	"hook":                hook,
 	"idle-background":     idleBackground,
+	"hr":                  hr,
 	"idle-timeout":        idleTimeout,
 	"init":                initCmd,
+	"inbox":               inbox,
 	"ignore-cache-expiry": ignoreCacheExpiry,
 	"land":                land,
 	"launch":              launch,
 	"notice-digest":       noticeDigest,
 	"progress":            progress,
+	"read":                read,
 	"restart":             restart,
 	"sandbox-repo":        sandboxRepo,
 	"say":                 say,
 	"task":                task,
+	"team":                teamCmd,
+	"withdraw":            withdraw,
 }
+
+// ported are the verbs with no Python behind them (a subset of commands; keep in step): arguments Go does not take are refused here, not handed to a parser that is gone.
+var ported = map[string]bool{"say": true, "task": true, "progress": true, "read": true, "inbox": true, "withdraw": true, "team": true, "hr": true, "land": true}
 
 func main() {
 	argv := os.Args[1:]
@@ -48,6 +57,11 @@ func main() {
 			}
 			if code, ok := run(c, argv[1:]); ok {
 				os.Exit(code)
+			}
+			if ported[argv[0]] {
+				fmt.Fprintf(os.Stderr, "hl %s: arguments not understood: %s\nSee `hl --help` and the skill for the form each verb takes.\n",
+					argv[0], strings.Join(argv[1:], " "))
+				os.Exit(2)
 			}
 		}
 	}

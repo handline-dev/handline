@@ -33,7 +33,7 @@ while IFS= read -r path; do
         contract/*|skill/*) kind=python; break ;;
         docs/*|design/*|*.md) [ "$kind" = none ] && kind=docs ;;
         go/*|apps/*|packages/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json) kind=go ;;
-        tools/build-go.sh|tools/build-hl.sh|tools/go-env.sh|tools/check-go-tidy.sh|tools/check-go-dupl.sh|tools/conformance_fds.py|tools/go_contract.py|tools/go_schema.py) kind=go ;;
+        tools/build-go.sh|tools/build-hl.sh|tools/go-env.sh|tools/heavy-slot.sh|tools/check-go-tidy.sh|tools/check-go-dupl.sh|tools/conformance_fds.py|tools/go_contract.py|tools/go_schema.py) kind=go ;;
         *) kind=python; break ;;
     esac
 done <<< "$changed"
@@ -45,7 +45,10 @@ if [ -n "${CHECK_PLAN:-}" ]; then
     exit 0
 fi
 rc=0
+tools/check-deprecated.sh "$base" || rc=1
 if [ "$kind" = go ] || [ "$kind" = python ]; then
+    # One heavy run at a time on this machine (tools/heavy-slot.sh): parallel suites starve each other into timeouts.
+    [ -n "${HANDLINE_HEAVY_SLOT:-}" ] || exec tools/heavy-slot.sh "$PWD/tools/check.sh" "$@"
     run="$(tools/leakcheck.py begin)" || exit 1
     export TMPDIR="$run/tmp/" TMUX_TMPDIR="$run"
 fi

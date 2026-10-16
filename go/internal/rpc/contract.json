@@ -35,6 +35,9 @@
  "agent.options": {
   "role": "member"
  },
+ "agent.retire": {
+  "role": "founder"
+ },
  "agent.set": {
   "callers": [
    "agent",

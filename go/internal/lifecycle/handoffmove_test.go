@@ -82,6 +82,9 @@ func TestADeferredHandoffThreeTicksRunningLeavesTheCountersAtZero(t *testing.T) 
 		if h, _ := db.InFlightFor(g.m.Q, "a"); h != nil {
 			t.Fatalf("%s: a handoff row was started", c.name)
 		}
+		if _, _, waits, _ := db.NoteWait(g.m.Q, "a"); waits != (c.name == "note hold") {
+			t.Fatalf("%s: note wait kept %v", c.name, waits)
+		}
 	}
 }
 

@@ -7,8 +7,8 @@ import (
 	"github.com/handline/handline/go/internal/db"
 )
 
-// MemoAdd adds by's memo to a task (actions.memo_add): (ok, message, memo id). The holder is told by the caller, once its transaction has
-// committed (TellMemoHolder).
+// MemoAdd adds by's memo to a task (actions.memo_add): (ok, message, memo id). Whom it concerns is told by the caller, once its transaction has
+// committed (TellMemo).
 func (e *Env) MemoAdd(q db.Q, tid int64, by, body string) (ok bool, msg string, mid int64, err error) {
 	defer Catch(&err)
 	if must(db.GetTask(q, tid)) == nil {

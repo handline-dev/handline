@@ -35,12 +35,14 @@ func (e *Env) logf(format string, args ...any) {
 	}
 }
 
-// Register adds hr.decide and hr.withdraw to the server's table.
+// Register adds hr.decide, agent.set, hr.withdraw and agent.retire to the server's table.
 func Register(s *rpc.Server, e *Env) {
 	s.Register("hr.decide", rpc.Method{Role: "member", Write: true, Handler: e.decideMethod})
 	s.Register("agent.set", rpc.Method{Role: "agent", Write: true, Handler: e.agentSetMethod})
+	s.Register("hr.propose", rpc.Method{Role: "agent", Write: true, Handler: e.proposeMethod})
 	s.Register("hr.withdraw", rpc.Method{Role: "agent", Write: true, Handler: e.withdrawMethod})
 	s.Register("team.seal", rpc.Method{Role: "founder", Write: true, Unkept: true, OwnEvent: true, Handler: e.teamSealMethod})
+	s.Register("agent.retire", rpc.Method{Role: "founder", Write: true, Handler: e.retireMethod})
 }
 
 const decisionsNS = "hr-decisions"
@@ -89,7 +91,16 @@ func (e *Env) tell(p *Prop, text string) {
 		e.logf("  telling %s about proposal %s failed: %v", who, p.id(), err)
 		return
 	}
-	res, err := chatwrites.SayWrite(e.Say, tx, db.Human, who, text, 0, nil)
+	// The message names its proposal (chat's `proposal`), so an app that draws the decided proposal can leave this line out.
+	link := func(q db.Q, _ string, rid int64) error {
+		pid, ok := hexNum(p.id())
+		if !ok || !isAlnum(p.id()) {
+			return nil
+		}
+		_, err := db.AddEventDeduped(q, db.Human, "hr_outcome", fmt.Sprintf("hr_outcome:%d", rid), db.KV{K: "proposal", V: pid}, db.KV{K: "request", V: rid})
+		return err
+	}
+	res, err := chatwrites.SayWrite(e.Say, tx, db.Human, who, text, 0, link)
 	if err != nil || (!res.OK && !res.Keep) {
 		tx.Rollback()
 		e.logf("  telling %s about proposal %s failed: %v", who, p.id(), err)
