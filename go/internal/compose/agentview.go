@@ -7,45 +7,54 @@ import (
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/prompts"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/tick"
+	"github.com/handline/handline/go/internal/turns"
 )
 
-// rowSessions is what the view knows of the sessions whose rows this daemon writes: the structured ones it holds, and with terminals the
-// terminal agents, whose session is the one their session file shows (a status busy is a turn running).
+// rowSessions is what the view knows of the sessions whose rows this daemon writes: with terminals, the terminal agents, whose session is
+// the one their session file shows (a status busy is a turn running). Where the hooks have said (turns), they answer busy first: the
+// session file still says busy when the Stop hook arrives, so a view written then would stay running.
 type rowSessions struct {
 	p         *Parts
 	terminals bool
+	turns     *turns.Tracker
 }
 
-func (r rowSessions) terminal(agent string) bool { return r.terminals && !r.p.Kind(agent) }
-
-func (r rowSessions) Structured(agent string) bool {
-	return r.p.Run.Structured(agent) || r.terminal(agent)
-}
+func (r rowSessions) Structured(string) bool { return r.terminals }
 
 func (r rowSessions) Alive(agent string) bool {
-	if r.terminal(agent) {
-		_, _, found := r.p.terminalSession(agent, r.p.liveTerminals())
-		return found != sessionNone // a session file that cannot be read under a live pid is a session that runs
+	if !r.terminals {
+		return false
 	}
-	return r.p.Run.Alive(agent)
+	_, _, found := r.p.terminalSession(agent, r.p.liveTerminals())
+	return found != sessionNone // a session file that cannot be read under a live pid is a session that runs
 }
 
 func (r rowSessions) Busy(agent string) bool {
-	if r.terminal(agent) {
-		rec, _, found := r.p.terminalSession(agent, r.p.liveTerminals())
-		return found == sessionFound && rec.Status == "busy"
+	if !r.terminals {
+		return false
 	}
-	return r.p.Run.Busy(agent)
+	if r.turns != nil {
+		switch r.turns.State(agent) {
+		case turns.Working:
+			return true
+		case turns.Idle:
+			return false
+		}
+	}
+	rec, _, found := r.p.terminalSession(agent, r.p.liveTerminals())
+	return found == sessionFound && rec.Status == "busy"
 }
 
-// agentView builds the writer of agent_view rows. Until the Python daemon stops it writes the rows of structured agents only (Agents is
-// structuredAgents and nothing is dropped); at the cutover (TickConfig.Cutover) it also drops the row of an agent that is gone.
+// agentView builds the writer of agent_view rows: those of the terminal agents when terminals is on; at the cutover
+// (TickConfig.Cutover) it also drops the row of an agent that is gone.
 func (p *Parts) agentView(cfg Config, cutover, terminals bool, tu tickUsage) *agentview.Env {
 	lc, q, home := p.LC, p.db, cfg.Home
 	return &agentview.Env{
-		Q: q, Home: home,
-		Sessions:   rowSessions{p, terminals},
+		PaneRuns: p.paneRuns,
+		Q:        q, Home: home,
+		Sessions:   rowSessions{p, terminals, cfg.Turns},
 		Background: lc.Env,
 		Wakes:      lc.Manager,
 		Prompts:    &prompts.Env{DB: p.db, Home: home, Now: nowOf(cfg.Now)},
@@ -95,4 +104,26 @@ func (p *Parts) agentView(cfg Config, cutover, terminals bool, tu tickUsage) *ag
 // agentViewPass is the tick's pass that stores the views.
 func agentViewPass(av *agentview.Env) tick.NamedSweep {
 	return tick.NamedSweep{Name: "agent-view", Run: func(db.Q, int64) error { return av.Refresh() }}
+}
+
+// paneRuns is whether the pane agent's row names is up with something other than its shell in front (agentview.Env.PaneRuns).
+func (p *Parts) paneRuns(agent string) bool {
+	row, err := db.GetAgentState(p.db, agent)
+	if err != nil || row == nil || row.Terminal.String == "" || p.LC == nil || p.LC.term == nil {
+		return false
+	}
+	lister, ok := p.LC.term.Backend.(term.PaneLister)
+	if !ok {
+		return false
+	}
+	panes, ok := lister.ListPanes()
+	if !ok {
+		return false
+	}
+	for _, pane := range panes {
+		if pane.Handle == row.Terminal.String {
+			return !pane.Dead && !pane.AtShell()
+		}
+	}
+	return false
 }

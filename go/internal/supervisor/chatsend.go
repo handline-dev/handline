@@ -6,7 +6,7 @@ import (
 
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/structured"
+	"github.com/handline/handline/go/internal/delivery"
 )
 
 // Where a message from chat.send to a structured agent is on its way into the CLI (contract x-delivery). The session's ledger (the
@@ -34,8 +34,8 @@ func (e *Env) ReceiptOf(q db.Q, row *db.Request) (r ChatReceipt, ok bool, err er
 	}
 	switch {
 	case !found && row.State == "queued" && !row.DeliveredAt.Valid:
-		return ChatReceipt{string(structured.Queued), structured.UUIDFor(op)}, true, nil
-	case !found || state == string(structured.Withdrawn):
+		return ChatReceipt{string(delivery.Queued), delivery.UUIDFor(op)}, true, nil
+	case !found || state == string(delivery.Withdrawn):
 		return r, false, nil
 	}
 	return ChatReceipt{state, uuid}, true, nil
@@ -43,7 +43,7 @@ func (e *Env) ReceiptOf(q db.Q, row *db.Request) (r ChatReceipt, ok bool, err er
 
 // SendChat sends the message row to its structured agent under delivery d and answers the receipt. With no live session nothing is written:
 // the receipt is queued and the usual delivery, which starts the session, tells the agent.
-func (e *Env) SendChat(q db.Q, row *db.Request, d structured.Delivery) (r ChatReceipt, ok bool, err error) {
+func (e *Env) SendChat(q db.Q, row *db.Request, d delivery.Delivery) (r ChatReceipt, ok bool, err error) {
 	if !e.structuredAgent(row.Target) {
 		return r, false, nil
 	}
@@ -70,9 +70,9 @@ func (e *Env) WithdrawHeld(q db.Q, row *db.Request) (ok bool, err error) {
 	state, _, found, err := db.SendOp(q, agent, op)
 	check(err)
 	switch {
-	case !found || state == string(structured.Withdrawn):
+	case !found || state == string(delivery.Withdrawn):
 		return true, nil
-	case state == string(structured.Queued):
+	case state == string(delivery.Queued):
 		if e.Agents.Live(agent) {
 			_, ok, err := e.Agents.Withdraw(agent, op)
 			if err != nil {
@@ -82,7 +82,7 @@ func (e *Env) WithdrawHeld(q db.Q, row *db.Request) (ok bool, err error) {
 				check(db.ClearCursor(q, ledgerKey(agent, op)))
 				return true, nil
 			}
-		} else if must(db.SetSendOpState(q, agent, op, string(structured.Queued), string(structured.Withdrawn))) {
+		} else if must(db.SetSendOpState(q, agent, op, string(delivery.Queued), string(delivery.Withdrawn))) {
 			check(db.ClearCursor(q, ledgerKey(agent, op)))
 			return true, nil
 		}
@@ -97,12 +97,12 @@ func (e *Env) PromoteHeld(q db.Q, row *db.Request) (r ChatReceipt, ok bool, err 
 	agent, op := row.Target, requestOp(row.ID)
 	state, _, found, err := db.SendOp(q, agent, op)
 	check(err)
-	if found && state == string(structured.Queued) && e.Agents.Live(agent) {
+	if found && state == string(delivery.Queued) && e.Agents.Live(agent) {
 		rcpt, err := e.Agents.Promote(agent, op)
 		if err != nil {
 			return r, false, err
 		}
-		ok = rcpt.State == structured.Sent || rcpt.State == structured.Confirmed
+		ok = rcpt.State == delivery.Sent || rcpt.State == delivery.Confirmed
 	}
 	if ok {
 		check(e.SessionWritten(q, agent, op))
@@ -142,30 +142,22 @@ func (e *Env) ReopenConfirmed(q db.Q, row *db.Request) (reopened bool, err error
 	}
 	state, _, found, err := db.SendOp(q, row.Target, requestOp(row.ID))
 	check(err)
-	if !found || state != string(structured.Confirmed) {
+	if !found || state != string(delivery.Confirmed) {
 		return false, nil
 	}
 	return must(db.ReopenLanded(q, row.ID)), nil
 }
 
-// imageLines is the path lines that follow a message's body when an agent is told of it: the images it carries, then those its text
-// names when it is a task's brief or a note of the task board (a memo or a reject note), then those the task's memos name.
+// imageLines is the path lines that follow a message's body when an agent is told of it: the images of the message (those its text names,
+// then those it was sent with), then for a task's request those the task's memos name.
 func (e *Env) imageLines(q db.Q, row *db.Request) string {
-	s := attachments.New(e.Home)
-	var lines []string
-	if carried := s.Lines(q, row.ID); carried != "" {
-		lines = strings.Split(carried, "\n")
-	}
-	var texts []string
-	if _, _, _, _, handoff := HandoffParts(row.Body); row.Requester == db.NoticeRequester || row.Kind.String == "task" && !handoff {
-		texts = append(texts, row.Body)
-	}
+	var memos []string
 	if row.Kind.String == "task" {
 		if t := taskOf(q, row); t != nil {
-			texts = append(texts, must(db.MemoTexts(q, t.ID))...)
+			memos = must(db.MemoTexts(q, t.ID))
 		}
 	}
-	return strings.Join(append(lines, s.RefLines(len(lines), texts...)...), "\n")
+	return attachments.New(e.Home).MessageLines(q, row.ID, row.Body, memos...)
 }
 
 // DaemonOp is the operation of a message the daemon wrote in its own words, with no one quoted.

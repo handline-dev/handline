@@ -10,4 +10,4 @@ CREATE TABLE stream_log (
           target TEXT,
           data   TEXT    NOT NULL
         );
-CREATE INDEX stream_log_topic ON stream_log(topic, id);
+CREATE INDEX IF NOT EXISTS stream_log_topic ON stream_log(topic, id);

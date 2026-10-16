@@ -1,7 +1,7 @@
 // A text that can name images (a task body, a memo): the picker uploads each picture and, once it is on the daemon, puts its Markdown line at
 // the cursor. The chip stays only while it uploads or after it failed.
 import { useEffect, useRef, useState } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { Keyboard, Text, TextInput, View } from 'react-native';
 import { imageRef, insertImageRef } from '@handline/app-core';
 import { MAX_PER_MESSAGE, useImageDrafts } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
@@ -38,10 +38,13 @@ export function ImageBodyInput(props: {
       latest.current.remove(d.key);
     }
   }, [drafts.drafts]);
-  const pick = () =>
-    pickImages(MAX_PER_MESSAGE - drafts.drafts.length).then(drafts.add, (e) =>
+  // Blur the box first: a focused box brings the keyboard back over the attach button when the picker closes.
+  const pick = () => {
+    Keyboard.dismiss();
+    return pickImages(MAX_PER_MESSAGE - drafts.drafts.length).then(drafts.add, (e) =>
       setError(e instanceof Error ? e.message : 'The photo library did not open'),
     );
+  };
   return (
     <View style={{ gap: space.xs }}>
       {props.titled !== false && <Text style={{ color: c.muted, fontWeight: '600' }}>{props.label}</Text>}

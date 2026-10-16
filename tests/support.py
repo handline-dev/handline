@@ -231,7 +231,7 @@ def reaches_live_tmux(argv: list[str]) -> bool:
     if "-S" in argv:
         return False
     sock = argv[argv.index("-L") + 1] if "-L" in argv and argv.index("-L") + 1 < len(argv) else None
-    return sock in (None, "", tmuxbackend.SOCKET)
+    return sock in (None, "", paths.LIVE_TMUX_SOCKET)
 
 
 _TEMP_ROOTS = tuple({os.path.realpath(tempfile.gettempdir()), "/private/tmp", "/tmp"})
@@ -902,7 +902,7 @@ _RULE_ROW = "▔" * 60
 # parse_dialog does not read at all. It pins a general rule, so its tests
 # stand. To model the trust screen itself, copy LIVE_TRUST_PROMPT_CAPTURE.
 TRUST_DIALOG = ["  where the work is", _RULE_ROW, "   Do you trust the files in this folder?",
-                "   /Users/ron/somewhere", "   ❯ 1. Yes, proceed", "     2. No, exit",
+                "   /Users/you/somewhere", "   ❯ 1. Yes, proceed", "     2. No, exit",
                 "   Enter to confirm · Esc to cancel"]
 PERMISSION_PROMPT = ["  earlier output", _RULE_ROW, "   Bash command", "     rm -rf build",
                      "   Do you want to proceed?", "   ❯ 1. Yes",
@@ -1248,7 +1248,8 @@ CLAUDE_DRIVER_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "claude_d
 # Launch lines (vendors/claude.Claude.launch_argv), each the defaults below with its own changes.
 _LAUNCH_BASE = {"exe": "/bin/claude", "model": None, "effort": "high", "disallowed": "Task", "mcp": [], "preamble": None,
                 "hide": None, "no_write": None, "memory_dir": None, "trusted": None, "chrome": False, "sandbox": True,
-                "mcp_approved": None, "extra_dirs": None}
+                "mcp_approved": None, "extra_dirs": None, "allow_write": None, "allow_domains": None,
+                "cache_dir": None, "weaker_network": False, "excluded": None}
 CLAUDE_LAUNCH_CASES = [
     {"name": "plain"},
     {"name": "model_and_chrome", "model": "opus", "chrome": True, "preamble": "You are a.one.\nBe brief: é"},
@@ -1258,6 +1259,9 @@ CLAUDE_LAUNCH_CASES = [
     {"name": "unsandboxed_confined", "sandbox": False, "hide": ["/x"], "extra_dirs": ["/w/2"]},
     {"name": "trusted_and_approved", "trusted": ["Source control: github.com/acme", "\"quoted\""], "mcp_approved": ["a", "b"]},
     {"name": "empty_lists_are_none", "hide": [], "no_write": [], "trusted": [], "mcp_approved": [], "extra_dirs": []},
+    {"name": "sandbox_allowances", "allow_write": ["/r/.git"], "cache_dir": "/h/caches/a", "allow_domains": ["registry.npmjs.org", "expo.dev"]},
+    {"name": "repo_allowances", "cache_dir": "/h/caches/a", "weaker_network": True, "excluded": ["pnpm install", "pnpm install --frozen-lockfile"]},
+    {"name": "allowances_beside_extra_dirs", "extra_dirs": ["/w/2"], "allow_write": ["/r/.git"], "hide": ["/k"], "allow_domains": ["sum.golang.org"]},
     {"name": "everything", "model": "sonnet", "preamble": "p", "hide": ["/a/"], "no_write": ["/b"], "memory_dir": "/m",
      "trusted": ["t"], "chrome": True, "sandbox": False, "mcp_approved": ["s"], "extra_dirs": ["/e"]},
 ]
@@ -1296,7 +1300,10 @@ def claude_driver_cases(root: Path) -> dict:
                                                           no_write=args["no_write"],
                                                           memory_dir=Path(args["memory_dir"]) if args["memory_dir"] else None,
                                                           trusted=args["trusted"], chrome=args["chrome"], sandbox=args["sandbox"],
-                                                          mcp_approved=args["mcp_approved"], extra_dirs=args["extra_dirs"])})
+                                                          mcp_approved=args["mcp_approved"], extra_dirs=args["extra_dirs"],
+                                                          allow_write=args["allow_write"], allow_domains=args["allow_domains"],
+                                                          cache_dir=args["cache_dir"], weaker_network=args["weaker_network"],
+                                                          excluded=args["excluded"])})
     wanted = evmod.CAPTURED | evmod.ANSWERS | evmod.GUARDS
     settings = []
     # The home is reached through a symlink, so its real path differs on every platform (a macOS tmp dir does by itself, a Linux one does not).
@@ -1798,7 +1805,7 @@ LIVE_TRUST_PROMPT_CAPTURE = "\n".join([
     "cd '/private/tmp/claude-501/-Users",
     "-ron-orca-workspaces-orcapipe-keeper-2/592b2fde-6685-4f79-b057-8931a4b64d3a/"
     "scratchpad/trust-probe' && CLAUDE_CONFIG_DIR",
-    "=/Users/ron/.orcapipe/accounts/gamma/.claude claude",
+    "=/Users/you/.orcapipe/accounts/gamma/.claude claude",
     "─" * 124,
     " Accessing workspace:",
     " /private/tmp/claude-501/-Users-ron-orca-workspaces-orcapipe-keeper-2/"

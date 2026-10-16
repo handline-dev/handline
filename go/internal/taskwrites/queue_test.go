@@ -37,7 +37,7 @@ func TestQueueAndDraftAreAllOrNone(t *testing.T) {
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, home, nil)
+		Register(s, home, nil, nil)
 		return s
 	}
 	line := func(id int, method, rid string, tasks ...int) string {
@@ -142,7 +142,7 @@ func TestDraftWithdrawsTheDeliveryNotYetLandedAndEndsOneThatHas(t *testing.T) {
 	f := &fakeTeller{}
 	s := rpc.NewServer(auth{"boss"}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 	s.DB = sdb
-	Register(s, t.TempDir(), f)
+	Register(s, t.TempDir(), f, nil)
 	draft := func(rid string, tid int) map[string]any {
 		return call(t, s, fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.draft","params":{"tasks":[%d],"request_id":%q}}`, tid, rid))[0]
 	}
@@ -218,10 +218,15 @@ func TestDraftParksALandedTaskItsHolderIsWorking(t *testing.T) {
 	if _, err := sdb.Exec("INSERT INTO agent_state(agent, state, updated, current_task, worktree) VALUES('v', 'RUNNING', 1, 2, ?)", "repo::"+wt); err != nil {
 		t.Fatal(err)
 	}
+	home := t.TempDir() // w and v are agents, so a notice to either is written
+	for _, a := range []string{"w", "v"} {
+		os.MkdirAll(filepath.Join(home, "agents", a), 0o755)
+		os.WriteFile(filepath.Join(home, "agents", a, "agent.yaml"), nil, 0o644)
+	}
 	f := &fakeTeller{}
 	s := rpc.NewServer(auth{"boss"}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 	s.DB = sdb
-	Register(s, t.TempDir(), f)
+	Register(s, home, f, nil)
 	draft := func(rid string, tid int) map[string]any {
 		return call(t, s, fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.draft","params":{"tasks":[%d],"request_id":%q}}`, tid, rid))[0]
 	}
@@ -250,6 +255,11 @@ func TestDraftParksALandedTaskItsHolderIsWorking(t *testing.T) {
 	if said := r["result"].(map[string]any)["said"]; said != "delivered T1 - 1 stopped" ||
 		len(f.released) != 1 || f.released[0] != (Retired{RID: 11, Requester: "boss", Target: "w", Held: true, Park: true}) {
 		t.Fatalf("w is parked: %q %+v", said, f.released)
+	}
+	var notices int
+	sdb.QueryRow("SELECT COUNT(*) FROM requests WHERE requester = ? AND target = 'w'", noticeFrom).Scan(&notices)
+	if notices != 0 {
+		t.Fatalf("the parked holder is told by its stop, not by the draft notice too: %d notices", notices)
 	}
 
 	os.WriteFile(filepath.Join(wt, "a.go"), []byte("package a\n"), 0o644)

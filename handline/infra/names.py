@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/paths/paths.go; do not change, change the Go
 """The product is moving from the name ocp to Handline. For a release every setting is read under
 both names, the new one first: HANDLINE_HOME beside OCP_HOME, HANDLINE_AGENT beside OCP_AGENT, and so
 on. Everything this process starts is given both, so a child on older code reads what it always did.

@@ -31,6 +31,9 @@ CAPTURED = {
     # A second witness that an agent went quiet. Stop was the only one, and
     # when Stop had no transition the whole system went blind for hours.
     "TeammateIdle",
+    # A permission prompt nobody answered for a few seconds: the daemon can
+    # show that a person is needed at the terminal.
+    "Notification",
 }
 
 # Hooks that say a permission prompt was answered. They are installed but

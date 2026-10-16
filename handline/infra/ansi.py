@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/ansi/ansi.go; do not change, change the Go
 """One screen row with SGR escape codes (what `tmux capture-pane -e` writes) as its text and style runs, for the `styled` terminal format.
 
 The text is the row without its trailing blanks, as the `text` format has it. A run is [from, to) over the row's code points; blank cells

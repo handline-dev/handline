@@ -430,6 +430,7 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
               f"starting it as usual", file=sys.stderr)
     approved = trust.mcp_approved(Path.cwd())
     extra_dirs = extra_worktrees_of(agent, cfg)
+    sandboxed = agents.sandbox_on(agent, cfg)
     argv = drv.launch_argv(exe, cfg.get("model"), effort, DISALLOWED_TOOLS,
                            mcp_arg + agents.mcp_config_args(cfg), preamble,
                            hide=hidden_transcripts(agent, drv) + hidden_memories(agent) + [str(f) for f in sessiontoken.hidden_folders()],
@@ -437,9 +438,11 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
                            memory_dir=memory_dir,
                            trusted=trusted_environment(Path.cwd()) if mode and chosen == agents.DEFAULT_MODE else None,
                            chrome=agents.chrome(cfg),
-                           sandbox=agents.sandbox_on(agent, cfg),
+                           sandbox=sandboxed,
                            **({"mcp_approved": approved} if approved else {}),
-                           **({"extra_dirs": extra_dirs} if extra_dirs else {}))
+                           **({"extra_dirs": extra_dirs} if extra_dirs else {}),
+                           **({"allow_write": sandbox_allow_write(cfg), "allow_domains": agents.sandbox_domains(cfg),
+                               "cache_dir": sandbox_cache_dir(agent), **agents.repo_allowances(cfg)} if sandboxed else {}))
     # The pair goes whole or not at all: a caller's own mode wins, and a lone
     # value left behind would be read as the opening prompt.
     if mode and not any(x == mode[0] or x.startswith(mode[0] + "=") for x in extra or []):
@@ -451,6 +454,23 @@ def build(agent: str, extra: list[str] | None = None, force: bool = False,
     if drv.name == "claude":
         env.update(opencode.glm_env(vendors.config_dir(acct)))
     return argv, env
+
+
+def sandbox_allow_write(cfg: dict) -> list[str]:
+    """The folders a sandboxed session may write beyond its worktrees and its cache folder: its repo's .git, where a
+    worktree's commits and refs live (the CLI's sandbox keeps .git/hooks and .git/config read-only within it)."""
+    repo = cfg.get("repo")
+    if isinstance(repo, str) and repo and (Path(repo) / ".git").is_dir():
+        return [str(Path(repo) / ".git")]
+    return []
+
+
+def sandbox_cache_dir(agent: str) -> str:
+    """The agent's own build caches (vendors/claude.py cache_env), made here. Any sandboxed session may write the whole
+    home (the shared settings allow it), so this keeps shared caches out of its reach, not its caches from other agents."""
+    d = paths.cache_dir(agent)
+    d.mkdir(parents=True, exist_ok=True)
+    return str(d)
 
 
 def extra_worktrees_of(agent: str, cfg: dict) -> list[str]:

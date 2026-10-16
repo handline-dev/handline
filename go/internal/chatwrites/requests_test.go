@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	dbpkg "github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/structured"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/supervisor"
 )
 
@@ -72,12 +72,13 @@ func TestCancelPlansWithoutWritingAndClosesAnyQueuedRequest(t *testing.T) {
 	}
 	rid := r.request("alice", "bob", "do the thing")
 	dbpkg.MarkDelivered(r.db, rid)
-	events := r.count("SELECT COUNT(*) FROM events")
+	const written = "SELECT COUNT(*) FROM events WHERE kind != 'founder_key'" // each call's hello records its key; the call is what is checked
+	events := r.count(written)
 	plan := cancel(rid, `,"dry_run":true`, "c1")
 	if plan["ok"] != true || !strings.HasPrefix(plan["plan"].(string), fmt.Sprintf("cancel #%d (delivered to bob)", rid)) {
 		t.Fatalf("%v", plan)
 	}
-	if r.state(rid) != "queued" || r.count("SELECT COUNT(*) FROM events") != events {
+	if r.state(rid) != "queued" || r.count(written) != events {
 		t.Fatal("a dry run writes nothing")
 	}
 	// the same request_id is not a kept reply: the dry run and the cancel may share one
@@ -113,7 +114,7 @@ func TestCancelTakesAHeldMessageBackFromTheSessionsQueue(t *testing.T) {
 	f.busy = true
 	rid := int64(r.result(r.one(s, "chat.send", send("take me back", "d1", "")))["request"].(float64))
 	res := r.result(r.one(s, "request.cancel", fmt.Sprintf(`{"id":%d,"request_id":"c1"}`, rid)))
-	if op, _ := f.ledger("bob").Get(supervisor.RequestOp(rid)); res["ok"] != true || r.state(rid) != "withdrawn" || op.State != structured.Withdrawn {
+	if op, _ := f.ledger("bob").Get(supervisor.RequestOp(rid)); res["ok"] != true || r.state(rid) != "withdrawn" || op.State != delivery.Withdrawn {
 		t.Fatalf("withdrawn in the row and in the session, so the session never writes it: %v %s %v", res, r.state(rid), op)
 	}
 }

@@ -5,16 +5,18 @@
 // chat that shows it. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { landingLabel, takeBack as canTakeBack, sideOf, timeline } from '@handline/app-core';
+import { clockTime, landingLabel, sideOf, takeBack as canTakeBack, timeline } from '@handline/app-core';
 import { classify, sentence, useAgents, useChat, useChatActions, useInbox, useWrite, type ChatScope } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, Landing, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
-import { Line, clock } from './ChatLines.tsx';
+import { Line } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
 import { ChatFind } from './ChatFind.tsx';
+import { ChatRefs, type Ref } from './ChatRefs.tsx';
+import { HandoffLine } from './HandoffLine.tsx';
 import { NeedsYouCard } from './NeedsYouCard.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { useChatImages } from './ChatImages.tsx';
@@ -61,8 +63,8 @@ export function Chat(props: { detail: AgentDetail }) {
   const [scope, setScope] = useState<ChatScope>('mine');
   const chat = useChat(agent, scope);
   const act = useChatActions(agent);
+  const [picked, setPicked] = useState<Ref | null>(null); // a message, or a request a # chose
   const img = useChatImages(canSend);
-  const [picked, setPicked] = useState<ChatMessage | null>(null);
   const [item, setItem] = useState<TranscriptItem | null>(null); // one of the agent's replies; never together with a picked message
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
@@ -78,7 +80,7 @@ export function Chat(props: { detail: AgentDetail }) {
     setTextState(v);
   };
   const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
-  const entries = timeline(chat.messages, chat.items);
+  const entries = timeline(chat.messages, chat.items, 'mine', agent);
 
   // The agent's messages now in front of the person leave the FOR YOU list (chat.seen); once per newest number.
   const said = chat.messages.filter((m) => m.from === agent && m.id > 0).reduce((n, m) => Math.max(n, m.id), 0);
@@ -256,6 +258,7 @@ export function Chat(props: { detail: AgentDetail }) {
           </Text>
         )}
       </ScrollView>
+      <HandoffLine handoff={props.detail.handoff ?? null} />
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
       {picked && (
         <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
@@ -277,6 +280,7 @@ export function Chat(props: { detail: AgentDetail }) {
           </Pressable>
         </Row>
       )}
+      {canSend && <ChatRefs agent={agent} text={text} onPick={(r, rest) => (setItem(null), setPicked(r), setText(rest))} />}
       {img.chips}
       <Row style={{ padding: space.sm }}>
         {img.button}
@@ -383,7 +387,7 @@ function Bubble(props: {
       {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
       <Text style={{ color: c.muted, fontSize: 11 }}>
         {!unnumbered && `#${m.id} `}
-        {clock(m.at)}
+        {clockTime(m.at)}
         {side === 'person' && !failed && (
           <Text testID={`landing-${m.id}`}>
             {'  '}

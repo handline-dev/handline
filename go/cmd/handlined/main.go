@@ -21,7 +21,6 @@ import (
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessionrpc"
 	"github.com/handline/handline/go/internal/sessiontoken"
-	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/turns"
 	"github.com/handline/handline/go/internal/version"
@@ -132,12 +131,14 @@ func main() {
 	serveNetFDs := flag.String("serve-net-fds", "", "like -serve-fds, but each connection is served as one of the network listener's "+
 		"(past TLS), so it is unpaired until a device token says otherwise; needs -listen")
 	ownPrompts := flag.Bool("own-prompts", false, "run the screen watch that writes prompt_blocks: this daemon is then the only writer, so it takes the daemon singleton and does not start beside a Python daemon, and is refused with -gateway")
-	structuredCLI := flag.String("structured-cli", "", "the claude binary structured sessions run: with it the daemon builds the structured manager and serves the transcript for the agents whose agent.yaml says structured: true; empty runs none")
-	claudeVersion := flag.String("claude-version", "", "with -structured-cli: the claude version a structured start accepts instead of the one the control types were read against ("+structured.PinnedCLI+"); a newer claude is run on trust until the types are read against it")
-	structuredTick := flag.Bool("structured-tick", false, "with -structured-cli: run the policy tick over the structured agents (it wakes, closes and restarts their sessions); off, the sessions are driven by the session methods only. The tick also reads every account's usage and token log, so the Python daemon must not tick beside it on the same home")
-	cutover := flag.Bool("cutover", false, "with -structured-tick: the Python daemon no longer ticks or watches, so this tick owns the usage poll and every agent_view row, and the stream rows of the topics whose detector is here; off, it writes the rows of structured agents only and leaves the usage tables to Python")
+	claude := flag.String("claude", "", "the claude binary the usage poll and the plan reads run: with it the daemon builds its agent side (the lifecycle, the session methods, the supervisor's ports, and with -terminal-tick the policy tick); empty runs none")
+	flag.StringVar(claude, "structured-cli", "", "the old name of -claude; accepted so a service plist written before still starts")
+	flag.String("claude-version", "", "ignored: it was the claude version a structured session accepted; accepted so a service plist written before still starts")
+	flag.Bool("structured-tick", false, "ignored: the tick over structured sessions is gone (-terminal-tick runs the tick); accepted so a service plist written before still starts")
+	cutover := flag.Bool("cutover", false, "with -terminal-tick: the Python daemon no longer ticks or watches, so this tick owns the usage poll and every agent_view row, and the stream rows of the topics whose detector is here; off, it writes no view and leaves the usage tables to Python")
 	flag.String("land-repo", "", "ignored: the daemon no longer lands; accepted so a service plist written before still starts (hl service install drops it)")
-	terminalTick := flag.Bool("terminal-tick", false, "run the policy tick over the terminal agents too, reading their sessions from <config dir>/sessions/<pid>.json (it wakes, closes, restarts and hands off their sessions); needs -structured-cli, and the Python daemon must not tick beside it on the same home")
+	terminalTick := flag.Bool("terminal-tick", false, "run the policy tick over the terminal agents too, reading their sessions from <config dir>/sessions/<pid>.json (it wakes, closes, restarts and hands off their sessions); needs -claude, and the Python daemon must not tick beside it on the same home. The tick also reads every account's usage and token log")
+	notifiedNeedsYou := flag.Bool("notification-needs-you", false, "with -claude: a permission prompt Claude Code's Notification hook reports as unanswered raises the agent's needs-you card, until the agent moves on")
 	turnsFromHooks := flag.Bool("turns-from-hooks", false, "tell whether a terminal agent is mid-turn or has background work from its hooks and transcript instead of its screen; the screen is still read where no hook has said")
 	showVersion := flag.Bool("version", false, "print the git sha this binary was built from")
 	flag.Parse()
@@ -158,8 +159,8 @@ func main() {
 	}
 	var tk *compose.Tick                                     // the policy tick, once built
 	var startTick func(stop <-chan struct{}) <-chan struct{} // set when the policy tick is on: runs it until stop closes, answers when it has returned
-	if *structuredCLI != "" && !*gateway {
-		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *structuredCLI, CLIVersion: *claudeVersion, Args: []string{"--setting-sources", "project"}, Policy: compose.SharedPolicy(homeDir)}
+	if *claude != "" && !*gateway {
+		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *claude, NotifiedNeedsYou: *notifiedNeedsYou}
 		if root, _ := paths.Getenv("TEST_ROOT"); root != "" {
 			// a scratch daemon (a live run): its agents' hl and hooks reach it, not the real home's daemon
 			ccfg.Env = []string{"HANDLINE_HOME=" + homeDir, "OCP_HOME=" + homeDir, "HANDLINE_TEST_ROOT=" + root}
@@ -168,15 +169,15 @@ func main() {
 			ccfg.Turns = tracker
 		}
 		parts := compose.New(ccfg)
-		cfg.Watch = *structuredTick && *cutover
+		cfg.Watch = *terminalTick && *cutover
 		cfg.Delivery = parts.Delivery()
-		cfg.Transcript, cfg.Structured, cfg.SessionOpen, cfg.Agents, cfg.Answers = parts.Sink, parts.Kind, parts.Run.Alive, parts.Agents, parts.Manager
+		cfg.Transcripts = true
 		cfg.OnOpen = func(db *sql.DB, env *supervisor.Env) {
 			parts.Bind(db, env)
 			ccfg.DB = db
 			env.Ports = parts.SupervisorPorts(parts.Lifecycle(ccfg, compose.LifecycleConfig{Env: env}))
 			parts.SettlePeerSends()
-			if *structuredTick || *terminalTick {
+			if *terminalTick {
 				startTick = func(stop <-chan struct{}) <-chan struct{} {
 					tk = parts.Tick(ccfg, compose.TickConfig{Stop: stop, Cutover: *cutover, Terminals: *terminalTick})
 					return tk.Start()

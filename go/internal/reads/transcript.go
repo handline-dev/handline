@@ -4,12 +4,12 @@ import (
 	"fmt"
 
 	"github.com/handline/handline/go/internal/rpc"
-	"github.com/handline/handline/go/internal/transcript"
 )
 
 const transcriptPage = 100
 
-// transcript.events: a page of a structured agent's transcript events by seq (contract: Transcript stream).
+// transcript.events: a page of an agent's transcript events by seq (contract: Transcript stream). Structured sessions wrote the stream;
+// no agent runs one now, so after its checks every agent is refused as a terminal agent always was.
 func (e *Env) transcriptEvents(c *rpc.Conn, params map[string]any) (any, error) {
 	since, err := seqParam(params, "since_seq", 0)
 	if err != nil {
@@ -22,30 +22,14 @@ func (e *Env) transcriptEvents(c *rpc.Conn, params map[string]any) (any, error) 
 	if since != nil && before != nil {
 		return nil, badParam("since_seq and before_seq are one or the other", "since_seq")
 	}
-	limit, err := limitOr(params, 500, transcriptPage)
-	if err != nil {
+	if _, err := limitOr(params, 500, transcriptPage); err != nil {
 		return nil, err
 	}
 	agent, err := e.chatAgent(params, true)
 	if err != nil {
 		return nil, err
 	}
-	if e.Structured == nil || !e.Structured(agent) {
-		return nil, rpc.Refused(agent+" does not run as a structured session: it has no transcript stream, watch its terminal", "unsupported", "")
-	}
-	page, err := transcript.Read(e.DB, agent, since, before, limit)
-	if err != nil {
-		return nil, err
-	}
-	working, err := e.working(agent)
-	if err != nil {
-		return nil, err
-	}
-	events := make([]any, len(page.Events))
-	for i, ev := range page.Events {
-		events[i] = ev.JSON()
-	}
-	return map[string]any{"events": events, "more": page.More, "first_seq": page.First, "last_seq": page.Last, "gap": page.Gap, "working": working}, nil
+	return nil, rpc.Refused(agent+" does not run as a structured session: it has no transcript stream, watch its terminal", "unsupported", "")
 }
 
 // seqParam is an optional seq at or above min.

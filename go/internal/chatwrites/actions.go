@@ -157,11 +157,7 @@ func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text s
 		}
 		return refusal(fmt.Sprintf("task T%d still has open child tasks (%s) - finish them first", tid, strings.Join(names, ", "))), nil
 	}
-	var cardID int64
-	if err := q.QueryRow("SELECT COALESCE(MIN(request_id), 0) FROM task_requests WHERE task_id = ?", tid).Scan(&cardID); err != nil {
-		return nil, err
-	}
-	card, err := db.GetRequest(q, cardID)
+	card, err := cardOf(q, tid)
 	if err != nil {
 		return nil, err
 	}
@@ -209,6 +205,41 @@ func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text s
 		}
 		return decided
 	}}, nil
+}
+
+// cardOf is the request a task was delivered by, nil for none.
+func cardOf(q db.Q, tid int64) (*db.Request, error) {
+	var id int64
+	if err := q.QueryRow("SELECT COALESCE(MIN(request_id), 0) FROM task_requests WHERE task_id = ?", tid).Scan(&id); err != nil {
+		return nil, err
+	}
+	return db.GetRequest(q, id)
+}
+
+// DecideCard is task.done's way to decide (taskwrites.CardDecider): the founder's words on a task they own whose card still waits on them
+// are decided as the card's answer, as inbox.answer did.
+func DecideCard(e *supervisor.Env, tell taskwrites.Teller) taskwrites.CardDecider {
+	return func(tx *sql.Tx, tid int64, words string) (bool, string, func(), error) {
+		if !e.Wired() { // no card can be resolved before every port has its owner: the task is marked done as before, its card left
+			return false, "", nil, nil
+		}
+		t, err := db.GetTask(tx, tid)
+		if err != nil || t == nil || t.Owner != db.Human || t.Ended() {
+			return false, "", nil, err
+		}
+		card, err := cardOf(tx, tid)
+		if err != nil || card == nil || card.State != "queued" || card.Target != db.Human {
+			return false, "", nil, err
+		}
+		res, err := decide(e, tell, tx, tid, words, nil)
+		if err != nil {
+			return false, "", nil, err
+		}
+		if !res.OK {
+			return false, "", nil, stateRefusal(res)
+		}
+		return true, fmt.Sprintf("T%d decided", tid), func() { res.Tell() }, nil
+	}
 }
 
 // SayWrite is askmod.say as requester: the message is routed and written (a denied one is kept as a row), and settles the request it

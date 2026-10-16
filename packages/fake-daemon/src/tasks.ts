@@ -23,7 +23,7 @@ type Row = Task & {
   body: string;
   memos?: Memo[];
   notes?: { at: string; who: string; text: string }[]; // the notes it was sent back with
-  blockers: { task: number; reason: string }[];
+  blockers: { task: number; reason: string; at?: string }[];
   clock?: TaskClock | null;
 };
 
@@ -92,28 +92,61 @@ export class FakeTasks {
     if (!t) throw new TaskFailure('not_found', `no task ${String(id)}`);
     return t;
   }
-  private view({ body: _body, memos: _memos, notes: _notes, blockers, clock, ...t }: Row): Task {
+  private open(id: number): boolean {
+    const t = this.rows.find((r) => r.id === id);
+    return !!t && t.state !== 'done' && t.state !== 'discarded';
+  }
+  /** As the daemon: behind the open blockers, else on the founder when it is the founder's own, else nothing (the fake has no owners to wait on). */
+  private waiting(t: Row): Task['waiting'] {
+    if (t.state !== 'queued' && t.state !== 'doing') return null;
+    const on = t.blockers.filter((b) => this.open(b.task));
+    if (on.length) {
+      const tasks = on.map((b) => b.task).sort((a, b) => a - b);
+      return { on: 'task', text: `blocked by ${tasks.map((id) => `T${id}`).join(', ')}`, tasks, since: on[0]!.at ?? t.created };
+    }
+    return t.to === 'human' ? { on: 'founder', text: 'waiting on you', tasks: [], since: t.created } : null;
+  }
+  private view(row: Row): Task {
+    const { body: _body, memos: _memos, notes: _notes, blockers, clock, ...t } = row;
     const ended = t.state === 'done' || t.state === 'discarded';
-    return { ...t, blocked_by: blockers.map((b) => b.task), time: ended ? null : (clock ?? null) };
+    return {
+      ...t,
+      blocked_by: blockers.filter((b) => this.open(b.task)).map((b) => b.task),
+      waits: blockers.map((b) => ({ task: b.task, open: this.open(b.task) })),
+      waiting: this.waiting(row),
+      time: ended ? null : (clock ?? null),
+    };
   }
   private change(t: Row, patch: Partial<Row>): void {
     Object.assign(t, patch);
     this.emit(this.view(t));
+    // As the daemon: a discarded task blocks nothing, so it leaves every waits (a done one stays, open false).
+    if (patch.state === 'discarded')
+      for (const r of this.rows)
+        if (r.blockers.some((b) => b.task === t.id)) this.change(r, { blockers: r.blockers.filter((b) => b.task !== t.id) });
   }
 
   list(p: Record<string, unknown>): { items: Task[]; more: boolean } {
     const limit = Math.min(Number(p.limit ?? 50), 200);
     let rows = this.rows.filter(
       (r) =>
-        (p.all === true || (r.state !== 'done' && r.state !== 'discarded')) &&
+        (p.all === true || p.under !== undefined || (r.state !== 'done' && r.state !== 'discarded')) &&
         (p.owner === undefined || r.to === p.owner) &&
         (p.from === undefined || r.from === p.from) &&
         (p.state === undefined || r.state === p.state) &&
         (p.parent === undefined || r.parent === p.parent) &&
+        (p.under === undefined || this.below(Number(p.under), r)) &&
         (p.before === undefined || r.id < Number(p.before)),
     );
     rows = rows.sort((a, b) => b.id - a.id);
     return { items: rows.slice(0, limit).map((r) => this.view(r)), more: rows.length > limit };
+  }
+
+  /** Whether r is the task top or below it at any depth. */
+  private below(top: number, r: Row): boolean {
+    for (let at: Row | undefined = r; at; at = at.parent === null ? undefined : this.rows.find((x) => x.id === at!.parent))
+      if (at.id === top) return true;
+    return false;
   }
 
   memo(p: Record<string, unknown>, op: 'add' | 'edit' | 'delete', person: string, agent = false): number {
@@ -173,7 +206,7 @@ export class FakeTasks {
 
   create(p: Record<string, unknown>, person: string, agent = false): number {
     const owner = String(p.owner ?? '');
-    if (!this.isAgent(owner)) throw new TaskFailure('bad_request', `no agent ${owner}`);
+    if (owner !== 'human' && !this.isAgent(owner)) throw new TaskFailure('bad_request', `no agent ${owner}`);
     if (typeof p.title !== 'string' || !p.title.trim()) throw new TaskFailure('bad_request', 'a task needs a title');
     this.images(String(p.body ?? ''), '', 'body', agent);
     const id = this.nextId++;
@@ -188,6 +221,7 @@ export class FakeTasks {
       clock: { length_s: 7200, default: p.time_box === undefined, start: null, end: null, overdue_since: null, told: 0, left_s: null },
       priority: (p.priority as 1 | 2 | 3 | undefined) ?? undefined,
       parent: typeof p.parent === 'number' ? p.parent : null,
+      blockers: typeof p.blocked_by === 'number' ? [{ task: this.find(p.blocked_by).id, reason: '', at: this.now() }] : [],
     });
     this.emit(this.view(this.find(id)));
     return id;
@@ -198,7 +232,9 @@ export class FakeTasks {
     if (t.state === 'done' || t.state === 'discarded') throw new TaskFailure('refused', `task ${t.id} is closed`);
     if (p.owner !== undefined && !this.isAgent(String(p.owner))) throw new TaskFailure('bad_request', `no agent ${String(p.owner)}`);
     if (p.body !== undefined) this.images(String(p.body), t.body, 'body', agent);
+    const waitOn = typeof p.blocked_by === 'number' ? this.find(p.blocked_by).id : null;
     this.change(t, {
+      ...(waitOn !== null && !t.blockers.some((b) => b.task === waitOn) ? { blockers: [...t.blockers, { task: waitOn, reason: '', at: this.now() }] } : {}),
       ...(p.owner !== undefined ? { to: String(p.owner) } : {}),
       ...(p.title !== undefined ? { title: String(p.title) } : {}),
       ...(p.body !== undefined ? { body: String(p.body) } : {}),

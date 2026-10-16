@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/sessiontoken/sessiontoken.go; do not change, change the Go
 """The proof that a request comes from an agent's own session.
 
 There is no secret. `hl launch` records its own process id and start time for the agent it becomes
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import fcntl
 import hmac
 import os
 import secrets
@@ -118,19 +120,29 @@ def nested(pid: int | None = None) -> bool:
     return claude_ancestors(pid) >= 2
 
 
+def session_line(pid: int) -> str | None:
+    """`pid` as a line of an agent's session record, "pid start"; None when no such process is running."""
+    info = _proc(pid)
+    return None if info is None else f"{pid} {info[1]}"
+
+
 def record(agent: str, pid: int | None = None) -> bool:
     """Remember `pid` (default: this process) as one of `agent`'s sessions, beside those recorded before
     that are still running: two launches of one agent can race, and the one that dies must not take the
     proof from the one that lives. False when the store cannot be written, which is what an agent's
     session gets."""
     pid = os.getpid() if pid is None else pid
-    info = _proc(pid)
-    if info is None:
+    line = session_line(pid)
+    if line is None:
         return False
-    lines = [f"{pid} {info[1]}"] + [f"{p} {started}" for p, started in _sessions(agent)
-                                    if p != pid and (_proc(p) or (0, None))[1] == started]
     try:
-        protected.put(NS, agent, "\n".join(lines))
+        # The Go daemon's Record and Forget hold this same lock, so neither writes over the other.
+        protected.ensure(NS)
+        with open(protected.root() / f"{NS}.lock", "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            lines = [line] + [f"{p} {started}" for p, started in _sessions(agent)
+                                            if p != pid and (_proc(p) or (0, None))[1] == started]
+            protected.put(NS, agent, "\n".join(lines))
     except (OSError, ValueError):       # PermissionError, NotTheFounder and a bad name all say no
         return False
     return True

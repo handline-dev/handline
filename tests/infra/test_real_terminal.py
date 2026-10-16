@@ -248,6 +248,7 @@ def test_a_world_closed_after_other_tests_stops_its_tmux_server(r: Real) -> None
     sock = r.world.env["OCP_TMUX_SOCKET"]
     alive = subprocess.run([support.REAL_TMUX, "-L", sock, "list-sessions"], capture_output=True).returncode == 0
     check("the shared world's tmux server is gone once it is closed", not alive, sock)
+    check("and its socket file with it", not gs.tmuxsock.path(sock).exists(), str(gs.tmuxsock.path(sock)))
 
 
 def main() -> int:

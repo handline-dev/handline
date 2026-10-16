@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/handline/handline/go/internal/structured"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/term"
 )
@@ -35,17 +35,17 @@ type typedAt struct {
 
 func (a *typedAt) Structured(string) bool { return true }
 func (a *typedAt) Live(string) bool       { return true }
-func (a *typedAt) Send(agent, op, text string, _ structured.Delivery) (structured.Receipt, error) {
+func (a *typedAt) Send(agent, op, text string, _ delivery.Delivery) (delivery.Receipt, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.typed[agent] = append(a.typed[agent], text)
-	return structured.Receipt{}, nil
+	return delivery.Receipt{}, nil
 }
-func (a *typedAt) Withdraw(string, string) (structured.Receipt, bool, error) {
-	return structured.Receipt{}, true, nil
+func (a *typedAt) Withdraw(string, string) (delivery.Receipt, bool, error) {
+	return delivery.Receipt{}, true, nil
 }
-func (a *typedAt) Promote(string, string) (structured.Receipt, error) {
-	return structured.Receipt{}, nil
+func (a *typedAt) Promote(string, string) (delivery.Receipt, error) {
+	return delivery.Receipt{}, nil
 }
 func (a *typedAt) said(agent string) string {
 	a.mu.Lock()
@@ -97,6 +97,7 @@ func (wiredPorts) MovableTrigger(string) bool                                   
 func (wiredPorts) CacheLeft(string, int64) (int64, bool)                             { return 0, false }
 func (wiredPorts) StartForWork(db.Q, string) string                                  { return "" }
 func (wiredPorts) WakeAgent(db.Q, string) (bool, string)                             { return false, "" }
+func (wiredPorts) AccountWait(db.Q, string) (string, error)                          { return "", nil }
 func (wiredPorts) QueuedOrIdle(db.Q, string, string) error                           { return nil }
 func (wiredPorts) Marker(db.Q, string, string, map[string]any)                       {}
 func (wiredPorts) RecordScreenSample(db.Q, string, *db.AgentState, string, []string) {}
@@ -125,7 +126,7 @@ func wiredDaemon(t *testing.T, ports bool, proposals func(*sql.DB, string) super
 		os.WriteFile(filepath.Join(dir, "agent.yaml"), []byte("vendor: claude\n"), 0o644)
 	}
 	agents := &typedAt{typed: map[string][]string{}}
-	cfg := Config{Home: home, DBFile: filepath.Join(home, "db.sqlite"), Auth: pidAuth{}, Agents: agents, Log: t.Logf}
+	cfg := Config{Home: home, DBFile: filepath.Join(home, "db.sqlite"), Auth: pidAuth{}, Log: t.Logf}
 	if ports {
 		cfg.OnOpen = func(d *sql.DB, env *supervisor.Env) {
 			env.Ports = supervisor.Ports{Agents: agents, Terminal: noScreen{}, Observer: wiredPorts{}, Dialogs: wiredPorts{}, Waits: wiredPorts{}, Idle: wiredPorts{}, Sessions: wiredPorts{},
@@ -171,6 +172,12 @@ func doing(t *testing.T, d *Daemon, agent string) {
 	}
 	if _, err := db.SetTaskQueued(d.db, tid, "human"); err != nil {
 		t.Fatal(err)
+	}
+	if !d.env().Ports.Wired() { // nothing to tell it with: only make the task the one in hand
+		if err := db.SetCurrentTask(d.db, agent, tid, true); err != nil {
+			t.Fatal(err)
+		}
+		return
 	}
 	d.env().AdvanceCurrentTask(d.db, agent)
 }

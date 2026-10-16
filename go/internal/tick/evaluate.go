@@ -456,6 +456,13 @@ func (t *Tick) StartWaiting() []string {
 	return actions
 }
 
+// Sweep is the reconcile pass alone, between ticks.
+func (t *Tick) Sweep() {
+	t.init()
+	var actions []string
+	t.Reconcile.Sweep(t.Q, &actions)
+}
+
 // guarded runs one of the tick's passes: its failure is logged under its name and is not the tick's failure.
 func (t *Tick) guarded(name string, f func() error) {
 	var err error

@@ -27,20 +27,14 @@ type TermSessions interface {
 	Tell(agent, op, text string) error
 }
 
-// sessionAlive, sessionBusy, tell, interrupt and waitIdle are what a move asks of the agent's session, structured or in a terminal.
+// sessionAlive, sessionBusy and tellSession are what a move asks of the agent's terminal session.
 func (m *Manager) sessionAlive(agent string) bool {
-	if m.structured(agent) {
-		return m.Run.Alive(agent)
-	}
 	_, status := m.termSession(agent)
 	return status != ""
 }
 
 // sessionBusy: a session that is not idle is busy, a permission prompt and an unreadable file included.
 func (m *Manager) sessionBusy(agent string) bool {
-	if m.structured(agent) {
-		return m.Run.Busy(agent)
-	}
 	_, status := m.termSession(agent)
 	return status != "" && status != "idle"
 }
@@ -53,29 +47,10 @@ func (m *Manager) termSession(agent string) (int, string) {
 }
 
 func (m *Manager) tellSession(agent, op, text string) error {
-	if m.structured(agent) {
-		return m.Run.Send(agent, op, text)
-	}
 	if m.TermRun == nil {
 		return errors.New("no session to tell")
 	}
 	return m.TermRun.Tell(agent, op, text)
-}
-
-// interruptSession ends a running turn. A terminal's turn is ended by a key, and none is pressed.
-func (m *Manager) interruptSession(agent string) error {
-	if m.structured(agent) {
-		return m.Run.Interrupt(agent)
-	}
-	return errors.New("a terminal's turn cannot be interrupted without typing")
-}
-
-// waitSessionIdle waits for the running turn to end. A terminal's turn is never interrupted, so there is nothing to wait for.
-func (m *Manager) waitSessionIdle(agent string, timeout time.Duration) bool {
-	if m.structured(agent) {
-		return m.Run.WaitIdle(agent, timeout)
-	}
-	return false
 }
 
 // endTerminalByPane ends a terminal agent's session by closing its pane: the relaunch opens a new terminal, so the old one must not stay.
@@ -140,12 +115,8 @@ func (m *Manager) endTerminalByPane(agent, resume string, st SessionStatus) (boo
 	return true, agent + ": session ended, terminal closed"
 }
 
-// endForMove ends the session a move or a clear replaces, with no resume id: a structured one by its process group, a terminal one by its
-// pane.
+// endForMove ends the session a move or a clear replaces, with no resume id, by closing its pane.
 func (m *Manager) endForMove(agent string, st SessionStatus) (bool, string) {
-	if m.structured(agent) {
-		return m.endStructured(agent, "", st)
-	}
 	return m.endTerminalByPane(agent, "", st)
 }
 

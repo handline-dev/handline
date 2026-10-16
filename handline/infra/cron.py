@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/reads/cron.go; do not change, change the Go
 """A five-field cron expression (minute hour day-of-month month day-of-week), in local time (T605).
 
 `*`, `*/n`, `a`, `a-b`, `a-b/n` and comma lists, and nothing else: no names, no `@daily`. Day-of-week is

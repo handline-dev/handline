@@ -1,13 +1,14 @@
 // The task detail's presentational parts: the meta grid, one verb button, the link and timeline sections, and the two small sheets.
-import { useState } from 'react';
-import { taskRef, timeoutText } from '@handline/app-core';
+import { useRef, useState } from 'react';
+import { dateTime, replyTargets, taskRef, timeoutText } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
+import { BodyEditor } from './BodyEditor.tsx';
 import { useCan } from './taskui.tsx';
 import { Icon, type IconName } from './ui/Icon.tsx';
 import { Sheet } from './taskui.tsx';
+import { CHIP, chipLook } from './TaskPeople.tsx';
 import { Button, Input, MetaField, MetaGrid, NativeSelect, Textarea } from './ui/index.ts';
-import { when } from './TaskTime.tsx';
 
 export const TIMELINE = 'ttimeline m-0 list-none p-0 [&_svg]:shrink-0 [&_svg]:self-center [&_svg]:text-ink-3';
 
@@ -21,9 +22,9 @@ export function TaskMeta({ t, now }: { t: Detail; now: number }) {
       <MetaField icon="agent" label="Asked by" value={<strong>{t.from}</strong>} />
       <MetaField icon="priority" label="Priority" value={`P${t.priority ?? 2}`} />
       <MetaField icon="waiting" label="Time box" value={[t.time_box ?? 'none', timeoutText(t, now)].filter(Boolean).join(' · ')} />
-      <MetaField icon="schedules" label="Created" value={when(t.created)} />
-      {t.delivered ? <MetaField icon="delivered" label="Delivered" value={when(t.delivered)} /> : null}
-      {t.done ? <MetaField icon="taskDone" label="Closed" value={when(t.done)} /> : null}
+      <MetaField icon="schedules" label="Created" value={dateTime(t.created)} />
+      {t.delivered ? <MetaField icon="delivered" label="Delivered" value={dateTime(t.delivered)} /> : null}
+      {t.done ? <MetaField icon="taskDone" label="Closed" value={dateTime(t.done)} /> : null}
       {t.parent ? (
         <MetaField
           icon="viewTree"
@@ -89,13 +90,13 @@ export function TaskTimeline({ deliveries, events }: { deliveries: Detail['deliv
       {deliveries.map((d) => (
         <li key={d.at} title={`delivered by ${d.how}`} className={LI}>
           <Icon name="delivered" label="Delivered" aria-hidden="true" size={14} />
-          <span className="mono">{when(d.at)}</span> Delivered ({d.how}): {d.outcome}
+          <span className="mono">{dateTime(d.at)}</span> Delivered ({d.how}): {d.outcome}
         </li>
       ))}
       {events.map((e, i) => (
         <li key={i} className={LI}>
           <Icon name="changed" label="Event" aria-hidden="true" size={14} />
-          <span className="mono">{when(e.at)}</span> {e.type}
+          <span className="mono">{dateTime(e.at)}</span> {e.type}
           {e.agent ? ` · ${e.agent}` : ''}
         </li>
       ))}
@@ -121,10 +122,13 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
   const edit = useWrite('task.edit');
   const [title, setTitle] = useState(t.title);
   const [body, setBody] = useState(t.body);
+  const [uploading, setUploading] = useState(false);
+  const uploadingNow = useRef(false);
   const [owner, setOwner] = useState(t.to);
   const [box, setBox] = useState(t.time_box ?? '');
   const [priority, setPriority] = useState<1 | 2 | 3>(t.priority ?? 2);
   const save = () => {
+    if (uploadingNow.current) return;
     const change = {
       ...(title.trim() && title !== t.title ? { title: title.trim() } : {}),
       ...(body !== t.body ? { body } : {}),
@@ -136,7 +140,7 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
     edit.mutate({ task: t.id, ...change }, { onSuccess: onClose });
   };
   return (
-    <Sheet label={`Edit ${taskRef(t.id)}`} submit="Save" onCancel={onClose} onSubmit={save} busy={edit.isPending}>
+    <Sheet label={`Edit ${taskRef(t.id)}`} submit="Save" onCancel={onClose} onSubmit={save} busy={edit.isPending || uploading}>
       <div className="tform grid gap-5">
         <label>
           Title
@@ -146,10 +150,10 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
           Owner
           <Input grow className="tinput" value={owner} onChange={(e) => setOwner(e.target.value)} />
         </label>
-        <label className="wide">
-          Body
-          <Textarea grow className="tinput" rows={4} value={body} onChange={(e) => setBody(e.target.value)} />
-        </label>
+        <div className="wide">
+          <span>Body</span>
+          <BodyEditor value={body} onChange={setBody} onBusy={(b) => ((uploadingNow.current = b), setUploading(b))} label="Body" />
+        </div>
         <label>
           Time box
           <Input grow className="tinput" value={box} onChange={(e) => setBox(e.target.value)} />
@@ -167,19 +171,35 @@ export function EditForm({ t, onClose }: { t: Detail; onClose: () => void }) {
   );
 }
 
-/** A question to the task's holder, kept as a message linked to the task; the text stays until the daemon accepts it. */
-export function AskBox({ t }: { t: Detail }) {
+/** One box for a message about the task, sent as a question linked to it: the holder is preselected, the others the task names are chips. */
+export function MessageBox({ t, me, box }: { t: Detail; me: string; box: React.RefObject<HTMLTextAreaElement | null> }) {
   const can = useCan('task.ask');
   const ask = useWrite('task.ask');
+  const people = [t.to, ...replyTargets(t, me).filter((n) => n !== t.to)];
+  const [picked, setPicked] = useState<string | null>(null);
+  const to = picked && people.includes(picked) ? picked : t.to;
   const [text, setText] = useState('');
-  const question = text.trim();
+  const body = text.trim();
   const send = () => {
-    if (!question || ask.isPending) return;
-    ask.mutate({ task: t.id, to: t.to, text: question }, { onSuccess: () => setText('') });
+    if (!body || ask.isPending) return;
+    ask.mutate({ task: t.id, to, text: body }, { onSuccess: () => setText('') });
   };
   return (
-    <section className="mt-4 grid gap-2" aria-label="Ask about this task">
-      <h3 className="m-0 text-ink-3">Ask {t.to}</h3>
+    <section className="mt-4 grid gap-2" aria-label="Message about this task">
+      <h3 className="m-0 text-ink-3">Send a message to</h3>
+      <div className="flex flex-wrap gap-1.5">
+        {people.map((n) => (
+          <button
+            key={n}
+            type="button"
+            aria-pressed={to === n}
+            className={`${CHIP} ${chipLook(to === n)}`}
+            onClick={() => (setPicked(n), box.current?.focus())}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
       <form
         className="flex gap-2"
         onSubmit={(e) => {
@@ -188,18 +208,24 @@ export function AskBox({ t }: { t: Detail }) {
         }}
       >
         <Textarea
+          ref={box}
           grow
           className="tinput"
           rows={2}
           value={text}
           disabled={!can.ok}
           title={can.why}
-          placeholder="A question about this task"
-          aria-label="Question"
+          placeholder={`Message to ${to}`}
+          aria-label="Message"
           onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
+            e.preventDefault();
+            send();
+          }}
         />
-        <Button type="submit" variant="solid" icon="say" label="Ask" disabled={!can.ok || !question || ask.isPending} title={can.why}>
-          {ask.isPending ? 'Asking...' : 'Ask'}
+        <Button type="submit" variant="solid" icon="send" label={`Send to ${to}`} disabled={!can.ok || !body || ask.isPending} title={can.why}>
+          {ask.isPending ? 'Sending...' : `Send to ${to}`}
         </Button>
       </form>
       {ask.isError ? (

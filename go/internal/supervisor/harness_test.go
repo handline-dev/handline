@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/store"
-	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/term"
 )
@@ -125,7 +125,10 @@ func (s *fakeSessions) CacheLeft(agent string, _ int64) (int64, bool) {
 	return left, ok
 }
 
-type fakeLife struct{ started, woke []string }
+type fakeLife struct {
+	started, woke []string
+	wait          string // AccountWait's answer
+}
 
 func (l *fakeLife) StartForWork(_ db.Q, a string) string {
 	l.started = append(l.started, a)
@@ -135,6 +138,8 @@ func (l *fakeLife) WakeAgent(_ db.Q, a string) (bool, string) {
 	l.woke = append(l.woke, a)
 	return true, "woken"
 }
+
+func (l *fakeLife) AccountWait(db.Q, string) (string, error) { return l.wait, nil }
 
 type fakeEval struct{ calls []string }
 
@@ -207,17 +212,17 @@ type sessionAgents struct {
 
 func (a *sessionAgents) Structured(agent string) bool { return !a.noPeer[agent] }
 func (a *sessionAgents) Live(agent string) bool       { return a.live[agent] }
-func (a *sessionAgents) Send(_, _, text string, _ structured.Delivery) (structured.Receipt, error) {
+func (a *sessionAgents) Send(_, _, text string, _ delivery.Delivery) (delivery.Receipt, error) {
 	a.r.term.mu.Lock()
 	defer a.r.term.mu.Unlock()
 	a.r.term.typed = append(a.r.term.typed, text)
-	return structured.Receipt{State: structured.Sent}, nil
+	return delivery.Receipt{State: delivery.Sent}, nil
 }
-func (a *sessionAgents) Withdraw(string, string) (structured.Receipt, bool, error) {
-	return structured.Receipt{}, false, nil
+func (a *sessionAgents) Withdraw(string, string) (delivery.Receipt, bool, error) {
+	return delivery.Receipt{}, false, nil
 }
-func (a *sessionAgents) Promote(string, string) (structured.Receipt, error) {
-	return structured.Receipt{}, nil
+func (a *sessionAgents) Promote(string, string) (delivery.Receipt, error) {
+	return delivery.Receipt{}, nil
 }
 
 // agentUp gives an agent a terminal and an open session that takes what it is told.

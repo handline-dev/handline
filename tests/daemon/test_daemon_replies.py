@@ -40,18 +40,22 @@ def test_hl_ps_says_which_code_the_daemon_is_on_and_when_the_checkout_has_moved_
     client.connect = lambda timeout=0: object()
     client.call = lambda sock, method, params=None, **k: {"daemon": "aaa1111"}
     try:
-        gitrun.run = lambda cwd, *a, **k: (0, "aaa1111\n", "")
+        gitrun.run = lambda cwd, *a, **k: (0, "aaa1111" + "0" * 33 + "\n", "")
         same = clidaemon._code_line()
-        gitrun.run = lambda cwd, *a, **k: (0, "bbb2222\n", "")
+        gitrun.run = lambda cwd, *a, **k: (0, "bbb2222" + "0" * 33 + "\n", "")
         behind = clidaemon._code_line()
+        client.call = lambda sock, method, params=None, **k: {"daemon": "unknown"}
+        unstamped = clidaemon._code_line()
         client.connect = lambda timeout=0: None
         silent = clidaemon._code_line()
     finally:
         client.connect, client.call, gitrun.run = real
     check("ps: the line names the daemon's code", same == "  code: aaa1111", same)
-    check("ps: and says to restart when the checkout is elsewhere", "bbb2222" in behind and "hl service install" in behind, behind)
+    check("ps: a short sha that starts the checkout's full one is the same code, with no restart hint", "restart" not in same, same)
+    check("ps: and says to restart when the checkout is elsewhere, at the daemon's sha length",
+          "the checkout is at bbb2222:" in behind and "hl service install" in behind, behind)
+    check("ps: a binary with no sha is not told to restart", "unknown" in unstamped and "restart" not in unstamped, unstamped)
     check("ps: a daemon that does not answer is not guessed at", "unknown" in silent, silent)
-
 
 def main() -> int:
     def tests(td):

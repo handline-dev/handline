@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import functools
+import hashlib
 import os
 import pwd
 import shutil
@@ -68,7 +69,7 @@ def home() -> Path:
     h = Path(raw or default_home()).expanduser()
     if h.is_symlink():
         h = h.resolve()     # after the home moved, the old path is a link: sandbox rules match real paths
-    live = any(real == h.resolve() or real in h.resolve().parents for real in live_homes())
+    live = is_live(h)
     if live and names.getenv(TEST_ROOT_ENV):
         raise RealHomeInTest(f"a test reached the real home: {h}")
     if live and names.getenv("ALLOW_LIVE") != "1" and not _installed_checkout():
@@ -166,6 +167,27 @@ def agent_dir(name: str) -> Path:
     return agents_dir() / name
 
 
+def cache_dir(name: str) -> Path:
+    """A sandboxed agent's own build caches (vendors/claude.py cache_env)."""
+    return home() / "caches" / name
+
+
+def remove_cache_dir(name: str) -> None:
+    """Remove an agent's build caches. Go keeps its module cache read-only, so folders are made writable first."""
+    d = cache_dir(name)
+    if d.is_symlink():      # the link goes, never what it points to
+        d.unlink()
+        return
+    if not d.exists():
+        return
+    for root, dirs, _ in os.walk(d):
+        for x in dirs:
+            p = os.path.join(root, x)
+            if not os.path.islink(p):   # a link's target is not ours to change
+                os.chmod(p, 0o755)
+    shutil.rmtree(d, ignore_errors=True)
+
+
 def handoff_note_file(agent: str) -> Path:
     """The one file an agent writes for its handoff note."""
     return agent_dir(agent) / "handoff.md"
@@ -178,6 +200,26 @@ def repo_root() -> Path:
 def live_homes() -> list[Path]:
     """The real user's homes, whatever OCP_HOME or the test root says."""
     return [(_real_user_home() / d).resolve() for d in (".orcapipe", ".handline")]
+
+
+def is_live(h: Path) -> bool:
+    """Whether h is, or is inside, one of the real user's homes."""
+    return any(real == h.resolve() or real in h.resolve().parents for real in live_homes())
+
+
+LIVE_TMUX_SOCKET = "ocp"
+
+
+def tmux_socket(h: Path) -> str:
+    """The tmux server (tmux -L) the daemon of h keeps its terminals on: OCP_TMUX_SOCKET when set, else "ocp" for the live home
+    and "ocp-" plus a hash of the home for any other. A scratch home never gets "ocp", even when OCP_TMUX_SOCKET says so: that
+    is the live server, and a scratch daemon on it puts windows among the live agents' (paths.TmuxSocket in Go)."""
+    sock = names.getenv("OCP_TMUX_SOCKET") or ""
+    if is_live(h):
+        return sock or LIVE_TMUX_SOCKET
+    if sock and sock != LIVE_TMUX_SOCKET:
+        return sock
+    return f"{LIVE_TMUX_SOCKET}-{hashlib.sha256(str(h.expanduser().resolve()).encode()).hexdigest()[:8]}"
 
 
 def ocp_exe() -> str:

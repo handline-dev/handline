@@ -53,9 +53,6 @@ func (p *Parts) terminalSessions() map[string]int {
 	}
 	live := p.LC.term.LiveTerminals()
 	for _, agent := range paths.ListAgents(p.home) {
-		if p.Kind(agent) {
-			continue
-		}
 		if rec, _, found := p.terminalSession(agent, live); found == sessionFound {
 			out[agent] = rec.Pid
 		}
@@ -92,6 +89,14 @@ func (p *Parts) terminalSession(agent string, live map[string]bool) (sessionRec,
 		}
 	}
 	return sessionRec{}, "", result
+}
+
+// sessionPid is the pid of a terminal agent's running session, 0 when none is found.
+func (p *Parts) sessionPid(agent string) int {
+	if rec, _, found := p.terminalSession(agent, nil); found == sessionFound {
+		return rec.Pid
+	}
+	return 0
 }
 
 func alive(pid int) bool {
@@ -163,9 +168,6 @@ type termRun struct{ p *Parts }
 var _ lifecycle.TermSessions = termRun{}
 
 func (t termRun) Session(agent string) (int, string) {
-	if t.p.Kind(agent) {
-		return 0, ""
-	}
 	switch rec, _, found := t.p.terminalSession(agent, t.p.LC.term.LiveTerminals()); {
 	case found == sessionNone:
 		return 0, ""

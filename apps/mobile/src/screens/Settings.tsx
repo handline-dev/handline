@@ -8,6 +8,7 @@ import { classify, sentence, useAnswers, useServes, useSettings, useWrite } from
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
+import { AppUpdate } from './AppUpdate.tsx';
 import { Button } from './parts.tsx';
 import { useWhyNot } from './TaskActions.tsx';
 
@@ -251,6 +252,7 @@ export function Settings() {
   const v = query.data?.values;
   return (
     <ScrollView testID="settings-page" contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.xl }}>
+      <AppUpdate />
       <Text style={{ color: c.muted }}>Defaults for every agent. Each change saves as you make it.</Text>
       <Loadable query={query} served={served} skeleton="settings" label="settings" empty="No settings to show.">
         {v ? (

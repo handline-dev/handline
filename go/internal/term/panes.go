@@ -15,6 +15,12 @@ type Pane struct {
 	Dead                                bool
 }
 
+// shells are the commands a pane shows when only its shell runs in it.
+var shells = map[string]bool{"sh": true, "bash": true, "zsh": true, "fish": true, "dash": true, "ksh": true, "tcsh": true, "csh": true}
+
+// AtShell is whether only the pane's shell runs in it: a login shell shows as "-zsh".
+func (p Pane) AtShell() bool { return shells[strings.TrimPrefix(p.Command, "-")] }
+
 // PaneLister is a host that can list every pane it has with its details.
 type PaneLister interface {
 	ListPanes() ([]Pane, bool)

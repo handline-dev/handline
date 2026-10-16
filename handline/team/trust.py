@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/team/trust.go; do not change, change the Go
 """Which folders `hl` may answer claude's trust prompt for, on the
 founder's own say-so - never inferred from the roster or Orca's own layout.
 

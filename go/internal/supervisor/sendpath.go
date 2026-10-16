@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/structured"
+	"github.com/handline/handline/go/internal/delivery"
 )
 
 // The one send path to a structured session (docs/design/structured-sessions.md, "Delivery"): the same for a person's message, another agent's,
@@ -142,7 +142,7 @@ func (e *Env) nextOp(q db.Q, prefix string) string {
 // sendOnce sends text to a structured agent under op. A repeat of an operation answers its state and writes nothing. NotSent says nothing
 // was written (no live session, or the session refused the write) and the caller may try again; any other state means the daemon owns the
 // message from here and must not send it again.
-func (e *Env) sendOnce(q db.Q, agent, op, text string, d structured.Delivery) (SendState, string) {
+func (e *Env) sendOnce(q db.Q, agent, op, text string, d delivery.Delivery) (SendState, string) {
 	lock := e.sendLock(agent)
 	lock.Lock()
 	defer lock.Unlock()
@@ -159,18 +159,22 @@ func (e *Env) sendOnce(q db.Q, agent, op, text string, d structured.Delivery) (S
 		check(db.ClearCursor(q, key))
 		return NotSent, err.Error()
 	}
-	if rcpt.State == structured.Withdrawn { // its sender took it back: nothing was or will be written
+	if rcpt.State == delivery.Withdrawn { // its sender took it back: nothing was or will be written
 		check(db.ClearCursor(q, key))
 		return NotSent, "withdrawn"
 	}
 	// The echo can come before Send answers: only a row still Written moves on, so a Confirmed one is never taken back to Held.
 	switch rcpt.State {
-	case structured.Queued:
+	case delivery.Queued:
 		check(moveLedger(q, key, sendWritten, sendHeld))
-	case structured.Confirmed:
+	case delivery.Confirmed:
 		check(moveLedger(q, key, sendWritten, sendConfirmed))
 	}
-	return stateOfLedger(must(db.Cursor(q, key))), ""
+	v := must(db.Cursor(q, key))
+	if v == 0 { // the echo landed every request while Send answered, and that took it off the ledger: it is delivered
+		return Confirmed, ""
+	}
+	return stateOfLedger(v), ""
 }
 
 // moveLedger sets a ledger row to to if it is still from, in one statement.
@@ -248,6 +252,10 @@ func (e *Env) SessionLost(q db.Q, agent string) (err error) {
 			}
 			continue
 		}
+		if actedOn(q, l.op) { // its fate is known after all: nothing to ask anyone
+			check(db.ClearCursor(q, key))
+			continue
+		}
 		check(db.SetCursor(q, key, sendUnknown))
 		tell = append(tell, e.deliveryUnknown(q, agent, l.op, "was written to its session, and the session ended before it confirmed it: it may or may not have been read",
 			"ask "+agent+" whether it saw it, or send it again")...)
@@ -256,6 +264,19 @@ func (e *Env) SessionLost(q db.Q, agent string) (err error) {
 		f()
 	}
 	return nil
+}
+
+// actedOn is whether every request a written op carried has since been seen to arrive: landed, read with hl read, or no longer queued
+// (answered, settled, withdrawn). A daemon restart ends every session, and an old delivery like that is not one that may be lost.
+func actedOn(q db.Q, op string) bool {
+	rids := ridsOfOp(op)
+	for _, rid := range rids {
+		row := must(db.GetRequest(q, rid))
+		if row != nil && row.State == "queued" && !row.LandedAt.Valid && !row.ReadAt.Valid {
+			return false
+		}
+	}
+	return len(rids) > 0
 }
 
 // SessionNotDelivered is what a terminal agent's peer inbox calls when a message is not in its transcript after the resend (written: it
@@ -322,14 +343,14 @@ func (e *Env) hasSession(agent string) bool {
 
 // tellNowStructured tells a structured agent about request row at once, joining the running turn.
 func (e *Env) tellNowStructured(q db.Q, row *db.Request) (what string, err error) {
-	what, _, err = e.tellStructured(q, row, structured.Now)
+	what, _, err = e.tellStructured(q, row, delivery.Now)
 	return what, err
 }
 
 // tellStructured tells a structured agent about request row. The row is marked delivered before the write (it closes withdraw and replace's
 // race) and owed again only when nothing was written; a message that was written is never written again. A Queue message held behind a
 // running turn is not delivered: the row is left as it was, and SessionWritten marks it when the session writes it.
-func (e *Env) tellStructured(q db.Q, row *db.Request, d structured.Delivery) (what string, state SendState, err error) {
+func (e *Env) tellStructured(q db.Q, row *db.Request, d delivery.Delivery) (what string, state SendState, err error) {
 	defer Catch(&err)
 	agent, rid := row.Target, row.ID
 	if !e.Agents.Live(agent) {

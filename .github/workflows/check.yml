@@ -1,6 +1,6 @@
-# The required check of a pull request: what tools/check.sh runs for the change, split in jobs so the apps and Go run side by side.
-# One job, `check`, always reports and is the one required check on main; the areas a change does not touch are skipped, and
-# a skipped area counts as passed.
+# The check of a pull request: what tools/check.sh runs for the change, in two jobs that each plan for themselves. The apps run
+# on GitHub's runners; the Go suite runs on the founder's own runner (docs/ci-runner.md), whose build and test caches stay on
+# its disk between runs, so go test reruns only what a change touched. Python is not checked here: it is being removed.
 name: check
 
 on:
@@ -17,102 +17,96 @@ concurrency:
 permissions:
   contents: read
 
-jobs:
-  plan:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      kind: ${{ steps.plan.outputs.kind }}
-      apps: ${{ steps.plan.outputs.apps }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - id: plan
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
-        run: |
-          # A push to main (no pull request) runs everything: its job is the caches.
-          if [ "${{ github.event_name }}" = push ]; then
-            echo "kind=python" >> "$GITHUB_OUTPUT"; echo "apps=turbo" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          plan="$(CHECK_PLAN=1 tools/check.sh "$BASE")"
-          echo "$plan"
-          echo "${plan%% *}" >> "$GITHUB_OUTPUT"
-          echo "apps=${plan##*apps=}" >> "$GITHUB_OUTPUT"
+env:
+  BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
 
+jobs:
   apps:
-    needs: plan
-    if: needs.plan.outputs.apps != 'no'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+        with:
+          fetch-depth: 0
+      - name: Secrets in the commits of this change
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb # gitleaks_<version>_checksums.txt, linux_x64
+        run: |
+          # The release binary, pinned and checked: gitleaks-action needs a paid licence for an organisation's repository.
+          f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$f" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$f"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$f" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP" gitleaks
+          # Only what the change adds: BASE..HEAD. A first push to a branch has no base, so it scans the head commit alone.
+          case "$BASE" in ""|0000000000000000000000000000000000000000) range="-1 HEAD" ;; *) range="$BASE..HEAD" ;; esac
+          "$RUNNER_TEMP/gitleaks" git --no-banner --redact --log-opts="$range" .
+      - name: Plan
+        id: plan
+        run: |
+          plan="$(CHECK_PLAN=1 tools/check.sh "$BASE")"
+          echo "$plan"
+          apps="${plan##*apps=}"
+          # A push to main runs the apps only when they changed, then all of them, which warms the turbo cache.
+          if [ "${{ github.event_name }}" = push ] && [ "$apps" != turbo ]; then apps=no; fi
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+      - if: steps.plan.outputs.apps != 'no'
+        uses: pnpm/action-setup@v4
+      - if: steps.plan.outputs.apps != 'no'
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - uses: actions/cache@v4
+      - if: steps.plan.outputs.apps != 'no'
+        run: pnpm install --frozen-lockfile
+      - if: steps.plan.outputs.apps != 'no'
+        uses: actions/cache@v4
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-${{ github.sha }}
           restore-keys: turbo-${{ runner.os }}-
       - name: Tests, typecheck and lint of the apps
+        if: steps.plan.outputs.apps != 'no'
         run: |
-          if [ "${{ needs.plan.outputs.apps }}" = turbo ]; then
+          if [ "${{ steps.plan.outputs.apps }}" = turbo ]; then
             pnpm turbo test typecheck lint --continue
           else
             pnpm --dir packages/app-data test
           fi
 
   go:
-    needs: plan
-    if: needs.plan.outputs.kind == 'go'
-    runs-on: ubuntu-latest
+    # The runner is the founder's own machine: a pull request from a fork never reaches it.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, handline-ci]
     timeout-minutes: 30
+    env:
+      GOFLAGS: -p=1 # 2 cores and 3 GB of memory: one test binary at a time
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+        with:
+          fetch-depth: 0
+      - name: Plan
+        id: plan
+        run: |
+          if [ "${{ github.event_name }}" = push ]; then echo "kind=go" >> "$GITHUB_OUTPUT"; exit 0; fi
+          plan="$(CHECK_PLAN=1 tools/check.sh "$BASE")"
+          echo "$plan"
+          kind="${plan%% *}"; kind="${kind#kind=}"
+          # A change outside go/ and the apps (python, before) still runs the Go suite: the Python suite is not run in CI.
+          case "$kind" in go|python) echo "kind=go" ;; *) echo "kind=$kind" ;; esac >> "$GITHUB_OUTPUT"
+      - if: steps.plan.outputs.kind == 'go'
+        uses: actions/setup-go@v5
         with:
           go-version-file: go/go.mod
-          cache-dependency-path: go/go.sum
-      - name: tmux for the terminal tests
-        run: sudo apt-get install -y -qq tmux
-      - run: tools/test-go.sh
+          cache: false # GOCACHE and GOMODCACHE stay on the runner's disk
+      - if: steps.plan.outputs.kind == 'go'
+        # Fails a run that leaves a process, tmux server or temp file behind. Its TMPDIR is <dir>/tmp/: the same path each run,
+        # as go test's cache needs, under the runner's temp directory, which the runner empties after every job.
+        run: tools/leakcheck.py run --dir "$RUNNER_TEMP/hlc" tools/test-go.sh
       - name: Go parity tests
+        if: steps.plan.outputs.kind == 'go'
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: |
           tools/test.sh tests/infra/test_go_schema.py
           tools/test.sh tests/infra/test_go_tidy.py
-
-  python:
-    needs: plan
-    if: needs.plan.outputs.kind == 'python'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go/go.mod
-          cache-dependency-path: go/go.sum
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
-      - name: tmux for the terminal tests
-        run: sudo apt-get install -y -qq tmux
-      - run: tools/suite.sh
-        env:
-          TMPDIR: ${{ runner.temp }} # the suite checks that a sandboxed run has one
-
-  check:
-    if: always()
-    needs: [plan, apps, go, python]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Every area that ran passed
-        run: |
-          echo '${{ toJSON(needs) }}'
-          if ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then exit 1; fi

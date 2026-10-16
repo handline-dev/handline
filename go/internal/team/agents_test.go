@@ -3,6 +3,7 @@ package team
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -106,7 +107,7 @@ func TestOnlyTheFoundersSessionRegistersAndGrants(t *testing.T) {
 		t.Fatal("an old bypass file was taken as more than the default")
 	}
 	if r.SandboxOn("worker", cfg) {
-		t.Fatal("the sandbox is off unless the file turns it on")
+		t.Fatal("before the founder's switch the sandbox is off unless the file turns it on")
 	}
 	on, off := true, false
 	r.Register("worker", RegisterOpts{Sandbox: &on})
@@ -116,8 +117,63 @@ func TestOnlyTheFoundersSessionRegistersAndGrants(t *testing.T) {
 	}
 	r.Register("worker", RegisterOpts{Sandbox: &off})
 	cfg, _ = r.Read("worker")
-	if _, has := cfg["sandbox"]; has || r.SandboxOn("worker", cfg) {
-		t.Fatalf("sandbox off takes the key out: %v", cfg)
+	if cfg["sandbox"] != false || r.SandboxOn("worker", cfg) {
+		t.Fatalf("sandbox off is sandbox: false in the file, so the founder's default does not turn it on: %v", cfg)
+	}
+}
+
+func TestTheFoundersSwitchTurnsTheSandboxOnWhereAgentYamlSaysNothing(t *testing.T) {
+	t.Setenv("OCP_AGENT", "")
+	t.Setenv("HANDLINE_AGENT", "")
+	r := NewRoster(newHome(t))
+	if err := r.Store.Put("switches", "sandbox_default", "on"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		cfg  Config
+		want bool
+	}{{Config{}, true}, {Config{"sandbox": false}, false}, {Config{"sandbox": true}, true}, {Config{"sandbox": "no"}, true}} {
+		if got := r.SandboxOn("worker", c.cfg); got != c.want {
+			t.Fatalf("%v: on %v, want %v", c.cfg, got, c.want)
+		}
+	}
+	if err := r.Store.Put("switches", "sandbox_default", "off"); err != nil {
+		t.Fatal(err)
+	}
+	if r.SandboxOn("worker", Config{}) {
+		t.Fatal("the switch off leaves the old default")
+	}
+	got := SandboxDomains(Config{"sandbox_domains": " expo.dev,, "})
+	if strings.Join(got, ",") != "registry.npmjs.org,proxy.golang.org,sum.golang.org,expo.dev" {
+		t.Fatalf("the registries and the strings agent.yaml adds: %v", got)
+	}
+}
+
+func TestARepoHasOnlyTheSandboxAllowancesTheFounderGaveIt(t *testing.T) {
+	t.Setenv("OCP_AGENT", "")
+	t.Setenv("HANDLINE_AGENT", "")
+	r := NewRoster(newHome(t))
+	ours, theirs := Config{"repo": "/ws/orcapipe/"}, Config{"repo": "/ws/harbor-app"}
+	if got := r.RepoAllowancesOf(ours); got.WeakerNetwork || got.Excluded != nil {
+		t.Fatalf("a repo has none until the founder gives them: %+v", got)
+	}
+	if err := r.Store.Put(RepoAllowanceNS, "orcapipe", "weaker-network\npnpm-install\nrm-rf"); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.RepoAllowancesOf(ours); !got.WeakerNetwork || !slices.Equal(got.Excluded, []string{"pnpm install", "pnpm install --frozen-lockfile"}) {
+		t.Fatalf("the repo's entry, and a line that names no allowance grants nothing: %+v", got)
+	}
+	// The CLI takes a pattern as the whole command, or as its start when it ends in " *": an add of a package stays in the sandbox.
+	for _, pattern := range r.RepoAllowancesOf(ours).Excluded {
+		start, prefix := strings.CutSuffix(pattern, " *")
+		if cmd := "pnpm install left-pad"; cmd == pattern || prefix && strings.HasPrefix(cmd, start+" ") {
+			t.Fatalf("%q runs %q outside the sandbox", pattern, cmd)
+		}
+	}
+	for _, cfg := range []Config{theirs, {}, {"repo": "/ws/@personal"}} {
+		if got := r.RepoAllowancesOf(cfg); got.WeakerNetwork || got.Excluded != nil {
+			t.Fatalf("%v: another repo has none: %+v", cfg, got)
+		}
 	}
 }
 

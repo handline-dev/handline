@@ -18,7 +18,7 @@ var shaLike = regexp.MustCompile(`^[0-9a-fA-F]{4,40}$`)
 
 // doneMethod is task.done (actions.mark_task_done): the owner's or the founder's call, with exactly one of a merge sha on main, a
 // request already answered, or a one-line fact. An owner the task does not answer to files it as a report for task.accept.
-func doneMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
+func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		tid, err := taskID(p)
 		if err != nil {
@@ -43,13 +43,9 @@ func doneMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 		if (evidence == nil) == (request == nil) {
 			return nil, badParam("done takes exactly one of evidence or request", "evidence")
 		}
-		forceWords := false
-		if v := p["reason"]; v != nil {
-			b, ok := v.(bool)
-			if !ok {
-				return nil, badParam("reason is true or false", "reason")
-			}
-			forceWords = b
+		forceWords, err := optionalBool(p, "reason")
+		if err != nil {
+			return nil, err
 		}
 		in := DoneIn{Task: tid}
 		if in.Commit, in.Shots, err = resultParams(p); err != nil {
@@ -79,8 +75,19 @@ func doneMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			return nil, badParam("a sha is checked against a repo: name one", "repo")
 		}
 		var done *DoneResult
+		var decided func()
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 			in.Sha, in.Words, in.Request, in.Repo = sha, words, request, repo
+			if decide != nil && by == db.Human && words != "" && in.Commit == "" && len(in.Shots) == 0 {
+				handled, said, then, err := decide(tx, tid, words)
+				if err != nil {
+					return nil, err
+				}
+				if handled {
+					decided = then
+					return accepted(said, nil), nil
+				}
+			}
 			res, err := MarkDone(tx, home, by, in)
 			if err != nil {
 				return nil, err
@@ -93,6 +100,9 @@ func doneMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 				return nil, fmt.Errorf("task T%d is done, but its screenshots could not be put in place: %w", tid, kerr)
 			}
 		}
+		if err == nil && decided != nil {
+			decided()
+		}
 		switch {
 		case err != nil || done == nil || tell == nil:
 		case done.Reported:
@@ -103,6 +113,10 @@ func doneMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 		return out, err
 	}
 }
+
+// CardDecider ends the founder's own decision task through its card while that card is still queued, so what waits on the answer (a trust
+// proposal) runs. handled is false for any other task, which MarkDone then ends; then runs once the call has committed.
+type CardDecider func(tx *sql.Tx, tid int64, words string) (handled bool, said string, then func(), err error)
 
 // DoneIn is what MarkDone is given: exactly one of Sha (checked against Repo's main), Request (already answered) or Words.
 type DoneIn struct {
@@ -198,7 +212,7 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		return nil, err
 	}
 	if len(kids) > 0 {
-		return nil, refusal(fmt.Sprintf("task T%d still has open child tasks (%s) - it is done once they are", tid, taskList(kids)))
+		return nil, openChildrenRefusal(tx, tid, kids)
 	}
 	blockers, err := taskBlockers(tx, tid)
 	if err != nil {
@@ -276,4 +290,27 @@ func shaOnMain(repo, sha string) (full, why string) {
 		msg = r.Stdout
 	}
 	return "", textsafe.Oneline(strings.TrimSpace(msg))
+}
+
+// openChildrenRefusal refuses a parent's done while children are open, naming each child (number, state, assignee, title) and the
+// commands that close them, so the one refused can clear them from the refusal itself; data.children carries the same for the app.
+func openChildrenRefusal(tx *sql.Tx, tid int64, kids []int64) error {
+	lines := []string{fmt.Sprintf("task T%d still has open child tasks - it is done once they are closed:", tid)}
+	var children []map[string]any
+	for _, id := range kids {
+		t, err := db.GetTask(tx, id)
+		if err != nil {
+			return err
+		}
+		state, err := db.TaskState(tx, t)
+		if err != nil {
+			return err
+		}
+		lines = append(lines, fmt.Sprintf("  T%d  %s  %s  %s", id, state, t.Owner, t.Title))
+		children = append(children, map[string]any{"task": id, "state": state, "assignee": t.Owner, "title": t.Title})
+	}
+	hint := fmt.Sprintf("close each: `hl task discard T%d \"<reason>\"` for one not needed (a duplicate of T%d, say), or its assignee's `hl task done T%d` for one finished", kids[0], tid, kids[0])
+	err := rpc.Refused(strings.Join(append(lines, hint), "\n"), "open_children", hint)
+	err.Data["children"] = children
+	return err
 }

@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { phoneHtml } from '../src/phone-html.ts';
+import { COPY_URL, phoneHtml } from '../src/phone-html.ts';
 import { trayMenu } from '../src/tray.ts';
 
-test('the phone page holds a QR and no script, and the link itself is not printed', () => {
-  const html = phoneHtml('handline://pair?host=h.ts.net%3A7443&code=AAAA-BBBB-CCCC', 5);
+test('the phone page holds a QR, a copy button, the lifetime and no script, and the link itself is not printed', () => {
+  const html = phoneHtml('handline://pair?host=h.ts.net%3A7443&code=AAAA-BBBB-CCCC', 5, '10:42');
   assert.match(html, /<svg/);
+  assert.ok(html.includes(`href="${COPY_URL}"`));
+  assert.match(html, /5 minutes, until 10:42/);
   assert.doesNotMatch(html, /<script|AAAA-BBBB-CCCC/);
 });
 

@@ -48,7 +48,9 @@
   "proposal_settled": "hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now.",
   "confirm": "chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do.",
   "limit": "attachment.put: the file or the unsent total is over its limit, or too many uploads are open (x-attachments).",
-  "listing": "inbox.queue: the caller may not list that agent's messages. Only the agent itself, its supervisor and the founder may."
+  "listing": "inbox.queue: the caller may not list that agent's messages. Only the agent itself, its supervisor and the founder may.",
+  "duplicate_title": "task.new: an open task under the same parent, or the parent itself, has nearly the title (same first word, 80% of the shorter title's words, Story prefix, case, punctuation and commit shas ignored). data.task names it; duplicate_ok opens the task anyway.",
+  "open_children": "task.done: the task has open child tasks. The reason names each (number, state, assignee, title), the hint the commands that close one, and the refusal's `children` lists them, so a client can offer to discard them from the same prompt."
  },
  "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
  "x-legacy": {
@@ -148,6 +150,7 @@
    "hl doctor",
    "hl hooks",
    "hl go",
+   "hl sandbox-repo",
    "hl install-hooks",
    "hl backup",
    "hl venv",
@@ -244,6 +247,7 @@
    "running": "A turn is running (a hand-off in progress counts: moving is working).",
    "idle": "At its prompt with nothing to do, or nothing pending for it (a park with no work behind it, a finished one). state_detail may say what it waits on (a child task, background work).",
    "queued": "Has work and will start at the daemon's next tick, with no time to wait for. state_detail may say why it is not running yet (a restart retry).",
+   "starting": "A terminal agent's launch in progress: hl launch kept the session start, no hook of that session, no session end and no failed wake has come since, and its pane runs something other than its shell. A launch that died is back at the shell, so it never reads as starting. Never hides a running turn, a dialog or a stall.",
    "parked": "Waits for a time: the usage window rolling over, a park a person asked for, a throttle or degraded retry, or an account move settling. state_detail is the clock (`due` once it has passed; `moving` for an account move, which has no clock).",
    "waiting": "A person must answer: a dialog or a prompt is open (has_dialog is true).",
    "stalled": "Stopped until a person unstalls it (the daemon will not wake it).",
@@ -254,6 +258,7 @@
    "RUNNING, HANDOFF": "running",
    "IDLE, DONE, PARKED with no work behind it": "idle",
    "QUEUED, a restart retry (PENDING with no clock)": "queued",
+   "a terminal launch in progress, before its session's first hook, with claude and not the shell in its pane (checked over idle, queued and no_terminal)": "starting",
    "PARKED, THROTTLED, DEGRADED with a wake time (PENDING with a clock); MOVING": "parked",
    "DIALOG (an open prompt or modal)": "waiting",
    "STALLED (FATAL)": "stalled",
@@ -1287,6 +1292,47 @@
    ],
    "x-gates": [
     "terminal_lock",
+    "state"
+   ]
+  },
+  {
+   "name": "agent.retire",
+   "summary": "Retire an agent, as an approved HR retire does: it leaves team.yaml (team.yaml.bak keeps the old one), its scheduling row is deleted, its folder (ROLE.md, memory, settings) moves to agents/archive/<date>-<name>, its build caches are removed and its sealed key is forgotten. Its past messages, requests and events stay, and its git worktree is left as it is. Founder only. Refused (gate state) while the agent has a session running, or while another agent reports to it or hangs under its name (<agent>.<rest>): the reason names them. An agent the daemon does not have is not_found.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
     "state"
    ]
   },
@@ -2788,7 +2834,8 @@
      "name": "body",
      "required": true,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts), with or without `task`; with `task` it is the task's brief."
      }
     },
     {
@@ -2827,7 +2874,7 @@
       },
       "maxItems": 6,
       "uniqueItems": true,
-      "description": "Images from attachment.put to send with this message, drawn in this order. Then body may be empty. An id that is unknown, expired or already sent is bad_request, field attachments. Not with task (bad_request)."
+      "description": "Images from attachment.put to send with this message, drawn after those the body names (x-attachments, flow); an id the body names too counts once, and the two together are at most 6 (bad_request, field attachments when the list goes over). Then body may be empty. An id may be sent again. A malformed id or an unfinished upload is bad_request, field attachments; an image never put or no longer kept is not_found, what attachment. Not with task (bad_request): a brief names its images in its text."
      }
     },
     {
@@ -4238,6 +4285,20 @@
         }
        ],
        "description": "Set when the request was dismissed: who did it and why, each null when not recorded."
+      },
+      "parts": {
+       "type": "array",
+       "items": {
+        "oneOf": [
+         {
+          "$ref": "#/components/schemas/TextPart"
+         },
+         {
+          "$ref": "#/components/schemas/ImagePart"
+         }
+        ]
+       },
+       "description": "`body` cut at the images it names, in order, then one part per image sent with it in `attachments` that the body does not name (an empty caption); present only when the message has an image. The text parts joined give `body` with each reference left out."
       }
      },
      "required": [
@@ -4392,6 +4453,63 @@
    ]
   },
   {
+   "name": "team.seal",
+   "summary": "The founder seals team.yaml and every agent.yaml as they are now, as hl team seal does; dry_run names what would be sealed.",
+   "description": "Seals are what lets the daemon tell a file the founder approved from one changed behind their back. The call without `dry_run` is the go-ahead and seals every file that is not sealed as it is, and marks the seals as begun; a file already matching its seal is left. A dry run lists each file it would take on, `new` (no seal before) or `changed` (it did not match its seal), with the digest it would be sealed with, and writes nothing and records nothing. Nothing to seal is `ok` true with that said. An agent's session is refused by role.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "dry_run",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Change nothing: answer `plan`."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "required": [
+      "ok"
+     ],
+     "properties": {
+      "ok": {
+       "type": "boolean",
+       "description": "Always true: a refusal is an error."
+      },
+      "plan": {
+       "type": "string",
+       "description": "Dry run only: one line per file that would be sealed (its label, why, its digest), or that nothing needs sealing."
+      },
+      "said": {
+       "type": "string",
+       "description": "Without dry_run: one line per file sealed, or that nothing needed sealing."
+      }
+     }
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "inbox.mark_read",
    "summary": "Mark items read; an id that is not yours is not_found.",
    "paramStructure": "by-name",
@@ -4508,7 +4626,8 @@
      "name": "text",
      "required": true,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts)."
      }
     },
     {
@@ -4572,6 +4691,14 @@
      "required": false,
      "schema": {
       "type": "integer"
+     }
+    },
+    {
+     "name": "under",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "That task and every task below it, at any depth, done and discarded included (all is implied); still within the caller's scope, newest first and paged as without it."
      }
     },
     {
@@ -4807,7 +4934,7 @@
      "required": false,
      "schema": {
       "type": "string",
-      "description": "The brief, Markdown. It may name images (x-attachments, tasks)."
+      "description": "The brief, Markdown. It may name images (x-attachments, texts)."
      }
     },
     {
@@ -4836,6 +4963,14 @@
      "required": false,
      "schema": {
       "type": "integer"
+     }
+    },
+    {
+     "name": "duplicate_ok",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Open the task even when an open task under the same parent, or the parent itself, has nearly its title (gate duplicate_title)."
      }
     },
     {
@@ -4931,6 +5066,10 @@
     {
      "$ref": "#/components/errors/refused"
     }
+   ],
+   "description": "The owner may not be the caller: a task an agent takes on itself is begun from the founder's message (task.begin).",
+   "x-gates": [
+    "duplicate_title"
    ]
   },
   {
@@ -4956,7 +5095,8 @@
      "name": "note",
      "required": true,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts); they are the task's while it is open."
      }
     },
     {
@@ -5067,6 +5207,9 @@
    "x-role": "agent",
    "x-write": true,
    "x-since": 1,
+   "x-gates": [
+    "open_children"
+   ],
    "errors": [
     {
      "$ref": "#/components/errors/refused"
@@ -5078,7 +5221,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner, when the task answers to someone else (its reporter, or its opener), does not close it: the task turns reported and waits for task.accept or task.reject by them. A done by the founder, or by an owner the task answers to, closes it at once."
+   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner, when the task answers to someone else (its reporter, or its opener), does not close it: the task turns reported and waits for task.accept or task.reject by them. A done by the founder, or by an owner the task answers to, closes it at once. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`."
   },
   {
    "name": "task.accept",
@@ -5139,7 +5282,7 @@
      "required": true,
      "schema": {
       "type": "string",
-      "description": "One line: what is missing. It is told to the owner. It may then name images (x-attachments, tasks), each on a line of its own after the words; nothing else may follow them."
+      "description": "One line: what is missing. It is told to the owner. It may then name images (x-attachments, texts), each on a line of its own after the words; nothing else may follow them."
      }
     },
     {
@@ -5446,6 +5589,22 @@
      "schema": {
       "type": "integer"
      }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "With limit: the page just older than this memo id."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "1 to 200. The newest limit memos, or the limit just older than before; absent: every memo."
+     }
     }
    ],
    "result": {
@@ -5458,10 +5617,15 @@
        "items": {
         "$ref": "#/components/schemas/Memo"
        }
+      },
+      "more": {
+       "type": "boolean",
+       "description": "There are older memos than the page."
       }
      },
      "required": [
-      "memos"
+      "memos",
+      "more"
      ]
     }
    },
@@ -5476,7 +5640,7 @@
   },
   {
    "name": "task.memo.add",
-   "summary": "Add a memo; anyone may. A memo on a doing task is told to its holder.",
+   "summary": "Add a memo; anyone may. It is told to the holder of a doing task, to whom the task answers (its reporter, else its opener) and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. memo.edit and memo.delete are told the same way.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5491,7 +5655,15 @@
      "required": true,
      "schema": {
       "type": "string",
-      "description": "Markdown. It may name images (x-attachments, tasks)."
+      "description": "Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "now",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Tell every reader at once, even mid-turn."
      }
     },
     {
@@ -5562,7 +5734,7 @@
      "required": true,
      "schema": {
       "type": "string",
-      "description": "Markdown. It may name images (x-attachments, tasks)."
+      "description": "Markdown. It may name images (x-attachments, texts)."
      }
     },
     {
@@ -6052,7 +6224,7 @@
      "required": false,
      "schema": {
       "type": "string",
-      "description": "The new brief, Markdown. It may name images (x-attachments, tasks)."
+      "description": "The new brief, Markdown. It may name images (x-attachments, texts)."
      }
     },
     {
@@ -6197,7 +6369,8 @@
      "name": "body",
      "required": true,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts)."
      }
     },
     {
@@ -8419,6 +8592,37 @@
      "plan": {
       "type": "string",
       "description": "With gate confirm: what the call would do and who is told."
+     },
+     "task": {
+      "type": "integer",
+      "description": "With gate duplicate_title: the open task the new one repeats."
+     },
+     "children": {
+      "type": "array",
+      "description": "With gate open_children: the task's open child tasks.",
+      "items": {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        },
+        "state": {
+         "type": "string"
+        },
+        "assignee": {
+         "type": "string"
+        },
+        "title": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "task",
+        "state",
+        "assignee",
+        "title"
+       ]
+      }
      }
     },
     "required": [
@@ -8918,6 +9122,39 @@
        }
       ],
       "description": "Set while the agent waits on a decision only a person at its terminal can make. Fed by hooks (PermissionRequest and the permission and question Notification kinds) and by the session file saying status `waiting` with `waitingFor` (`permission prompt` is the one measured; the file has no needs or tempo key), never by reading the screen; the tool and its target come from the PermissionRequest hook event; cleared by the hook that follows (PostToolUse, UserPromptSubmit, Stop, SessionEnd) or when the session file stops saying it. While set, `state` is `waiting`, `has_dialog` is true and `attention` is `alert`. null when none. Absent from a daemon that does not serve it yet (the Python daemon reads the screen and sets has_dialog and `alert` without it)."
+     },
+     "handoff": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "cause": {
+          "type": "string",
+          "description": "Why the conversation is ending: the words of session.cause (`context_full`, `move`, and the trigger's own word for the rest, such as `usage` or `login`). An open set."
+         },
+         "phase": {
+          "type": "string",
+          "enum": [
+           "writing",
+           "starting"
+          ],
+          "description": "`writing`: the agent writes its handoff note and the daemon takes the record. `starting`: the old session is closed and the new one is launching."
+         },
+         "since": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "cause",
+         "phase",
+         "since"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Set while a session hands off, so a chat that sits still can say why. Cleared when the new session's start item appears. Every change is an agent.changed. A handoff that waits for a usage window to reset shows `writing` only; it is not `starting` until a launch is due. null when none. Absent from a daemon that does not serve it."
      }
     },
     "required": [
@@ -9533,6 +9770,36 @@
       },
       "description": "The ids of the open tasks that hold this one (block_reason names them as text); empty when nothing does. Absent from a daemon that does not send it."
      },
+     "waits": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        },
+        "open": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "task",
+        "open"
+       ]
+      },
+      "description": "Every task this one has waited on, oldest first, with whether it is still open: blocked_by keeps only the open ones, this keeps a done one too (a discarded blocker's wait ends with it and drops out). A child task is one its parent waits on. Absent from a daemon that does not send it."
+     },
+     "waiting": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/TaskWaiting"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Why the open task waits, as one field every view shows the same way; null when nothing waits, and for a task that is not queued or doing. hold_reason and block_reason stay until the apps read this. Absent from a daemon that does not send it."
+     },
      "time": {
       "oneOf": [
        {
@@ -9590,6 +9857,36 @@
      "evidence"
     ],
     "description": "A task row without its body."
+   },
+   "TaskWaiting": {
+    "type": "object",
+    "properties": {
+     "on": {
+      "type": "string",
+      "description": "The cause, one word of an open set (a client shows text for a word it does not know): task (behind its open blockers, tasks names them), founder (an open request to the founder on the task), cap (the owner's account has no free slot), wall (the owner's account is at a usage limit), owner (the owner is busy: mid-turn, a dialog, closed, another task ahead), host (reserved: the host is full; not sent until the host cap exists)."
+     },
+     "text": {
+      "type": "string",
+      "description": "The line every view shows for it: `blocked by T<n>`, `waiting on you`, else the daemon's own reason."
+     },
+     "tasks": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "description": "The tasks it waits on, for on task (by id, also one outside the caller's scope); empty otherwise."
+     },
+     "since": {
+      "$ref": "#/components/schemas/Timestamp"
+     }
+    },
+    "required": [
+     "on",
+     "text",
+     "tasks",
+     "since"
+    ],
+    "description": "Why a task waits (Task.waiting)."
    },
    "TaskDetail": {
     "allOf": [
@@ -9897,7 +10194,7 @@
              }
             ]
            },
-           "description": "`text` cut at the images it names, for a memo, an edit or a reject; present only when it names one."
+           "description": "`text` cut at the images it names, for a memo, a handoff, an edit or a reject; present only when it names one."
           }
          },
          "required": [
@@ -11847,7 +12144,21 @@
       "items": {
        "$ref": "#/components/schemas/Attachment"
       },
-      "description": "The images sent with the message, in order. Absent when it has none."
+      "description": "Every image of the message, in order: those the body names that are still kept, then those sent in `attachments`. Absent when it has none."
+     },
+     "parts": {
+      "type": "array",
+      "items": {
+       "oneOf": [
+        {
+         "$ref": "#/components/schemas/TextPart"
+        },
+        {
+         "$ref": "#/components/schemas/ImagePart"
+        }
+       ]
+      },
+      "description": "`body` cut at the images it names, in order, then one part per image sent with it in `attachments` that the body does not name (an empty caption); present only when the message has an image. The text parts joined give `body` with each reference left out."
      },
      "parent_item": {
       "oneOf": [
@@ -11873,6 +12184,10 @@
         "type": "null"
        }
       ]
+     },
+     "proposal": {
+      "type": "integer",
+      "description": "Only on the message that tells an agent how the founder decided its HR proposal: that proposal's id, as hr.list gives it. A client that draws the decided proposal as a card can leave this line out."
      }
     },
     "required": [
@@ -11973,6 +12288,10 @@
          }
         ]
        },
+       "who": {
+        "type": "string",
+        "description": "Who did it: the agent (or human) that opened, changed, closed or withdrew the task, as ChatRequestItem.who."
+       },
        "change": {
         "type": "string",
         "description": "What a `changed` event changed, as chat.requests words it: `assigned to X, priority 2 -> 1`, `title changed`, `handed to X`. Absent when the event word says it all. An open set: a client draws a word it does not know as text."
@@ -11982,7 +12301,8 @@
        "event",
        "task",
        "request",
-       "evidence"
+       "evidence",
+       "who"
       ]
      },
      "session": {
@@ -12232,6 +12552,14 @@
        "type": "string"
       },
       "description": "settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` or `base.md`; empty text or control characters other than tab and newline is bad_request."
+     },
+     "changes": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "description": "A step: kind (add, retire, rename, link, unlink, team, context) and the other fields of this type, name included."
+      },
+      "description": "bundle: the steps, at most 40, each judged against the roster the earlier ones leave. name is then ignored (send the count, `3 changes`)."
      }
     }
    },
@@ -13924,12 +14252,12 @@
   "never": "A client does not send session.input, session.keys, session.type, input.take, input.release or terminal.attach for a structured agent, and shows no terminal tab, holder, key strip or Take control. The Go daemon does not serve the first five at all; a daemon that does refuses a structured agent (gate unsupported). terminal.attach with agent is not_found (terminal): it has no terminal."
  },
  "x-attachments": {
-  "what": "Images the person attaches to a chat message. One mechanism for every agent, structured or terminal: the file is stored on the daemon's machine and the agent is told its path, which it reads with its own file tool.",
-  "flow": "attachment.put sends the file in chunks and ends with the Attachment (an id); chat.send then names up to 6 ids in `attachments`. The message is delivered like any other, with one line per image added after the body: `[image N: /absolute/path.png (image/png, 184 KB)]`. ChatMessage.attachments and turn_start.attachments carry the ids for a client to draw; the body the client stored stays as typed (the path lines are added at delivery only), so a client that shows an agent's echo of a user turn may drop lines of that shape.",
-  "tasks": "A task's text names an image with Markdown image syntax and the attachment: scheme, `![caption](attachment:ID)`, in task.new and task.edit `body`, task.memo.add and task.memo.edit `text`, and task.reject `note`. The text is stored as written; only that exact form is a reference, anything else is plain text. At most 6 per text. The write checks each image it names in its own transaction: a malformed id or an upload not yet finished is bad_request (the field, a reason naming the id); an image no longer kept is not_found, what attachment; more than 6 is bad_request. An edit that keeps a reference the text already had is never refused for it, even when the image is gone. A write that names an image claims it, as a message does; an image a task names (its brief, a memo or a reject note) is not removed while that task is open, and is kept 30 days after the last such task is done or discarded. The id is the daemon's, not a device's: one device may upload it and another write the task that names it. task.get cuts each such text at its references so a client need not parse it: TaskDetail.body_parts, Memo.parts and a timeline row's parts (a reject is a row of its own), each a list of TextPart and ImagePart; an image no longer kept is a part with gone: true and only its id. Wherever the daemon types a task's brief, a memo or a reject note to an agent, it adds the path lines after the text, as for a message; an agent's task.get carries the path in each ImagePart, so hl task show prints the same lines.",
+  "what": "Images a person attaches to a chat message, a task's brief, a memo or a note: one path for all of them, and one mechanism for every agent, structured or terminal: the file is stored on the daemon's machine and the agent is told its path, which it reads with its own file tool.",
+  "flow": "attachment.put sends the file in chunks and ends with the Attachment (an id). A text names it as `![caption](attachment:ID)` (texts); chat.send may also list up to 6 ids in `attachments`. A message's images are those its body names, in order, then the listed ids it does not name, each once, at most 6 in all. The message is delivered like any other, with one line per image added after the body, in that order: `[image N: /absolute/path.png (image/png, 184 KB)]`. ChatMessage.attachments and turn_start.attachments list every image of the message for a client to draw, and ChatMessage.parts cuts the body at its images; the body the client stored stays as typed (the path lines are added at delivery only), so a client that shows an agent's echo of a user turn may drop lines of that shape.",
+  "texts": "A text names an image with Markdown image syntax and the attachment: scheme, `![caption](attachment:ID)`, in chat.send and say `body`, inbox.reply `text`, task.new and task.edit `body`, task.memo.add and task.memo.edit `text`, and task.handoff and task.reject `note`. The text is stored as written; only that exact form is a reference, anywhere in the text, anything else is plain text: a client draws the rest as Markdown. At most 6 per text. The write checks each image it names in its own transaction: a malformed id or an upload not yet finished is bad_request (the field, a reason naming the id); an image never put or no longer kept is not_found, what attachment; more than 6 is bad_request. chat.send's `attachments` are checked the same way, with field attachments. An edit that keeps a reference the text already had is never refused for it, even when the image is gone. A write that names an image claims it, as a message does; an image a task names (its brief, a memo, a handoff or a reject note) is not removed while that task is open, and is kept 30 days after the last such task is done or discarded. The id is the daemon's, not a device's: one device may upload it and another write the text that names it. task.get cuts each task text at its references so a client need not parse it: TaskDetail.body_parts, Memo.parts and a timeline row's parts (a reject is a row of its own); chat reads and request.read do the same for a message in `parts`. Each is a list of TextPart and ImagePart; an image no longer kept is a part with gone: true and only its id. Wherever the daemon types a message, a task's brief, a memo or a note to an agent, it adds the path lines after the text, the message's own images first, then those its task's memos name, numbered on; an agent's reads carry the path in each ImagePart, so hl task show and hl read print the same lines.",
   "limits": "Types: PNG, JPEG, GIF, WebP, checked by the file's first bytes, not by the mime the client says (a mismatch is bad_request, field data). SVG and everything else is refused. At most 10 MiB per image and 6 per message; chunks of at most 512 KiB of file (a 700 KiB base64 string) so a frame stays under the 1 MiB line. More than 20 unsent uploads open at once, or more than 100 MiB unsent, is refused, gate limit.",
-  "storage": "The daemon's attachments folder under its home (mode 0700; files 0600, owner the daemon's user), one file per image named by its id and the extension of its type: the name the client gave is never part of the path. An upload not finished within 1 hour is dropped with its partial file; a finished image no message names is dropped after 24 hours; one a message names is kept 30 days after that message, then removed: attachment.get for it is not_found and the client shows the name without the picture.",
+  "storage": "The daemon's attachments folder under its home (mode 0700; files 0600, owner the daemon's user), one file per image named by its id and the extension of its type: the name the client gave is never part of the path. An upload not finished within 1 hour is dropped with its partial file; a finished image no message names is dropped after 24 hours; one a message names is kept 30 days after the last message naming it, and one a task names as texts says; then it is removed: attachment.get for it is not_found and the client shows the name without the picture.",
   "reach": "The daemon makes the folder readable by the agent without a prompt (a session setting that allows reads of that folder), so an agent in any worktree can Read the path. A client never sees the path.",
-  "roles": "member and founder may put and get, and name any kept image in a task's text; an agent may not put or get (refused, gate role) in v1, and names only an image a task's brief, memo or reject note already names (else refused, gate role), so it can carry a picture into a child task or a handoff."
+  "roles": "member and founder may put and get, and name any kept image in a text; an agent may not put or get (refused, gate role) in v1, and names only an image a task's text or a message already names or was sent with (else refused, gate role), so it can pass on a picture it was shown."
  }
 }

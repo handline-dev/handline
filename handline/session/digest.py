@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/handoff/digest.go; do not change, change the Go
 """Digest parsing, validation and rendering (design section 5).
 
 The section list is fixed on purpose. With fixed sections a fold becomes

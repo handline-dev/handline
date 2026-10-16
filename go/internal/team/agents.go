@@ -363,10 +363,66 @@ func contains(xs []string, x string) bool {
 	return false
 }
 
-// SandboxOn is whether the sandbox is on: only with `sandbox: true` in agent.yaml. Off is the default, so the file
-// needs no grant: an agent that writes it only confines itself.
+// SandboxOn is whether the sandbox is on: what agent.yaml says when it has `sandbox: true` or `sandbox: false`, else the founder's
+// default, which is on once the protected switch sandbox_default reads "on" (an agent cannot write the store, and the roster files are in
+// every session's denyWrite) and off before.
 func (r *Roster) SandboxOn(agent string, cfg Config) bool {
-	return cfg["sandbox"] == true
+	if v, ok := cfg["sandbox"].(bool); ok {
+		return v
+	}
+	if r.Store == nil {
+		return false
+	}
+	v, _ := r.Store.Get("switches", "sandbox_default")
+	return strings.TrimSpace(v) == "on"
+}
+
+// SandboxDomains are the hosts a sandboxed session may reach: the package registries every repo builds from, and those agent.yaml
+// adds under sandbox_domains, comma separated.
+func SandboxDomains(cfg Config) []string {
+	out := []string{"registry.npmjs.org", "proxy.golang.org", "sum.golang.org"}
+	extra, _ := cfg["sandbox_domains"].(string)
+	for _, d := range strings.Split(extra, ",") {
+		if d = strings.TrimSpace(d); d != "" {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// RepoAllowanceNS is the protected namespace of the sandbox allowances the founder gave a repo: one entry per repo, named after
+// its folder, one allowance a line.
+const RepoAllowanceNS = "sandbox_repos"
+
+// RepoAllowances are what a sandboxed session may do beyond the sandbox, because the founder allowed it for its repo.
+type RepoAllowances struct {
+	// WeakerNetwork lets the session reach trustd, which Go on macOS verifies TLS through: without it no Go module downloads.
+	WeakerNetwork bool
+	// Excluded are the commands that run outside the sandbox.
+	Excluded []string
+}
+
+// RepoAllowanceNames are the allowances the founder may give a repo, each as it changes the session's sandbox.
+var RepoAllowanceNames = map[string]func(*RepoAllowances){
+	"weaker-network": func(a *RepoAllowances) { a.WeakerNetwork = true },
+	"pnpm-install":   func(a *RepoAllowances) { a.Excluded = append(a.Excluded, "pnpm install", "pnpm install --frozen-lockfile") },
+}
+
+// RepoAllowancesOf are the allowances of the repo agent.yaml names. A repo has none until the founder gives them (`hl sandbox-repo`),
+// and a line that names no allowance grants nothing.
+func (r *Roster) RepoAllowancesOf(cfg Config) RepoAllowances {
+	var out RepoAllowances
+	repo, _ := cfg["repo"].(string)
+	if repo == "" || r.Store == nil {
+		return out
+	}
+	v, _ := r.Store.Get(RepoAllowanceNS, filepath.Base(filepath.Clean(repo)))
+	for _, name := range strings.Fields(v) {
+		if apply := RepoAllowanceNames[name]; apply != nil {
+			apply(&out)
+		}
+	}
+	return out
 }
 
 // AgentFile is the path of an agent's agent.yaml.
@@ -538,8 +594,8 @@ func (r *Roster) Register(name string, o RegisterOpts) (string, error) {
 		if o.Mode != nil && *o.Mode != DefaultMode {
 			pairs = append(pairs, yamlcompat.Pair{Key: "mode", Val: *o.Mode})
 		}
-		if o.Sandbox != nil && *o.Sandbox {
-			pairs = append(pairs, yamlcompat.Pair{Key: "sandbox", Val: true})
+		if o.Sandbox != nil { // said either way: a file without the key follows the founder's default
+			pairs = append(pairs, yamlcompat.Pair{Key: "sandbox", Val: *o.Sandbox})
 		}
 		if o.Chrome != nil && *o.Chrome {
 			pairs = append(pairs, yamlcompat.Pair{Key: "chrome", Val: true})
@@ -664,11 +720,7 @@ func (r *Roster) update(name, f string, o RegisterOpts) error {
 		}
 	}
 	if o.Sandbox != nil {
-		if *o.Sandbox {
-			cfg = pairsSet(cfg, "sandbox", true)
-		} else {
-			cfg = pairsPop(cfg, "sandbox")
-		}
+		cfg = pairsSet(cfg, "sandbox", *o.Sandbox) // said either way: a file without the key follows the founder's default
 	}
 	if o.Chrome != nil {
 		if *o.Chrome {

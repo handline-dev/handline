@@ -10,7 +10,7 @@ import re
 import shlex
 from pathlib import Path
 
-from ..infra import paths, sealed, textsafe
+from ..infra import paths, protected, sealed, textsafe
 from ..session import triggers
 from ..infra.yamlcompat import ConfigError, dump, is_plain_text, load, refuse_unsafe_values
 
@@ -194,9 +194,46 @@ def mode_of(agent: str, cfg: dict) -> str:
 
 
 def sandbox_on(agent: str, cfg: dict) -> bool:
-    """Whether the sandbox is on: only with `sandbox: true` in agent.yaml. Off is the default, as in Claude
-    Code itself, so the file needs no grant: an agent that writes it only confines itself."""
-    return cfg.get("sandbox") is True
+    """Whether the sandbox is on: what agent.yaml says when it has `sandbox: true` or `sandbox: false`, else the
+    founder's default, which is on once the protected switch sandbox_default reads "on" (an agent cannot write the
+    store, and the roster files are in every session's denyWrite) and off before."""
+    if isinstance(cfg.get("sandbox"), bool):
+        return cfg["sandbox"]
+    return (protected.get("switches", "sandbox_default") or "").strip() == "on"
+
+
+def sandbox_domains(cfg: dict) -> list[str]:
+    """The hosts a sandboxed session may reach: the package registries every repo builds from, and those
+    agent.yaml adds under sandbox_domains, comma separated."""
+    extra = cfg.get("sandbox_domains")
+    return ["registry.npmjs.org", "proxy.golang.org", "sum.golang.org",
+            *(d.strip() for d in (extra if isinstance(extra, str) else "").split(",") if d.strip())]
+
+
+# The protected namespace of the sandbox allowances the founder gave a repo: one entry per repo, named after its folder,
+# one allowance a line (go/internal/team/agents.go RepoAllowancesOf).
+REPO_ALLOWANCE_NS = "sandbox_repos"
+# Each allowance as the session's sandbox takes it: weaker network isolation (Go on macOS verifies TLS through trustd,
+# which the default isolation blocks), or commands that run outside the sandbox.
+REPO_ALLOWANCES = {"weaker-network": {"weaker_network": True}, "pnpm-install": {"excluded": ["pnpm install", "pnpm install --frozen-lockfile"]}}
+
+
+def repo_allowances(cfg: dict) -> dict:
+    """The allowances of the repo agent.yaml names, as launch_argv's weaker_network and excluded. A repo has none
+    until the founder gives them (`hl sandbox-repo`), and a line that names no allowance grants nothing."""
+    out = {"weaker_network": False, "excluded": []}
+    repo = cfg.get("repo")
+    if not isinstance(repo, str) or not repo:
+        return out
+    try:
+        given = protected.get(REPO_ALLOWANCE_NS, Path(repo).name) or ""
+    except ValueError:      # a folder name the store cannot hold has no entry
+        given = ""
+    for name in given.split():
+        grant = REPO_ALLOWANCES.get(name, {})
+        out["weaker_network"] = out["weaker_network"] or grant.get("weaker_network", False)
+        out["excluded"] += grant.get("excluded", [])
+    return out
 
 
 def kind(cfg: dict) -> str:
@@ -290,7 +327,7 @@ def register(name: str, role: str = "", model: str | None = None,
                      "enabled": True, **({"repo": repo} if repo else {}),
                      **({"vendor": vendor} if vendor and vendor != DEFAULT_VENDOR else {}),
                      **({"mode": mode} if mode not in (None, DEFAULT_MODE) else {}),
-                     **({"sandbox": True} if sandbox else {}),
+                     **({"sandbox": sandbox} if sandbox is not None else {}),  # said either way: no key is the founder's default
                      **({"chrome": True} if chrome else {}),
                      **({"extra_worktrees": min(extra_worktrees, MAX_EXTRA_WORKTREES)} if extra_worktrees and extra_worktrees > 0 else {}),
                      **({"mcp_config": mcp_config_text(mcp_config)} if mcp_config else {})})
@@ -331,10 +368,7 @@ def register(name: str, role: str = "", model: str | None = None,
             else:
                 cfg["mode"] = mode
         if sandbox is not None:
-            if sandbox:
-                cfg["sandbox"] = True
-            else:
-                cfg.pop("sandbox", None)
+            cfg["sandbox"] = sandbox  # said either way: no key is the founder's default
         if chrome is not None:
             if chrome:
                 cfg["chrome"] = True

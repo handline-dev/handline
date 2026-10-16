@@ -12,8 +12,7 @@ import (
 	"github.com/handline/handline/go/internal/team"
 )
 
-// SupervisorPorts are the supervisor's ports for a daemon that runs structured agents and terminal ones: the lifecycle, the transcript, the
-// handoff and the terminal (its launch, its screen reads) are real; typing at a terminal session and the dialogs are not served. The caller
+// SupervisorPorts are the supervisor's ports for the terminal agents: the lifecycle, the transcript, the handoff and the terminal (its launch, its screen reads) are real; typing at a terminal session and the dialogs are not served. The caller
 // sets them on the Env, then calls SettlePeerSends.
 func (p *Parts) SupervisorPorts(lc *Lifecycle) supervisor.Ports {
 	set := lc.Manager.Settings
@@ -22,7 +21,7 @@ func (p *Parts) SupervisorPorts(lc *Lifecycle) supervisor.Ports {
 		Terminal:  termPort{lc.term},
 		Observer:  liveSessions{p: p},
 		Dialogs:   noDialogs{},
-		Waits:     waits{p: p},
+		Waits:     waits{},
 		Idle:      idle{set},
 		Sessions:  sessions{p: p, ho: lc.Handoff},
 		Lifecycle: lifecycleStarter{m: lc.Manager},
@@ -39,9 +38,6 @@ func (o liveSessions) LiveSessions() (map[string]bool, bool) {
 	for agent := range o.p.terminalSessions() {
 		out[agent] = true
 	}
-	for agent := range o.p.Manager.Live() {
-		out[agent] = true
-	}
 	return out, true
 }
 
@@ -51,12 +47,10 @@ func (noDialogs) PastDialog(db.Q, string, bool) (string, string) { return "", ""
 func (noDialogs) Reason(kind, detail string) string              { return session.Reason(kind, detail) }
 func (noDialogs) DecisionAfterS() int64                          { return session.DecisionAfterS }
 
-// waits: a structured agent is waiting on a prompt while its permission prompt is open.
-type waits struct{ p *Parts }
+// waits: no agent's permission prompt is held by this daemon, so none waits on one here.
+type waits struct{}
 
-func (w waits) WaitingOnPrompt(_ db.Q, row *db.AgentState) bool {
-	return row != nil && w.p.Manager.Broker != nil && w.p.Manager.Broker.Has(row.Agent)
-}
+func (waits) WaitingOnPrompt(db.Q, *db.AgentState) bool { return false }
 
 func (waits) AtLimit(q db.Q, agent string) bool {
 	at, err := handoff.AtLimit(q, agent)
@@ -72,16 +66,13 @@ func (i idle) BgGraceS(agent string) int64                { return i.s.BgGraceS(
 func (i idle) ConfigSeconds(name string, def int64) int64 { return i.s.ConfigSeconds(name, def) }
 func (idle) FooterCount(running string) int               { return session.FooterCount(running) }
 
-// sessions: the session of a structured agent is the one stored with it; it has no context meter to read.
+// sessions: an agent's live session is the one stored with it; there is no context meter to read.
 type sessions struct {
 	p  *Parts
 	ho *handoff.Env
 }
 
 func (s sessions) LiveSession(q db.Q, agent string) string {
-	if id := s.p.Manager.SessionID(agent); id != "" {
-		return id
-	}
 	row, err := db.GetAgentState(q, agent)
 	if err != nil || row == nil {
 		return ""
@@ -91,7 +82,7 @@ func (s sessions) LiveSession(q db.Q, agent string) string {
 
 func (sessions) ContextUse(db.Q, string) (int64, int64) { return -1, 0 }
 
-// KeepsTranscripts: the Claude CLI leaves a transcript under the account's config dir, structured or not.
+// KeepsTranscripts: the Claude CLI leaves a transcript under the account's config dir.
 func (s sessions) KeepsTranscripts(account string) bool {
 	return team.AccountVendor(s.p.home, account) == team.DefaultVendor
 }
@@ -136,6 +127,20 @@ func (l lifecycleStarter) WakeAgent(_ db.Q, agent string) (bool, string) {
 	return ok, said
 }
 
+func (l lifecycleStarter) AccountWait(q db.Q, agent string) (string, error) {
+	row, err := db.GetAgentState(q, agent)
+	if err != nil {
+		return "", err
+	}
+	switch w := l.m.Launch.WakeWait(q, agent, row); {
+	case w == nil:
+		return "", nil
+	case w.Slot:
+		return "cap", nil
+	}
+	return "wall", nil
+}
+
 // evaluate is daemon/evaluate.queued_or_idle: QUEUED when something has not reached the agent yet, IDLE otherwise.
 type evaluate struct{}
 
@@ -150,19 +155,16 @@ func (evaluate) QueuedOrIdle(q db.Q, agent, when string) error {
 	return db.SetAgentState(q, agent, states.Idle, 0, when+"; no requests waiting")
 }
 
-// stuck: a structured agent's delivery is blocked by nothing the screen shows.
+// stuck: no delivery is blocked by what a screen shows.
 type stuck struct{}
 
 func (stuck) DeliveryBlock(db.Q, string) (string, bool) { return "", false }
 
-// agentsPort is the supervisor's Agents: the structured sessions, and the peer inbox for the terminal agents whose agent.yaml says
-// peer_inbox. The peer's outcomes go to whatever Bind gave as the telling.
+// agentsPort is the supervisor's Agents: the peer inbox for the terminal agents whose agent.yaml does not turn peer_inbox off, and no
+// session port for the others. The peer's outcomes go to whatever Bind gave as the telling.
 func (p *Parts) agentsPort() supervisor.Agents {
-	if p.Peer == nil {
-		return p.Agents
-	}
 	peer := NewPeerPort(p.home, p.db, p.Peer, peerTell{p}, p.log)
-	return mixedAgents{structured: p.Agents, peer: peer, isPeer: func(a string) bool { return !p.Kind(a) && p.Peer(a) }}
+	return mixedAgents{none: noSessionPort{}, peer: peer, isPeer: p.Peer}
 }
 
 // peerTell hands the peer port's outcomes to the telling that Bind set, when there is one.

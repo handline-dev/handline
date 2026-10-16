@@ -40,6 +40,16 @@ func TestHooksInstalledNeedsOneOfOursForEveryWantedEvent(t *testing.T) {
 	if e.hooksInstalled() {
 		t.Fatal("one event missing: not installed")
 	}
+	var noNotification []string
+	for _, ev := range hooksWanted {
+		if ev != "Notification" {
+			noNotification = append(noNotification, ev)
+		}
+	}
+	write(noNotification)
+	if e.hooksInstalled() {
+		t.Fatal("no Notification hook: not installed, or no needs-you card comes from it")
+	}
 	write(hooksWanted)
 	if !e.hooksInstalled() {
 		t.Fatal("every event has our entry: installed")

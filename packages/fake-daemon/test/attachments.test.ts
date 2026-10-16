@@ -28,9 +28,27 @@ test('a small image is one chunk, comes back whole, and is sent with a message',
   const sent = await client.call('chat.send', { agent: AUD, body: '', attachments: [r.attachment!.id], request_id: 'op-s' });
   const m = (await client.call('chat.messages', { agent: AUD, scope: 'mine' })).messages.find((x) => x.id === sent.request)!;
   assert.deepEqual(m.attachments, [r.attachment]);
+  await client.call('chat.send', { agent: AUD, body: 'again', attachments: [r.attachment!.id], request_id: 'op-t' });
+  client.close();
+});
+
+test("a message's images are its body's references, then the listed ids it does not name, cut into parts", async () => {
+  const { client } = setup();
+  await client.start();
+  const [a, b] = [(await put(client, PNG)).attachment!, (await put(client, png(100))).attachment!];
+  const body = `see ![the button](attachment:${a.id})`;
+  const sent = await client.call('chat.send', { agent: AUD, body, attachments: [b.id, a.id], request_id: 'op-m' });
+  const m = (await client.call('chat.messages', { agent: AUD, scope: 'mine' })).messages.find((x) => x.id === sent.request)!;
+  assert.deepEqual(m.attachments, [a, b]);
+  assert.deepEqual(m.parts, [{ text: 'see ' }, { image: a, caption: 'the button' }, { image: b, caption: '' }]);
+  const refs = ['1', '2', '3', '4'].map((n) => `![x](attachment:000000000000000${n})`).join('');
   await assert.rejects(
-    client.call('chat.send', { agent: AUD, body: 'again', attachments: [r.attachment!.id], request_id: 'op-t' }),
-    /already sent|unknown/,
+    client.call('chat.send', { agent: AUD, body: refs, attachments: ['0000000000000005', '0000000000000006', '0000000000000007'], request_id: 'op-n' } as never),
+    (e: { data?: { field?: string } }) => e.data?.field === 'attachments',
+  );
+  await assert.rejects(
+    client.call('chat.send', { agent: AUD, body: '![x](attachment:0000000000000000)', request_id: 'op-o' }),
+    (e: { data?: { what?: string } }) => e.data?.what === 'attachment',
   );
   client.close();
 });

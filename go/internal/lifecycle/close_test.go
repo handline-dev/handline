@@ -187,3 +187,27 @@ func TestAWakeNobodyGaveACauseSaysWhatEndedTheLastSession(t *testing.T) {
 		t.Errorf("an event before the close says nothing of it: %q", got)
 	}
 }
+
+func TestATaskTheHolderRuleHoldsWakesNobody(t *testing.T) {
+	m, _, _ := newManager(t)
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.SetAgentState(m.Q, "a", states.Idle, 0, "")
+	held, _ := db.NewTask(m.Q, "held", "a", "boss", 0, 2, "", 0, "")
+	other, _ := db.NewTask(m.Q, "other", "a", "boss", 0, 2, "", 0, "")
+	if err := db.SetCurrentTask(m.Q, "a", held, true); err != nil {
+		t.Fatal(err)
+	}
+	// other's delivery is queued, but a holds held: the holder rule keeps it back, so it is no work to wake a for
+	rid, _ := db.AddRequest(m.Q, db.NewRequest{Requester: "boss", Target: "a", Body: "other", Kind: "task"})
+	db.LinkRequest(m.Q, other, rid)
+	row, _ := db.GetAgentState(m.Q, "a")
+	if c, err := m.ClosedWakeCause("a", row); err != nil || c != nil {
+		t.Fatalf("woken for a held task: %+v %v", c, err)
+	}
+	// once a holds no open task, the same request is work
+	db.SetCurrentTask(m.Q, "a", 0, false)
+	if c, _ := m.ClosedWakeCause("a", row); c == nil || c.Kind != "work" {
+		t.Fatalf("not woken for work it can take: %+v", c)
+	}
+}

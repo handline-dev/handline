@@ -37,13 +37,18 @@ const requestSelect = "SELECT id, ts, state_at, requester, target, state, body, 
 	"(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, " +
 	"(SELECT MIN(task_id) FROM task_requests WHERE request_id = requests.id) AS task_id, " +
 	"(SELECT a.id FROM requests a WHERE a.settles = requests.id ORDER BY a.id LIMIT 1) AS answer_id, " +
-	"EXISTS (SELECT 1 FROM events WHERE dedup_key = 'task_question:' || requests.id) AS task_question FROM requests"
+	"EXISTS (SELECT 1 FROM events WHERE dedup_key = 'task_question:' || requests.id) AS task_question, " +
+	"(SELECT json_extract(payload, '$.proposal') FROM events WHERE dedup_key = 'hr_outcome:' || requests.id) AS proposal FROM requests"
 
 // chat is what one call reads with: the database and the task board, loaded when a task delivery needs it.
 type chat struct {
-	e *Env
-	b *board
+	e     *Env
+	b     *board
+	loads int  // how many times b was loaded: once per call or pass
+	agent bool // the caller is an agent: an image part carries its path
 }
+
+func isAgent(c *rpc.Conn) bool { return c != nil && c.Caller.Role == "agent" }
 
 func (c *chat) taskState(taskID int64) (any, error) {
 	t, err := queryOne(c.e.DB, "SELECT * FROM tasks WHERE id = ?", taskID)
@@ -51,6 +56,7 @@ func (c *chat) taskState(taskID int64) (any, error) {
 		return nil, err
 	}
 	if c.b == nil {
+		c.loads++
 		_, open, err := c.e.boardRows(false)
 		if err != nil {
 			return nil, err
@@ -62,11 +68,13 @@ func (c *chat) taskState(taskID int64) (any, error) {
 	return c.b.state(t), nil
 }
 
+// chatScope is the requests a chat draws. A notice the digest has listed is left out: the digest line carries it, and drawing both shows it twice.
 func chatScope(agent string, everyone bool) (string, []any) {
+	const undigested = " AND NOT (notice = 1 AND delivered_at IS NOT NULL AND typed_at IS NULL)"
 	if everyone {
-		return "(requester = ? OR target = ?)", []any{agent, agent}
+		return "((requester = ? OR target = ?)" + undigested + ")", []any{agent, agent}
 	}
-	return "((requester = ? AND target = ?) OR (requester = ? AND target = ?))", []any{human, agent, agent, human}
+	return "(((requester = ? AND target = ?) OR (requester = ? AND target = ?))" + undigested + ")", []any{human, agent, agent, human}
 }
 
 // rows adds the live state of the task a task delivery carries (the only row drawn as a card).
@@ -275,12 +283,15 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 	if receipt != nil {
 		m["receipt"] = receipt
 	}
-	pictures, err := attachments.Maps(c.e.DB, r.i("id"))
-	if err != nil {
-		return nil, err
+	if r["proposal"] != nil {
+		m["proposal"] = r.i("proposal")
 	}
-	if pictures != nil {
+	images := attachments.New(c.e.Home)
+	if pictures := images.MessageMaps(c.e.DB, r.i("id"), r.str("body")); pictures != nil {
 		m["attachments"] = pictures
+	}
+	if parts := images.MessageParts(c.e.DB, r.i("id"), r.str("body"), c.agent); parts != nil {
+		m["parts"] = parts
 	}
 	return m, nil
 }
@@ -393,7 +404,7 @@ func (e *Env) chatMessages(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ch := &chat{e: e}
+	ch := &chat{e: e, agent: isAgent(c)}
 	var rs []row
 	var more bool
 	if q.since != nil {
@@ -646,7 +657,7 @@ func (e *Env) chatRequests(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ch := &chat{e: e}
+	ch := &chat{e: e, agent: isAgent(c)}
 	rs, more, err := ch.page(agent, q.everyone, q.before, q.since, q.limit)
 	if err != nil {
 		return nil, err
@@ -818,7 +829,7 @@ func (e *Env) chatLocate(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, noMessage(nothing)
 	}
 	chatAgent, everyone := found.agent, found.tab == "all"
-	ch := &chat{e: e}
+	ch := &chat{e: e, agent: isAgent(c)}
 	back0 := found.request + 1
 	back, older, err := ch.page(chatAgent, everyone, &back0, nil, limit/2+1)
 	if err != nil {
@@ -878,7 +889,7 @@ func (e *Env) chatSearch(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ch := &chat{e: e}
+	ch := &chat{e: e, agent: isAgent(c)}
 	out := []any{}
 	for _, h := range hits {
 		r, err := queryOne(e.DB, "SELECT requester, target FROM requests WHERE id = ?", h.i("id"))
@@ -952,7 +963,7 @@ func taskItemOf(ev row) (item map[string]any, task int64, ok bool) {
 	} else if event == "withdrawn" {
 		evidence = p["reason"]
 	}
-	body := map[string]any{"event": event, "task": tid, "request": p["request_id"], "evidence": evidence}
+	body := map[string]any{"event": event, "task": tid, "request": p["request_id"], "evidence": evidence, "who": ev.str("agent")}
 	if change := changeOf(ev.str("kind"), p); change != "" {
 		body["change"] = change
 	}
@@ -991,7 +1002,7 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ch := &chat{e: e}
+	ch := &chat{e: e, agent: isAgent(c)}
 	rs, _, err := ch.page(agent, false, nil, nil, perSource)
 	if err != nil {
 		return nil, err

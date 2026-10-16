@@ -13,7 +13,6 @@ import (
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
-	"github.com/handline/handline/go/internal/structured"
 )
 
 // The prompt.answer handler against the fake host: the caller named "casey", the agent "backend".
@@ -313,37 +312,6 @@ func TestIfTheFirstTrustKeyFailsNoEnterIsSent(t *testing.T) {
 	ok, said = e.pressChoice("backend", "Trust /work/project?", 1, false)
 	if ok || !strings.Contains(said, "could not confirm the trust prompt") || len(h.sent) != 2 {
 		t.Fatalf("%v %q %q", ok, said, h.sent)
-	}
-}
-
-type fakeStructured struct {
-	err    error
-	called []string
-}
-
-func (f *fakeStructured) Has(agent string) bool { return agent == "backend" }
-func (f *fakeStructured) Answer(agent, prompt string, allow bool, _, by string) error {
-	f.called = append(f.called, fmt.Sprint(agent, prompt, allow, by))
-	return f.err
-}
-
-func TestAStructuredAgentIsAnsweredByCallbackAndNeverByKeys(t *testing.T) {
-	e, h := testEnv(t)
-	register(e)
-	f := &fakeStructured{}
-	e.Structured = f
-	got, err := answers(e, "fp1", "deny")
-	if err != nil || got.(map[string]any)["said"] != "backend: answered Deny" || len(f.called) != 1 || f.called[0] != "backendfp1falsecasey" || len(h.sent) != 0 {
-		t.Fatalf("%v %v %v %v", got, err, f.called, h.sent)
-	}
-	for _, c := range []string{"maybe", "yes", "esc"} {
-		if _, err := answers(e, "fp1", c); err == nil {
-			t.Fatalf("%q was taken: a structured prompt offers allow and deny", c)
-		}
-	}
-	f.err = structured.ErrStale
-	if _, err := answers(e, "fp1", "allow"); err == nil || strings.Contains(err.Error(), "backend: answered") {
-		t.Fatalf("a stale answer must be refused: %v", err)
 	}
 }
 

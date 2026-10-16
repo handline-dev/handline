@@ -36,7 +36,6 @@ import (
 	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/termchan"
-	"github.com/handline/handline/go/internal/transcript"
 	"github.com/handline/handline/go/internal/turns"
 	"github.com/handline/handline/go/internal/version"
 	"github.com/handline/handline/go/internal/watcher"
@@ -45,10 +44,6 @@ import (
 
 // daemonLock is the name of the singleton the Python daemon also holds (handline/infra/daemonlock.py DAEMON_LOCK).
 const daemonLock = "daemon"
-
-// structuredLock is the singleton of the process that runs the structured sessions of a home. The agent lock that keeps a session to one
-// launch is in-process, so a second process on the home would launch and wake the same agents again.
-const structuredLock = "structured"
 
 type Config struct {
 	Home       string
@@ -93,18 +88,11 @@ type Config struct {
 	// writes are made, and what needs a port that has not landed is left to the tick.
 	Env *supervisor.Env
 
-	// Transcript is where the structured sessions' events go (structured.Manager.Events). With Structured it makes the daemon serve the
-	// transcript topic and transcript.events, and say so in hello. Nil serves neither.
-	Transcript *transcript.Sink
-	// Structured says whether an agent runs as a structured session.
-	Structured func(agent string) bool
+	// Transcripts has hello say transcript, which clients read as chat.send taking parent_item (a reply to a chat.transcript item).
+	Transcripts bool
 	// Watch runs the detectors that have moved here from the Python daemon's watcher, which write their rows to the stream. Off while that
 	// watcher still runs: a second writer would double every event.
 	Watch bool
-	// Answers answers the permission prompts of structured agents (prompt.answer). Nil leaves every agent to the screen.
-	Answers prompts.Structured
-	// SessionOpen says whether a structured agent's session is running (agent.get's session_open). Nil is none.
-	SessionOpen func(agent string) bool
 	// Context is the model id and context figures of an agent on an account (agent.strip). Nil leaves them null.
 	Context func(agent, account string) (string, *int, *int64, int)
 	// Delivery is what the supervisor knows of why a queued line waits (a chat line's sending_reason). Nil leaves out the reasons that need it.
@@ -112,11 +100,8 @@ type Config struct {
 	// Session makes the env of the session methods (session.start, wake, stop, restart, park, interrupt) once the lifecycle is built; nil
 	// serves none of them.
 	Session func() *sessionrpc.Env
-	// OnOpen is given the database once it is open, for the parts built before it was (the structured manager's ledger and prompt rows).
+	// OnOpen is given the database once it is open, for the parts built before it was (the supervisor's ports, the tick).
 	OnOpen func(db *sql.DB, env *supervisor.Env)
-	// Agents is the structured sessions as the supervisor's telling layer sees them (supervisor.Ports.Agents): it types a structured agent
-	// through its session. Nil leaves every agent a terminal agent.
-	Agents supervisor.Agents
 }
 
 // Daemon is a running daemon. Close stops the listeners and waits for the connections to end.
@@ -132,7 +117,6 @@ type Daemon struct {
 	tchan   *termchan.Env     // the terminal channel and the input hold; nil on a gateway
 	holds   *inputhold.Store  // who holds each terminal's input; nil on a gateway
 	single  *lock.Hold        // the daemon singleton, held while this daemon runs; nil on a gateway
-	running *lock.Hold        // the structured singleton, held while this daemon runs structured sessions
 	stop    chan struct{}     // closed by Close: the spool loop ends
 	started time.Time
 	ln      net.Listener
@@ -193,7 +177,6 @@ func Start(cfg Config) (*Daemon, error) {
 		d.hooks = &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log, Turns: cfg.Turns}
 		d.logins = &weblogin.Manager{Home: cfg.Home}
 		d.prompts = prompts.New(db, cfg.Home, &reads.Env{DB: db, Home: cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
-		d.prompts.Structured = cfg.Answers
 		if cfg.Terminal != nil {
 			d.prompts.Term = term.New(cfg.Terminal, nil)
 		}
@@ -203,7 +186,6 @@ func Start(cfg Config) (*Daemon, error) {
 			}
 			return term.Current(cfg.Home)
 		})
-		d.tchan.Structured = cfg.Structured
 		d.holds = &inputhold.Store{DB: db, Changed: d.tchan.HoldersChanged, IdleS: func() int64 {
 			return (&lifecycle.Settings{Home: cfg.Home}).ConfigSeconds("input_hold_idle_s", inputhold.DefaultIdleS)
 		}}
@@ -229,13 +211,6 @@ func Start(cfg Config) (*Daemon, error) {
 			cfg.Log("founder key: could not make one - the socket will serve no founder call")
 		}
 	}
-	if cfg.Structured != nil {
-		if d.running = lock.TakeSingleton(cfg.Home, structuredLock); d.running == nil {
-			db.Close()
-			d.single.Release()
-			return nil, errors.New("another daemon runs the structured sessions of this home: not starting a second")
-		}
-	}
 	if cfg.Listen != "" {
 		d.dev = devices.New(devices.SQLStore{DB: db})
 		d.dev.Log = cfg.Log
@@ -246,13 +221,6 @@ func Start(cfg Config) (*Daemon, error) {
 	if d.logins != nil { // a login's state moving is an account.changed on the accounts topic
 		d.logins.Changed = d.accountChanged
 	}
-	if d.transcripts() {
-		sink := cfg.Transcript
-		sink.DB = db
-		sink.Publish = func(e transcript.Event) { d.hub.EmitTranscript(e.Agent, e.JSON()) }
-		sink.Prompt = (&reads.Env{DB: db}).PromptOf
-		sink.Err = func(agent string, err error) { cfg.Log("  transcript: %s: an event was not kept: %v", agent, err) }
-	}
 	d.local = d.newServer("local")
 	if cfg.SocketFile != "" {
 		ln, err := listenUnix(cfg.SocketFile)
@@ -262,7 +230,6 @@ func Start(cfg Config) (*Daemon, error) {
 			if d.single != nil {
 				d.single.Release()
 			}
-			d.running.Release()
 			return nil, err
 		}
 		d.ln = ln
@@ -324,9 +291,6 @@ func (d *Daemon) env() *supervisor.Env {
 		d.envMade = d.cfg.Env
 		if d.envMade == nil {
 			d.envMade = &supervisor.Env{DB: d.db, Home: d.cfg.Home, Log: d.cfg.Log}
-		}
-		if d.envMade.Agents == nil {
-			d.envMade.Agents = d.cfg.Agents
 		}
 	})
 	return d.envMade
@@ -397,10 +361,6 @@ func (d *Daemon) accountAdded(name string) {
 	}
 }
 
-// transcripts says whether this daemon serves the transcript stream: it has the sink that numbers the events and knows which agents are
-// structured sessions.
-func (d *Daemon) transcripts() bool { return d.cfg.Transcript != nil && d.cfg.Structured != nil }
-
 // writeRegistrars are the packages that register methods once the hooks are wired, one per line in alphabetical order of the package: a port
 // adds its line at its own place, so two ports do not edit the same spot and git merges them.
 func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
@@ -420,6 +380,7 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 			if d.cfg.Session != nil {
 				env := d.cfg.Session()
 				env.Emit = d.operationEvent
+				env.InterruptTerminal = d.typing().PressEsc
 				sessionrpc.Register(s, env)
 			}
 		},
@@ -428,7 +389,9 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 				sessionrpc.RegisterTyping(s, d.typing())
 			}
 		},
-		func(s *rpc.Server) { taskwrites.Register(s, d.cfg.Home, d.teller()) },
+		func(s *rpc.Server) {
+			taskwrites.Register(s, d.cfg.Home, d.teller(), chatwrites.DecideCard(d.env(), d.teller()))
+		},
 		func(s *rpc.Server) { taskresult.Register(s, d.cfg.Home, d.db) },
 		func(s *rpc.Server) { termchan.Register(s, d.tchan) },
 	}
@@ -443,7 +406,7 @@ func (d *Daemon) typing() *sessionrpc.Env {
 	if d.cfg.Turns != nil {
 		t.Turns = d.cfg.Turns
 	}
-	return &sessionrpc.Env{DB: d.db, Home: d.cfg.Home, Holds: d.holds, Term: t, Marker: d.tchan.Marker, Structured: d.cfg.Structured,
+	return &sessionrpc.Env{DB: d.db, Home: d.cfg.Home, Holds: d.holds, Term: t, Marker: d.tchan.Marker,
 		Wall:          func(agent string) string { why, _ := d.env().WallReason(d.db, agent, nil); return why },
 		CloseTerminal: t.CloseTerminal, SessionPresent: func(agent string) (bool, error) { return d.env().SessionPresent(agent) }}
 }
@@ -474,8 +437,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	devices.Register(s, d.dev, d.hub.Emit)
 	stream.Register(s, d.hub)
 	renv := reads.Env{DB: d.db, Home: d.cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion(), Delivery: d.cfg.Delivery}
-	if d.transcripts() {
-		renv.Structured, renv.SessionOpen = d.cfg.Structured, d.cfg.SessionOpen
+	if d.cfg.Transcripts {
 		s.DeclareCapabilities(func() map[string]any { return map[string]any{"transcript": true} })
 	}
 	renv.Context = d.cfg.Context
@@ -638,9 +600,6 @@ func (d *Daemon) Close() {
 	d.pidFile.remove()
 	if d.single != nil {
 		d.single.Release()
-	}
-	if d.running != nil {
-		d.running.Release()
 	}
 	if d.db != nil {
 		d.db.Close()

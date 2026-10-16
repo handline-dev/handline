@@ -131,9 +131,10 @@ describe('the transcript of a structured agent', () => {
     expect(text($('[data-tab="transcript"]'))).toContain('Transcript');
     expect($('[data-tab^="terminal:"]')).toBeNull();
     await click($('button[aria-label="Add a tab"]')!);
-    await until(() => $('.strip-end .ui-popup'), 'the add-tab menu');
-    expect(text($('.strip-end .ui-popup'))).toContain('Transcript');
-    expect(text($('.strip-end .ui-popup'))).not.toContain('Claude Code');
+    await until(() => document.querySelector('[role="menu"]'), 'the add-tab menu');
+    const menu = text(document.querySelector('[role="menu"]'));
+    expect(menu).toContain('Transcript');
+    expect(menu).not.toContain('Claude Code');
   });
 
   it('says Working with an Interrupt while a turn runs, and says why when it is refused', async () => {
@@ -157,43 +158,32 @@ describe('the transcript of a structured agent', () => {
     await until(() => !text($('.tr-working')).includes('No turn is running'), 'the reason gone');
   });
 
-  it('offers Interrupt first when Close is asked of a structured agent mid-turn, and names no terminal', async () => {
+  it("ends a turn from Interrupt in the agent's menu while it runs, and names no terminal", async () => {
     const s = await mount(AUD);
     await until(() => $('.tr-turn'), 'the transcript');
-    act(
-      () =>
-        void s.daemon.transcript.push(AUD, {
-          kind: 'turn_start',
-          turn: 't-2',
-          turn_start: { message: 'u-2', from: 'person', text: 'Go on.' },
-        }),
-    );
-    await until(() => $('.tr-working'), 'the working line');
     const ses = s.daemon.sessions.get(AUD)!;
     ses.state = 'running';
     await act(async () => s.daemon.chat.setTurn(AUD, true));
     s.daemon.dropConnections(); // the rows are read again
     await until(() => $(`[data-agent="${AUD}"] .row-main`)?.getAttribute('title')?.includes('running'), 'the row running', 600);
     await openMenu(AUD);
-    await click(menuItem('Close'));
-    const sheet = $('.verb-sheet')!;
-    expect(text(sheet)).toContain('mid-turn');
-    expect(text(sheet)).not.toContain('terminal');
-    await click([...sheet.querySelectorAll('button')].find((b) => text(b) === 'Interrupt first')!);
+    expect(menuItem('Close')).toBeUndefined(); // the daemon closes sessions itself
+    await click(menuItem('Interrupt'));
     await until(() => ses.state === 'idle', 'the turn ended by the interrupt');
   });
 
-  it('keeps the Close sheet open and says why when the daemon refuses it', async () => {
+  it('shows the reason in a toast when the daemon refuses an Interrupt', async () => {
     const s = await mount(AUD);
     await until(() => $('.tr-turn'), 'the transcript');
     s.daemon.sessions.get(AUD)!.state = 'running';
     await act(async () => s.daemon.chat.setTurn(AUD, true));
-    s.daemon.knobs.refuse('session.stop', 'state', 'A turn is running', undefined, 1);
+    s.daemon.dropConnections();
+    await until(() => $(`[data-agent="${AUD}"] .row-main`)?.getAttribute('title')?.includes('running'), 'the row running', 600);
+    s.daemon.knobs.refuse('session.interrupt', 'state', 'No turn is running', undefined, 1);
     await openMenu(AUD);
-    await click(menuItem('Close'));
-    await click([...$('.verb-sheet')!.querySelectorAll('button')].find((b) => text(b) === 'Confirm')!);
-    await until(() => text($('.verb-sheet [role=alert]')).includes('A turn is running'), 'the reason on the sheet');
-    expect($('.verb-sheet')).not.toBeNull();
+    await click(menuItem('Interrupt'));
+    await until(() => $('.toast'), 'the toast');
+    expect(text($('.toast'))).toContain('No turn is running');
   });
 
   it('leaves a terminal agent its terminal', async () => {

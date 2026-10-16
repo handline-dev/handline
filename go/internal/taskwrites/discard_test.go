@@ -34,7 +34,7 @@ func TestDiscardIsTheAskersAndTellsTheOwnerAndFreesWhatWaitedOnIt(t *testing.T) 
 	mk := func(agent string) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
-		Register(s, home, nil)
+		Register(s, home, nil, nil)
 		return s
 	}
 	line := func(id int, task int, reason, rid string) string {
@@ -86,7 +86,7 @@ func discardEnv(t *testing.T) (*sql.DB, func(agent string, tell ...Teller) *rpc.
 		os.MkdirAll(filepath.Join(home, "agents", a), 0o755)
 		os.WriteFile(filepath.Join(home, "agents", a, "agent.yaml"), nil, 0o644)
 	}
-	os.WriteFile(filepath.Join(home, "team.yaml"), []byte("agents:\n  gp: {}\n  worker: {}\n  other: {}\n  manager: {}\n"+
+	os.WriteFile(filepath.Join(home, "team.yaml"), []byte("teams:\n  crew: [worker, other]\nagents:\n  gp: {}\n  worker: {}\n  other: {}\n  manager: {}\n"+
 		"edges:\n  - {from: manager, to: worker, relation: supervisor, response: async}\n  - {from: manager, to: other, relation: supervisor, response: async}\n"), 0o644)
 	return db, func(agent string, tell ...Teller) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
@@ -95,7 +95,7 @@ func discardEnv(t *testing.T) (*sql.DB, func(agent string, tell ...Teller) *rpc.
 		if len(tell) > 0 {
 			teller = tell[0]
 		}
-		Register(s, home, teller)
+		Register(s, home, teller, nil)
 		return s
 	}
 }

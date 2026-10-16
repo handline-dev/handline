@@ -33,12 +33,12 @@ func TestAnAgentIsToldWhereTheImagesOfATasksTextsAre(t *testing.T) {
 	if got := r.imageLines(r.DB, mustReq(r, rid)); got != line(1, brief)+"\n"+line(2, memo) {
 		t.Fatalf("the brief's image, then its memos': %q", got)
 	}
-	if got := r.imageLines(r.DB, mustReq(r, r.ask("alice", "bob", "![b](attachment:"+brief.ID+")", "say"))); got != "" {
-		t.Fatalf("an agent's say is not a task's text: %q", got)
+	if got := r.imageLines(r.DB, mustReq(r, r.ask("alice", "bob", "![b](attachment:"+brief.ID+")", "say"))); got != line(1, brief) {
+		t.Fatalf("a say names images too: %q", got)
 	}
 	r.AdvanceCurrentTask(r.DB, "bob")
 	r.term.typed = nil
-	r.must(r.TellMemoHolder(r.DB, tid, "alice", "added", strings.Repeat("w", 420)+" ![m](attachment:"+memo.ID+")"))
+	r.must(r.TellMemo(r.DB, tid, "alice", "added", strings.Repeat("w", 420)+" ![m](attachment:"+memo.ID+")", false))
 	if !strings.Contains(r.term.last(), line(1, memo)) {
 		t.Fatalf("a long memo still names its image: %q", r.term.last())
 	}

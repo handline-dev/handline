@@ -215,6 +215,8 @@ def test_no_command_prints_what_a_terminal_would_obey(home: Path) -> None:
                       "(tests/session/test_stopgate.py), not this scene",
         "go": "writes the protected store; driven in test_the_go_switches_are_the_founders_and_off_until_set "
               "(tests/session/test_edittask.py), not this scene",
+        "sandbox-repo": "writes the protected store; driven in test_a_repos_sandbox_allowances_are_the_founders_to_give "
+                        "(tests/session/test_edittask.py), not this scene",
         "install-hooks": "writes the shared settings",
         "hr add": "writes a proposal; prints its id", "hr retire": "writes a proposal; prints its id",
         "hr rename": "writes a proposal; prints its id",
@@ -493,6 +495,13 @@ def test_read_prints_the_daemons_request(home: Path) -> None:
         row.update(state="landed", answer=None, dismissal={"by": "human", "reason": "not now"})
         rc, out = _run_main(["read", "7"])
         check("read: a dismissal names who and why", rc == 0 and "--- dismissed by human ---\nnot now" in out, out)
+        row.update(dismissal=None, body="see ![it](attachment:00000000000000aa)", parts=[
+            {"text": "see "}, {"image": {"id": "00000000000000aa", "name": "a.png", "mime": "image/png", "bytes": 184320}, "caption": "it",
+                               "path": "/h/attachments/00000000000000aa.png"},
+            {"image": {"id": "00000000000000bb"}, "caption": "", "gone": True}])
+        rc, out = _run_main(["read", "7"])
+        check("read: a path line per image the agent can read, after the body",
+              rc == 0 and out.endswith("see ![it](attachment:00000000000000aa)\n[image 1: /h/attachments/00000000000000aa.png (image/png, 180 KB)]\n"), out)
         rc, out = _run_main(["read", "9"])
         check("read: a request the daemon does not have", rc == 1 and out.strip() == "no request #9", out)
     finally:

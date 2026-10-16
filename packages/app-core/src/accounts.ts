@@ -35,16 +35,20 @@ export function gaugeOf(w: Window, spanMs: number, now: number): Gauge {
   return { pct, tone: toneOf(pct), through, resetIn, runway, source: w.source };
 }
 
-/** "2 h 10 m", "45 m", "3 d 4 h": the two biggest units that are not zero. */
-export function span(ms: number): string {
-  const m = Math.max(0, Math.round(ms / 60_000));
-  if (m < 1) return 'under a minute';
-  const d = Math.floor(m / 1440);
-  const h = Math.floor((m % 1440) / 60);
-  const min = m % 60;
-  if (d) return h ? `${d} d ${h} h` : `${d} d`;
-  if (h) return min ? `${h} h ${min} m` : `${h} h`;
-  return `${min} m`;
+/** The popup's warning for an account (docs/story9-my-turn.md 9-3): amber from 90% of the 5 h window or when the agents stop before it resets, red from 95% or in under 15 minutes. */
+export interface Headroom {
+  tone: Tone;
+  /** When agents stop at this rate (ms since the epoch); null when the daemon gave no stop time (stale reading, no burn, or the window resets first). */
+  stopAt: number | null;
+}
+export function headroom(five: Window | null, runsOutInSeconds: number | null, now: number): Headroom {
+  const pct = five?.used_pct ?? 0;
+  const reset = five?.resets_at ? Date.parse(five.resets_at) : NaN;
+  const at = runsOutInSeconds === null ? null : now + runsOutInSeconds * 1000;
+  const stopAt = at !== null && Number.isFinite(reset) && at >= reset ? null : at;
+  const red = pct >= 95 || (runsOutInSeconds !== null && runsOutInSeconds < 15 * 60);
+  const amber = pct >= 90 || (stopAt !== null && Number.isFinite(reset) && stopAt < reset);
+  return { tone: red ? 'bad' : amber ? 'warn' : 'ok', stopAt };
 }
 
 export type AccountState = 'needs_login' | 'out' | 'in_use' | 'idle' | 'unknown';

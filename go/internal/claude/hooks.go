@@ -16,10 +16,10 @@ import (
 // The hook events a launch keeps installed: captured, the answers to a permission prompt, and the guard
 // (events.CAPTURED | ANSWERS | GUARDS).
 var Wanted = []string{"SessionStart", "SessionEnd", "Stop", "StopFailure", "SubagentStop", "PostCompact", "UserPromptSubmit",
-	"PermissionRequest", "TeammateIdle", "PostToolUse", "PostToolUseFailure", "PreToolUse"}
+	"PermissionRequest", "TeammateIdle", "PostToolUse", "PostToolUseFailure", "PreToolUse", "Notification"}
 
 // matchers limit a hook of ours to the tools it looks at, for the events that fire on every call.
-var matchers = map[string]string{"PreToolUse": "Write|Edit|MultiEdit|NotebookEdit|Bash"}
+var matchers = map[string]string{"PreToolUse": "Write|Edit|MultiEdit|NotebookEdit|Bash", "Notification": "permission_prompt"}
 
 var (
 	oldStatusLines     = []string{"statusline.sh", "statusline-collect.sh"}
@@ -342,4 +342,116 @@ func expandUser(p string) string {
 		return p
 	}
 	return home + p[1:]
+}
+
+// within is whether child is parent or under it.
+func within(child, parent string) bool {
+	return child == parent || strings.HasPrefix(child, strings.TrimSuffix(parent, "/")+"/")
+}
+
+// AllowHomeWrites lets a sandboxed agent write anywhere under the home (claude_hooks.allow_home_writes): the home in
+// sandbox.filesystem.allowWrite, in place of entries under it, and a denyWrite that is exactly the home taken out. A denyWrite on a
+// parent guards more than the home: it stays, and is answered as a blocker for the founder to decide.
+func (h Hooks) AllowHomeWrites() (changed bool, blockers []string, err error) {
+	real := paths.Realpath(h.Home)
+	data, err := h.readObject()
+	if err != nil {
+		return false, nil, err
+	}
+	fs := data.block("sandbox").block("filesystem")
+	before := Dumps(data, 0, false)
+	asPath := func(e any) (string, bool) {
+		s, ok := e.(string)
+		if !ok {
+			return "", false
+		}
+		return paths.Realpath(expandUser(s)), true
+	}
+	list := func(k string) []any {
+		l, _ := fs.vals[k].([]any)
+		return l
+	}
+	var allow []any
+	have := false
+	for _, e := range list("allowWrite") {
+		p, ok := asPath(e)
+		if ok && within(p, real) && p != real {
+			continue
+		}
+		have = have || (ok && p == real)
+		allow = append(allow, e)
+	}
+	if !have {
+		allow = append(allow, h.Home)
+	}
+	fs.Set("allowWrite", allow)
+	if _, has := fs.Get("denyWrite"); has {
+		var deny []any
+		for _, e := range list("denyWrite") {
+			if p, ok := asPath(e); !ok || p != real {
+				deny = append(deny, e)
+			}
+		}
+		if deny == nil {
+			deny = []any{}
+		}
+		fs.Set("denyWrite", deny)
+	}
+	for _, e := range list("denyWrite") {
+		if p, ok := asPath(e); ok && within(real, p) {
+			blockers = append(blockers, e.(string))
+		}
+	}
+	if Dumps(data, 0, false) == before {
+		return false, blockers, nil
+	}
+	return true, blockers, h.write(data)
+}
+
+// SafeCommands run without asking (claude_hooks.SAFE_COMMANDS): read-only tools in full, and hl per subcommand, never all of it. A tool is
+// listed only if no flag makes it run or write anything, so no git prefix.
+func SafeCommands() []string {
+	out := []string{}
+	for _, c := range []string{"tail", "head", "grep", "wc", "cat", "ls"} {
+		out = append(out, "Bash("+c+":*)")
+	}
+	out = append(out, "Bash(git status)", "Bash(git log)", "Bash(git diff)")
+	for _, n := range ocpCommands {
+		for _, c := range []string{"inbox", "read", "status", "task list"} {
+			out = append(out, "Bash("+n+" "+c+":*)")
+		}
+	}
+	for _, n := range ocpCommands {
+		out = append(out, "Bash("+n+" team)")
+	}
+	for _, n := range ocpCommands {
+		for _, c := range []string{"say", "progress", "task new"} {
+			out = append(out, "Bash("+n+" "+c+":*)")
+		}
+	}
+	return out
+}
+
+// AllowSafeCommands adds SafeCommands to permissions.allow, keeping what is there (claude_hooks.allow_safe_commands): true if it changed.
+func (h Hooks) AllowSafeCommands() (bool, error) {
+	data, err := h.readObject()
+	if err != nil {
+		return false, err
+	}
+	perms := data.block("permissions")
+	allow, ok := perms.vals["allow"].([]any)
+	if !ok {
+		allow = []any{}
+	}
+	var missing []any
+	for _, c := range SafeCommands() {
+		if !slices.Contains(allow, any(c)) {
+			missing = append(missing, c)
+		}
+	}
+	if missing == nil {
+		return false, nil
+	}
+	perms.Set("allow", append(allow, missing...))
+	return true, h.write(data)
 }

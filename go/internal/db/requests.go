@@ -121,6 +121,8 @@ type NewRequest struct {
 	State                                    string // "": queued
 	Verdict                                  string
 	Notice                                   bool
+	// TurnEnd makes it a notice that waits for the end of the target's turn with no digest window (notice 2): a memo's tell.
+	TurnEnd bool
 }
 
 // AddRequest is db.add_request. A notice, or a say to the founder, is born landed. The edge of a request written here is
@@ -132,16 +134,19 @@ func AddRequest(q Q, n NewRequest) (int64, error) {
 		state = "queued"
 	}
 	now := Now()
-	landed := (n.Notice || n.Target == Human && n.Kind == "say") && state == "queued"
+	var landedAt, notice, parent any
+	switch {
+	case n.TurnEnd:
+		notice = 2
+	case n.Notice:
+		notice = 1
+	}
+	landed := (notice != nil || n.Target == Human && n.Kind == "say") && state == "queued"
 	if landed || state == "done" {
 		state = Landed
 	}
-	var landedAt, notice, parent any
 	if landed {
 		landedAt = now
-	}
-	if n.Notice {
-		notice = 1
 	}
 	if n.ParentID != 0 {
 		parent = n.ParentID
@@ -398,10 +403,11 @@ func MarkAnnounced(q Q, rids []int64) error {
 
 // PendingNotices is db.pending_notices: the notices the target has not been shown, oldest first.
 func PendingNotices(q Q, target string) ([]*Request, error) {
-	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE target = ? AND notice = 1 AND state = 'landed' AND delivered_at IS NULL ORDER BY id", target)
+	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE target = ? AND notice >= 1 AND state = 'landed' AND delivered_at IS NULL ORDER BY id", target)
 }
 
-// NoticeWaiting is one agent with a notice waiting and when its oldest unshown notice landed.
+// NoticeWaiting is one agent with a notice waiting and when its oldest unshown notice with a digest window landed (0: only notices held to
+// the end of its turn wait).
 type NoticeWaiting struct {
 	Agent string
 	Since int64
@@ -409,7 +415,7 @@ type NoticeWaiting struct {
 
 // AgentsWithNotices is db.agents_with_notices.
 func AgentsWithNotices(q Q) ([]NoticeWaiting, error) {
-	rows, err := q.Query("SELECT target, MIN(landed_at) FROM requests WHERE notice = 1 AND state = 'landed' AND delivered_at IS NULL AND target != ? GROUP BY target ORDER BY target", Human)
+	rows, err := q.Query("SELECT target, MIN(CASE WHEN notice = 1 THEN landed_at END) FROM requests WHERE notice >= 1 AND state = 'landed' AND delivered_at IS NULL AND target != ? GROUP BY target ORDER BY target", Human)
 	if err != nil {
 		return nil, err
 	}
@@ -427,10 +433,16 @@ func AgentsWithNotices(q Q) ([]NoticeWaiting, error) {
 	return out, rows.Err()
 }
 
+// TurnEndNoticesBefore is every notice held to the end of its target's turn (a memo's tell) that landed at or before `before` and has been
+// neither shown nor read, oldest first.
+func TurnEndNoticesBefore(q Q, before int64) ([]*Request, error) {
+	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE notice = 2 AND state = 'landed' AND delivered_at IS NULL AND read_at IS NULL AND landed_at <= ? ORDER BY id", before)
+}
+
 // MarkNoticesDigested is db.mark_notices_digested.
 func MarkNoticesDigested(q Q, rids []int64) error {
 	for _, id := range rids {
-		if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) WHERE id = ? AND notice = 1 AND state = 'landed'", Now(), id); err != nil {
+		if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) WHERE id = ? AND notice >= 1 AND state = 'landed'", Now(), id); err != nil {
 			return err
 		}
 	}
@@ -440,7 +452,7 @@ func MarkNoticesDigested(q Q, rids []int64) error {
 // MarkNoticesShown is db.mark_notices_shown: these notices went out inside a typed delivery to session.
 func MarkNoticesShown(q Q, rids []int64, session string) error {
 	for _, id := range rids {
-		if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?), typed_at = ?, typed_session = ? WHERE id = ? AND notice = 1 AND state = 'landed'",
+		if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?), typed_at = ?, typed_session = ? WHERE id = ? AND notice >= 1 AND state = 'landed'",
 			Now(), Now(), nullStr(session), id); err != nil {
 			return err
 		}
@@ -492,8 +504,47 @@ func MarkLanded(q Q, rid int64) error {
 	if err := StampTaskDelivered(q, rid); err != nil {
 		return err
 	}
-	_, err := q.Exec("UPDATE requests SET state = 'landed', state_at = ? WHERE id = ? AND state = 'queued' AND target != ?", now, rid, Human)
-	return err
+	if _, err := q.Exec("UPDATE requests SET state = 'landed', state_at = ? WHERE id = ? AND state = 'queued' AND target != ?", now, rid, Human); err != nil {
+		return err
+	}
+	return settleSendLedger(q, rid)
+}
+
+// settleSendLedger drops the send ledger entry of each message that carried rid once every request it carried has landed, been read or
+// left the queue: the message's fate is known, and an entry kept until its session ends only makes that end report it as unknown.
+func settleSendLedger(q Q, rid int64) error {
+	rows, err := q.Query("SELECT name FROM cursors WHERE name LIKE 'send:%:request:%' AND "+
+		"',' || substr(name, instr(name, ':request:') + 9) || ',' LIKE '%,' || ? || ',%'", rid)
+	if err != nil {
+		return err
+	}
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return err
+		}
+		names = append(names, n)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, n := range names {
+		ids := "," + n[strings.Index(n, ":request:")+9:] + ","
+		var open int
+		if err := q.QueryRow("SELECT count(*) FROM requests WHERE ? LIKE '%,' || id || ',%' AND state = 'queued' AND landed_at IS NULL AND read_at IS NULL",
+			ids).Scan(&open); err != nil {
+			return err
+		}
+		if open == 0 {
+			if _, err := q.Exec("DELETE FROM cursors WHERE name = ?", n); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // AwaitingLanding is db.awaiting_landing: requests typed at target that its transcript has not shown yet.
@@ -548,6 +599,9 @@ func RetireQueued(q Q, rid int64, state, verdict string) (bool, error) {
 	if n == 0 {
 		return false, nil
 	}
+	if err := settleSendLedger(q, rid); err != nil {
+		return false, err
+	}
 	if verdict != "" {
 		if err := AddReason(q, rid, verdict); err != nil {
 			return false, err
@@ -556,8 +610,9 @@ func RetireQueued(q Q, rid int64, state, verdict string) (bool, error) {
 	return true, settle(q, rid, state, verdict, "")
 }
 
-// RetireIfUndelivered is db.retire_if_undelivered: a still-queued, undelivered request to a terminal state, atomically.
-func RetireIfUndelivered(q Q, rid int64, state, verdict string) (bool, error) {
+// RetireIfUndelivered is db.retire_if_undelivered: a still-queued, undelivered request to a terminal state, atomically. noSettle is
+// CloseOpts.NoSettle: the decision task stays open.
+func RetireIfUndelivered(q Q, rid int64, state, verdict string, noSettle bool) (bool, error) {
 	stored, err := StoredState(q, rid, state)
 	if err != nil {
 		return false, err
@@ -570,10 +625,16 @@ func RetireIfUndelivered(q Q, rid int64, state, verdict string) (bool, error) {
 	if n == 0 {
 		return false, nil
 	}
+	if err := settleSendLedger(q, rid); err != nil {
+		return false, err
+	}
 	if verdict != "" {
 		if err := AddReason(q, rid, verdict); err != nil {
 			return false, err
 		}
+	}
+	if noSettle {
+		return true, RefreshSentOfRequest(q, rid)
 	}
 	return true, settle(q, rid, state, verdict, "")
 }
@@ -600,6 +661,9 @@ func CloseIfQueued(q Q, rid int64, state, verdict string, o CloseOpts) (bool, er
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return false, nil
+	}
+	if err := settleSendLedger(q, rid); err != nil {
+		return false, err
 	}
 	if o.DismissedBy != "" {
 		var reason any

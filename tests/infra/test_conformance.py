@@ -240,7 +240,7 @@ def test_only_role_skips_are_covered_by_allow_skip(td) -> None:
     check("conformance: a run without the founder key var and --allow-skip exits non-zero", code == 1 and "NEEDVAR" in out and "needs --var founder_key" in out, out)
     code, out = _run(["--allow-skip", *KEYARG])
     check("conformance: the summary counts each kind apart",
-          "0 failed, 0 skipped by role, 0 not implemented, 0 needing a var" in out, out)
+          "0 failed, 0 skipped by role, 0 by name, 0 not implemented, 0 needing a var" in out, out)
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         bad = conformance.main(["--allow-missing-file", str(Path(td) / "nope.txt"), *KEYARG], _servers("founder"))
     check("conformance: an unreadable --allow-missing-file is a usage error", bad == 2)
@@ -274,6 +274,23 @@ def test_the_counter_and_base64_matchers() -> None:
         except conformance.Mismatch:
             passed = False
         check(f"conformance: matcher {json.dumps(want)} on {json.dumps(got)[:20]} is {'a match' if ok else 'a mismatch'}", passed == ok)
+
+
+def test_a_fixture_named_in_the_skip_file_does_not_count(td) -> None:
+    listing = Path(td) / "skip.txt"
+    listing.write_text("# known gaps\nwhoami.agent  # its role has no socket here\n")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = conformance.main(["--skip-file", str(listing), *KEYARG, *map(str, FILES)], _servers("founder"))
+    check("conformance: a fixture named in --skip-file is skipped by name, and the run exits 0 without --allow-skip",
+          code == 0 and "SKIP  whoami.agent  - in --skip-file" in out.getvalue() and "0 skipped by role, 1 by name" in out.getvalue(), out.getvalue())
+    listing.write_text("hello.ok\n")
+    code, out = _run(["--skip-file", str(listing), *KEYARG])
+    check("conformance: a fixture in --skip-file still runs, and one that passes is stale and fails the run",
+          code == 1 and "STALE hello.ok  - in --skip-file but it passed" in out, out)
+    listing.write_text("no.such.fixture\n")
+    code, out = _run(["--skip-file", str(listing), *KEYARG])
+    check("conformance: a name in --skip-file that no fixture has is stale and fails the run", code == 1 and "STALE no.such.fixture" in out, out)
 
 
 def test_matchers() -> None:
@@ -340,6 +357,7 @@ def main() -> int:
         run(lambda: test_a_reply_outside_the_json_rpc_envelope_fails())
         run(lambda: test_a_run_that_skipped_is_not_green(td))
         run(lambda: test_only_role_skips_are_covered_by_allow_skip(td))
+        run(lambda: test_a_fixture_named_in_the_skip_file_does_not_count(td))
         run(lambda: test_matchers())
         run(lambda: test_fixtures_follow_the_format_and_the_spec())
     return run_area(tests)

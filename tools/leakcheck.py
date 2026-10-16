@@ -9,6 +9,8 @@ TMPDIR, so a socket under it still fits in the 104 bytes a socket path holds:
 - a file or directory under <run>/tmp (but node's compile cache, which node keeps there on purpose);
 - an entry in the real ~/.config/orcapipe/protected named after a home under the directory (a test that wrote the
   real store, not its own).
+tools/leakcheck.py run [--dir DIR] CMD... does both around one command, and exits 1 if it failed or left anything. With --dir
+the run's directory is DIR, emptied first, not a new one: CI's Go job keeps the same TMPDIR each run, as go test's cache needs.
 Nothing is killed or removed when something is left: the run is fixed, not swept. A clean run's directory is removed.
 """
 from __future__ import annotations
@@ -29,10 +31,19 @@ def slug(path: Path) -> str:
     return re.sub(r"[^A-Za-z0-9]", "-", str(path))
 
 
-def begin() -> int:
-    run = Path(tempfile.mkdtemp(prefix="hlc.", dir="/tmp"))
+def new_run(at: Path | None = None) -> Path:
+    if at is None:
+        run = Path(tempfile.mkdtemp(prefix="hlc.", dir="/tmp"))
+    else:
+        run = at.resolve()
+        shutil.rmtree(run, ignore_errors=True)
+        run.mkdir(parents=True)
     (run / "tmp").mkdir()
-    print(run)
+    return run
+
+
+def begin() -> int:
+    print(new_run())
     return 0
 
 
@@ -68,11 +79,21 @@ def end(run: Path) -> int:
     return 0
 
 
+def run_one(cmd: list[str], at: Path | None = None) -> int:
+    run = new_run(at)
+    rc = subprocess.run(cmd, env={**os.environ, "TMPDIR": f"{run}/tmp/", "TMUX_TMPDIR": str(run)}).returncode
+    return 1 if end(run) or rc else 0
+
+
 def main(argv: list[str]) -> int:
     if argv[:1] == ["begin"]:
         return begin()
     if argv[:1] == ["end"] and len(argv) == 2:
         return end(Path(argv[1]))
+    if argv[:2] == ["run", "--dir"] and len(argv) > 3:
+        return run_one(argv[3:], Path(argv[2]))
+    if argv[:1] == ["run"] and len(argv) > 1:
+        return run_one(argv[1:])
     print(__doc__, file=sys.stderr)
     return 2
 

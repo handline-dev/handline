@@ -29,6 +29,8 @@ export function makeApi(ipc: Ipc): ShellApi {
     openPath: (a) => call(CHANNELS.openPath, a),
     compose: (a) => call(CHANNELS.compose, a ?? {}),
     cancelCompose: () => call(CHANNELS.cancelCompose),
+    captureWindows: () => call(CHANNELS.captureWindows),
+    captureWindow: (a) => call(CHANNELS.captureWindow, a),
     mode: () => call(CHANNELS.mode),
     setMode: (m) => call(CHANNELS.setMode, m),
     phone: () => call(CHANNELS.phone),

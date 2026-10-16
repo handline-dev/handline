@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Account } from '@handline/client';
-import { FIVE_HOURS_MS, gaugeOf, outUntil, span, stateOf, toneOf } from '../src/index.ts';
+import { FIVE_HOURS_MS, gaugeOf, headroom, outUntil, stateOf, toneOf } from '../src/index.ts';
 
 const NOW = Date.parse('2026-10-07T12:00:00Z');
 const at = (ms: number) => new Date(NOW + ms).toISOString();
@@ -30,15 +30,6 @@ test('a window with no reset or no use has no runway, and a percentage is held t
   assert.equal(gaugeOf({ used_pct: 140, resets_at: null, source: 'x' }, FIVE_HOURS_MS, NOW).pct, 100);
 });
 
-test('time in words uses its two biggest units', () => {
-  assert.deepEqual([20_000, 45 * 60_000, 130 * 60_000, 3 * 86_400_000 + 4 * 3_600_000].map(span), [
-    'under a minute',
-    '45 m',
-    '2 h 10 m',
-    '3 d 4 h',
-  ]);
-});
-
 test('the state chip: login first, then out, then in use or idle', () => {
   assert.equal(stateOf(acct({ login_state: 'needs_login' })), 'needs_login');
   assert.equal(stateOf(acct({ five_hour: { used_pct: 100, resets_at: at(1), source: 'x' } })), 'out');
@@ -51,4 +42,20 @@ test('an account that is out comes back at the latest reset of its full windows'
   const a = acct({ five_hour: { used_pct: 100, resets_at: at(5), source: 'x' }, weekly: { used_pct: 100, resets_at: at(9), source: 'x' } });
   assert.equal(outUntil(a), at(9));
   assert.equal(outUntil(acct()), null);
+});
+
+test('headroom: amber from 90% or a stop before the reset, red from 95% or under 15 minutes, no stop time when none is given', () => {
+  const now = Date.parse('2026-10-15T00:00:00Z');
+  const w = (used_pct: number, hours = 3) => ({ used_pct, resets_at: new Date(now + hours * 3_600_000).toISOString(), source: 'measured' });
+  assert.deepEqual(headroom(w(40), null, now), { tone: 'ok', stopAt: null });
+  assert.equal(headroom(w(89), null, now).tone, 'ok');
+  assert.equal(headroom(w(90), null, now).tone, 'warn');
+  assert.equal(headroom(w(95), null, now).tone, 'bad');
+  assert.equal(headroom(w(40), 2 * 3600, now).tone, 'warn'); // stops in 2 h, before the reset in 3 h
+  assert.deepEqual(headroom(w(40), 4 * 3600, now), { tone: 'ok', stopAt: null }); // the window resets first: no stop line
+  assert.equal(headroom(w(40), 3 * 3600, now).stopAt, null); // at the reset
+  assert.equal(headroom(w(40), 14 * 60, now).tone, 'bad');
+  assert.equal(headroom(w(40), 15 * 60, now).tone, 'warn');
+  assert.equal(headroom(w(40), 2 * 3600, now).stopAt, now + 2 * 3600_000);
+  assert.equal(headroom(null, null, now).tone, 'ok');
 });

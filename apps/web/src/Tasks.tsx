@@ -1,6 +1,6 @@
 // The Tasks page (docs/design/inbox-tasks-prompts.md §4): the table or the tree of what the daemon lists, filters, sort, marks, the bridge's keys,
 // and a detail beside it from 1100 px. Writes go through `useWrite`: an authored one shows at once with a hollow dot, a decided one shows "…".
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from 'react';
 import {
   CLOSED,
   defaultFilter,
@@ -20,12 +20,13 @@ import { useAgents, useServes, useTasks } from '@handline/app-data';
 import { setting } from './daemon.ts';
 import { goTasks } from './route.ts';
 import { TaskDetail } from './TaskDetail.tsx';
+import { TaskGraphPage } from './TaskGraph.tsx';
 import { NewTask } from './NewTask.tsx';
 import { Row } from './TaskRows.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from './TasksHead.tsx';
 import { TableHead } from './TaskTableHead.tsx';
 import { KeysSheet, MergeSheet, OwnerSheet, PrioritySheet } from './TaskSheets.tsx';
-import { Button } from './ui/index.ts';
+import { Button, ScrollPage } from './ui/index.ts';
 import { AnimatedList } from './AnimatedList.tsx';
 import { useBulk } from './taskActions.ts';
 import { ReasonSheet, useCan, useNow, useWide } from './taskui.tsx';
@@ -52,13 +53,63 @@ const inScope = (tasks: Task[], scope: Scope, me: string): Task[] =>
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
 
 export function TasksPage({ storage, route }: { storage: KV | null; route: string }) {
-  const id = route ? Number(route) : null;
+  const id = route && route !== 'graph' ? Number(route) : null;
   const wide = useWide(1100);
+  if (route === 'graph') return <TaskGraphPage />;
   if (id !== null && !wide) return <TaskDetail id={id} onBack={() => goTasks()} />;
   return (
     <div className={`tasks-split relative flex min-h-0 min-w-0 flex-1${id !== null ? ' with-pane' : ''}`}>
       <TaskList storage={storage} selected={id} />
       {id !== null ? <TaskDetail id={id} onBack={() => goTasks()} embedded drawer /> : null}
+    </div>
+  );
+}
+
+type RowProps = Omit<ComponentProps<typeof Row>, 'rows' | 't' | 'now' | 'tree' | 'depth' | 'dim' | 'markCell'>;
+
+/** The table of tasks, as a flat list or as a tree. */
+function TaskTable({
+  mode,
+  tree,
+  rows,
+  now,
+  sort,
+  busy,
+  allMarked,
+  markCell,
+  onToggleAll,
+  onSort,
+  rowProps,
+}: {
+  mode: Mode;
+  tree: ReturnType<typeof taskTree>;
+  rows: Task[];
+  now: number;
+  sort: { by: TaskColumn; reverse: boolean };
+  busy: boolean;
+  allMarked: boolean;
+  markCell: boolean;
+  onToggleAll: () => void;
+  onSort: (col: TaskColumn) => void;
+  rowProps: (t: Task) => RowProps;
+}) {
+  return (
+    <div
+      className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface max-sm:bg-transparent max-sm:border-0"
+      aria-busy={busy}
+    >
+      <table className={`ttable w-full table-fixed border-collapse max-sm:block${markCell ? ' selecting' : ''}`} aria-label="Tasks">
+        <TableHead tree={mode === 'tree'} sort={sort} allMarked={allMarked} markCell={markCell} onToggleAll={onToggleAll} onSort={onSort} />
+        <tbody className="max-sm:block">
+          <AnimatedList>
+            {mode === 'tree'
+              ? tree.map(({ task: t, depth, dim }) => (
+                  <Row key={t.id} rows={tree.length} t={t} now={now} tree depth={depth} dim={dim} markCell={markCell} {...rowProps(t)} />
+                ))
+              : rows.map((t) => <Row key={t.id} rows={rows.length} t={t} now={now} markCell={markCell} {...rowProps(t)} />)}
+          </AnimatedList>
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -74,6 +125,8 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
   const [open, setOpen] = useState<Open>(null);
   const [query, setQuery] = useState('');
   const [selecting, setSelecting] = useState(false);
+  /** The row whose menu is open: one at a time. */
+  const [menuId, setMenuId] = useState<number | null>(null);
   const root = useRef<HTMLElement>(null);
 
   const q = useTasks(scope === 'closed' ? { all: true } : {});
@@ -178,45 +231,19 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
 
   const listBody = (
     <>
-      <div
-        className="tasks-scroll min-h-0 flex-1 overflow-auto rounded-card border border-line bg-surface max-sm:bg-transparent max-sm:border-0"
-        aria-busy={q.isFetching && !q.data}
-      >
-        <table
-          className={`ttable w-full table-fixed border-collapse max-sm:block${selecting || marked.size ? ' selecting' : ''}`}
-          aria-label="Tasks"
-        >
-          <TableHead
-            tree={mode === 'tree'}
-            sort={sort}
-            allMarked={!!order.length && marked.size === order.length}
-            markCell={selecting || marked.size > 0}
-            onToggleAll={toggleAll}
-            onSort={(col) => setSort((s) => ({ by: col, reverse: s.by === col && !s.reverse }))}
-          />
-          <tbody className="max-sm:block">
-            <AnimatedList>
-              {mode === 'tree'
-                ? tree.map(({ task: t, depth, dim }) => (
-                    <Row
-                      key={t.id}
-                      rows={tree.length}
-                      t={t}
-                      now={now}
-                      tree
-                      depth={depth}
-                      dim={dim}
-                      markCell={selecting || marked.size > 0}
-                      {...rowProps(t)}
-                    />
-                  ))
-                : rows.map((t) => (
-                    <Row key={t.id} rows={rows.length} t={t} now={now} markCell={selecting || marked.size > 0} {...rowProps(t)} />
-                  ))}
-            </AnimatedList>
-          </tbody>
-        </table>
-      </div>
+      <TaskTable
+        mode={mode}
+        tree={tree}
+        rows={rows}
+        now={now}
+        sort={sort}
+        busy={q.isFetching && !q.data}
+        allMarked={!!order.length && marked.size === order.length}
+        markCell={selecting || marked.size > 0}
+        onToggleAll={toggleAll}
+        onSort={(col) => setSort((s) => ({ by: col, reverse: s.by === col && !s.reverse }))}
+        rowProps={rowProps}
+      />
       {open === 'discard' ? (
         <ReasonSheet
           label={targets().some((id) => all.find((t) => t.id === id)?.state === 'doing') ? 'stop it and discard - why:' : 'discard - why:'}
@@ -240,7 +267,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
           onAct={act}
           onAll={toggleAll}
         >
-          <VerbMenu tasks={verbs.byId([...marked])} me={me} cans={cans} onPick={verbs.pick} title="More actions" up />
+          <VerbMenu tasks={verbs.byId([...marked])} me={me} cans={cans} onPick={verbs.pick} title="More actions" />
         </TasksBar>
       ) : null}
     </>
@@ -263,7 +290,18 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
 
   function rowProps(t: Task) {
     return {
-      menu: <VerbMenu tasks={[t]} me={me} cans={cans} onPick={(v) => rowVerb(t.id, v)} />,
+      menu: (
+        <VerbMenu
+          tasks={[t]}
+          me={me}
+          cans={cans}
+          onPick={(v) => rowVerb(t.id, v)}
+          open={menuId === t.id}
+          onOpenChange={(o) => setMenuId(o ? t.id : null)}
+        />
+      ),
+      menuOpen: menuId === t.id,
+      onMenu: () => setMenuId(t.id),
       marked: marked.has(t.id),
       cursor: cursor === t.id,
       open: selected === t.id,
@@ -279,8 +317,9 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
   // The daemon is asked for closed tasks only when they are shown, so "nothing at all" can only be said once they are.
   const none = scope === 'closed' && all.length === 0;
   return (
-    <section
-      className="tasks flex min-h-0 min-w-0 flex-1 flex-col px-4 py-3 outline-none max-sm:px-4 max-sm:py-3"
+    <ScrollPage
+      beside={selected !== null}
+      className="tasks flex flex-col pt-4 outline-none"
       ref={root}
       tabIndex={0}
       aria-label="Tasks"
@@ -299,7 +338,7 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
         onFilter={setFilter}
         onView={setView}
         onSelecting={() => setSelecting(!selecting)}
-        onAct={(what) => (what === 'states' && open === 'states' ? shut() : act(what))}
+        onAct={(what) => (what === 'graph' ? goTasks('graph') : what === 'states' && open === 'states' ? shut() : act(what))}
       />
       {open === 'new' ? <NewTask agents={agents} onClose={shut} /> : null}
       <View q={q} served={listServed} shape="tasks" what="tasks">
@@ -321,6 +360,6 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
           listBody
         )}
       </View>
-    </section>
+    </ScrollPage>
   );
 }

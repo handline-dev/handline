@@ -68,7 +68,7 @@ if (process.argv.includes('--picture')) {
   daemon.chat.send(
     { agent: 'handline.architect', body: 'Here is a picture', request_id: 'e2e-picture', attachments: [id] },
     'founder',
-    daemon.uploads.take,
+    daemon.uploads.message,
   );
 }
 daemon.raiseProposal({

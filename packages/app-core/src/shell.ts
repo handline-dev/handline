@@ -43,6 +43,16 @@ export interface ShellApi {
       >
   >;
   cancelCompose?(): Promise<{ ok: true } | Fail<'bad_request'>>;
+  /** The windows open on this machine, each with a small picture (a data URL). Absent in a shell that cannot capture. */
+  captureWindows?(): Promise<
+    { ok: true; windows: { id: string; name: string; thumb: string }[] } | Fail<'bad_request' | 'unavailable' | 'no_permission'>
+  >;
+  /** One window of that list as a PNG (base64). */
+  captureWindow?(a: {
+    id: string;
+  }): Promise<
+    { ok: true; name: string; png: string } | Fail<'bad_request' | 'unavailable' | 'no_permission' | 'not_found' | 'too_large'>
+  >;
   /** Which daemon the app talks to: its mode and, in connect mode, the paired device's address. Absent in a shell with one mode. */
   mode?(): Promise<{ ok: true; mode: 'connect' | 'own'; remote: string | null; phone: boolean } | Fail<'bad_request'>>;
   /** Switches the mode; the app relaunches. */

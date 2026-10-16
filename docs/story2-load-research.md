@@ -99,9 +99,128 @@ agent):
 Attribution is by process tree from each agent's session pid; processes with no agent are listed
 under "other" so the sum matches the machine.
 
+## 4. Several machines as one pool
+
+The founder's direction (T3866 memo 1715): an old laptop, a small desktop and a rented server working as
+one, because app builds eat memory and disk. Research only; nothing is built.
+
+Terms of 2-1 used below: **host cap `H`**: at most `H` agents mid-turn on a machine. **Shrink rule**: the
+effective cap drops by one when load per core is above 1.5 or memory pressure is at warn for 3 ticks, floor 1.
+**Calm for 10 ticks**: 10 ticks without that, then the cap grows back by one, up to `H`. **Test-run slots**: `T`
+machine-wide locks a `pnpm turbo test` takes, default 1.
+
+### 4.1 How similar tools place work on machines
+
+| Tool | Licence | How a job finds a machine | Borrow |
+|---|---|---|---|
+| GitHub Actions self-hosted runners | MIT (`actions/runner`) | Labels route a job to runners with matching labels; runners can be grouped | Labels on a machine (`gpu`, `big-disk`, `has-repo-x`) |
+| Buildkite agent | MIT (`buildkite/agent`) | A step names a queue; an agent listens on one queue (set by its tag) and runs what arrives there; agent priority reorders | The agent pulls work; a machine that is full simply does not ask |
+| Nomad | BSL 1.1 from 1.7.0 (1.6.2 and before are MPL; `hashicorp/nomad` shows "Other"); not open source | Filter nodes (health, constraints), then score feasible ones, mainly by bin packing, with affinity | The two steps only. Do not copy code |
+| Kubernetes | Apache-2.0 | Filter on a pod's resource *requests* against unreserved capacity, then score; no fit leaves it pending | Requests as the number placement uses; "pending" with a reason |
+| Dev containers | spec CC-BY-4.0, CLI MIT | A file describes the environment a workspace needs; it does not say where it runs (unverified beyond the README) | Name a worktree's toolchain once so any machine can build it |
+
+Cloud sandboxes are out of scope here: a rented server is one more machine in this model.
+
+Not found in the pages read, so unverified: how many jobs one GitHub runner runs at once, what Buildkite does
+when no agent is free, and how Nomad accounts CPU and memory per node.
+
+### 4.2 What to borrow
+
+1. **Filter, then score.** Filter: the machine has room under its own limit, holds (or can fetch) the
+   branch, and carries the labels the task needs. Score only among those that pass: most free room first,
+   so a laptop is not filled while the server idles. No fit: the work waits with the reason of the
+   closest machine (below), never fails.
+2. **Requests, not guesses.** An agent counts as one slot and a test run as the 4 GB one measured in
+   section 2. Placement reads those numbers; the shrink rule of 2-1 changes a machine's room, not the numbers.
+3. **Machines declare, the pool does not poll.** Each machine's daemon reports capacity, labels and what is
+   held now on the tick it already has; one place decides where work goes. Where that place lives
+   (one daemon driving remote workers, or a daemon per machine with a shared queue) is the open design
+   question; the founder's call.
+
+### 4.3 How the 2-1 limits keep a machine as one resource among several
+
+Nothing in 2-1 changes per machine. Each machine keeps its own host cap `H`, shrink on measured pressure
+and test-run slots. The pool adds one level above them:
+
+- **Account cap stays global.** The quota belongs to the account, not the machine: `3 of 4` counts agents on
+  every machine.
+- **Host cap stays local.** A start or wake needs room at both levels. The account level is checked first
+  (cheaper to explain), then a machine is chosen by 4.2.
+- **An agent lives where its worktree is.** Moving it is the existing handoff (stop, push the branch, start
+  on the other machine), not live migration. Cost: the branch must be pushed and the worktree rebuilt, so
+  placement should prefer the machine that already has it.
+- **The admin view (2-2) gains a machine column** and one strip per machine; "why did my agent not start"
+  names the machine that was closest to fitting.
+
+### 4.4 Load limits as one more waiting reason (founder memo 1696)
+
+An agent that cannot run now waits for one thing. Today the waits are on the founder, on another task and on
+an account limit. Add the load limits to the same list instead of a second mechanism:
+
+| Waiting on | Detail shown | Cleared by |
+|---|---|---|
+| Founder | what is asked | an answer |
+| Task | `T<n>` and its state | that task done |
+| Account limit | account, `n of cap`, runway | a turn ending or the window |
+| **Host full** | machine, `n of H` | a turn ending on that machine |
+| **Pressure** | machine, load or memory level, effective cap | calm for 10 ticks (2-1) |
+| **Test slot** | which run holds it | that run ending |
+| **Held: machine load** | machine and which of the two above holds it | calm, or the founder's *Force start* |
+
+Two rules from founder memo 1742. *Force start*: a held start or wake has a way out that starts it anyway, once,
+and says it went past the limit. *One always runs*: a machine with no agent mid-turn never holds a start, so
+the shrink floor of 1 cannot leave the person with nothing running under load.
+
+One field on the agent view (kind, reference, one line, place in the queue) feeds the rail chip, the agent
+page and the admin table, so a wait on the load reads like every other wait. Whether the existing field
+names are reused or a new one is added was not checked against the daemon's view code.
+
+## Host cap rethink (founder memo 1803 on T3923)
+
+The memo: `cores/2` has no measurement behind it, and an idle agent uses 2 to 6 % of a core. Measured again on
+2026-10-15 07:27 to 07:29 on the same Mac (10 logical cores of which 4 performance, 24 GiB).
+
+### What runs out first
+
+| Resource | Measured now | How far from the limit |
+|---|---|---|
+| Disk | Data volume 460 GiB, 420 used, **10 GiB free (98 %)**; 14 worktrees take 20 GB (about 1.4 GB each, mostly `node_modules`), `~/.handline` 4.9 GB | Nearest: about seven more worktrees. The earlier sample today said 21 GB free |
+| CPU (heavy runs) | Full web suite: 18.6 s wall, 115 s user + 12.6 s sys, about 6.8 cores busy; one test file 2.4 s. The root run measured above peaked at 454 % | Two full runs at once fill the 10 cores; the 15-minute load average reads 86 from such bursts |
+| CPU (agents) | 17 `claude` processes sum to 32 % of one core, 0.1 to 4 % each | Not a limit |
+| Memory | The same 17 agents: mean 229 MB, median 257, max 465 MB, about 5 GB; free memory 56 %, pressure level 1 (normal) | About 50 agents before pressure; one full web run adds 470 MB in its main process |
+| File handles | `kern.maxfiles` 184 320, per process 92 160, 26 963 open; an agent holds 8 to 28 | Not a limit |
+| Model rate limits | Not measured in this pass | The account cap already counts agents mid-turn per account |
+
+Trust: one sample each, on a shared machine that was not idle (about 15 `handlined` and 17 agents running, load
+5.4 over one minute but 51 and 89 over five and fifteen: a burst had just ended, some of it these runs). RSS counts shared pages twice. The disk
+figure is exact; the CPU and memory figures are upper bounds.
+
+### Where the cap belongs
+
+Not on agents mid-turn for CPU or memory: agents cost little of either. The load comes from heavy runs (test,
+build), and on this machine the first thing to run out is disk. So the limits are three, each from a live
+reading and none from a core-count constant:
+
+1. **Heavy runs** (tests and builds, which the founder already limits to the auditor): a slot count of
+   `floor(idle cores / cores one run used)`, the second number recorded from the last run on this machine
+   (about 7 here), minimum 1. A run waits for a slot; load per core above 1 at the start also holds it.
+2. **Agents mid-turn**: the account cap stays the main limit. A memory ceiling is added from live numbers:
+   `(available memory - what the system keeps) / median agent RSS`, shown, rarely binding.
+3. **Disk guard**: a new worktree or agent start is held when free space is under three times the median
+   worktree size already on disk (about 4.5 GB here), with the reason shown and a force-start way out.
+
+Startup measures nothing fixed: it reads cores and memory once, and the per-run and per-agent costs are
+rolling medians of what the daemon sees (`ps`, `vm_stat`, `df`), so a smaller or larger machine gets its own
+numbers. Until a cost has a sample, the 2-1 doc's 400 MB per agent is the stand-in.
+
 ## Sources
 
 Fetched 2026-10-14: the READMEs of the five repositories above through `gh api`;
 docs.github.com (self-hosted runners), buildkite.com/docs/agent/v3/configuration,
 developer.hashicorp.com/nomad/docs/job-specification/resources, onorca.dev/docs/agents/usage-tracking,
 conductor.build/docs, and Vibe Kanban's `docs/core-features/monitoring-task-execution.mdx`.
+Section 4, fetched 2026-10-15: docs.github.com (using labels with self-hosted runners),
+buildkite.com/docs/agent/v3/queues, developer.hashicorp.com/nomad/docs/concepts/scheduling/scheduling,
+kubernetes.io/docs/concepts/scheduling-eviction/kube-scheduler; licences through `gh api repos/<r>/license`
+for actions/runner, buildkite/agent, hashicorp/nomad, kubernetes/kubernetes, devcontainers/spec and
+devcontainers/cli; the Nomad boundary from `LICENSE` at tags v1.6.2 and v1.7.0.

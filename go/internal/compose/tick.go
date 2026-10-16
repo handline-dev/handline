@@ -23,8 +23,8 @@ import (
 	"github.com/handline/handline/go/internal/usage"
 )
 
-// This file builds the policy tick. It supervises the structured agents; with TickConfig.Terminals it supervises the terminal agents too,
-// reading their sessions from <config dir>/sessions/<pid>.json, and a Python daemon must not tick the same agents then. Folding the day is a
+// This file builds the policy tick. With TickConfig.Terminals it supervises the terminal agents, reading their sessions from
+// <config dir>/sessions/<pid>.json, and a Python daemon must not tick the same agents then. Folding the day is a
 // model call that stays the Python daemon's.
 
 // Tick is the policy tick and what it needs beside the lifecycle.
@@ -51,8 +51,8 @@ type TickConfig struct {
 	// Stop ends the loop when closed.
 	Stop <-chan struct{}
 	// Cutover says the Python daemon no longer ticks: this tick then owns the usage poll (account readings, samples, burn, token log) and every agent_view
-	// row, gone agents' included. Off, the Python daemon keeps both for its terminal agents and this tick writes the rows of structured
-	// agents alone, so two ticks on one home do not double the samples or rewrite each other's rows.
+	// row, gone agents' included. Off, the Python daemon keeps both, so two ticks on one home do not double the samples or rewrite each
+	// other's rows.
 	Cutover bool
 	// Terminals puts the terminal agents under this tick: it wakes, closes, restarts and hands off their sessions. Their agent_view rows
 	// stay the Python daemon's until the view covers them.
@@ -68,8 +68,15 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	logLine := func(s string) { cfg.Log("%s", s) }
 	tu := tickUsage{p: p, u: uenv, roster: lc.roster, own: tc.Cutover}
 	view := p.agentView(cfg, tc.Cutover, tc.Terminals, tu)
+	wake := make(chan struct{}, 1)
 	if cfg.Turns != nil && tc.Terminals {
 		cfg.Turns.OnChange(view.RefreshOne)
+		cfg.Turns.OnEnd(p.sessionPid, func(string) {
+			select {
+			case wake <- struct{}{}:
+			default:
+			}
+		})
 	}
 	agents := func() []string { return p.tickAgents(tc.Terminals) }
 	reconciler := &lifecycle.Reconciler{Q: q, Log: logLine, Ports: lifecycle.ReconcilerPorts{
@@ -98,7 +105,6 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 			return err
 		},
 		Term: reconcileTerm{p: p, on: tc.Terminals},
-		Run:  p.Run,
 		Now:  now,
 	}}
 	pollUsage := func(db.Q) error { return nil } // the Python daemon's until the cutover
@@ -121,8 +127,8 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		Login:     loginPorts(team.Accounts{Home: home}),
 		Reconcile: tickReconciler{r: reconciler},
 		Sweeps: tick.Sweeps{
-			BlockedSweep:    func(db.Q, int64) {},            // dialogs on a screen: a structured session has none
-			CollectSnapshot: func(db.Q) error { return nil }, // a structured session has no screen to read
+			BlockedSweep:    func(db.Q, int64) {},            // dialogs on a screen: this tick reads none
+			CollectSnapshot: func(db.Q) error { return nil }, // no screen is read
 			PollUsage:       pollUsage,
 			RelinkAccounts:  func() (map[string][]string, error) { return team.RelinkAll(home, logLine), nil },
 			Rollover:        (&fold.Env{Home: home, Today: today(cfg)}).Rollover,
@@ -141,7 +147,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	dev.Exe, _ = os.Executable()
 	dev.Baseline()
 	fds := &housekeeping.FDs{Log: logLine}
-	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop, Dev: dev, Housekeeping: []tick.NamedSweep{
+	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop, Dev: dev, Wake: wake, Housekeeping: []tick.NamedSweep{
 		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
 		{Name: "attachment sweep", Run: func(q db.Q, _ int64) error { return attachments.New(home).Sweep(q) }},
@@ -218,17 +224,12 @@ func today(cfg Config) func() string {
 	return func() string { return nowOf(cfg.Now)().Format("2006-01-02") }
 }
 
-func (p *Parts) structuredAgents() []string { return p.tickAgents(false) }
-
-// tickAgents is the structured agents, and the terminal ones too when terminals is set.
+// tickAgents is the agents the tick supervises: every one when terminals is set, else none.
 func (p *Parts) tickAgents(terminals bool) []string {
-	var out []string
-	for _, a := range paths.ListAgents(p.home) {
-		if terminals || p.Kind(a) {
-			out = append(out, a)
-		}
+	if !terminals {
+		return nil
 	}
-	return out
+	return paths.ListAgents(p.home)
 }
 
 // queuedOrIdle is daemon/evaluate.queued_or_idle: QUEUED when something has not reached the agent yet, IDLE otherwise.
@@ -260,7 +261,7 @@ func (t reconcileTerm) IdleNow(handle string) bool {
 	return agent != "" && t.p.sessionStatus(agent) == "idle"
 }
 
-// tickHost is tick.Host over the structured sessions and, with terminals, the terminal ones.
+// tickHost is tick.Host over the terminal agents' sessions, with terminals.
 type tickHost struct {
 	p         *Parts
 	terminals bool
@@ -270,39 +271,26 @@ func (h tickHost) Agents() []string   { return h.p.tickAgents(h.terminals) }
 func (h tickHost) Accounts() []string { return paths.ListAccounts(h.p.home) }
 
 func (h tickHost) SessionAlive(agent string) bool {
-	if h.terminals && !h.p.Kind(agent) {
-		return h.p.sessionStatus(agent) != ""
-	}
-	return h.p.Run.Alive(agent)
+	return h.terminals && h.p.sessionStatus(agent) != ""
 }
 
-// SessionIdle: the session is not mid-turn, and no permission prompt is open (a restart must not cut one short).
+// SessionIdle: the session file says idle (a restart must not cut a turn short).
 func (h tickHost) SessionIdle(agent string) bool {
-	if h.terminals && !h.p.Kind(agent) {
-		return h.p.sessionStatus(agent) == "idle"
-	}
-	return h.p.Run.Alive(agent) && !h.p.Run.Busy(agent) && !(h.p.Manager.Broker != nil && h.p.Manager.Broker.Has(agent))
+	return h.terminals && h.p.sessionStatus(agent) == "idle"
 }
 
-// RunningAccount is the account the session was opened under; "" when unknown, which never contradicts the recorded account.
+// RunningAccount is the account the terminal session runs under; "" when unknown, which never contradicts the recorded account.
 func (h tickHost) RunningAccount(agent string) string {
-	if h.terminals && !h.p.Kind(agent) {
-		if p := h.p; p.LC != nil {
-			if _, acct, found := p.terminalSession(agent, p.LC.term.LiveTerminals()); found == sessionFound {
-				return acct
-			}
+	if p := h.p; h.terminals && p.LC != nil {
+		if _, acct, found := p.terminalSession(agent, p.LC.term.LiveTerminals()); found == sessionFound {
+			return acct
 		}
-		return ""
 	}
-	return h.p.OpenedOn(agent)
+	return ""
 }
 
-// resumableSession is the session id to remember for a closed agent: the one the daemon holds for a structured agent; for a terminal agent
-// the one its statusline or session file gave, else the one stored.
+// resumableSession is the session id to remember for a closed agent: the one its statusline or session file gave, else the one stored.
 func (p *Parts) resumableSession(q db.Q, agent string, tu tickUsage) string {
-	if p.Kind(agent) {
-		return p.Manager.SessionID(agent)
-	}
 	acct, _ := team.CurrentAccount(q, agent)
 	if sid := tu.ReadForAgent(agent, acct).SessionID; sid != "" {
 		return sid
@@ -346,7 +334,7 @@ func (p *Parts) observeTerminals(names []string, terminals map[string]string) ma
 	}
 	live := p.LC.term.LiveTerminals() // nil: the host could not say, which is not "gone"
 	for _, a := range names {
-		if p.Kind(a) || terminals[a] == "" || live == nil {
+		if terminals[a] == "" || live == nil {
 			continue
 		}
 		alive := live[terminals[a]]
@@ -398,25 +386,7 @@ func (t tickUsage) ReadForAgent(agent, acct string) tick.Status {
 	if acct == "" || t.p.LC == nil {
 		return st
 	}
-	if !t.p.Kind(agent) {
-		t.fillFromSession(agent, acct, &st)
-		return st
-	}
-	// A structured session writes no status file: its session is the one the daemon holds, and its context is in the transcript the CLI keeps.
-	st.SessionID = t.p.Manager.SessionID(agent)
-	if st.SessionID == "" {
-		if row, err := db.GetAgentState(t.p.db, agent); err == nil && row != nil {
-			st.SessionID = row.ResumeSession.String
-		}
-	}
-	if st.SessionID == "" {
-		return st
-	}
-	st.TranscriptPath = t.p.LC.Handoff.FindTranscript(st.SessionID, acct)
-	if used, model, ok := lastContext(st.TranscriptPath); ok {
-		n := int(used)
-		st.TrustedCtxUsed, st.ModelID = &n, model
-	}
+	t.fillFromSession(agent, acct, &st)
 	return st
 }
 
@@ -444,26 +414,10 @@ func (t tickUsage) fillFromSession(agent, acct string, st *tick.Status) {
 func (t tickUsage) ContextLimit(agent, modelID string) int {
 	cfg, _ := t.roster.Read(agent)
 	limit := int(team.ContextTokensOf(cfg))
-	if size := contextWindow(modelID); size > 0 {
+	if size := usage.ContextWindow(modelID); size > 0 {
 		limit = min(limit, int(float64(size)*tick.ContextClampFraction))
 	}
 	return limit
-}
-
-// ctxSizes is vendors/claude_collect.CTX_SIZE, keyed by prefix so a dated model id still matches. An unrecognised model has no figure
-// rather than a guessed one.
-var ctxSizes = []struct {
-	prefix string
-	size   int
-}{{"claude-opus-5", 1_000_000}, {"claude-sonnet-5", 1_000_000}, {"claude-haiku-4-5", 200_000}}
-
-func contextWindow(model string) int {
-	for _, c := range ctxSizes {
-		if len(model) >= len(c.prefix) && model[:len(c.prefix)] == c.prefix {
-			return c.size
-		}
-	}
-	return 0
 }
 
 func (t tickUsage) WriteBurn(acct string, rate float64, at int64) {
@@ -607,7 +561,7 @@ func (l tickLifecycle) RestartAgent(_ db.Q, agent string, st tick.Status, by str
 	return ok, said
 }
 func (l tickLifecycle) TriggersApply(row *db.AgentState) bool {
-	return row != nil && l.m.TriggersApplyTo(row.Agent, row)
+	return row != nil && lifecycle.TriggersApply(row)
 }
 
 // tickHandoff is tick.Handoff: the note, the handoff itself and the move to another account.

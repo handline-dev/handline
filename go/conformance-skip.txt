@@ -1,0 +1,2 @@
+# Fixtures the Go run plays as an agent that fail on a gap too big for the change that gave the run its agent connection.
+# contract/conformance.py --skip-file reads one per line. The fixtures still run: one that passes, or a name no fixture has, fails the run.

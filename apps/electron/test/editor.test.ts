@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -9,6 +9,7 @@ import { Composer, parseLoginEnv, splitWords, sweepTemp, type EditorEnv } from '
 const ORIGIN = 'http://127.0.0.1:5000';
 const top: Sender = { senderFrame: { url: `${ORIGIN}/`, parent: null } };
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'hl-ed-'));
+after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 const bin = path.join(tmp, 'bin');
 fs.mkdirSync(bin);
 const script = (name: string, body: string) => {

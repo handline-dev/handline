@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { DEBUG_HASH } from './debug/paneFacts.ts';
 
 const read = () => location.hash.match(/^#\/agents\/(.+?)(\/settings)?(?:\?m=(\d+))?$/);
-const readTasks = () => location.hash.match(/^#\/tasks(?:\/(\d+))?$/)?.[1] ?? (/^#\/tasks\/?$/.test(location.hash) ? '' : null);
+const readTasks = () => location.hash.match(/^#\/tasks(?:\/(\d+|graph))?$/)?.[1] ?? (/^#\/tasks\/?$/.test(location.hash) ? '' : null);
 const subscribe = (cb: () => void) => {
   addEventListener('hashchange', cb);
   return () => removeEventListener('hashchange', cb);
@@ -37,7 +37,7 @@ export const goInbox = (): void => {
 
 /** The Tasks page the URL names: null off it, '' for the list, the task number (as text) for a detail. */
 export const useTasksRoute = (): string | null => useSyncExternalStore(subscribe, readTasks);
-export const goTasks = (task?: number): void => {
+export const goTasks = (task?: number | 'graph'): void => {
   location.hash = task === undefined ? '#/tasks' : `#/tasks/${task}`;
 };
 /** Opens the agent's chat on this message: the number rides in the URL (`#/agents/:name?m=:id`) until the Chat tab has scrolled to it. */
@@ -80,10 +80,10 @@ export const goTeam = (tab: 'team' | 'hr' = 'team'): void => {
   location.hash = tab === 'hr' ? '#/team/hr' : '#/team';
 };
 
-/** Which of the page routes the URL names: `#/stats` or `#/settings`, or '' for neither. */
-export function usePageRoute(): 'stats' | 'settings' | '' {
+/** Which of the page routes the URL names: `#/stats`, `#/settings`, `#/my-turn` or `#/admin`, or '' for neither. */
+export function usePageRoute(): 'stats' | 'settings' | 'my-turn' | 'admin' | '' {
   const hash = useSyncExternalStore(subscribe, () => location.hash);
-  return hash === '#/stats' ? 'stats' : hash === '#/settings' ? 'settings' : '';
+  return hash === '#/stats' ? 'stats' : hash === '#/settings' ? 'settings' : hash === '#/my-turn' ? 'my-turn' : hash === '#/admin' ? 'admin' : '';
 }
 
 const WORKTREES = /^#\/worktrees(?:\/(.+))?$/;
@@ -111,4 +111,18 @@ export const goNew = (operation?: string): void => {
 /** Whether the URL is the debug window's (`#/debug/terminals`), which Settings opens in a window of its own. */
 export function useDebugRoute(): boolean {
   return useSyncExternalStore(subscribe, () => location.hash) === DEBUG_HASH;
+}
+
+let wantsTerminal: string | null = null;
+/** Opens the agent's page with its terminal (a structured agent's transcript) in front: the page takes the wish on load, or on this event. */
+export function goTerminal(name: string): void {
+  wantsTerminal = name;
+  goAgent(name);
+  dispatchEvent(new Event('handline-terminal'));
+}
+/** True once for the agent a `goTerminal` named. */
+export function takeTerminalWish(agent: string): boolean {
+  if (wantsTerminal !== agent) return false;
+  wantsTerminal = null;
+  return true;
 }

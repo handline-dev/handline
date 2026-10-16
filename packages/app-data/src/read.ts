@@ -106,6 +106,31 @@ export const useAccounts = () => useRead('accounts.list', {});
 /** The accounts with what `hl account list` adds (plan, windows, can it take work and why): a read of its own, fetched again every 30 s because the accounts topic does not carry those fields. */
 export const useAccountUsage = () => useRead('accounts.list', { usage: true, roster: true }, { refetchMs: SNAPSHOT_STALE_MS });
 export const useInbox = (filter: CallParams<'inbox.list'> = {}) => useRead('inbox.list', filter);
+/** The inbox page the feed keeps current plus the older pages fetched with `before` as the end of the list comes near; an item of an older page is not touched by the feed. */
+export function useInboxPages() {
+  const first = useInbox();
+  const store = useStore();
+  const [older, setOlder] = useState<{ items: InboxItem[]; more: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const head = first.data?.items;
+  const items = useMemo(() => {
+    const seen = new Set<number>();
+    return [...(head ?? []), ...(older?.items ?? [])].filter((i) => !seen.has(i.id) && seen.add(i.id)).sort((a, b) => b.id - a.id);
+  }, [head, older]);
+  const more = older ? older.more : (first.data?.more ?? false);
+  const loadOlder = useCallback(async () => {
+    const before = items.at(-1)?.id;
+    if (before === undefined || busy) return;
+    setBusy(true);
+    try {
+      const r = await store.client.call('inbox.list', { before });
+      setOlder((o) => ({ items: [...(o?.items ?? []), ...r.items], more: r.more }));
+    } finally {
+      setBusy(false);
+    }
+  }, [store, items, busy]);
+  return { query: first, items, more, loadOlder, loadingOlder: busy };
+}
 /** The unread items of the whole inbox: the bell, the tab title and the unread dot of the page all read the one cached list, so a mark drops them together. */
 export function useUnread(): InboxItem[] {
   const items = useInbox().data?.items;
@@ -129,12 +154,23 @@ export function useAgentTasks(agent: string) {
   return { query, items, capped: !!(held.data?.more || opened.data?.more) };
 }
 export const useAgentStrip = (agent: string) => useRead('agent.strip', { agent }, { enabled: agent !== '' });
-/** What a # in the composer can point at: the agent's newest requests, read only while the menu is open. */
-export const useChatRefs = (agent: string, enabled: boolean) => useRead('chat.refs', { agent }, { enabled: enabled && agent !== '' });
 export const useTask = (task: number) => useRead('task.get', { task });
 export const useMemos = (task: number) => useRead('task.memo.list', { task });
 export const useTaskBoard = () => useRead('task.board', {});
 export const useTrust = () => useRead('trust.list', {});
+/** The newest events of the daemon's log, read once when the page opens (the log is not a cache the bridge keeps; a screen that wants it live asks again). */
+export function useRecentEvents(limit: number) {
+  const store = useStore();
+  const { daemon } = useData();
+  const { served, open } = useServes('events.feed');
+  return useQuery({
+    queryKey: [daemon, 'events.feed', limit],
+    queryFn: () => store.client.call('events.feed', { limit }),
+    enabled: served && open,
+    gcTime: 0,
+    select: (r) => [...r.events].sort((a, b) => b.cursor - a.cursor),
+  });
+}
 export const useMemory = (agent?: string) => useRead('memory.status', { agent });
 export const useTeam = () => useRead('team.get', {});
 export const useHr = (filter: CallParams<'hr.list'> = {}) => useRead('hr.list', filter);
@@ -150,4 +186,5 @@ export const useDevices = () => useRead('devices.list', {});
 export const useOperation = (operation: string) => useRead('operation.get', { operation });
 /** Where a message number sits (its chat and scope); `enabled` false reads nothing until a message number is clicked. */
 export const useChatLocate = (params: CallParams<'chat.locate'>, enabled = true) => useRead('chat.locate', params, { enabled });
+export const useChatRefs = (agent: string, enabled = true) => useRead('chat.refs', { agent }, { enabled });
 export const useChatSearch = (params: CallParams<'chat.search'>, enabled = true) => useRead('chat.search', params, { enabled });

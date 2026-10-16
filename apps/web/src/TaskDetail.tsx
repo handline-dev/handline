@@ -5,11 +5,12 @@ import { taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useWrite } from '@handline/app-data';
+import { canCapture, requestCapture } from './Capture.tsx';
 import { Button, Icon } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
-import { AssignSheet, ReplyBox } from './TaskPeople.tsx';
-import { AskBox, CancelSheet, EditForm, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
+import { AssignSheet } from './TaskPeople.tsx';
+import { CancelSheet, EditForm, MessageBox, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
 import { RichText } from './RichText.tsx';
 import { View } from './View.tsx';
 
@@ -39,7 +40,7 @@ export function TaskDetail({
   return (
     <article
       className={`tdetail flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-4 max-sm:py-3${
-        embedded ? ' pane relative bg-panel -outline-offset-1' : ''
+        embedded ? ' pane relative bg-panel -outline-offset-1' : ' mx-auto w-full max-w-[var(--w-page)]'
       }${
         drawer
           ? ' absolute top-[calc(var(--sp-5)+var(--h-btn)+var(--sp-4))] right-0 bottom-0 left-auto z-[5] w-[min(480px,100%)] border-l border-line bg-surface shadow-[var(--shadow-pop)]'
@@ -47,9 +48,12 @@ export function TaskDetail({
       }`}
       aria-label={`Task ${taskRef(id)}`}
     >
-      <Button icon="close" label="Back" title="Back (Esc)" className="back self-end mb-4" onClick={onBack}>
-        Back
-      </Button>
+      <div className="mb-4 flex items-center justify-end gap-2">
+        {canCapture() ? <Button icon="select" label="Capture" title="Capture a window (⌘⇧C)" onClick={requestCapture} /> : null}
+        <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
+          Back
+        </Button>
+      </div>
       {gone ? (
         <div className="empty">
           <p>This task no longer exists.</p>
@@ -219,9 +223,9 @@ function Body({ t }: { t: Detail }) {
       {ask === 'edit' ? <EditForm t={t} onClose={() => setAsk(null)} /> : null}
 
       {t.body ? (
-        <p className="tbody-text m-0 whitespace-pre-wrap">
+        <div className="tbody-text m-0 whitespace-pre-wrap">
           <RichText text={t.body} />
-        </p>
+        </div>
       ) : null}
 
       {t.blockers.length ? <TaskLinks icon="waiting" label="Waits on" items={t.blockers} /> : null}
@@ -275,8 +279,7 @@ function Body({ t }: { t: Detail }) {
         </>
       ) : null}
 
-      <AskBox t={t} />
-      <ReplyBox t={t} me={me} box={replyBox} />
+      <MessageBox t={t} me={me} box={replyBox} />
     </div>
   );
 }
