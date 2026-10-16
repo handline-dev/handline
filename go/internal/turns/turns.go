@@ -44,6 +44,16 @@ func (t *Tracker) OnChange(f func(agent string)) {
 	t.mu.Unlock()
 }
 
+// Refresh tells OnChange's func of a change to the agent's view that is not its turn's.
+func (t *Tracker) Refresh(agent string) {
+	t.mu.Lock()
+	changed := t.changed
+	t.mu.Unlock()
+	if changed != nil {
+		changed(agent)
+	}
+}
+
 // OnEnd sets how an agent's session process is found (0 when it is not) and what is told once that process has exited.
 func (t *Tracker) OnEnd(pid func(agent string) int, ended func(agent string)) {
 	t.mu.Lock()

@@ -386,7 +386,12 @@ def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, home: Path, g
     r.step("message landed", t, landed(req))
     r.step("working after the message was sent", t, agent_changed(a, "running"))
     idle = r.s.wait(t, agent_changed(a, "idle"), time.time() + MODEL_S)
-    replied = turn_end_at(config_dir, root)
+    replied = None
+    for _ in range(25):  # Claude Code writes the hook's summary line after the hook ran, so it can land after the idle it caused
+        replied = turn_end_at(config_dir, root)
+        if replied:
+            break
+        time.sleep(0.2)
     if idle and replied:
         took = round(idle[0] - replied, 2)
         r.record({"step": "idle after the Stop hook (transcript time to agent.changed)", "paced_by": "daemon",
