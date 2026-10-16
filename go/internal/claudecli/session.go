@@ -4,15 +4,15 @@
 //
 // The protocol is documented by the SDK (@anthropic-ai/claude-agent-sdk, sdk.d.ts: SDKUserMessage, SDKControlRequest,
 // SDKControlResponse); several control types are alpha, so the CLI version is pinned (PinnedCLI) and checked before a start.
-package structured
+package claudecli
 
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/handline/handline/go/internal/delivery"
 	"io"
 	"os"
 	"os/exec"
@@ -24,36 +24,6 @@ import (
 
 // PinnedCLI is the Claude CLI version the control types here were read against.
 const PinnedCLI = "2.1.296"
-
-// Delivery says what a message does when a turn is running: Now steers it into the running turn (priority "now"); Queue holds it
-// until the turn ends.
-type Delivery string
-
-const (
-	Now   Delivery = "now"
-	Queue Delivery = "queue"
-)
-
-// State of a send: Queued (held behind a turn), Sent (written to the CLI), Confirmed (the CLI echoed it back by uuid, or reported it queued or started).
-type State string
-
-const (
-	Queued    State = "queued"
-	Sent      State = "sent"
-	Confirmed State = "confirmed"
-	// Unknown: the message was written, and the daemon or the CLI died before the echo. The CLI may or may not have run it, so it is
-	// never written again; the sender is told.
-	Unknown State = "unknown"
-	// Withdrawn: the message was held and its sender took it back before any write began. It is never written.
-	Withdrawn State = "withdrawn"
-)
-
-// Receipt is the recorded answer of one operation; a retry with the same operation id gets it back and writes nothing.
-type Receipt struct {
-	Op    string
-	UUID  string
-	State State
-}
 
 // Decision answers a permission prompt. A zero Decision denies.
 type Decision struct {
@@ -89,7 +59,7 @@ type Launch struct {
 	Model     string
 	Env       []string         // NAME=value pairs the daemon sets on purpose (the agent's name, say), after the allowlisted ones
 	Now       func() time.Time // the clock for RetryingSince; nil is time.Now
-	Ledger    Ledger           // where sends are recorded before they are written; nil keeps them in memory
+	Ledger    delivery.Ledger  // where sends are recorded before they are written; nil keeps them in memory
 	// Started is told the CLI's pid once it runs, before initialize; an error stops it. Ended is told the same pid once it has exited.
 	Started func(pid int) error
 	Ended   func(pid int)
@@ -143,7 +113,7 @@ type Session struct {
 	cmd   *exec.Cmd
 	in    io.WriteCloser
 	h     Handlers
-	led   Ledger
+	led   delivery.Ledger
 	now   func() time.Time
 	ended func(pid int)
 
@@ -170,19 +140,10 @@ type Session struct {
 
 type entry struct {
 	op, uuid, text string
-	delivery       Delivery
-	state          State
-	settled        chan struct{} // closed when the state is settled: Confirmed, or Unknown
-	timer          *time.Timer   // the echo deadline while Sent
-}
-
-// UUIDFor is a valid UUID that is the same for the same operation id, so the CLI's echo names the operation.
-func UUIDFor(op string) string {
-	h := sha256.Sum256([]byte("handline-operation:" + op))
-	b := h[:16]
-	b[6] = b[6]&0x0f | 0x50
-	b[8] = b[8]&0x3f | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+	delivery       delivery.Delivery
+	state          delivery.State
+	settled        chan struct{} // closed when the state is settled: delivery.Confirmed, or delivery.Unknown
+	timer          *time.Timer   // the echo deadline while delivery.Sent
 }
 
 // Open starts the CLI and completes the initialize handshake; it fails closed when the CLI does not answer within timeout.
@@ -210,7 +171,7 @@ func Open(ctx context.Context, l Launch, h Handlers, timeout time.Duration) (*Se
 	}
 	led := l.Ledger
 	if led == nil {
-		led = &MemLedger{}
+		led = &delivery.MemLedger{}
 	}
 	now := l.Now
 	if now == nil {
@@ -285,42 +246,42 @@ func (s *Session) exitError() error {
 // Send delivers text. The same op twice writes once and answers with the first receipt, also after a restart: the ledger has it. With
 // Queue while a turn runs, the message is held and written when the turn ends. The operation is recorded before it is written; if it
 // cannot be recorded it is not written.
-func (s *Session) Send(op, text string, d Delivery) (Receipt, error) {
+func (s *Session) Send(op, text string, d delivery.Delivery) (delivery.Receipt, error) {
 	if op == "" {
-		return Receipt{}, errors.New("a send needs an operation id")
+		return delivery.Receipt{}, errors.New("a send needs an operation id")
 	}
 	s.mu.Lock()
 	if e, ok := s.ledger[op]; ok {
-		r := Receipt{e.op, e.uuid, e.state}
+		r := delivery.Receipt{Op: e.op, UUID: e.uuid, State: e.state}
 		s.mu.Unlock()
 		return r, nil
 	}
 	prior, err := s.led.Get(op)
 	if err != nil {
 		s.mu.Unlock()
-		return Receipt{}, err
+		return delivery.Receipt{}, err
 	}
 	if prior != nil {
 		s.mu.Unlock()
-		return Receipt{prior.ID, prior.UUID, prior.State}, nil
+		return delivery.Receipt{Op: prior.ID, UUID: prior.UUID, State: prior.State}, nil
 	}
 	if s.closed {
 		s.mu.Unlock()
-		return Receipt{}, errors.New("session closed")
+		return delivery.Receipt{}, errors.New("session closed")
 	}
-	e := &entry{op: op, uuid: UUIDFor(op), text: text, delivery: d, state: Queued, settled: make(chan struct{})}
-	held := d == Queue && s.busy
+	e := &entry{op: op, uuid: delivery.UUIDFor(op), text: text, delivery: d, state: delivery.Queued, settled: make(chan struct{})}
+	held := d == delivery.Queue && s.busy
 	if !held {
-		e.state = Sent
+		e.state = delivery.Sent
 	}
 	if err := s.led.Put(e.record()); err != nil {
 		s.mu.Unlock()
-		return Receipt{}, err
+		return delivery.Receipt{}, err
 	}
 	s.ledger[op], s.byUUID[e.uuid] = e, e
 	if held {
 		s.held = append(s.held, e)
-		r := Receipt{e.op, e.uuid, e.state}
+		r := delivery.Receipt{Op: e.op, UUID: e.uuid, State: e.state}
 		s.mu.Unlock()
 		return r, nil
 	}
@@ -328,14 +289,14 @@ func (s *Session) Send(op, text string, d Delivery) (Receipt, error) {
 	s.markWritten(e)
 	s.mu.Unlock()
 	if err := s.writeUser(e, d); err != nil {
-		// A partial write may have reached the CLI, so the message is Unknown and is not retried; the counts it took are given back.
+		// A partial write may have reached the CLI, so the message is delivery.Unknown and is not retried; the counts it took are given back.
 		s.unknown(e)
 		s.mu.Lock()
 		s.busy = wasBusy
 		s.mu.Unlock()
-		return Receipt{}, err
+		return delivery.Receipt{}, err
 	}
-	return Receipt{e.op, e.uuid, Sent}, nil
+	return delivery.Receipt{Op: e.op, UUID: e.uuid, State: delivery.Sent}, nil
 }
 
 // heldEntry is the held message for op and its place in the queue, with s.mu held. Missing is a message that is not held: written,
@@ -350,45 +311,45 @@ func (s *Session) heldEntry(op string) (*entry, int) {
 }
 
 // recorded is the receipt of an operation that is not held, from memory or the ledger, with s.mu held.
-func (s *Session) recorded(op string) (Receipt, error) {
+func (s *Session) recorded(op string) (delivery.Receipt, error) {
 	if e, ok := s.ledger[op]; ok {
-		return Receipt{e.op, e.uuid, e.state}, nil
+		return delivery.Receipt{Op: e.op, UUID: e.uuid, State: e.state}, nil
 	}
 	prior, err := s.led.Get(op)
 	if err != nil {
-		return Receipt{}, err
+		return delivery.Receipt{}, err
 	}
 	if prior == nil {
-		return Receipt{}, errors.New("no such operation")
+		return delivery.Receipt{}, errors.New("no such operation")
 	}
-	return Receipt{prior.ID, prior.UUID, prior.State}, nil
+	return delivery.Receipt{Op: prior.ID, UUID: prior.UUID, State: prior.State}, nil
 }
 
 // Withdraw takes back a message that is still held behind a turn. It is atomic with the release of the queue: a message is withdrawn
 // or written, never both, and one whose write has started is not withdrawn. ok is whether it was withdrawn (also true on a repeat);
 // when it is not, the receipt is the message's recorded state. The withdrawn state is recorded, so it stays withdrawn after a restart
 // and a Send retried with the same operation id gets that back and writes nothing.
-func (s *Session) Withdraw(op string) (r Receipt, ok bool, err error) {
+func (s *Session) Withdraw(op string) (r delivery.Receipt, ok bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, i := s.heldEntry(op)
 	if e == nil {
 		r, err = s.recorded(op)
-		return r, r.State == Withdrawn, err
+		return r, r.State == delivery.Withdrawn, err
 	}
-	e.state = Withdrawn
+	e.state = delivery.Withdrawn
 	if err := s.led.Put(e.record()); err != nil {
-		e.state = Queued
-		return Receipt{e.op, e.uuid, Queued}, false, err
+		e.state = delivery.Queued
+		return delivery.Receipt{Op: e.op, UUID: e.uuid, State: delivery.Queued}, false, err
 	}
 	s.held = append(s.held[:i], s.held[i+1:]...)
 	close(e.settled)
-	return Receipt{e.op, e.uuid, Withdrawn}, true, nil
+	return delivery.Receipt{Op: e.op, UUID: e.uuid, State: delivery.Withdrawn}, true, nil
 }
 
 // Promote writes a held message now with priority "now", as Send with Now would. A message that is not held (written, settled,
-// withdrawn) is answered with its recorded receipt and nothing is written. If the write fails the message is Unknown, as in Send.
-func (s *Session) Promote(op string) (Receipt, error) {
+// withdrawn) is answered with its recorded receipt and nothing is written. If the write fails the message is delivery.Unknown, as in Send.
+func (s *Session) Promote(op string) (delivery.Receipt, error) {
 	s.mu.Lock()
 	e, i := s.heldEntry(op)
 	if e == nil {
@@ -397,35 +358,35 @@ func (s *Session) Promote(op string) (Receipt, error) {
 	}
 	if s.closed {
 		s.mu.Unlock()
-		return Receipt{}, errors.New("session closed")
+		return delivery.Receipt{}, errors.New("session closed")
 	}
 	wasBusy := s.busy
 	s.markWritten(e)
 	if err := s.led.Put(e.record()); err != nil {
 		e.timer.Stop()
-		e.state = Queued
+		e.state = delivery.Queued
 		s.echoing--
 		s.busy = wasBusy
 		s.mu.Unlock()
-		return Receipt{}, err
+		return delivery.Receipt{}, err
 	}
 	s.held = append(s.held[:i], s.held[i+1:]...)
 	s.mu.Unlock()
-	if err := s.writeUser(e, Now); err != nil {
+	if err := s.writeUser(e, delivery.Now); err != nil {
 		s.unknown(e)
 		s.mu.Lock()
 		s.busy = wasBusy
 		s.mu.Unlock()
-		return Receipt{}, err
+		return delivery.Receipt{}, err
 	}
-	return Receipt{e.op, e.uuid, Sent}, nil
+	return delivery.Receipt{Op: e.op, UUID: e.uuid, State: delivery.Sent}, nil
 }
 
-func (e *entry) record() Op {
-	return Op{ID: e.op, UUID: e.uuid, Text: e.text, Delivery: e.delivery, State: e.state}
+func (e *entry) record() delivery.Op {
+	return delivery.Op{ID: e.op, UUID: e.uuid, Text: e.text, Delivery: e.delivery, State: e.state}
 }
 
-// recover settles the ledger of an earlier process: a message written and never echoed is Unknown and is not written again; a
+// recover settles the ledger of an earlier process: a message written and never echoed is delivery.Unknown and is not written again; a
 // message still queued is held again and goes out once the CLI is idle.
 func (s *Session) recover() error {
 	pending, err := s.led.Pending()
@@ -435,8 +396,8 @@ func (s *Session) recover() error {
 	s.mu.Lock()
 	for _, o := range pending {
 		e := &entry{op: o.ID, uuid: o.UUID, text: o.Text, delivery: o.Delivery, state: o.State, settled: make(chan struct{})}
-		if o.State == Sent {
-			e.state = Unknown
+		if o.State == delivery.Sent {
+			e.state = delivery.Unknown
 			if err := s.led.Put(e.record()); err != nil {
 				s.mu.Unlock()
 				return err
@@ -453,7 +414,7 @@ func (s *Session) recover() error {
 
 // markWritten records that e is about to be written. Caller holds s.mu.
 func (s *Session) markWritten(e *entry) {
-	e.state = Sent
+	e.state = delivery.Sent
 	s.echoing++
 	s.busy = true
 	e.timer = time.AfterFunc(EchoDeadline, func() { s.lose(e) })
@@ -478,29 +439,29 @@ func (s *Session) dropped(e *entry) {
 	s.releaseNext()
 }
 
-// unknown turns a Sent or Confirmed message into Unknown, once. Caller does not hold s.mu.
+// unknown turns a delivery.Sent or delivery.Confirmed message into delivery.Unknown, once. Caller does not hold s.mu.
 func (s *Session) unknown(e *entry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch e.state {
-	case Sent:
+	case delivery.Sent:
 		s.echoing--
 		close(e.settled)
-	case Confirmed:
+	case delivery.Confirmed:
 	default:
 		return
 	}
 	if e.timer != nil {
 		e.timer.Stop()
 	}
-	e.state = Unknown
+	e.state = delivery.Unknown
 	s.led.Put(e.record())
 }
 
-func (s *Session) writeUser(e *entry, d Delivery) error {
+func (s *Session) writeUser(e *entry, d delivery.Delivery) error {
 	m := map[string]any{"type": "user", "uuid": e.uuid, "parent_tool_use_id": nil,
 		"message": map[string]any{"role": "user", "content": e.text}}
-	if d == Now {
+	if d == delivery.Now {
 		m["priority"] = "now"
 	}
 	return s.write(m)
@@ -518,10 +479,10 @@ func (s *Session) WaitConfirmed(ctx context.Context, op string) error {
 	case <-e.settled:
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		if e.state == Withdrawn {
+		if e.state == delivery.Withdrawn {
 			return errors.New("the message was withdrawn")
 		}
-		if e.state != Confirmed {
+		if e.state != delivery.Confirmed {
 			return errors.New("the message is unknown: the CLI never acknowledged it")
 		}
 		return nil
@@ -679,8 +640,8 @@ func (s *Session) handle(m map[string]any) {
 func (s *Session) echoed(uid string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if e := s.byUUID[uid]; e != nil && e.state == Sent {
-		e.state = Confirmed
+	if e := s.byUUID[uid]; e != nil && e.state == delivery.Sent {
+		e.state = delivery.Confirmed
 		s.echoing--
 		if e.timer != nil {
 			e.timer.Stop()
@@ -708,7 +669,7 @@ func (s *Session) stateChanged(state any) {
 	s.releaseNext()
 }
 
-// releaseNext writes the oldest held message if no turn is running. The held message is recorded Sent before it is written.
+// releaseNext writes the oldest held message if no turn is running. The held message is recorded delivery.Sent before it is written.
 func (s *Session) releaseNext() {
 	s.mu.Lock()
 	if s.busy || s.echoing > 0 || s.closed || len(s.held) == 0 {
@@ -718,7 +679,7 @@ func (s *Session) releaseNext() {
 	next := s.held[0]
 	s.markWritten(next)
 	if err := s.led.Put(next.record()); err != nil {
-		next.state = Queued
+		next.state = delivery.Queued
 		s.echoing--
 		s.busy = false
 		s.mu.Unlock()
@@ -726,7 +687,7 @@ func (s *Session) releaseNext() {
 	}
 	s.held = s.held[1:]
 	s.mu.Unlock()
-	if err := s.writeUser(next, Queue); err != nil {
+	if err := s.writeUser(next, delivery.Queue); err != nil {
 		s.unknown(next)
 		s.mu.Lock()
 		s.busy = false

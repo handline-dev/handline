@@ -20,10 +20,10 @@ func termTickRig(t *testing.T) (*Parts, *fakeTerminals, string) {
 	ft := newFakeTerminals()
 	p, _, _, _ := wiredWith(t, ft)
 	wt, _ := filepath.EvalSymlinks(t.TempDir())
-	if err := dbpkg.SetAccount(p.Sink.DB, "bob", "a1", "recorded"); err != nil {
+	if err := dbpkg.SetAccount(p.db, "bob", "a1", "recorded"); err != nil {
 		t.Fatal(err)
 	}
-	if err := dbpkg.SetTerminal(p.Sink.DB, "bob", "%1", wt); err != nil {
+	if err := dbpkg.SetTerminal(p.db, "bob", "%1", wt); err != nil {
 		t.Fatal(err)
 	}
 	ft.live["%1"] = true
@@ -80,8 +80,8 @@ func TestTerminalAgentsAreOnlyTickedWhenAskedFor(t *testing.T) {
 	has := func(list []string, a string) bool {
 		return strings.Contains(" "+strings.Join(list, " ")+" ", " "+a+" ")
 	}
-	if has(tickHost{p: p}.Agents(), "bob") || !has(tickHost{p: p}.Agents(), "alice") {
-		t.Fatalf("structured only: %v", tickHost{p: p}.Agents())
+	if got := (tickHost{p: p}).Agents(); len(got) != 0 {
+		t.Fatalf("without terminals no agent is ticked: %v", got)
 	}
 	if !has(tickHost{p: p, terminals: true}.Agents(), "bob") {
 		t.Fatal("with terminals bob is ticked")
@@ -90,9 +90,9 @@ func TestTerminalAgentsAreOnlyTickedWhenAskedFor(t *testing.T) {
 
 func TestTheReconcilerRecordsATerminalAgentWhoseSessionEndedAsClosedWithItsSession(t *testing.T) {
 	p, _, wt := termTickRig(t)
-	d := p.Sink.DB
+	d := p.db
 	dbpkg.SetResumeSession(d, "bob", "22222222-2222-4222-8222-222222222222")
-	tk := p.Tick(p.Run.cfg, TickConfig{Terminals: true})
+	tk := p.Tick(cfgOf(p), TickConfig{Terminals: true})
 	// the pane is listed and no session runs in it: the session ended without us
 	actions := []string{}
 	tk.Tick.Reconcile.Sweep(d, &actions)
@@ -116,7 +116,7 @@ func TestATerminalAgentWithNoStatuslineHasItsSessionAndContextFromItsFileAndTran
 	os.MkdirAll(filepath.Join(dir, "projects", "x"), 0o755)
 	os.WriteFile(filepath.Join(dir, "projects", "x", sid+".jsonl"), []byte(
 		`{"type":"assistant","message":{"model":"claude-opus-5-1","usage":{"input_tokens":10,"cache_read_input_tokens":150000,"cache_creation_input_tokens":5}}}`+"\n"), 0o644)
-	tk := p.Tick(p.Run.cfg, TickConfig{Terminals: true})
+	tk := p.Tick(cfgOf(p), TickConfig{Terminals: true})
 	st := tk.Tick.Usage.ReadForAgent("bob", "a1")
 	if st.SessionID != sid || st.TrustedCtxUsed == nil || *st.TrustedCtxUsed != 150015 {
 		t.Fatalf("%+v", st)
@@ -127,13 +127,13 @@ func TestASessionFileThatCannotBeReadUnderALivePidIsUnknownNotAbsent(t *testing.
 	for name, body := range map[string]string{"empty": "", "invalid json": `{"cwd": "`} {
 		t.Run(name, func(t *testing.T) {
 			p, _, _ := termTickRig(t)
-			d := p.Sink.DB
+			d := p.db
 			writeSession(t, p, "a1", os.Getpid(), body) // being written as the tick looks
 			host := tickHost{p: p, terminals: true}
 			if !host.SessionAlive("bob") || host.SessionIdle("bob") {
 				t.Fatal("a process runs and what it says cannot be read: alive, not idle")
 			}
-			tk := p.Tick(p.Run.cfg, TickConfig{Terminals: true})
+			tk := p.Tick(cfgOf(p), TickConfig{Terminals: true})
 			actions := []string{}
 			tk.Tick.Reconcile.Sweep(d, &actions)
 			if row, _ := dbpkg.GetAgentState(d, "bob"); row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 {
@@ -176,7 +176,7 @@ func TestAHandoffReadsATerminalAgentsSessionAndItsPidFromTheSessionFile(t *testi
 // at a prompt shows needs_you.
 func TestATerminalAgentsViewRowSaysWhatItsSessionFileSays(t *testing.T) {
 	p, _, wt := termTickRig(t)
-	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "IDLE", 0, ""); err != nil { // a row that has not caught up with a turn that began
+	if err := dbpkg.SetAgentState(p.db, "bob", "IDLE", 0, ""); err != nil { // a row that has not caught up with a turn that began
 		t.Fatal(err)
 	}
 	tu := tickUsage{p: p, u: p.LC.usage, roster: p.LC.roster}
@@ -184,7 +184,7 @@ func TestATerminalAgentsViewRowSaysWhatItsSessionFileSays(t *testing.T) {
 		t.Helper()
 		av.RefreshOne("bob")
 		var raw string
-		if err := p.Sink.DB.QueryRow("SELECT view FROM agent_view WHERE agent = 'bob'").Scan(&raw); err != nil {
+		if err := p.db.QueryRow("SELECT view FROM agent_view WHERE agent = 'bob'").Scan(&raw); err != nil {
 			t.Fatalf("no row: %v", err)
 		}
 		var v map[string]any
@@ -195,18 +195,18 @@ func TestATerminalAgentsViewRowSaysWhatItsSessionFileSays(t *testing.T) {
 		return v
 	}
 	// Not ticking terminals: the Python daemon's row stands, nothing is written.
-	p.agentView(p.Run.cfg, true, false, tu).RefreshOne("bob")
+	p.agentView(cfgOf(p), true, false, tu).RefreshOne("bob")
 	var n int
-	p.Sink.DB.QueryRow("SELECT COUNT(*) FROM agent_view WHERE agent = 'bob'").Scan(&n)
+	p.db.QueryRow("SELECT COUNT(*) FROM agent_view WHERE agent = 'bob'").Scan(&n)
 	if n != 0 {
 		t.Fatal("a terminal agent's row was written by a daemon that does not tick terminals")
 	}
-	av := p.agentView(p.Run.cfg, true, true, tu)
+	av := p.agentView(cfgOf(p), true, true, tu)
 	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s1","status":"busy"}`)
 	if v := stored(av, "running"); v["needs_you"] != nil { // busy session: the turn is running whatever the row says
 		t.Fatal(v)
 	}
-	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "RUNNING", 0, ""); err != nil { // the prompt arrives mid-turn: the row stays running
+	if err := dbpkg.SetAgentState(p.db, "bob", "RUNNING", 0, ""); err != nil { // the prompt arrives mid-turn: the row stays running
 		t.Fatal(err)
 	}
 	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s1","status":"waiting","waitingFor":"permission prompt","updatedAt":5000000}`)
@@ -216,7 +216,7 @@ func TestATerminalAgentsViewRowSaysWhatItsSessionFileSays(t *testing.T) {
 		t.Fatal(v)
 	}
 	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s1","status":"idle"}`)
-	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "IDLE", 0, ""); err != nil { // the turn ended: the Stop hook moved the row
+	if err := dbpkg.SetAgentState(p.db, "bob", "IDLE", 0, ""); err != nil { // the turn ended: the Stop hook moved the row
 		t.Fatal(err)
 	}
 	if v := stored(av, "idle"); v["needs_you"] != nil || v["has_dialog"] != false {
@@ -232,15 +232,15 @@ func loginRig(t *testing.T) (*Parts, *Tick, string) {
 	os.MkdirAll(dir, 0o755)
 	os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte("{}"), 0o600)
 	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s1","status":"idle"}`)
-	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "IDLE", 0, ""); err != nil {
+	if err := dbpkg.SetAgentState(p.db, "bob", "IDLE", 0, ""); err != nil {
 		t.Fatal(err)
 	}
-	return p, p.Tick(p.Run.cfg, TickConfig{Terminals: true}), wt
+	return p, p.Tick(cfgOf(p), TickConfig{Terminals: true}), wt
 }
 
 func TestARefusedLoginOnATerminalAgentsAccountMarksItAndMovesTheAgent(t *testing.T) {
 	p, tk, _ := loginRig(t)
-	d := p.Sink.DB
+	d := p.db
 	if _, err := dbpkg.AddEventFor(d, "bob", "a1", "StopFailure", dbpkg.KV{K: "error", V: "authentication_failed"}, dbpkg.KV{K: "error_details", V: "401"}); err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestARefusedLoginOnATerminalAgentsAccountMarksItAndMovesTheAgent(t *testing
 // authFailed is the StopFailure the CLI's hook leaves when its login is refused.
 func authFailed(t *testing.T, p *Parts, acct string) {
 	t.Helper()
-	if _, err := dbpkg.AddEventFor(p.Sink.DB, "bob", acct, "StopFailure", dbpkg.KV{K: "error", V: "authentication_failed"}); err != nil {
+	if _, err := dbpkg.AddEventFor(p.db, "bob", acct, "StopFailure", dbpkg.KV{K: "error", V: "authentication_failed"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -275,7 +275,7 @@ func authFailed(t *testing.T, p *Parts, acct string) {
 func TestARefusalLeftOnTheAccountATerminalAgentWasMovedFromMarksNothing(t *testing.T) {
 	p, tk, wt := loginRig(t)
 	authFailed(t, p, "a1") // the last event of the agent, which now runs on a2
-	dbpkg.SetAccount(p.Sink.DB, "bob", "a2", "recorded")
+	dbpkg.SetAccount(p.db, "bob", "a2", "recorded")
 	writeSession(t, p, "a2", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s2","status":"idle"}`)
 	os.Remove(filepath.Join(p.home, "accounts", "a1", ".claude", "sessions", strconv.Itoa(os.Getpid())+".json"))
 	if _, err := tk.Tick.Run(nil); err != nil {
@@ -290,7 +290,7 @@ func TestARefusalLeftOnTheAccountATerminalAgentWasMovedFromMarksNothing(t *testi
 func TestAPromptAfterARefusalClearsItForATerminalAgent(t *testing.T) {
 	p, tk, _ := loginRig(t)
 	authFailed(t, p, "a1")
-	if _, err := dbpkg.AddEventFor(p.Sink.DB, "bob", "a1", "UserPromptSubmit"); err != nil {
+	if _, err := dbpkg.AddEventFor(p.db, "bob", "a1", "UserPromptSubmit"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tk.Tick.Run(nil); err != nil {
@@ -319,7 +319,7 @@ func TestARefusalOlderThanTheAccountsLastLoginMarksNothing(t *testing.T) {
 
 func TestARefusalThePythonDaemonAlreadyLiftedIsNotMarkedAgain(t *testing.T) {
 	p, tk, _ := loginRig(t)
-	d := p.Sink.DB
+	d := p.db
 	authFailed(t, p, "a1")
 	// Python's lift keeps a session row id under this name and sets it when it lifts: only the time it was written can be compared here.
 	if err := dbpkg.SetCursor(d, "login_lifted:bob", 77); err != nil {
@@ -346,13 +346,13 @@ func TestARefusalThePythonDaemonAlreadyLiftedIsNotMarkedAgain(t *testing.T) {
 func TestAStopHookWritesATerminalAgentsViewIdleAtOnceThoughItsSessionFileStillSaysBusy(t *testing.T) {
 	p, _, wt := termTickRig(t)
 	tracker := &turns.Tracker{}
-	cfg := p.Run.cfg
+	cfg := cfgOf(p)
 	cfg.Turns = tracker
 	p.Tick(cfg, TickConfig{Terminals: true}) // wires the tracker's changes to the view
 	state := func() string {
 		t.Helper()
 		var raw string
-		if err := p.Sink.DB.QueryRow("SELECT view FROM agent_view WHERE agent = 'bob'").Scan(&raw); err != nil {
+		if err := p.db.QueryRow("SELECT view FROM agent_view WHERE agent = 'bob'").Scan(&raw); err != nil {
 			t.Fatalf("no row: %v", err)
 		}
 		var v map[string]any
@@ -362,14 +362,14 @@ func TestAStopHookWritesATerminalAgentsViewIdleAtOnceThoughItsSessionFileStillSa
 	}
 	// claude marks its session file idle only after the Stop hook has run
 	writeSession(t, p, "a1", os.Getpid(), `{"cwd":"`+wt+`","sessionId":"s1","status":"busy"}`)
-	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "RUNNING", 0, ""); err != nil {
+	if err := dbpkg.SetAgentState(p.db, "bob", "RUNNING", 0, ""); err != nil {
 		t.Fatal(err)
 	}
 	tracker.Hook("bob", "UserPromptSubmit", map[string]any{}, 100)
 	if s := state(); s != "running" {
 		t.Fatalf("after the prompt: %s", s)
 	}
-	if err := dbpkg.SetAgentState(p.Sink.DB, "bob", "IDLE", 0, ""); err != nil { // what the Stop hook does to the row
+	if err := dbpkg.SetAgentState(p.db, "bob", "IDLE", 0, ""); err != nil { // what the Stop hook does to the row
 		t.Fatal(err)
 	}
 	tracker.Hook("bob", "Stop", map[string]any{}, 101)

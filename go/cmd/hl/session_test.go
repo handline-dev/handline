@@ -52,11 +52,35 @@ func TestCloseAndRestartRefuseATaskOrANumber(t *testing.T) {
 	}
 }
 
+func TestRestartAnswersWhatItDoesNotParseWithItsUsage(t *testing.T) {
+	r := agentsRig(t)
+	calls := r.daemon(nil)
+	const use = "usage: hl restart [--fresh] [--force] target\n"
+	for _, c := range []struct {
+		args      []string
+		out, errs string
+		code      int
+	}{
+		{[]string{"restart", "a", "-h"}, use, "", 0},
+		{[]string{"restart", "--fre", "a"}, "", use, 2},
+		{[]string{"restart"}, "", use, 2},
+		{[]string{"restart", "a", "b"}, "", use, 2},
+	} {
+		out, errs, code := r.run(asAgent, c.args...)
+		if out != c.out || errs != c.errs || code != c.code {
+			t.Errorf("%v: out %q err %q exit %d", c.args, out, errs, code)
+		}
+	}
+	if got := calls(); len(got) != 0 {
+		t.Fatalf("calls %v", got)
+	}
+}
+
 func TestWhatTheSessionPortDoesNotParseIsPythons(t *testing.T) {
 	r := agentsRig(t)
 	calls := r.daemon(nil)
 	for _, args := range [][]string{
-		{"close"}, {"close", "a", "b"}, {"close", "a", "--force"}, {"close", "١٢"}, {"restart", "a", "-h"}, {"restart", "--fre", "a"},
+		{"close"}, {"close", "a", "b"}, {"close", "a", "--force"}, {"close", "١٢"},
 	} {
 		out, _, code := r.run(asAgent, args...)
 		if code != 0 || !strings.HasPrefix(out, "python ") || !strings.HasSuffix(out, " "+strings.Join(args, " ")+"\n") {

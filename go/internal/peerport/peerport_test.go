@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/peerinbox"
-	"github.com/handline/handline/go/internal/structured"
 )
 
 // fakeInbox answers each text from outcome (Delivered when it has no entry) and keeps what it was given, in order.
@@ -70,8 +70,8 @@ func TestMessagesToOneAgentGoOutInOrderAndEachOutcomeComesBack(t *testing.T) {
 	in, ev := &fakeInbox{outcome: map[string]peerinbox.Result{"two": {Kind: peerinbox.NotDelivered, Why: "not in the receiver's transcript"}}}, &events{}
 	p := rigOf(in, ev)
 	for _, m := range []string{"one", "two", "three"} {
-		rc, err := p.Send("bob", "op-"+m, m, structured.Now)
-		if err != nil || rc.State != structured.Sent {
+		rc, err := p.Send("bob", "op-"+m, m, delivery.Now)
+		if err != nil || rc.State != delivery.Sent {
 			t.Fatalf("%v %v", rc, err)
 		}
 	}
@@ -93,7 +93,7 @@ func TestNothingIsWrittenToAnAgentWithoutAnInbox(t *testing.T) {
 	if p.Live("bob") {
 		t.Fatal("live")
 	}
-	if _, err := p.Send("bob", "op", "x", structured.Now); err == nil {
+	if _, err := p.Send("bob", "op", "x", delivery.Now); err == nil {
 		t.Fatal("a send to no inbox must say nothing was written")
 	}
 	if len(in.texts) != 0 || !p.Structured("bob") || p.Structured("amy") {
@@ -112,7 +112,7 @@ func TestAMessageIsDeliveredFromWhomThePortSaysForIt(t *testing.T) {
 	in, ev := &fakeInbox{}, &events{}
 	p := rigOf(in, ev)
 	p.From = func(agent, op string) peerinbox.From { return peerinbox.From{Name: agent + "/" + op} }
-	if _, err := p.Send("bob", "request:7", "hi", structured.Queue); err != nil {
+	if _, err := p.Send("bob", "request:7", "hi", delivery.Queue); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, ev, 1)
@@ -128,14 +128,14 @@ func TestAQueuedMessageIsConfirmedLaterAndNeverFailed(t *testing.T) {
 	ev := &events{}
 	in := &fakeInbox{outcome: map[string]peerinbox.Result{"one": {Kind: peerinbox.Queued, Await: func(context.Context) bool { return true }}}}
 	p := rigOf(in, ev)
-	if _, err := p.Send("bob", "op-one", "one", structured.Now); err != nil {
+	if _, err := p.Send("bob", "op-one", "one", delivery.Now); err != nil {
 		t.Fatal(err)
 	}
 	if got := waitFor(t, ev, 1); got[0] != "delivered bob op-one" {
 		t.Fatalf("%v", got)
 	}
 	in.outcome["two"] = peerinbox.Result{Kind: peerinbox.Queued, Await: func(context.Context) bool { return false }}
-	if _, err := p.Send("bob", "op-two", "two", structured.Now); err != nil {
+	if _, err := p.Send("bob", "op-two", "two", delivery.Now); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond)

@@ -64,10 +64,7 @@ type Spawns struct {
 	Team     func() *team.Team
 	Sleep    func(time.Duration)
 	Now      func() time.Time
-	// Run is the structured sessions; nil keeps every agent a terminal agent.
-	Run   Runner
-	NewID func() string
-	Locks *AgentLocks
+	Locks    *AgentLocks
 }
 
 var _ Spawner = (*Spawns)(nil)
@@ -327,24 +324,11 @@ func (s *Spawns) EnsureExtras(agent, first, repo string) (have, told []string, e
 	return have, told, nil
 }
 
-func (s *Spawns) structured(agent string) bool { return s.Run != nil && s.Run.Structured(agent) }
-
-// startStructured opens a structured agent's session in wt. It stands for OpenTerminal, the worker registration and the wait for the
-// process table: the session is up when Open returns, and has no terminal to register.
-func (s *Spawns) startStructured(agent, wt, prompt string) (bool, error) {
-	defer s.Locks.Lock(agent)()
-	_, err := (&Sessions{Q: s.Q, Run: s.Run, Launch: s.Launch, NewID: s.NewID}).Start(agent, wt, StartOpts{Cause: "start", Prompt: prompt})
-	return err == nil, err
-}
-
 // StartIn starts an agent in a worktree it already has. A terminal can be closed by a human, or lost when the host restarts, without
 // anything happening to the work: the branch, the checkout and whatever is uncommitted in it are all still there. Making a second
 // worktree for that agent would be the wrong repair - it would strand the first. cmd is what the terminal runs; a wake passes its launch
 // with the resume id and prompt file, since a closed session's pane is closed with it.
 func (s *Spawns) StartIn(agent, worktree, cmd string) (bool, string, error) {
-	if s.structured(agent) {
-		return s.startInStructured(agent, worktree)
-	}
 	if !s.Host.Available() {
 		return false, s.Host.Missing(), nil
 	}
@@ -383,20 +367,6 @@ func (s *Spawns) StartIn(agent, worktree, cmd string) (bool, string, error) {
 	return true, said, nil
 }
 
-func (s *Spawns) startInStructured(agent, worktree string) (bool, string, error) {
-	if _, err := os.Stat(worktree); err != nil {
-		return false, fmt.Sprintf("%s: its worktree %s is gone", agent, worktree), nil
-	}
-	_, extraTold, err := s.EnsureExtras(agent, worktree, "")
-	if err != nil {
-		return false, "", err
-	}
-	if ok, err := s.startStructured(agent, worktree, ""); !ok {
-		return false, fmt.Sprintf("%s: could not start in %s: %v", agent, worktree, err), nil
-	}
-	return true, strings.Join(append(extraTold, fmt.Sprintf("%s: started in %s", agent, worktree)), "\n"), nil
-}
-
 // SpawnOpts say how Spawn goes.
 type SpawnOpts struct {
 	Base, Prompt string
@@ -413,8 +383,7 @@ func (s *Spawns) SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error
 	if o.Base == "" {
 		o.Base = "main"
 	}
-	structured := s.structured(agent)
-	if !structured && !s.Host.Available() {
+	if !s.Host.Available() {
 		return false, s.Host.Missing(), nil
 	}
 	if s.Roster != nil {
@@ -440,18 +409,12 @@ func (s *Spawns) SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error
 			return false, why, nil
 		}
 	}
-	cmd := ""
-	if !structured {
-		if cmd, err = s.Launch.CommandFor(agent, "", "", ""); err != nil {
-			return false, "", err
-		}
+	cmd, err := s.Launch.CommandFor(agent, "", "", "")
+	if err != nil {
+		return false, "", err
 	}
 	if o.DryRun {
-		// A structured session has no terminal steps to list.
-		steps := ""
-		if !structured {
-			steps = "\n  " + s.Host.Manual(wt, repo, agent, baseRef, cmd)
-		}
+		steps := "\n  " + s.Host.Manual(wt, repo, agent, baseRef, cmd)
 		var text string
 		if wt != "" {
 			text = fmt.Sprintf("would start in its own worktree %s%s", wt, steps)
@@ -473,9 +436,6 @@ func (s *Spawns) SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error
 	_, extraTold, err := s.EnsureExtras(agent, wt, repo)
 	if err != nil {
 		return false, "", err
-	}
-	if structured {
-		return s.spawnStructured(agent, wt, baseRef, why, extraTold, o)
 	}
 	handle, failed := s.Host.OpenTerminal(cmd, wt, agent)
 	if handle == "" && failed != "" {
@@ -535,27 +495,6 @@ func (s *Spawns) SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error
 			return false, strings.Join(lines, "\n"), nil
 		}
 		lines = append(lines, "  first task submitted")
-	}
-	return true, strings.Join(lines, "\n"), nil
-}
-
-// spawnStructured is Spawn's end for a structured agent: the session opened in the worktree with the first task as its first message.
-// The receipt of that message is the delivery, so there is no hook to wait for.
-func (s *Spawns) spawnStructured(agent, wt, baseRef, why string, extraTold []string, o SpawnOpts) (bool, string, error) {
-	from := "kept"
-	if baseRef != "" {
-		from = "branched from " + baseRef
-	}
-	lines := []string{fmt.Sprintf("%s: worktree %s", agent, wt), fmt.Sprintf("  %s (%s)", from, why)}
-	for _, t := range extraTold {
-		lines = append(lines, "  "+t)
-	}
-	if ok, err := s.startStructured(agent, wt, o.Prompt); !ok {
-		return false, strings.Join(append(lines, fmt.Sprintf("  WARNING: worktree %s is ready, but starting the agent failed: %v", wt, err)), "\n"), nil
-	}
-	lines = append(lines, "  session started")
-	if o.Prompt != "" {
-		lines = append(lines, "  first task delivered")
 	}
 	return true, strings.Join(lines, "\n"), nil
 }

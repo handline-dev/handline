@@ -24,7 +24,7 @@ import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { PromptSlot } from './PromptCard.tsx';
 import { Compose } from './ChatCompose.tsx';
 import { Item, Message, TaskNote, jumpTo } from './ChatMessages.tsx';
-import { ChatBanner, ChatStrip, HrCards, NeedsYouCard } from './ChatCards.tsx';
+import { ChatBanner, ChatStrip, HandoffCard, HrCards, NeedsYouCard } from './ChatCards.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { Button, Empty, Icon, Segmented, Textarea, ComposeRow } from './ui/index.ts';
 import { setting } from './daemon.ts';
@@ -320,6 +320,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           })}
         </AnimatedList>
         <HrCards agent={agent} />
+        <HandoffCard detail={detail} />
         {detail.prompt ? null : <NeedsYouCard detail={detail} />}
         {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
         <div className="working-slot flex h-6 flex-none items-center self-start">

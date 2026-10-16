@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/claudecli"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/livetest"
 	"github.com/handline/handline/go/internal/paths"
-	"github.com/handline/handline/go/internal/structured"
 )
 
 type fakeCLI struct {
@@ -19,29 +20,29 @@ type fakeCLI struct {
 	err    error
 	sent   string
 	result map[string]any
-	h      structured.Handlers
+	h      claudecli.Handlers
 	closed bool
 }
 
 func (f *fakeCLI) GetUsage(context.Context) (map[string]any, error) { return f.resp, f.err }
 func (f *fakeCLI) Close() error                                     { f.closed = true; return nil }
-func (f *fakeCLI) Send(_, text string, _ structured.Delivery) (structured.Receipt, error) {
+func (f *fakeCLI) Send(_, text string, _ delivery.Delivery) (delivery.Receipt, error) {
 	f.sent = text
 	if f.result != nil {
 		go f.h.OnEvent(f.result)
 	}
-	return structured.Receipt{}, nil
+	return delivery.Receipt{}, nil
 }
 
-func meterWith(t *testing.T, f *fakeCLI, openErr error) (*Meter, structured.Launch) {
+func meterWith(t *testing.T, f *fakeCLI, openErr error) (*Meter, claudecli.Launch) {
 	t.Helper()
 	home := t.TempDir()
 	if err := os.MkdirAll(paths.AccountDir(home, "a"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	var got structured.Launch
+	var got claudecli.Launch
 	return &Meter{Home: home, Claude: "claude", Now: func() time.Time { return time.Unix(now, 0) },
-		Open: func(_ context.Context, l structured.Launch, h structured.Handlers) (CLI, error) {
+		Open: func(_ context.Context, l claudecli.Launch, h claudecli.Handlers) (CLI, error) {
 			got = l
 			f.h = h
 			return f, openErr
