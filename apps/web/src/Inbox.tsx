@@ -7,7 +7,7 @@ import { useConnection, useNearEnd } from '@handline/app-react';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { InboxCard, open, waits } from './InboxCard.tsx';
 import { kindIcon, kindLabel, type Verbs } from './inboxKinds.ts';
-import { Button, Icon, MenuButton, MenuCheckItem, MenuSeparator, PageHead, ScrollPage } from './ui/index.ts';
+import { Button, Icon, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator, PageHead, ScrollPage } from './ui/index.ts';
 import { useScreenKeys, type KeyRows } from './screenKeys.ts';
 import { View } from './View.tsx';
 
@@ -152,12 +152,14 @@ export function InboxPage({ item }: { item: number | null }) {
           name="Show items that are"
           className={filtered ? 'text-primary' : ''}
         >
+          {kinds.length ? <MenuLabel>Kind</MenuLabel> : null}
           {kinds.map((k) => (
             <MenuCheckItem key={k} checked={kind === k} icon={<Icon name={kindIcon(k)} size={14} aria-hidden />} onCheckedChange={() => setKind(kind === k ? '' : k)}>
               {kindLabel(k)}
             </MenuCheckItem>
           ))}
           {kinds.length && agents.length ? <MenuSeparator /> : null}
+          {agents.length ? <MenuLabel>Agent</MenuLabel> : null}
           {agents.map((a) => (
             <MenuCheckItem key={a} checked={agent === a} onCheckedChange={() => setAgent(agent === a ? '' : a)}>
               {a}
