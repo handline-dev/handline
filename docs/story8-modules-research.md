@@ -1,34 +1,36 @@
 # Story 8-0: the Go packages as standalone modules, agentctl first
 
-Research only; no code moves. The graph is `go list -json ./internal/... ./cmd/...` on main `143562763`,
-production imports only (tests can import across modules without making a cycle). There are **69**
-packages under `go/internal`, not 67, plus `cmd/handlined` and `cmd/hl`.
+Research only; no code moves. The graph is `go list -json ./internal/... ./cmd/...` on main `888462dae`,
+production imports only (tests can import across modules without making a cycle). There are **70**
+packages under `go/internal`, plus `cmd/handlined`, `cmd/heavyslot` and `cmd/hl`.
 
 ## 1. Package to module
 
 Eight modules, lowest first: each may import only those above it in this order. The founder's six are
 there, plus two that the graph forces. **kit** holds the leaf utilities nobody owns: 15 packages with
-no internal imports, or only other kit packages. **store** holds the database and team config that
+no internal imports, or only other kit packages. **data** holds the database and team config that
 every domain reads (`db` alone is imported by 31 packages, `cmd/hl` among them).
 
 | Module (packages) | Packages | Imports modules | Imports that break the order (to cut) |
 |---|---|---|---|
 | **kit** (15) | `ansi`, `atomicfile`, `gitrun`, `lock`, `paths`, `peer`, `protected`, `pyval`, `sealed`, `store`, `testkill`, `textsafe`, `timefmt`, `version`, `yamlcompat` | - | - |
-| **protocol** (6) | `authority`, `devices`, `operations`, `pairsock`, `rpc`, `sessiontoken` | kit | - |
-| **agentctl** (14) | `claude`, `debugterm`, `dialogs`, `hooks`, `inputhold`, `peerinbox`, `peerport`, `prompts`, `session`, `structured`, `term`, `termchan`, `transcript`, `turns` | kit, protocol, store, taskboard, scheduler | `claude`→`lifecycle`, `inputhold`→`db`, `prompts`→`reads`, `prompts`→`team`, `session`→`db`, `termchan`→`db`, `transcript`→`attachments`, `transcript`→`db` |
-| **store** (7) | `attachments`, `backup`, `db`, `housekeeping`, `states`, `stream`, `team` | kit, protocol | - |
-| **accounts** (4) | `subscriptions`, `usage`, `usagepoll`, `weblogin` | kit, agentctl, store | - |
-| **taskboard** (10) | `adminwrites`, `chatwrites`, `fold`, `handoff`, `hrwrites`, `reads`, `supervisor`, `taskresult`, `taskwrites`, `watcher` | kit, protocol, agentctl, store, accounts, scheduler | `reads`→`lifecycle` |
-| **scheduler** (5) | `agentview`, `dangling`, `lifecycle`, `schedules`, `tick` | kit, protocol, agentctl, store, accounts, taskboard | - |
-| **daemon** (10) | `cmd/handlined`, `cmd/hl`, `compose`, `daemon`, `devinstance`, `fixtureplay`, `hlclient`, `legacyverbs`, `livetest`, `sessionrpc` | kit, protocol, agentctl, store, accounts, taskboard, scheduler | - |
+| **protocol** (7) | `authority`, `delivery`, `devices`, `operations`, `pairsock`, `rpc`, `sessiontoken` | kit | - |
+| **agentctl** (14) | `claude`, `claudecli`, `debugterm`, `dialogs`, `hooks`, `inputhold`, `peerinbox`, `peerport`, `prompts`, `session`, `term`, `termchan`, `transcript`, `turns` | kit, protocol, data, taskboard, scheduler | `claude`→`lifecycle`, `hooks`→`db`, `inputhold`→`db`, `prompts`→`reads`, `prompts`→`team`, `session`→`db`, `termchan`→`db` |
+| **data** (7) | `attachments`, `backup`, `db`, `housekeeping`, `states`, `stream`, `team` | kit, protocol | - |
+| **accounts** (4) | `subscriptions`, `usage`, `usagepoll`, `weblogin` | kit, protocol, agentctl, data | - |
+| **taskboard** (10) | `adminwrites`, `chatwrites`, `fold`, `handoff`, `hrwrites`, `reads`, `supervisor`, `taskresult`, `taskwrites`, `watcher` | kit, protocol, agentctl, data, accounts, scheduler | `reads`→`lifecycle` |
+| **scheduler** (5) | `agentview`, `dangling`, `lifecycle`, `schedules`, `tick` | kit, protocol, agentctl, data, accounts, taskboard | - |
+| **daemon** (11) | `cmd/handlined`, `cmd/heavyslot`, `cmd/hl`, `compose`, `daemon`, `devinstance`, `fixtureplay`, `hlclient`, `legacyverbs`, `livetest`, `sessionrpc` | kit, protocol, agentctl, data, accounts, taskboard, scheduler | - |
 
-Nine imports cross a line the wrong way. Eight are agentctl reaching into the store or the board,
-which is exactly what agentctl must stop knowing (section 2). The ninth is `reads`→`lifecycle`, for
-the settings values alone: `lifecycle.Settings` and its timing constants move to store.
+Eight imports cross a line the wrong way. Seven are agentctl reaching into the data or the board,
+which is exactly what agentctl must stop knowing (section 2). The eighth is `reads`→`lifecycle`, for
+the settings values alone: `lifecycle.Settings` and its timing constants move to data.
 
 Packages that fit no module as written, and where they land:
 - `hlclient` (hl's client) reads `db` directly. It is the CLI's, so daemon glue, not protocol.
 - `peerport`/`peerinbox` carry structured-session peer messages, so agentctl, not protocol.
+- `delivery` (a send's mode, states and receipt) has no imports and is read by both agentctl and the
+  board, so protocol.
 - `subscriptions` reads usage, so accounts. `legacyverbs` is the old-verb adapter and calls
   `sessionrpc`, so daemon glue. `operations` (the in-process list of running operations that `operation.get` reads) has no imports, so it sits low, in protocol beside the method that reports it.
 - `supervisor` (sending and delivery) is called by the chat and task writes, so taskboard, not
@@ -59,11 +61,10 @@ type Driver interface { /* launch argv, hook install, trust and dialog screens, 
 account reaches it only as a config dir and env. It keeps its own small state (transcript cursor, key
 presses) behind a `Store` it is handed. The daemon passes one over `db`; a test passes a map.
 
-**It absorbs** `term`, `termchan`, `structured`, `session`, `turns`, `hooks`, `transcript`, `dialogs`,
+**It absorbs** `term`, `termchan`, `claudecli`, `session`, `turns`, `hooks`, `transcript`, `dialogs`,
 `prompts` (capture and answer, not the trust policy), `inputhold`, `debugterm`, `claude`, and the peer
-ports. The eight edges become:
-- `session`, `termchan`, `inputhold`: their event rows become Sink events; the daemon writes the rows.
-- `transcript`: its cursor goes to the handed Store; attachment records go out as TranscriptItem events.
+ports. The seven edges become:
+- `session`, `termchan`, `inputhold`, `hooks`: their event rows become Sink events; the daemon writes the rows.
 - `prompts`: trust and dialog rules come in as a `Policy` callback (`AutoAnswer(dialog) bool`).
 - `claude`→`lifecycle`: `Driver`, `LaunchArgs` and `Hooks` move into agentctl; lifecycle imports them.
 
@@ -99,11 +100,11 @@ We borrow the nested-module tag convention (x/tools) and changed-module CI (aws)
 **Order of moves, smallest risk first; each is one PR:**
 1. Add `go.work` with the one module and make the test loop module-aware. No package moves.
 2. **kit** out: 15 packages, no edges to cut.
-3. **protocol** out: 6 packages, no edges to cut.
-4. Cut agentctl's eight edges *inside* the single module, one PR each (Sink, Store, Policy, Driver
+3. **protocol** out: 7 packages, no edges to cut.
+4. Cut agentctl's seven edges *inside* the single module, one PR each (Sink, Store, Policy, Driver
    types). Behaviour is unchanged and the tests stay where they are.
 5. **agentctl** out.
-6. **store** out, with `lifecycle.Settings`. Then **accounts**.
+6. **data** out, with `lifecycle.Settings`. Then **accounts**.
 7. **taskboard**, then **scheduler**. What remains at `go/` is daemon glue.
 
 Each step changes import paths, not behaviour. A step that needs a behaviour change goes first as its
@@ -111,7 +112,7 @@ own PR in the single module.
 
 ## Open for the founder
 
-- Is kit (shared leaf utilities) acceptable as a seventh module, and store (`db` and team config) as an
+- Is kit (shared leaf utilities) acceptable as a seventh module, and data (`db` and team config) as an
   eighth? The founder's six cannot form an order without them.
 - Should agentctl be importable by other repos (public API, version tags), or stay in-repo only?
   That decides whether tags are needed in step 5.
