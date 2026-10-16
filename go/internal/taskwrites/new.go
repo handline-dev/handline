@@ -124,6 +124,14 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if err != nil {
 			return nil, err
 		}
+		duplicateOK := false
+		if v := p["duplicate_ok"]; v != nil {
+			b, isBool := v.(bool)
+			if !isBool {
+				return nil, badParam("duplicate_ok is true or false", "duplicate_ok")
+			}
+			duplicateOK = b
+		}
 		parent, hasParent, err := optionalTask(p, "parent")
 		if err != nil {
 			return nil, err
@@ -148,7 +156,7 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			}
 			var err error
 			tid, asked, err = OpenTask(tx, tell, me, NewIn{Owner: owner, Title: clean, Body: body, Secs: secs, Prio: prio, Expects: expects,
-				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter, UI: ui})
+				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter, UI: ui, DuplicateOK: duplicateOK})
 			if err != nil {
 				return nil, err
 			}
@@ -191,6 +199,7 @@ type NewIn struct {
 	HasParent          bool
 	HasBlocker         bool
 	UI                 bool // the task shows something on a screen (a label; done never requires a screenshot)
+	DuplicateOK        bool // open it even when an open task under the parent has nearly its title
 }
 
 // OpenTask is actions.task_new in the caller's transaction: the owner is asked through the routing table and the task row, its link and
@@ -229,6 +238,11 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 			return 0, nil, err
 		} else if !ok {
 			return 0, nil, refusal(fmt.Sprintf("no task T%d", parent))
+		}
+		if !in.DuplicateOK {
+			if err := duplicateRefusal(tx, parent, clean); err != nil {
+				return 0, nil, err
+			}
 		}
 	}
 	open := func(rid int64) error {
