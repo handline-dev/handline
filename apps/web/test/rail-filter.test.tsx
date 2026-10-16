@@ -42,13 +42,13 @@ describe('the rail filter button', () => {
   it('shows nothing special while nothing is hidden', async () => {
     await mount('');
     expect(filter().getAttribute('aria-label')).toBe('Filter');
-    expect(filter().className).not.toContain('text-primary');
+    expect(box.querySelector('[data-testid="filter-active"]')).toBeNull();
   });
 
   it('is marked and counts the hidden dots, and Sleeping is not checked while one of its dots is hidden', async () => {
     await mount('parked');
     expect(filter().getAttribute('aria-label')).toBe('Filter: 1 hidden');
-    expect(filter().className).toContain('text-primary');
+    expect(box.querySelector('[data-testid="filter-active"]')).not.toBeNull();
     await act(async () => filter().click());
     await until(() => document.querySelector('[role="menuitemcheckbox"]'), 'the filter menu');
     const sleeping = [...document.querySelectorAll('[role="menuitemcheckbox"]')].find((i) => i.textContent?.includes('Sleeping'));
