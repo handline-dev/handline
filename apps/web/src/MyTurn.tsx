@@ -4,9 +4,10 @@ import { useMemo, useState } from 'react';
 import { ago, myTurn, type Card, type CardAction } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAgents, useInbox, useTasks, useWrite } from '@handline/app-data';
-import { goTerminal } from './route.ts';
-import { ReasonSheet } from './taskui.tsx';
-import { Button, Icon, Input } from './ui/index.ts';
+import { goMyTurn, goTerminal, useMyTurnRoute } from './route.ts';
+import { TaskDetail } from './TaskDetail.tsx';
+import { ReasonSheet, useWide } from './taskui.tsx';
+import { Button, Icon, Input, MenuButton, MenuItem } from './ui/index.ts';
 
 /** The cards the person's turn holds: unread items, agents that need them, reports to accept. */
 export function useMyTurn(): { cards: Card[]; loading: boolean } {
@@ -63,7 +64,7 @@ function label(a: CardAction): string {
   }
 }
 
-function CardView({ card }: { card: Card }) {
+function CardView({ card, selected }: { card: Card; selected: boolean }) {
   const answer = useWrite('inbox.reply');
   const prompt = useWrite('prompt.answer');
   const accept = useWrite('task.accept');
@@ -73,11 +74,9 @@ function CardView({ card }: { card: Card }) {
   const [box, setBox] = useState(false);
   const [text, setText] = useState('');
   const [back, setBack] = useState(false);
-  const [menu, setMenu] = useState(false);
   // The daemon's own words for a refused write; the buttons stay usable.
   const refused = [answer, prompt, accept, reject, done, read].find((w) => w.isError)?.error;
   const run = (a: CardAction) => {
-    setMenu(false);
     switch (a.type) {
       case 'answer':
         return setBox(true);
@@ -102,7 +101,16 @@ function CardView({ card }: { card: Card }) {
   const rest = card.actions.slice(card.primary);
   const answerId = card.actions.find((a) => a.type === 'answer');
   return (
-    <article className="my-turn-card rounded-card border border-line bg-panel px-3 py-2.5" data-kind={card.kind} data-card={card.key}>
+    <article
+      className={`my-turn-card rounded-card border bg-panel px-3 py-2.5${selected ? ' border-primary' : ' border-line'}${card.task != null ? ' cursor-pointer' : ''}`}
+      data-kind={card.kind}
+      data-card={card.key}
+      aria-current={selected ? 'true' : undefined}
+      onClick={(e) => {
+        // A click on a button, the reply box or the menu is theirs; the rest of a task's card opens the task.
+        if (card.task != null && !(e.target as HTMLElement).closest('button,input,form,[role=menu]')) goMyTurn(card.task);
+      }}
+    >
       <header className="flex min-w-0 items-baseline gap-2">
         {card.priority <= 3 ? (
           <span className="mono text-hint text-ink-2" title="Priority">
@@ -126,21 +134,13 @@ function CardView({ card }: { card: Card }) {
           </Button>
         ))}
         {rest.length ? (
-          <span className="relative">
-            <Button label="More" aria-haspopup="menu" aria-expanded={menu} icon="menu" onClick={() => setMenu(!menu)} />
-            {menu ? (
-              <span
-                role="menu"
-                className="absolute right-0 z-10 mt-1 flex min-w-[160px] flex-col rounded-card border border-line bg-panel py-1 shadow-[var(--shadow-pop)]"
-              >
-                {rest.map((a, i) => (
-                  <button key={a.type + i} role="menuitem" className="h-8 px-3 text-left text-body hover:bg-raised" onClick={() => run(a)}>
-                    {label(a)}
-                  </button>
-                ))}
-              </span>
-            ) : null}
-          </span>
+          <MenuButton label="More" icon="menu" name="More actions">
+            {rest.map((a, i) => (
+              <MenuItem key={a.type + i} onSelect={() => run(a)}>
+                {label(a)}
+              </MenuItem>
+            ))}
+          </MenuButton>
         ) : null}
       </div>
       {refused ? (
@@ -180,29 +180,38 @@ function CardView({ card }: { card: Card }) {
   );
 }
 
-export function MyTurnPage() {
+export function MyTurnPage({ task }: { task: number | null }) {
   const { cards, loading } = useMyTurn();
+  const wide = useWide(1100);
+  if (task !== null && !wide) return <TaskDetail id={task} onBack={() => goMyTurn()} />;
   return (
-    <section className="my-turn mx-auto h-full max-w-[760px] overflow-auto px-4 pb-6" aria-label="My turn">
-      <header className="sticky top-0 z-1 bg-canvas py-3">
-        <h2 className="m-0 text-[18px]">
-          My turn <span className="muted">{cards.length}</span>
-        </h2>
-      </header>
-      {loading ? (
-        <p className="muted">Loading…</p>
-      ) : cards.length ? (
-        <div className="flex flex-col gap-2">
-          {cards.map((c) => (
-            <CardView key={c.key} card={c} />
-          ))}
+    <div className="flex min-h-0 min-w-0 flex-1">
+      <section className="my-turn mx-auto h-full min-w-0 max-w-[760px] flex-1 overflow-auto px-4 pb-6" aria-label="My turn">
+        <header className="sticky top-0 z-1 bg-canvas py-3">
+          <h2 className="m-0 text-[18px]">
+            My turn <span className="muted">{cards.length}</span>
+          </h2>
+        </header>
+        {loading ? (
+          <p className="muted">Loading…</p>
+        ) : cards.length ? (
+          <div className="flex flex-col gap-2">
+            {cards.map((c) => (
+              <CardView key={c.key} card={c} selected={task !== null && c.task === task} />
+            ))}
+          </div>
+        ) : (
+          <div className="empty">
+            <strong>Nothing waits on you</strong>
+            <p>Decisions, approvals and reports to accept show here.</p>
+          </div>
+        )}
+      </section>
+      {task !== null ? (
+        <div className="flex w-[min(480px,45%)] flex-none border-l border-line">
+          <TaskDetail id={task} onBack={() => goMyTurn()} embedded />
         </div>
-      ) : (
-        <div className="empty">
-          <strong>Nothing waits on you</strong>
-          <p>Decisions, approvals and reports to accept show here.</p>
-        </div>
-      )}
-    </section>
+      ) : null}
+    </div>
   );
 }

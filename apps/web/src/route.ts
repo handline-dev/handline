@@ -80,10 +80,28 @@ export const goTeam = (tab: 'team' | 'hr' = 'team'): void => {
   location.hash = tab === 'hr' ? '#/team/hr' : '#/team';
 };
 
+const MY_TURN = /^#\/my-turn(?:\/(\d+))?$/;
+/** The task My turn shows beside its list (`#/my-turn/:task`), or null. */
+export function useMyTurnRoute(): number | null {
+  const m = MY_TURN.exec(useSyncExternalStore(subscribe, () => location.hash));
+  return m?.[1] ? Number(m[1]) : null;
+}
+export const goMyTurn = (task?: number): void => {
+  location.hash = task === undefined ? '#/my-turn' : `#/my-turn/${task}`;
+};
+
 /** Which of the page routes the URL names: `#/stats`, `#/settings`, `#/my-turn` or `#/admin`, or '' for neither. */
 export function usePageRoute(): 'stats' | 'settings' | 'my-turn' | 'admin' | '' {
   const hash = useSyncExternalStore(subscribe, () => location.hash);
-  return hash === '#/stats' ? 'stats' : hash === '#/settings' ? 'settings' : hash === '#/my-turn' ? 'my-turn' : hash === '#/admin' ? 'admin' : '';
+  return hash === '#/stats'
+    ? 'stats'
+    : hash === '#/settings'
+      ? 'settings'
+      : MY_TURN.test(hash)
+        ? 'my-turn'
+        : hash === '#/admin'
+          ? 'admin'
+          : '';
 }
 
 const WORKTREES = /^#\/worktrees(?:\/(.+))?$/;

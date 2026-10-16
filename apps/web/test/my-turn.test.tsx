@@ -97,7 +97,7 @@ describe('my turn', () => {
     await until(() => box.querySelector('[data-card="accept:9001"]'), 'the accept card');
     const c = box.querySelector('[data-card="accept:9001"]')!;
     await click(button(c, 'More'));
-    await click([...c.querySelectorAll('[role=menuitem]')].find((b) => b.textContent === 'Send back'));
+    await click([...document.querySelectorAll('[role=menuitem]')].find((b) => b.textContent === 'Send back'));
     const field = c.querySelector('input, textarea')!;
     await act(async () => {
       const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
