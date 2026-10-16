@@ -956,6 +956,8 @@ export type HrArgs = {
   repos?: { [key: string]: string };
   /** settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` or `base.md`; empty text or control characters other than tab and newline is bad_request. */
   sets?: { [key: string]: string };
+  /** bundle: the steps, at most 40, each judged against the roster the earlier ones leave. name is then ignored (send the count, `3 changes`). */
+  changes?: { [key: string]: unknown }[];
 };
 
 export type StandingAnswer = {

@@ -645,3 +645,91 @@ func TestACacheThatCannotBeRemovedDoesNotUndoARetire(t *testing.T) {
 		t.Fatalf("the retire stopped half done: %v", res)
 	}
 }
+
+func TestProposeWritesTheProposalFileAndRefusesWhatHrPyRefused(t *testing.T) {
+	r := newRig(t)
+	call := func(rid, params string) map[string]any {
+		return r.callAs("alice", "hr.propose", fmt.Sprintf(`{%s,"request_id":%q}`, params, rid))
+	}
+	res := call("p1", `"kind":"retire","args":{"name":"bob"},"why":"idle"`)["result"].(map[string]any)
+	n, ok := res["proposal"].(float64)
+	if !ok || !strings.HasPrefix(res["said"].(string), "proposal ") {
+		t.Fatalf("%v", res)
+	}
+	p, err := r.e.load(fmt.Sprintf("%08x", int64(n)))
+	if err != nil || p == nil || p.str("kind") != "retire" || p.str("agent") != "bob" || p.str("requested_by") != "alice" ||
+		p.str("state") != "proposed" || p.str("why") != "idle" {
+		t.Fatalf("%v %+v", err, p)
+	}
+	ctx := call("p2", `"kind":"context","args":{"name":"bob","sets":{"ROLE.md":"new role"}},"why":"w"`)["result"].(map[string]any)
+	cp, _ := r.e.load(fmt.Sprintf("%08x", int64(ctx["proposal"].(float64))))
+	if cp == nil || cp.str("set.ROLE.md") != `"new role"` {
+		t.Fatalf("a context text is kept as JSON on one line: %+v", cp)
+	}
+	for _, c := range []struct{ params, want string }{
+		{`"kind":"add","args":{"name":"alice"},"why":"w"`, "alice is already an agent"},
+		{`"kind":"retire","args":{"name":"ghost"},"why":"w"`, "ghost is not an agent"},
+		{`"kind":"add","args":{"name":"carol"},"why":"w"`, "carol needs a repo"},
+		{`"kind":"retire","args":{"name":"bob"},"why":" "`, "say why"},
+		{`"kind":"link","args":{"name":"alice","to":"alice"},"why":"w"`, "an agent cannot ask itself"},
+		{`"kind":"context","args":{"name":"bob","sets":{"x.md":"t"}},"why":"w"`, "only ROLE.md and base.md"},
+	} {
+		m := call("e"+c.want[:3], c.params)
+		msg, _ := m["error"].(map[string]any)["message"].(string)
+		if !strings.Contains(msg, c.want) {
+			t.Errorf("%s: %v", c.want, m)
+		}
+	}
+}
+
+func TestProposeRenameTeamAndBundleAreDraftedAsHrPyDraftsThem(t *testing.T) {
+	r := newRig(t)
+	call := func(rid, params string) map[string]any {
+		return r.callAs("alice", "hr.propose", fmt.Sprintf(`{%s,"request_id":%q}`, params, rid))
+	}
+	loaded := func(res map[string]any) *Prop {
+		t.Helper()
+		out, _ := res["result"].(map[string]any)
+		n, ok := out["proposal"].(float64)
+		if !ok {
+			t.Fatalf("not raised: %v", res)
+		}
+		p, err := r.e.load(fmt.Sprintf("%08x", int64(n)))
+		if err != nil || p == nil {
+			t.Fatalf("%v", err)
+		}
+		return p
+	}
+	rn := loaded(call("r1", `"kind":"rename","args":{"name":"bob","to":"robert"},"why":"w"`))
+	if rn.kind() != "rename" || rn.str("agent") != "bob" || rn.str("to") != "robert" {
+		t.Fatalf("%+v", rn)
+	}
+	tm := loaded(call("t1", `"kind":"team","args":{"name":"zed","repo":"/r","members":["sea","zed.air"],"repos":{"zed.sea":"/s"}},"why":"w"`))
+	if tm.str("members") != "zed.sea,zed.air" || tm.str("repo.zed.sea") != "/s" || tm.str("repo.zed.air") != "/r" {
+		t.Fatalf("%+v", tm)
+	}
+	b := loaded(call("b1", `"kind":"bundle","args":{"name":"2 changes","changes":[{"kind":"rename","name":"carol","to":"cy"},{"kind":"add","name":"carol","repo":"/r"}]},"why":"w"`))
+	if b.kind() != "bundle" || b.str("agent") != "2 changes" || len(b.items()) != 2 {
+		t.Fatalf("%+v", b)
+	}
+	// ordered: the add comes before the rename in the apply order, so carol exists when the rename is judged
+	if it := ordered(b.items()); it[0].kind() != "add" || it[1].kind() != "rename" {
+		t.Fatalf("%v %v", it[0].kind(), it[1].kind())
+	}
+	for _, c := range []struct{ params, want string }{
+		{`"kind":"rename","args":{"name":"bob"},"why":"w"`, "a rename needs a new name"},
+		{`"kind":"rename","args":{"name":"bob","to":"alice"},"why":"w"`, "alice is already an agent"},
+		{`"kind":"team","args":{"name":"zed","repo":"/r"},"why":"w"`, "a team needs at least one member"},
+		{`"kind":"team","args":{"name":"zed","members":["sea"]},"why":"w"`, "needs --repo"},
+		{`"kind":"team","args":{"name":"alice","repo":"/r","members":["sea"]},"why":"w"`, "alice already an agent"},
+		{`"kind":"bundle","args":{"name":"0 changes","changes":[]},"why":"w"`, "needs at least one change"},
+		{`"kind":"bundle","args":{"name":"1 changes","changes":[{"kind":"retire","name":"ghost"}]},"why":"w"`, "change 1 (retire ghost): ghost is not an agent"},
+		{`"kind":"bundle","args":{"name":"1 changes","changes":[{"kind":"retire","name":"bob","bogus":1}]},"why":"w"`, "not an argument: bogus"},
+	} {
+		m := call("e"+c.want[:5], c.params)
+		msg, _ := m["error"].(map[string]any)["message"].(string)
+		if !strings.Contains(msg, c.want) {
+			t.Errorf("%s: %v", c.want, m)
+		}
+	}
+}
