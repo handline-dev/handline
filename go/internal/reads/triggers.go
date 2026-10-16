@@ -51,7 +51,7 @@ func (e *Env) trigger(roster *team.Roster, name string) (bool, string, error) {
 	switch {
 	case t.Applies || t.Reason != "":
 		return t.Fired, t.Reason, nil
-	case row != nil && !(row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) && (row.Terminal.String != "" || e.SessionOpen != nil && e.SessionOpen(name)):
+	case row != nil && !(row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) && row.Terminal.String != "":
 		return false, strings.ToLower(row.State) + "; judged again at its wake", nil
 	}
 	return false, "session closed; nothing to hand off", nil

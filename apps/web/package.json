@@ -19,7 +19,7 @@
     "@handline/app-ui": "workspace:*",
     "@handline/client": "workspace:*",
     "@handline/tokens": "workspace:*",
-    "@radix-ui/react-context-menu": "2.4.1",
+    "@radix-ui/react-menu": "2.2.1",
     "@tiptap/core": "3.32.0",
     "@tiptap/extension-image": "3.32.0",
     "@tiptap/markdown": "3.32.0",

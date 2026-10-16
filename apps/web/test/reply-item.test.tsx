@@ -83,6 +83,8 @@ describe('replying to an agent reply', () => {
     expect(m.parent_item?.text).toBe('I would cut the third gap.');
     await until(() => msg('why that one')?.querySelector('.msg-quote'), 'the quote');
     expect(text(msg('why that one')!.querySelector('.msg-quote'))).toContain('I would cut the third gap.');
+    // No preflight: a blockquote keeps the browser's margins unless the class zeroes them (the gap above the line).
+    expect(msg('why that one')!.querySelector('.msg-quote')!.className).toContain('mt-0');
     expect($('.compose-ref')).toBeNull();
   });
 

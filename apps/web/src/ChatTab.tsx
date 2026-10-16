@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { timeline } from '@handline/app-core';
-import { useSelector } from '@handline/app-react';
+import { useNearEnd, useSelector } from '@handline/app-react';
 import {
   Skeleton,
   classify,
@@ -24,7 +24,7 @@ import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { PromptSlot } from './PromptCard.tsx';
 import { Compose } from './ChatCompose.tsx';
 import { Item, Message, TaskNote, jumpTo } from './ChatMessages.tsx';
-import { ChatBanner, ChatStrip, HrCards, NeedsYouCard } from './ChatCards.tsx';
+import { ChatBanner, ChatStrip, HandoffCard, HrCards, NeedsYouCard } from './ChatCards.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { Button, Empty, Icon, Segmented, Textarea, ComposeRow } from './ui/index.ts';
 import { setting } from './daemon.ts';
@@ -105,10 +105,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const locate = useChatLocate({ request: going ?? 0 }, going !== null);
   const stream = useRef<HTMLDivElement>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
-  const entries = timeline(chat.messages, chat.items, scope);
+  const entries = timeline(chat.messages, chat.items, scope, agent);
   // Task titles for the transcript's task lines, so a card can say what it is about without opening the task.
   const { served } = useServes('tasks.list');
-  const tasks = useTasks({});
+  const tasks = useTasks({ all: true, limit: 200 }); // done tasks too: a card of a closed task keeps its title
   const titles = new Map((served ? (tasks.data?.items ?? []) : []).map((t) => [t.id, t.title]));
   const history = chat.messages
     .filter((m) => m.to === agent && m.from !== agent && m.landing !== 'withdrawn' && m.id > 0)
@@ -129,6 +129,39 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const e = entries.at(-1);
     seen.current = { scope, last: e ? keyOf(e) : null };
   });
+  // The latest page shows first; older pages load as the top comes near. The line in view when a load starts is put back in the layout effect of
+  // each commit that changes the entries, before the sentinel is armed again.
+  const anchor = useRef<{ id: string; off: number } | null>(null);
+  const [armed, setArmed] = useState(true);
+  const more = () => {
+    const box = stream.current;
+    if (!box || anchor.current) return;
+    const { top, bottom } = box.getBoundingClientRect();
+    // The last line in view: whatever page lands, it lands above it. The first one may be an old message above the paged window, which a page never moves.
+    const el = [...box.querySelectorAll('[data-id]')].filter((n) => n.getBoundingClientRect().top < bottom && n.getBoundingClientRect().bottom > top).at(-1);
+    const id = el?.getAttribute('data-id');
+    anchor.current = el && id ? { id, off: el.getBoundingClientRect().top - top } : null;
+    setArmed(false);
+    chat.loadOlder();
+  };
+  useLayoutEffect(() => {
+    const box = stream.current;
+    const a = anchor.current;
+    if (!box || !a) return;
+    // Found again by its id: a page landing can re-create the element (separators, grouping), so the one held at load start may be gone.
+    const el = box.querySelector(`[data-id="${CSS.escape(a.id)}"]`);
+    if (el) {
+      const drift = el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
+      if (drift) box.scrollTop += drift;
+    }
+    if (!chat.loadingOlder) anchor.current = null; // the load is over; the next one remembers its own line
+  }, [entries.length, chat.loadingOlder]);
+  useEffect(() => {
+    if (chat.loadingOlder || anchor.current) return;
+    const id = requestAnimationFrame(() => setArmed(true));
+    return () => cancelAnimationFrame(id);
+  }, [chat.loadingOlder, entries.length]);
+  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
   const repin = () => {
     const el = stream.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
@@ -201,8 +234,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
     <section className={CHAT}>
-      <div className="chat-head flex h-[var(--h-tabs)] items-center justify-between gap-2 border-b border-line px-2">
-        <ChatStrip detail={detail} />
+      <div className="chat-head flex h-[var(--h-tabs)] items-center justify-end gap-2 border-b border-line px-2">
         <ChatSearch agent={agent} scope={scope} onGo={jump} />
         <Segmented
           label="Which messages"
@@ -220,13 +252,12 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
       </div>
       <ChatBanner detail={detail} />
       <div
-        className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [&>*]:flex-none [&>.skeleton]:self-stretch"
+        className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>.skeleton]:self-stretch"
         ref={stream}
         onScroll={(e) => {
           const el = e.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
           if (pinned.current) setNewer(0);
-          if (el.scrollTop < 60 && chat.hasOlder && !chat.loadingOlder) chat.loadOlder();
         }}
       >
         <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
@@ -235,6 +266,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
             {sentence(classify(chat.error))} <Button variant="outline" size="sm" label="Retry" onClick={chat.refetch} />
           </div>
         ) : null}
+        {chat.hasOlder ? <div ref={top} aria-hidden className="h-px" /> : null}
         {chat.hasOlder ? (
           <button
             className="icon older self-center"
@@ -255,7 +287,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 key={keyOf(e)}
                 instant={i <= tail || tail < 0}
                 onFrame={repin}
-                className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start"
+                className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-start"
               >
                 {e.kind === 'message' ? (
                   <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} onRef={jump} />
@@ -265,6 +297,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                   <Item
                     i={e.item}
                     titles={titles}
+                    agent={agent}
                     onReply={canSend && canReplyItem ? pickItem : undefined}
                     picked={pickedItem?.id === e.item.id}
                   />
@@ -287,6 +320,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           })}
         </AnimatedList>
         <HrCards agent={agent} />
+        <HandoffCard detail={detail} />
         {detail.prompt ? null : <NeedsYouCard detail={detail} />}
         {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
         <div className="working-slot flex h-6 flex-none items-center self-start">
@@ -294,14 +328,16 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         </div>
       </div>
       {newer ? (
-        <button
-          className="newer absolute right-4 bottom-[96px] inline-flex items-center gap-1 rounded-pill bg-panel px-2 py-1 shadow-[var(--shadow-pop)]"
-          onClick={bottom}
-          title="New messages"
-        >
-          <Icon name="newer" size={14} aria-hidden />
-          {newer}
-        </button>
+        // CHAT stretches every direct child to full width, so the row spans it and only the pill takes clicks.
+        <div className="pointer-events-none absolute inset-x-0 bottom-[96px] flex justify-center">
+          <button
+            className="newer pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-pop)]"
+            onClick={bottom}
+          >
+            {newer} new {newer === 1 ? 'message' : 'messages'}
+            <Icon name="newer" size={14} aria-hidden />
+          </button>
+        </div>
       ) : null}
       <div className="cards px-3">
         <PromptSlot agent={agent} prompt={detail.prompt} />
@@ -319,6 +355,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         onClear={() => (setPicked(null), setPickedItem(null))}
         running={chat.working.turn_running}
       />
+      <div className="chat-foot flex h-8 items-center border-t border-line px-3">
+        <ChatStrip detail={detail} />
+      </div>
     </section>
   );
 }

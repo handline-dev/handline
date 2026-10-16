@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/peerinbox"
 	"github.com/handline/handline/go/internal/peerport"
-	"github.com/handline/handline/go/internal/structured"
 )
 
 // fakeInbox is the peer inbox: it keeps what it was given and answers outcome.
@@ -42,6 +42,11 @@ func (f *fakeInbox) count() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f
 // peerRig is bob, a terminal agent delivered to through its peer inbox, under the real supervisor.
 func peerRig(t *testing.T, outcome peerinbox.Result) (*rig, *fakeInbox) {
 	r := newRig(t)
+	// The agent_state row a running agent has: without it the session a request was told to is not kept, every tick reads the live
+	// session as a new one, and the head is told again once its first telling has landed.
+	if err := db.SetTerminal(r.DB, "bob", "%bob", "/w/bob"); err != nil {
+		t.Fatal(err)
+	}
 	in := &fakeInbox{outcome: outcome}
 	var settled atomic.Int32
 	// A delivery runs on its own goroutine and tells the database when it ends: the test does not end, and the database does not close,
@@ -150,7 +155,7 @@ func TestAMessageTheTranscriptNeverShowsNeedsAPersonAndIsNotWrittenAgain(t *test
 	if told != 1 || needs != 1 {
 		t.Fatalf("sender told %d, needs-you events %d", told, needs)
 	}
-	if state, _ := r.sendOnce(r.DB, "bob", op, "psst", structured.Now); state != Unknown || in.count() != 1 {
+	if state, _ := r.sendOnce(r.DB, "bob", op, "psst", delivery.Now); state != Unknown || in.count() != 1 {
 		t.Fatalf("written again: %v %d", state, in.count())
 	}
 }
@@ -170,7 +175,7 @@ func TestAMessageNeverWrittenSaysSoAndOneWrittenAndUnseenSaysItMayHaveBeenRead(t
 		r, in := peerRigHeld(t, peerinbox.Result{Kind: peerinbox.Delivered})
 		rid := r.ask("alice", "bob", "psst", "say")
 		op := requestOp(rid)
-		if state, _ := r.sendOnce(r.DB, "bob", op, "psst", structured.Now); state != Written {
+		if state, _ := r.sendOnce(r.DB, "bob", op, "psst", delivery.Now); state != Written {
 			t.Fatal(state)
 		}
 		eventually(t, func() bool { return in.enteredCount() == 1 })
@@ -196,7 +201,7 @@ func TestAMessageTheLastDaemonLeftWrittenIsUnknownWhenTheNextSettlesIt(t *testin
 	r, in := peerRigHeld(t, peerinbox.Result{Kind: peerinbox.Delivered})
 	rid := r.ask("alice", "bob", "psst", "say")
 	op := requestOp(rid)
-	if state, _ := r.sendOnce(r.DB, "bob", op, "psst", structured.Now); state != Written {
+	if state, _ := r.sendOnce(r.DB, "bob", op, "psst", delivery.Now); state != Written {
 		t.Fatal(state)
 	}
 	eventually(t, func() bool { return in.enteredCount() == 1 })

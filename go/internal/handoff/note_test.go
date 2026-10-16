@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func (w *world) writeNote(agent, text string) {
@@ -41,6 +42,12 @@ func (w *world) longCache(agent, session string, ageS int64) string {
 	stamp := fmt.Sprintf(`"%s"`, timeFormat(w.now-ageS))
 	line := `{"type":"assistant","timestamp":` + stamp + `,"message":{"usage":{"cache_creation":{"ephemeral_1h_input_tokens":9}}}}` + "\n"
 	if err := os.WriteFile(p, []byte(line), 0o644); err != nil {
+		w.t.Fatal(err)
+	}
+	// Stamped when its last response was written, as a real transcript is. ReadClock remembers a clock by the file's mtime and size;
+	// these rewrites keep the size, and two within one tick of the filesystem's clock would share an mtime and read the first clock.
+	at := time.Unix(w.now-ageS, 0)
+	if err := os.Chtimes(p, at, at); err != nil {
 		w.t.Fatal(err)
 	}
 	w.status[agent] = [2]string{session, p}

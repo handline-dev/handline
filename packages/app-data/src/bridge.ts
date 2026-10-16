@@ -40,11 +40,11 @@ const rules: Record<string, Rule> = {
     void qc.invalidateQueries({ queryKey: qk.agent(d, e.agent) });
     void qc.invalidateQueries({ queryKey: qk.resource(d, 'agent.timeline') });
   },
-  // A filter makes a patch of a list unsafe, so the lists are read again.
+  // Each cached list takes the task in place, out or in by its own filter; only a list the patch cannot judge is read again.
   'task.changed': ({ qc, d }, e) => {
     const t = data<Task>(e);
     edit(qc, qk.task(d, t.id), (old: object) => ({ ...old, ...t }));
-    void qc.invalidateQueries({ queryKey: qk.tasks(d) });
+    patchTaskLists(qc, d, t);
     void qc.invalidateQueries({ queryKey: ['d', d, 'board'] });
   },
   'inbox.added': inbox,
@@ -74,6 +74,47 @@ const rules: Record<string, Rule> = {
   'device.paired': ({ qc, d }) => void qc.invalidateQueries({ queryKey: ['d', d, 'devices'] }),
   'device.revoked': ({ qc, d }) => void qc.invalidateQueries({ queryKey: ['d', d, 'devices'] }),
 };
+
+type TaskFilter = { owner?: string; from?: string; state?: string; parent?: number; under?: number; before?: number; all?: boolean; limit?: number };
+type TaskPage = { items: Task[]; more?: boolean };
+const isPage = (x: unknown): x is TaskPage => typeof x === 'object' && x !== null && Array.isArray((x as TaskPage).items);
+
+/** Whether a list read with `f` holds `t`: the default list is the open tasks, `all` adds the done and discarded. */
+function listHolds(f: TaskFilter, t: Task): boolean {
+  const closed = t.state === 'done' || t.state === 'discarded';
+  return (
+    (f.all || f.state !== undefined || !closed) &&
+    (f.owner === undefined || f.owner === t.to) &&
+    (f.from === undefined || f.from === t.from) &&
+    (f.state === undefined || f.state === t.state) &&
+    (f.parent === undefined || f.parent === t.parent)
+  );
+}
+
+/** Lists are newest first by number. A task that now belongs past the end of a full page is left to the next page. */
+function patchTaskLists(qc: QueryClient, d: string, t: Task): void {
+  for (const [key, page] of qc.getQueriesData({ queryKey: qk.tasks(d) })) {
+    const f = (key[3] ?? {}) as TaskFilter;
+    if (page === undefined) continue;
+    if (!isPage(page) || f.under !== undefined || f.before !== undefined) {
+      void qc.invalidateQueries({ queryKey: key, exact: true });
+      continue;
+    }
+    const has = page.items.some((x) => x.id === t.id);
+    const holds = listHolds(f, t);
+    if (!has && !holds) continue;
+    let items = page.items;
+    if (has) items = holds ? items.map((x) => (x.id === t.id ? { ...x, ...t } : x)) : items.filter((x) => x.id !== t.id);
+    else {
+      const last = items[items.length - 1];
+      if (page.more && last && t.id < last.id) continue;
+      items = [...items.filter((x) => x.id > t.id), t, ...items.filter((x) => x.id < t.id)];
+    }
+    const limit = f.limit ?? 50;
+    const more = page.more || items.length > limit;
+    qc.setQueryData(key, { ...page, items: items.slice(0, limit), more });
+  }
+}
 
 /** A proposal takes its place in the unfiltered list at once (the dot's count follows); a filtered list is read again. */
 function hr({ qc, d }: Ctx, e: WireEvent) {

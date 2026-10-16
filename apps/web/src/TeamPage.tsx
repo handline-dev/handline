@@ -4,7 +4,7 @@ import { waitingCount, taskRef } from '@handline/app-core';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useAgents, useHr, useServes, useTeam } from '@handline/app-data';
 import { HrTab } from './HrTab.tsx';
-import { Empty, Icon, MetaItem, MetaLine, State, TabStrip, stateOfView } from './ui/index.ts';
+import { Empty, Icon, PageHead, PageTitle, ScrollPage, MetaItem, MetaLine, State, TabStrip, stateOfView } from './ui/index.ts';
 import { goAgent, goTeam, useTeamRoute } from './route.ts';
 import { View } from './View.tsx';
 
@@ -16,7 +16,10 @@ export function TeamPage() {
   const { served: hrServed } = useServes('hr.list');
   const count = useHrCount();
   return (
-    <section className="team flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-3 pb-6" aria-label="Team">
+    <ScrollPage className="team" aria-label="Team">
+      <PageHead>
+        <PageTitle>Team</PageTitle>
+      </PageHead>
       <TabStrip
         label="Team pages"
         value={route.tab}
@@ -43,7 +46,7 @@ export function TeamPage() {
         ]}
       />
       {route.tab === 'hr' && hrServed ? <HrTab focus={route.proposal} /> : <TeamTable />}
-    </section>
+    </ScrollPage>
   );
 }
 

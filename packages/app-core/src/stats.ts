@@ -5,15 +5,6 @@
 export type Band = 'ok' | 'warn' | 'bad';
 export const bandOf = (pct: number): Band => (pct >= 85 ? 'bad' : pct >= 60 ? 'warn' : 'ok');
 
-/** "3 h 12 m", "45 m", "50 s" for under a minute, "0 m" for none. */
-export function duration(seconds: number): string {
-  const s = Math.max(0, Math.round(seconds));
-  if (s < 60) return s ? `${s} s` : '0 m';
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return h ? `${h} h ${m} m` : `${m} m`;
-}
-
 /** Agents by time worked, longest first, and how many had none (folded into "n idle agents"). */
 export function agentTime(working: Record<string, number>): { rows: { agent: string; seconds: number }[]; idle: number } {
   const all = Object.entries(working).map(([agent, seconds]) => ({ agent, seconds }));

@@ -1,13 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { INVALID, agentTime, bandOf, duration, minutesOf, parseCap, parseMinutes } from '../src/index.ts';
+import { INVALID, agentTime, bandOf, minutesOf, parseCap, parseMinutes } from '../src/index.ts';
 
 test('the bars change colour at 60 and 85 percent, not before', () => {
   assert.deepEqual([59, 60, 84, 85].map(bandOf), ['ok', 'warn', 'warn', 'bad']);
-});
-
-test('time in words', () => {
-  assert.deepEqual([0, 50, 90, 2700, 11520].map(duration), ['0 m', '50 s', '1 m', '45 m', '3 h 12 m']);
 });
 
 test('agent time is longest first and folds the idle ones', () => {

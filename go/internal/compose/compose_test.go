@@ -6,22 +6,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/claudecli"
 	"github.com/handline/handline/go/internal/db"
 	dbpkg "github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/lifecycle"
-	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/store"
-	"github.com/handline/handline/go/internal/structured"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/testkill"
-	"github.com/handline/handline/go/internal/transcript"
 )
 
 // TestMain makes this test binary the fake Claude CLI when FAKE_CLAUDE is set: it answers --version and every control request (get_usage with limits), echoes each
@@ -39,7 +34,7 @@ func fakeClaude() {
 	if len(os.Args) > 1 && os.Args[1] == "--version" {
 		v := os.Getenv("FAKE_CLAUDE_VERSION")
 		if v == "" {
-			v = structured.PinnedCLI
+			v = claudecli.PinnedCLI
 		}
 		fmt.Println(v + " (Claude Code)")
 		return
@@ -82,6 +77,11 @@ func fakeClaude() {
 
 func rig(t *testing.T) (*Parts, string) { return rigWith(t, func(*Config) {}) }
 
+// rigConfigs is the Config each rig built its parts from, for the calls that take it again (Tick, Lifecycle, agentView).
+var rigConfigs sync.Map
+
+func cfgOf(p *Parts) Config { c, _ := rigConfigs.Load(p); return c.(Config) }
+
 // rigWith is rig with the config edited before the parts are built.
 func rigWith(t *testing.T, edit func(*Config)) (*Parts, string) {
 	t.Helper()
@@ -92,7 +92,7 @@ func rigWith(t *testing.T, edit func(*Config)) (*Parts, string) {
 	}
 	home := t.TempDir()
 	os.MkdirAll(filepath.Join(home, "agents", "alice"), 0o755)
-	os.WriteFile(filepath.Join(home, "agents", "alice", "agent.yaml"), []byte("vendor: claude\nstructured: true # the real CLI\n"), 0o644)
+	os.WriteFile(filepath.Join(home, "agents", "alice", "agent.yaml"), []byte("vendor: claude\n"), 0o644)
 	os.MkdirAll(filepath.Join(home, "shared", ".claude"), 0o755)
 	os.WriteFile(filepath.Join(home, "shared", ".claude", "settings.json"), []byte(sharedSettings), 0o644)
 	os.MkdirAll(filepath.Join(home, "agents", "bob"), 0o755)
@@ -103,58 +103,20 @@ func rigWith(t *testing.T, edit func(*Config)) (*Parts, string) {
 	}
 	t.Cleanup(func() { d.Close() })
 	exe, _ := os.Executable()
-	cfg := Config{DB: d, Home: home, CLI: exe, Env: []string{"FAKE_CLAUDE=1"}, ConfigDir: func(string) string { return t.TempDir() }, Log: func(string, ...any) {}}
+	cfg := Config{DB: d, Home: home, CLI: exe, Env: []string{"FAKE_CLAUDE=1"}, Log: func(string, ...any) {}}
 	edit(&cfg)
 	if cfg.Term == nil {
 		cfg.Term = newFakeTerminals().term() // no test reaches a real tmux
 	}
 	p := New(cfg)
-	p.Sink.DB = d
-	p.Sink.Err = func(agent string, err error) { t.Error(agent, err) }
-	// A session's reader goroutine writes its events to the database and reports to t: it must be over before the test is and before the
-	// database closes. Cleanups run last first, so this one runs before the close registered above.
-	t.Cleanup(func() {
-		for _, agent := range paths.ListAgents(home) {
-			if s := p.Run.mgr.Get(agent); s != nil {
-				p.Run.mgr.Stop(agent)
-				<-s.Exited() // the exit is recorded too: its last write is over
-			}
-		}
-	})
+	rigConfigs.Store(p, cfg)
 	return p, home
-}
-
-func TestAClaudeOtherThanThePinIsRefusedUnlessTheConfigAcceptsItsVersion(t *testing.T) {
-	spec := lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "22222222-2222-4222-8222-222222222222"}
-	t.Setenv("FAKE_CLAUDE_VERSION", "9.9.9") // the version check runs the CLI from the daemon's own environment
-	p, home := rig(t)
-	withLifecycle(p, home)
-	err := p.Run.Open(spec)
-	if err == nil || !strings.Contains(err.Error(), "9.9.9") {
-		t.Fatalf("a claude that is not the pinned version started: %v", err)
-	}
-	p, home = rigWith(t, func(c *Config) { c.CLIVersion = "9.9.9" })
-	withLifecycle(p, home)
-	if err := p.Run.Open(spec); err != nil {
-		t.Fatal(err)
-	}
-	defer p.Run.Close("alice")
-}
-
-func TestTheKindOfAnAgentIsItsModeInAgentYAML(t *testing.T) {
-	p, _ := rig(t)
-	if !p.Kind("alice") || p.Kind("bob") || p.Kind("nobody") {
-		t.Fatal("only alice is structured")
-	}
-	if !p.Run.Structured("alice") || !p.Agents.Structured("alice") || p.Agents.Structured("bob") {
-		t.Fatal("the runner and the agents port agree")
-	}
 }
 
 func TestTheDaemonsLauncherNamesTheSettingsALaunchReads(t *testing.T) {
 	p, home := rig(t)
-	env := &supervisor.Env{DB: p.Sink.DB, Home: home, Log: func(string, ...any) {}}
-	lc := p.Lifecycle(p.Run.cfg, LifecycleConfig{Env: env})
+	env := &supervisor.Env{DB: p.db, Home: home, Log: func(string, ...any) {}}
+	lc := p.Lifecycle(cfgOf(p), LifecycleConfig{Env: env})
 	parts, err := lc.Launch.FingerprintParts("bob") // panicked while the daemon's launcher had no team rules
 	if err != nil || parts["team"] == "" {
 		t.Fatalf("parts %v, err %v", parts, err)
@@ -163,55 +125,8 @@ func TestTheDaemonsLauncherNamesTheSettingsALaunchReads(t *testing.T) {
 
 // withLifecycle builds the lifecycle over a bound rig: a session is not opened without it, since it says what the session is kept out of.
 func withLifecycle(p *Parts, home string) {
-	env := &supervisor.Env{DB: p.Sink.DB, Home: home, Log: func(string, ...any) {}}
-	p.Lifecycle(p.Run.cfg, LifecycleConfig{Env: env})
-}
-
-func TestAStructuredSessionStartsTakesAMessageAndStopsThroughTheRealWiring(t *testing.T) {
-	p, home := rig(t)
-	p.Bind(p.Sink.DB, &tells{})
-	p.Run.cfg.DB = p.Sink.DB
-	withLifecycle(p, home)
-	var kinds []string
-	var mu sync.Mutex
-	p.Sink.Publish = func(e transcript.Event) { mu.Lock(); kinds = append(kinds, e.Kind); mu.Unlock() }
-	if p.Run.Alive("alice") || p.Agents.Live("alice") {
-		t.Fatal("nothing runs before it is opened")
-	}
-	if err := p.Run.Open(lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "11111111-1111-4111-8111-111111111111"}); err != nil {
-		t.Fatal(err)
-	}
-	if !p.Run.Alive("alice") || !p.Agents.Live("alice") {
-		t.Fatal("it is live once initialize answered")
-	}
-	if err := p.Run.Open(lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "x"}); err == nil {
-		t.Fatal("a second session for one agent is refused")
-	}
-	if err := p.Run.Send("alice", "op1", "hello"); err != nil {
-		t.Fatal(err)
-	}
-	if !p.Run.WaitIdle("alice", 10*time.Second) {
-		t.Fatal("the turn ends")
-	}
-	if err := p.Run.Close("alice"); err != nil {
-		t.Fatal(err)
-	}
-	if p.Run.Alive("alice") || p.Agents.Live("alice") {
-		t.Fatal("it is gone after Close")
-	}
-	var n int
-	var session string
-	if err := p.Sink.DB.QueryRow("SELECT COUNT(*), COALESCE(MAX(session), '') FROM transcript_events WHERE agent = 'alice'").Scan(&n, &session); err != nil {
-		t.Fatal(err)
-	}
-	if n == 0 || session != "11111111-1111-4111-8111-111111111111" {
-		t.Fatalf("its events are kept under its session: %d %q", n, session)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if len(kinds) == 0 || kinds[len(kinds)-1] != "session_end" && kinds[len(kinds)-1] != "turn_end" {
-		t.Logf("kinds %v", kinds)
-	}
+	env := &supervisor.Env{DB: p.db, Home: home, Log: func(string, ...any) {}}
+	p.Lifecycle(cfgOf(p), LifecycleConfig{Env: env})
 }
 
 type tells struct {
@@ -238,36 +153,6 @@ func (t *tells) SessionLost(_ db.Q, agent string) error {
 	defer t.mu.Unlock()
 	t.logs = append(t.logs, "lost "+agent)
 	return nil
-}
-
-func TestTheSupervisorIsToldOfAnEchoAndOfTheEndOfTheSession(t *testing.T) {
-	p, home := rig(t)
-	tl := &tells{}
-	p.Bind(p.Sink.DB, tl)
-	p.Run.cfg.DB = p.Sink.DB
-	withLifecycle(p, home)
-	if err := p.Run.Open(lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "22222222-2222-4222-8222-222222222222"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.Run.Send("alice", "op7", "hi"); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.Run.Close("alice"); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		tl.mu.Lock()
-		got := fmt.Sprint(tl.logs)
-		tl.mu.Unlock()
-		if got == "[confirmed alice op7 lost alice]" {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatal(got)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
 }
 
 func TestOneSetOfLocksServesTheManagerAndTheSpawns(t *testing.T) {
@@ -303,7 +188,7 @@ func wiredWith(t *testing.T, ft *fakeTerminals) (*Parts, *Lifecycle, *supervisor
 	os.MkdirAll(dir, 0o755)
 	os.WriteFile(filepath.Join(dir, ".credentials.json"), []byte("{}"), 0o600) // only its presence is read
 	wt := t.TempDir()
-	d := p.Sink.DB
+	d := p.db
 	if err := dbpkg.SetTerminal(d, "alice", "", wt); err != nil {
 		t.Fatal(err)
 	}
@@ -314,37 +199,12 @@ func wiredWith(t *testing.T, ft *fakeTerminals) (*Parts, *Lifecycle, *supervisor
 		t.Fatal(err) // what a closed agent is woken for
 	}
 	env := &supervisor.Env{DB: d, Home: home, Log: func(string, ...any) {}}
-	cfg := Config{DB: d, Home: home, CLI: p.Run.cfg.CLI, Env: []string{"FAKE_CLAUDE=1"}, Log: func(string, ...any) {}, Term: ft.term()}
-	p.Run.cfg = cfg
+	cfg := Config{DB: d, Home: home, CLI: cfgOf(p).CLI, Env: []string{"FAKE_CLAUDE=1"}, Log: func(string, ...any) {}, Term: ft.term()}
+	rigConfigs.Store(p, cfg)
 	lc := p.Lifecycle(cfg, LifecycleConfig{Env: env})
 	env.Ports = p.SupervisorPorts(lc)
 	p.Bind(d, env)
 	return p, lc, env, wt
-}
-
-func TestTheLifecycleWakesAClosedStructuredAgentAndClosesItAgain(t *testing.T) {
-	p, lc, env, _ := wired(t)
-	if !env.Wired() {
-		t.Fatal("every supervisor port has its owner")
-	}
-	ok, said, err := lc.Manager.WakeAgent("alice", lifecycle.WakeOpts{})
-	if err != nil || !ok {
-		t.Fatalf("wake: %v %q %v", ok, said, err)
-	}
-	if !p.Run.Alive("alice") {
-		t.Fatal("the wake started a session")
-	}
-	row, _ := dbpkg.GetAgentState(p.Sink.DB, "alice")
-	if row == nil || row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 || row.ResumeSession.String == "" {
-		t.Fatalf("it is open again under a stored session: %+v", row)
-	}
-	ok, said, err = lc.Manager.CloseAgent("alice", lifecycle.SessionStatus{SessionID: row.ResumeSession.String}, lifecycle.CloseOpts{Force: true})
-	if err != nil || !ok {
-		t.Fatalf("close: %v %q %v", ok, said, err)
-	}
-	if p.Run.Alive("alice") {
-		t.Fatal("the close ended the session")
-	}
 }
 
 const sharedSettings = `{
@@ -361,71 +221,9 @@ const sharedSettings = `{
   }
 }`
 
-func TestTheHooksFileHoldsOurHooksOnlyAndNotASettingOrAnotherHook(t *testing.T) {
-	p, home := rig(t)
-	os.MkdirAll(filepath.Join(home, "structured", "alice"), 0o755) // a directory that was there with the wrong mode
-	path, err := WriteSettings(home, "alice", Confinement{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
-		t.Fatalf("mode %v", st.Mode())
-	}
-	if st, _ := os.Stat(filepath.Dir(path)); st.Mode().Perm() != 0o700 {
-		t.Fatalf("dir mode %v", st.Mode())
-	}
-	b, _ := os.ReadFile(path)
-	var got map[string]any
-	if err := json.Unmarshal(b, &got); err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]any{
-		"Stop":       []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "/opt/bin/hl hook Stop", "timeout": float64(10)}}}},
-		"PreToolUse": []any{map[string]any{"matcher": "Write|Edit|Bash", "hooks": []any{map[string]any{"type": "command", "command": "ocp hook PreToolUse", "timeout": float64(10)}}}},
-	}
-	if !reflect.DeepEqual(got["hooks"], want) {
-		t.Fatalf("%s", b)
-	}
-	_ = p
-}
-
-func TestASessionIsNotStartedWithoutTheShellGuardOrWithUnreadableSettings(t *testing.T) {
-	for _, shared := range []string{`{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "hl hook Stop"}]}]}}`, `{}`, `not json`} {
-		if _, err := HooksSettings([]byte(shared)); err == nil {
-			t.Errorf("%s: a session without the guard", shared)
-		}
-	}
-	p, home := rig(t)
-	os.Remove(filepath.Join(home, "shared", ".claude", "settings.json"))
-	err := p.Run.Open(lifecycle.StartSpec{Agent: "alice", Worktree: t.TempDir(), SessionID: "33333333-3333-4333-8333-333333333333"})
-	if err == nil || p.Run.Alive("alice") {
-		t.Fatal("no shared settings, no session")
-	}
-}
-
-func TestAStartTheDaemonCannotDoIsNotCountedAgainstTheAgent(t *testing.T) {
-	p, lc, _, _ := wired(t)
-	d := p.Sink.DB
-	// carol is a structured agent with no worktree: she cannot be started here, and may not be stalled for it.
-	os.MkdirAll(filepath.Join(p.home, "agents", "carol"), 0o755)
-	os.WriteFile(filepath.Join(p.home, "agents", "carol", "agent.yaml"), []byte("vendor: claude\nstructured: true\nrepo: "+t.TempDir()+"\n"), 0o644)
-	for _, agent := range []string{"carol"} {
-		if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: agent, Body: "begin", Response: "async", Kind: "ask"}); err != nil {
-			t.Fatal(err)
-		}
-		for i := 0; i < 3; i++ {
-			lc.Manager.StartForWork(agent) // an error is the answer: it is not a failed start
-		}
-		row, _ := dbpkg.GetAgentState(d, agent)
-		if row != nil && (row.WakeFailures != 0 || row.State == "STALLED") {
-			t.Fatalf("%s was counted or stalled: %+v", agent, row)
-		}
-	}
-}
-
 func TestADecisionAndAColdStartMeasurementAreReallyMade(t *testing.T) {
 	p, lc, env, _ := wired(t)
-	d := p.Sink.DB
+	d := p.db
 	ports := lc.Manager.Agents
 	if err := ports.RaiseDecision(d, "alice", "[trust] add /x - asked by alice\n\nwhy", "trust"); err != nil {
 		t.Fatal(err)
@@ -448,62 +246,11 @@ func TestADecisionAndAColdStartMeasurementAreReallyMade(t *testing.T) {
 	_ = env
 }
 
-// TestTheAgentKindIsReadAsThePythonDaemonReadsIt plays the cases both daemons share (contract/agent-kind-cases.json).
-func TestTheAgentKindIsReadAsThePythonDaemonReadsIt(t *testing.T) {
-	raw, err := os.ReadFile("../../../contract/agent-kind-cases.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var f struct {
-		Cases []struct {
-			Yaml       string `json:"yaml"`
-			Structured bool   `json:"structured"`
-		} `json:"cases"`
-	}
-	if err := json.Unmarshal(raw, &f); err != nil || len(f.Cases) == 0 {
-		t.Fatal(err)
-	}
-	for i, c := range f.Cases {
-		home := t.TempDir()
-		os.MkdirAll(filepath.Join(home, "agents", "x"), 0o755)
-		os.WriteFile(filepath.Join(home, "agents", "x", "agent.yaml"), []byte(c.Yaml), 0o644)
-		if got := KindFromYAML(home)("x"); got != c.Structured {
-			t.Errorf("case %d %q: %v, want %v", i, c.Yaml, got, c.Structured)
-		}
-	}
-}
-
-func TestAHeldMessageThatIsWrittenIsToldAsWrittenOnceAndAnImmediateSendIsNot(t *testing.T) {
-	p, _ := rig(t)
-	tl := &tells{}
-	p.Bind(p.Sink.DB, tl)
-	led := confirming{&structured.DBLedger{DB: p.Sink.DB, Agent: "alice"}, p}
-	// An immediate send goes straight to Sent: the send path marks it itself.
-	if err := led.Put(structured.Op{ID: "now1", UUID: "u1", Text: "x", Delivery: structured.Now, State: structured.Sent}); err != nil {
-		t.Fatal(err)
-	}
-	// A held one is Queued, and written later.
-	if err := led.Put(structured.Op{ID: "held1", UUID: "u2", Text: "y", Delivery: structured.Queue, State: structured.Queued}); err != nil {
-		t.Fatal(err)
-	}
-	if err := led.Put(structured.Op{ID: "held1", UUID: "u2", Text: "y", Delivery: structured.Queue, State: structured.Sent}); err != nil {
-		t.Fatal(err)
-	}
-	if err := led.Put(structured.Op{ID: "held1", UUID: "u2", Text: "y", Delivery: structured.Queue, State: structured.Confirmed}); err != nil {
-		t.Fatal(err)
-	}
-	tl.mu.Lock()
-	defer tl.mu.Unlock()
-	if fmt.Sprint(tl.logs) != "[written alice held1 confirmed alice held1]" {
-		t.Fatalf("%v", tl.logs)
-	}
-}
-
 // A daemon that starts with a peer message to bob written and unconfirmed tells its sender, and telling a sender can start that agent, so the
 // settle runs once the Env has its ports: run before them it took the lifecycle port as nil and the daemon panicked on every start.
 func TestSettlingPeerSendsAtStartTellsTheSenderThroughTheWiredPorts(t *testing.T) {
 	p, _, env, _ := wired(t)
-	d := p.Sink.DB
+	d := p.db
 	rid, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "alice", Target: "bob", Body: "hello", Response: "async", Kind: "say"})
 	if err != nil {
 		t.Fatal(err)

@@ -50,6 +50,8 @@ export type RefusalData = {
   proposal?: Proposal;
   /** With gate confirm: what the call would do and who is told. */
   plan?: string;
+  /** With gate duplicate_title: the open task the new one repeats. */
+  task?: number;
   /** With gate open_children: the task's open child tasks. */
   children?: {
     task: number;
@@ -177,6 +179,14 @@ export type AgentView = {
   config_error?: string | null;
   /** Set while the agent waits on a decision only a person at its terminal can make. Fed by hooks (PermissionRequest and the permission and question Notification kinds) and by the session file saying status `waiting` with `waitingFor` (`permission prompt` is the one measured; the file has no needs or tempo key), never by reading the screen; the tool and its target come from the PermissionRequest hook event; cleared by the hook that follows (PostToolUse, UserPromptSubmit, Stop, SessionEnd) or when the session file stops saying it. While set, `state` is `waiting`, `has_dialog` is true and `attention` is `alert`. null when none. Absent from a daemon that does not serve it yet (the Python daemon reads the screen and sets has_dialog and `alert` without it). */
   needs_you?: NeedsYou | null;
+  /** Set while a session hands off, so a chat that sits still can say why. Cleared when the new session's start item appears. Every change is an agent.changed. A handoff that waits for a usage window to reset shows `writing` only; it is not `starting` until a launch is due. null when none. Absent from a daemon that does not serve it. */
+  handoff?: {
+    /** Why the conversation is ending: the words of session.cause (`context_full`, `move`, and the trigger's own word for the rest, such as `usage` or `login`). An open set. */
+    cause: string;
+    /** `writing`: the agent writes its handoff note and the daemon takes the record. `starting`: the old session is closed and the new one is launching. */
+    phase: "writing" | "starting";
+    since: Timestamp;
+  } | null;
 };
 
 export type AgentDetail = AgentView & {
@@ -850,6 +860,8 @@ export type ChatMessage = {
     /** The reply's first 300 characters (Unicode code points, no ellipsis) when the message was sent. */
     text: string;
   } | null;
+  /** Only on the message that tells an agent how the founder decided its HR proposal: that proposal's id, as hr.list gives it. A client that draws the decided proposal as a card can leave this line out. */
+  proposal?: number;
 };
 
 export type TranscriptItem = {
@@ -871,6 +883,8 @@ export type TranscriptItem = {
     task: number;
     request: number | null;
     evidence: string | null;
+    /** Who did it: the agent (or human) that opened, changed, closed or withdrew the task, as ChatRequestItem.who. */
+    who: string;
     /** What a `changed` event changed, as chat.requests words it: `assigned to X, priority 2 -> 1`, `title changed`, `handed to X`. Absent when the event word says it all. An open set: a client draws a word it does not know as text. */
     change?: string;
   };
@@ -1991,6 +2005,8 @@ export interface Methods {
   relation?: string;
   response?: string;
   parent?: number;
+  /** Open the task even when an open task under the same parent, or the parent itself, has nearly its title (gate duplicate_title). */
+  duplicate_ok?: boolean;
   /** Cannot be worked until this task closes. */
   blocked_by?: number;
   /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
@@ -2074,8 +2090,14 @@ export interface Methods {
 }; result: Accepted };
   "task.memo.list": { params: {
   task: number;
+  /** With limit: the page just older than this memo id. */
+  before?: number;
+  /** 1 to 200. The newest limit memos, or the limit just older than before; absent: every memo. */
+  limit?: number;
 }; result: {
     memos: Memo[];
+    /** There are older memos than the page. */
+    more: boolean;
   } };
   "task.memo.add": { params: {
   task: number;

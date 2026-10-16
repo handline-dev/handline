@@ -14,7 +14,7 @@ issue tracker. Everything quoted below was read from a running system or from
 Orca's own repository, not from third-party write-ups.
 
     orca 1.4.205, runtime ef70a57f, app running, runtime ready
-    read on 2026-09-21 from /Users/ron/orca/workspaces/orcapipe/orcapipe.expender
+    read on 2026-09-21 from /Users/you/orca/workspaces/orcapipe/orcapipe.expender
 
 ---
 
@@ -223,7 +223,7 @@ A real row, read from this machine (the dispatch is one ocp created):
   "projection": {
     "provider":  { "id": "claude", "model": null },
     "host":      { "kind": "local", "id": "local" },
-    "workspace": { "id": "<repoId>::/Users/ron/orca/workspaces/…", "kind": "folder_or_worktree" },
+    "workspace": { "id": "<repoId>::/Users/you/orca/workspaces/…", "kind": "folder_or_worktree" },
     "stage":     { "worker": "unsupervised", "dispatch": "dispatched", "activity": "working" },
     "outcome":   "in_progress",
     "liveness":  { "verdict": "live", "observedAt": 1789976858918, "source": "agent_status" },
