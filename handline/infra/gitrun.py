@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/gitrun/gitrun.go; do not change, change the Go
 """Run git and hand back what it said, the same way for every caller."""
 from __future__ import annotations
 

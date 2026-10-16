@@ -103,8 +103,12 @@ func TestATerminalAgentOnAnExpiredLoginIsClosedByItsPaneAndRelaunchedFreshOnTheO
 
 func TestATerminalAgentAtAFullContextIsClosedByItsPaneAndParkedForAFreshWake(t *testing.T) {
 	g := newTermMoveRig(t)
+	db.MarkNoteWait(g.m.Q, "a", "context", g.m.now())
 	if ok, _ := g.v.PerformHandoff("a", HandoffTrigger{"context", "190k of 200k"}, ""); !ok {
 		t.Fatal("degraded")
+	}
+	if _, _, waits, _ := db.NoteWait(g.m.Q, "a"); waits {
+		t.Fatal("the note wait outlived the handoff")
 	}
 	row := g.row(t)
 	if len(g.pane.handles) != 1 || !isClosed(row) || row.ResumeSession.String != "" || row.Terminal.String != "" || row.State != states.Parked || row.Worktree.String != "/wt" {

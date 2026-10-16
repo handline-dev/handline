@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/atomicfile/atomicfile.go; do not change, change the Go
 """Replace a file in one step, so a reader sees the old text or the new and a
 crash leaves no half-written file."""
 from __future__ import annotations

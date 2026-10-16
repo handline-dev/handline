@@ -98,7 +98,8 @@ func (e *Env) idleWithSession(q db.Q, agent string) bool {
 	return row != nil && row.State == states.Idle && !(row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) && !e.hasBackgroundWork(q, agent) && e.sessionPresent(agent)
 }
 
-// SweepDigests types one digest to each idle agent with a notice waiting, and to a busy one whose oldest notice has waited its window out.
+// SweepDigests types one digest to each idle agent with a notice waiting, and to a busy one whose oldest notice has waited its window out. A
+// memo's tell has no window: it waits for the turn's end.
 func (e *Env) SweepDigests(now int64) (err error) {
 	defer Catch(&err)
 	q := db.Q(e.DB)
@@ -106,7 +107,7 @@ func (e *Env) SweepDigests(now int64) (err error) {
 		if !e.registered(w.Agent) {
 			continue
 		}
-		if now-w.Since < e.Idle.NoticeDigestS(w.Agent) && !e.idleWithSession(q, w.Agent) {
+		if (w.Since == 0 || now-w.Since < e.Idle.NoticeDigestS(w.Agent)) && !e.idleWithSession(q, w.Agent) {
 			continue
 		}
 		rows := must(db.PendingNotices(q, w.Agent))
@@ -218,5 +219,8 @@ func (e *Env) SweepNotices(now int64) error {
 	if err := e.SweepStopped(now); err != nil {
 		return err
 	}
-	return e.SweepDigests(now)
+	if err := e.SweepDigests(now); err != nil {
+		return err
+	}
+	return e.SweepHeldMemos(now)
 }

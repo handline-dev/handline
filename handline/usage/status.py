@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/usage/status.go; do not change, change the Go
 """Account status and assignability (design 01-infra.md section 4).
 
 The governing rule is fail-closed. Section 4 puts it as: a shortest-window

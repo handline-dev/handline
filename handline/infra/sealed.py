@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/sealed/sealed.go; do not change, change the Go
 """team.yaml and agent.yaml, sealed: only the founder's own path can change what they say.
 
 Both files sit under OCP_HOME, which every agent's sandbox can write, so their

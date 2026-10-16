@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/yamlcompat/yamlcompat.go; do not change, change the Go
 """YAML loading - use PyYAML when importable, otherwise a bundled subset parser.
 
 ocp must run under whichever python3 is on PATH. macOS ships PyYAML with

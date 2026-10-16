@@ -78,12 +78,17 @@ func (s *Seals) Observing(f func()) {
 	f()
 }
 
-// Adopted is one file SealEverything took on: its label and whether the seal was new or changed.
-type Adopted struct{ Label, Kind string }
+// Adopted is one file SealEverything takes on: its label, whether the seal was new or changed, and the digest it would be sealed with.
+type Adopted struct{ Label, Kind, Digest string }
 
 // SealEverything seals team.yaml and every agent.yaml as they are now, and marks the seals as begun. The founder's act. It
 // returns what this took on that was not already sealed as it is.
-func (s *Seals) SealEverything() ([]Adopted, error) {
+func (s *Seals) SealEverything() ([]Adopted, error) { return s.seal(true) }
+
+// Plan is what SealEverything would take on, writing nothing.
+func (s *Seals) Plan() ([]Adopted, error) { return s.seal(false) }
+
+func (s *Seals) seal(write bool) ([]Adopted, error) {
 	var adopted []Adopted
 	take := func(label, key, text string) error {
 		d := digest(text)
@@ -93,7 +98,10 @@ func (s *Seals) SealEverything() ([]Adopted, error) {
 			if !ok {
 				kind = "new"
 			}
-			adopted = append(adopted, Adopted{label, kind})
+			adopted = append(adopted, Adopted{label, kind, d})
+		}
+		if !write {
+			return nil
 		}
 		return s.Store.Put(NS, key, d)
 	}
@@ -110,6 +118,9 @@ func (s *Seals) SealEverything() ([]Adopted, error) {
 		if err := take("agent "+name, AgentKey(name), string(b)); err != nil {
 			return adopted, err
 		}
+	}
+	if !write {
+		return adopted, nil
 	}
 	return adopted, s.Store.Put(NS, migrated, "1")
 }

@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/sessiontoken/sessiontoken.go; do not change, change the Go
 """The proof that a request comes from an agent's own session.
 
 There is no secret. `hl launch` records its own process id and start time for the agent it becomes

@@ -256,6 +256,35 @@ func TestAMessageCarriesItsImages(t *testing.T) {
 	}
 }
 
+func TestAnHROutcomeMessageCarriesItsProposalAndNoOtherDoes(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for _, q := range []string{
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(1, 1, 'human', 'bob', 'proposal aaaa0007 applied: ...', 'queued', 'say')",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(2, 2, 'human', 'bob', 'plain', 'queued', 'say')",
+		`INSERT INTO events(ts, agent, kind, payload, dedup_key) VALUES(1, 'human', 'hr_outcome', '{"proposal": 2684354567, "request": 1}', 'hr_outcome:1')`,
+	} {
+		if _, err := e.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := e.chatMessages(nil, map[string]any{"agent": "bob", "scope": "mine"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	var out struct{ Messages []map[string]any }
+	json.Unmarshal(b, &out)
+	if len(out.Messages) != 2 {
+		t.Fatalf("%s", b)
+	}
+	for _, m := range out.Messages {
+		if p, has := m["proposal"]; (m["id"] == float64(1)) != (has && p == float64(2684354567)) {
+			t.Fatalf("only the outcome names its proposal: %s", b)
+		}
+	}
+}
+
 func TestATaskEventSaysWhatAnEditAndAHandoffChanged(t *testing.T) {
 	ev := func(kind, payload string) map[string]any {
 		item, _, ok := taskItemOf(row{"id": int64(1), "ts": int64(5), "kind": kind, "payload": payload})
@@ -298,5 +327,39 @@ func TestAPassOverManyTaskDeliveriesLoadsTheBoardOnce(t *testing.T) {
 	}
 	if pass.ch.loads != 1 {
 		t.Fatalf("the board was loaded %d times for %d task deliveries", pass.ch.loads, n)
+	}
+}
+
+func TestANoticeTheDigestListedIsNotDrawnAgainBesideTheDigest(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for _, q := range []string{
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, notice, landed_at) VALUES(1, 1, 'task-board', 'bob', 'task T1 now waits on T2', 'landed', 'say', 1, 1)",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, notice, landed_at, delivered_at) VALUES(2, 2, 'task-board', 'bob', 'T3 done by x: ok', 'landed', 'say', 1, 2, 3)",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, landed_at) VALUES(3, 4, 'task-board', 'bob', 'Result digest - 1 result since 00:00', 'landed', 'say', 4)",
+	} {
+		if _, err := e.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := e.chatMessages(nil, map[string]any{"agent": "bob", "scope": "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	var out struct{ Messages []struct{ ID int64 } }
+	json.Unmarshal(b, &out)
+	if len(out.Messages) != 2 || out.Messages[0].ID != 3 || out.Messages[1].ID != 1 {
+		t.Fatalf("a notice still waiting for the digest and the digest are drawn; the digested one is not: %s", b)
+	}
+}
+
+func TestEveryTaskEventNamesWhoDidIt(t *testing.T) {
+	for kind := range transcriptEvents {
+		who := "by." + kind // the writer records the actor as the event's agent
+		item, _, ok := taskItemOf(row{"id": int64(1), "ts": int64(5), "agent": who, "kind": kind, "payload": `{"task_id": 7}`})
+		if !ok || item["task_event"].(map[string]any)["who"] != who {
+			t.Errorf("%s: %v", kind, item)
+		}
 	}
 }

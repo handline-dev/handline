@@ -1,0 +1,96 @@
+# The Android APK on GitHub Releases. Nightly: a prerelease built every night from main. Stable: a full release cut by hand from a
+# chosen commit. Both are signed with the one fixed key in the repository secrets, so an installed app updates in place; the app
+# reads these releases to offer the update. versionCode is the run number: it only grows, across both channels.
+name: android-release
+
+on:
+  schedule:
+    - cron: '0 18 * * *'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: nightly or stable
+        type: choice
+        options: [nightly, stable]
+        default: nightly
+      ref:
+        description: Commit, branch or tag to build (default main)
+        default: main
+      version:
+        description: Stable only, X.Y.Z (the release is tagged vX.Y.Z)
+        default: ''
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CHANNEL: ${{ inputs.channel || 'nightly' }}
+      VERSION_INPUT: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+      - name: Version
+        id: v
+        run: |
+          code="$GITHUB_RUN_NUMBER"
+          date="$(date -u +%Y%m%d)"
+          if [ "$CHANNEL" = stable ]; then
+            [[ "$VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "stable needs version X.Y.Z"; exit 1; }
+            name="$VERSION_INPUT"; tag="v$name"
+          else
+            minor="$(jq -r '.expo.version' apps/mobile/app.json | cut -d. -f2)"
+            name="0.${minor}.0-nightly.${date}"; tag="nightly-${date}-${code}"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Accept the SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - run: pnpm install --frozen-lockfile
+      - name: Build the signed APK
+        working-directory: apps/mobile
+        env:
+          HANDLINE_VERSION_CODE: ${{ steps.v.outputs.code }}
+          HANDLINE_VERSION_NAME: ${{ steps.v.outputs.name }}
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          HANDLINE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          HANDLINE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          [ -n "$KEYSTORE_B64" ] || { echo "the signing key secrets are not set"; exit 1; }
+          export HANDLINE_KEYSTORE_FILE="$RUNNER_TEMP/release.jks"
+          echo "$KEYSTORE_B64" | base64 -d > "$HANDLINE_KEYSTORE_FILE"
+          pnpm exec expo prebuild --platform android --no-install
+          (cd android && ./gradlew assembleRelease --console=plain -q)
+          rm -f "$HANDLINE_KEYSTORE_FILE"
+          cp android/app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/handline-${HANDLINE_VERSION_NAME}.apk"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ steps.v.outputs.name }}
+          CODE: ${{ steps.v.outputs.code }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          flags=(--prerelease); [ "$CHANNEL" = stable ] && flags=(--latest)
+          gh release create "$TAG" "$RUNNER_TEMP/handline-${NAME}.apk" "${flags[@]}" \
+            --target "$(git rev-parse HEAD)" --title "Handline $NAME" \
+            --notes "Android build $NAME ($CHANNEL).
+
+          versionCode: $CODE"

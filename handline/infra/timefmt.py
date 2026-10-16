@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/timefmt/timefmt.go; do not change, change the Go
 """Times and lengths of time, written one way everywhere they are shown.
 
 `ago` is the one formatter for an age or a wait: every screen that prints one
