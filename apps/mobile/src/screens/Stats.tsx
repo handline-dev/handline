@@ -7,10 +7,8 @@ import { agentTime, span } from '@handline/app-core';
 import type { Outlook, Stats as StatsData } from '@handline/client';
 import { useOutlook, useServes, useStats } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { useSelector } from '@handline/app-react';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
-import { Settings } from './Settings.tsx';
 import { PageHeader } from './parts.tsx';
 
 const WINDOWS = ['24h', '7d'] as const;
@@ -233,29 +231,15 @@ function Numbers() {
 }
 
 export function Stats() {
-  const c = usePalette();
-  const [page, setPage] = useState<'stats' | 'settings'>('stats');
-  const founder = useSelector((st) => st.client.hello?.role) === 'founder'; // the settings and standing answers are the founder's alone
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ padding: space.lg, gap: space.md }}>
-        <PageHeader bare title={page === 'stats' ? 'Stats' : 'Settings'} />
-        {founder ? (
-          <Choice label="page" value={page} options={['stats', 'settings'] as const} onChange={setPage} />
-        ) : (
-          <Text testID="settings-founder-only" style={{ color: c.muted }}>
-            Only the founder changes settings.
-          </Text>
-        )}
+      <View style={{ padding: space.lg }}>
+        <PageHeader bare title="Stats" />
       </View>
-      {page === 'stats' || !founder ? (
-        <ScrollView testID="stats-page" contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.xl }}>
-          <Numbers />
-          <OutlookSection />
-        </ScrollView>
-      ) : (
-        <Settings />
-      )}
+      <ScrollView testID="stats-page" contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.xl }}>
+        <Numbers />
+        <OutlookSection />
+      </ScrollView>
     </View>
   );
 }
