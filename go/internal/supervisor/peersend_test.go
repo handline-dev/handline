@@ -170,6 +170,19 @@ func TestATerminalAgentWithNoInboxIsQueuedNotTold(t *testing.T) {
 	}
 }
 
+func TestAClosedTerminalAgentIsWokenForAMessageAtOnce(t *testing.T) {
+	r, in := peerRig(t, peerinbox.Result{Kind: peerinbox.Delivered})
+	r.Agents.(*peerport.Port).Find = func(string) (peerinbox.Session, error) { return peerinbox.Session{}, peerinbox.ErrNoSession }
+	r.must(db.SetClosed(r.DB, "bob", ""))
+	rid := r.ask("alice", "bob", "psst", "say")
+	if _, err := r.TellNow(r.DB, rid); err != nil || in.count() != 0 {
+		t.Fatalf("%v %d", err, in.count())
+	}
+	if len(r.life.woke) != 1 || r.life.woke[0] != "bob" {
+		t.Fatalf("not left for the next tick: %q", r.life.woke)
+	}
+}
+
 func TestAMessageNeverWrittenSaysSoAndOneWrittenAndUnseenSaysItMayHaveBeenRead(t *testing.T) {
 	for _, written := range []bool{false, true} {
 		r, in := peerRigHeld(t, peerinbox.Result{Kind: peerinbox.Delivered})
