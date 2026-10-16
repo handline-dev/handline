@@ -239,7 +239,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
     <section className={CHAT}>
-      <div className="chat-head flex h-[var(--h-tabs)] items-center justify-end gap-2 border-b border-line px-2">
+      <div className="chat-head flex h-[var(--h-tabs)] items-center gap-2 border-b border-line px-2">
+        <h2 className="m-0 min-w-0 flex-1 truncate text-body font-medium">
+          {agent} <span className="muted text-hint font-normal">{detail.state}</span>
+        </h2>
         <ChatSearch agent={agent} scope={scope} onGo={jump} />
         <Segmented
           label="Which messages"
