@@ -30,6 +30,7 @@ exit 0
 	}
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 	t.Setenv("OCP_TMUX_SOCKET", "t")
+	t.Setenv("HANDLINE_TMUX_SOCKET", "t")
 	t.Setenv("OCP_HOME", "/h")
 	t.Setenv("HANDLINE_HOME", "/h")
 	return log
