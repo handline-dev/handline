@@ -90,9 +90,9 @@ export function Compose(props: {
   // The message shows at once and the box clears; a refused one stays in the list as a failed row with Retry, so its words are not lost.
   const choosing = !!running && !!view?.structured;
   const send = () => {
-    if ((!text.trim() && !att.ids.length) || att.busy || ctrlR) return;
+    if ((!text.trim() && !att.ids.length && !att.refs.length) || att.busy || ctrlR) return;
     // A / line is a command, never words to the agent: run it or refuse it here.
-    if (typed && !att.ids.length) {
+    if (typed && !att.ids.length && !att.refs.length) {
       const id = typed[2] === 'fresh' ? `${typed[1]}_fresh` : typed[1]!;
       const hit = slashEntries.find((e) => e.key === id);
       if (hit?.verb || hit?.terminal) {
@@ -109,9 +109,11 @@ export function Compose(props: {
     const delivery = choosing && now ? ('now' as const) : undefined;
     // A picked message is a reference: a linked message to whoever said it, whatever it asked.
     const attachments = att.ids;
-    if (target) act.send(text, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery, attachments });
-    else if (item) act.send(text, { parent_item: item.id, delivery, attachments });
-    else act.send(text, { delivery, attachments });
+    // A dropped file or folder reaches the agent as its absolute path, one to a line after the words.
+    const body = [text, ...att.refs.map((r) => r.path)].filter(Boolean).join('\n');
+    if (target) act.send(body, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery, attachments });
+    else if (item) act.send(body, { parent_item: item.id, delivery, attachments });
+    else act.send(body, { delivery, attachments });
     att.clear();
     setNow(false);
     onClear?.();
@@ -159,7 +161,7 @@ export function Compose(props: {
     }
   };
   return (
-    <div className="compose-wrap flex flex-col" {...attachHandlers(canAttach.ok ? att.add : () => undefined)}>
+    <div className="compose-wrap flex flex-col" {...attachHandlers(canAttach.ok ? att.add : () => undefined, att.refer)}>
       {/* The reply bar's row is always this tall, so picking a message never shifts the stream to make room. */}
       <div className="mx-3 mb-1 flex h-[26px] items-center">
         {target ? (
@@ -188,7 +190,7 @@ export function Compose(props: {
           <Icon name="warn" size={14} aria-hidden /> {refused}
         </p>
       ) : null}
-      <AttachChips drafts={att.drafts} problem={att.problem} onRemove={att.remove} />
+      <AttachChips drafts={att.drafts} refs={att.refs} problem={att.problem} onRemove={att.remove} onUnref={att.unrefer} />
       <ComposeRow>
         {menu ? (
           <ul
