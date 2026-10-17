@@ -29,9 +29,6 @@ export function jumpTo(id: number): boolean {
   return true;
 }
 
-/** Who a reply to this message goes to: the agent that said it, else the one it was said to. */
-export const replyTo = (m: ChatMessage, isAgent: (n: string) => boolean): string => (isAgent(m.from) ? m.from : m.to);
-
 const full = (at: string) => {
   const d = new Date(at);
   return Number.isNaN(+d) ? undefined : d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
