@@ -53,4 +53,29 @@ describe('memo files', () => {
     await act(async () => void box.querySelector<HTMLElement>('button[aria-label="Open mock.png"]')!.click());
     await until(() => document.querySelector('[role="dialog"] img'), 'the full-size image');
   });
+
+  it("draws a relative picture of a Markdown file from the memo's image of the same name, and keeps the alt text for one it lacks", async () => {
+    const s = setup();
+    s.daemon.tasks.verbs = true;
+    const img = s.daemon.uploads.addMemoFile('cmp-sidebar.png', 'image/png', PNG);
+    const md = s.daemon.uploads.addMemoFile(
+      'plan.md',
+      'text/markdown',
+      Buffer.from('Look:\n\n![Sidebar](docs/img/cmp-sidebar.png)\n\n![Missing shot](docs/img/none.png)\n'),
+    );
+    s.daemon.tasks.memo({ task: 1684, text: 'Plan', files: [img.id, md.id] }, 'add', 'founder');
+    location.hash = '#/tasks/1684';
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />);
+    });
+    await until(
+      () => box.querySelector('section[aria-label="plan.md"] button[aria-label="Open Sidebar"] img'),
+      'the picture inside the file',
+    );
+    const section = box.querySelector('section[aria-label="plan.md"]')!;
+    expect(section.querySelectorAll('img')).toHaveLength(1);
+    expect(section.textContent).toContain('Missing shot');
+  });
 });

@@ -24,7 +24,7 @@ function ImageView({ node }: NodeViewProps) {
   );
 }
 
-const BodyImage = Image.extend({
+export const BodyImage = Image.extend({
   // `attachment:` is no URL the browser can load: the node view draws it, and the HTML copy carries the reference as text.
   renderHTML: ({ HTMLAttributes }) => ['img', mergeAttributes(HTMLAttributes)],
   addNodeView: () => ReactNodeViewRenderer(ImageView),

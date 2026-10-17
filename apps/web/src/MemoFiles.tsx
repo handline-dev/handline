@@ -6,25 +6,30 @@ import { Markdown } from '@tiptap/markdown';
 import type { MemoFile } from '@handline/client';
 import { useAttachmentBytes } from '@handline/app-data';
 import { AttachmentImage } from './AttachmentImage.tsx';
-import { forEditor } from './bodyMarkdown.ts';
+import { BodyImage } from './BodyEditor.tsx';
+import { forEditor, resolveImages } from './bodyMarkdown.ts';
 
 export function MemoFiles({ files }: { files: MemoFile[] }) {
   return (
     <div className="memo-files grid gap-2">
       {files.map((f) =>
-        f.kind === 'image' ? <AttachmentImage key={f.id} id={f.id} name={f.name} /> : <MarkdownFile key={f.id} id={f.id} name={f.name} />,
+        f.kind === 'image' ? (
+          <AttachmentImage key={f.id} id={f.id} name={f.name} />
+        ) : (
+          <MarkdownFile key={f.id} id={f.id} name={f.name} pictures={files.filter((x) => x.kind === 'image')} />
+        ),
       )}
     </div>
   );
 }
 
-function MarkdownFile({ id, name }: { id: string; name: string }) {
+function MarkdownFile({ id, name, pictures }: { id: string; name: string; pictures: MemoFile[] }) {
   const read = useAttachmentBytes(id, false);
-  const text = read.state === 'ready' ? new TextDecoder().decode(read.bytes) : '';
-  const editor = useEditor({ extensions: [StarterKit, Markdown], content: '', contentType: 'markdown', editable: false });
+  const md = read.state === 'ready' ? resolveImages(new TextDecoder().decode(read.bytes), pictures) : '';
+  const editor = useEditor({ extensions: [StarterKit, BodyImage, Markdown], content: '', contentType: 'markdown', editable: false });
   useEffect(() => {
-    if (editor && read.state === 'ready') editor.commands.setContent(forEditor(text), { contentType: 'markdown' });
-  }, [editor, read.state, text]);
+    if (editor && read.state === 'ready') editor.commands.setContent(forEditor(md), { contentType: 'markdown' });
+  }, [editor, read.state, md]);
   return (
     <section className="rounded-ctl border border-line bg-panel px-2 py-1.5" aria-label={name}>
       <h4 className="m-0 mb-1 font-mono text-[12px] font-normal text-ink-3">{name}</h4>
