@@ -129,6 +129,8 @@ type DoneIn struct {
 	// Commit is the sha the work was done at (it need not be on main); Shots are absolute paths of PNG files. Both are optional.
 	Commit string
 	Shots  []string
+	// Close is a done the daemon makes in the founder's name when the task is no longer needed: it closes, never an answer.
+	Close bool
 }
 
 // DoneResult is what a MarkDone leaves for the telling that follows the commit. Finished is false when only a leftover request of an
@@ -236,7 +238,7 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		return nil, err
 	}
 	// The founder's done on a task they hold that someone else asked is an answer too; on any other task it is the founder's close.
-	if by != t.reporter() && by != t.OpenedBy && (by != human || t.Owner == human && !t.reported()) {
+	if by != t.reporter() && by != t.OpenedBy && (by != human || t.Owner == human && !t.reported() && !in.Close) {
 		return fileReport(tx, by, t, mark, via, from, result, finalize)
 	}
 	won, err := db.MarkTaskDone(tx, tid, mark, via)
