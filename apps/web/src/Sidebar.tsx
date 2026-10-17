@@ -24,6 +24,7 @@ import {
 import { AgentRow, liveOf } from './AgentRow.tsx';
 import { NewAgentButton } from './NewAgent.tsx';
 import { View } from './View.tsx';
+import { useHistoryNav } from './useHistoryNav.ts';
 import { navOf, usePairPhone } from './NavRows.tsx';
 
 export function Sidebar({
@@ -41,6 +42,7 @@ export function Sidebar({
   const { served } = useServes('agents.list');
   const agents = list.data?.agents ?? [];
   const conn = useConnection();
+  const hist = useHistoryNav();
   const [search, setSearch] = useState('');
   const [hidden, setHidden] = useState<Set<Dot>>(
     () => new Set(setting(storage, 'hiddenDots', '').value.split(',').filter(Boolean) as Dot[]),
@@ -101,22 +103,26 @@ export function Sidebar({
           label="Hide the agent list (⌘B)"
           onClick={onToggle}
         />
-        <Button
-          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]"
-          icon="back"
-          label="Back (⌘[)"
-          onClick={() => history.back()}
-        />
-        <Button
-          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]"
-          icon="forward"
-          label="Forward (⌘])"
-          onClick={() => history.forward()}
-        />
+        {hist.back ? (
+          <Button
+            className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]"
+            icon="back"
+            label="Back (⌘[)"
+            onClick={() => history.back()}
+          />
+        ) : null}
+        {hist.forward ? (
+          <Button
+            className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]"
+            icon="forward"
+            label="Forward (⌘])"
+            onClick={() => history.forward()}
+          />
+        ) : null}
       </div>
-      <div className="rail-opts relative flex items-center gap-1.5 px-2.5 py-2">
+      <div className="rail-opts relative px-2.5 py-2">
         <input
-          className="search min-w-0 flex-1 rounded-ctl border border-line bg-canvas px-2 py-[5px]"
+          className="search w-full min-w-0 rounded-ctl border border-line bg-canvas py-[5px] pl-2 pr-9"
           type="search"
           placeholder="Search agents"
           aria-label="Search agents"
@@ -127,7 +133,7 @@ export function Sidebar({
           icon="filter"
           label={hidden.size ? `View: ${hidden.size} hidden` : 'View'}
           name="View"
-          className={hidden.size ? 'text-primary' : ''}
+          className={`absolute right-3.5 top-1/2 -translate-y-1/2 ${hidden.size ? 'text-primary' : ''}`}
         >
           <MenuLabel>Show agents that are</MenuLabel>
           {RAIL_FILTERS.map((f) => {
@@ -208,7 +214,6 @@ export function Sidebar({
         )}
       </div>
       <div className="rail-list min-h-0 flex-1 overflow-auto">
-        {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
         <View q={list} served={served} shape="agents" what="the agent list" empty={conn === 'open' && !agents.length && 'No agents.'}>
           {rows.map(({ agent, depth, kids }, i) => {
             const team = teamOf(agent.name, names);
@@ -239,10 +244,6 @@ export function Sidebar({
         </View>
       </div>
       <NewAgentButton />
-      <footer className="rail-foot flex gap-0.5 border-t border-line px-2 py-1">
-        <Button icon="settings" label="Settings" onClick={() => void (location.hash = '#/settings')} />
-        <Button icon="help" label="Keys (?)" onClick={() => dispatchEvent(new KeyboardEvent('keydown', { key: '?' }))} />
-      </footer>
     </nav>
   );
 }

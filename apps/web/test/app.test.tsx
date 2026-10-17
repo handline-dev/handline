@@ -114,8 +114,12 @@ describe('the workspace', () => {
     await openMore();
     expect(menuItems().map((t) => t.trim().split(' ')[0])).toEqual(['Inbox', 'Team', 'Worktrees', 'Accounts', 'Stats']);
     await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
-    expect($$('.rail-foot button').map((b) => b.getAttribute('aria-label'))).toEqual(['Settings', 'Keys (?)']);
-    expect($('.rail-status')).toBeNull();
+    expect(
+      $$('.statusbar button')
+        .map((b) => b.getAttribute('aria-label'))
+        .slice(0, 2),
+    ).toEqual(['Settings', 'Keys (?)']); // the one footer
+    expect($('.rail-foot')).toBeNull();
     const bar = $('.statusbar')!;
     expect($('#app')!.parentElement).toBe($('.frame'));
     expect(bar.querySelector('[aria-label="daemon open"]')).not.toBeNull();
@@ -191,7 +195,7 @@ describe('the workspace', () => {
     expect(($('[role="dialog"][aria-label="Keys"]')!.textContent ?? '').split('On the tabs')).toHaveLength(2); // once, not once per pane
     await act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))); // Base UI listens on the document
     expect($('[role="dialog"][aria-label="Keys"]')).toBeNull();
-    await click($('.rail-foot [aria-label="Keys (?)"]')!);
+    await click($('.statusbar [aria-label="Keys (?)"]')!);
     expect($('[role="dialog"][aria-label="Keys"]')).not.toBeNull();
   });
 
@@ -373,6 +377,10 @@ describe('the daemon-down notice', () => {
     m.daemon.dropConnections();
     await until(() => $('.daemon-down'), 'the notice');
     expect(text($('.daemon-down'))).toContain('hl service install');
+    expect($$('.daemon-down')).toHaveLength(1); // one line, with its Retry
+    expect(text($('.daemon-down button'))).toBe('Retry');
+    expect(text($('#app'))).not.toContain('Connecting…');
+    expect($('.toast')).toBeNull(); // the line says it; no second message
     m.net.down = false;
     await until(() => !$('.daemon-down'), 'the notice gone');
   });

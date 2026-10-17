@@ -23,7 +23,13 @@ if (import.meta.env.DEV) {
   });
 }
 
-const { url, insecure } = daemonUrl(location.search, location, import.meta.env.PROD, browserStorage()?.getItem('shell:own-host') || null);
+const { url, insecure } = daemonUrl(
+  location.search,
+  location,
+  import.meta.env.PROD,
+  browserStorage()?.getItem('shell:own-host') || null,
+  import.meta.env.VITE_FAKE_DAEMON || null,
+);
 createRoot(document.getElementById('root')!).render(
   <Start url={url} insecure={insecure} failure={browserStorage()?.getItem('shell:daemon-failure') || null} storage={browserStorage()} />,
 );

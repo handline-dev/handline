@@ -27,6 +27,11 @@ let box: HTMLElement;
 const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());
+const pickFilter = async (label: string) => {
+  await click($$('.inbox-top button').find((b) => b.getAttribute('aria-label')?.startsWith('Filter')));
+  await click([...document.querySelectorAll<HTMLElement>('[role=menuitemcheckbox]')].find((b) => text(b).trim() === label));
+  await act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+};
 const text = (el: Element | null) => el?.textContent ?? '';
 const card = (id: number) => $(`[data-item="${id}"]`)!;
 const button = (within: Element | Document | null, label: string) =>
@@ -140,11 +145,7 @@ describe('the page', () => {
     await until(() => $('.inbox-fyi'), 'the groups');
     await act(async () => void s.daemon.inbox.add({ kind: 'result', title: 'Other agent', agent: 'handline.auditor' }));
     await until(() => text($('.inbox-fyi h3')).includes('2'), 'the second FYI item');
-    const pick = $('select[aria-label="Agent"]') as HTMLSelectElement;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(pick, 'handline.auditor');
-      pick.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    await pickFilter('handline.auditor');
     const all = button($('.inbox-fyi h3'), 'Mark all FYI read')!;
     expect(all.getAttribute('title')).toBe('Mark all FYI read, filters ignored');
     await click(all);
@@ -168,23 +169,13 @@ describe('the page', () => {
   it('filters by kind icon and by agent, says when nothing matches, and Clear filters brings the list back', async () => {
     await mount();
     await until(() => $$('.inbox-card').length === 3, 'the cards');
-    const pickAgent = async (value: string) => {
-      const sel = $('select[aria-label="Agent"]') as HTMLSelectElement;
-      await act(async () => {
-        const set = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!;
-        set.call(sel, value);
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-      });
-    };
-    const kind = (label: string) => button($('.inbox-kinds'), label);
-    await click(kind('Result'));
+    await pickFilter('Result');
     expect(ids()).toEqual(['5']);
-    expect(kind('Result')!.getAttribute('aria-pressed')).toBe('true');
-    await click(kind('Result'));
+    await pickFilter('Result');
     expect(ids()).toEqual(['3', '4', '5']);
-    await pickAgent('handline.term-build');
+    await pickFilter('handline.term-build');
     expect(ids()).toEqual(['4']);
-    await click(kind('Decision'));
+    await pickFilter('Decision');
     expect(ids()).toEqual([]);
     expect($('.empty .icon')).not.toBeNull();
     await click(button($('.inbox'), 'Clear filters'));
@@ -338,7 +329,7 @@ describe('the verbs', () => {
 });
 
 describe('keys', () => {
-  it('j and k move the cursor, m marks the card read, ? opens the key list and Escape closes it', async () => {
+  it('j and k move the cursor, m marks the card read; the header holds only the filter and Mark all read', async () => {
     const s = await mount();
     await until(() => $$('.inbox-card').length === 3, 'the cards');
     await key('j');
@@ -351,10 +342,8 @@ describe('keys', () => {
     await until(() => s.daemon.inbox.get(4).read, 'the daemon');
     await until(() => !card(4), 'the card to leave');
     expect(ids()).toEqual(['3', '5']);
-    await key('?');
-    expect($('.inbox-keys')).not.toBeNull();
-    await key('Escape');
-    expect($('.inbox-keys')).toBeNull();
+    expect($('.inbox-keys')).toBeNull(); // the keys are on the ? sheet, not in the header
+    expect($$('.inbox-top button').map((b) => b.getAttribute('aria-label'))).toEqual(['Filter', 'Mark all read']);
   });
 
   it('a key typed in a text field is the text, not a verb', async () => {

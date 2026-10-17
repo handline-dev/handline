@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import { useHistoryNav } from './useHistoryNav.ts';
 import { Button } from './ui/index.ts';
 
 /** Set while the sidebar is folded: the buttons the first tab strip carries, so the content keeps the room the rail's handle took. */
@@ -10,11 +11,12 @@ const NO_DRAG = 'shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)
 
 /** Show the sidebar, back and forward: the sidebar's own top row, folded away with it. */
 export function RailControls({ show, row }: { show: () => void; row?: boolean }) {
+  const hist = useHistoryNav();
   return (
     <div className={`flex ${row ? 'items-center gap-0.5 self-center' : 'flex-col gap-0.5'}`}>
       <Button className={NO_DRAG} icon="sidebar" label="Show the agent list (⌘B)" onClick={show} />
-      <Button className={NO_DRAG} icon="back" label="Back (⌘[)" onClick={() => history.back()} />
-      <Button className={NO_DRAG} icon="forward" label="Forward (⌘])" onClick={() => history.forward()} />
+      {hist.back ? <Button className={NO_DRAG} icon="back" label="Back (⌘[)" onClick={() => history.back()} /> : null}
+      {hist.forward ? <Button className={NO_DRAG} icon="forward" label="Forward (⌘])" onClick={() => history.forward()} /> : null}
     </div>
   );
 }

@@ -59,7 +59,11 @@ function realGateway(): Plugin {
   };
 }
 
+/** `dev:fake` points the page at its fake daemon unless `?daemon=` says otherwise. */
+const fake = process.env.HANDLINE_FAKE ? `ws://127.0.0.1:${process.env.HANDLINE_FAKE_PORT ?? 7790}` : '';
+
 export default defineConfig({
+  define: { 'import.meta.env.VITE_FAKE_DAEMON': JSON.stringify(fake) },
   plugins: [tailwindcss(), fakeDaemon(), realGateway()],
   server: { host: '127.0.0.1', watch: { usePolling: true, interval: 300 } },
   test: { environment: 'happy-dom', setupFiles: ['test/setup.ts'], include: ['test/**/*.test.tsx'], testTimeout: 20_000 },
