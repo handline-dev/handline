@@ -18,6 +18,7 @@ import { ChatFind } from './ChatFind.tsx';
 import { ChatRefs, type Ref } from './ChatRefs.tsx';
 import { HandoffLine } from './HandoffLine.tsx';
 import { NeedsYouCard } from './NeedsYouCard.tsx';
+import { ScopeRow } from './ScopeRow.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { useChatImages } from './ChatImages.tsx';
 import { Button, Row } from './parts.tsx';
@@ -61,6 +62,7 @@ export function Chat(props: { detail: AgentDetail }) {
   const agent = props.detail.name;
   const canSend = useSelector((s) => s.can('chat.send'));
   const [scope, setScope] = useState<ChatScope>('mine');
+  const [searching, setSearching] = useState(false);
   const chat = useChat(agent, scope);
   const act = useChatActions(agent);
   const [picked, setPicked] = useState<Ref | null>(null); // a message, or a request a # chose
@@ -151,36 +153,20 @@ export function Chat(props: { detail: AgentDetail }) {
   const working = chat.working.turn_running;
   return (
     <View style={{ flex: 1 }}>
-      <Row style={{ paddingHorizontal: space.md, paddingVertical: space.sm }}>
-        {(['mine', 'all'] as const).map((s) => (
-          <Pressable
-            key={s}
-            testID={`scope-${s}`}
-            accessibilityRole="button"
-            accessibilityState={{ selected: scope === s }}
-            onPress={() => {
-              setScope(s);
-              setPicked(null);
-              setItem(null);
-            }}
-            style={{
-              paddingVertical: space.xs,
-              paddingHorizontal: space.md,
-              borderRadius: radius.md,
-              borderWidth: 1,
-              borderColor: scope === s ? c.accent : c.line,
-            }}
-          >
-            <Text style={{ color: scope === s ? c.accent : c.muted, fontWeight: '600' }}>{s === 'mine' ? 'Mine' : 'All'}</Text>
-          </Pressable>
-        ))}
-        <Text style={{ color: c.muted, fontSize: 11, flex: 1 }}>
-          {scope === 'mine' ? 'You and this agent' : 'Also what agents tell each other'}
-        </Text>
-      </Row>
+      <ScopeRow
+        scope={scope}
+        searching={searching}
+        onScope={(s) => {
+          setScope(s);
+          setPicked(null);
+          setItem(null);
+        }}
+        onSearching={setSearching}
+      />
       <ChatSearch
         agent={agent}
         scope={scope}
+        open={searching}
         onGo={(id) => {
           setMissing(false);
           setGoing(id);

@@ -46,7 +46,7 @@ async function mount(role?: 'founder' | 'agent') {
       </DaemonProvider>,
     );
   });
-  await press($('nav-accounts'));
+  await press($('nav-usage'));
   return { ...s, store };
 }
 const openOne = async (name: string) => {
