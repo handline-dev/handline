@@ -17,6 +17,7 @@ async function until(cond: () => unknown, what: string, tries = 400) {
   }
   throw new Error(`timed out waiting for ${what}`);
 }
+const dialogAtCapture: boolean[] = [];
 let root: Root | null = null;
 let box: HTMLElement;
 const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
@@ -43,8 +44,10 @@ async function mount(hash: string) {
       screen: async () => ({ ok: true }),
       unsent: async () => ({ ok: true }),
       captureWindows: async () => ({ ok: true, windows: [{ id: 'window:7', name: 'Simulator', thumb: `data:image/png;base64,${PNG}` }] }),
-      captureWindow: async (a: { id: string }) =>
-        a.id === 'window:7' ? { ok: true, name: 'Simulator.png', png: PNG } : { ok: false, code: 'not_found', message: 'gone' },
+      captureWindow: async (a: { id: string }) => {
+        dialogAtCapture.push(!!document.querySelector('.ui-dialog'));
+        return a.id === 'window:7' ? { ok: true, name: 'Simulator.png', png: PNG } : { ok: false, code: 'not_found', message: 'gone' };
+      },
     },
   });
   location.hash = hash;
@@ -84,6 +87,17 @@ describe('capture', () => {
     };
     expect(t.body).toMatch(/^The header overlaps the title\n!\[Simulator\]\(attachment:[\w-]+\)$/);
     expect(t.body_parts?.[1]?.image?.name).toBe('Simulator.png');
+  });
+
+  it('takes the picture with the dialog out of the way, then shows it again', async () => {
+    dialogAtCapture.length = 0;
+    await mount('#/tasks');
+    await until(() => button('Capture'), 'the Capture button');
+    await click(button('Capture'));
+    await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
+    await click($$('[aria-label="Windows"] button')[0]);
+    await until(() => $('[data-testid="capture-preview"]'), 'the preview');
+    expect(dialogAtCapture).toEqual([false]);
   });
 
   it('adds the picture as a comment on the open task', async () => {

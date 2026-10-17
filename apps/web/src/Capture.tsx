@@ -63,6 +63,7 @@ export function CaptureDialog({
 }) {
   const [windows, setWindows] = useState<Win[] | null>(null);
   const [problem, setProblem] = useState('');
+  const [hidden, setHidden] = useState(false);
   const [shot, setShot] = useState<{ name: string; blob: Blob } | null>(null);
   const [marked, setMarked] = useState<Blob | null>(null);
   const [note, setNote] = useState('');
@@ -88,8 +89,11 @@ export function CaptureDialog({
 
   const pick = async (w: Win) => {
     setProblem('');
+    setHidden(true); // our own window would show this dialog dimmed over it; two frames let the unmount reach the screen
+    await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
     const r = await shell('captureWindow')?.captureWindow?.({ id: w.id });
     if (gone.current) return;
+    setHidden(false);
     if (!r) return setProblem('This app cannot capture a window.');
     if (!r.ok) return setProblem(r.message);
     setShot({ name: r.name, blob: asBlob(r.png) });
@@ -125,6 +129,7 @@ export function CaptureDialog({
   };
 
   const Annotate = annotate;
+  if (hidden) return null;
   return (
     <Dialog
       title="Capture a window"
