@@ -1,7 +1,7 @@
 // The lines of the chat that are not messages: the agent's reply and its tool, prompt, task and session lines.
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import type { TranscriptItem } from '@handline/client';
+import type { Proposal, TranscriptItem } from '@handline/client';
 import { clockTime, sessionLine } from '@handline/app-core';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
@@ -119,5 +119,15 @@ function SessionMark({ i }: { i: TranscriptItem }) {
         </Sheet>
       )}
     </View>
+  );
+}
+
+/** A decided HR proposal: one line at the time it was settled. */
+export function Decided({ p }: { p: Proposal }) {
+  const c = usePalette();
+  return (
+    <Text testID="decided" style={{ color: c.muted, fontSize: 12 }}>
+      {p.title} · {p.state === 'rejected' ? 'Rejected' : 'Applied'} by you · {p.settled ? clockTime(p.settled) : ''}
+    </Text>
   );
 }

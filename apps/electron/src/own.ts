@@ -117,7 +117,7 @@ function logFailures(owner: Owner, log: number): void {
 }
 
 /** The founder key from the protected store, or null while the daemon has not made it. */
-function readFounderKey(home: string): string | null {
+export function readFounderKey(home: string): string | null {
   try {
     return fs.readFileSync(founderKeyFile(os.homedir(), home), 'utf8').trim() || null;
   } catch {

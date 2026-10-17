@@ -31,7 +31,7 @@ func yesterday() *handoff.Digest {
 	d.Sections["in_progress"] = []string{"the parser", "the port"}
 	d.Sections["blocked"] = []string{"waiting on a review"}
 	d.Sections["next"] = []string{"the tests"}
-	d.Facts = "branch buddyron/x"
+	d.Facts = "branch yourname/x"
 	return d
 }
 
@@ -51,7 +51,7 @@ func TestRolloverCarriesWhatIsOpenAndStartsDoneEmpty(t *testing.T) {
 	if d.Date != "2026-10-10" || len(d.Items("done")) != 0 || len(d.Items("in_progress")) != 2 || len(d.Items("next")) != 1 {
 		t.Fatalf("today's digest = %+v", d)
 	}
-	if !strings.Contains(string(raw), "branch buddyron/x") {
+	if !strings.Contains(string(raw), "branch yourname/x") {
 		t.Fatalf("the machine record was not carried:\n%s", raw)
 	}
 }

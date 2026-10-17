@@ -20,8 +20,8 @@ const (
 	BgGraceS = 300
 	// BgCheckS is how often an agent with background work is asked which of it to stop.
 	BgCheckS = 600
-	// NoticeDigestS: results told to an agent that opened work are held this long after the first, then typed once as a digest.
-	NoticeDigestS = 900
+	// NoticeDigestS: notices to an agent are held this long after the first, then typed once as a digest at its prompt.
+	NoticeDigestS = 300
 )
 
 // Settings is how long an idle agent's session may sit before it is closed, the background times and the cache-expiry switch: config.yaml's
@@ -201,7 +201,7 @@ func (s *Settings) BgCheckS(agent string) int64 {
 	return s.SecondsSetting(agent, "bg_check_s", BgCheckS)
 }
 
-// NoticeDigestS is how long after its first waiting result notice the agent is woken once with a digest.
+// NoticeDigestS is how long after its first waiting notice the agent is typed one digest, at its prompt.
 func (s *Settings) NoticeDigestS(agent string) int64 {
 	return s.SecondsSetting(agent, "notice_digest_s", NoticeDigestS)
 }

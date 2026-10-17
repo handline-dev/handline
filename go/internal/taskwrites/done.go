@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/gitrun"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/taskresult"
@@ -165,7 +166,7 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		}
 		for _, r := range reqs {
 			if r.State == "queued" && (by == t.Owner || by == human) {
-				notes, forget, err := endTask(tx, home, tid, by, t, doneText(tid, by, t.DoneEvidence.String), urgent(t.DoneEvidence.String), nil)
+				notes, forget, err := endTask(tx, home, tid, by, t, doneText(tid, by, t.DoneEvidence.String), delivery.Failed(t.DoneEvidence.String), nil)
 				if err != nil {
 					return nil, err
 				}
@@ -251,7 +252,7 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 			return nil, err
 		}
 	}
-	notes, forget, err := endTask(tx, home, tid, by, t, doneText(tid, by, mark), urgent(mark), nil)
+	notes, forget, err := endTask(tx, home, tid, by, t, doneText(tid, by, mark), delivery.Failed(mark), nil)
 	if err != nil {
 		return nil, err
 	}

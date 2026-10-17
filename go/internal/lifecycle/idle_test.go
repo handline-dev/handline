@@ -100,3 +100,10 @@ func TestTheHandoffAskIsTheAgentsOwnPromptThenTheGlobalThenTheBuiltIn(t *testing
 		t.Fatalf("no {path}: %q", got)
 	}
 }
+
+func TestTheNoticeDigestWindowIsFiveMinutesUnlessAnAgentSetsItsOwn(t *testing.T) {
+	s := settingsWith(t, "", "vendor: claude\nnotice_digest_s: 60\n")
+	if s.NoticeDigestS("bob") != 300 || s.NoticeDigestS("ann") != 60 {
+		t.Fatalf("bob %d, ann %d", s.NoticeDigestS("bob"), s.NoticeDigestS("ann"))
+	}
+}

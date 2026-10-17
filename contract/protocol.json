@@ -2861,7 +2861,7 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "description": "The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is the new message."
+      "description": "The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found. The message goes to agent whoever the parent's requester or target is, so a row relayed from another agent can be quoted in this agent's chat. request in the result is the new message."
      }
     },
     {
@@ -4825,6 +4825,52 @@
    ]
   },
   {
+   "name": "task.history",
+   "summary": "Every change to a task, newest first: one row per field changed, with who made it, the value before and after, and when. It is read from the events each task write keeps in its own transaction, so it is never edited or deleted; a fix is a later row. A deleted memo's words stay in it. Anyone may edit a task (task.edit); this history is what makes that safe to undo by hand.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "task": {
+       "type": "integer"
+      },
+      "rows": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/HistoryRow"
+       }
+      }
+     },
+     "required": [
+      "task",
+      "rows"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "task.shot",
    "summary": "A screenshot kept with a finished task.",
    "paramStructure": "by-name",
@@ -5093,7 +5139,7 @@
     },
     {
      "name": "note",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string",
       "description": "Markdown. It may name images (x-attachments, texts); they are the task's while it is open."
@@ -5978,7 +6024,7 @@
     },
     {
      "name": "reason",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string"
      }
@@ -12726,8 +12772,8 @@
      "notice_digest_s": {
       "type": "integer",
       "minimum": 1,
-      "default": 900,
-      "description": "Seconds after the first waiting result before the agent is woken once with a digest. Per agent."
+      "default": 300,
+      "description": "Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent."
      },
      "stop_wait_backstop_s": {
       "type": "integer",
@@ -12876,7 +12922,7 @@
         "type": "null"
        }
       ],
-      "description": "Seconds after the first waiting result before the agent is woken once with a digest. Per agent. null removes the key (back to the default)."
+      "description": "Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. null removes the key (back to the default)."
      },
      "stop_wait_backstop_s": {
       "oneOf": [
@@ -14199,6 +14245,58 @@
     "required": [
      "image",
      "caption"
+    ]
+   },
+   "HistoryRow": {
+    "type": "object",
+    "description": "One change to a task: who changed which field from what to what, and when. A field's change is one row; an edit of several fields is several rows with the same at.",
+    "properties": {
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "by": {
+      "type": "string",
+      "description": "Who made the change: an agent, or human."
+     },
+     "field": {
+      "type": "string",
+      "enum": [
+       "title",
+       "assignee",
+       "owner",
+       "body",
+       "priority",
+       "timeout",
+       "state",
+       "blocked_by",
+       "merged_into",
+       "memo"
+      ],
+      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>."
+     },
+     "was": {
+      "type": "string",
+      "description": "The value before; empty when there was none (a task just opened, a wait just added, a memo just added)."
+     },
+     "now": {
+      "type": "string",
+      "description": "The value after; empty when it is gone (a wait removed, a memo deleted)."
+     },
+     "note": {
+      "type": "string",
+      "description": "With a state row: the done evidence, the report, or the reason or note given. Absent when none was."
+     },
+     "memo": {
+      "type": "integer",
+      "description": "With a memo row: the memo's id."
+     }
+    },
+    "required": [
+     "at",
+     "by",
+     "field",
+     "was",
+     "now"
     ]
    }
   },

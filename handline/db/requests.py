@@ -157,14 +157,13 @@ def stored_state(con, rid: int, intent: str) -> str:
 # States a request can leave 'queued' for without ever having reached its
 # target: denied by routing, withdrawn by its own requester, or superseded by
 # a replacement. None of the three is evidence of a real exchange, so a cycle
-# or ping-pong check counting them would refuse a conversation that, from the
+# check counting them would refuse a conversation that, from the
 # target's side, never happened.
 NEVER_REACHED_TARGET = ("denied", "withdrawn", "replaced")
 
 
 def chain_members(con, chain_id: str) -> list:
-    # An answer is a message in the chain, never an ask in it: the cycle guard and the
-    # ping-pong check count asks.
+    # An answer is a message in the chain, never an ask in it: the cycle guard counts asks.
     clauses = [f"state NOT IN ({','.join('?' * len(NEVER_REACHED_TARGET))})", "settles IS NULL"]
     params: list = [chain_id, *NEVER_REACHED_TARGET]
     return con.execute(

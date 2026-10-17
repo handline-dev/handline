@@ -1010,7 +1010,7 @@ export type SettingsValues = {
   bg_grace_s?: number;
   /** How often an agent with background work is asked which to stop. Per agent. */
   bg_check_s?: number;
-  /** Seconds after the first waiting result before the agent is woken once with a digest. Per agent. */
+  /** Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. */
   notice_digest_s?: number;
   /** Backstop for a stop-wait. */
   stop_wait_backstop_s?: number;
@@ -1042,7 +1042,7 @@ export type SettingsChanges = {
   bg_grace_s?: number | null;
   /** How often an agent with background work is asked which to stop. Per agent. null removes the key (back to the default). */
   bg_check_s?: number | null;
-  /** Seconds after the first waiting result before the agent is woken once with a digest. Per agent. null removes the key (back to the default). */
+  /** Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. null removes the key (back to the default). */
   notice_digest_s?: number | null;
   /** Backstop for a stop-wait. null removes the key (back to the default). */
   stop_wait_backstop_s?: number | null;
@@ -1382,6 +1382,23 @@ export type ImagePart = {
   path?: string;
 };
 
+/** One change to a task: who changed which field from what to what, and when. A field's change is one row; an edit of several fields is several rows with the same at. */
+export type HistoryRow = {
+  at: Timestamp;
+  /** Who made the change: an agent, or human. */
+  by: string;
+  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. */
+  field: "title" | "assignee" | "owner" | "body" | "priority" | "timeout" | "state" | "blocked_by" | "merged_into" | "memo";
+  /** The value before; empty when there was none (a task just opened, a wait just added, a memo just added). */
+  was: string;
+  /** The value after; empty when it is gone (a wait removed, a memo deleted). */
+  now: string;
+  /** With a state row: the done evidence, the report, or the reason or note given. Absent when none was. */
+  note?: string;
+  /** With a memo row: the memo's id. */
+  memo?: number;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -1688,7 +1705,7 @@ export interface Methods {
     title: string;
     time_box?: Duration;
   };
-  /** The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is the new message. */
+  /** The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found. The message goes to agent whoever the parent's requester or target is, so a row relayed from another agent can be quoted in this agent's chat. request in the result is the new message. */
   parent?: number;
   /** Images from attachment.put to send with this message, drawn after those the body names (x-attachments, flow); an id the body names too counts once, and the two together are at most 6 (bad_request, field attachments when the list goes over). Then body may be empty. An id may be sent again. A malformed id or an unfinished upload is bad_request, field attachments; an image never put or no longer kept is not_found, what attachment. Not with task (bad_request): a brief names its images in its text. */
   attachments?: AttachmentId[];
@@ -2002,6 +2019,12 @@ export interface Methods {
   "task.get": { params: {
   task: number;
 }; result: TaskDetail };
+  "task.history": { params: {
+  task: number;
+}; result: {
+    task: number;
+    rows: HistoryRow[];
+  } };
   "task.shot": { params: {
   task: number;
   /** The screenshot's number in the task's result, from 1. */
@@ -2050,7 +2073,7 @@ export interface Methods {
   task: number;
   to: string;
   /** Markdown. It may name images (x-attachments, texts); they are the task's while it is open. */
-  note: string;
+  note?: string;
   request_id: RequestId;
 }; result: Accepted };
   "task.done": { params: {
@@ -2159,7 +2182,7 @@ export interface Methods {
   "task.release": { params: {
   task: number;
   to?: "queued" | "draft";
-  reason: string;
+  reason?: string;
   request_id: RequestId;
 }; result: Accepted };
   "task.discard": { params: {
@@ -2565,6 +2588,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },
   "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.get": { role: "agent", callers: null, write: false, since: 1 },
+  "task.history": { role: "agent", callers: null, write: false, since: 1 },
   "task.shot": { role: "member", callers: null, write: false, since: 1 },
   "task.new": { role: "agent", callers: null, write: true, since: 1 },
   "task.handoff": { role: "agent", callers: null, write: true, since: 1 },

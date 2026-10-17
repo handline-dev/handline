@@ -3,6 +3,7 @@ package taskwrites
 import (
 	"database/sql"
 
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/paths"
 )
 
@@ -21,7 +22,7 @@ func tellTask(tx *sql.Tx, home, by, text string, to ...string) ([]told, error) {
 			continue
 		}
 		seen[who] = true
-		rid, err := addSay(tx, noticeFrom, who, text, true)
+		rid, err := addSay(tx, noticeFrom, who, text, delivery.ClassOf(delivery.TaskChange, false, false) == delivery.ClassBatch)
 		if err != nil {
 			return nil, err
 		}

@@ -1,5 +1,7 @@
 // Small pieces the Tasks list and the task detail share: the state chip, the clock, the width query and the inline reason sheet.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { isPerson } from '@handline/app-core';
+import { useStore } from '@handline/app-react';
 import { useServes } from '@handline/app-data';
 import { STATE_GLYPH as GLYPHS, toneOf, type Tone } from '@handline/app-ui';
 import { Icon, type IconName } from './Icon.tsx';
@@ -12,7 +14,9 @@ const TONE: Record<Tone, string> = { run: 'run text-working', wait: 'wait text-w
 const CHIP = 'inline-flex items-center gap-0.5 align-middle text-ink-2 [&>svg]:shrink-0';
 
 /** A state is a shape of its own (the glyph), then a tooltip, then colour; the word stays for a screen reader. `mark` says what the write in flight is: hollow dot, or the decided "…". */
-export function StateChip({ state, mark, word }: { state: string; mark?: 'authored' | 'decided' | null; word?: boolean }) {
+export function StateChip({ state, mark, word, to }: { state: string; mark?: 'authored' | 'decided' | null; word?: boolean; to?: string }) {
+  const me = useStore().me;
+  const foryou = state === 'doing' && !!to && isPerson(to, me); // the task is the person's to do: the agent is not working on it
   if (mark === 'decided')
     return (
       <span className={`tchip pending ${CHIP}`} title="waiting for the daemon">
@@ -20,16 +24,16 @@ export function StateChip({ state, mark, word }: { state: string; mark?: 'author
       </span>
     );
   return (
-    <span className={`tchip ${TONE[toneOf(state)]} data-[state=done]:text-ok ${CHIP}`} data-state={state} title={state}>
+    <span className={`tchip ${TONE[foryou ? 'wait' : toneOf(state)]} data-[state=done]:text-ok ${CHIP}`} data-state={state} title={foryou ? 'waiting for you' : state}>
       {mark === 'authored' ? <Icon name="unsaved" size={12} aria-hidden /> : null}
       <Icon
-        name={STATE_GLYPH[state] ?? 'taskPending'}
-        label={state}
+        name={foryou ? 'taskPending' : (STATE_GLYPH[state] ?? 'taskPending')}
+        label={foryou ? 'waiting for you' : state}
         size={16}
         aria-hidden="true"
-        className={state === 'doing' ? 'animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none' : undefined}
+        className={state === 'doing' && !foryou ? 'animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none' : undefined}
       />
-      {word ? <span className="ml-0.5">{state}</span> : <VisuallyHidden>{state}</VisuallyHidden>}
+      {word ? <span className="ml-0.5">{foryou ? 'waiting for you' : state}</span> : <VisuallyHidden>{foryou ? 'waiting for you' : state}</VisuallyHidden>}
     </span>
   );
 }
