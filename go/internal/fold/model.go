@@ -2,7 +2,6 @@ package fold
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"os/exec"
@@ -297,19 +296,6 @@ func (e *Env) accountReasons() string {
 	return strings.Join(out, ", ")
 }
 
-// inTx writes the cursor and the fold event as one: a fold that moved one without the other would repeat or lose events.
-func inTx(d *sql.DB, fn func(q db.Q) error) error {
-	tx, err := d.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := fn(tx); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
 func (e *Env) publish(path, text, message string) {
 	if err := atomicfile.Write(path, text); err == nil {
 		e.commit(path, message)
@@ -404,7 +390,7 @@ func (e *Env) Fold(agent string) (bool, string) {
 	merged.Facts, merged.Date, merged.Agent = machine, day, agent
 	merged.Updated, merged.FoldedThrough = time.Now().Format("15:04"), int(top)
 	e.publish(jpath, merged.Render(), fmt.Sprintf("fold %s %s", agent, day))
-	err = inTx(e.DB, func(q db.Q) error {
+	err = e.InTx(func(q db.Q) error {
 		if err := db.SetCursor(q, cursorName, top); err != nil {
 			return err
 		}

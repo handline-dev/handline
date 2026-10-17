@@ -3,7 +3,6 @@
 package fold
 
 import (
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/atomicfile"
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/gitrun"
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/paths"
@@ -23,8 +23,10 @@ const Timeout = 180 * time.Second
 
 // Env is what the two need; Fold also needs DB, Usage and Accounts.
 type Env struct {
-	Home     string
-	DB       *sql.DB
+	Home string
+	DB   db.Q
+	// InTx runs fn in one transaction: the cursor and the fold event are one write.
+	InTx     func(fn func(q db.Q) error) error
 	Usage    *usage.Env
 	Accounts team.Accounts
 	Timeout  time.Duration // zero is Timeout
