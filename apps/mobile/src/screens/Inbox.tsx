@@ -84,7 +84,7 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
             </Text>
           ) : null}
           {i.prompt && i.agent && !i.answered ? (
-            <PromptCard agent={i.agent} prompt={i.prompt} onStale={() => {}} />
+            <PromptCard agent={i.agent} prompt={i.prompt} />
           ) : i.prompt ? (
             <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: 11 }}>{i.prompt.command ?? i.prompt.lines.join('\n')}</Text>
           ) : null}

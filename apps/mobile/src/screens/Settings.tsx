@@ -258,7 +258,7 @@ function Devices(props: { onUnpair: () => void }) {
   );
 }
 
-/** The gear in the Agents header opens this: the founder's defaults, then the devices. */
+/** The Agents header's menu opens this: the founder's defaults, then the devices. */
 export function SettingsPage(props: { onClose: () => void; onUnpair: () => void }) {
   const c = usePalette();
   const founder = useSelector((st) => st.client.hello?.role) === 'founder'; // the settings and standing answers are the founder's alone

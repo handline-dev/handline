@@ -1,6 +1,6 @@
-// The phone's Stats tab (docs/pc-app-gaps.md G10): the window's four counts and how long each agent worked from stats.get, then the usage
+// The Stats section of the Usage tab (docs/pc-app-gaps.md G10): the window's four counts and how long each agent worked from stats.get, then the usage
 // outlook (stats.outlook): the week left as recorded and guessed bars with each account's runway, or the cost per day, with ranges 12 h to 30 d.
-// Home settings are one tap away on the same tab. Every number is text too; a bar is never the only way to read it.
+// Every number is text too; a bar is never the only way to read it.
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { agentTime, span } from '@handline/app-core';

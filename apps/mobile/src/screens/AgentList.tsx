@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SectionList, Pressable, Text, View } from 'react-native';
+import type { AgentView as Agent } from '@handline/client';
 import { useAgents, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { rowHeight, space } from '@handline/tokens';
@@ -19,10 +20,12 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
   const { served } = useServes('agents.list');
   // Who needs the person comes first; the daemon's order otherwise.
   const agents = query.data?.agents ?? [];
+  // An older daemon sets has_dialog without needs_you.
+  const asks = (a: Agent) => !!a.needs_you || a.has_dialog;
   const groups = [
-    { title: 'Needs you', data: agents.filter((a) => a.needs_you) },
-    { title: 'Working', data: agents.filter((a) => !a.needs_you && a.state === 'working') },
-    { title: 'Idle', data: agents.filter((a) => !a.needs_you && a.state !== 'working') },
+    { title: 'Needs you', data: agents.filter(asks) },
+    { title: 'Working', data: agents.filter((a) => !asks(a) && a.state === 'working') },
+    { title: 'Idle', data: agents.filter((a) => !asks(a) && a.state !== 'working') },
   ].filter((g) => g.data.length > 0);
   const founder = store.client.hello?.role === 'founder';
   const create = useServes('agent.create').served;
@@ -67,7 +70,7 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
           renderItem={({ item: a }) => {
             const need = a.needs_you ? a.needs_you.text ?? KIND[a.needs_you.kind] : '';
             const doing = need || a.task?.title || a.state_detail || '';
-            const word = a.needs_you ? 'asks' : a.block ? a.block.kind : a.state;
+            const word = asks(a) ? 'asks' : a.block ? a.block.kind : a.state;
             const age = a.needs_you ? a.needs_you.since : a.state_since;
             return (
               <Pressable

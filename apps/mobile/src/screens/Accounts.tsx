@@ -1,4 +1,4 @@
-// The Accounts tab (docs/pc-app-gaps.md G9): one line per account with its gauges, state and agents; one account with its alias and cap to
+// The accounts on the Usage tab (docs/pc-app-gaps.md G9): one line per account with its gauges, state and agents; one account with its alias and cap to
 // edit (authored: shown at once, put back with the daemon's reason on a refusal) and, for the founder, Remove with a dry run and the name
 // typed to confirm (decided: nothing changes until the daemon accepts).
 import { useEffect, useState, type ReactNode } from 'react';
