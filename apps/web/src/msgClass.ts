@@ -32,7 +32,7 @@ export const bubbleClass = (side: keyof typeof SIDE, s: BubbleState = {}): strin
     .filter(Boolean)
     .join(' ');
 
-export const MSG_BODY = 'msg-body whitespace-pre-wrap group-data-[landing=withdrawn]:line-through';
+export const MSG_BODY = 'msg-body group-data-[landing=withdrawn]:line-through';
 export const MSG_META = 'msg-meta mt-0.5 text-[12px] [&_svg]:align-middle';
 export const MSG_FAILED = `${MSG_META} failed-line text-bad`;
 export const MSG_FROM = 'msg-from mb-0.5 text-[12px]';
