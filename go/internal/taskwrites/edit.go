@@ -132,9 +132,6 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 	var bodyRID int64
 	if body != nil {
 		text := strings.TrimSpace(textsafe.Text(*body))
-		if text == "" {
-			return "a task needs a body: the work itself, what done looks like", "", nil
-		}
 		var rid int64
 		var requester, old string
 		err := tx.QueryRow("SELECT r.id, r.requester, COALESCE(r.body, '') FROM task_requests l JOIN requests r ON r.id = l.request_id "+

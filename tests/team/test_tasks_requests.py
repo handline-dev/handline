@@ -785,6 +785,16 @@ def test_a_landed_task_can_be_handed_on_discarded_and_reopened(home: Path) -> No
             check("reopen: a done task is reopened", ok, msg)
             check("reopen: its old delivery is not held again", r4 not in [r["id"] for r in db.queued_for(con, "reviewer")],
                   str([r["id"] for r in db.queued_for(con, "reviewer")]))
+            ok, msg = actions.reopen_task(con, t4, "product", "")
+            check("reopen: a task not done again has nothing to reopen", not ok, msg)
+            db.mark_task_done(con, t4, "done again")
+            ok, msg = actions.reopen_task(con, t4, "product", "")
+            check("reopen: no reason is needed", ok, msg)
+            ok, _, _t = actions.task_new("product", "reviewer", "no brief", "")
+            check("new: a task needs no body", ok)
+            ok, _, t7 = actions.task_new("product", "reviewer", "to hand without a note", "to hand without a note")
+            ok, msg = actions.task_handoff(con, "reviewer", t7, "backend", "")
+            check("handoff: no note is needed", ok, msg)
             ok, _, t5 = actions.task_new("product", "reviewer", "to move", "to move")
             r5 = db.task_requests(con, t5)[0]["id"]
             db.mark_delivered(con, r5)

@@ -152,6 +152,16 @@ func TestTheImagesFollowTheBodyAfterTheCut(t *testing.T) {
 	if got := tellText(r.DB, head, 1, nil, false, nil, ""); strings.Contains(got, "[image") {
 		t.Fatalf("%q", got)
 	}
+	tid, err := db.NewTask(r.DB, "write the docs", "bob", "alice", 0, db.DefaultPriority, "", 0, "")
+	r.must(err)
+	bare := r.ask("alice", "bob", "", "task")
+	r.must(db.LinkRequest(r.DB, tid, bare))
+	if got := tellText(r.DB, mustReq(r, bare), 1, nil, false, nil, ""); strings.Contains(got, "(empty)") || !strings.Contains(got, "Title: write the docs") {
+		t.Fatalf("a task with no body shows its title: %q", got)
+	}
+	if got := batchText(r.DB, []*db.Request{mustReq(r, bare)}, nil, nil); strings.Contains(got, "(empty)") || !strings.Contains(got, "Title: write the docs") {
+		t.Fatalf("%q", got)
+	}
 	empty := mustReq(r, r.ask("alice", "bob", "", "say"))
 	if got := tellText(r.DB, empty, 1, nil, false, nil, lines); strings.Contains(got, "(empty)") || !strings.Contains(got, "waiting for you:\n"+lines) {
 		t.Fatalf("%q", got)
