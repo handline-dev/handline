@@ -1,6 +1,5 @@
-// Capture a window of this machine and send it (docs/story1-research.md, 1-1): one near full-window surface that lists the windows, then marks the
-// picked one up (Annotate.tsx), with one bottom bar: where it goes (a comment on the open task, else a new task), the message, Send. The marked
-// numbers' words go into the message as 1. 2. lines. Only in the desktop shell, which owns the capture.
+// Capture a window of this machine (desktop shell only): lists the windows, marks the picked one up (Annotate.tsx), and sends it from one bottom bar
+// (a comment on the open task, else a new task). The numbers' words go into the message as 1. 2. lines.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { titleFromNote, withImages } from '@handline/app-core';
 import { classify, sentence, useAgents, useTasks, useUploadImage, useWrite } from '@handline/app-data';

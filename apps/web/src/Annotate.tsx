@@ -1,7 +1,5 @@
-// The annotation editor of the capture dialog: the picture as large as the room allows with an SVG over it to draw on. Arrow is the tool it opens with,
-// then Rectangle, Pen, Text and Number (keys A R P T N); a Number is a numbered ring with its words typed at the spot. The tools are icons with tooltips,
-// the colour one chip. The shapes are app-core's (image pixels, shared with the phone); each change exports the marked picture as a PNG and the
-// numbers' words through `onChange`.
+// The annotation editor of the capture dialog: the picture with an SVG over it to draw on. Tools: Arrow (default), Rectangle, Pen, Text and Number
+// (keys A R P T N); a Number is a numbered ring with its words typed at the spot. Each change exports the marked PNG and the numbers' words via `onChange`.
 import { useEffect, useReducer, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import {
   ANNOTATION_COLORS,
