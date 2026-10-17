@@ -1,91 +1,83 @@
-// The graph page: tasks as boxes, an arrow from the task that holds to the task that waits (the layout is app-core's `taskGraph`).
-// Drag to pan, wheel or the buttons to zoom, click a box to open the task.
-import { useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
-import { clip, edgePath, taskGraph, taskRef } from '@handline/app-core';
-import { useStore } from '@handline/app-react';
-import { useTasks } from '@handline/app-data';
-import { toneOf } from '@handline/app-ui';
+// The graph view of the Tasks page: boxes in bands, Done on top, Running in the middle, Queued below, "unblocks" between them (the layout is
+// app-core's `graphBands`). A box slides to its new band when its task changes state; a click opens the task.
+import { Fragment, useState } from 'react';
+import { LayoutGroup, motion, useReducedMotion } from 'framer-motion';
+import { graphBands, taskRef } from '@handline/app-core';
+import type { Task } from '@handline/client';
 import { goTasks } from './route.ts';
 import { Button } from './ui/index.ts';
 
-const TONE_CLASS = { run: 'text-working', wait: 'text-wait', block: 'text-bad', idle: 'text-ink-2' } as const;
+/** How many boxes a band shows before "+N more". */
+const SHOWN = 7;
+const BOX =
+  'cursor-pointer truncate rounded-ctl border border-line bg-panel px-2.5 py-1.5 text-left text-body text-ink max-w-[22rem] data-[band=done]:text-ink-3 data-[band=running]:border-working';
 
-export function TaskGraphPage() {
-  const me = useStore().me;
-  const q = useTasks({});
-  const g = useMemo(() => taskGraph(q.data?.items ?? [], { me }), [q.data, me]);
-  const [view, setView] = useState({ x: 0, y: 0, k: 1 });
-  const drag = useRef<{ x: number; y: number } | null>(null);
-  const zoom = (f: number) => setView((v) => ({ ...v, k: Math.min(3, Math.max(0.3, v.k * f)) }));
-  const down = (e: PointerEvent) => {
-    drag.current = { x: e.clientX - view.x, y: e.clientY - view.y };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
-  const move = (e: PointerEvent) => {
-    const d = drag.current;
-    if (d) setView((v) => ({ ...v, x: e.clientX - d.x, y: e.clientY - d.y }));
-  };
-  const wheel = (e: WheelEvent) => zoom(e.deltaY < 0 ? 1.1 : 1 / 1.1);
+export function TaskBands({ tasks, now, recent }: { tasks: Task[]; now: number; recent: boolean }) {
+  const reduced = useReducedMotion();
+  const [zoom, setZoom] = useState(1);
+  const [wide, setWide] = useState<ReadonlySet<string>>(new Set());
+  const bands = graphBands(tasks, now, recent);
+  const nudge = (f: number) => setZoom((k) => Math.min(2, Math.max(0.5, k * f)));
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Task graph">
-      <header className="flex items-center gap-2 border-b border-line p-2">
-        <Button icon="back" label="Tasks" onClick={() => goTasks()} />
-        <strong className="mr-auto">Graph</strong>
-        <Button label="−" title="Zoom out" onClick={() => zoom(1 / 1.25)} />
-        <Button label="+" title="Zoom in" onClick={() => zoom(1.25)} />
-        <Button label="Reset" onClick={() => setView({ x: 0, y: 0, k: 1 })} />
-      </header>
-      {g.nodes.length === 0 ? (
-        <p className="p-4 text-ink-3">No open tasks.</p>
-      ) : (
-        <svg
-          className="min-h-0 flex-1 cursor-grab touch-none select-none"
-          data-testid="task-graph"
-          onPointerDown={down}
-          onPointerMove={move}
-          onPointerUp={() => (drag.current = null)}
-          onWheel={wheel}
-        >
-          <defs>
-            <marker id="tg-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
-              <path d="M0 0 L10 5 L0 10 z" fill="currentColor" />
-            </marker>
-          </defs>
-          <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`} className="text-ink-3">
-            {g.edges.map((e) => (
-              <g key={`${e.from}-${e.to}`} data-edge={`${e.from}-${e.to}`}>
-                <path d={edgePath(e)} fill="none" stroke="currentColor" markerEnd="url(#tg-arrow)" />
-                <text
-                  x={e.points[Math.floor(e.points.length / 2)]!.x + 6}
-                  y={e.points[Math.floor(e.points.length / 2)]!.y}
-                  fontSize="10"
-                  fill="currentColor"
-                >
-                  {e.label}
-                </text>
-              </g>
-            ))}
-            {g.nodes.map((n) => (
-              <g
-                key={n.id}
-                data-node={n.id}
-                data-state={n.state}
-                className={`cursor-pointer ${TONE_CLASS[toneOf(n.state)]}`}
-                transform={`translate(${n.x} ${n.y})`}
-                onClick={() => goTasks(n.id)}
-              >
-                <rect width={n.w} height={n.h} rx="6" fill="var(--bg-2)" stroke="currentColor" strokeWidth={n.mine ? 2 : 1} />
-                <text x="8" y="17" fontSize="12" fill="var(--ink)">
-                  {taskRef(n.id)} · {n.state}
-                </text>
-                <text x="8" y="33" fontSize="11" fill="var(--ink-2)">
-                  {clip(n.reason ?? n.title, 26)}
-                </text>
-              </g>
-            ))}
-          </g>
-        </svg>
-      )}
+      <div className="min-h-0 flex-1 overflow-auto" data-testid="task-graph">
+        <div style={{ zoom }}>
+          <LayoutGroup>
+            {bands.map((b, i) => {
+              const open = wide.has(b.key);
+              const list = open ? b.tasks : b.tasks.slice(0, SHOWN);
+              return (
+                <Fragment key={b.key}>
+                  <div className="px-3 py-3 data-[band=running]:bg-raised" data-band={b.key}>
+                    <h2 className="m-0 mb-2 text-label font-semibold data-[band=running]:text-working">
+                      {b.label} <span className="font-normal text-ink-3">{b.tasks.length}</span>
+                      {b.key === 'done' && recent ? <span className="font-normal text-ink-3"> · last 24 h</span> : null}
+                    </h2>
+                    <div className="flex flex-wrap gap-2">
+                      {list.map((t) => {
+                        const label = `${taskRef(t.id)} ${t.title}`;
+                        const props = {
+                          'data-node': t.id,
+                          'data-state': t.state,
+                          'data-band': b.key,
+                          className: BOX,
+                          title: `${label} · ${t.to}`,
+                          onClick: () => goTasks(t.id),
+                        };
+                        return reduced ? (
+                          <button key={t.id} type="button" {...props}>
+                            {label}
+                          </button>
+                        ) : (
+                          <motion.button key={t.id} type="button" layout layoutId={`task-${t.id}`} {...props}>
+                            {label}
+                          </motion.button>
+                        );
+                      })}
+                      {b.tasks.length > list.length ? (
+                        <Button label={`Show ${b.tasks.length - list.length} more`} onClick={() => setWide(new Set([...wide, b.key]))}>
+                          +{b.tasks.length - list.length} more
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                  {i < bands.length - 1 ? <div className="py-1 text-center text-hint text-ink-3">↓ unblocks</div> : null}
+                </Fragment>
+              );
+            })}
+          </LayoutGroup>
+        </div>
+      </div>
+      <footer className="flex items-center gap-2 px-3 py-2 text-hint text-ink-3">
+        <span className="mr-auto">A box slides to the next band when its task changes state.</span>
+        <Button label="Zoom out" onClick={() => nudge(1 / 1.25)}>
+          −
+        </Button>
+        <Button label="Zoom in" onClick={() => nudge(1.25)}>
+          +
+        </Button>
+        <Button label="Fit" onClick={() => setZoom(1)} />
+      </footer>
     </section>
   );
 }

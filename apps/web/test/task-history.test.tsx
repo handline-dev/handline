@@ -31,6 +31,10 @@ async function mount() {
   await act(async () => {
     root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />);
   });
+  await until(() => box.querySelector('.tverbs'), 'the actions');
+  expect(box.querySelector('.thistory')).toBeNull(); // folded away until asked for
+  await click([...box.querySelectorAll<HTMLElement>('.tverbs button')].find((b) => b.textContent!.startsWith('More'))!);
+  await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => i.textContent === 'Show history')!);
   await until(() => box.querySelector('.thistory'), 'the history');
   return s;
 }

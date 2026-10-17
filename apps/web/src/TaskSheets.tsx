@@ -16,7 +16,6 @@ export const LIST_KEYS: [string, string][] = [
   ['s / S', 'sort by the next column / reverse'],
   ['a', 'switch between Open and Closed tasks'],
   ['v', 'open the filters: agent and states'],
-  ['t', 'switch between the list and the tree'],
   ['f', "show the next agent's tasks"],
   ['n', 'new task'],
   ['j k Up Down', 'move the cursor'],
