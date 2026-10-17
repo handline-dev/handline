@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -317,6 +318,26 @@ func TestAColdResumeOntoAFullAccountMovesToTheSlowestPacedOne(t *testing.T) {
 	}
 	if _, p, held, _ := db.LastEvent(m.Q, "a", "wake_reserved"); !held || p["account"] != "slow" {
 		t.Fatalf("and holds the slot it moved to: %v %v", held, p)
+	}
+}
+
+func TestAColdWakeIsHandedWhatWokeItAsItsFirstPrompt(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1") // no activity on record: its cache is cold
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if len(tm.relaunched) != 1 || strings.Contains(tm.relaunched[0], "--resume") {
+		t.Fatalf("one fresh launch: %q", tm.relaunched)
+	}
+	text, _ := os.ReadFile(filepath.Join(m.Home, "wake", "a.txt"))
+	if !strings.HasSuffix(string(text), "\n\nHere is your request.") {
+		t.Fatalf("not left for a first turn spent on the handoff: %q", text)
+	}
+	if len(d.told) != 1 || d.told[0] != "" {
+		t.Fatalf("told once, to the new session: %q", d.told)
 	}
 }
 

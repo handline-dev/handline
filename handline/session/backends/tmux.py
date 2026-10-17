@@ -21,10 +21,9 @@ import subprocess
 import time
 from pathlib import Path
 
-from ...infra import ansi, names, textsafe
+from ...infra import ansi, names, paths, textsafe
 from .base import Backend, not_a_repo_root
 
-SOCKET = "ocp"
 SESSION = "ocp"
 # A detached session has no client to size it, and a TUI drawn at 80x24 hides what the screen readers look for.
 SESSION_SIZE = ("-x", "200", "-y", "50")
@@ -47,7 +46,7 @@ _NO_SERVER = ("no server running", "no sessions", "can't find session",
 
 
 def _socket() -> str:
-    return names.getenv("OCP_TMUX_SOCKET") or SOCKET
+    return paths.tmux_socket(paths.home())
 
 
 def _tmux(args: list[str], timeout: int = TMUX_TIMEOUT_S, stdin: str | None = None) -> tuple[int, str, str]:
@@ -104,7 +103,9 @@ class TmuxBackend(Backend):
                         title: str | None = None) -> tuple[str | None, str]:
         place = ["-c", cwd] if cwd else []
         home = names.getenv("OCP_HOME")
-        env = ["-e", f"OCP_HOME={home}", "-e", f"HANDLINE_HOME={home}"] if home else []
+        sock = _socket()
+        env = ["-e", f"OCP_HOME={home}", "-e", f"HANDLINE_HOME={home}",
+               "-e", f"OCP_TMUX_SOCKET={sock}", "-e", f"HANDLINE_TMUX_SOCKET={sock}"] if home else []
         name = ["-n", re.sub(r"[.:]", "_", title)] if title else []
         fmt = ["-P", "-F", "#{pane_id}"]
         if self._server_up():
