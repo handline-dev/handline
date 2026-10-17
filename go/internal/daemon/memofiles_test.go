@@ -23,7 +23,7 @@ func TestAMemoCarriesAnImageAndAMarkdownFileThroughTaskGet(t *testing.T) {
 	os.WriteFile(md, []byte("# Plan\n\nthree steps\n"), 0o644)
 	f := pipeTo(t, d, "k")
 	files, _ := json.Marshal([]string{png, md})
-	result(t, f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.memo.add","params":{"task":1,"text":"the proposal","files":`+string(files)+`,"request_id":"m1"}}`))
+	result(t, f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.memo.add","params":{"task":1,"text":"@bob the proposal","files":`+string(files)+`,"request_id":"m1"}}`))
 
 	task := result(t, f.ask(`{"jsonrpc":"2.0","id":3,"method":"task.get","params":{"task":1}}`))
 	memo := task["memos"].([]any)[0].(map[string]any)
@@ -54,7 +54,7 @@ func TestAMemoCarriesAnImageAndAMarkdownFileThroughTaskGet(t *testing.T) {
 	if len(kept) != 1 {
 		t.Fatalf("%v", kept)
 	}
-	// the holder is told the memo with a line per file it can read
+	// a memo naming the holder is typed at once, with a line per file it can read
 	if said := agents.said("bob"); !strings.Contains(said, "the proposal") || !strings.Contains(said, "[file 2: "+kept[0]+" (text/markdown, 20 B)]") {
 		t.Fatalf("%q", said)
 	}
