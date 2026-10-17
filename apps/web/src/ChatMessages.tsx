@@ -9,6 +9,7 @@ import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { Pictures } from './ChatAttach.tsx';
+import { Markdown } from './Markdown.tsx';
 import { RichText } from './RichText.tsx';
 import { useWorkspace } from './Workspace.tsx';
 
@@ -156,7 +157,7 @@ export function Message(props: {
         ) : null}
         {m.body ? (
           <div className={MSG_BODY}>
-            <RichText text={m.body} agent={agent} onRef={props.onRef} />
+            <Markdown text={m.body} agent={agent} onRef={props.onRef} />
           </div>
         ) : null}
         {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
