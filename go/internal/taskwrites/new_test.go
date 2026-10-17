@@ -24,7 +24,6 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	r := call(t, mk("manager", f),
 		line(2, base+`"priority":"p1","expects":"sha","parent":1,"blocked_by":2,`, "n1"),
 		line(3, base+`"priority":"p1","expects":"sha","parent":1,"blocked_by":2,`, "n1"),
-		line(4, `"owner":"worker","title":"t","time_box":"2h",`, "n2"),
 		line(5, `"owner":"worker","title":"t","body":"b","time_box":"soon",`, "n3"),
 		line(6, `"owner":"worker","title":"t","body":"b","time_box":"9h",`, "n4"),
 		line(7, `"owner":"nobody","title":"t","body":"b","time_box":"1h",`, "n5"),
@@ -38,10 +37,10 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	if r[1]["result"].(map[string]any)["replayed"] != true || count(t, db, "SELECT COUNT(*) FROM tasks WHERE opened_by = 'manager' AND title LIKE 'build%'") != 1 {
 		t.Fatalf("a retry replays and opens nothing twice: %v", r[1])
 	}
-	wants := []string{"refused", "bad_request", "bad_request", "not_found", "refused", "not_found", "bad_request"}
+	wants := []string{"bad_request", "bad_request", "not_found", "refused", "not_found", "bad_request"}
 	for i, w := range wants {
 		if got := code(r[2+i]); got != w {
-			t.Errorf("call %d: %v, want %s: %v", 4+i, got, w, r[2+i])
+			t.Errorf("call %d: %v, want %s: %v", 5+i, got, w, r[2+i])
 		}
 	}
 	for q, want := range map[string]int{
@@ -78,6 +77,10 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	r = call(t, mk("manager", &fakeTeller{}), line(2, `"owner":"worker","title":"no box","body":"b",`, "t1"))
 	if r[0]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM tasks WHERE title = 'no box' AND timeout_s IS NULL") != 1 {
 		t.Fatalf("a task needs no time box: its clock takes the default when it starts: %v", r[0])
+	}
+	r = call(t, mk("manager", &fakeTeller{}), line(2, `"owner":"worker","title":"no brief",`, "t2"), line(3, `"owner":"worker","title":"blank brief","body":"  ",`, "t3"))
+	if r[0]["error"] != nil || r[1]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM tasks WHERE title IN ('no brief', 'blank brief')") != 2 {
+		t.Fatalf("a task needs no body: %v %v", r[0], r[1])
 	}
 }
 

@@ -1,41 +1,31 @@
 package lifecycle
 
 import (
-	"github.com/handline/handline/go/internal/term"
 	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
+	"github.com/handline/handline/go/internal/term"
 )
 
-// screenTerm is a terminal showing the vendor's startup screens, recording what is pressed.
+// screenTerm is a terminal showing the vendor's startup screens. It has no way to press anything: nothing on these screens is answered.
 type screenTerm struct {
 	fakeTerm
-	trust       bool
-	folder      string
-	standsAfter bool // a press leaves the screen standing
-	presses     []string
-	blocker     *term.Blocker // another screen a launch stops at
+	trust   bool
+	folder  string
+	blocker *term.Blocker // another screen a launch stops at
 }
 
 func (s *screenTerm) ScreenBlocker(string) *term.Blocker { return s.blocker }
 func (s *screenTerm) TrustPromptShowing(string) bool     { return s.trust }
 func (s *screenTerm) TrustPromptFolder(string) string    { return s.folder }
-func (s *screenTerm) WaitForTrustPrompt(string, bool)    {}
-func (s *screenTerm) ConfirmTrust(string) (bool, string) {
-	s.presses = append(s.presses, "trust")
-	s.trust = s.standsAfter
-	return true, ""
-}
 
 type trustAgents struct {
 	fakeAgents
-	declared  bool
 	decisions []string
 }
 
-func (a *trustAgents) IsDeclared(string) bool   { return a.declared }
 func (a *trustAgents) VendorName(string) string { return "claude" }
 func (a *trustAgents) RaiseDecision(_ db.Q, _, text, _ string) error {
 	a.decisions = append(a.decisions, text)
@@ -43,24 +33,25 @@ func (a *trustAgents) RaiseDecision(_ db.Q, _, text, _ string) error {
 }
 
 type trustRig struct {
-	m  *Manager
-	tm *screenTerm
-	ag *trustAgents
+	m    *Manager
+	tm   *screenTerm
+	ag   *trustAgents
+	logs []string
 }
 
-// trustManager is an agent "a" with a recorded worktree dir, in front of a trust screen naming the same folder, with consent given.
+// trustManager is an agent "a" with a recorded worktree dir, in front of a trust screen naming the same folder.
 func trustManager(t *testing.T) *trustRig {
 	t.Helper()
 	m, _, _ := newManager(t)
 	dir := t.TempDir()
-	tm := &screenTerm{trust: true, folder: dir}
-	ag := &trustAgents{declared: true}
-	m.Term, m.Agents = tm, ag
+	r := &trustRig{m: m, tm: &screenTerm{trust: true, folder: dir}, ag: &trustAgents{}}
+	m.Term, m.Agents = r.tm, r.ag
+	m.Log = func(f string, a ...any) { r.logs = append(r.logs, f) }
 	m.Blocked = blockedWith{}
 	if err := db.SetTerminal(m.Q, "a", "t1", dir); err != nil {
 		t.Fatal(err)
 	}
-	return &trustRig{m, tm, ag}
+	return r
 }
 
 type blockedWith struct{}
@@ -69,40 +60,29 @@ func (blockedWith) NoteCloseFailure(db.Q, string)          {}
 func (blockedWith) PastDialog(db.Q, string) (bool, string) { return false, "" }
 func (blockedWith) StopWorkAndExit(db.Q, string) bool      { return false }
 
-func TestTrustIsPressedOnlyWithConsentFolderAndRecordedWorktreeAgreeing(t *testing.T) {
+func TestNothingShowingIsClear(t *testing.T) {
 	r := trustManager(t)
-	if ok, why := r.m.clearTrustPrompt("a", "t1", false); !ok || why != "clear" || len(r.tm.presses) != 1 || len(r.ag.decisions) != 0 {
-		t.Fatalf("%v %q %v %v", ok, why, r.tm.presses, r.ag.decisions)
-	}
-	cases := map[string]func(*trustRig){
-		"folder undeclared":   func(r *trustRig) { r.ag.declared = false },
-		"folder not recorded": func(r *trustRig) { r.tm.folder = t.TempDir() },
-		"folder unreadable":   func(r *trustRig) { r.tm.folder = "" },
-	}
-	for name, unset := range cases {
-		r := trustManager(t)
-		unset(r)
-		ok, why := r.m.clearTrustPrompt("a", "t1", false)
-		if ok || len(r.tm.presses) != 0 || len(r.ag.decisions) != 1 || !strings.Contains(why, TrustStall) {
-			t.Errorf("%s: %v %q presses=%v decisions=%v", name, ok, why, r.tm.presses, r.ag.decisions)
-		}
-		row, _ := db.GetAgentState(r.m.Q, "a")
-		if row.State != states.Stalled {
-			t.Errorf("%s: state %q", name, row.State)
-		}
-		// The same screen again raises nothing more.
-		if ok, _ := r.m.clearTrustPrompt("a", "t1", false); ok || len(r.ag.decisions) != 1 {
-			t.Errorf("%s: raised again: %v", name, r.ag.decisions)
-		}
+	r.tm.trust = false
+	if ok, why := r.m.startupScreens("a", "t1"); !ok || why != "clear" || len(r.ag.decisions) != 0 {
+		t.Fatalf("%v %q %v", ok, why, r.ag.decisions)
 	}
 }
 
-func TestAPressThatLeavesTheTrustScreenStandingRaisesTheDecision(t *testing.T) {
+// The launch marked the worktree trusted, so a trust screen is a fault: it is logged and raised once, and nothing is pressed.
+func TestATrustScreenAfterTheLaunchIsLoggedAndRaisedOnce(t *testing.T) {
 	r := trustManager(t)
-	r.tm.standsAfter = true
-	ok, why := r.m.clearTrustPrompt("a", "t1", false)
-	if ok || len(r.tm.presses) != 1 || len(r.ag.decisions) != 1 || !strings.Contains(why, TrustStall) {
-		t.Fatalf("%v %q %v %v", ok, why, r.tm.presses, r.ag.decisions)
+	ok, why := r.m.startupScreens("a", "t1")
+	if ok || len(r.ag.decisions) != 1 || !strings.Contains(why, TrustStall) {
+		t.Fatalf("%v %q %v", ok, why, r.ag.decisions)
+	}
+	if len(r.logs) == 0 || !strings.Contains(r.logs[0], "folder-trust dialog showed") {
+		t.Fatalf("logs %v", r.logs)
+	}
+	if row, _ := db.GetAgentState(r.m.Q, "a"); row.State != states.Stalled {
+		t.Fatalf("state %q", row.State)
+	}
+	if ok, _ := r.m.startupScreens("a", "t1"); ok || len(r.ag.decisions) != 1 {
+		t.Fatalf("raised again: %v", r.ag.decisions)
 	}
 }
 
@@ -111,8 +91,8 @@ func TestAStartupDialogNoTableRowAnswersIsLeftToThePerson(t *testing.T) {
 	r := trustManager(t)
 	r.tm.trust = false
 	r.tm.blocker = &term.Blocker{Kind: term.Modal, Title: "New MCP servers found"}
-	ok, why := r.m.clearTrustPrompt("a", "t1", true)
-	if ok || len(r.tm.presses) != 0 || len(r.ag.decisions) != 1 || !strings.Contains(why, DialogStall) {
-		t.Fatalf("%v %q presses=%v decisions=%v", ok, why, r.tm.presses, r.ag.decisions)
+	ok, why := r.m.startupScreens("a", "t1")
+	if ok || len(r.ag.decisions) != 1 || !strings.Contains(why, DialogStall) {
+		t.Fatalf("%v %q decisions=%v", ok, why, r.ag.decisions)
 	}
 }

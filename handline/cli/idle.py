@@ -116,8 +116,8 @@ def cmd_notice_digest(args) -> int:
         return 1
     seconds = (idle_close.notice_digest_s(args.agent) if args.agent
                else idle_close.config_seconds("notice_digest_s", idle_close.NOTICE_DIGEST_S))
-    print(f"{args.agent or 'default'}: results of work it opened are told in one digest "
-          f"{timefmt.ago(seconds)} after the first (sooner with any message); a failure, block or FATAL at once")
+    print(f"{args.agent or 'default'}: notices are told in one digest at its prompt, from {timefmt.ago(seconds)} "
+          "after the first and never mid-turn (sooner with any message); a failure, block or FATAL at once")
     return 0
 
 

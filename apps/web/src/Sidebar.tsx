@@ -105,16 +105,6 @@ export function Sidebar({
         <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="sidebar" label="Hide the agent list (⌘B)" onClick={onToggle} />
         <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="back" label="Back (⌘[)" onClick={() => history.back()} />
         <Button className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]" icon="forward" label="Forward (⌘])" onClick={() => history.forward()} />
-        {unread ? (
-          <button
-            className="bell ml-auto border-0 rounded-[9px] bg-wait px-1.5 text-label text-canvas shell:[-webkit-app-region:no-drag]"
-            title="Unread in the inbox"
-            aria-label={`${unread} unread in the inbox`}
-            onClick={goInbox}
-          >
-            {unread}
-          </button>
-        ) : null}
       </div>
       <div className="rail-nav flex flex-wrap gap-0.5 px-1.5">
         <button className={navOf(onPage === 'my-turn')} aria-current={onPage === 'my-turn' ? 'page' : undefined} onClick={() => void (location.hash = '#/my-turn')}>
@@ -308,7 +298,7 @@ function Row({
               {/* One line tall and wrapping: a chip that does not fit drops below the box whole, never cut off. */}
               <button
                 ref={main}
-                className="row-main flex h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden border-0 bg-transparent p-0 text-left"
+                className={`row-main flex h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden border-0 bg-transparent p-0 text-left${showControls ? ' pr-7' : ''}`}
                 onClick={() => goAgent(a.name)}
                 aria-current={selected ? 'true' : undefined}
                 title={tip}

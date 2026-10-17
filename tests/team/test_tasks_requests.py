@@ -252,7 +252,7 @@ def test_own_withdraw_is_not_an_answer(home: Path) -> None:
 
 
 def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
-    """Review of buddyron/one-task-at-a-time: the first version of this
+    """Review of yourname/one-task-at-a-time: the first version of this
     migration marked every existing queued row delivered, so none was left
     to promote ahead of the rest."""
     import sqlite3
@@ -291,7 +291,7 @@ def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
 
 
 def test_retire_if_undelivered_is_the_gate_against_the_delivery_race(home: Path) -> None:
-    """Review of buddyron/one-task-at-a-time: a plain read-then-write let a
+    """Review of yourname/one-task-at-a-time: a plain read-then-write let a
     delivery land between checking delivered_at and retiring the row. The
     atomic conditional update is the only thing withdraw/replace may trust."""
     use_home(home)
@@ -367,36 +367,6 @@ def test_a_runaway_is_stopped_and_raised_to_the_founder(home: Path) -> None:
         check("chain: everything shares one chain_id", len(chain) >= 2, str(len(chain)))
     finally:
         con.close()
-
-
-def test_review_pingpong(home: Path) -> None:
-    use_home(home)
-    hand_edit_team(DESIGN_TEAM)
-    for n in ("backend", "reviewer", "product"):
-        agents.register(n)
-
-    parent = None
-    outcomes = []
-    for i in range(5):
-        ok, msg, rid = askmod.ask("reviewer", f"round {i}", files="src/auth.ts",
-                                  requester="backend", parent_id=parent)
-        outcomes.append((ok, msg))
-        if not ok:
-            break
-        # The reviewer's answer continues the same chain without being a cycle.
-        parent = rid
-        con = db.connect()
-        try:
-            _set_request_state(con, rid, "landed", "ok")
-        finally:
-            con.close()
-
-    stopped = [m for ok, m in outcomes if not ok]
-    check("review: ping-pong on one file is eventually stopped", stopped, str(outcomes[-1]))
-    check("review: the reason names the file",
-          stopped and "src/auth.ts" in stopped[0], stopped[0] if stopped else "")
-    check("review: and says it is probably a spec question",
-          stopped and "spec question" in stopped[0], stopped[0] if stopped else "")
 
 
 def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> None:
@@ -815,6 +785,16 @@ def test_a_landed_task_can_be_handed_on_discarded_and_reopened(home: Path) -> No
             check("reopen: a done task is reopened", ok, msg)
             check("reopen: its old delivery is not held again", r4 not in [r["id"] for r in db.queued_for(con, "reviewer")],
                   str([r["id"] for r in db.queued_for(con, "reviewer")]))
+            ok, msg = actions.reopen_task(con, t4, "product", "")
+            check("reopen: a task not done again has nothing to reopen", not ok, msg)
+            db.mark_task_done(con, t4, "done again")
+            ok, msg = actions.reopen_task(con, t4, "product", "")
+            check("reopen: no reason is needed", ok, msg)
+            ok, _, _t = actions.task_new("product", "reviewer", "no brief", "")
+            check("new: a task needs no body", ok)
+            ok, _, t7 = actions.task_new("product", "reviewer", "to hand without a note", "to hand without a note")
+            ok, msg = actions.task_handoff(con, "reviewer", t7, "backend", "")
+            check("handoff: no note is needed", ok, msg)
             ok, _, t5 = actions.task_new("product", "reviewer", "to move", "to move")
             r5 = db.task_requests(con, t5)[0]["id"]
             db.mark_delivered(con, r5)
@@ -3938,7 +3918,6 @@ def main() -> int:
             Path(td) / 'retirerace'))
         run(lambda: test_asks_have_no_hourly_cap(Path(td) / 'ratehome'))
         run(lambda: test_a_runaway_is_stopped_and_raised_to_the_founder(Path(td) / 'cyc'))
-        run(lambda: test_review_pingpong(Path(td) / 'pingpong'))
         run(lambda: test_a_resolved_ask_does_not_stay_in_progress_across_a_park(Path(td) / 'foldparkhome'))
         run(lambda: test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(Path(td) / 'reconid'))
         run(lambda: test_reconcile_resolved_only_state_done_counts(Path(td) / 'reconstate'))

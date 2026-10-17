@@ -297,6 +297,9 @@
  "task.handoff": {
   "role": "agent"
  },
+ "task.history": {
+  "role": "agent"
+ },
  "task.memo.add": {
   "role": "agent"
  },
