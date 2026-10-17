@@ -34,13 +34,16 @@ export function teamOf(name: string, names: readonly string[]): string {
 export const shortName = (name: string, team: string): string => (name.startsWith(`${team}.`) ? name.slice(team.length + 1) : name);
 
 /** What a row shows of the name in the tree: under a parent only the last segment (`handline.pc.auditor` is `auditor`), at the top the team-relative name. */
-export const rowName = (name: string, depth: number, team: string): string => (depth > 0 ? name.slice(name.lastIndexOf('.') + 1) : shortName(name, team));
+export const rowName = (name: string, depth: number, team: string): string =>
+  depth > 0 ? name.slice(name.lastIndexOf('.') + 1) : shortName(name, team);
 
-/** The agent list as one list: waiting ones sort up, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off. */
+/** The agent list as one list: waiting ones sort up, an agent that is restarting stays whatever the filter says, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off. */
 export function railRows(agents: AgentView[], opts: { hidden?: ReadonlySet<Dot>; search?: string } = {}): RailRow[] {
   const q = (opts.search ?? '').trim().toLowerCase();
   const shown = agents.filter(
-    (a) => !opts.hidden?.has(dotOf(a)) && (!q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q)),
+    (a) =>
+      (!opts.hidden?.has(dotOf(a)) || !!a.handoff) &&
+      (!q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q)),
   );
   const names = new Set(shown.map((a) => a.name));
   const order = (a: AgentView, b: AgentView) => URGENCY[dotOf(a)] - URGENCY[dotOf(b)] || a.name.localeCompare(b.name);

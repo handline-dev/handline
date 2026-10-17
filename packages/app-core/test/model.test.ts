@@ -308,3 +308,13 @@ test('the stop modes of a structured agent are in session words and drop Exit', 
   );
   assert.ok(stopModesOf({ structured: true }).every((m) => !/terminal|Esc|exit/i.test(m.hint)));
 });
+
+test('an agent that is restarting stays in the list whatever the filter hides', () => {
+  const a = (name: string, handoff?: object) =>
+    ({ name, role: 'x', state: 'idle', ...(handoff ? { handoff } : {}) }) as unknown as Parameters<typeof railRows>[0][number];
+  const rows = railRows([a('quiet'), a('again', { cause: 'context_full', phase: 'writing', since: 'x' })], { hidden: new Set(['idle']) });
+  assert.deepEqual(
+    rows.map((r) => r.agent.name),
+    ['again'],
+  );
+});

@@ -210,7 +210,7 @@ export function Sidebar({
                   kids={kids}
                   team={team}
                   sub={agent.task ? `${taskRef(agent.task.id)} ${agent.task.title}` : (where.get(agent.name) ?? '')}
-                  live={activity ? liveOf(agent) : ''}
+                  live={activity || agent.handoff ? liveOf(agent) : ''}
                   folded={collapsed.has(agent.name)}
                   onFold={() => setCollapsed(flip(collapsed, agent.name, 'collapsed', '|'))}
                   unreached={unreached.get(agent.name) ?? null}
