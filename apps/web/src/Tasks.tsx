@@ -82,6 +82,11 @@ function TaskTable({
   return (
     <div className="tasks-scroll min-h-0 flex-1 overflow-auto max-sm:bg-transparent" aria-busy={busy}>
       <table className="ttable w-full table-fixed border-collapse max-sm:block" aria-label="Tasks">
+        <colgroup className="max-sm:hidden">
+          {['w-8', 'w-8', 'w-16', '', 'w-44', 'w-14', 'w-28'].map((w, i) => (
+            <col key={i} className={w} />
+          ))}
+        </colgroup>
         <tbody className="max-sm:block">
           {groups.map((g) => (
             <Fragment key={g.key}>
@@ -188,6 +193,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
   function onKey(e: KeyboardEvent) {
     if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key;
+    if (graph && !'?nafv'.includes(k)) return; // the graph draws no rows, cursor or ticks for the other keys to act on
     const keys: Record<string, () => void> = {
       ' ': () => cursor !== null && toggle(cursor),
       A: toggleAll,

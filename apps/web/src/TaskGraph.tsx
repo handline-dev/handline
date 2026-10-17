@@ -61,7 +61,7 @@ export function TaskBands({ tasks, now, recent }: { tasks: Task[]; now: number; 
         </div>
       </div>
       <footer className="flex items-center gap-2 px-3 py-2 text-hint text-ink-3">
-        <span className="mr-auto">A box slides to the next band when its task changes state. An arrow means “waits for”.</span>
+        <span className="mr-auto">A box slides to the next band when its task changes state.</span>
         <Button label="Zoom out" onClick={() => nudge(1 / 1.25)}>
           −
         </Button>

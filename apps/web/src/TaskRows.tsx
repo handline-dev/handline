@@ -6,7 +6,7 @@ import { goTasks } from './route.ts';
 import { AnimatedCell, AnimatedRow } from './AnimatedList.tsx';
 import { StateChip } from './taskui.tsx';
 
-const CHIP = 'rounded-pill border border-line px-2 text-hint leading-5 whitespace-nowrap';
+const CHIP = 'inline-block max-w-full truncate rounded-pill border border-line px-2 text-hint leading-5 align-middle';
 
 /** "3h" for a task not running reads as the time it has: "3h left". */
 const left = (text: string) => (/^[\dhdm]+$/.test(text) ? `${text} left` : text);
@@ -74,7 +74,7 @@ export function Row(props: {
       >
         <span className={`ttitle text-body font-medium${authored ? ' ghost italic text-ink-2' : ''}`}>{t.title}</span>
       </AnimatedCell>
-      <AnimatedCell className={`c-owner w-56 text-right ${TD} max-sm:[grid-area:owner] max-sm:text-left`}>
+      <AnimatedCell className={`c-owner w-44 text-right ${TD} max-sm:[grid-area:owner] max-sm:text-left`}>
         <span className={CHIP} title="owner">
           {isPerson(t.to, me) ? 'you' : t.to}
         </span>

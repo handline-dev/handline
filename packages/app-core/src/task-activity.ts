@@ -51,7 +51,7 @@ export function activityOf(memos: TaskDetail['memos'], timeline: readonly Entry[
         return [];
       case 'handoff': {
         const [from = e.who, to = ''] = e.who.split('→').map((x) => x.trim());
-        return [{ ...base, who: from, line: `${from} handed it to ${to}`, note: e.text }];
+        return [{ ...base, who: from, line: to ? `${from} handed it to ${to}` : `${from} handed it over`, note: e.text }];
       }
       case 'state':
         return [{ ...base, line: stateLine(e.who, e.text), note: '' }];
@@ -63,7 +63,7 @@ export function activityOf(memos: TaskDetail['memos'], timeline: readonly Entry[
         return [{ ...base, line: `${e.who} sent a request`, note: e.text }];
     }
   });
-  return [...comments, ...events].sort((a, b) => a.at.localeCompare(b.at));
+  return [...comments, ...events].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 }
 
 /** Comments stay; of the events only the last `keep` show until the rest are asked for. */

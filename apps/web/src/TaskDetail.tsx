@@ -141,24 +141,24 @@ function Body({ t }: { t: Detail }) {
 
   const why = t.waiting?.text ?? t.hold_reason ?? t.block_reason;
   const yes = { ok: true, why: undefined };
-  const item = (label: string, run: () => void, can: { ok: boolean; why?: string }) => ({ label, run, can });
+  const item = (label: string, key: string, run: () => void, can: { ok: boolean; why?: string }) => ({ label, key, run, can });
   // What changes the status, in the dropdown on the state; the one that fits best is also the main button.
   const status = [
-    ...(open && t.state === 'draft' ? [item('Queue', verbs.u, can.queue)] : []),
-    ...(open && t.state === 'queued' ? [item('Back to draft', verbs.u, can.draft)] : []),
-    ...(open ? [item('Done', verbs.x, can.done)] : []),
-    ...(t.state === 'done' && mine ? [item('Reopen', verbs.r, can.reopen)] : []),
-    ...(running ? [item('Release', verbs.l, can.release)] : []),
+    ...(open && t.state === 'draft' ? [item('Queue', 'u', verbs.u, can.queue)] : []),
+    ...(open && t.state === 'queued' ? [item('Back to draft', 'u', verbs.u, can.draft)] : []),
+    ...(open ? [item('Done', 'x', verbs.x, can.done)] : []),
+    ...(t.state === 'done' && mine ? [item('Reopen', 'r', verbs.r, can.reopen)] : []),
+    ...(running ? [item('Release', 'l', verbs.l, can.release)] : []),
   ];
   const first = status.find((v) => v.label !== 'Release');
-  const main = first && { ...first, key: first.label === 'Done' ? 'x' : first.label === 'Reopen' ? 'r' : 'u', busy: queue.isPending || draft.isPending };
+  const main = first && { ...first, busy: queue.isPending || draft.isPending };
   const more = [
     ...status.filter((v) => v !== first),
-    ...(startable && mine ? [item('Withdraw', verbs.w, can.withdraw)] : []),
-    ...(open ? [item('Discard', verbs.d, can.discard), item('Assign', verbs.o, edit.can)] : []),
+    ...(startable && mine ? [item('Withdraw', 'w', verbs.w, can.withdraw)] : []),
+    ...(open ? [item('Discard', 'd', verbs.d, can.discard), item('Assign', 'o', verbs.o, edit.can)] : []),
     'sep' as const,
-    item(showHistory ? 'Hide history' : 'Show history', () => setShowHistory(!showHistory), yes),
-    ...(canCapture() ? [item('Capture a window', requestCapture, yes)] : []),
+    item(showHistory ? 'Hide history' : 'Show history', '', () => setShowHistory(!showHistory), yes),
+    ...(canCapture() ? [item('Capture a window', '', requestCapture, yes)] : []),
   ];
   const reasonLabel = (verb: string) => (running ? `stop it and discard - why:` : `${verb} - why:`);
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
@@ -175,6 +175,7 @@ function Body({ t }: { t: Detail }) {
             {t.title}
           </Inline>
         </h2>
+        {status.length ? (
         <MenuButton label="Status" variant="outline" size="sm" align="start" trigger={<StateChip state={t.state} mark={mark} word to={t.to} />}>
           {status.map((v) => (
             <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
@@ -182,6 +183,9 @@ function Body({ t }: { t: Detail }) {
             </MenuItem>
           ))}
         </MenuButton>
+        ) : (
+          <StateChip state={t.state} mark={mark} word to={t.to} />
+        )}
       </header>
       <p className="m-0 mt-1 text-hint text-ink-3">
         Asked by <AgentLink name={t.from} /> · created {dateTime(t.created)}
