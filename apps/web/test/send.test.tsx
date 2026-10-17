@@ -81,6 +81,10 @@ describe('a message to a structured agent', () => {
     expect(button(msg('hello'), 'Take back')).toBeUndefined(); // the person has no take-back
     act(() => void s.daemon.chat.tick());
     await until(() => receipt('hello') === 'confirmed', 'confirmed');
+    // The read ticks show all the time; only the clock beside them waits for a hover.
+    const stamp = msg('hello')!.parentElement!.querySelector('.receipt')!.parentElement!;
+    expect(stamp.className).not.toContain('hidden');
+    expect(stamp.querySelector('span.hidden')?.textContent).toMatch(/\d/);
   });
 
   it('is queued behind a running turn, written when it ends', async () => {
