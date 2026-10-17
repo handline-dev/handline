@@ -1034,6 +1034,71 @@
    ]
   },
   {
+   "name": "pr.exists",
+   "summary": "Which of the numbers are pull requests (open, merged or closed) in the repo of the agent's worktree.",
+   "description": "numbers holds at most 20 integers, else -32602 bad_request naming `numbers`. The daemon asks GitHub with its own gh login, so a private repo answers. repo is null, and found empty, when the agent has no worktree or its origin is not on GitHub. A number that is a PR is remembered for good, one that is not for about a minute. When gh fails, found is empty and nothing is remembered.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "numbers",
+     "required": true,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "maxItems": 20
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "repo": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "found": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       }
+      }
+     },
+     "required": [
+      "repo",
+      "found"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "agent.timeline",
    "summary": "The agent's recorded events, newest first.",
    "paramStructure": "by-name",
@@ -9191,11 +9256,23 @@
            },
            "branch": {
             "type": "string"
+           },
+           "repo": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ],
+            "description": "owner/repo of the worktree's origin when it is on GitHub (https or ssh), else null."
            }
           },
           "required": [
            "path",
-           "branch"
+           "branch",
+           "repo"
           ]
          },
          {

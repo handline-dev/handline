@@ -43,6 +43,8 @@ export class FakeDaemon {
   readonly chat: FakeChat;
   /** The role a paired device gets: a phone is a member; a test or demo that wants the founder's verbs on one sets 'founder'. */
   deviceRole: Role = 'member';
+  /** The numbers pr.exists reports as pull requests, for every agent. */
+  readonly pullRequests = new Set<number>();
   /** Puts a proposal in as an agent raised it (the hr topic announces it); a demo or test uses this instead of reaching into the script. */
   raiseProposal(p: Parameters<Script['hr']['raise']>[0]) {
     return this.script.hr.raise(p);
@@ -373,6 +375,12 @@ export class FakeDaemon {
         return { agents: [...this.sessions.values()].map((s) => view(s)) };
       case 'agent.get':
         return detail(agent());
+      case 'pr.exists': {
+        const repo = agent().fx.repo ?? null;
+        const nums = p.numbers;
+        if (!Array.isArray(nums) || nums.length > 20 || !nums.every((n) => Number.isInteger(n))) throw badRequest('numbers must be at most 20 integers', 'numbers');
+        return { repo, found: repo ? (nums as number[]).filter((n) => this.pullRequests.has(n)) : [] };
+      }
       case 'subscribe': {
         if (!Array.isArray(p.topics) || !p.topics.length) throw badRequest('topics must be a non-empty list', 'topics');
         for (const t of p.topics as Topic[]) if (this.unservedTopics.has(t)) throw badRequest(`no such topic: ${t}`, 'topics');

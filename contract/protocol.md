@@ -75,6 +75,7 @@ A method marked write takes a required `request_id`.
 | `operation.get` | member |  | `operation` | `Operation` | `not_found` |  |
 | `agents.list` | agent |  | `status?` | `{agents}` | `bad_request` |  |
 | `agent.get` | agent |  | `agent` | `AgentDetail` | `not_found` |  |
+| `pr.exists` | member |  | `agent`, `numbers` | `{repo, found}` | `not_found`, `bad_request` |  |
 | `agent.timeline` | member |  | `agent`, `before?`, `limit?` | `{items, more}` | `not_found` |  |
 | `agent.options` | member |  | none | `AgentOptions` |  |  |
 | `agent.set` | agent (only agent, founder) | yes | `agent`, `values`, `speaker?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | not_self |
@@ -233,6 +234,10 @@ The rail: the stored view of every agent.
 ### `agent.get`
 
 One agent: the view plus session and terminal facts.
+
+### `pr.exists`
+
+Which of the numbers are pull requests (open, merged or closed) in the repo of the agent's worktree. numbers holds at most 20 integers, else -32602 bad_request naming `numbers`. The daemon asks GitHub with its own gh login, so a private repo answers. repo is null, and found empty, when the agent has no worktree or its origin is not on GitHub. A number that is a PR is remembered for good, one that is not for about a minute. When gh fails, found is empty and nothing is remembered.
 
 ### `agent.timeline`
 

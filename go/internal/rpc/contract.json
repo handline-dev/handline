@@ -180,6 +180,9 @@
  "operation.get": {
   "role": "member"
  },
+ "pr.exists": {
+  "role": "member"
+ },
  "progress.get": {
   "callers": [
    "agent"

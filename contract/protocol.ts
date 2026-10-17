@@ -193,6 +193,8 @@ export type AgentDetail = AgentView & {
   worktree: {
     path: string;
     branch: string;
+    /** owner/repo of the worktree's origin when it is on GitHub (https or ssh), else null. */
+    repo: string | null;
   } | null;
   terminal: string | null;
   session_id: string | null;
@@ -1445,6 +1447,13 @@ export interface Methods {
   "agent.get": { params: {
   agent: AgentName;
 }; result: AgentDetail };
+  "pr.exists": { params: {
+  agent: AgentName;
+  numbers: number[];
+}; result: {
+    repo: string | null;
+    found: number[];
+  } };
   "agent.timeline": { params: {
   agent: AgentName;
   /** Return rows older than this id. */
@@ -2505,6 +2514,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "operation.get": { role: "member", callers: null, write: false, since: 1 },
   "agents.list": { role: "agent", callers: null, write: false, since: 1 },
   "agent.get": { role: "agent", callers: null, write: false, since: 1 },
+  "pr.exists": { role: "member", callers: null, write: false, since: 1 },
   "agent.timeline": { role: "member", callers: null, write: false, since: 1 },
   "agent.options": { role: "member", callers: null, write: false, since: 1 },
   "agent.set": { role: "agent", callers: ["agent", "founder"], write: true, since: 1 },
