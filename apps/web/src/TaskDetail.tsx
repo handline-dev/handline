@@ -1,5 +1,6 @@
-// One task: its title, state, people and timing, the body, the delivery history, evidence, a reply box, what it waits on and what hangs under it,
-// and the verbs of the bridge's task detail. A verb that does not apply is hidden; one the daemon does not serve yet is shown disabled.
+// One task: its title, state, people and timing, the body, the delivery history, evidence, what it waits on and what hangs under it, its
+// comments, and the verbs of the bridge's task detail along the bottom. The title, body, owner, priority and time box change where they are.
+// A verb that does not apply is hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
@@ -10,11 +11,13 @@ import { Button, Icon } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
 import { AssignSheet } from './TaskPeople.tsx';
-import { CancelSheet, EditForm, MessageBox, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
+import { CancelSheet, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
+import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from './TaskInline.tsx';
+import { Comments } from './TaskComments.tsx';
 import { RichText } from './RichText.tsx';
 import { View } from './View.tsx';
 
-type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'edit' | 'release' | 'assign';
+type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'release' | 'assign';
 
 const CLOSED = ['done', 'discarded'];
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
@@ -72,7 +75,8 @@ function Body({ t }: { t: Detail }) {
   const now = useNow();
   const me = store.me;
   const [ask, setAsk] = useState<Ask>(null);
-  const replyBox = useRef<HTMLTextAreaElement>(null);
+  const commentBox = useRef<HTMLDivElement>(null);
+  const edit = useEditTask(t);
   const done = useWrite('task.done');
   const queue = useWrite('task.queue');
   const draft = useWrite('task.draft');
@@ -87,8 +91,6 @@ function Body({ t }: { t: Detail }) {
     draft: useCan('task.draft'),
     reopen: useCan('task.reopen'),
     discard: useCan('task.discard'),
-    edit: useCan('task.edit'),
-    reply: useCan('chat.send'),
     withdraw: useCan('task.withdraw'),
     cancel: useCan('task.cancel'),
     release: useCan('task.release'),
@@ -117,10 +119,9 @@ function Body({ t }: { t: Detail }) {
           ? draft.mutate({ tasks: [t.id] })
           : say('only a draft or a queued task can move'),
     r: () => (t.state === 'done' && mine ? setAsk('reopen') : say(REOPEN_ONLY)),
-    a: () => replyBox.current?.focus(),
+    a: () => commentBox.current?.querySelector<HTMLElement>('[contenteditable]')?.focus(),
     o: () => open && setAsk('assign'),
     d: () => (open ? setAsk('discard') : say(`task ${taskRef(t.id)} is already closed`)),
-    e: () => open && setAsk('edit'),
     w: () => startable && mine && setAsk('withdraw'),
     c: () => open && setAsk('cancel'),
     l: () => (running ? setAsk('release') : say(`task ${taskRef(t.id)} is not running`)),
@@ -140,93 +141,26 @@ function Body({ t }: { t: Detail }) {
   const reasonLabel = (verb: string) => (running ? `stop it and discard - why:` : `${verb} - why:`);
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
   return (
-    <div className="tbody" ref={root} tabIndex={-1} onKeyDown={key}>
+    <div className="tbody flex min-h-full flex-col" ref={root} tabIndex={-1} onKeyDown={key}>
       <header className="tdetail-head flex flex-wrap items-baseline gap-2">
-        <h2 className="m-0 text-title font-semibold">
-          <span className="mono">{taskRef(t.id)}</span> {t.title}
+        <h2 className="m-0 min-w-0 text-title font-semibold">
+          <span className="mono">{taskRef(t.id)}</span>{' '}
+          <Inline
+            can={edit.can.ok && open}
+            label="Title"
+            input={(close) => <TextInput value={t.title} label="Title" onSave={(title) => edit.save({ title })} onClose={close} />}
+          >
+            {t.title}
+          </Inline>
         </h2>
         <StateChip state={t.state} mark={mark} word to={t.to} />
       </header>
-      <TaskMeta t={t} now={now} />
-      <div
-        className="tverbs flex flex-wrap gap-1.5 my-2 max-sm:sticky max-sm:bottom-0 max-sm:mt-auto max-sm:-mx-4 max-sm:-mb-3 max-sm:px-4 max-sm:py-2 max-sm:bg-canvas max-sm:border-t max-sm:border-line"
-        role="toolbar"
-        aria-label="Task actions"
-      >
-        {open && t.state === 'draft' ? (
-          <Verb k="u" icon="taskQueued" label="Queue" can={can.queue} onClick={verbs.u} busy={queue.isPending} />
-        ) : null}
-        {open && t.state === 'queued' ? (
-          <Verb k="u" icon="taskDraft" label="Back to draft" can={can.draft} onClick={verbs.u} busy={draft.isPending} />
-        ) : null}
-        {open ? <Verb k="x" icon="taskDone" label="Done" can={can.done} onClick={verbs.x} /> : null}
-        {t.state === 'done' && mine ? <Verb k="r" icon="retry" label="Reopen" can={can.reopen} onClick={verbs.r} /> : null}
-        {open ? <Verb k="o" icon="agent" label="Assign" can={can.edit} onClick={verbs.o} /> : null}
-        <Verb k="a" icon="say" label="Reply" can={can.reply} onClick={verbs.a} />
-        {open ? <Verb k="e" icon="answer" label="Edit" can={can.edit} onClick={verbs.e} /> : null}
-        {startable && mine ? <Verb k="w" icon="withdrawn" label="Withdraw" can={can.withdraw} onClick={verbs.w} /> : null}
-        {running ? <Verb k="l" icon="retry" label="Release" can={can.release} onClick={verbs.l} busy={release.isPending} /> : null}
-        {open ? <Verb k="c" icon="cancel" label="Cancel" can={can.cancel} onClick={verbs.c} /> : null}
-        {open ? <Verb k="d" icon="dismiss" label="Discard" can={can.discard} onClick={verbs.d} /> : null}
+      <TaskMeta t={t} now={now} onAssign={() => setAsk('assign')} />
+      <div className="tbody-text mt-3 whitespace-pre-wrap">
+        <Inline can={edit.can.ok && open} label="Description" input={(close) => <BodyInline t={t} onClose={close} />}>
+          {t.body ? <RichText text={t.body} /> : <span className="muted">Add a description</span>}
+        </Inline>
       </div>
-      {ask === 'done' ? (
-        <ReasonSheet
-          label="done: what came of it?"
-          submit="Done"
-          onCancel={() => setAsk(null)}
-          onSubmit={(evidence) => (setAsk(null), done.mutate({ task: t.id, evidence, reason: true }))}
-        />
-      ) : null}
-      {ask === 'reopen' ? (
-        <ReasonSheet
-          label="reopen: why?"
-          submit="Reopen"
-          onCancel={() => setAsk(null)}
-          onSubmit={(note) => (setAsk(null), reopen.mutate({ task: t.id, note }))}
-        />
-      ) : null}
-      {ask === 'discard' ? (
-        <ReasonSheet
-          label={reasonLabel('discard')}
-          submit="Discard"
-          onCancel={() => setAsk(null)}
-          onSubmit={(reason) => (setAsk(null), discard.mutate({ task: t.id, reason }))}
-        />
-      ) : null}
-      {ask === 'withdraw' ? (
-        <Sheet
-          label={`withdraw ${taskRef(t.id)}?`}
-          submit="Withdraw"
-          onCancel={() => setAsk(null)}
-          onSubmit={() => (setAsk(null), withdraw.mutate({ task: t.id }))}
-        >
-          <span className="muted">Takes the task back before anyone has started it.</span>
-        </Sheet>
-      ) : null}
-      {ask === 'cancel' ? (
-        <CancelSheet
-          running={running}
-          id={t.id}
-          onCancel={() => setAsk(null)}
-          onSubmit={(reason) => (setAsk(null), cancel.mutate({ task: t.id, reason }))}
-        />
-      ) : null}
-      {ask === 'release' ? (
-        <ReasonSheet
-          label={`release ${taskRef(t.id)} - why:`}
-          submit="Release"
-          onCancel={() => setAsk(null)}
-          onSubmit={(reason) => (setAsk(null), release.mutate({ task: t.id, reason }))}
-        />
-      ) : null}
-      {ask === 'assign' ? <AssignSheet t={t} me={me} onClose={() => setAsk(null)} /> : null}
-      {ask === 'edit' ? <EditForm t={t} onClose={() => setAsk(null)} /> : null}
-
-      {t.body ? (
-        <div className="tbody-text m-0 whitespace-pre-wrap">
-          <RichText text={t.body} />
-        </div>
-      ) : null}
 
       {t.blockers.length ? <TaskLinks icon="waiting" label="Waits on" items={t.blockers} /> : null}
       {t.children.length ? <TaskLinks icon="tasks" label="Sub-tasks" items={t.children.map((c) => ({ task: c }))} /> : null}
@@ -260,26 +194,82 @@ function Body({ t }: { t: Detail }) {
           <ul className="thandoffs m-0 list-none p-0">
             {t.handoffs.map((h) => (
               <li key={h.at} className="whitespace-pre-wrap">
-                {h.from} to {h.to}: <RichText text={h.note} />
+                <AgentLink name={h.from} /> to <AgentLink name={h.to} />: <RichText text={h.note} />
               </li>
             ))}
           </ul>
         </>
       ) : null}
-      {t.memos.length ? (
-        <>
-          <h3 className={H3}>Memos</h3>
-          <ul className="tmemos m-0 list-none p-0">
-            {t.memos.map((m) => (
-              <li key={m.id} className="whitespace-pre-wrap">
-                <span className="muted">{m.author}:</span> <RichText text={m.text} />
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
+      <Comments t={t} box={commentBox} />
 
-      <MessageBox t={t} me={me} box={replyBox} />
+      <div className="sticky bottom-0 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-canvas px-4 py-2">
+        {ask === 'done' ? (
+          <ReasonSheet
+            label="done: what came of it?"
+            submit="Done"
+            onCancel={() => setAsk(null)}
+            onSubmit={(evidence) => (setAsk(null), done.mutate({ task: t.id, evidence, reason: true }))}
+          />
+        ) : null}
+        {ask === 'reopen' ? (
+          <ReasonSheet
+            label="reopen: why?"
+            submit="Reopen"
+            onCancel={() => setAsk(null)}
+            onSubmit={(note) => (setAsk(null), reopen.mutate({ task: t.id, note }))}
+          />
+        ) : null}
+        {ask === 'discard' ? (
+          <ReasonSheet
+            label={reasonLabel('discard')}
+            submit="Discard"
+            onCancel={() => setAsk(null)}
+            onSubmit={(reason) => (setAsk(null), discard.mutate({ task: t.id, reason }))}
+          />
+        ) : null}
+        {ask === 'withdraw' ? (
+          <Sheet
+            label={`withdraw ${taskRef(t.id)}?`}
+            submit="Withdraw"
+            onCancel={() => setAsk(null)}
+            onSubmit={() => (setAsk(null), withdraw.mutate({ task: t.id }))}
+          >
+            <span className="muted">Takes the task back before anyone has started it.</span>
+          </Sheet>
+        ) : null}
+        {ask === 'cancel' ? (
+          <CancelSheet
+            running={running}
+            id={t.id}
+            onCancel={() => setAsk(null)}
+            onSubmit={(reason) => (setAsk(null), cancel.mutate({ task: t.id, reason }))}
+          />
+        ) : null}
+        {ask === 'release' ? (
+          <ReasonSheet
+            label={`release ${taskRef(t.id)} - why:`}
+            submit="Release"
+            onCancel={() => setAsk(null)}
+            onSubmit={(reason) => (setAsk(null), release.mutate({ task: t.id, reason }))}
+          />
+        ) : null}
+        {ask === 'assign' ? <AssignSheet t={t} me={me} onClose={() => setAsk(null)} /> : null}
+
+        <div className="tverbs flex flex-wrap gap-1.5" role="toolbar" aria-label="Task actions">
+          {open && t.state === 'draft' ? (
+            <Verb k="u" icon="taskQueued" label="Queue" can={can.queue} onClick={verbs.u} busy={queue.isPending} />
+          ) : null}
+          {open && t.state === 'queued' ? (
+            <Verb k="u" icon="taskDraft" label="Back to draft" can={can.draft} onClick={verbs.u} busy={draft.isPending} />
+          ) : null}
+          {open ? <Verb k="x" icon="taskDone" label="Done" can={can.done} onClick={verbs.x} /> : null}
+          {t.state === 'done' && mine ? <Verb k="r" icon="retry" label="Reopen" can={can.reopen} onClick={verbs.r} /> : null}
+          {startable && mine ? <Verb k="w" icon="withdrawn" label="Withdraw" can={can.withdraw} onClick={verbs.w} /> : null}
+          {running ? <Verb k="l" icon="retry" label="Release" can={can.release} onClick={verbs.l} busy={release.isPending} /> : null}
+          {open ? <Verb k="c" icon="cancel" label="Cancel" can={can.cancel} onClick={verbs.c} /> : null}
+          {open ? <Verb k="d" icon="dismiss" label="Discard" can={can.discard} onClick={verbs.d} /> : null}
+        </div>
+      </div>
     </div>
   );
 }

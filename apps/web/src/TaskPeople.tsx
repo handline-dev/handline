@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { assignGroups, taskRef } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
-import { useAgents, useChatActions, useTeam, useWrite } from '@handline/app-data';
+import { classify, sentence, useAgents, useChatActions, useTeam, useWrite } from '@handline/app-data';
 import { Textarea } from './ui/index.ts';
 import { Sheet } from './taskui.tsx';
 
@@ -72,6 +72,11 @@ export function AssignSheet({ t, me, onClose }: { t: Detail; me: string; onClose
           placeholder={to ? `What to tell ${to} (optional)` : 'What to tell them (optional)'}
           onChange={(e) => setNote(e.target.value)}
         />
+        {edit.isError ? (
+          <span className="tsheet-err text-bad" role="alert">
+            {sentence(classify(edit.error))}
+          </span>
+        ) : null}
       </div>
     </Sheet>
   );
