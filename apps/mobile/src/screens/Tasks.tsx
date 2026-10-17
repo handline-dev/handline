@@ -66,6 +66,8 @@ function List(props: { onSelect: (id: number) => void }) {
   );
   const [creating, setCreating] = useState(false);
   const [graph, setGraph] = useState(false);
+  const [filtering, setFiltering] = useState(false);
+  const narrowed = states.size !== defaultFilter().states.size;
   if (creating)
     return (
       <ScrollView keyboardShouldPersistTaps="handled">
@@ -93,8 +95,16 @@ function List(props: { onSelect: (id: number) => void }) {
             {SCOPES.map(([id, label]) => (
               <Pill key={id} testID={`scope-${id}`} on={scope === id} label={label} onPress={() => setScope(id)} />
             ))}
+            {scope !== 'closed' && (
+              <Pill
+                testID="filter-toggle"
+                on={filtering || narrowed}
+                label="Filter"
+                onPress={() => setFiltering(!filtering)}
+              />
+            )}
           </View>
-          {scope !== 'closed' && (
+          {scope !== 'closed' && filtering && (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, padding: space.lg }}>
               {TASK_STATES.filter((s) => !CLOSED.includes(s)).map((s) => (
                 <Pill
