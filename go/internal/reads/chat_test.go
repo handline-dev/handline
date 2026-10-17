@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/handline/handline/go/internal/attachments"
+	"github.com/handline/handline/go/internal/rpc"
 )
 
 func TestAMessageToAStructuredAgentCarriesItsReceiptAndLandsAsItSays(t *testing.T) {
@@ -351,6 +352,41 @@ func TestANoticeTheDigestListedIsNotDrawnAgainBesideTheDigest(t *testing.T) {
 	json.Unmarshal(b, &out)
 	if len(out.Messages) != 2 || out.Messages[0].ID != 3 || out.Messages[1].ID != 1 {
 		t.Fatalf("a notice still waiting for the digest and the digest are drawn; the digested one is not: %s", b)
+	}
+}
+
+func TestARequestDeliveredButNotYetTypedIsStillDrawn(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for _, q := range []string{
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, landed_at, delivered_at) VALUES(1, 1, 'human', 'bob', 'hello bob', 'landed', 'say', 1, 2)",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, notice, landed_at, delivered_at) VALUES(2, 3, 'task-board', 'bob', 'T3 done by x: ok', 'landed', 'say', 1, 3, 4)",
+	} {
+		if _, err := e.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, call := range []func(*rpc.Conn, map[string]any) (any, error){e.chatMessages, e.chatRequests} {
+		got, err := call(nil, map[string]any{"agent": "bob", "scope": "all"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(got)
+		var out struct {
+			Messages []struct{ ID int64 }
+			Items    []struct{ Message struct{ ID int64 } }
+		}
+		json.Unmarshal(b, &out)
+		ids := []int64{}
+		for _, m := range out.Messages {
+			ids = append(ids, m.ID)
+		}
+		for _, it := range out.Items {
+			ids = append(ids, it.Message.ID)
+		}
+		if len(ids) != 1 || ids[0] != 1 {
+			t.Fatalf("the plain request is drawn and the digested notice is not: %s", b)
+		}
 	}
 }
 
