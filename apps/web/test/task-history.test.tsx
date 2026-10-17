@@ -54,6 +54,7 @@ describe('task history', () => {
     const state = rows().find((r) => r.dataset.field === 'state' && r.textContent!.includes('done'))!;
     expect(state.querySelector('[data-state="done"]')).not.toBeNull();
     expect(state.textContent).toContain('auditor PASS on 3f2a9c1');
+    expect(rows().filter((r) => r.textContent!.includes('opened'))).toHaveLength(1);
   });
 
   it('filters by chip, and Memo shows what each memo said, edits with the old and new text', async () => {
@@ -75,6 +76,7 @@ describe('task history', () => {
     const body = rows().find((r) => r.dataset.field === 'body')!;
     expect(body.textContent).toContain('Plan the web UI.');
     expect(body.querySelector('[data-full]')).toBeNull();
+    expect(body.querySelector('[role="button"]')?.textContent).toMatch(/▸$/);
     await click(body.querySelector('[role="button"]')!);
     expect(body.querySelector('[data-full]')?.textContent).toContain('Three units, chat first.');
     await click(box.querySelector('[data-fold]')!);

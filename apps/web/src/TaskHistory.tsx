@@ -79,9 +79,14 @@ function Change({ r, shown }: { r: HistoryRow; shown: boolean }) {
                 →
               </span>
               <Value state={state} text={now.head} />
-              {state && !r.was ? <span className="text-ink-3">· opened</span> : null}
+              {state && !r.was && r.now !== 'opened' ? <span className="text-ink-3">· opened</span> : null}
             </>
           )}
+          {long ? (
+            <span className="text-ink-3" aria-hidden="true">
+              {open ? '▾' : '▸'}
+            </span>
+          ) : null}
         </div>
         {r.note ? <p className="m-0 mt-0.5 border-l-2 border-line pl-2 text-ink-2">{firstLine(r.note, 160).head}</p> : null}
         {open ? (
