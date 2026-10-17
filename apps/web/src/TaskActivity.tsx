@@ -75,7 +75,9 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
       ) : null}
       {items.length ? (
         <ul className="tmemos m-0 grid list-none gap-2 p-0">
-          {items.map((i, n) => (i.kind === 'comment' ? <Comment key={`${n}-${i.memo}`} t={t} item={i} /> : <Event key={`${n}-${i.line}`} item={i} />))}
+          {items.map((i, n) =>
+            i.kind === 'comment' ? <Comment key={`${n}-${i.memo}`} t={t} item={i} /> : <Event key={`${n}-${i.line}`} item={i} />,
+          )}
         </ul>
       ) : null}
       <div ref={box} className="grid gap-2" title={can.why}>

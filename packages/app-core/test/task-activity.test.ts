@@ -6,13 +6,16 @@ const e = (kind: string, who: string, text: string, at: string, memo: number | n
   ({ at, who, kind, text, memo, edited_at: null }) as Parameters<typeof activityOf>[1][number];
 
 test('entries become comments and events in words, a handoff one line with its note kept', () => {
-  const a = activityOf([{ id: 7, task: 1, author: 'founder', at: '2026-01-01T00:00:03Z', text: 'Hello' }], [
-    e('state', 'handline.pc', 'new -> opened', '2026-01-01T00:00:01Z'),
-    e('handoff', 'handline.pc → worker2', 'Over to you', '2026-01-01T00:00:02Z'),
-    e('memo', 'founder', 'Hello', '2026-01-01T00:00:03Z', 7),
-    e('state', 'worker2', 'queued -> doing', '2026-01-01T00:00:04Z'),
-    e('reject', 'handline.pc', 'Not yet', '2026-01-01T00:00:05Z'),
-  ]);
+  const a = activityOf(
+    [{ id: 7, task: 1, author: 'founder', at: '2026-01-01T00:00:03Z', text: 'Hello' }],
+    [
+      e('state', 'handline.pc', 'new -> opened', '2026-01-01T00:00:01Z'),
+      e('handoff', 'handline.pc → worker2', 'Over to you', '2026-01-01T00:00:02Z'),
+      e('memo', 'founder', 'Hello', '2026-01-01T00:00:03Z', 7),
+      e('state', 'worker2', 'queued -> doing', '2026-01-01T00:00:04Z'),
+      e('reject', 'handline.pc', 'Not yet', '2026-01-01T00:00:05Z'),
+    ],
+  );
   assert.deepEqual(
     a.map((i) => [i.kind, i.line]),
     [

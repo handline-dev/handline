@@ -204,7 +204,7 @@ describe('loading, empty and not served', () => {
 
   it('says what is empty and offers the way on', async () => {
     const s = setup();
-    (s.daemon.tasks as unknown as { rows: { state: string }[] }).rows.forEach((r) => (r.state = 'done'));
+    (s.daemon.tasks as unknown as { rows: { state: string; done: string | null }[] }).rows.forEach((r) => ((r.state = 'done'), (r.done = '2026-01-01T00:00:00.000Z')));
     await mount('#/tasks', s);
     await until(() => text(page()).includes('No tasks in these states.'), 'the empty line');
     await click(button('Show closed')!);
@@ -213,11 +213,12 @@ describe('loading, empty and not served', () => {
 
   it("shows the daemon's own sentence with Retry on a refusal, and the rows come back when it answers again", async () => {
     const s = setup();
-    s.daemon.knobs.refuse('tasks.list', 'state', 'the task store is locked', undefined, 1);
+    s.daemon.knobs.refuse('tasks.list', 'state', 'the task store is locked');
     await mount('#/tasks', s);
     await until(() => $('.banner'), 'the error strip');
     expect(text($('.banner'))).toContain('the task store is locked');
     expect(rowIds()).toEqual([]);
+    s.daemon.knobs.clear();
     await click(button('Retry')!);
     await until(() => rowIds().length === 4, 'the rows');
     expect($('.banner')).toBeNull();

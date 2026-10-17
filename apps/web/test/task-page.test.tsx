@@ -22,7 +22,8 @@ const $ = (sel: string, from: ParentNode = box) => from.querySelector<HTMLElemen
 const $$ = (sel: string, from: ParentNode = box) => [...from.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null | undefined) => el?.textContent ?? '';
-const button = (label: string, within: ParentNode = box) => $$('button', within).find((b) => text(b).replace(/\s+/g, ' ').trim().startsWith(label));
+const button = (label: string, within: ParentNode = box) =>
+  $$('button', within).find((b) => text(b).replace(/\s+/g, ' ').trim().startsWith(label));
 
 async function mount(hash: string, s = setup()) {
   location.hash = hash;
@@ -56,7 +57,9 @@ describe('the task page', () => {
 
   it('lists comments and events as one Activity: the last three events, older ones folded, a note opened on "Read note"', async () => {
     const s = setup();
-    const row = (s.daemon.tasks as unknown as { rows: { id: number; notes?: { at: string; who: string; text: string }[] }[] }).rows.find((r) => r.id === 1688)!;
+    const row = (s.daemon.tasks as unknown as { rows: { id: number; notes?: { at: string; who: string; text: string }[] }[] }).rows.find(
+      (r) => r.id === 1688,
+    )!;
     row.notes = [1, 2, 3, 4, 5].map((n) => ({ at: `2026-01-0${n}T10:00:00.000Z`, who: 'handline.pc', text: `note ${n}` }));
     await mount('#/tasks/1688', s);
     await until(() => $('section[aria-label="Activity"] .tevent'), 'the events');
@@ -69,5 +72,17 @@ describe('the task page', () => {
     expect(text(act_)).toContain('note 3');
     await click(button('Show 2 earlier events', act_)!);
     expect($$('.tevent', act_)).toHaveLength(5);
+  });
+
+  it('lists what closed today under a folded "Done today" that opens on a click', async () => {
+    const s = setup();
+    const rows = (s.daemon.tasks as unknown as { rows: { id: number; done: string | null }[] }).rows;
+    rows.find((r) => r.id === 1650)!.done = new Date(Date.now() - 3_600_000).toISOString();
+    await mount('#/tasks', s);
+    await until(() => $('tr.tgroup[data-group="done"]'), 'the Done today group');
+    expect(text($('tr.tgroup[data-group="done"]'))).toContain('Done today 1 ▸');
+    expect($('tr[data-task="1650"]')).toBeNull();
+    await click(button('Done today')!);
+    await until(() => $('tr[data-task="1650"]'), 'the done row');
   });
 });

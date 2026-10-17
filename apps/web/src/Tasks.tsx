@@ -42,9 +42,15 @@ const matches = (query: string) => {
   };
 };
 
-/** The pills: Closed keeps only the closed tasks, Mine the ones I own. */
-const inScope = (tasks: Task[], scope: Scope, me: string): Task[] =>
-  scope === 'closed' ? tasks.filter((t) => CLOSED.includes(t.state)) : scope === 'mine' ? tasks.filter((t) => t.to === me) : tasks;
+const DAY = 86_400_000;
+
+/** The pills: Closed keeps only the closed tasks, Mine the ones I own; Open and Mine list what closed in the last day (the graph picks its own). */
+const inScope = (tasks: Task[], scope: Scope, me: string, now: number, graph: boolean): Task[] =>
+  scope === 'closed'
+    ? tasks.filter((t) => CLOSED.includes(t.state))
+    : (scope === 'mine' ? tasks.filter((t) => t.to === me) : tasks).filter(
+        (t) => graph || !CLOSED.includes(t.state) || now - Date.parse(t.done ?? t.created) <= DAY,
+      );
 
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
 
@@ -66,13 +72,15 @@ type RowProps = Omit<ComponentProps<typeof Row>, 'rows' | 't' | 'now' | 'markCel
 /** The table of tasks: a band of rows under each status heading. */
 function TaskTable({
   groups,
+  onFold,
   total,
   now,
   busy,
   markCell,
   rowProps,
 }: {
-  groups: ReturnType<typeof groupTasks>;
+  groups: (ReturnType<typeof groupTasks>[number] & { folded: boolean })[];
+  onFold: () => void;
   total: number;
   now: number;
   busy: boolean;
@@ -91,12 +99,27 @@ function TaskTable({
           {groups.map((g) => (
             <Fragment key={g.key}>
               <tr className="tgroup max-sm:block" data-group={g.key}>
-                <th colSpan={7} className="px-2 pt-4 pb-1 text-left text-label font-semibold data-[group=needs]:text-wait data-[group=running]:text-working" data-group={g.key}>
-                  {g.label} <span className="font-normal text-ink-3">{g.rows.length}</span>
+                <th
+                  colSpan={7}
+                  className="px-2 pt-4 pb-1 text-left text-label font-semibold data-[group=needs]:text-wait data-[group=running]:text-working"
+                  data-group={g.key}
+                >
+                  {g.key === 'done' && g.label === 'Done today' ? (
+                    <button type="button" className="border-0 bg-transparent p-0 font-semibold" aria-expanded={!g.folded} onClick={onFold}>
+                      {g.label}{' '}
+                      <span className="font-normal text-ink-3">
+                        {g.rows.length} {g.folded ? '▸' : '▾'}
+                      </span>
+                    </button>
+                  ) : (
+                    <>
+                      {g.label} <span className="font-normal text-ink-3">{g.rows.length}</span>
+                    </>
+                  )}
                 </th>
               </tr>
               <AnimatedList>
-                {g.rows.map((t) => (
+                {(g.folded ? [] : g.rows).map((t) => (
                   <Row key={t.id} rows={total} t={t} now={now} markCell={markCell} {...rowProps(t)} />
                 ))}
               </AnimatedList>
@@ -119,20 +142,27 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
   const [query, setQuery] = useState('');
   const root = useRef<HTMLElement>(null);
 
-  const q = useTasks(scope === 'closed' || graph ? { all: true } : {}); // the graph also shows what closed lately
+  const q = useTasks({ all: true }); // Open lists what closed today, the graph what closed lately
   const all = useMemo(() => q.data?.items ?? [], [q.data]);
   const rows = useMemo(
     () =>
       sortTasks(
-        inScope(shown(all, { ...filter, closed: scope === 'closed' || !!graph }), scope, me).filter(matches(query)),
+        inScope(shown(all, { ...filter, closed: true }), scope, me, now, !!graph).filter(matches(query)),
         sort.by,
         sort.reverse,
         now,
       ),
     [all, filter, scope, graph, me, query, sort, now],
   );
-  const groups = useMemo(() => groupTasks(rows, me), [rows, me]);
-  const order = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
+  const [showDone, setShowDone] = useState(false);
+  const groups = useMemo(
+    () =>
+      groupTasks(rows, me).map((g) =>
+        g.key === 'done' && scope === 'open' ? { ...g, label: 'Done today', folded: !showDone } : { ...g, folded: false },
+      ),
+    [rows, me, scope, showDone],
+  );
+  const order = useMemo(() => groups.flatMap((g) => (g.folded ? [] : g.rows)), [groups]);
   const { marked, setMarked, toggle, toggleAll } = useMarks(order.map((t) => t.id));
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
 
@@ -226,7 +256,15 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
       {graph ? (
         <TaskBands tasks={rows} now={now} recent={scope !== 'closed'} />
       ) : (
-        <TaskTable groups={groups} total={order.length} now={now} busy={q.isFetching && !q.data} markCell={marked.size > 0} rowProps={rowProps} />
+        <TaskTable
+          groups={groups}
+          onFold={() => setShowDone(!showDone)}
+          total={order.length}
+          now={now}
+          busy={q.isFetching && !q.data}
+          markCell={marked.size > 0}
+          rowProps={rowProps}
+        />
       )}
       {open === 'discard' ? (
         <ReasonSheet

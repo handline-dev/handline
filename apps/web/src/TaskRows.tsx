@@ -82,7 +82,9 @@ export function Row(props: {
       <AnimatedCell className={`c-pri mono w-14 ${TD} max-sm:[grid-area:pri] max-sm:text-right`} title="priority, 1 high to 3 low">
         <span className={CHIP}>P{t.priority ?? 2}</span>
       </AnimatedCell>
-      <AnimatedCell className={`c-time mono w-28 whitespace-nowrap text-right ${TD} max-sm:[grid-area:time] max-sm:text-ink-2${over ? ' text-bad font-semibold' : ''}`}>
+      <AnimatedCell
+        className={`c-time mono w-28 whitespace-nowrap text-right ${TD} max-sm:[grid-area:time] max-sm:text-ink-2${over ? ' text-bad font-semibold' : ''}`}
+      >
         {time}
       </AnimatedCell>
     </AnimatedRow>

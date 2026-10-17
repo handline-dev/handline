@@ -9,7 +9,8 @@ import { Button } from './ui/index.ts';
 
 /** How many boxes a band shows before "+N more". */
 const SHOWN = 7;
-const BOX = 'cursor-pointer truncate rounded-ctl border border-line bg-panel px-2.5 py-1.5 text-left text-body text-ink max-w-[22rem] data-[band=done]:text-ink-3 data-[band=running]:border-working';
+const BOX =
+  'cursor-pointer truncate rounded-ctl border border-line bg-panel px-2.5 py-1.5 text-left text-body text-ink max-w-[22rem] data-[band=done]:text-ink-3 data-[band=running]:border-working';
 
 export function TaskBands({ tasks, now, recent }: { tasks: Task[]; now: number; recent: boolean }) {
   const reduced = useReducedMotion();
@@ -35,7 +36,14 @@ export function TaskBands({ tasks, now, recent }: { tasks: Task[]; now: number; 
                     <div className="flex flex-wrap gap-2">
                       {list.map((t) => {
                         const label = `${taskRef(t.id)} ${t.title}`;
-                        const props = { 'data-node': t.id, 'data-state': t.state, 'data-band': b.key, className: BOX, title: `${label} · ${t.to}`, onClick: () => goTasks(t.id) };
+                        const props = {
+                          'data-node': t.id,
+                          'data-state': t.state,
+                          'data-band': b.key,
+                          className: BOX,
+                          title: `${label} · ${t.to}`,
+                          onClick: () => goTasks(t.id),
+                        };
                         return reduced ? (
                           <button key={t.id} type="button" {...props}>
                             {label}

@@ -53,6 +53,11 @@ export function TaskDetail({
       aria-label={`Task ${taskRef(id)}`}
     >
       <div className="mb-4 flex items-center justify-end gap-2">
+        {canCapture() ? (
+          <Button label="Capture a window" title="Capture a window (⌘⇧C)" onClick={requestCapture}>
+            Capture
+          </Button>
+        ) : null}
         <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
           Back
         </Button>
@@ -158,7 +163,6 @@ function Body({ t }: { t: Detail }) {
     ...(open ? [item('Discard', 'd', verbs.d, can.discard), item('Assign', 'o', verbs.o, edit.can)] : []),
     'sep' as const,
     item(showHistory ? 'Hide history' : 'Show history', '', () => setShowHistory(!showHistory), yes),
-    ...(canCapture() ? [item('Capture a window', '', requestCapture, yes)] : []),
   ];
   const reasonLabel = (verb: string) => (running ? `stop it and discard - why:` : `${verb} - why:`);
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
@@ -176,13 +180,19 @@ function Body({ t }: { t: Detail }) {
           </Inline>
         </h2>
         {status.length ? (
-        <MenuButton label="Status" variant="outline" size="sm" align="start" trigger={<StateChip state={t.state} mark={mark} word to={t.to} />}>
-          {status.map((v) => (
-            <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
-              {v.label}
-            </MenuItem>
-          ))}
-        </MenuButton>
+          <MenuButton
+            label="Status"
+            variant="outline"
+            size="sm"
+            align="start"
+            trigger={<StateChip state={t.state} mark={mark} word to={t.to} />}
+          >
+            {status.map((v) => (
+              <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
+                {v.label}
+              </MenuItem>
+            ))}
+          </MenuButton>
         ) : (
           <StateChip state={t.state} mark={mark} word to={t.to} />
         )}
@@ -280,12 +290,26 @@ function Body({ t }: { t: Detail }) {
 
         <div className="tverbs flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Task actions">
           {main ? (
-            <Button variant="solid" label={main.label} title={main.can.why ?? `${main.label} (${main.key})`} disabled={!main.can.ok || main.busy} className="max-sm:min-h-[44px]" onClick={main.run}>
+            <Button
+              variant="solid"
+              label={main.label}
+              title={main.can.why ?? `${main.label} (${main.key})`}
+              disabled={!main.can.ok || main.busy}
+              className="max-sm:min-h-[44px]"
+              onClick={main.run}
+            >
               {main.busy ? '…' : main.label}
             </Button>
           ) : null}
           {open ? (
-            <Button variant="outline" label="Cancel task" title={can.cancel.why ?? 'Cancel task (c)'} disabled={!can.cancel.ok} className="max-sm:min-h-[44px]" onClick={verbs.c}>
+            <Button
+              variant="outline"
+              label="Cancel task"
+              title={can.cancel.why ?? 'Cancel task (c)'}
+              disabled={!can.cancel.ok}
+              className="max-sm:min-h-[44px]"
+              onClick={verbs.c}
+            >
               Cancel task
             </Button>
           ) : null}
