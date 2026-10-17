@@ -127,7 +127,7 @@ func TestABusyAgentPastTheWindowGetsNoDigestUntilItsTurnEndsThenOne(t *testing.T
 	}
 	want := "Result digest - 3 results since "
 	got := r.term.last()
-	if !strings.Contains(got, want) || !strings.Contains(got, "T5 · alice · it works (#1) T6 · alice · discarded: not needed (#2) something else (#3)") {
+	if !strings.Contains(got, want) || !strings.Contains(got, "shows one whole:\nT5 · alice · it works (#1)\nT6 · alice · discarded: not needed (#2)\nsomething else (#3)\n") {
 		t.Fatalf("%q", got)
 	}
 	if left, _ := db.PendingNotices(r.DB, "bob"); len(left) != 0 {
