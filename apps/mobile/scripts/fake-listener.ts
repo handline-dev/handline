@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { FakeDaemon } from '@handline/fake-daemon/daemon';
 import { serveWs } from '@handline/fake-daemon/serve';
 
@@ -39,6 +40,25 @@ execFileSync(
   { stdio: 'ignore' },
 );
 const cert = fs.readFileSync(`${dir}/c.pem`);
+/** A w by h gradient PNG, so a picture on screen is plainly one. */
+function mockPng(w: number, h: number): Buffer {
+  const chunk = (type: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const out = Buffer.alloc(body.length + 8);
+    out.writeUInt32BE(data.length, 0);
+    body.copy(out, 4);
+    out.writeUInt32BE(zlib.crc32(body), body.length + 4);
+    return out;
+  };
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) raw.set([40 + (x * 180) / w, 90 + (y * 120) / h, 200], y * (w * 3 + 1) + 1 + x * 3);
+  const head = Buffer.alloc(13);
+  head.writeUInt32BE(w, 0);
+  head.writeUInt32BE(h, 4);
+  head.set([8, 2, 0, 0, 0], 8);
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', head), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
+
 const daemon = new FakeDaemon();
 daemon.tasks.verbs = true; // done, reopen, queue... (the daemon's plan D3), so the phone's task verbs can be tried
 if (process.argv.includes('--founder-phone')) daemon.deviceRole = 'founder'; // so the HR verbs can be tried: a real phone is a member
@@ -70,6 +90,13 @@ if (process.argv.includes('--picture')) {
     'founder',
     daemon.uploads.message,
   );
+}
+if (process.argv.includes('--memo-files')) {
+  // A memo of task 1684 with a picture and a Markdown file, so the phone's task view can be seen with both.
+  const plan = '# Plan\n\nThree units, **chat first**, then the `task` screen.\n\n- the chat tab\n- the task view\n- the stats\n';
+  const shot = daemon.uploads.addMemoFile('mock.png', 'image/png', mockPng(240, 140));
+  const md = daemon.uploads.addMemoFile('plan.md', 'text/markdown', Buffer.from(plan));
+  daemon.tasks.memoWithFiles(1684, 'handline.architect', 'The mock and the plan', [shot, md]);
 }
 daemon.raiseProposal({
   id: 1,
