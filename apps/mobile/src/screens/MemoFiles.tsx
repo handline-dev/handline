@@ -1,7 +1,7 @@
 // The files a memo carries (Memo.files): images as thumbnails that open full size, Markdown rendered under its name. The bytes come from attachment.get.
 import { useMemo } from 'react';
 import { Text, View } from 'react-native';
-import type { Attachment, MemoFile } from '@handline/client';
+import type { MemoFile } from '@handline/client';
 import { useAttachmentBytes } from '@handline/app-data';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
@@ -29,7 +29,7 @@ function MarkdownFile({ file }: { file: MemoFile }) {
 export function MemoFiles({ files }: { files: MemoFile[] }) {
   const c = usePalette();
   const kept = files.filter((f) => !f.gone);
-  const images = kept.filter((f) => f.kind === 'image') as unknown as Attachment[];
+  const images = kept.filter((f) => f.kind === 'image');
   return (
     <View testID="memo-files" style={{ gap: space.sm }}>
       {images.length > 0 && <Pictures items={images} />}
