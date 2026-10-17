@@ -5,7 +5,7 @@ import { useSelector } from '@handline/app-react';
 import type { AgentDetail, Proposal } from '@handline/client';
 import { ago, clockTime, decidedProposals, restartingLine } from '@handline/app-core';
 import { classify, sentence, useHr, useWrite } from '@handline/app-data';
-import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOf } from './ui/index.ts';
+import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOfView } from './ui/index.ts';
 import { goTeam } from './route.ts';
 import { openTaskOnClick } from './ChatMessages.tsx';
 import { useWorkspace } from './Workspace.tsx';
@@ -24,7 +24,7 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
   const { apply } = useWorkspace();
   return (
     <div className="chat-strip flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-hint text-ink-2">
-      <State kind={stateOf(detail.state)} label={detail.state_detail ? `${detail.state}: ${detail.state_detail}` : detail.state} />
+      <State kind={stateOfView(detail)} label={stateWord(detail)} />
       {detail.model ? (
         <Chip title={`Model ${detail.model}${detail.effort ? `, ${detail.effort}` : ''}`}>
           <Icon name="agent" size={13} aria-hidden />
@@ -62,10 +62,13 @@ export function ChatBanner({ detail }: { detail: AgentDetail }) {
   );
 }
 
+/** The state in words: a restarting agent says so (as its rail row does), else the daemon's word with why it is not running. */
+const stateWord = (d: AgentDetail) => (d.handoff ? 'Restarting…' : d.state_detail ? `${d.state}: ${d.state_detail}` : d.state);
+
 /** The room's name over the chat, with the agent's state. */
-export const RoomTitle = ({ agent, state }: { agent: string; state: string }) => (
+export const RoomTitle = ({ agent, detail }: { agent: string; detail: AgentDetail }) => (
   <h2 className="m-0 min-w-0 flex-1 truncate text-body font-medium">
-    {agent} <span className="muted text-hint font-normal">{state}</span>
+    {agent} <span className="muted text-hint font-normal">{detail.handoff ? 'Restarting…' : detail.state}</span>
   </h2>
 );
 
