@@ -31,7 +31,6 @@ export const reads = {
   'transcript.events': { resource: 'transcript-events', id: by('agent'), feed: 'transcript' },
   'chat.locate': { resource: 'chat-locate' },
   'chat.search': { resource: 'chat-search' },
-  'pr.exists': { resource: 'pr-exists' },
   'inbox.list': { resource: 'inbox', feed: 'inbox' },
   'inbox.get': { resource: 'inbox-item', id: by('id'), feed: 'inbox' },
   'tasks.list': { resource: 'tasks', feed: 'tasks' },
