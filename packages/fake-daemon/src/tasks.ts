@@ -155,7 +155,8 @@ export class FakeTasks {
     if (op === 'add') {
       this.images(String(p.text), '', 'text', agent);
       const id = memos.reduce((n, m) => Math.max(n, m.id), 0) + 1;
-      memos.push({ id, task: t.id, author: person, at: this.now(), text: String(p.text) });
+      const files = Array.isArray(p.files) ? p.files.map((f) => this.host.uploads.memoFile(String(f))) : [];
+      memos.push({ id, task: t.id, author: person, at: this.now(), text: String(p.text), ...(files.length ? { files } : {}) });
       return id;
     }
     const i = memos.findIndex((m) => m.id === p.memo);
