@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/attachments"
 )
@@ -98,5 +99,39 @@ func TestAMemosFileIsHeldWhileItsTaskIsOpenAndNotOnceTheMemoIsDeleted(t *testing
 	result(t, f.ask(`{"jsonrpc":"2.0","id":4,"method":"task.memo.delete","params":{"task":1,"memo":1,"request_id":"m2"}}`))
 	if held, _ := attachments.Held(d.db, 12345); len(held) != 0 {
 		t.Fatalf("a deleted memo's file is still held: %v", held)
+	}
+}
+
+// a memo naming no one waits for the holder's digest, which cuts its text but keeps each file line whole on its own line
+func TestAnUnaimedMemoKeepsALinePerFileInTheHoldersDigest(t *testing.T) {
+	d, agents := tellDaemon(t, true)
+	doing(t, d, "bob")
+	src := t.TempDir()
+	png, md := filepath.Join(src, "mock.png"), filepath.Join(src, "plan.md")
+	os.WriteFile(png, onePNG, 0o644)
+	os.WriteFile(md, []byte("# Plan\n\nthree steps\n"), 0o644)
+	f := pipeTo(t, d, "k")
+	files, _ := json.Marshal([]string{png, md})
+	result(t, f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.memo.add","params":{"task":1,"text":"the proposal `+strings.Repeat("x", 500)+`","files":`+string(files)+`,"request_id":"m1"}}`))
+	if said := agents.said("bob"); strings.Contains(said, "the proposal") {
+		t.Fatalf("a memo naming no one was typed at once: %q", said)
+	}
+	if err := d.env().SweepDigests(time.Now().Unix() + 900); err != nil {
+		t.Fatal(err)
+	}
+	kept, _ := filepath.Glob(filepath.Join(d.cfg.Home, "attachments", "*.*"))
+	if len(kept) != 2 {
+		t.Fatalf("%v", kept)
+	}
+	said := agents.said("bob")
+	for _, want := range []string{"T1 memo added by human: the proposal xx", "\n  [file 1: ", "\n  [file 2: "} {
+		if !strings.Contains(said, want) {
+			t.Fatalf("no %q in the digest: %q", want, said)
+		}
+	}
+	for _, p := range kept {
+		if !strings.Contains(said, p+" (") {
+			t.Fatalf("%s is not whole in the digest: %q", p, said)
+		}
 	}
 }
