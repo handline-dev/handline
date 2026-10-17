@@ -121,7 +121,7 @@ func TestDevicesEventsReachAFounderSubscriber(t *testing.T) {
 		t.Fatalf("%v", ev)
 	}
 	dev := ev["data"].(map[string]any)
-	if dev["id"] != id || dev["name"] != "phone" || dev["role"] != "member" || dev["connected"] != false || dev["last_seen"] != nil {
+	if dev["id"] != id || dev["name"] != "phone" || dev["role"] != "founder" || dev["connected"] != false || dev["last_seen"] != nil {
 		t.Fatalf("%v", dev)
 	}
 	f.say(`{"jsonrpc":"2.0","id":4,"method":"device.revoke","params":{"device":"` + id + `","request_id":"v1"}}`)
