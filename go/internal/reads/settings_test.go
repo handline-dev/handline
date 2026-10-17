@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/handline/handline/go/internal/handoff"
+	"github.com/handline/handline/go/internal/paths"
 )
 
 func TestIsOurHookRecognisesTheCommandWhateverPathItWasWrittenWith(t *testing.T) {
@@ -57,5 +60,33 @@ func TestHooksInstalledNeedsOneOfOursForEveryWantedEvent(t *testing.T) {
 	os.WriteFile(filepath.Join(home, "shared", ".claude", "settings.json"), []byte("{not json"), 0o644)
 	if e.hooksInstalled() {
 		t.Fatal("a file that cannot be read is not installed")
+	}
+}
+
+func TestSettingsShowTheHandoffPromptAsSetOrTheBuiltInAndAnAgentsOwn(t *testing.T) {
+	e := testEnv(t)
+	os.MkdirAll(filepath.Join(e.Home, "agents", "ann"), 0o755)
+	writeAgentYAML(t, e, "ann", "role: r\nhandoff_prompt: \"ann: {path}\"\n")
+	get := func(agent string) map[string]any {
+		t.Helper()
+		params := map[string]any{}
+		if agent != "" {
+			params["agent"] = agent
+		}
+		out, err := e.settingsGet(nil, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out.(map[string]any)
+	}
+	if got := get("")["values"].(map[string]any)[handoff.PromptKey]; got != handoff.AskTemplate {
+		t.Fatalf("unset: %q", got)
+	}
+	os.WriteFile(paths.ConfigFile(e.Home), []byte("handoff_prompt: \"Mine: {path}\"\n"), 0o644)
+	if got := get("")["values"].(map[string]any)[handoff.PromptKey]; got != "Mine: {path}" {
+		t.Fatalf("set: %q", got)
+	}
+	if got := get("ann")["overrides"].(map[string]any)[handoff.PromptKey]; got != "ann: {path}" {
+		t.Fatalf("ann's own: %q", got)
 	}
 }

@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
+	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/textsafe"
 	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
@@ -17,26 +20,39 @@ const (
 	int1  = "int>=1"
 	int0  = "int>=0"
 	flag_ = "bool"
+	line  = "line"
 )
+
+// LineMax is how long a one-line text setting may be, in characters.
+const LineMax = 4000
 
 var settingKinds = map[string]string{"active_cap": int1, "park_timeout_s": int0, "handoff_note": flag_, "auto_accept_dialogs": flag_,
 	"ignore_cache_expiry": flag_, "dev_mode": flag_, "bg_notice_s": int1, "bg_grace_s": int1, "bg_check_s": int1, "notice_digest_s": int1,
-	"stop_wait_backstop_s": int1, "input_hold_idle_s": int1}
+	"stop_wait_backstop_s": int1, "input_hold_idle_s": int1, handoff.PromptKey: line}
 
 var perAgent = map[string]bool{"park_timeout_s": true, "ignore_cache_expiry": true, "bg_notice_s": true, "bg_grace_s": true, "bg_check_s": true,
-	"notice_digest_s": true}
+	"notice_digest_s": true, handoff.PromptKey: true}
 
 // settingValue is v if it is what key takes, as the value to write.
 func settingValue(key string, v any) (any, error) {
 	kind := settingKinds[key]
-	if kind == flag_ {
+	switch kind {
+	case flag_:
 		if b, ok := v.(bool); ok {
 			return b, nil
 		}
-	} else if n, ok := rpc.AsInt(v); ok && n >= map[string]int64{int1: 1, int0: 0}[kind] {
-		return n, nil
+	case line:
+		// config.yaml holds one line: a newline or another control character is refused, not written.
+		if s, ok := v.(string); ok && !textsafe.HasUnsafe(s) && utf8.RuneCountInString(s) <= LineMax {
+			return s, nil
+		}
+	default:
+		if n, ok := rpc.AsInt(v); ok && n >= map[string]int64{int1: 1, int0: 0}[kind] {
+			return n, nil
+		}
 	}
-	what := map[string]string{int1: "a whole number, at least 1", int0: "a whole number, at least 0", flag_: "true or false"}[kind]
+	what := map[string]string{int1: "a whole number, at least 1", int0: "a whole number, at least 0", flag_: "true or false",
+		line: fmt.Sprintf("one line of text, at most %d characters", LineMax)}[kind]
 	return nil, badParam(fmt.Sprintf("%s is %s, or null", key, what), key)
 }
 
