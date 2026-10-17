@@ -1,4 +1,4 @@
-// The task detail's presentational parts: the meta grid, one verb button, the link and timeline sections, and the two small sheets.
+// The task detail's presentational parts: the meta grid, one verb button, the link sections, and the two small sheets.
 import { useState } from 'react';
 import { dateTime, taskRef, timeBoxText } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
@@ -6,8 +6,6 @@ import { Icon, type IconName } from './ui/Icon.tsx';
 import { Sheet } from './taskui.tsx';
 import { AgentLink, Inline, PriorityInput, TextInput, useEditTask } from './TaskInline.tsx';
 import { Button, Input, MetaField, MetaGrid } from './ui/index.ts';
-
-export const TIMELINE = 'ttimeline m-0 list-none p-0 [&_svg]:shrink-0 [&_svg]:self-center [&_svg]:text-ink-3';
 
 const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
 const LI = 'flex items-baseline gap-1.5 py-0.5';
@@ -121,26 +119,6 @@ export function TaskLinks({ icon, label, items }: { icon: IconName; label: strin
         ))}
       </ul>
     </>
-  );
-}
-
-export function TaskTimeline({ deliveries, events }: { deliveries: Detail['deliveries']; events: Detail['events'] }) {
-  return (
-    <ol className={TIMELINE}>
-      {deliveries.map((d) => (
-        <li key={d.at} title={`delivered by ${d.how}`} className={LI}>
-          <Icon name="delivered" label="Delivered" aria-hidden="true" size={14} />
-          <span className="mono">{dateTime(d.at)}</span> Delivered ({d.how}): {d.outcome}
-        </li>
-      ))}
-      {events.map((e, i) => (
-        <li key={i} className={LI}>
-          <Icon name="changed" label="Event" aria-hidden="true" size={14} />
-          <span className="mono">{dateTime(e.at)}</span> {e.type}
-          {e.agent ? <> · <AgentLink name={e.agent} /></> : null}
-        </li>
-      ))}
-    </ol>
   );
 }
 

@@ -44,6 +44,7 @@ const rules: Record<string, Rule> = {
   'task.changed': ({ qc, d }, e) => {
     const t = data<Task>(e);
     edit(qc, qk.task(d, t.id), (old: object) => ({ ...old, ...t }));
+    void qc.invalidateQueries({ queryKey: qk.taskHistory(d, t.id) });
     patchTaskLists(qc, d, t);
     void qc.invalidateQueries({ queryKey: ['d', d, 'board'] });
   },
