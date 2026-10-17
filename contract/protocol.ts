@@ -306,6 +306,7 @@ export type Task = {
   /** The requests linked to the task, oldest first. */
   requests?: {
     id: number;
+    ref?: RequestRef;
     from: string;
     to: string;
     state: string;
@@ -438,6 +439,7 @@ export type DecisionOption = {
 
 export type InboxItem = {
   id: number;
+  ref?: RequestRef;
   kind: string;
   agent: AgentName | null;
   title: string;
@@ -820,6 +822,7 @@ export type Landing = "queued" | "typed" | "delivered" | "delivered_unanswered" 
 export type ChatMessage = {
   /** Request id. */
   id: number;
+  ref?: RequestRef;
   at: Timestamp;
   /** When the request entered its current state (queued, typed, landed, withdrawn...). Never null; the creation time until it first changes. */
   state_at: Timestamp;
@@ -1161,6 +1164,8 @@ export type ChatRequestItem = {
   /** task_event only: the text typed with a handoff, else empty. Text from an agent. */
   note?: string;
   request?: number | null;
+  /** task_event only: the ref of the delivery in request. */
+  request_ref?: RequestRef | null;
   /** session only: why a new conversation started (restart, wake, fresh close, move, handoff, launch). An open set. */
   cause?: string;
   handoff?: string | null;
@@ -1399,6 +1404,9 @@ export type HistoryRow = {
   /** With a memo row: the memo's id. */
   memo?: number;
 };
+
+/** The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else. */
+export type RequestRef = string;
 
 export interface Methods {
   "hello": { params: {
@@ -1910,6 +1918,7 @@ export interface Methods {
   wait_s?: number;
 }; result: {
     id: number;
+    ref?: RequestRef;
     requester: string;
     target: string;
     /** ask, task, say and the like; a request with none is an ask. */
@@ -1922,6 +1931,7 @@ export interface Methods {
     chain_depth: number;
     parent: {
       id: number;
+      ref?: RequestRef;
       /** The start of the parent's first line, at most 40 characters and an ellipsis. */
       line: string;
     } | null;

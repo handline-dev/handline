@@ -29,9 +29,30 @@ func norm(v any) any {
 }
 
 func same(a, b any) bool {
-	x, _ := json.Marshal(norm(a))
-	y, _ := json.Marshal(norm(b))
+	x, _ := json.Marshal(withoutRefs(norm(a)))
+	y, _ := json.Marshal(withoutRefs(norm(b)))
 	return string(x) == string(y)
+}
+
+// withoutRefs is v without the requests' refs: they are random, and newer than the recorded rows.
+func withoutRefs(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := map[string]any{}
+		for k, e := range x {
+			if k != "ref" && k != "request_ref" {
+				out[k] = withoutRefs(e)
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = withoutRefs(e)
+		}
+		return out
+	}
+	return v
 }
 
 // parity runs the Go detector over a database that setup and then change are applied to, and returns the rows the Python watcher wrote
