@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
@@ -90,16 +89,8 @@ func Register(s *rpc.Server, home string, tell Teller, decide CardDecider) {
 	s.Register("task.memo.delete", rpc.Method{Role: "agent", Write: true, Handler: memoDelete(tell)})
 }
 
-// claimImages checks the images text names, where it replaces was, and claims them (contract x-attachments, texts). by is the writer: an
-// agent names only images a task already shows.
 func claimImages(tx *sql.Tx, home, by, text, was, field string) error {
-	s := attachments.New(home)
-	ids, err := s.Check(tx, text, was, field, by != human)
-	if err != nil || len(ids) == 0 {
-		return err
-	}
-	_, err = s.Claim(ids)
-	return err
+	return attachments.New(home).ClaimText(tx, text, was, field, by != human)
 }
 
 func badParam(message, field string) *rpc.Error {
@@ -190,6 +181,12 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 		if err != nil {
 			return nil, err
 		}
+		paths, err := attachments.FilePaths(p)
+		if err != nil {
+			return nil, err
+		}
+		store := attachments.New(home)
+		var files []attachments.Info
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 			if ok, err := hasTask(tx, tid); err != nil || !ok {
 				if err != nil {
@@ -200,16 +197,24 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 			if err := claimImages(tx, home, c.Caller.Actor(), body, "", "text"); err != nil {
 				return nil, err
 			}
-			res, err := tx.Exec("INSERT INTO task_memos(task_id, author, body, created_at) VALUES (?, ?, ?, ?)", tid, c.Caller.Actor(), body,
-				float64(time.Now().UnixNano())/1e9)
+			mid, err := db.AddMemo(tx, tid, c.Caller.Actor(), body)
 			if err != nil {
 				return nil, err
 			}
-			mid, _ := res.LastInsertId()
+			if files, err = store.AddFiles(tx, home, c.Caller.Actor(), c.Caller.Actor() == human, paths); err != nil {
+				return nil, err
+			}
+			if err := store.AttachMemo(tx, mid, files); err != nil {
+				return nil, err
+			}
 			return accepted(fmt.Sprintf("memo %d added to T%d", mid, tid), map[string]any{"memo": mid}), nil
 		})
 		if err == nil && tell != nil {
-			tell.MemoChanged(tid, c.Caller.Actor(), "added", body, now)
+			told := body
+			if lines := store.FileLines(files); lines != "" {
+				told += "\n" + lines
+			}
+			tell.MemoChanged(tid, c.Caller.Actor(), "added", told, now)
 		}
 		return out, err
 	}
@@ -249,7 +254,7 @@ func memoEdit(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, er
 			if err := claimImages(tx, home, c.Caller.Actor(), body, was, "text"); err != nil {
 				return nil, err
 			}
-			if _, err := tx.Exec("UPDATE task_memos SET body = ?, edited_at = ? WHERE id = ?", body, time.Now().Unix(), mid); err != nil {
+			if err := db.EditMemo(tx, mid, c.Caller.Actor(), body); err != nil {
 				return nil, err
 			}
 			return accepted(fmt.Sprintf("memo %d on T%d edited", mid, tid), nil), nil
@@ -285,7 +290,10 @@ func memoDelete(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 			if err := guard(c.Caller.Actor(), author, mid); err != nil {
 				return nil, err
 			}
-			if _, err := tx.Exec("DELETE FROM task_memos WHERE id = ?", mid); err != nil {
+			if err := db.DeleteMemo(tx, mid, c.Caller.Actor()); err != nil {
+				return nil, err
+			}
+			if err := attachments.UnlinkMemo(tx, mid); err != nil {
 				return nil, err
 			}
 			return accepted(fmt.Sprintf("memo %d deleted from T%d", mid, tid), nil), nil

@@ -145,21 +145,25 @@ func TestAMemoOnADoingTaskIsTypedAtItsHolderWhenThePortsAreWired(t *testing.T) {
 	d, agents := tellDaemon(t, true)
 	doing(t, d, "bob")
 	f := pipeTo(t, d, "k")
-	r := f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.memo.add","params":{"task":1,"text":"mind the cache","request_id":"m1"}}`)
+	r := f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.memo.add","params":{"task":1,"text":"@bob mind the cache","request_id":"m1"}}`)
 	if r["result"] == nil {
 		t.Fatalf("%v", r)
 	}
 	if got := agents.said("bob"); !strings.Contains(got, "mind the cache") {
 		t.Fatalf("the holder was not told: %q", got)
 	}
-	for _, c := range []struct{ call, want string }{
-		{`{"jsonrpc":"2.0","id":3,"method":"task.memo.edit","params":{"task":1,"memo":1,"text":"mind the disk","request_id":"m2"}}`, "memo edited by human: mind the disk"},
-		{`{"jsonrpc":"2.0","id":4,"method":"task.memo.delete","params":{"task":1,"memo":1,"request_id":"m3"}}`, "memo deleted by human"},
-	} {
-		result(t, f.ask(c.call))
-		if got := agents.said("bob"); !strings.Contains(got, c.want) {
-			t.Fatalf("%q is not in %q", c.want, got)
-		}
+	result(t, f.ask(`{"jsonrpc":"2.0","id":3,"method":"task.memo.edit","params":{"task":1,"memo":1,"text":"@bob mind the disk","request_id":"m2"}}`))
+	if got := agents.said("bob"); !strings.Contains(got, "memo edited by human: @bob mind the disk") {
+		t.Fatalf("the edit was not typed: %q", got)
+	}
+	// a delete names no reader, so it waits in the holder's digest
+	result(t, f.ask(`{"jsonrpc":"2.0","id":4,"method":"task.memo.delete","params":{"task":1,"memo":1,"request_id":"m3"}}`))
+	held, err := db.PendingNotices(d.db, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(held) == 0 || !strings.Contains(held[len(held)-1].Body, "memo deleted by human") {
+		t.Fatalf("the delete is not in the holder's digest: %v", held)
 	}
 }
 
@@ -239,7 +243,7 @@ func TestNoTellingWhenThePortsAreNotAllSet(t *testing.T) {
 	doing(t, d, "bob")
 	agents.typed = map[string][]string{}
 	f := pipeTo(t, d, "k")
-	result(t, f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.memo.add","params":{"task":1,"text":"mind the cache","request_id":"m1"}}`))
+	result(t, f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.memo.add","params":{"task":1,"text":"@bob mind the cache","request_id":"m1"}}`))
 	if got := agents.said("bob"); got != "" {
 		t.Fatalf("nothing is told: %q", got)
 	}

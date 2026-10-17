@@ -152,13 +152,16 @@ describe('X1 Worktrees', () => {
   it('says so when the daemon does not serve worktrees, and has no rail entry', async () => {
     await mount('#/worktrees', setup({ daemon: { admin: false } }));
     await until(() => text($('.worktrees')).includes('This daemon does not serve worktrees.'), 'the note');
-    expect($$('.rail-nav button').some((b) => text(b).includes('Worktrees'))).toBe(false);
+    await click($('.rail-nav [aria-label^="More"]')!);
+    expect([...document.querySelectorAll('[role=menuitem]')].some((b) => text(b).includes('Worktrees'))).toBe(false);
   });
 
   it('has a rail entry when served, and it opens the page', async () => {
     await mount('#/inbox');
-    await until(() => $$('.rail-nav button').some((b) => text(b).includes('Worktrees')), 'the entry');
-    await click($$('.rail-nav button').find((b) => text(b).includes('Worktrees')));
+    await click($('.rail-nav [aria-label^="More"]')!);
+    const entry = () => [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((b) => text(b).includes('Worktrees'));
+    await until(entry, 'the entry');
+    await click(entry()!);
     expect(location.hash).toBe('#/worktrees');
     await until(() => rows().length === 5, 'the rows');
   });

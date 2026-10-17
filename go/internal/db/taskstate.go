@@ -275,7 +275,7 @@ func WaitingTasks(q Q, agent string) ([]WaitingTask, error) {
 		}
 		var req *Request
 		for _, r := range linked {
-			if Asks(r) {
+			if Asks(r) && r.Kind.String != "say" { // a notice linked to the task never delivers it
 				req = r
 				break
 			}

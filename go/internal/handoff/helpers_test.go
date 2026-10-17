@@ -38,6 +38,7 @@ func (f *fakeTelling) TypeNotice(_ db.Q, agent, text string) (bool, error) {
 type fakeSettings struct {
 	global map[string]bool
 	agent  map[string]bool // agent+"/"+key
+	text   map[string]string
 }
 
 func (f *fakeSettings) Flag(k string, def bool) bool {
@@ -51,6 +52,7 @@ func (f *fakeSettings) AgentFlag(agent, k string) (bool, bool) {
 	v, ok := f.agent[agent+"/"+k]
 	return v, ok
 }
+func (f *fakeSettings) TextSetting(agent, k string) string { return f.text[agent+"/"+k] }
 
 type world struct {
 	*Env

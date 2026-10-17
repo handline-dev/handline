@@ -106,7 +106,7 @@ test('a pairing uri names the listener, its certificate fingerprint and the code
   assert.throws(() => parsePairingUri('https://example.com/?code=1'), /not a handline pairing uri/);
 });
 
-test('a code is redeemed once for a token; with it hello makes the caller a member', async (t) => {
+test('a code is redeemed once for a token; with it hello makes the caller a device acting as the founder', async (t) => {
   const l = await listener(t);
   if (!l) return;
   const { token, device } = await redeemPairing(l.connect, l.daemon.issueCode(), 'phone');
@@ -115,7 +115,7 @@ test('a code is redeemed once for a token; with it hello makes the caller a memb
 
   const paired = new DaemonClient({ connect: l.connect, client: 'web', token, reconnect: false });
   const hello = await paired.start();
-  assert.equal(hello.role, 'member');
+  assert.equal(hello.role, 'founder');
   assert.equal(hello.transport, 'network');
   assert.deepEqual(hello.caller, { kind: 'device', device, name: 'phone' });
   assert.ok((await paired.call('agents.list', {})).agents.length > 0);

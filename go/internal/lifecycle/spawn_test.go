@@ -3,8 +3,10 @@ package lifecycle
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -117,6 +119,20 @@ func TestStartInOpensTheTerminalInTheKeptWorktreeAndChecksASessionCameUp(t *test
 	}
 	if ok, said, _ := s.StartIn("a", filepath.Join(wt, "gone"), "x"); ok || !strings.Contains(said, "its worktree") {
 		t.Fatalf("%v %q", ok, said)
+	}
+}
+
+// The folder is marked trusted before the terminal opens in it, on both ways a terminal is opened, so the session never shows the dialog.
+func TestTheWorktreeIsTrustedBeforeItsTerminalOpens(t *testing.T) {
+	s, h, repo := spawnRig(t)
+	var trusted []string
+	s.TrustFolder = func(agent, folder string) {
+		trusted = append(trusted, fmt.Sprintf("%s@%s, %d open", agent, folder, len(h.opened)))
+	}
+	s.Spawn("a", repo)
+	s.StartIn("a", h.wtMade, "x")
+	if want := []string{"a@" + h.wtMade + ", 0 open", "a@" + h.wtMade + ", 1 open"}; !slices.Equal(trusted, want) || len(h.opened) != 2 {
+		t.Fatalf("%q", trusted)
 	}
 }
 

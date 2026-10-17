@@ -38,7 +38,7 @@ function Tool(props: { e: Extract<Entry, { type: 'tool' }>; agent: string; held:
   return (
     <View testID={`tool-${e.id}`}>
       <Fold id={`tr-${e.seq}`} head={`${e.tool ?? 'tool'} ${inputLine(e.input)}`} body={JSON.stringify(e.input, null, 2)} />
-      {asking && card && <PromptCard agent={props.agent} prompt={card.prompt} onStale={() => {}} />}
+      {asking && card && <PromptCard agent={props.agent} prompt={card.prompt} />}
       {e.answer && (
         <Text testID={`answer-${e.id}`} style={{ color: c.muted, fontSize: 12 }}>
           {e.answer.behavior === 'allow' ? 'Allowed' : 'Denied'} by {e.answer.by}

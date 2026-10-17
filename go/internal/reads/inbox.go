@@ -57,6 +57,7 @@ func shownVerdict(r row) (string, bool) {
 type mailbox struct {
 	id        int64
 	ts        int64
+	ref       string
 	from      string
 	kind      string
 	body      string
@@ -79,16 +80,16 @@ func (e *Env) mailboxRows() ([]mailbox, error) {
 	for _, g := range gateRows {
 		gates[g.i("id")] = true
 	}
-	rows, err := query(e.DB, "SELECT id, ts, requester, kind, response, body FROM requests WHERE target = ? AND "+founderOpen+" ORDER BY id", human)
+	rows, err := query(e.DB, "SELECT id, ref, ts, requester, kind, response, body FROM requests WHERE target = ? AND "+founderOpen+" ORDER BY id", human)
 	if err != nil {
 		return nil, err
 	}
 	var out []mailbox
 	for _, r := range rows {
-		out = append(out, mailbox{id: r.i("id"), ts: r.i("ts"), from: r.str("requester"), kind: r.str("kind"),
+		out = append(out, mailbox{id: r.i("id"), ref: r.str("ref"), ts: r.i("ts"), from: r.str("requester"), kind: r.str("kind"),
 			body: r.str("body"), seq: r.i("id"), gate: gates[r.i("id")], waiting: r.str("response") == "async" && r.str("kind") != "say"})
 	}
-	answers, err := query(e.DB, "SELECT id, ts, state_at, target, kind, state, body, parent_id, chain_id, "+dismissedSQL+", "+answerSQL+
+	answers, err := query(e.DB, "SELECT id, ref, ts, state_at, target, kind, state, body, parent_id, chain_id, "+dismissedSQL+", "+answerSQL+
 		" FROM requests WHERE requester = ? AND state IN ('landed', 'withdrawn') AND EXISTS (SELECT 1 FROM requests a "+
 		"WHERE a.settles = requests.id AND a.state = 'landed' AND a.delivered_at IS NULL) ORDER BY id", human)
 	if err != nil {
@@ -116,7 +117,7 @@ func (e *Env) mailboxRows() ([]mailbox, error) {
 		} else if a != nil {
 			seq = a.i("id")
 		}
-		out = append(out, mailbox{id: r.i("id"), ts: num(at), from: r.str("target"), kind: kind, body: verdict, seq: seq, ans: true})
+		out = append(out, mailbox{id: r.i("id"), ref: r.str("ref"), ts: num(at), from: r.str("target"), kind: kind, body: verdict, seq: seq, ans: true})
 	}
 	return out, nil
 }
@@ -131,7 +132,7 @@ func firstLine(text string) string {
 	return "(empty)"
 }
 
-func (e *Env) item(id int64, kind, agent, body string, at int64, read, answered bool) (map[string]any, error) {
+func (e *Env) item(id int64, ref, kind, agent, body string, at int64, read, answered bool) (map[string]any, error) {
 	tasks, err := query(e.DB, "SELECT t.* FROM tasks t JOIN task_requests l ON l.task_id = t.id WHERE l.request_id = ? ORDER BY t.id", id)
 	if err != nil {
 		return nil, err
@@ -140,7 +141,7 @@ func (e *Env) item(id int64, kind, agent, body string, at int64, read, answered 
 	if len(tasks) > 0 {
 		evidence, task = tasks[0].strOrNil("done_evidence"), tasks[0].i("id")
 	}
-	return map[string]any{"id": id, "kind": kind, "agent": agent, "title": head(firstLine(body), 200), "body": body,
+	return map[string]any{"id": id, "ref": ref, "kind": kind, "agent": agent, "title": head(firstLine(body), 200), "body": body,
 		"evidence": evidence, "task": task, "created": ts(at), "read": read, "answered": answered,
 		"options": []any{}, "prompt": nil}, nil
 }
@@ -175,7 +176,7 @@ func (e *Env) FounderItems(since int64) ([]map[string]any, error) {
 		} else if kind == "" {
 			kind = "ask"
 		}
-		it, err := e.item(m.id, kind, m.from, m.body, m.ts, m.seq <= cursor, false)
+		it, err := e.item(m.id, m.ref, kind, m.from, m.body, m.ts, m.seq <= cursor, false)
 		if err != nil {
 			return nil, err
 		}
@@ -193,7 +194,7 @@ func (e *Env) AgentItems(agent string, only int64) ([]map[string]any, error) {
 	if only != 0 {
 		which, args = "AND id = ? ", append(args, only)
 	}
-	rows, err := query(e.DB, "SELECT id, ts, requester, kind, body, read_at, state, "+answerSQL+" FROM requests "+
+	rows, err := query(e.DB, "SELECT id, ref, ts, requester, kind, body, read_at, state, "+answerSQL+" FROM requests "+
 		"WHERE target = ? "+which+"AND edge_ok AND COALESCE(notice, 0) = 0 ORDER BY id", args...)
 	if err != nil {
 		return nil, err
@@ -204,7 +205,7 @@ func (e *Env) AgentItems(agent string, only int64) ([]map[string]any, error) {
 		if kind == "" {
 			kind = "ask"
 		}
-		it, err := e.item(r.i("id"), kind, r.str("requester"), r.str("body"), r.i("ts"),
+		it, err := e.item(r.i("id"), r.str("ref"), kind, r.str("requester"), r.str("body"), r.i("ts"),
 			r.set("read_at") || r.str("state") != "queued", r.set("answer"))
 		if err != nil {
 			return nil, err

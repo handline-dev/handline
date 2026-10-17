@@ -51,7 +51,7 @@ func dialRelay(t *testing.T, d *Daemon) *client {
 
 const relayOpen = `{"jsonrpc":"2.0","id":0,"method":"relay.open","params":{"device_id":"dev-1","name":"Phone","role":"member"}}`
 
-func TestARelayedCallFromAPairedDeviceIsAnsweredAtMemberWithOnlyThisDaemonRunning(t *testing.T) {
+func TestARelayedCallFromAPairedDeviceIsAnsweredAtFounderWithOnlyThisDaemonRunning(t *testing.T) {
 	d := startRelaying(t, fakeAuth{}, os.Getpid())
 	c := dialRelay(t, d)
 	if r := c.raw(t, relayOpen); r["result"] == nil {
@@ -60,7 +60,7 @@ func TestARelayedCallFromAPairedDeviceIsAnsweredAtMemberWithOnlyThisDaemonRunnin
 	// a hello changes nothing about who is calling
 	r := c.raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"gateway","protocol":1,"key":"x","token":"t"}}`)
 	res, _ := r["result"].(map[string]any)
-	if res == nil || res["role"] != "member" {
+	if res == nil || res["role"] != "founder" {
 		t.Fatalf("hello: %v", r)
 	}
 	if caller, _ := res["caller"].(map[string]any); caller["kind"] != "device" || caller["device"] != "dev-1" {
@@ -71,9 +71,12 @@ func TestARelayedCallFromAPairedDeviceIsAnsweredAtMemberWithOnlyThisDaemonRunnin
 			t.Fatalf("a member call was refused for role: %v", r)
 		}
 	}
-	r = c.raw(t, `{"jsonrpc":"2.0","id":3,"method":"settings.get","params":{}}`)
-	if e, _ := r["error"].(map[string]any); e == nil || !strings.Contains(e["message"].(string), "this caller is member") {
-		t.Fatalf("a founder call was not refused at the device's role: %v", r)
+	// a paired device is the founder: settings.get is its own, and an agent-only method is not
+	if r = c.raw(t, `{"jsonrpc":"2.0","id":3,"method":"settings.get","params":{}}`); r["result"] == nil {
+		t.Fatalf("a founder call was refused a paired device: %v", r)
+	}
+	if r = c.raw(t, `{"jsonrpc":"2.0","id":4,"method":"hook.record","params":{}}`); r["error"] == nil {
+		t.Fatalf("an agent-only call was served a paired device: %v", r)
 	}
 }
 

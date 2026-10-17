@@ -266,7 +266,7 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 		}
 		return &SayVerbOut{OK: ok, Msg: msg, After: func() {
 			if ok {
-				if err := e.TellMemo(e.DB, task, me, "added", body, false); err != nil {
+				if err := e.TellMemo(e.DB, task, me, "added", body, target, false); err != nil {
 					e.log("  telling about the memo on T%d failed: %v", task, err)
 				}
 			}

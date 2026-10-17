@@ -7,7 +7,7 @@ export { Select } from './Select.tsx';
 export { Switch } from './Switch.tsx';
 export { Segmented, type Choice } from './Segmented.tsx';
 export { Popup, PopupRow, PROW, PROW_NAME, PROW_HINT } from './Popup.tsx';
-export { Menu, type At, MenuButton, MenuCheckItem, MenuTrigger, MenuContent, MenuItem, MenuSeparator, MenuSub, MenuSubTrigger, MenuSubContent } from './Menu.tsx';
+export { Menu, type At, MenuButton, MenuCheckItem, MenuTrigger, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuSub, MenuSubTrigger, MenuSubContent } from './Menu.tsx';
 export { Dialog } from './Dialog.tsx';
 export { Empty } from './Empty.tsx';
 export { Page } from './Page.tsx';

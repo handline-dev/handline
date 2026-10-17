@@ -10,15 +10,17 @@ import { AgentList } from './AgentList.tsx';
 import { AgentPage } from './AgentPage.tsx';
 import { Inbox } from './Inbox.tsx';
 import { NewAgent, type Pending } from './NewAgent.tsx';
+import { SettingsPage } from './Settings.tsx';
+import { TeamPage } from './TeamEntry.tsx';
 import { Stats } from './Stats.tsx';
 import { Tasks } from './Tasks.tsx';
 import { Worktrees } from './Worktrees.tsx';
 import { Banner } from './parts.tsx';
 
-const TABS = ['agents', 'inbox', 'tasks', 'accounts', 'stats'] as const;
+const TABS = ['agents', 'inbox', 'tasks', 'usage'] as const;
 type Tab = (typeof TABS)[number];
 
-type Page = 'worktrees' | 'new' | null;
+type Page = 'worktrees' | 'new' | 'settings' | 'team' | null;
 
 /** `pending` is where New agent was left: with an operation in it, the app starts on that page. */
 export function Home(props: { store: Store; onUnpair: () => void; pending?: Pending }) {
@@ -48,18 +50,20 @@ export function Home(props: { store: Store; onUnpair: () => void; pending?: Pend
           <AgentPage />
         ) : page === 'worktrees' ? (
           <Worktrees onClose={() => setPage(null)} onAgent={toAgent} />
+        ) : page === 'team' ? (
+          <TeamPage onClose={() => setPage(null)} />
+        ) : page === 'settings' ? (
+          <SettingsPage onClose={() => setPage(null)} onUnpair={props.onUnpair} />
         ) : page === 'new' ? (
           <NewAgent pending={pending} onClose={() => setPage(null)} onAgent={toAgent} />
         ) : tab === 'inbox' ? (
           <Inbox />
         ) : tab === 'tasks' ? (
           <Tasks selected={task} onSelect={setTask} />
-        ) : tab === 'accounts' ? (
-          <Accounts selected={account} onSelect={setAccount} />
-        ) : tab === 'stats' ? (
-          <Stats />
+        ) : tab === 'usage' ? (
+          <Accounts selected={account} onSelect={setAccount} footer={<Stats />} />
         ) : (
-          <AgentList onUnpair={props.onUnpair} onPage={setPage} />
+          <AgentList onPage={setPage} />
         )}
       </View>
       {!open && !page && (
@@ -82,16 +86,14 @@ export function Home(props: { store: Store; onUnpair: () => void; pending?: Pend
                 borderTopColor: tab === t ? c.ink : 'transparent',
               }}
             >
-              <Text style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400' }}>
+              <Text numberOfLines={1} adjustsFontSizeToFit style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400' }}>
                 {t === 'agents'
                   ? 'Agents'
                   : t === 'inbox'
                     ? `Inbox${unread ? ` (${unread})` : ''}`
                     : t === 'tasks'
                       ? 'Tasks'
-                      : t === 'accounts'
-                        ? 'Accounts'
-                        : 'Stats'}
+                      : 'Usage'}
               </Text>
             </Pressable>
           ))}

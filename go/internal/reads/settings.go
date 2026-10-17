@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
@@ -18,7 +19,7 @@ import (
 const stopWaitBackstopS = 900
 
 // perAgent is rpc_settings.PER_AGENT: the settings an agent.yaml may override.
-var perAgent = []string{"park_timeout_s", "ignore_cache_expiry", "bg_notice_s", "bg_grace_s", "bg_check_s", "notice_digest_s"}
+var perAgent = []string{"park_timeout_s", "ignore_cache_expiry", "bg_notice_s", "bg_grace_s", "bg_check_s", "notice_digest_s", handoff.PromptKey}
 
 // hooksWanted is session/events.py's CAPTURED, ANSWERS and GUARDS: the events our hook is installed for.
 var hooksWanted = []string{"SessionStart", "SessionEnd", "Stop", "StopFailure", "SubagentStop", "PostCompact", "UserPromptSubmit",
@@ -117,7 +118,16 @@ func (e *Env) settingsValues() map[string]any {
 		"stop_wait_backstop_s": s.ConfigSeconds("stop_wait_backstop_s", stopWaitBackstopS),
 		"token_prices":         prices,
 		"input_hold_idle_s":    s.ConfigSeconds("input_hold_idle_s", defaultHoldIdleS),
+		handoff.PromptKey:      handoffPrompt(s.TextSetting("", handoff.PromptKey)),
 	}
+}
+
+// handoffPrompt is the handoff prompt as set, or the built-in one it falls back to.
+func handoffPrompt(set string) string {
+	if set == "" {
+		return handoff.AskTemplate
+	}
+	return set
 }
 
 // settingsGet is settings.get: timings, terminal host, listener, trust folders, hooks and every value.

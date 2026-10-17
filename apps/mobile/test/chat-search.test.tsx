@@ -10,6 +10,7 @@ async function open(prepare?: Parameters<typeof mount>[0]) {
   await until(() => $('tab-chat'), 'the page');
   await press($('tab-chat'));
   await until(() => $('chat-input'), 'the chat');
+  if ($('chat-search-open')) await press($('chat-search-open'));
   return m;
 }
 const search = async (value: string) => {
@@ -86,6 +87,7 @@ describe('chat search on the phone', () => {
   it('a daemon that does not list chat.search shows no box', async () => {
     const m = await open((s) => s.daemon.knobs.unserve('chat.search'));
     expect($('chat-search')).toBeNull();
+    expect($('chat-search-open')).toBeNull();
     m.store.stop();
   });
 });

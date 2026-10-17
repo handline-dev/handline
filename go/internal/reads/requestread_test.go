@@ -34,17 +34,17 @@ func read(t *testing.T, e *Env, c *rpc.Conn, id int64) map[string]any {
 func TestRequestReadIsTheRequestAsHlReadPrintsIt(t *testing.T) {
 	e := testEnv(t)
 	long := "which of the two branches should land first, the one with the fix or the other"
-	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(1, 10, 'bob', 'amy', ?, 'landed', 'ask', 1)", "\n"+long)
-	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(2, 20, 'bob', 'amy', ?, 'landed', NULL, 1)", long+"\r\nand why")
-	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, parent_id, relation, response, chain_depth) "+
-		"VALUES(3, 30, 'amy', 'bob', 'the first', 'landed', 'say', 1, 2, 'peer', 'async', 2)")
+	run(t, e, "INSERT INTO requests(id, ref, ts, requester, target, body, state, kind, edge_ok) VALUES(1, 'aaaaaaaaaaa1', 10, 'bob', 'amy', ?, 'landed', 'ask', 1)", "\n"+long)
+	run(t, e, "INSERT INTO requests(id, ref, ts, requester, target, body, state, kind, edge_ok) VALUES(2, 'aaaaaaaaaaa2', 20, 'bob', 'amy', ?, 'landed', NULL, 1)", long+"\r\nand why")
+	run(t, e, "INSERT INTO requests(id, ref, ts, requester, target, body, state, kind, edge_ok, parent_id, relation, response, chain_depth) "+
+		"VALUES(3, 'aaaaaaaaaaa3', 30, 'amy', 'bob', 'the first', 'landed', 'say', 1, 2, 'peer', 'async', 2)")
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, settles) VALUES(6, 60, 'bob', 'amy', 'done as asked', 'landed', 'say', 1, 3)")
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, parent_id) VALUES(4, 40, 'amy', 'bob', 'orphan', 'queued', 'say', 1, 99)")
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, parent_id) VALUES(5, 50, 'amy', 'bob', 'x', 'queued', 'say', 1, 1)")
 	want := map[string]any{
-		"id": int64(3), "requester": "amy", "target": "bob", "kind": "say", "state": "landed", "created": "1970-01-01T00:00:30Z",
+		"id": int64(3), "ref": "aaaaaaaaaaa3", "requester": "amy", "target": "bob", "kind": "say", "state": "landed", "created": "1970-01-01T00:00:30Z",
 		"relation": "peer", "response": "async", "chain_depth": int64(2),
-		"parent": map[string]any{"id": int64(2), "line": "which of the two branches should land fi…"},
+		"parent": map[string]any{"id": int64(2), "ref": "aaaaaaaaaaa2", "line": "which of the two branches should land fi…"},
 		"body":   "the first", "answer": "done as asked", "dismissal": nil,
 	}
 	// the founder is neither end and sees both ends, as hl read prints them
@@ -57,7 +57,7 @@ func TestRequestReadIsTheRequestAsHlReadPrintsIt(t *testing.T) {
 	if got := read(t, e, asBob, 4); got["parent"] != nil {
 		t.Fatalf("a parent that is gone: %v", got)
 	}
-	if got := read(t, e, asBob, 5); !reflect.DeepEqual(got["parent"], map[string]any{"id": int64(1), "line": ""}) {
+	if got := read(t, e, asBob, 5); !reflect.DeepEqual(got["parent"], map[string]any{"id": int64(1), "ref": "aaaaaaaaaaa1", "line": ""}) {
 		t.Fatalf("a parent whose first line is empty: %v", got["parent"])
 	}
 }
@@ -101,7 +101,7 @@ func TestOnlyTheFounderReadingARequestOpensIt(t *testing.T) {
 		}
 		return report.set("read_at"), answer.set("delivered_at")
 	}
-	asMember := &rpc.Conn{Caller: rpc.Caller{Role: "member", Info: map[string]any{"kind": "person"}}}
+	asMember := &rpc.Conn{Caller: rpc.Caller{Role: "founder", Info: map[string]any{"kind": "device", "device": "d1", "name": "phone"}}}
 	for _, c := range []*rpc.Conn{asBob, asMember} {
 		read(t, e, c, 1)
 		read(t, e, c, 2)

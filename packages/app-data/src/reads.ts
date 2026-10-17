@@ -35,6 +35,7 @@ export const reads = {
   'inbox.get': { resource: 'inbox-item', id: by('id'), feed: 'inbox' },
   'tasks.list': { resource: 'tasks', feed: 'tasks' },
   'task.get': { resource: 'task', id: by('task'), feed: 'tasks' },
+  'task.history': { resource: 'task-history', id: by('task'), feed: 'tasks' },
   'task.memo.list': { resource: 'memos', id: by('task') },
   'task.board': { resource: 'board', feed: 'tasks' },
   'trust.list': { resource: 'trust' },

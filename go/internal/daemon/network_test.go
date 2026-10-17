@@ -116,18 +116,17 @@ func TestAnUnpairedConnectionReadsNothingForAnyMethodOfTheSpec(t *testing.T) {
 	}
 }
 
-func TestPairingMakesAMemberWhoseRevocationClosesTheConnection(t *testing.T) {
+func TestPairingMakesAFounderDeviceWhoseRevocationClosesTheConnection(t *testing.T) {
 	d := startNet(t)
 	token, id := pair(t, d, "phone")
 	c := dialNet(t, d)
 	r := c.ask(`{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"t","protocol":1,"token":"` + token + `","key":"k"}}`)["result"].(map[string]any)
-	if r["role"] != "member" || r["transport"] != "network" || r["caller"].(map[string]any)["device"] != id {
+	if r["role"] != "founder" || r["transport"] != "network" || r["caller"].(map[string]any)["device"] != id {
 		t.Fatalf("%v", r)
 	}
-	// a member is refused what is above it, by role
-	e := c.ask(`{"jsonrpc":"2.0","id":2,"method":"devices.list"}`)["error"].(map[string]any)
-	if e["data"].(map[string]any)["gate"] != "role" {
-		t.Fatalf("%v", e)
+	// a paired device is the founder: what is the founder's is its own
+	if r := c.ask(`{"jsonrpc":"2.0","id":2,"method":"devices.list"}`); r["result"] == nil {
+		t.Fatalf("%v", r)
 	}
 	if c.ask(`{"jsonrpc":"2.0","id":3,"method":"whoami"}`)["result"] == nil {
 		t.Fatal("a member cannot call whoami")
@@ -281,7 +280,7 @@ func TestPairedDevicesSurviveARestartAndARevokedOneStaysRefused(t *testing.T) {
 	if d, err = Start(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if r, _ := hello(d, keep)["result"].(map[string]any); r["role"] != "member" {
+	if r, _ := hello(d, keep)["result"].(map[string]any); r["role"] != "founder" {
 		t.Fatalf("a paired device was forgotten by a restart: %v", r)
 	}
 	if ds, _ := d.dev.List(); len(ds) != 2 {
@@ -298,7 +297,7 @@ func TestPairedDevicesSurviveARestartAndARevokedOneStaysRefused(t *testing.T) {
 	if !reflect.DeepEqual(hello(d, gone)["error"], unpaired) {
 		t.Fatal("a revoked device was paired again by a restart")
 	}
-	if r, _ := hello(d, keep)["result"].(map[string]any); r["role"] != "member" {
+	if r, _ := hello(d, keep)["result"].(map[string]any); r["role"] != "founder" {
 		t.Fatalf("%v", r)
 	}
 	var stored int

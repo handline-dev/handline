@@ -17,7 +17,6 @@ import {
 } from './session.ts';
 import { PairScreen } from './screens/PairScreen.tsx';
 import { Home } from './screens/Home.tsx';
-import { TeamEntry } from './screens/TeamEntry.tsx';
 import { usePalette } from './theme.ts';
 
 export default function App() {
@@ -49,7 +48,6 @@ export default function App() {
               void forgetPairing().then(() => (setPairing(null), setOperation(null)));
             }}
           />
-          <TeamEntry />
         </DataProvider>
       </DaemonProvider>
     );

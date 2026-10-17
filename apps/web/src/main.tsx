@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { Start } from './Start.tsx';
+import { applyTheme, themeOf } from './appearance.ts';
 import { browserStorage, daemonUrl } from './daemon.ts';
 import { inShell, trackShellInsets } from './shell.ts';
 import './styles.css';
@@ -9,6 +10,8 @@ if (inShell()) {
   document.documentElement.dataset.shell = 'desktop';
   trackShellInsets();
 }
+
+applyTheme(themeOf(browserStorage()));
 
 // Dev only: keys 1-5 try a preview theme (5 is the tokens' own light/white; 1-4 are styles/themes.css), 0 back to the app's own.
 if (import.meta.env.DEV) {

@@ -41,8 +41,8 @@ export class FakeDaemon {
   /** Test controls: `knobs.latency(ms)` and `knobs.refuse(method, gate, reason, hint)`. */
   readonly knobs = new Knobs();
   readonly chat: FakeChat;
-  /** The role a paired device gets: a phone is a member; a test or demo that wants the founder's verbs on one sets 'founder'. */
-  deviceRole: Role = 'member';
+  /** The role a paired device gets: the founder's, as the real daemon gives it; a test that wants a restricted device sets 'member'. */
+  deviceRole: Role = 'founder';
   /** The numbers pr.exists reports as pull requests, for every agent. */
   readonly pullRequests = new Set<number>();
   /** Puts a proposal in as an agent raised it (the hr topic announces it); a demo or test uses this instead of reaching into the script. */

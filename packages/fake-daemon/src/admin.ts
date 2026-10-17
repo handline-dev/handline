@@ -36,8 +36,8 @@ export class FakeAdmin {
     ignore_cache_expiry: false,
   };
   private devices = [
-    { id: 'd1', name: 'Handline desktop', role: 'member' as const, created: '2026-10-01T09:00:00Z', last_seen: '2026-10-16T01:00:00Z', connected: true },
-    { id: 'd2', name: 'phone-3b54', role: 'member' as const, created: '2026-10-05T09:00:00Z', last_seen: '2026-10-12T08:00:00Z', connected: false },
+    { id: 'd1', name: 'Handline desktop', role: 'founder' as const, created: '2026-10-01T09:00:00Z', last_seen: '2026-10-16T01:00:00Z', connected: true },
+    { id: 'd2', name: 'phone-3b54', role: 'founder' as const, created: '2026-10-05T09:00:00Z', last_seen: '2026-10-12T08:00:00Z', connected: false },
   ];
   private answers: StandingAnswer[] = [
     { kind: 'trust', key: ['/work/handline.architect'], text: 'trust folder /work/handline.architect' },

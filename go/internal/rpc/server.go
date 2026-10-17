@@ -199,9 +199,9 @@ func (s *Server) ServeNet(tr Transport, remote string, closeConn func()) {
 }
 
 // ServeRelayed serves a paired device's calls that a gateway relays: the device is already authenticated, so the caller is
-// that device at member, whatever hello says, and the connection has no idle limit (it ends when the gateway closes it).
+// that device at founder (a paired device is the founder), whatever hello says, and the connection has no idle limit (it ends when the gateway closes it).
 func (s *Server) ServeRelayed(tr Transport, device, name string) {
-	s.serveAs(tr, 0, "", nil, &Caller{"member", map[string]any{"kind": "device", "device": device, "name": name}})
+	s.serveAs(tr, 0, "", nil, &Caller{"founder", map[string]any{"kind": "device", "device": device, "name": name}})
 }
 
 func (s *Server) serve(tr Transport, pid int, remote string, closeConn func()) {
@@ -593,7 +593,7 @@ func hello(c *Conn, params map[string]any) (any, error) {
 			return nil, UnpairedError()
 		}
 		c.device, c.deviceName, c.release = id, name, release
-		c.Caller = Caller{"member", map[string]any{"kind": "device", "device": id, "name": name}}
+		c.Caller = Caller{"founder", map[string]any{"kind": "device", "device": id, "name": name}}
 	} else if c.fixed == nil {
 		c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
 		if c.Caller.Role == "founder" {
