@@ -406,7 +406,7 @@ describe('the detail', () => {
     expect(text(d)).toContain('Asked by');
     expect(text(d)).toContain('handline.architect');
     expect(text(d)).toContain('T1684'); // under, local-ref-ok
-    expect(text(d)).toContain('History');
+    await until(() => text(d).includes('History'), 'the history');
     await press('Escape', {}, $('.tbody')!);
     await until(() => location.hash === '#/tasks', 'the list again');
   });

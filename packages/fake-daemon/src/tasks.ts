@@ -3,6 +3,7 @@
 import type { HistoryRow, Memo, Task, TaskClock, TaskDetail } from '@handline/contract';
 import { seedTasks } from './fixtures.ts';
 import { invalidParams, refused, storeFailure } from './errors.ts';
+import { changes } from './history.ts';
 import { refs, type FakeAttachments } from './attachments.ts';
 
 export class TaskFailure extends Error {
@@ -96,22 +97,6 @@ export class FakeTasks {
     ];
   }
 
-  /** The history rows a patch makes: one per field it changes. */
-  private record(t: Row, patch: Partial<Row>): void {
-    const at = this.now();
-    const log = (field: HistoryRow['field'], was: unknown, now: unknown) => {
-      if (String(was ?? '') !== String(now ?? '')) (t.history ??= []).push({ at, by: this.by, field, was: String(was ?? ''), now: String(now ?? '') });
-    };
-    if ('title' in patch) log('title', t.title, patch.title);
-    if ('to' in patch) log('assignee', t.to, patch.to);
-    if ('body' in patch) log('body', t.body, patch.body);
-    if ('priority' in patch) log('priority', t.priority ? `P${t.priority}` : '', patch.priority ? `P${patch.priority}` : '');
-    if ('time_box' in patch) log('timeout', t.time_box, patch.time_box);
-    if ('state' in patch) log('state', t.state, patch.state);
-    if (patch.blockers && patch.blockers.length > t.blockers.length)
-      log('blocked_by', '', `T${patch.blockers.find((b) => !t.blockers.some((o) => o.task === b.task))?.task}`);
-  }
-
   find(id: unknown): Row {
     const t = this.rows.find((r) => r.id === id);
     if (!t) throw new TaskFailure('not_found', `no task ${String(id)}`);
@@ -143,7 +128,7 @@ export class FakeTasks {
     };
   }
   private change(t: Row, patch: Partial<Row>): void {
-    this.record(t, patch);
+    (t.history ??= []).push(...changes(t, patch, this.now(), this.by));
     Object.assign(t, patch);
     this.emit(this.view(t));
     // As the daemon: a discarded task blocks nothing, so it leaves every waits (a done one stays, open false).
