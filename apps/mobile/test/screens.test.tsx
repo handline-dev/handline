@@ -106,8 +106,26 @@ describe('the inbox tab', () => {
     await until(() => $('unread-count')?.textContent === '0', 'the count to drop');
     await press($(`inbox-open-${DECISION}`));
     await press(done(DECISION));
-    await until(() => $('empty'), 'the empty sentence');
+    await until(() => $('inbox-clear'), 'the empty sentence');
     expect(text()).toContain('Nothing waits on you');
+    expect(item(RESULT)).toBeNull(); // what is read waits in the Read group, shut
+    await press($('inbox-group-open-read'));
+    await until(() => item(RESULT), 'the read item in its group');
+    m.store.stop();
+  });
+
+  it('shows the task board\'s messages as one row that opens to them', async () => {
+    const m = await mount((s) => {
+      s.daemon.inbox.add({ kind: 'say', agent: 'task-board', title: 'T1 done by a', created: new Date().toISOString() });
+      s.daemon.inbox.add({ kind: 'say', agent: 'task-board', title: 'T2 done by b', created: new Date().toISOString() });
+    });
+    await tab('inbox');
+    await until(() => $('inbox-group-digest'), 'the digest row');
+    expect(text($('inbox-group-digest'))).toContain('task-board: 2 messages');
+    expect(text()).not.toContain('T1 done by a'); // shut, they are not listed one by one
+    await press($('inbox-group-open-digest'));
+    await until(() => text($('inbox-group-digest')).includes('T2 done by b'), 'the messages');
+    expect(text($('inbox-group-digest'))).toContain('T1 done by a');
     m.store.stop();
   });
 
