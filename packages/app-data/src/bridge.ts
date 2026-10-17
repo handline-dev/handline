@@ -24,7 +24,11 @@ const data = <T>(e: WireEvent) => e.data as unknown as Data<T>;
 const rules: Record<string, Rule> = {
   'agent.changed': ({ qc, d }, e) => {
     const a = data<AgentView>(e);
-    edit<{ agents: AgentView[] }>(qc, qk.agents(d), (l) => ({ ...l, agents: upsert(l.agents, a, (x) => x.name === a.name) }));
+    edit<{ agents: AgentView[] }>(qc, qk.agents(d), (l) => ({
+      ...l,
+      // The event row lacks what the list adds (last message to the founder, unread count); the cached row keeps them.
+      agents: upsert(l.agents, { ...l.agents.find((x) => x.name === a.name), ...a }, (x) => x.name === a.name),
+    }));
     edit<AgentDetail>(qc, qk.agent(d, a.name), (old) => ({ ...old, ...a }));
     // The row does not carry what the detail adds (terminal, who may type, the open prompt), so an open detail is read again.
     void qc.invalidateQueries({ queryKey: qk.agent(d, a.name) });
@@ -130,6 +134,8 @@ function hr({ qc, d }: Ctx, e: WireEvent) {
 /** An unfiltered list takes the item in place; a filtered one may or may not now hold it, so it is read again. */
 function inbox({ qc, d }: Ctx, e: WireEvent) {
   const item = data<InboxItem>(e);
+  // The agent list carries each agent's unread count, which the item alone cannot update.
+  void qc.invalidateQueries({ queryKey: qk.agents(d), exact: true });
   for (const [key] of qc.getQueriesData({ queryKey: qk.inboxes(d) })) {
     if (key.length === qk.inboxes(d).length)
       edit<{ items: InboxItem[] }>(qc, key, (l) => ({ ...l, items: upsert(l.items, item, (x) => x.id === item.id, 'start') }));

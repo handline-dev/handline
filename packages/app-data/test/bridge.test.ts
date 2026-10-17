@@ -32,6 +32,15 @@ describe('agents', () => {
       session_open: false,
     });
   });
+  it('agent.changed keeps the list-only fields the cached row has', () => {
+    qc.setQueryData(qk.agents(D), { agents: [{ ...agent('a'), founder_unread: 2 }] });
+    applyEvent(c, ev('agent.changed', agent('a', 'working')));
+    expect(qc.getQueryData<{ agents: Record<string, unknown>[] }>(qk.agents(D))!.agents[0]).toMatchObject({ state: 'working', founder_unread: 2 });
+  });
+  it('inbox events read the agent list again, since it carries each unread count', () => {
+    applyEvent(c, ev('inbox.changed', { id: 1 }, { topic: 'inbox' }));
+    expect(stale(qk.agents(D))).toBe(true);
+  });
   it('agent.changed also reads an open detail again, since the row lacks the terminal and who may type', () => {
     applyEvent(c, ev('agent.changed', agent('a', 'working')));
     expect(stale(qk.agent(D, 'a'))).toBe(true);
