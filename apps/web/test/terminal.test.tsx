@@ -224,8 +224,10 @@ describe('the pane', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
   let proposed: { cols: number; rows: number } | null = null;
+  let cells: ((px: number) => { cols: number; rows: number }) | null = null; // a grid that depends on the font, as xterm's does
+  let font = 13;
   const fits: (() => void)[] = []; // what the pane calls when xterm has measured its cells
-  afterEach(() => void (proposed = null));
+  afterEach(() => void ((proposed = null), (cells = null), (font = 13)));
   let root: Root | null = null;
   let box: HTMLElement;
   afterEach(async () => {
@@ -245,7 +247,7 @@ describe('the pane', () => {
     const create: CreateTerm = () => {
       term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
       made.push(term);
-      return { term, propose: () => proposed, onFit: (fn) => (fits.push(fn), { dispose: () => void fits.splice(fits.indexOf(fn), 1) }), setFontSize() {}, mark: (l) => marks.push(l), focus() {}, dispose: () => term.dispose() };
+      return { term, propose: () => (cells ? cells(font) : proposed), onFit: (fn) => (fits.push(fn), { dispose: () => void fits.splice(fits.indexOf(fn), 1) }), setFontSize(px) { if (px !== font) { font = px; setTimeout(() => [...fits].forEach((f) => f()), 16); } }, mark: (l) => marks.push(l), focus() {}, dispose: () => term.dispose() };
     };
     const store = new Store(s.client);
     store.me = s.client.hello?.caller.name ?? ''; // the test store is never started, which is what sets it
@@ -360,6 +362,18 @@ describe('the pane', () => {
     watchers.forEach((w) => w());
     await until(() => resize.mock.calls.length > 1, 'the next size');
     expect(resize.mock.calls[1]!.slice(1)).toEqual([120, 40]);
+  });
+
+  it('asks for one size when the font would change the grid it proposes: the font does not follow the host while this pane sizes it', async () => {
+    const s = setup();
+    const resize = vi.spyOn(s.client.bytes, 'resize');
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600);
+    cells = (px) => ({ cols: Math.floor(1000 / (px * 0.6)), rows: 30 });
+    await mount(s);
+    await until(() => resize.mock.calls.length > 0, 'the size');
+    await wait(1200);
+    expect(resize).toHaveBeenCalledTimes(1);
+    expect(font).toBe(13);
   });
 
   it('a pane that is live before xterm has measured its cells sends its size when it is measured, with no click and no window change', async () => {
