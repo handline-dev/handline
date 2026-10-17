@@ -2,14 +2,13 @@
 // outlook (stats.outlook): the week left as recorded and guessed bars with each account's runway, or the cost per day, with ranges 12 h to 30 d.
 // Home settings are one tap away on the same tab. Every number is text too; a bar is never the only way to read it.
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { agentTime, span } from '@handline/app-core';
 import type { Outlook, Stats as StatsData } from '@handline/client';
 import { useOutlook, useServes, useStats } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
-import { PageHeader } from './parts.tsx';
 
 const WINDOWS = ['24h', '7d'] as const;
 type Window = (typeof WINDOWS)[number];
@@ -230,16 +229,14 @@ function Numbers() {
   );
 }
 
+/** The numbers and the outlook, for the Usage tab to show under the accounts. */
 export function Stats() {
+  const c = usePalette();
   return (
-    <View style={{ flex: 1 }}>
-      <View style={{ padding: space.lg }}>
-        <PageHeader bare title="Stats" />
-      </View>
-      <ScrollView testID="stats-page" contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.xl }}>
-        <Numbers />
-        <OutlookSection />
-      </ScrollView>
+    <View testID="stats-page" style={{ padding: space.lg, gap: space.xl }}>
+      <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>Stats</Text>
+      <Numbers />
+      <OutlookSection />
     </View>
   );
 }

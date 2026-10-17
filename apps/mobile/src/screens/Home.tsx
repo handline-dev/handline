@@ -17,7 +17,7 @@ import { Tasks } from './Tasks.tsx';
 import { Worktrees } from './Worktrees.tsx';
 import { Banner } from './parts.tsx';
 
-const TABS = ['agents', 'inbox', 'tasks', 'accounts', 'stats'] as const;
+const TABS = ['agents', 'inbox', 'tasks', 'usage'] as const;
 type Tab = (typeof TABS)[number];
 
 type Page = 'worktrees' | 'new' | 'settings' | 'team' | null;
@@ -60,10 +60,8 @@ export function Home(props: { store: Store; onUnpair: () => void; pending?: Pend
           <Inbox />
         ) : tab === 'tasks' ? (
           <Tasks selected={task} onSelect={setTask} />
-        ) : tab === 'accounts' ? (
-          <Accounts selected={account} onSelect={setAccount} />
-        ) : tab === 'stats' ? (
-          <Stats />
+        ) : tab === 'usage' ? (
+          <Accounts selected={account} onSelect={setAccount} footer={<Stats />} />
         ) : (
           <AgentList onPage={setPage} />
         )}
@@ -95,9 +93,7 @@ export function Home(props: { store: Store; onUnpair: () => void; pending?: Pend
                     ? `Inbox${unread ? ` (${unread})` : ''}`
                     : t === 'tasks'
                       ? 'Tasks'
-                      : t === 'accounts'
-                        ? 'Accounts'
-                        : 'Stats'}
+                      : 'Usage'}
               </Text>
             </Pressable>
           ))}

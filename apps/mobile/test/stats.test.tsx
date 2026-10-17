@@ -16,7 +16,7 @@ async function mount(opts: { admin?: boolean; latency?: number; role?: 'member' 
   const m = await mountHome((s) => opts.latency && s.daemon.knobs.latency(opts.latency), { admin: opts.admin }, undefined, {
     role: opts.role,
   });
-  await press($('nav-stats'));
+  await press($('nav-usage'));
   return m;
 }
 

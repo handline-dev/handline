@@ -29,10 +29,10 @@ appId: dev.handline.mobile
     id: pair-go
 - extendedWaitUntil:
     visible:
-      id: nav-accounts
+      id: nav-usage
     timeout: 20000
 - tapOn:
-    id: nav-accounts
+    id: nav-usage
 - runFlow:
     when:
       true: ${SHOT == 'skeleton'}

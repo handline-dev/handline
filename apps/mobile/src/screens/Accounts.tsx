@@ -1,7 +1,7 @@
 // The Accounts tab (docs/pc-app-gaps.md G9): one line per account with its gauges, state and agents; one account with its alias and cap to
 // edit (authored: shown at once, put back with the daemon's reason on a refusal) and, for the founder, Remove with a dry run and the name
 // typed to confirm (decided: nothing changes until the daemon accepts).
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { FIVE_HOURS_MS, STATE_WORD, WEEK_MS, gaugeOf, outUntil, span, stateOf } from '@handline/app-core';
 import type { Account, Window } from '@handline/client';
@@ -16,8 +16,12 @@ import { useWhyNot } from './TaskActions.tsx';
 
 const SPANS = { '5 hours': FIVE_HOURS_MS, week: WEEK_MS } as const;
 
-export function Accounts(props: { selected: string | null; onSelect: (name: string | null) => void }) {
-  return props.selected != null ? <One name={props.selected} onBack={() => props.onSelect(null)} /> : <List onSelect={props.onSelect} />;
+export function Accounts(props: { selected: string | null; onSelect: (name: string | null) => void; footer?: ReactNode }) {
+  return props.selected != null ? (
+    <One name={props.selected} onBack={() => props.onSelect(null)} />
+  ) : (
+    <List onSelect={props.onSelect} footer={props.footer} />
+  );
 }
 
 function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: boolean }) {
@@ -31,6 +35,12 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
         <Text style={{ color: c.muted, width: 44 }}>{props.label}</Text>
         <View style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: c.line }}>
           <View style={{ width: `${g.pct}%`, height: 6, borderRadius: 3, backgroundColor: tone }} />
+          {g.through !== null ? (
+            <View
+              testID={`pace-${props.label}`}
+              style={{ position: 'absolute', left: `${g.through}%`, top: -3, width: 2, height: 12, backgroundColor: c.ink }}
+            />
+          ) : null}
         </View>
         <Text style={{ color: c.ink, width: 48, textAlign: 'right' }}>
           {g.pct}%{g.pct >= 100 ? ' full' : g.pct >= 80 ? ' !' : ''}
@@ -48,14 +58,14 @@ function stateText(a: Account): string {
   return until ? `out until ${span(Date.parse(until) - Date.now())} from now` : STATE_WORD[s];
 }
 
-function List(props: { onSelect: (name: string) => void }) {
+function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
   const c = usePalette();
   const query = useAccounts();
   const { served } = useServes('accounts.list');
   const rows = query.data?.accounts ?? [];
   return (
     <View style={{ flex: 1 }}>
-      <PageHeader title="Accounts" actions={<Add />} />
+      <PageHeader title="Usage" actions={<Add />} />
       <Loadable
         query={query}
         served={served}
@@ -67,6 +77,7 @@ function List(props: { onSelect: (name: string) => void }) {
         <FlatList
           data={rows}
           keyExtractor={(a) => a.name}
+          ListFooterComponent={<>{props.footer}</>}
           renderItem={({ item: a }) => (
             <Pressable
               testID={`account-${a.name}`}
