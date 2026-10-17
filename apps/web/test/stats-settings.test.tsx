@@ -255,7 +255,7 @@ describe('settings', () => {
     }
     vi.stubGlobal('IntersectionObserver', Watch);
     await mount('#/settings');
-    await until(() => Watch.last?.els.length === 5, 'the sections watched');
+    await until(() => Watch.last?.els.length === 8, 'the sections watched');
     expect(Watch.last!.opts.root).toBe($('.settings'));
     const see = (id: string, isIntersecting: boolean) => ({ target: $(`#set-${id}`)!, isIntersecting });
     await act(async () => Watch.last!.cb([see('closing', true)]));
