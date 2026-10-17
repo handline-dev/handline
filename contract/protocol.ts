@@ -743,7 +743,8 @@ export type Settings = {
 export type Device = {
   id: string;
   name: string;
-  role: "member";
+  /** A paired device is the founder. */
+  role: "founder";
   created: Timestamp;
   last_seen: Timestamp | null;
   connected: boolean;

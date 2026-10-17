@@ -11699,8 +11699,9 @@
      },
      "role": {
       "type": "string",
+      "description": "A paired device is the founder.",
       "enum": [
-       "member"
+       "founder"
       ]
      },
      "created": {
