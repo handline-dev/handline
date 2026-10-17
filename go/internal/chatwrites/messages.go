@@ -85,7 +85,8 @@ func (w *writes) say(c *rpc.Conn, p map[string]any) (any, error) {
 			return nil, err
 		}
 		out, err = w.e.SayVerb(tx, supervisor.SayVerbIn{Requester: me, Speaker: speaker, Target: target, Body: body, Task: task, NoTask: noTask,
-			Parent: parent, Effect: func(q db.Q, _ string, rid int64) error { return w.images.Carry(q, rid, files) }})
+			Parent: parent, Effect: func(q db.Q, _ string, rid int64) error { return w.images.Carry(q, rid, files) },
+			MemoEffect: func(q db.Q, mid int64) error { return w.images.AttachMemo(q, mid, files) }})
 		if err != nil {
 			return nil, err
 		}

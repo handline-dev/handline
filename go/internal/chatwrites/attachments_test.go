@@ -186,3 +186,23 @@ func TestSayCarriesTheImageFilesItNamesAndRefusesAnythingElse(t *testing.T) {
 		t.Fatalf("a refused say wrote %d messages", n)
 	}
 }
+
+func TestSayToATaskHolderMakesAMemoThatKeepsTheImage(t *testing.T) {
+	r := newRig(t)
+	dir := t.TempDir()
+	png := dir + "/shot.png"
+	os.WriteFile(png, []byte("\x89PNG\r\n\x1a\n"+strings.Repeat("x", 2000)), 0o644)
+	if _, err := r.db.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by) VALUES(1, 't', 'alice', 'human', 1, 'human')"); err != nil {
+		t.Fatal(err)
+	}
+	r.result(r.one(r.server(""), "say", fmt.Sprintf(`{"target":"alice","body":"see this","task":1,"files":[%q],"request_id":"m1"}`, png)))
+	var mid int64
+	r.db.QueryRow("SELECT MAX(id) FROM task_memos").Scan(&mid)
+	files, err := attachments.MemoFiles(r.db, mid)
+	if err != nil || len(files) != 1 || files[0].Name != "shot.png" {
+		t.Fatalf("the memo carries %v %v", files, err)
+	}
+	if n := r.count("SELECT COUNT(*) FROM meta WHERE name LIKE 'attachments:%' OR name LIKE 'message-images:%'"); n != 0 {
+		t.Fatalf("an image was recorded on %d requests", n)
+	}
+}
