@@ -547,7 +547,7 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
-  it('replies to a picked message with its number, and takes a queued message back into the box', async () => {
+  it('replies to a picked message with its number', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await until(() => msgOf('Use the contract fixtures.'), 'the messages');
@@ -558,10 +558,6 @@ describe('the chat tab', () => {
     await until(() => msgOf('about that'), 'the reply');
     expect(msgOf('about that')!.textContent).toContain('↩ #');
     expect($('replying')).toBeNull();
-    const id = Number(msgOf('about that')!.getAttribute('data-testid')!.slice(4));
-    await press($(`takeback-${id}`));
-    await until(() => ($('chat-input') as HTMLTextAreaElement).value === 'about that', 'the words back in the box');
-    expect(msgOf('about that')!.textContent).toContain('Withdrawn');
     m.store.stop();
   });
 

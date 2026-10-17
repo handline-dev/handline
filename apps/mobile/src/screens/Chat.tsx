@@ -4,8 +4,8 @@
 // lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message, in the
 // chat that shows it. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { clockTime, decidedProposals, landingLabel, sideOf, takeBack as canTakeBack, timeline } from '@handline/app-core';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { clockTime, decidedProposals, landingLabel, sideOf, timeline } from '@handline/app-core';
 import { classify, sentence, useAgents, useChat, useChatActions, useHr, useInbox, useWrite, type ChatScope } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, Landing, TranscriptItem } from '@handline/client';
@@ -224,7 +224,6 @@ export function Chat(props: { detail: AgentDetail }) {
                 setItem(null);
                 setPicked((p) => (p?.id === m.id ? null : m));
               }}
-              onRestore={(t) => setText(text.trim() ? `${t}\n${text}` : t)}
             />
           ) : (
             <Line
@@ -312,7 +311,6 @@ function Bubble(props: {
   onRow: (y: number) => void;
   working: boolean;
   onPick: (m: ChatMessage) => void;
-  onRestore: (text: string) => void;
 }) {
   const c = usePalette();
   const { m, agent } = props;
@@ -321,18 +319,6 @@ function Bubble(props: {
   const unnumbered = m.id < 0; // shown before the daemon numbered it, or refused
   const failed = m.state === 'failed';
   const mine = side === 'person' && !unnumbered && !failed;
-  const back = mine ? canTakeBack(m) : null;
-  // The words come back to the box only once the daemon has taken the message back; a refusal leaves everything as it was.
-  const takeBack = (confirm = false) =>
-    act
-      .cancel(m.id, confirm)
-      .then(() => props.onRestore(m.body))
-      .catch(() => undefined);
-  const ask = () =>
-    Alert.alert('Take it back?', `${agent} already has this message. It is told to stop, and what waits behind it moves up.`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Take back', style: 'destructive', onPress: () => void takeBack(true) },
-    ]);
   const bg = side === 'person' ? c.panel : 'transparent';
   return (
     <Pressable
@@ -399,12 +385,9 @@ function Bubble(props: {
           Lost after it was written. It may or may not have run, and it is not sent again. Send it as a new message if you want it repeated.
         </Text>
       )}
-      {back && (
+      {mine && (m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued' && props.working) && (
         <Row>
-          {(m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued' && props.working) && (
-            <Button testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />
-          )}
-          <Button testID={`takeback-${m.id}`} label="Take back" onPress={() => (back.confirm ? ask() : void takeBack())} />
+          <Button testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />
         </Row>
       )}
     </Pressable>
