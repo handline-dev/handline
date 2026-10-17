@@ -136,7 +136,7 @@ export function Annotator({
             />
           ))}
         </span>
-        <Button icon="undo" label="Undo" disabled={!shapes.length} onClick={() => dispatch({ type: 'undo' })} />
+        <Button icon="undo" label="Undo" disabled={!state.past.length} onClick={() => dispatch({ type: 'undo' })} />
         <Button icon="redo" label="Redo" disabled={!state.redo.length} onClick={() => dispatch({ type: 'redo' })} />
         <Button icon="clear" label="Clear" disabled={!shapes.length} onClick={() => dispatch({ type: 'clear' })} />
         <span className="ml-auto flex flex-wrap items-center gap-1">{extra}</span>

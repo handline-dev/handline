@@ -89,4 +89,18 @@ describe('pinned notes', () => {
     await enter(popover()!);
     expect(button('Note 1: too loose')).toBeTruthy();
   });
+
+  it('removing the only note leaves Undo on, and it brings the note back', async () => {
+    await mount();
+    await drag([30, 30], [30, 30]);
+    await type(popover()!, 'wrong colour');
+    await enter(popover()!);
+    await click(button('Note 1: wrong colour'));
+    await type(popover()!, '');
+    await enter(popover()!);
+    expect(box.querySelectorAll('[aria-label^="Note 1"]')).toHaveLength(0);
+    expect(button('Undo').hasAttribute('disabled')).toBe(false);
+    await click(button('Undo'));
+    expect(button('Note 1: wrong colour')).toBeTruthy();
+  });
 });
