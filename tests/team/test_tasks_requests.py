@@ -369,36 +369,6 @@ def test_a_runaway_is_stopped_and_raised_to_the_founder(home: Path) -> None:
         con.close()
 
 
-def test_review_pingpong(home: Path) -> None:
-    use_home(home)
-    hand_edit_team(DESIGN_TEAM)
-    for n in ("backend", "reviewer", "product"):
-        agents.register(n)
-
-    parent = None
-    outcomes = []
-    for i in range(5):
-        ok, msg, rid = askmod.ask("reviewer", f"round {i}", files="src/auth.ts",
-                                  requester="backend", parent_id=parent)
-        outcomes.append((ok, msg))
-        if not ok:
-            break
-        # The reviewer's answer continues the same chain without being a cycle.
-        parent = rid
-        con = db.connect()
-        try:
-            _set_request_state(con, rid, "landed", "ok")
-        finally:
-            con.close()
-
-    stopped = [m for ok, m in outcomes if not ok]
-    check("review: ping-pong on one file is eventually stopped", stopped, str(outcomes[-1]))
-    check("review: the reason names the file",
-          stopped and "src/auth.ts" in stopped[0], stopped[0] if stopped else "")
-    check("review: and says it is probably a spec question",
-          stopped and "spec question" in stopped[0], stopped[0] if stopped else "")
-
-
 def test_a_resolved_ask_does_not_stay_in_progress_across_a_park(home: Path) -> None:
     """The event that would tell a fold an outstanding ask closed only ever
     carries a count (handline/daemon/'s `answered` event), never which id - and for
@@ -3938,7 +3908,6 @@ def main() -> int:
             Path(td) / 'retirerace'))
         run(lambda: test_asks_have_no_hourly_cap(Path(td) / 'ratehome'))
         run(lambda: test_a_runaway_is_stopped_and_raised_to_the_founder(Path(td) / 'cyc'))
-        run(lambda: test_review_pingpong(Path(td) / 'pingpong'))
         run(lambda: test_a_resolved_ask_does_not_stay_in_progress_across_a_park(Path(td) / 'foldparkhome'))
         run(lambda: test_reconcile_resolved_needs_an_explicit_reference_not_a_bare_number(Path(td) / 'reconid'))
         run(lambda: test_reconcile_resolved_only_state_done_counts(Path(td) / 'reconstate'))

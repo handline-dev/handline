@@ -5,11 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
+	"github.com/handline/handline/go/internal/term"
 )
 
 func TestStartForWorkNeedsARepoARoomAndCountsFailuresUntilItStalls(t *testing.T) {
@@ -470,5 +473,82 @@ func TestARelaunchIsToldAsALaunchOnceItsLineIsTyped(t *testing.T) {
 	}
 	if len(told) != 1 || told[0] != "a" {
 		t.Fatalf("told %q", told)
+	}
+}
+
+// firstTurn is a terminal host where a launch typed at a shell draws a session that is mid-turn until done closes: the turn a woken
+// session runs on its wake prompt.
+type firstTurn struct {
+	mu       sync.Mutex
+	launched map[string]bool
+	done     chan struct{}
+}
+
+func (*firstTurn) Name() string                   { return "fake" }
+func (*firstTurn) Available() bool                { return true }
+func (*firstTurn) ListTerminals() map[string]bool { return map[string]bool{"t1": true, "t2": true} }
+func (f *firstTurn) ReadScreen(handle string, _ int) *term.Screen {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.launched[handle] {
+		return &term.Screen{Tail: []string{"~/work $ "}, Source: "screen"}
+	}
+	rule := strings.Repeat("─", 60)
+	return &term.Screen{Tail: []string{"✻ Working… (esc to interrupt)", rule, "│ > │", rule}, Source: "screen"}
+}
+func (f *firstTurn) Send(handle, _ string, enter bool) (bool, string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if enter {
+		f.launched[handle] = true
+	}
+	return true, ""
+}
+func (f *firstTurn) WaitIdle(string, int, func([]string) bool) bool { <-f.done; return true }
+
+// hostRelaunch is fakeTerm with the real Relaunch, over a host of the test's own.
+type hostRelaunch struct {
+	*fakeTerm
+	t *term.Term
+}
+
+func (h hostRelaunch) Relaunch(handle, cmd string, started func() bool) (bool, string) {
+	return h.t.Relaunch(handle, cmd, started)
+}
+
+func TestASecondClosedAgentIsWokenWhileTheFirstOnesFirstTurnRuns(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt = "Here is your request.", true
+	host := &firstTurn{launched: map[string]bool{}, done: make(chan struct{})}
+	defer close(host.done)
+	tt := term.New(host, nil)
+	tt.Sleep = func(time.Duration) {}
+	m.Term = hostRelaunch{tm, tt}
+	db.SetTerminal(m.Q, "a", "t1", "/wt/a")
+	db.SetTerminal(m.Q, "b", "t2", "/wt/b")
+	db.SetClosed(m.Q, "a", "sess-a")
+	db.SetClosed(m.Q, "b", "sess-b")
+	woke := make(chan string, 2)
+	go func() {
+		for _, agent := range []string{"a", "b"} {
+			if ok, said, err := m.WakeAgentLocked(agent, WakeOpts{Force: true}); !ok || err != nil {
+				woke <- agent + ": " + said
+				return
+			}
+			woke <- agent
+		}
+	}()
+	for _, want := range []string{"a", "b"} {
+		select {
+		case got := <-woke:
+			if got != want {
+				t.Fatalf("woke %q, want %q", got, want)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s's wake waited on a first turn", want)
+		}
+	}
+	if len(d.told) != 2 {
+		t.Fatalf("each told once: %q", d.told)
 	}
 }

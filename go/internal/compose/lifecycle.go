@@ -316,6 +316,7 @@ var _ lifecycle.Terminal = noTerminal{}
 
 func (noTerminal) Available() bool                      { return false }
 func (noTerminal) WaitIdle(string) bool                 { return false }
+func (noTerminal) WaitDrawn(string) bool                { return false }
 func (noTerminal) TypeableNow(string) bool              { return false }
 func (noTerminal) ScreenBlocker(string) *term.Blocker   { return nil }
 func (noTerminal) BackgroundWork(string) (string, bool) { return "", false }
