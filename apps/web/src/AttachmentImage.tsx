@@ -8,6 +8,12 @@ export function AttachmentImage({ id, name }: { id: string; name: string }) {
   const small = useAttachmentUrl(id, true);
   const [open, setOpen] = useState(false);
   const label = name || 'image';
+  if (small.failed)
+    return (
+      <span className="attachment failed muted text-[12px]" role="note">
+        The image {label} could not be loaded.
+      </span>
+    );
   if (small.gone)
     return (
       <span className="attachment gone muted text-[12px]" title="This image is no longer kept">
@@ -37,8 +43,10 @@ export function AttachmentImage({ id, name }: { id: string; name: string }) {
 function Original({ id, name, onClose }: { id: string; name: string; onClose: () => void }) {
   const full = useAttachmentUrl(id, false);
   return (
-    <Dialog title={name} onClose={onClose}>
-      {full.url ? (
+    <Dialog title={name} onClose={onClose} action={{ label: 'Close', keys: 'Esc', onClick: onClose }}>
+      {full.failed ? (
+        <p className="muted">The image could not be loaded.</p>
+      ) : full.url ? (
         <img src={full.url} alt={name} className="max-h-[70vh] max-w-full" />
       ) : (
         <p className="muted">{full.gone ? 'This image is no longer kept.' : 'Loading…'}</p>

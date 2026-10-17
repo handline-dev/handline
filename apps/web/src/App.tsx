@@ -147,7 +147,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           ) : accounts.open || page === 'stats' ? (
             <AccountsPage name={accounts.name} />
           ) : tasks !== null ? (
-            <TasksPage storage={storage} route={tasks} />
+            <TasksPage route={tasks} />
           ) : page === 'my-turn' ? (
             <MyTurnPage />
           ) : page === 'settings' ? (

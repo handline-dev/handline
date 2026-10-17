@@ -35,11 +35,11 @@ export function verbChoices(tasks: Task[], me: string, cans: Cans) {
 }
 
 /** A button that opens the verbs for `tasks` (one row's, or the marked rows'). */
-export function VerbMenu(props: { tasks: Task[]; me: string; cans: Cans; onPick: (verb: RowVerb) => void; title?: string; open?: boolean; onOpenChange?: (open: boolean) => void }) {
+export function VerbMenu(props: { tasks: Task[]; me: string; cans: Cans; onPick: (verb: RowVerb) => void; title?: string; open?: boolean; onOpenChange?: (open: boolean) => void; word?: string }) {
   const many = props.tasks.length > 1;
   return (
     <span className="inline-block" onClick={(e) => e.stopPropagation()}>
-      <MenuButton icon="ellipsis" label={props.title ?? 'Actions'} size="sm" open={props.open} onOpenChange={props.onOpenChange} name={many ? `${props.tasks.length} tasks` : `#${props.tasks[0]?.id}`}>
+      <MenuButton label={props.title ?? 'Actions'} icon={props.word ? undefined : 'ellipsis'} trigger={props.word} size="sm" open={props.open} onOpenChange={props.onOpenChange} name={many ? `${props.tasks.length} tasks` : `#${props.tasks[0]?.id}`}>
         {verbChoices(props.tasks, props.me, props.cans).map((c) => (
           <MenuItem key={c.verb} disabled={!!c.why} title={c.why} onSelect={() => props.onPick(c.verb)}>
             {c.label}
