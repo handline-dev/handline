@@ -27,7 +27,6 @@ const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null | undefined) => el?.textContent ?? '';
-const button = (label: string) => $$('button').find((b) => text(b).trim() === label || b.title === label);
 const setValue = (el: HTMLInputElement | HTMLSelectElement, value: string) =>
   act(async () => {
     const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
@@ -36,8 +35,6 @@ const setValue = (el: HTMLInputElement | HTMLSelectElement, value: string) =>
   });
 const blur = (el: HTMLElement) => act(async () => void el.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
 const field = (label: string) => $(`[data-setting="${label}"] input`) as HTMLInputElement;
-const toggle = (label: string) => $(`[data-setting="${label}"] [role="switch"]`) as HTMLElement;
-const byLabel = (label: string) => ($$('label').find((l) => text(l) === label) as HTMLLabelElement).control as HTMLInputElement;
 
 async function mount(hash: string, s = setup()) {
   location.hash = hash;
