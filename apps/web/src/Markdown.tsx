@@ -1,4 +1,4 @@
-// Markdown for chat messages: headings, bullet and numbered lists, **bold**, *italic*, `code` and fenced code. No HTML is read: every piece is a
+// Markdown for chat messages: headings, bullet and numbered lists, **bold**, `code` and fenced code. No HTML is read: every piece is a
 // React text node or element. The text between the marks goes through RichText, so paths and T<N> and #N stay links.
 import type { ReactNode } from 'react';
 import { RichText } from './RichText.tsx';
@@ -10,7 +10,7 @@ type Block =
   | { kind: 'para'; text: string };
 
 const FENCE = /^\s*```/;
-const HEADING = /^(#{1,4})\s+(.+)$/;
+const HEADING = /^(#{1,4})\s+(?!\d)(.+)$/;
 const BULLET = /^\s*[-*]\s+(.*)$/;
 const NUMBER = /^\s*\d+[.)]\s+(.*)$/;
 
@@ -49,7 +49,7 @@ export function parseBlocks(text: string): Block[] {
   return blocks;
 }
 
-const INLINE = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\s][^*\n]*\*)/;
+const INLINE = /(`[^`\n]+`|\*\*[^*\n]+\*\*)/;
 const CODE = 'rounded-sm bg-black/10 px-1 font-mono text-[0.92em]';
 
 function Inline({ text, agent, onRef }: { text: string; agent?: string; onRef?: (id: number) => void }) {
@@ -58,19 +58,13 @@ function Inline({ text, agent, onRef }: { text: string; agent?: string; onRef?: 
     if (s.startsWith('`'))
       return (
         <code key={i} className={CODE}>
-          {s.slice(1, -1)}
+          <RichText text={s.slice(1, -1)} agent={agent} onRef={onRef} />
         </code>
       );
-    if (s.startsWith('**'))
-      return (
-        <strong key={i}>
-          <Inline text={s.slice(2, -2)} agent={agent} onRef={onRef} />
-        </strong>
-      );
     return (
-      <em key={i}>
-        <Inline text={s.slice(1, -1)} agent={agent} onRef={onRef} />
-      </em>
+      <strong key={i}>
+        <Inline text={s.slice(2, -2)} agent={agent} onRef={onRef} />
+      </strong>
     );
   });
   return <>{parts}</>;
@@ -85,7 +79,9 @@ export function Markdown({ text, agent, onRef }: { text: string; agent?: string;
       {parseBlocks(text).map((b, i) =>
         b.kind === 'code' ? (
           <pre key={i} className={`${CODE} my-1 block overflow-x-auto whitespace-pre p-2 first:mt-0 last:mb-0`}>
-            <code>{b.text}</code>
+            <code>
+              <RichText text={b.text} agent={agent} onRef={onRef} />
+            </code>
           </pre>
         ) : b.kind === 'heading' ? (
           <div key={i} role="heading" aria-level={b.level} className={`${HEADINGS[b.level - 1]} my-1 font-semibold first:mt-0 last:mb-0`}>

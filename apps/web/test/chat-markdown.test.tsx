@@ -20,6 +20,10 @@ const BODY = [
   '```',
   'a <b>x</b> line',
   '```',
+  '# 12 is broken, see `T1684`, and *.ts and *.js in src/*.ts',
+  '```',
+  'fence T1684',
+  '```',
   '<img src=x onerror=alert(1)> and <script>1</script>',
 ].join('\n');
 const memory = (): KV => {
@@ -55,6 +59,12 @@ describe('Markdown in a chat message', () => {
     expect([...body.querySelectorAll('ul li')].map((l) => l.textContent)).toEqual(['first', 'second']);
     expect([...body.querySelectorAll('ol li')].map((l) => l.textContent)).toEqual(['one', 'two']);
     expect(body.querySelector('pre')?.textContent).toBe('a <b>x</b> line');
+    // T<N> stays a link inside inline code and inside a fence; # 12 is no heading; a lone star is no italic.
+    expect(body.querySelectorAll('[role=heading]').length).toBe(1);
+    expect(body.querySelector('p code [data-task="1684"]')).not.toBeNull();
+    expect(body.querySelector('pre [data-task="1684"]')).not.toBeNull();
+    expect(body.querySelector('em')).toBeNull();
+    expect(body.textContent).toContain('*.ts and *.js in src/*.ts');
     expect(body.querySelector('img, script, pre b')).toBeNull();
     expect(body.textContent).toContain('<img src=x onerror=alert(1)>');
   });
