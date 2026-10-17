@@ -50,6 +50,7 @@ func (f *fakeTerminals) ListTerminals() map[string]bool {
 	}
 	return out
 }
+
 func (f *fakeTerminals) PanePid(handle string) int { return f.panePid[handle] }
 
 // ListPanes is the panes, or (nil, false) when the host is not set to list them.
@@ -120,6 +121,14 @@ func gitRepo(t *testing.T) string {
 	return repo
 }
 
+// sessionRecordIn is a started hook that writes the record `hl launch` would leave under config dir for a running session in cwd.
+func sessionRecordIn(dir string) func(cwd string) {
+	return func(cwd string) {
+		os.MkdirAll(filepath.Join(dir, "sessions"), 0o755)
+		os.WriteFile(filepath.Join(dir, "sessions", strconv.Itoa(os.Getpid())+".json"), []byte(`{"cwd":"`+cwd+`","sessionId":"s"}`), 0o644)
+	}
+}
+
 func TestATerminalAgentIsStartedInANewWorktreeThroughTheHostAndItsHandleKept(t *testing.T) {
 	ft := newFakeTerminals()
 	p, lc, _, _ := wiredWith(t, ft)
@@ -130,10 +139,7 @@ func TestATerminalAgentIsStartedInANewWorktreeThroughTheHostAndItsHandleKept(t *
 	if err := dbpkg.SetAccount(d, "bob", "a1", "recorded"); err != nil {
 		t.Fatal(err)
 	}
-	ft.started = func(cwd string) {
-		os.MkdirAll(filepath.Join(dir, "sessions"), 0o755)
-		os.WriteFile(filepath.Join(dir, "sessions", strconv.Itoa(os.Getpid())+".json"), []byte(`{"cwd":"`+cwd+`","sessionId":"s"}`), 0o644)
-	}
+	ft.started = sessionRecordIn(dir)
 	os.WriteFile(filepath.Join(p.home, "agents", "bob", "agent.yaml"), []byte("vendor: claude\nrepo: "+repo+"\n"), 0o644)
 	ok, said, err := lc.Spawns.SpawnWith("bob", repo, lifecycle.SpawnOpts{})
 	if err != nil {
@@ -181,10 +187,7 @@ func TestAWakesLaunchIsShownStartingAtOnceAndUntilItsSessionsFirstHook(t *testin
 	wt, _ := filepath.EvalSymlinks(t.TempDir())
 	dir, _ := team.AccountConfigDir(p.home, "a1")
 	dbpkg.SetAccount(d, "bob", "a1", "recorded")
-	ft.started = func(cwd string) {
-		os.MkdirAll(filepath.Join(dir, "sessions"), 0o755)
-		os.WriteFile(filepath.Join(dir, "sessions", strconv.Itoa(os.Getpid())+".json"), []byte(`{"cwd":"`+cwd+`","sessionId":"s"}`), 0o644)
-	}
+	ft.started = sessionRecordIn(dir)
 	dbpkg.SetTerminal(d, "bob", "", wt)
 	dbpkg.SetClosed(d, "bob", "11111111-1111-4111-8111-111111111111")
 	dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "bob", Body: "begin", Response: "async", Kind: "ask"})
@@ -222,10 +225,7 @@ func TestAClosedTerminalAgentIsWokenInANewTerminalResumingItsSession(t *testing.
 	if err := dbpkg.SetAccount(d, "bob", "a1", "recorded"); err != nil {
 		t.Fatal(err)
 	}
-	ft.started = func(cwd string) {
-		os.MkdirAll(filepath.Join(dir, "sessions"), 0o755)
-		os.WriteFile(filepath.Join(dir, "sessions", strconv.Itoa(os.Getpid())+".json"), []byte(`{"cwd":"`+cwd+`","sessionId":"s"}`), 0o644)
-	}
+	ft.started = sessionRecordIn(dir)
 	dbpkg.SetTerminal(d, "bob", "", wt) // its pane was closed with its session
 	if err := dbpkg.SetClosed(d, "bob", "11111111-1111-4111-8111-111111111111"); err != nil {
 		t.Fatal(err)

@@ -83,6 +83,20 @@ func NoteLaunch(q db.Q, on func(agent string), agent string) error {
 	return nil
 }
 
+// took records that agent's launch went into terminal handle at dir and has begun; an unknown handle ("") records nothing.
+func (s *Spawns) took(agent, handle, dir string) error {
+	if handle == "" {
+		return nil
+	}
+	if err := db.SetTerminal(s.Q, agent, handle, dir); err != nil {
+		return err
+	}
+	if _, err := s.RegisterWorker(agent, handle); err != nil {
+		return err
+	}
+	return NoteLaunch(s.Q, s.OnLaunch, agent)
+}
+
 func (s *Spawns) sleep(d time.Duration) {
 	if s.Sleep != nil {
 		s.Sleep(d)
@@ -362,16 +376,8 @@ func (s *Spawns) StartIn(agent, worktree, cmd string) (bool, string, error) {
 	if handle == "" && why != "" {
 		return false, fmt.Sprintf("%s: could not start in %s: %s", agent, worktree, why), nil
 	}
-	if handle != "" {
-		if err := db.SetTerminal(s.Q, agent, handle, worktree); err != nil {
-			return false, "", err
-		}
-		if _, err := s.RegisterWorker(agent, handle); err != nil {
-			return false, "", err
-		}
-		if err := NoteLaunch(s.Q, s.OnLaunch, agent); err != nil {
-			return false, "", err
-		}
+	if err := s.took(agent, handle, worktree); err != nil {
+		return false, "", err
 	}
 	shown := handle
 	if shown == "" {
@@ -458,16 +464,8 @@ func (s *Spawns) SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error
 	if handle == "" && failed != "" {
 		return false, fmt.Sprintf("worktree %s is ready, but starting the agent failed: %s", wt, failed), nil
 	}
-	if handle != "" {
-		if err := db.SetTerminal(s.Q, agent, handle, wt); err != nil {
-			return false, "", err
-		}
-		if _, err := s.RegisterWorker(agent, handle); err != nil {
-			return false, "", err
-		}
-		if err := NoteLaunch(s.Q, s.OnLaunch, agent); err != nil {
-			return false, "", err
-		}
+	if err := s.took(agent, handle, wt); err != nil {
+		return false, "", err
 	}
 	from := "kept"
 	if baseRef != "" {
