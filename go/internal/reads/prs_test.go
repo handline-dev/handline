@@ -168,3 +168,23 @@ func TestAgentGetNamesTheRepoOfItsWorktree(t *testing.T) {
 		t.Fatalf("%v", wt)
 	}
 }
+
+func TestAWorktreeRecordedAsRepoIdAndPathStillNamesItsRepo(t *testing.T) {
+	e := testEnv(t)
+	e.prs = newPRCache()
+	prAgent(t, e, "w", "https://github.com/o/r.git")
+	var path string
+	e.DB.QueryRow("SELECT worktree FROM agent_state WHERE agent = 'w'").Scan(&path)
+	e.DB.Exec("UPDATE agent_state SET worktree = ? WHERE agent = 'w'", "repo-1::"+path)
+	e.PullRequests = func(context.Context, string, []int) ([]int, error) { return []int{5}, nil }
+	if got, err := askPRs(t, e, "w", 5.0); err != nil || got["repo"] != "o/r" || !reflect.DeepEqual(got["found"], []int{5}) {
+		t.Fatalf("%v %v", got, err)
+	}
+	got, err := e.agentGet(nil, map[string]any{"agent": "w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wt := got.(map[string]any)["worktree"].(map[string]any); wt["repo"] != "o/r" {
+		t.Fatalf("%v", wt)
+	}
+}

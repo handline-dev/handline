@@ -32,8 +32,12 @@ func githubRepo(url string) string {
 	return m[1] + "/" + m[2]
 }
 
-// originRepo is the GitHub repo of the origin of the worktree at path, "" when it has none or is not on GitHub.
-func originRepo(path string) string {
+// originRepo is the GitHub repo of the origin of the recorded worktree ("<repo>::<path>" or a path), "" when it has none or is not on GitHub.
+func originRepo(recorded string) string {
+	path := worktreePath(recorded)
+	if path == "" {
+		return ""
+	}
 	ok, out := git(path, "remote", "get-url", "origin")
 	if !ok {
 		return ""
@@ -163,10 +167,7 @@ func (e *Env) prExists(_ *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	repo := ""
-	if path := row.str("worktree"); path != "" {
-		repo = originRepo(path)
-	}
+	repo := originRepo(row.str("worktree"))
 	if repo == "" {
 		return map[string]any{"repo": nil, "found": found}, nil
 	}
