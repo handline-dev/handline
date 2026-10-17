@@ -19,8 +19,10 @@ base="${1:-main}"
 apps() {
     [ -d node_modules ] || { echo "tools/check.sh: no node_modules for the app checks: run  pnpm install --frozen-lockfile" >&2; return 1; }
     if grep -qE '^(apps|packages)/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|contract/package\.json|contract/protocol\.ts)$' <<< "$changed"; then
-        pnpm turbo test typecheck lint --continue
-        tools/dupes.sh
+        local r=0
+        pnpm turbo test typecheck lint --continue || r=1
+        tools/dupes.sh || r=1
+        return "$r"
     else
         pnpm --dir packages/app-data test
     fi
