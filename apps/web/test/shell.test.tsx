@@ -46,7 +46,7 @@ let root: Root | null = null;
 let box: HTMLElement;
 async function mount(agent: string) {
   const s = setup();
-  location.hash = `#/agents/${agent}`;
+  location.hash = agent === 'settings' ? '#/settings' : `#/agents/${agent}`;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
   await act(async () => {
@@ -157,14 +157,13 @@ describe('Pair a phone', () => {
     vi.stubGlobal('handline', api);
     Object.assign(window, { handline: api });
   };
-  const button = () =>
-    [...box.querySelectorAll('.rail-nav button')].find((b) => b.textContent?.includes('Pair a phone')) as HTMLElement | undefined;
+  const button = () => [...box.querySelectorAll('button')].find((b) => b.textContent?.includes('Pair a phone')) as HTMLElement | undefined;
 
-  it('is a row in the sidebar that opens the QR, and shows why when it cannot', async () => {
+  it('is a button under Settings > Paired devices that opens the QR, and shows why when it cannot', async () => {
     let n = 0;
     withMode(true, async () => (n++ ? { ok: false, code: 'cannot_pair', message: 'no network listener' } : { ok: true }));
-    await mount(ARCH);
-    await until(button, 'the Pair a phone row');
+    await mount('settings');
+    await until(button, 'the Pair a phone button');
     await act(async () => button()!.click());
     expect(n).toBe(1);
     expect(box.querySelector('[role=alert]')).toBeNull();
@@ -174,8 +173,8 @@ describe('Pair a phone', () => {
 
   it('is absent when the app is paired with another device, and in a plain browser', async () => {
     withMode(false, async () => ({ ok: true }));
-    await mount(ARCH);
-    await until(() => box.querySelector('.rail-list'), 'the page');
+    await mount('settings');
+    await until(() => box.querySelector('#set-devices .devices'), 'the devices');
     await wait(50);
     expect(button()).toBeUndefined();
   });
