@@ -155,6 +155,8 @@ const tasks: Record<string, WriteSpec> = {
       changeMemos(c, task, (l) => l.filter((m) => m.id !== memo));
     },
   },
+  'task.view.save': { kind: 'decided', label: 'save view', touches: (d) => [qk.taskViews(d)] },
+  'task.view.delete': { kind: 'decided', label: 'delete view', touches: (d) => [qk.taskViews(d)] },
 };
 
 // ---- inbox, settings, accounts, schedules, standing answers ----

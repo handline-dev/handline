@@ -100,7 +100,7 @@ func oneTask(args []string) (int, bool) {
 }
 
 func taskNew(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--file", "--assign", "--owner", "--parent", "--blocked-by", "--priority", "--expects", "--timeout"},
+	p, ok := parse(args, []string{"--file", "--assign", "--owner", "--parent", "--blocked-by", "--priority", "--expects", "--timeout", "--tag"},
 		[]string{"--duplicate-ok"}, map[string]string{"-t": "--timeout"})
 	if !ok || len(p.pos) < 1 || len(p.pos) > 2 {
 		return 0, false
@@ -151,6 +151,9 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 		}
 		if hasPrio {
 			parts = append(parts, fmt.Sprintf("--priority P%d", prio))
+		}
+		for _, tag := range p.each["--tag"] {
+			parts = append(parts, "--tag", shQuote(tag))
 		}
 		return strings.Join(parts, " ")
 	}
@@ -207,6 +210,9 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if hasOwner {
 		params["reporter"] = accountable
+	}
+	if tags := p.tags("--tag"); len(tags) > 0 {
+		params["tags"] = tags
 	}
 	done, msg, got := c.Written("task.new", params)
 	fmt.Println(msg)
@@ -417,7 +423,7 @@ func taskQueue(queued bool) taskCmd {
 
 func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	p, ok := parse(args, []string{"--assign", "--owner", "--title", "--body", "--body-file", "--priority", "--blocked-by", "--unblock",
-		"--timeout"}, nil, nil)
+		"--timeout", "--tag", "--untag"}, nil, nil)
 	if !ok || len(p.pos) != 1 {
 		return 0, false
 	}
@@ -477,8 +483,14 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	if hasUnblock {
 		params["unblock"] = unblock
 	}
+	if tags := p.tags("--tag"); len(tags) > 0 {
+		params["add_tags"] = tags
+	}
+	if tags := p.tags("--untag"); len(tags) > 0 {
+		params["remove_tags"] = tags
+	}
 	if len(params) == 1 {
-		fmt.Println("edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, or --timeout")
+		fmt.Println("edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, --timeout, --tag or --untag")
 		return 1, true
 	}
 	return said(c.Write("task.edit", params)), true

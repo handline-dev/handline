@@ -119,6 +119,9 @@ func detailLines(t obj, now float64, home string) []string {
 	if given(t, "parent") {
 		head += fmt.Sprintf("   parent T%d", num(t, "parent"))
 	}
+	if tags := tagsOf(t); tags != "" {
+		head += "   " + tags
+	}
 	out := []string{fmt.Sprintf("T%d  %s", num(t, "id"), str(t, "title")), head + "   created " + stamp(t["created"])}
 	if box, ok := t["time"].(obj); ok {
 		out = append(out, timeoutLines(box, now, waitsOn(t))...)
@@ -275,8 +278,18 @@ func timeoutLines(box obj, now float64, waits string) []string {
 	return []string{line, second}
 }
 
+// tagsOf is a task's tags as hl prints them ("#fe #be"), "" for none.
+func tagsOf(t obj) string {
+	tags, _ := t["tags"].([]any)
+	out := make([]string, len(tags))
+	for i, tag := range tags {
+		out[i] = "#" + fmt.Sprint(tag)
+	}
+	return strings.Join(out, " ")
+}
+
 func taskList(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--assign", "--owner", "--state"}, []string{"--all", "--everyone"}, nil)
+	p, ok := parse(args, []string{"--assign", "--owner", "--state", "--tag"}, []string{"--all", "--everyone"}, nil)
 	if !ok || len(p.pos) != 0 {
 		return 0, false
 	}
@@ -289,6 +302,9 @@ func taskList(c *hlclient.Client, args []string) (int, bool) {
 	owner, hasOwner := p.opt("--owner")
 	if hasOwner {
 		params["reporter"] = owner
+	}
+	if tags := p.tags("--tag"); len(tags) > 0 { // every tag given: tasks that carry them all
+		params["tags"] = tags
 	}
 	if state, given := p.opt("--state"); given {
 		switch state {
@@ -361,6 +377,9 @@ func printBoard(tasks []obj) {
 			fmt.Fprintf(&b, "  DISCARDED by %s: %s", one(str(gone, "by")), one(str(gone, "reason")))
 		}
 		fmt.Fprintf(&b, "  P%d  owner %s", num(t, "priority"), str(t, "asker")) // [the assignee] above; the owner may reopen it
+		if tags := tagsOf(t); tags != "" {
+			b.WriteString("  " + tags)
+		}
 		if given(t, "block_reason") {
 			b.WriteString("  " + str(t, "block_reason"))
 		}

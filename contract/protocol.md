@@ -129,11 +129,11 @@ A method marked write takes a required `request_id`.
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found`, `refused`, `bad_request` |  |
 | `inbox.answer` | member | yes | `id`, `option?`, `text?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `tasks.list` | agent |  | `owner?`, `from?`, `state?`, `parent?`, `under?`, `before?`, `limit?`, `all?`, `everyone?`, `reason_gaps?` | `{items, more, reason_gaps}` |  |  |
+| `tasks.list` | agent |  | `owner?`, `reporter?`, `from?`, `state?`, `tags?`, `parent?`, `under?`, `before?`, `limit?`, `all?`, `everyone?`, `reason_gaps?` | `{items, more, reason_gaps}` |  |  |
 | `task.get` | agent |  | `task` | `TaskDetail` | `not_found` |  |
 | `task.history` | agent |  | `task` | `{task, rows}` | `not_found`, `bad_request` |  |
 | `task.shot` | member |  | `task`, `n`, `offset?` | `{mime, bytes, offset, data, done}` | `not_found`, `bad_request` |  |
-| `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box?`, `relation?`, `response?`, `parent?`, `duplicate_ok?`, `blocked_by?`, `priority?`, `expects?`, `reply?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` | duplicate_title |
+| `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box?`, `relation?`, `response?`, `parent?`, `duplicate_ok?`, `blocked_by?`, `priority?`, `tags?`, `expects?`, `reply?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` | duplicate_title |
 | `task.handoff` | agent | yes | `task`, `to`, `note?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `commit?`, `shots?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | open_children |
 | `task.accept` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -147,6 +147,9 @@ A method marked write takes a required `request_id`.
 | `task.memo.add` | agent | yes | `task`, `text`, `now?`, `request_id` | `Accepted & {memo}` | `refused`, `not_found`, `bad_request` |  |
 | `task.memo.edit` | agent | yes | `task`, `memo`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.memo.delete` | agent | yes | `task`, `memo`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.view.list` | member |  | none | `{views}` |  |  |
+| `task.view.save` | member | yes | `name`, `filter`, `request_id` | `Accepted` | `bad_request` |  |
+| `task.view.delete` | member | yes | `name`, `request_id` | `Accepted` | `not_found`, `bad_request` |  |
 | `task.queue` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.draft` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -155,7 +158,7 @@ A method marked write takes a required `request_id`.
 | `task.board` | agent |  | `everyone?` | `{mine, reports}` |  |  |
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.cancel` | member | yes | `task`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.edit` | agent | yes | `task`, `owner?`, `reporter?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `blocked_by?`, `unblock?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.edit` | agent | yes | `task`, `owner?`, `reporter?`, `title?`, `body?`, `time_box?`, `waits_on?`, `priority?`, `blocked_by?`, `unblock?`, `add_tags?`, `remove_tags?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.ask` | member | yes | `task`, `to`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
 | `hook.record` | agent (only agent) | yes | `agent`, `kind`, `at`, `data`, `request_id` | `Accepted` | `refused` | not_self |
@@ -522,6 +525,18 @@ Edit a memo: its author or the founder.
 ### `task.memo.delete`
 
 Delete a memo: its author or the founder.
+
+### `task.view.list`
+
+The saved views of the task board, by name.
+
+### `task.view.save`
+
+Keep a filter of the task board under a name, replacing a view already kept under it.
+
+### `task.view.delete`
+
+Delete a saved view.
 
 ### `task.queue`
 

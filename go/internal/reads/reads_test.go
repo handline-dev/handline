@@ -145,7 +145,7 @@ func TestABoardReadsATaskStartedAsItsOwnersOwnAsBegun(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	b, err := e.loadBoard(nil)
+	b, err := e.loadBoard()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestABoardReadsAReportedTaskAsReportedAndFreesItsOwner(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	b, err := e.loadBoard(nil)
+	b, err := e.loadBoard()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -76,6 +76,7 @@ func (e *Env) taskHistory(c *rpc.Conn, params map[string]any) (any, error) {
 		case "task_new":
 			add("title", "", title)
 			add("assignee", "", text(p["owner"]))
+			tagRows(add, p["tags"], nil)
 		case "task_begin":
 			add("title", "", title)
 			add("assignee", "", ev.str("agent"))
@@ -84,6 +85,9 @@ func (e *Env) taskHistory(c *rpc.Conn, params map[string]any) (any, error) {
 				if c, ok := p[f[0]].(map[string]any); ok {
 					add(f[1], text(c["old"]), text(c["new"]))
 				}
+			}
+			if c, ok := p["tags"].(map[string]any); ok {
+				tagRows(add, c["add"], c["remove"])
 			}
 		case "task_handoff":
 			note(add("assignee", text(p["from"]), text(p["to"])), "note")
@@ -109,6 +113,23 @@ func (e *Env) taskHistory(c *rpc.Conn, params map[string]any) (any, error) {
 		out[len(rows)-1-i] = r
 	}
 	return map[string]any{"task": *tid, "rows": out}, nil
+}
+
+// tagRows adds a tag row for each tag added (was empty) and each removed (now empty).
+func tagRows(add func(field, was, now string) map[string]any, added, removed any) {
+	for _, list := range []struct {
+		tags any
+		gone bool
+	}{{removed, true}, {added, false}} {
+		tags, _ := list.tags.([]any)
+		for _, tag := range tags {
+			if list.gone {
+				add("tag", text(tag), "")
+			} else {
+				add("tag", "", text(tag))
+			}
+		}
+	}
 }
 
 // text is a payload value as text: "" for none.
