@@ -15,13 +15,13 @@ func TestGithubRepoReadsHttpsAndSshRemotesAndNothingElse(t *testing.T) {
 	for url, want := range map[string]string{
 		"https://github.com/handline-dev/handline.git": "handline-dev/handline",
 		"https://github.com/handline-dev/handline":     "handline-dev/handline",
-		"https://user@github.com/o/r.name.git\n":       "o/r.name",
+		"https://user@github.com/o/r.name.git\n":       "o/r.name", // local-ref-ok: userinfo in a remote is the case
 		"git@github.com:o/r.git":                       "o/r",
 		"ssh://git@github.com/o/r":                     "o/r",
 		"https://gitlab.com/o/r.git":                   "",
 		"git@github.com.evil.example:o/r.git":          "",
 		"https://github.com/o":                         "",
-		"/Users/ron/src/repo":                          "",
+		"/src/repo":                                    "",
 		"":                                             "",
 	} {
 		if got := githubRepo(url); got != want {
