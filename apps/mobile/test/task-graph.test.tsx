@@ -6,6 +6,8 @@ describe('the task graph', () => {
     const m = await mount(() => {}, undefined, 'founder');
     await until(() => $('nav-tasks'), 'the nav');
     await press($('nav-tasks'));
+    await until(() => $('tasks-menu'), 'the menu');
+    await press($('tasks-menu'));
     await until(() => $('graph-toggle'), 'the toggle');
     await press($('graph-toggle'));
     await until(() => $('task-graph'), 'the graph');
