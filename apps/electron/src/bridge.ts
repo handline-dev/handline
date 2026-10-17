@@ -8,7 +8,6 @@ export const CHANNELS = {
   unsent: 'handline:unsent',
   navigate: 'handline:navigate',
   openPath: 'handline:openPath',
-  openPr: 'handline:openPr',
   compose: 'handline:compose',
   cancelCompose: 'handline:cancelCompose',
   mode: 'handline:mode',
