@@ -1,12 +1,12 @@
 // The one renderer of free text: openable paths, T<N> as a link to the task (plain click: this pane's Tasks tab; ctrl, cmd or middle click: a tab
-// of its own; the Tasks page where there are no panes), and #N as a link to that message where the caller has messages.
-import { useState, type MouseEvent, type ReactNode } from 'react';
+// of its own; the Tasks page where there are no panes), and #N as a link to the pull request of the agent's repo when it has one of that number,
+// else to that message where the caller has messages.
+import type { MouseEvent, ReactNode } from 'react';
 import { findImageRefs, findRefs, openTask, openTaskTab, taskRef } from '@handline/app-core';
-import { useAgents, useTasks } from '@handline/app-data';
+import { useAgents, usePullRequests, useTasks } from '@handline/app-data';
 import { AttachmentImage } from './AttachmentImage.tsx';
 import { PathText } from './PathText.tsx';
 import { goTasks } from './route.ts';
-import { shell } from './shell.ts';
 import { useWorkspaceIfAny } from './Workspace.tsx';
 
 const LINK = 'ref border-0 bg-transparent p-0 font-mono text-[12px] leading-4 text-link underline cursor-pointer';
@@ -33,12 +33,11 @@ export function RichText({ text, agent, onRef }: { text: string; agent?: string;
 
 function Refs({ text, agent, onRef }: { text: string; agent?: string; onRef?: (id: number) => void }) {
   const ws = useWorkspaceIfAny();
-  const [note, setNote] = useState('');
   const known = useKnownTask();
   const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
-  // In the desktop app a #N is a pull request; elsewhere it is a message of this chat, where there are any.
-  const pr = shell('openPr');
-  const refs = findRefs(text, { messages: !!onRef || !!pr, task: known });
+  // A #N is a pull request of the agent's repo when that repo has one of that number; else a message of this chat, where there are any.
+  const prs = usePullRequests(agent, text);
+  const refs = findRefs(text, { messages: !!onRef, task: known, pr: prs.repo ? prs.isPr : undefined });
   if (!refs.length) return <PathText text={text} agent={agent} names={names} />;
   const open = (id: number, own: boolean) => {
     if (!ws) goTasks(id);
@@ -50,17 +49,18 @@ function Refs({ text, agent, onRef }: { text: string; agent?: string; onRef?: (i
     if (r.start > at) parts.push(<PathText key={`t${at}`} text={text.slice(at, r.start)} agent={agent} names={names} whole={text} />);
     const shown = text.slice(r.start, r.end);
     parts.push(
-      r.kind === 'message' && pr ? (
-        <button
+      r.kind === 'pr' ? (
+        <a
           key={r.start}
-          type="button"
           className={LINK}
           data-pr={r.id}
+          href={`https://github.com/${prs.repo}/pull/${r.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
           title={`Open pull request ${shown} on GitHub`}
-          onClick={() => void pr.openPr!({ number: r.id, ...(agent ? { agent } : {}) }).then((x) => setNote(x.ok ? '' : x.message))}
         >
           {shown}
-        </button>
+        </a>
       ) : r.kind === 'message' ? (
         <button key={r.start} type="button" className={LINK} title={`Go to ${shown}`} onClick={() => onRef!(r.id)}>
           {shown}
@@ -82,15 +82,5 @@ function Refs({ text, agent, onRef }: { text: string; agent?: string; onRef?: (i
     at = r.end;
   }
   if (at < text.length) parts.push(<PathText key={`t${at}`} text={text.slice(at)} agent={agent} names={names} whole={text} />);
-  return (
-    <>
-      {parts}
-      {note ? (
-        <span className="muted path-note" role="status">
-          {' '}
-          {note}
-        </span>
-      ) : null}
-    </>
-  );
+  return <>{parts}</>;
 }

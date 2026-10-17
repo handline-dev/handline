@@ -18,6 +18,7 @@ export const reads = {
   'daemon.status': { resource: 'status', feed: 'status' },
   'agents.list': { resource: 'agents', feed: 'agents' },
   'agent.get': { resource: 'agent', id: by('agent'), feed: 'agents' },
+  'pr.exists': { resource: 'pr-exists' },
   'agent.timeline': { resource: 'timeline', feed: 'agents' },
   'agent.options': { resource: 'agent-options' },
   'agent.triggers': { resource: 'triggers' },
