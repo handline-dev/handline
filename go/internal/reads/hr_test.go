@@ -53,13 +53,13 @@ func TestHrListServesWaitingOldestFirstThenSettledNewestFirstWithinAWeek(t *test
 	putProposal(t, e, "0000000d", proposalFile("0000000d", "rejected", now-3*day, now-2*day, ""))
 	putProposal(t, e, "0000000e", proposalFile("0000000e", "withdrawn", now-3*day, now-day, ""))
 	putProposal(t, e, "0000000f", proposalFile("0000000f", "enacting", now-3*day, now-day, ""))                        // not a state it serves
-	putProposal(t, e, "00000010", proposalFile("00000010", "applied", now-3*day, now-day, "")+"requested_by: human\n") // the founder's own
+	putProposal(t, e, "00000010", proposalFile("00000010", "applied", now-3*day, now-day, "")+"requested_by: human\n") // the founder's own, listed as any other
 	putProposal(t, e, "bad", "id: [\n")
 	putProposal(t, e, "notone", "kind: nothing\n")
-	if got, want := hrIDs(t, e, map[string]any{}), []int64{10, 11, 14, 13}; !reflect.DeepEqual(got, want) {
+	if got, want := hrIDs(t, e, map[string]any{}), []int64{10, 11, 16, 14, 13}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
-	if got, want := hrIDs(t, e, map[string]any{"state": "approved"}), []int64{12}; !reflect.DeepEqual(got, want) {
+	if got, want := hrIDs(t, e, map[string]any{"state": "approved"}), []int64{16, 12}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("a state has no window: got %v want %v", got, want)
 	}
 	if got := hrIDs(t, e, map[string]any{"state": "no_such_state"}); len(got) != 0 {

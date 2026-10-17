@@ -809,3 +809,50 @@ func TestProposeRenameTeamAndBundleAreDraftedAsHrPyDraftsThem(t *testing.T) {
 		}
 	}
 }
+
+// The founder's own hr add is applied at once, its approval on record as any other's, and hr.list shows it.
+func TestTheFoundersOwnAddIsAppliedAtOnce(t *testing.T) {
+	r := newRig(t)
+	repo := t.TempDir()
+	os.Mkdir(filepath.Join(repo, ".git"), 0o755)
+	m := r.call("hr.propose", fmt.Sprintf(`{"kind":"add","args":{"name":"carol","team":"eng","repo":%q},"why":"we need her","request_id":"f1"}`, repo))
+	res, ok := m["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("%v", m)
+	}
+	id := fmt.Sprintf("%08x", int64(res["proposal"].(float64)))
+	if said := res["said"].(string); !strings.HasPrefix(said, "proposal "+id+" applied: carol is an agent, team eng.") {
+		t.Fatalf("%q", said)
+	}
+	if st := r.state(id); st != "applied" {
+		t.Fatalf("state %s", st)
+	}
+	if got := r.e.decisionOf(id); got == nil || got["call"] != "approved" {
+		t.Fatalf("the approval is on record: %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(r.home, "agents", "carol", "agent.yaml")); err != nil {
+		t.Fatal("registered")
+	}
+	if v := r.e.reader().HRView(id); v == nil || v["state"] != "approved" || v["requested_by"] != "human" {
+		t.Fatalf("hr.list shows it: %v", v)
+	}
+}
+
+// A founder's proposal left waiting (raised before their own were applied at once) is listed and approved like any other.
+func TestAFoundersProposalLeftWaitingIsListedAndApprovable(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa0009", "kind", "retire", "agent", "bob")
+	p.set("requested_by", "human")
+	if err := r.e.save(p); err != nil {
+		t.Fatal(err)
+	}
+	if v := r.e.reader().HRView(p.id()); v == nil || v["state"] != "open" {
+		t.Fatalf("listed as waiting: %v", v)
+	}
+	if m := r.decide(id, "approve", p.subject(), "w1"); m["error"] != nil {
+		t.Fatalf("%v", m)
+	}
+	if st := r.state(p.id()); st != "applied" {
+		t.Fatalf("state %s", st)
+	}
+}
