@@ -87,7 +87,7 @@ describe('the list', () => {
     await click(button('Closed')!);
     await until(() => row(1650), 'the done task');
     expect(text(row(1650))).toContain('done');
-    expect($$('tr.tgroup').map((g) => text(g).trim())).toEqual(['Done 1']);
+    expect($$('tr.tgroup').map((g) => text(g).trim())).toEqual(['Yesterday 1']);
     expect(row(1688)).toBeNull(); // Closed shows only the closed ones
   });
 
