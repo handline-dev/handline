@@ -123,8 +123,7 @@ describe('the workspace', () => {
     const bar = $('.statusbar')!;
     expect($('#app')!.parentElement).toBe($('.frame'));
     expect(bar.querySelector('[aria-label="daemon open"]')).not.toBeNull();
-    expect(bar.querySelector('[data-icon="agent"]')).not.toBeNull();
-    expect(text(bar)).toMatch(/\d+ agents/); // the count says what it counts
+    expect(text(bar)).toContain('daemon ok'); // the cell says its state in a word; the agent counts are the sidebar's
     expect($('.rail input[type=search]')).not.toBeNull();
   });
 
@@ -331,7 +330,7 @@ describe('the sidebar', () => {
     await until(() => $('.row-wrap.on'), 'the selected row');
     expect($('.row-detail')).toBeNull();
     const r = text($('.row-wrap.on'));
-    expect(r).not.toMatch(/opus|alpha|buddyron/);
+    expect(r).not.toMatch(/opus|alpha|yourname/);
     expect($('.row-wrap.on .name')?.textContent).toBe('architect'); // the team prefix is the group's title
     await until(() => $('.terminal-tab'), 'terminal tab');
     expect($('.row-actions .ui-btn.solid')).toBeNull();

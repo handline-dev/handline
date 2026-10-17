@@ -263,19 +263,26 @@ func (e *Env) wire(agent string, row *db.AgentState, word, detail string) (strin
 // launchOver are the events that say a launch is no longer starting: a hook of its session (it is up), its end, or the wake that failed.
 var launchOver = []string{"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "PostCompact", "SessionEnd", "wake_failed"}
 
-// starting is whether a launch of agent is in progress, from what is recorded: hl launch kept the start (session_starts) just before it
-// became claude, nothing of launchOver has come since, and the pane still runs something other than its shell. A launch that died is
-// back at the shell, so no time limit is needed.
+// LaunchShellGraceS is how long a launch the daemon began reads as starting while its pane still shows a shell: the launch line runs at
+// that shell, through hl's bash wrapper, and under load it can take many seconds to become claude.
+const LaunchShellGraceS = 60
+
+// starting is whether a launch of agent is in progress, from what is recorded: the daemon began it (a launching event) or hl launch kept
+// the start (session_starts) just before it became claude, and nothing of launchOver has come since. The pane must still run something
+// other than its shell, as a launch that died is back at the shell, except within LaunchShellGraceS of the daemon's own launching event.
 func (e *Env) starting(agent string) bool {
 	if e.PaneRuns == nil {
 		return false
 	}
-	at, ok := must2(db.LastSessionStartTS(e.Q, agent))
-	if !ok {
+	kept, ok := must2(db.LastSessionStartTS(e.Q, agent))
+	begun, began := must2(db.LastEventTS(e.Q, agent, "launching"))
+	if !ok && !began {
 		return false
 	}
-	last, over := must2(db.LastEventOfTS(e.Q, agent, launchOver))
-	return (!over || last < at) && e.PaneRuns(agent)
+	if last, over := must2(db.LastEventOfTS(e.Q, agent, launchOver)); over && last >= max(kept, begun) {
+		return false
+	}
+	return (began && begun >= kept && e.now()-begun < LaunchShellGraceS) || e.PaneRuns(agent)
 }
 
 // Compute is the view of one agent.

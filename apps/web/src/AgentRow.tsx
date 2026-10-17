@@ -125,7 +125,7 @@ export function AgentRow({
                 {/* One line tall and wrapping: a chip that does not fit drops below the box whole, never cut off. */}
                 <button
                   ref={main}
-                  className="row-main flex h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden border-0 bg-transparent p-0 text-left"
+                  className={`row-main flex h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden border-0 bg-transparent p-0 text-left${showControls ? ' pr-7' : ''}`}
                   onClick={() => goAgent(a.name)}
                   aria-current={selected ? 'true' : undefined}
                   title={tip}

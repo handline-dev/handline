@@ -106,18 +106,25 @@ func TestAgentReasonNamesTheFirstGateInTheOrderItIsMet(t *testing.T) {
 	}
 }
 
-func TestDigestFoldsNoticesAndTypesOneMessageToAnIdleAgent(t *testing.T) {
+func TestABusyAgentPastTheWindowGetsNoDigestUntilItsTurnEndsThenOne(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	for _, body := range []string{"T5 done by alice: it works", "T6 discarded by alice: not needed", "something else"} {
 		db.AddRequest(r.DB, db.NewRequest{Requester: db.NoticeRequester, Target: "bob", Body: body, Kind: "say", Notice: true})
 	}
 	db.SetAgentState(r.DB, "bob", "RUNNING", 0, "")
-	r.must(r.SweepDigests(r.clock + 10))
-	if len(r.term.typed) != 0 {
-		t.Fatal("a notice woke a working agent before its window ran out")
+	for _, at := range []int64{10, 900, 5000} {
+		r.must(r.SweepDigests(r.clock + at))
+		if len(r.term.typed) != 0 {
+			t.Fatalf("typed to a working agent %ds after its first notice", at)
+		}
 	}
-	r.must(r.SweepDigests(r.clock + 900))
+	db.SetAgentState(r.DB, "bob", "IDLE", 0, "") // the turn ended
+	r.must(r.SweepDigests(r.clock + 5030))
+	r.must(r.SweepDigests(r.clock + 5060))
+	if len(r.term.typed) != 1 {
+		t.Fatalf("one digest at the turn's end: %q", r.term.typed)
+	}
 	want := "Result digest - 3 results since "
 	got := r.term.last()
 	if !strings.Contains(got, want) || !strings.Contains(got, "T5 · alice · it works (#1) T6 · alice · discarded: not needed (#2) something else (#3)") {
@@ -128,11 +135,15 @@ func TestDigestFoldsNoticesAndTypesOneMessageToAnIdleAgent(t *testing.T) {
 	}
 }
 
-func TestDigestIsTypedAtOnceToAnIdleSession(t *testing.T) {
+func TestAnIdleAgentGetsItsDigestAtTheWindowNotBefore(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	db.AddRequest(r.DB, db.NewRequest{Requester: db.NoticeRequester, Target: "bob", Body: "T9 done by alice: ok", Kind: "say", Notice: true})
-	r.must(r.SweepDigests(r.clock))
+	r.must(r.SweepDigests(r.clock + 899))
+	if len(r.term.typed) != 0 {
+		t.Fatalf("typed before the window ran: %q", r.term.typed)
+	}
+	r.must(r.SweepDigests(r.clock + 900))
 	if !strings.Contains(r.term.last(), "Result digest - 1 result since ") {
 		t.Fatalf("%q", r.term.last())
 	}
@@ -237,5 +248,19 @@ func TestLandingStateNamesWhereARequestIs(t *testing.T) {
 	row.LandedAt.Valid, row.LandedAt.Int64 = true, 6
 	if LandingState(&row) != "delivered" {
 		t.Fatal()
+	}
+}
+
+func TestAHeldMemoWaitsForTheSameWindowAsAnyNotice(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	db.AddRequest(r.DB, db.NewRequest{Requester: db.NoticeRequester, Target: "bob", Body: "T4 memo added by alice: see the log", Kind: "say", Memo: true})
+	r.must(r.SweepDigests(r.clock + 10))
+	if len(r.term.typed) != 0 {
+		t.Fatalf("a memo's tell skipped the window: %q", r.term.typed)
+	}
+	r.must(r.SweepDigests(r.clock + 900))
+	if !strings.Contains(r.term.last(), "T4 memo added by alice: see the log") {
+		t.Fatalf("%q", r.term.last())
 	}
 }

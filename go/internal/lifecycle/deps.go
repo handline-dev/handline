@@ -72,6 +72,7 @@ type HandoffPort interface {
 type Terminal interface {
 	Available() bool
 	WaitIdle(handle string) bool
+	WaitDrawn(handle string) bool
 	TypeableNow(handle string) bool
 	ScreenBlocker(handle string) *term.Blocker
 	BackgroundWork(handle string) (running string, known bool)
@@ -177,6 +178,9 @@ type Manager struct {
 	Typing   Typing
 	// TermRun is the terminal agents' sessions as their session files report them; nil keeps a handoff from finding one.
 	TermRun TermSessions
+
+	// OnLaunch is told each time a wake's launch has begun (NoteLaunch); nil tells no one.
+	OnLaunch func(agent string)
 
 	Locks *AgentLocks // shared with Spawns, so a spawn and a wake take the same lock; made on first use when nil
 	once  sync.Once

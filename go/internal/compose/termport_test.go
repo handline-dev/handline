@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,11 +9,13 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/term"
+	"github.com/handline/handline/go/internal/turns"
 )
 
 // fakeTerminals is a terminal host with no tmux: it opens panes, records what is typed and ended, and shows a screen per pane.
@@ -27,6 +30,8 @@ type fakeTerminals struct {
 	panePid map[string]int // the process each pane runs; none reads as unknown
 	// started runs when a terminal is opened, as the launch line would start a session in it.
 	started func(cwd string)
+	// running, when set, makes the host list its panes: each live one runs it in front of its shell.
+	running string
 }
 
 func newFakeTerminals() *fakeTerminals {
@@ -45,7 +50,22 @@ func (f *fakeTerminals) ListTerminals() map[string]bool {
 	}
 	return out
 }
+
 func (f *fakeTerminals) PanePid(handle string) int { return f.panePid[handle] }
+
+// ListPanes is the panes, or (nil, false) when the host is not set to list them.
+func (f *fakeTerminals) ListPanes() ([]term.Pane, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.running == "" {
+		return nil, false
+	}
+	var panes []term.Pane
+	for h := range f.live {
+		panes = append(panes, term.Pane{Handle: h, Command: f.running})
+	}
+	return panes, true
+}
 func (f *fakeTerminals) ReadScreen(string, int) *term.Screen {
 	return &term.Screen{Tail: f.screen, Source: "screen"}
 }
@@ -101,6 +121,14 @@ func gitRepo(t *testing.T) string {
 	return repo
 }
 
+// sessionRecordIn is a started hook that writes the record `hl launch` would leave under config dir for a running session in cwd.
+func sessionRecordIn(dir string) func(cwd string) {
+	return func(cwd string) {
+		os.MkdirAll(filepath.Join(dir, "sessions"), 0o755)
+		os.WriteFile(filepath.Join(dir, "sessions", strconv.Itoa(os.Getpid())+".json"), []byte(`{"cwd":"`+cwd+`","sessionId":"s"}`), 0o644)
+	}
+}
+
 func TestATerminalAgentIsStartedInANewWorktreeThroughTheHostAndItsHandleKept(t *testing.T) {
 	ft := newFakeTerminals()
 	p, lc, _, _ := wiredWith(t, ft)
@@ -111,10 +139,7 @@ func TestATerminalAgentIsStartedInANewWorktreeThroughTheHostAndItsHandleKept(t *
 	if err := dbpkg.SetAccount(d, "bob", "a1", "recorded"); err != nil {
 		t.Fatal(err)
 	}
-	ft.started = func(cwd string) {
-		os.MkdirAll(filepath.Join(dir, "sessions"), 0o755)
-		os.WriteFile(filepath.Join(dir, "sessions", strconv.Itoa(os.Getpid())+".json"), []byte(`{"cwd":"`+cwd+`","sessionId":"s"}`), 0o644)
-	}
+	ft.started = sessionRecordIn(dir)
 	os.WriteFile(filepath.Join(p.home, "agents", "bob", "agent.yaml"), []byte("vendor: claude\nrepo: "+repo+"\n"), 0o644)
 	ok, said, err := lc.Spawns.SpawnWith("bob", repo, lifecycle.SpawnOpts{})
 	if err != nil {
@@ -149,6 +174,48 @@ func TestAClosedTerminalAgentIsEndedAtItsShellAndItsTerminalClosed(t *testing.T)
 	}
 }
 
+func TestAWakesLaunchIsShownStartingAtOnceAndUntilItsSessionsFirstHook(t *testing.T) {
+	ft := newFakeTerminals()
+	ft.running = "claude"
+	p, _, env, _ := wiredWith(t, ft)
+	d := p.db
+	tracker := &turns.Tracker{Agent: func(h string) string { a, _ := dbpkg.AgentOfTerminal(d, h); return a }}
+	cfg := cfgOf(p)
+	cfg.Turns = tracker
+	lc := p.Lifecycle(cfg, LifecycleConfig{Env: env})
+	p.Tick(cfg, TickConfig{Terminals: true}) // wires the tracker's changes to the view; it never ticks here
+	wt, _ := filepath.EvalSymlinks(t.TempDir())
+	dir, _ := team.AccountConfigDir(p.home, "a1")
+	dbpkg.SetAccount(d, "bob", "a1", "recorded")
+	ft.started = sessionRecordIn(dir)
+	dbpkg.SetTerminal(d, "bob", "", wt)
+	dbpkg.SetClosed(d, "bob", "11111111-1111-4111-8111-111111111111")
+	dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "bob", Body: "begin", Response: "async", Kind: "ask"})
+	state := func() string {
+		t.Helper()
+		var raw string
+		if err := d.QueryRow("SELECT view FROM agent_view WHERE agent = 'bob'").Scan(&raw); err != nil {
+			t.Fatalf("no row: %v", err)
+		}
+		var v map[string]any
+		json.Unmarshal([]byte(raw), &v)
+		s, _ := v["state"].(string)
+		return s
+	}
+	if ok, said, err := lc.Manager.WakeAgent("bob", lifecycle.WakeOpts{Warm: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	// hl launch has kept no start of its own here, and nothing ticked: the daemon's own launch said so
+	if s := state(); s != "starting" {
+		t.Fatalf("after the launch: %s, want starting", s)
+	}
+	dbpkg.AddEvent(d, "bob", "SessionStart") // what the hook recorder writes, then tells the tracker
+	tracker.Hook("bob", "SessionStart", map[string]any{}, time.Now().Unix())
+	if s := state(); s == "starting" {
+		t.Fatal("the session's first hook ends starting")
+	}
+}
+
 func TestAClosedTerminalAgentIsWokenInANewTerminalResumingItsSession(t *testing.T) {
 	ft := newFakeTerminals()
 	p, lc, _, _ := wiredWith(t, ft)
@@ -158,10 +225,7 @@ func TestAClosedTerminalAgentIsWokenInANewTerminalResumingItsSession(t *testing.
 	if err := dbpkg.SetAccount(d, "bob", "a1", "recorded"); err != nil {
 		t.Fatal(err)
 	}
-	ft.started = func(cwd string) {
-		os.MkdirAll(filepath.Join(dir, "sessions"), 0o755)
-		os.WriteFile(filepath.Join(dir, "sessions", strconv.Itoa(os.Getpid())+".json"), []byte(`{"cwd":"`+cwd+`","sessionId":"s"}`), 0o644)
-	}
+	ft.started = sessionRecordIn(dir)
 	dbpkg.SetTerminal(d, "bob", "", wt) // its pane was closed with its session
 	if err := dbpkg.SetClosed(d, "bob", "11111111-1111-4111-8111-111111111111"); err != nil {
 		t.Fatal(err)

@@ -119,16 +119,6 @@ export function Sidebar({
             onClick={() => history.forward()}
           />
         ) : null}
-        {unread ? (
-          <button
-            className="bell ml-auto border-0 rounded-[9px] bg-wait px-1.5 text-label text-canvas shell:[-webkit-app-region:no-drag]"
-            title="Unread in the inbox"
-            aria-label={`${unread} unread in the inbox`}
-            onClick={goInbox}
-          >
-            {unread}
-          </button>
-        ) : null}
       </div>
       <div className="rail-opts relative px-2.5 py-2">
         <input
