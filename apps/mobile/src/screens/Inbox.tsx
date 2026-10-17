@@ -10,6 +10,7 @@ import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Button, PageHeader } from './parts.tsx';
 import { Loadable } from './Loadable.tsx';
+import { PromptCard } from './PromptCard.tsx';
 
 const KIND: Record<string, string> = {
   decision: 'Decision',
@@ -82,7 +83,9 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
               {i.evidence}
             </Text>
           ) : null}
-          {i.prompt ? (
+          {i.prompt && i.agent && !i.answered ? (
+            <PromptCard agent={i.agent} prompt={i.prompt} onStale={() => {}} />
+          ) : i.prompt ? (
             <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: 11 }}>{i.prompt.command ?? i.prompt.lines.join('\n')}</Text>
           ) : null}
           {props.pending && (
