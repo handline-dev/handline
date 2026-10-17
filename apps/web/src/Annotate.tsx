@@ -1,6 +1,7 @@
-// The annotation editor of the capture dialog: the picture as large as the room allows with an SVG over it to draw on (pen, arrow, box, circle, text),
-// and pinned notes: a click or a drag opens a popover at that spot for the words. The tools are icons with tooltips. The shapes are app-core's (image
-// pixels, shared with the phone); each change exports the marked picture as a PNG and the notes' words through `onChange`.
+// The annotation editor of the capture dialog: the picture as large as the room allows with an SVG over it to draw on. Arrow is the tool it opens with,
+// then Rectangle, Pen, Text and Number (keys A R P T N); a Number is a numbered ring with its words typed at the spot. The tools are icons with tooltips,
+// the colour one chip. The shapes are app-core's (image pixels, shared with the phone); each change exports the marked picture as a PNG and the
+// numbers' words through `onChange`.
 import { useEffect, useReducer, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import {
   ANNOTATION_COLORS,
@@ -15,14 +16,14 @@ import {
 } from '@handline/app-core';
 import { Button, Textarea, iconLabel, type IconName } from './ui/index.ts';
 
-const TOOLS: [AnnotationTool, IconName][] = [
-  ['note', 'note'],
-  ['pen', 'pen'],
-  ['arrow', 'arrow'],
-  ['box', 'box'],
-  ['ellipse', 'ellipse'],
-  ['text', 'textTool'],
+const TOOLS: [AnnotationTool, IconName, string][] = [
+  ['arrow', 'arrow', 'A'],
+  ['box', 'box', 'R'],
+  ['pen', 'pen', 'P'],
+  ['text', 'textTool', 'T'],
+  ['note', 'number', 'N'],
 ];
+const SWATCHES = ANNOTATION_COLORS.slice(0, 5);
 
 /** A note being written (or changed: `id`), at the end of the click or drag that placed it. */
 type Popover = { from: { x: number; y: number }; to: { x: number; y: number }; id?: number; text: string };
@@ -41,17 +42,9 @@ async function marked(img: HTMLImageElement, shapes: Parameters<typeof exportAnn
   return new Promise((ok) => c.toBlob(ok, 'image/png'));
 }
 
-export function Annotator({
-  image,
-  onChange,
-  extra,
-}: {
-  image: Blob;
-  onChange: (marked: Blob, notes: string[]) => void;
-  /** Controls drawn at the right end of the tool row. */
-  extra?: ReactNode;
-}): ReactNode {
-  const [state, dispatch] = useReducer(annotate, undefined, () => ({ ...initialAnnotation(), tool: 'note' as const }));
+export function Annotator({ image, onChange }: { image: Blob; onChange: (marked: Blob, notes: string[]) => void }): ReactNode {
+  const [state, dispatch] = useReducer(annotate, undefined, () => ({ ...initialAnnotation(), tool: 'arrow' as const }));
+  const [palette, setPalette] = useState(false);
   const [src, setSrc] = useState('');
   const [size, setSize] = useState({ w: 1, h: 1 });
   const [typing, setTyping] = useState<{ x: number; y: number; text: string } | null>(null);
@@ -64,6 +57,21 @@ export function Annotator({
     setSrc(u);
     return () => URL.revokeObjectURL(u);
   }, [image]);
+
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]')) return; // typing: the letters are words
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        dispatch({ type: e.shiftKey ? 'redo' : 'undo' });
+      } else if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+        const hit = TOOLS.find(([, , k]) => k.toLowerCase() === e.key.toLowerCase());
+        if (hit) dispatch({ type: 'tool', tool: hit[0] });
+      }
+    };
+    addEventListener('keydown', key);
+    return () => removeEventListener('keydown', key);
+  }, []);
 
   // Lines are drawn in image pixels: a wide capture gets a thicker line so it shows at the size the dialog draws it.
   const loaded = () => {
@@ -113,33 +121,57 @@ export function Annotator({
   return (
     <div className="annotator flex min-h-0 min-w-0 flex-1 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-1" role="toolbar" aria-label="Markup">
-        {TOOLS.map(([tool, icon]) => (
+        {TOOLS.map(([tool, icon, k]) => (
           <Button
             key={tool}
             icon={icon}
             variant={state.tool === tool ? 'outline' : 'ghost'}
             aria-pressed={state.tool === tool}
-            label={iconLabel(icon)}
+            label={`${iconLabel(icon)} (${k})`}
             onClick={() => dispatch({ type: 'tool', tool })}
           />
         ))}
-        <span className="mx-1 flex gap-1" role="group" aria-label="Colour">
-          {ANNOTATION_COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              aria-label={`Colour ${c}`}
-              aria-pressed={state.color === c}
-              className="h-5 w-5 rounded-full border border-line-strong aria-pressed:outline-2 aria-pressed:outline-offset-1 aria-pressed:outline-current"
-              style={{ background: c }}
-              onClick={() => dispatch({ type: 'color', color: c })}
-            />
-          ))}
+        <span className="relative mx-1">
+          <button
+            type="button"
+            aria-label="Colour"
+            title="Colour"
+            aria-expanded={palette}
+            className="block h-5 w-5 cursor-pointer rounded-full border border-line-strong"
+            style={{ background: state.color }}
+            onClick={() => setPalette(!palette)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && palette) {
+                e.stopPropagation();
+                setPalette(false);
+              }
+            }}
+          />
+          {palette ? (
+            <span
+              className="absolute left-0 top-full z-10 mt-1 flex gap-1 rounded-card border border-line bg-panel p-1.5 shadow-[var(--shadow-pop)]"
+              role="group"
+              aria-label="Colours"
+            >
+              {SWATCHES.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-label={`Colour ${c}`}
+                  aria-pressed={state.color === c}
+                  className="h-5 w-5 cursor-pointer rounded-full border border-line-strong aria-pressed:outline-2 aria-pressed:outline-offset-1 aria-pressed:outline-current"
+                  style={{ background: c }}
+                  onClick={() => {
+                    dispatch({ type: 'color', color: c });
+                    setPalette(false);
+                  }}
+                />
+              ))}
+            </span>
+          ) : null}
         </span>
-        <Button icon="undo" label="Undo" disabled={!state.past.length} onClick={() => dispatch({ type: 'undo' })} />
-        <Button icon="redo" label="Redo" disabled={!state.redo.length} onClick={() => dispatch({ type: 'redo' })} />
-        <Button icon="clear" label="Clear" disabled={!shapes.length} onClick={() => dispatch({ type: 'clear' })} />
-        <span className="ml-auto flex flex-wrap items-center gap-1">{extra}</span>
+        <Button icon="undo" label="Undo (⌘Z)" disabled={!state.past.length} onClick={() => dispatch({ type: 'undo' })} />
+        <Button icon="redo" label="Redo (⇧⌘Z)" disabled={!state.redo.length} onClick={() => dispatch({ type: 'redo' })} />
       </div>
       <div className="flex min-h-0 flex-1 items-center justify-center">
         <div className="relative max-h-full max-w-full">

@@ -82,8 +82,9 @@ describe('capture', () => {
     await click($$('[aria-label="Windows"] button')[0]);
     await until(() => $('[data-testid="capture-preview"]'), 'the preview');
     await typeInto($('#capture-note') as HTMLTextAreaElement, 'The header overlaps the title');
+    await click(button('New task'));
     await choose($('select[aria-label="Owner"]') as HTMLSelectElement, 'handline.auditor');
-    await click(button('Ask'));
+    await click(button('Send'));
     await until(() => !$('[data-testid="capture-preview"]'), 'the dialog to close', 600);
     const list = (await s.client.call('tasks.list', {} as never)) as { items: { id: number; title: string }[] };
     const made = list.items.find((t) => t.title === 'The header overlaps the title')!;
@@ -124,7 +125,8 @@ describe('capture', () => {
     await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
     await click($$('[aria-label="Windows"] button')[0]);
     await until(() => $('[data-testid="capture-preview"]'), 'the preview');
-    await click(button('Comment'));
+    expect(button('Comment on T1684')).toBeTruthy();
+    await click(button('Send'));
     await until(() => !$('[data-testid="capture-preview"]'), 'the dialog to close', 600);
     const t = (await s.client.call('task.get', { task: 1684 } as never)) as { memos: { text: string; parts?: unknown[] }[] };
     expect(t.memos.at(-1)!.text).toMatch(/!\[Simulator\]\(attachment:/);
@@ -138,11 +140,12 @@ describe('capture', () => {
     await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
     await click($$('[aria-label="Windows"] button')[0]);
     await until(() => $('[data-testid="capture-preview"]'), 'the preview');
+    await click(button('New task'));
     await choose($('select[aria-label="Send as"]') as HTMLSelectElement, 'comment');
-    await click(button('Comment'));
+    await click(button('Send'));
     expect($('[role="alert"]')?.textContent).toBe('Pick the task.');
     await choose($('select[aria-label="Task"]') as HTMLSelectElement, '1684');
-    await click(button('Comment'));
+    await click(button('Send'));
     await until(() => !$('[data-testid="capture-preview"]'), 'the dialog to close', 600);
     const t = (await s.client.call('task.get', { task: 1684 } as never)) as { memos: { text: string }[] };
     expect(t.memos.at(-1)!.text).toMatch(/!\[Simulator\]\(attachment:/);

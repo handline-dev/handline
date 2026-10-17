@@ -1,13 +1,14 @@
-// Capture a window of this machine and send it: pick a window, look at it, write a note, then ask a new task whose body holds the picture
-// or add it as a comment on a task of the list (docs/story1-research.md, 1-1). The picture is marked up first (Annotate.tsx) and takes the whole window,
-// its notes pinned to spots on it. Only in the desktop shell, which owns the capture.
+// Capture a window of this machine and send it (docs/story1-research.md, 1-1): one near full-window surface that lists the windows, then marks the
+// picked one up (Annotate.tsx), with one bottom bar: where it goes (a comment on the open task, else a new task), the message, Send. The marked
+// numbers' words go into the message as 1. 2. lines. Only in the desktop shell, which owns the capture.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { taskRef, titleFromNote, withImages } from '@handline/app-core';
+import { titleFromNote, withImages } from '@handline/app-core';
 import { classify, sentence, useAgents, useTasks, useUploadImage, useWrite } from '@handline/app-data';
 import { Annotator } from './Annotate.tsx';
 import { useTasksRoute } from './route.ts';
 import { shell } from './shell.ts';
-import { Button, Dialog, NOTE, Select, Textarea } from './ui/index.ts';
+import { CaptureDestination, type Destination } from './CaptureDestination.tsx';
+import { Button, Dialog, NOTE, Textarea } from './ui/index.ts';
 
 /** True when this shell can capture a window. */
 export const canCapture = (): boolean => shell('captureWindow') !== null;
@@ -56,15 +57,14 @@ export function CaptureDialog({
   onClose: () => void;
 }) {
   const [windows, setWindows] = useState<Win[] | null>(null);
-  const [taking, setTaking] = useState(false);
+  const [hidden, setHidden] = useState(false);
   const [problem, setProblem] = useState('');
   const [shot, setShot] = useState<{ name: string; blob: Blob } | null>(null);
   const [marked, setMarked] = useState<Blob | null>(null);
   const [pinned, setPinned] = useState<string[]>([]); // the words of the notes pinned on the picture, numbered as it shows them
   const [note, setNote] = useState('');
-  const [owner, setOwner] = useState('');
-  const [as, setAs] = useState<'task' | 'comment'>(task === null ? 'task' : 'comment');
-  const [target, setTarget] = useState<number | null>(task);
+  const [dest, setDest] = useState<Destination>({ as: task === null ? 'task' : 'comment', target: task, owner: '' });
+  const [choosing, setChoosing] = useState(false);
   const open = (useTasks({}).data?.items ?? []).filter((t) => t.state !== 'done' && t.state !== 'cancelled');
   const [sending, setSending] = useState(false);
   const upload = useUploadImage();
@@ -86,13 +86,14 @@ export function CaptureDialog({
 
   const pick = async (w: Win) => {
     setProblem('');
-    // The picture may be of this very window: take the other windows' thumbnails off it first.
-    setWindows(null);
-    setTaking(true);
-    await new Promise((r) => setTimeout(r, 150));
-    const r = await shell('captureWindow')?.captureWindow?.({ id: w.id });
+    // The picture may be of this very window: the surface is taken off the screen, and two frames let that reach it, before the capture.
+    setHidden(true);
+    await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
+    const r = await shell('captureWindow')
+      ?.captureWindow?.({ id: w.id })
+      .catch((e: unknown) => ({ ok: false as const, message: sentence(classify(e)) }))
+      .finally(() => setHidden(false));
     if (gone.current) return;
-    setTaking(false);
     if (!r) return setProblem('This app cannot capture a window.');
     if (!r.ok) return setProblem(r.message);
     setShot({ name: r.name, blob: asBlob(r.png) });
@@ -103,8 +104,11 @@ export function CaptureDialog({
 
   const send = async () => {
     if (!shot || !picture) return;
-    if (as === 'task' && !owner) return setProblem('Pick who it is for.');
-    if (as === 'comment' && target === null) return setProblem('Pick the task.');
+    const { as, target, owner } = dest;
+    if ((as === 'task' && !owner) || (as === 'comment' && target === null)) {
+      setChoosing(true);
+      return setProblem(as === 'task' ? 'Pick who it is for.' : 'Pick the task.');
+    }
     setSending(true);
     setProblem('');
     try {
@@ -123,27 +127,31 @@ export function CaptureDialog({
     }
   };
 
+  if (hidden) return null;
   return (
     <Dialog
       title="Capture a window"
       onClose={onClose}
-      full={!!shot}
-      action={shot ? { label: as === 'task' ? 'Ask' : 'Comment', keys: '⌘↵', onClick: () => void send(), disabled: sending } : undefined}
+      full
+      action={shot ? { label: 'Send', keys: '⌘↵', onClick: () => void send(), disabled: sending } : undefined}
       bar={
-        <Textarea
-          id="capture-note"
-          rows={1}
-          aria-label="Message"
-          placeholder="Message"
-          className="min-w-0 flex-1"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-        />
+        <>
+          <CaptureDestination value={dest} onChange={setDest} open={choosing} onOpen={setChoosing} tasks={open} agents={agents} />
+          <Textarea
+            id="capture-note"
+            rows={1}
+            aria-label="Message"
+            placeholder="Message"
+            className="min-w-0 flex-1"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+        </>
       }
     >
       {!shot ? (
         <div className="grid gap-3">
-          <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1" aria-label="Windows">
+          <div className="grid grid-cols-3 gap-3 max-sm:grid-cols-1" aria-label="Windows">
             {(windows ?? []).map((w) => (
               <button
                 key={w.id}
@@ -156,46 +164,11 @@ export function CaptureDialog({
               </button>
             ))}
           </div>
-          {windows === null && !problem ? <p className={NOTE}>{taking ? 'Taking the picture…' : 'Looking for windows…'}</p> : null}
+          {windows === null && !problem ? <p className={NOTE}>Looking for windows…</p> : null}
           <Button label="Refresh" onClick={() => void list()} />
         </div>
       ) : (
-        <Annotator
-          image={shot.blob}
-          onChange={(b, notes) => (setMarked(b), setPinned(notes))}
-          extra={
-            <>
-              <Select
-                label="Send as"
-                value={as}
-                onChange={(e) => setAs(e.target.value as 'task' | 'comment')}
-                options={[
-                  { value: 'task', label: 'A new task' },
-                  { value: 'comment', label: 'A comment on a task' },
-                ]}
-              />
-              {as === 'comment' ? (
-                <Select
-                  label="Task"
-                  value={target === null ? '' : String(target)}
-                  onChange={(e) => setTarget(e.target.value ? Number(e.target.value) : null)}
-                  options={[
-                    { value: '', label: 'pick a task' },
-                    ...open.map((t) => ({ value: String(t.id), label: `${taskRef(t.id)} ${t.title}` })),
-                  ]}
-                />
-              ) : (
-                <Select
-                  label="Owner"
-                  value={owner}
-                  onChange={(e) => setOwner(e.target.value)}
-                  options={[{ value: '', label: 'pick an agent' }, ...agents.map((a) => ({ value: a, label: a }))]}
-                />
-              )}
-              <Button icon="back" label="Another window" onClick={() => setShot(null)} />
-            </>
-          }
-        />
+        <Annotator image={shot.blob} onChange={(b, notes) => (setMarked(b), setPinned(notes))} />
       )}
       {problem ? (
         <p className={`${NOTE} text-bad`} role="alert">

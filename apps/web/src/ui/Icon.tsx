@@ -60,8 +60,7 @@ import {
   MoveUpRight,
   Square,
   Type,
-  MessageSquarePlus,
-  Eraser,
+  Hash,
   ArrowDown,
   ArrowLeft,
   ArrowRight,
@@ -213,13 +212,11 @@ const ICONS = {
   // the markup tools
   pen: [PenTool, 'Pen'],
   arrow: [MoveUpRight, 'Arrow'],
-  box: [Square, 'Box'],
-  ellipse: [Circle, 'Circle'],
+  box: [Square, 'Rectangle'],
   textTool: [Type, 'Text'],
-  note: [MessageSquarePlus, 'Note'],
+  number: [Hash, 'Number'],
   undo: [Undo2, 'Undo'],
   redo: [Redo2, 'Redo'],
-  clear: [Eraser, 'Clear'],
 } as const satisfies Record<string, readonly [ComponentType<SVGProps<SVGSVGElement>>, string]>;
 
 export type IconName = keyof typeof ICONS;

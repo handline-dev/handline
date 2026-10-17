@@ -54,9 +54,11 @@ const enter = (el: Element) =>
   act(async () => void el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
 
 describe('pinned notes', () => {
-  it('opens with the Note tool on', async () => {
+  it('opens with Arrow on, and N switches to Number', async () => {
     await mount();
-    expect(button('Note').getAttribute('aria-pressed')).toBe('true');
+    expect(button('Arrow (A)').getAttribute('aria-pressed')).toBe('true');
+    await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'n' })));
+    expect(button('Number (N)').getAttribute('aria-pressed')).toBe('true');
     await drag([30, 30], [30, 30]);
     expect(popover()).not.toBeNull();
   });
@@ -64,7 +66,7 @@ describe('pinned notes', () => {
   it('a click on the picture opens a popover there, and Enter pins the words and sends them with the picture', async () => {
     const sent: string[][] = [];
     await mount((_b, notes) => sent.push(notes));
-    await click(button('Note'));
+    await click(button('Number (N)'));
     await drag([30, 30], [30, 30]);
     expect(popover()).not.toBeNull();
     await type(popover()!, 'wrong colour');
@@ -77,7 +79,7 @@ describe('pinned notes', () => {
 
   it('a drag marks a region, a note can be changed from its marker, and no words leave no note', async () => {
     await mount();
-    await click(button('Note'));
+    await click(button('Number (N)'));
     await drag([10, 10], [60, 60]);
     await enter(popover()!); // nothing typed
     expect(box.querySelectorAll('[aria-label^="Note 1"]')).toHaveLength(0);
@@ -92,6 +94,7 @@ describe('pinned notes', () => {
 
   it('removing the only note leaves Undo on, and it brings the note back', async () => {
     await mount();
+    await click(button('Number (N)'));
     await drag([30, 30], [30, 30]);
     await type(popover()!, 'wrong colour');
     await enter(popover()!);
@@ -99,8 +102,8 @@ describe('pinned notes', () => {
     await type(popover()!, '');
     await enter(popover()!);
     expect(box.querySelectorAll('[aria-label^="Note 1"]')).toHaveLength(0);
-    expect(button('Undo').hasAttribute('disabled')).toBe(false);
-    await click(button('Undo'));
+    expect(button('Undo (⌘Z)').hasAttribute('disabled')).toBe(false);
+    await click(button('Undo (⌘Z)'));
     expect(button('Note 1: wrong colour')).toBeTruthy();
   });
 });

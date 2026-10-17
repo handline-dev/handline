@@ -45,28 +45,30 @@ afterEach(async () => {
 });
 
 describe('the markup editor', () => {
-  it('draws a circle, an arrow and freehand, and Undo and Clear take them back', async () => {
+  it('draws a rectangle, an arrow and freehand, and Undo and Redo walk them', async () => {
     await mount();
-    expect(button('Undo').hasAttribute('disabled')).toBe(true);
-    await click(button('Circle'));
+    expect(button('Undo (⌘Z)').hasAttribute('disabled')).toBe(true);
+    await click(button('Rectangle (R)'));
     await drag([10, 10], [60, 60]);
     expect(box.querySelectorAll('svg[aria-label="Draw here"] path')).toHaveLength(1);
-    await click(button('Arrow'));
+    await click(button('Arrow (A)'));
     await drag([0, 0], [90, 0]);
-    await click(button('Pen'));
+    await click(button('Pen (P)'));
     await drag([5, 5], [20, 30]);
     expect(box.querySelectorAll('svg[aria-label="Draw here"] path')).toHaveLength(3);
-    await click(button('Undo'));
+    await click(button('Undo (⌘Z)'));
     expect(box.querySelectorAll('svg[aria-label="Draw here"] path')).toHaveLength(2);
-    await click(button('Redo'));
+    await click(button('Redo (⇧⌘Z)'));
     expect(box.querySelectorAll('svg[aria-label="Draw here"] path')).toHaveLength(3);
-    await click(button('Clear'));
+    await click(button('Undo (⌘Z)'));
+    await click(button('Undo (⌘Z)'));
+    await click(button('Undo (⌘Z)'));
     expect(box.querySelectorAll('svg[aria-label="Draw here"] path')).toHaveLength(0);
   });
 
   it('puts text where it is clicked, on Enter', async () => {
     await mount();
-    await click(button('Text'));
+    await click(button('Text (T)'));
     await act(async () => {
       const svg = $('svg[aria-label="Draw here"]');
       svg.getBoundingClientRect = () => ({
