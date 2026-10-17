@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV, type NavigateTo, type ShellApi } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
-import { shell } from '../src/shell.ts';
+import { settingsRelay, shell } from '../src/shell.ts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -177,6 +177,27 @@ describe('Pair a phone', () => {
     await until(() => box.querySelector('#set-devices .devices'), 'the devices');
     await wait(50);
     expect(button()).toBeUndefined();
+  });
+});
+
+describe('settings through the shell', () => {
+  it('answers settings.get and settings.set from the shell, and throws a refusal as a daemon refusal', async () => {
+    expect(settingsRelay()).toBeUndefined(); // a plain browser
+    const calls: unknown[] = [];
+    const api = {
+      api: 1,
+      settingsGet: async (a: unknown) => (calls.push(a), { ok: true as const, result: { values: { active_cap: 2 } } }),
+      settingsSet: async (a: unknown) => (calls.push(a), { ok: false as const, code: 'refused', message: 'no' }),
+    };
+    vi.stubGlobal('handline', api);
+    Object.assign(window, { handline: api });
+    const relay = settingsRelay()!;
+    expect(await relay['settings.get']!({})).toEqual({ values: { active_cap: 2 } });
+    await expect(relay['settings.set']!({ changes: { active_cap: 3 }, request_id: 'r' })).rejects.toMatchObject({
+      code: 'refused',
+      message: 'no',
+    });
+    expect(calls).toEqual([{}, { changes: { active_cap: 3 }, agent: undefined }]);
   });
 });
 

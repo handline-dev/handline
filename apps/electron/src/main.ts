@@ -15,7 +15,7 @@ import { followMain, takeRoute } from './follow-app.ts';
 import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from './mode.ts';
 import { ownDaemon, readFounderKey, type Own } from './own.ts';
 import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from './tailnet.ts';
-import { Connection, Page, CHANNELS } from './bridge.ts';
+import { Connection, Page, Settings, CHANNELS } from './bridge.ts';
 import { serveDir } from './serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from './update.ts';
 
@@ -95,6 +95,17 @@ function trustFingerprint(remote: Remote): void {
     const got = Buffer.from(cert.fingerprint.replace(/^sha256\//, ''), 'base64').toString('hex');
     trust(!!remote.fingerprint && new URL(url).host === remote.host && got === remote.fingerprint);
   });
+}
+
+/** The window connects as a paired device, which may not read or write settings; the shell's founder connection does it for the page. */
+function handleSettings(origin: string, client: DaemonClient, remote: Remote | null): void {
+  const otherDevice = new Error('This app is paired with another device; change its settings there.');
+  const s = new Settings(origin, {
+    get: (agent) => (remote ? Promise.reject(otherDevice) : client.call('settings.get', { agent })),
+    set: (changes, agent) => (remote ? Promise.reject(otherDevice) : client.call('settings.set', { changes, agent })),
+  });
+  ipcMain.handle(CHANNELS.settingsGet, (e, arg) => s.get(e, arg));
+  ipcMain.handle(CHANNELS.settingsSet, (e, arg) => s.set(e, arg));
 }
 
 function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote | null): void {
@@ -221,6 +232,7 @@ if (!app.requestSingleInstanceLock()) {
     handleConnection(origin, own, current.mode, remote);
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
+    handleSettings(origin, client, remote);
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
     const opener = new Opener(origin, {
       worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,

@@ -1,6 +1,8 @@
 // The surface between the web app and the desktop shell (docs/electron-bridge.md): types and the one table from an event's target to a route.
 // Pure, no DOM: the shell's preload and the web app both import it.
 
+import type { Methods } from '@handline/client';
+
 /** What every call returns when it does not succeed: calls never throw across the window's edge. */
 export type Fail<C extends string> = { ok: false; code: C; message: string };
 
@@ -52,9 +54,7 @@ export interface ShellApi {
   /** One window of that list as a PNG (base64). */
   captureWindow?(a: {
     id: string;
-  }): Promise<
-    { ok: true; name: string; png: string } | Fail<'bad_request' | 'unavailable' | 'no_permission' | 'not_found' | 'too_large'>
-  >;
+  }): Promise<{ ok: true; name: string; png: string } | Fail<'bad_request' | 'unavailable' | 'no_permission' | 'not_found' | 'too_large'>>;
   /** Which daemon the app talks to: its mode and, in connect mode, the paired device's address. Absent in a shell with one mode. */
   mode?(): Promise<{ ok: true; mode: 'connect' | 'own'; remote: string | null; phone: boolean } | Fail<'bad_request'>>;
   /** Switches the mode; the app relaunches. */
@@ -63,6 +63,15 @@ export interface ShellApi {
   phone?(): Promise<{ ok: true } | Fail<'bad_request' | 'cannot_pair'>>;
   /** Pairs with another device's gateway, from its `handline://` link or its address and code; the app relaunches on it. */
   pairRemote?(a: { link?: string; address?: string; code?: string }): Promise<{ ok: true } | Fail<'bad_request' | 'cannot_pair'>>;
+  /** settings.get through the shell's own daemon connection, for a window that is a paired device and may not read settings. Absent in a shell that lacks it. */
+  settingsGet?(a?: {
+    agent?: string;
+  }): Promise<{ ok: true; result: Methods['settings.get']['result'] } | Fail<'bad_request' | 'refused' | 'unavailable'>>;
+  /** settings.set the same way. */
+  settingsSet?(a: {
+    changes: Record<string, unknown>;
+    agent?: string;
+  }): Promise<{ ok: true; result: Methods['settings.set']['result'] } | Fail<'bad_request' | 'refused' | 'unavailable'>>;
   /** The absolute path of a file or folder dropped from Finder, or '' when it has none. Synchronous: it reads the File, not the disk. Absent in a shell that lacks it. */
   pathOf?(file: File): string;
   /** A notice was clicked. Returns the way to stop listening. */
