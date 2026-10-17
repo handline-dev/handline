@@ -4,12 +4,12 @@ import { DAEMON_KEYS, NAMED_KEYS } from './keys.ts';
 
 export type Dot = 'running' | 'waking' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'none';
 
-/** The rail dot: the daemon's state word plus its block kinds. Unknown words read as idle. */
-export function dotOf(a: Pick<AgentView, 'state' | 'has_dialog' | 'block'>): Dot {
+/** The rail dot: the daemon's state word plus its block kinds and a handoff that is starting a new session. Unknown words read as idle. */
+export function dotOf(a: Pick<AgentView, 'state' | 'has_dialog' | 'block' | 'handoff'>): Dot {
   if (a.has_dialog || a.state === 'waiting') return 'waiting';
   if (a.block || a.state === 'stalled' || a.state === 'blocked') return 'blocked';
   if (a.state === 'no_terminal') return 'none';
-  if (a.state === 'queued') return 'waking';
+  if (a.state === 'queued' || a.handoff?.phase === 'starting') return 'waking'; // a restarting agent is coming back, whatever state word it carries
   if (a.state === 'parked') return 'parked';
   if (a.state === 'running') return 'running';
   return 'idle';
