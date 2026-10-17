@@ -12,8 +12,3 @@ rules reads the numbers. Each answers one question and rests on what is named.
 - `by_agent_turn.py calls.pkl` - usage by agent and by turn, and what the
   expensive turns have in common. Rests on the weights in `W`, which are
   fitted, and on the working directory naming the agent.
-- `fit.py [interval_s]` - what a token of each class costs the plan, with a
-  bootstrap interval, from `usage_samples` against `token_calls` (which the
-  daemon records per call, 60 days). Needs numpy. The first fit, on 56
-  intervals over 7 hours, gave cache read 0-65% of usage: read the interval,
-  not the point, and rerun it as the record grows.

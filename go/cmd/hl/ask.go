@@ -347,6 +347,9 @@ func orNone(v any) any {
 
 // teamCmd shows who the caller may ask and what they are doing (cli/team.cmd_team).
 func teamCmd(c *hlclient.Client, args []string) (int, bool) {
+	if len(args) == 1 && args[0] == "seal" {
+		return teamSeal(c), true
+	}
 	p, ok := parse(args, []string{"--agent"}, nil, nil)
 	if !ok || len(p.pos) != 0 {
 		return 0, false
