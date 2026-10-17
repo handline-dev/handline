@@ -155,7 +155,7 @@ export const TASK_GROUPS: readonly { key: TaskGroupKey; label: string }[] = [
 /** The group a task sits in: what waits on the person, what runs, what waits its turn, what is closed. */
 export function taskGroup(t: Task, me: string): TaskGroupKey {
   if (CLOSED.includes(t.state)) return 'done';
-  if (isPerson(t.to, me) || (t.state === 'reported' && isPerson(t.from, me))) return 'needs';
+  if (isPerson(t.to, me) || (t.state === 'answered' && isPerson(t.from, me))) return 'needs';
   return t.state === 'doing' ? 'running' : 'queued';
 }
 

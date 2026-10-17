@@ -147,7 +147,7 @@ test('tasks group as Needs you, Running, Queued and Done, each keeping its order
     task(2, { state: 'doing' }),
     task(3, { to: 'human' }),
     task(4, { state: 'done' }),
-    task(5, { state: 'reported', from: 'human' }),
+    task(5, { state: 'answered', from: 'human' }),
     task(6, { state: 'doing' }),
   ];
   const g = groupTasks(all, 'me');
