@@ -36,6 +36,10 @@ func fileReport(tx *sql.Tx, by string, t *task, mark, via, from string, result t
 	if err != nil {
 		return nil, err
 	}
+	// The delivery it landed on no longer holds its queue, or every later request would wait for the accept.
+	if err := db.EndHeld(tx, t.ID, by); err != nil {
+		return nil, err
+	}
 	to := t.reporter()
 	text := fmt.Sprintf("T%d reported done by %s: %s - accept it (`hl task accept T%d`) or send it back (`hl task reject T%d \"<note>\"`)",
 		t.ID, by, strings.Join(strings.Fields(mark), " "), t.ID, t.ID)
