@@ -2,7 +2,21 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, handoffLine, sideOf, taskRow, changeParts, timeline } from '../src/index.ts';
+import {
+  Store,
+  noticeOf,
+  takeBack,
+  landingLabel,
+  tickLevel,
+  sessionLine,
+  handoffLine,
+  restartCause,
+  restartingLine,
+  sideOf,
+  taskRow,
+  changeParts,
+  timeline,
+} from '../src/index.ts';
 
 const A = 'handline.architect';
 const msg = (over: Partial<ChatMessage>): ChatMessage => ({
@@ -149,7 +163,10 @@ test("the task board's words are left out of the agent's own chat and shown in t
   assert.equal(noticeOf(pm({ from: 'human', body: 'T1 done by me' })), null);
   const kinds = (scope: 'mine' | 'all') => timeline([news, delivery], [], scope).map((e) => `${e.kind}${e.id}`);
   const waits = pm({ id: 9, from: 'task-board', to: A, body: 'task T4136 now waits on T4148' }); // local-ref-ok
-  assert.deepEqual(timeline([news, delivery, waits, pm({ id: 10, from: 'human', to: A })], [], 'mine').map((e) => `${e.kind}${e.id}`), ['message10']);
+  assert.deepEqual(
+    timeline([news, delivery, waits, pm({ id: 10, from: 'human', to: A })], [], 'mine').map((e) => `${e.kind}${e.id}`),
+    ['message10'],
+  );
   assert.deepEqual(kinds('mine'), []);
   assert.deepEqual(kinds('all'), ['note7', 'message8']);
   assert.equal(sideOf(delivery, A, 'Handline desktop'), 'other');
@@ -174,10 +191,21 @@ test('a session line says why in plain words, and keeps an unknown cause as it c
 
 test('a task card is in the chat of the agent that made the change; the all tab shows every one', () => {
   const card = (id: number, who: string) =>
-    ({ id, at: `2026-01-01T00:00:0${id}Z`, kind: 'task_event', task_event: { event: 'changed', task: 7, request: null, evidence: null, who } }) as unknown as TranscriptItem;
+    ({
+      id,
+      at: `2026-01-01T00:00:0${id}Z`,
+      kind: 'task_event',
+      task_event: { event: 'changed', task: 7, request: null, evidence: null, who },
+    }) as unknown as TranscriptItem;
   const items = [card(1, 'alice'), card(2, 'bob'), card(3, 'human')];
-  assert.deepEqual(timeline([], items, 'mine', 'alice').map((e) => e.id), [1, 3]); // the founder acts on the agent's behalf
-  assert.deepEqual(timeline([], items, 'all', 'alice').map((e) => e.id), [1, 2, 3]);
+  assert.deepEqual(
+    timeline([], items, 'mine', 'alice').map((e) => e.id),
+    [1, 3],
+  ); // the founder acts on the agent's behalf
+  assert.deepEqual(
+    timeline([], items, 'all', 'alice').map((e) => e.id),
+    [1, 2, 3],
+  );
   assert.equal(taskRow(card(2, 'bob')).who, 'bob');
 });
 
@@ -194,7 +222,49 @@ test('in the all room, what the agent says to another agent is not shown; what i
     msg({ id: 3, from: A, to: 'human', body: 'to the person' }),
     msg({ id: 4, from: A, to: 'Handline desktop', body: 'to the device' }),
   ];
-  assert.deepEqual(timeline(ms, [], 'all', A, 'Handline desktop').map((e) => e.id), [2, 3, 4]);
-  assert.deepEqual(timeline(ms, [], 'mine', A, 'Handline desktop').map((e) => e.id), [1, 2, 3, 4]); // mine is left as it was
-  assert.deepEqual(timeline(ms, [], 'all', A).map((e) => e.id), [2, 3]); // no `me`: a device name is not known as the person
+  assert.deepEqual(
+    timeline(ms, [], 'all', A, 'Handline desktop').map((e) => e.id),
+    [2, 3, 4],
+  );
+  assert.deepEqual(
+    timeline(ms, [], 'mine', A, 'Handline desktop').map((e) => e.id),
+    [1, 2, 3, 4],
+  ); // mine is left as it was
+  assert.deepEqual(
+    timeline(ms, [], 'all', A).map((e) => e.id),
+    [2, 3],
+  ); // no `me`: a device name is not known as the person
+});
+
+test('a restart is one line: back-to-back session starts collapse and keep the cause and the handoff', () => {
+  const at = (n: number) => `2026-01-01T00:00:0${n}Z`;
+  const start = (id: number, cause?: string, handoff: string | null = null) =>
+    ({
+      id,
+      at: at(id),
+      kind: 'session',
+      session: { id: `s${id}`, started: at(id), handoff, ...(cause ? { cause } : {}) },
+    }) as unknown as TranscriptItem;
+  const said = pm({ id: 9, from: A, to: 'human', body: 'hi' });
+  const one = timeline([], [start(1, 'context_full', 'note'), start(2, 'launch'), start(3, 'launch')]);
+  assert.equal(one.length, 1);
+  const item = (one[0] as { item: TranscriptItem }).item;
+  assert.equal(item.id, 3);
+  assert.deepEqual([item.session?.cause, item.session?.handoff], ['context_full', 'note']);
+  // a message between two starts keeps them apart
+  assert.equal(timeline([{ ...said, at: at(2) }], [start(1, 'launch'), start(3, 'launch')]).length, 3);
+});
+
+test('restartCause is the daemon word in short words, null when it sent none', () => {
+  const at = '2026-01-01T00:00:00Z';
+  const item = (cause?: string) =>
+    ({ id: 1, at, kind: 'session', session: { id: 's', started: at, handoff: null, ...(cause ? { cause } : {}) } }) as unknown as TranscriptItem;
+  assert.equal(restartCause(item('context_full')), 'context was full');
+  assert.equal(restartCause(item('odd')), 'odd');
+  assert.equal(restartCause(item()), null);
+});
+
+test('the live restart line reads as one sentence', () => {
+  assert.equal(restartingLine({ cause: 'context_full', phase: 'writing' }), 'Restarting: context full. Writing the handoff…');
+  assert.equal(restartingLine({ cause: 'context_full', phase: 'starting' }), 'Restarting: context full. Starting a new session…');
 });

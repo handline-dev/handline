@@ -47,19 +47,27 @@ describe('handoff line', () => {
     fx.view = { handoff: { cause: 'context_full', phase: 'writing', since: new Date().toISOString() } };
     await mount(s);
     await until(() => card(), 'the line');
-    expect(card()!.textContent).toContain('Context full');
-    expect(card()!.textContent).toContain('Writing the handoff');
+    expect(card()!.textContent).toBe('Restarting: context full. Writing the handoff…');
+    expect(box.querySelector('[data-agent="handline.architect"] .restarting')!.textContent).toBe('Restarting…');
+    expect(box.querySelector('[data-agent="handline.architect"] .row-live')!.textContent).toBe('Context full: writing the handoff');
+    expect(card()!.querySelector('svg')!.getAttribute('class')).toContain('animate-');
+    expect(box.querySelectorAll('.card-handoff')).toHaveLength(1); // earlier session boundaries stay above it
+    expect(box.querySelector('h2')!.textContent).toBe('handline.architect Restarting…');
+    expect(box.querySelector('.chat-strip [aria-label="Restarting…"], .chat-strip [title="Restarting…"]')).not.toBeNull();
   });
 
-  it('moves the age on every second', async () => {
+  it('changes the words in place when the phase moves on', async () => {
     const s = setup();
     const fx = s.daemon.sessions.get(ARCH)!.fx;
     keep = () => void (fx.view = undefined);
-    fx.view = { handoff: { cause: 'context_full', phase: 'starting', since: new Date(Date.now() - 5_000).toISOString() } };
+    fx.view = { handoff: { cause: 'context_full', phase: 'writing', since: new Date().toISOString() } };
     await mount(s);
     await until(() => card(), 'the line');
-    const first = card()!.textContent;
-    await until(() => card()!.textContent !== first, 'the age to move');
+    fx.view = { handoff: { cause: 'context_full', phase: 'starting', since: new Date().toISOString() } };
+    const session = s.daemon.sessions.get(ARCH)!;
+    (s.daemon as unknown as { script: { setState(x: unknown, st: string): void } }).script.setState(session, session.state); // announces the change as the daemon does
+    await until(() => card()?.textContent === 'Restarting: context full. Starting a new session…', 'the next phase');
+    expect(box.querySelectorAll('.card-handoff')).toHaveLength(1);
   });
 
   it('shows nothing when no handoff runs', async () => {

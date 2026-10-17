@@ -1,103 +1,62 @@
-// The task detail's presentational parts: the meta grid, one verb button, the link sections, and the two small sheets.
+// The task detail's presentational parts: the owner, priority and time box chips, the link sections and the cancel sheet.
 import { useState } from 'react';
-import { dateTime, taskRef, timeBoxText } from '@handline/app-core';
+import { taskRef, timeBoxText } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { Icon, type IconName } from './ui/Icon.tsx';
 import { Sheet } from './taskui.tsx';
-import { AgentLink, Inline, PriorityInput, TextInput, useEditTask } from './TaskInline.tsx';
-import { Button, Input, MetaField, MetaGrid } from './ui/index.ts';
+import { Inline, TextInput, useEditTask } from './TaskInline.tsx';
+import { Button, Input, MenuButton, MenuItem } from './ui/index.ts';
 
 const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
+const CHIP = 'inline-flex items-center gap-1 rounded-pill border border-line px-2 text-hint leading-5';
 const LI = 'flex items-baseline gap-1.5 py-0.5';
 
-/** The fields; the owner, priority and time box change where they are (the owner through the assign sheet). */
-export function TaskMeta({ t, now, onAssign }: { t: Detail; now: number; onAssign: () => void }) {
+/** Owner, priority and time box as chips: the first two open a choice, the time box edits where it is. A closed task shows them as plain words. */
+export function TaskChips({ t, now, onAssign }: { t: Detail; now: number; onAssign: () => void }) {
   const edit = useEditTask(t);
-  const open = t.state !== 'done' && t.state !== 'discarded';
-  const can = edit.can.ok && open;
+  const can = edit.can.ok && t.state !== 'done' && t.state !== 'discarded';
   const box = timeBoxText(t, now);
+  const owner = `Owner · ${t.to}`;
+  const priority = `Priority · P${t.priority ?? 2}`;
   return (
     <>
-      <MetaGrid>
-        <MetaField
-          icon="owner"
-          label="Owner"
-          value={
-            <>
-              <strong>
-                <AgentLink name={t.to} />
-              </strong>
-              {can ? <Button icon="edit" size="sm" label="Change the owner" onClick={onAssign} /> : null}
-            </>
-          }
-        />
-        <MetaField icon="agent" label="Asked by" value={<strong><AgentLink name={t.from} /></strong>} />
-        <MetaField
-          icon="priority"
-          label="Priority"
-          value={
-            <Inline can={can} label="Priority" input={(close) => <PriorityInput value={t.priority ?? 2} onSave={(priority) => edit.save({ priority })} onClose={close} />}>
-              {`P${t.priority ?? 2}`}
-            </Inline>
-          }
-        />
-        <MetaField
-          icon="waiting"
-          label="Time box"
-          value={
-            <Inline
-              can={can}
-              label="Time box"
-              input={(close) => <TextInput value={t.time_box ?? ''} label="Time box" onSave={(time_box) => edit.save({ time_box })} onClose={close} />}
-            >
-              {box || 'none'}
-            </Inline>
-          }
-        />
-        <MetaField icon="schedules" label="Created" value={dateTime(t.created)} />
-        {t.delivered ? <MetaField icon="delivered" label="Delivered" value={dateTime(t.delivered)} /> : null}
-        {t.done ? <MetaField icon="taskDone" label="Closed" value={dateTime(t.done)} /> : null}
-        {t.parent ? (
-          <MetaField
-            icon="viewTree"
-            label="Under"
-            value={
-              <a href={`#/tasks/${t.parent}`} className="mono">
-                {taskRef(t.parent)}
-              </a>
-            }
-          />
-        ) : null}
-      </MetaGrid>
+      <div className="tchips flex flex-wrap items-center gap-2">
+        {can ? (
+          <>
+            <Button variant="outline" size="sm" label="Change the owner" title={edit.can.why} onClick={onAssign}>
+              {owner} ▾
+            </Button>
+            <MenuButton label="Change the priority" variant="outline" size="sm" align="start" trigger={`${priority} ▾`}>
+              {([1, 2, 3] as const).map((p) => (
+                <MenuItem key={p} onSelect={() => edit.save({ priority: p })}>
+                  {`P${p}${p === 1 ? ' high' : p === 3 ? ' low' : ''}`}
+                </MenuItem>
+              ))}
+            </MenuButton>
+          </>
+        ) : (
+          <>
+            <span className={CHIP}>{owner}</span>
+            <span className={CHIP}>{priority}</span>
+          </>
+        )}
+        <span className={CHIP}>
+          Time box ·{' '}
+          <Inline
+            can={can}
+            label="Time box"
+            input={(close) => <TextInput value={t.time_box ?? ''} label="Time box" onSave={(time_box) => edit.save({ time_box })} onClose={close} />}
+          >
+            {box || 'none'}
+          </Inline>
+        </span>
+      </div>
       {edit.error ? (
         <p className="m-0 text-bad" role="alert">
           {edit.error}
         </p>
       ) : null}
     </>
-  );
-}
-
-export function Verb(props: {
-  k: string;
-  icon: IconName;
-  label: string;
-  can: { ok: boolean; why?: string };
-  onClick: () => void;
-  busy?: boolean;
-}) {
-  return (
-    <Button
-      icon={props.busy ? undefined : props.icon}
-      label={props.label}
-      aria-label={props.label}
-      title={props.can.why ?? `${props.label} (${props.k})`}
-      disabled={!props.can.ok || props.busy}
-      className="max-sm:min-h-[44px]"
-      onClick={props.onClick}
-    >
-      {props.busy ? '…' : props.label}
-    </Button>
   );
 }
 

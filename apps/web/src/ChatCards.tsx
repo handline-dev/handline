@@ -3,14 +3,13 @@
 import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail, Proposal } from '@handline/client';
-import { ago, clockTime, decidedProposals, handoffLine } from '@handline/app-core';
+import { ago, clockTime, decidedProposals, restartingLine } from '@handline/app-core';
 import { classify, sentence, useHr, useWrite } from '@handline/app-data';
-import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOf } from './ui/index.ts';
+import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOfView } from './ui/index.ts';
 import { goTeam } from './route.ts';
 import { openTaskOnClick } from './ChatMessages.tsx';
 import { useWorkspace } from './Workspace.tsx';
 import { AgentGauges } from './AgentGauges.tsx';
-import { useNow } from './Gauge.tsx';
 import { ViewSwitch } from './ViewSwitch.tsx';
 import { useOpenTerminal } from './ChatMenus.tsx';
 
@@ -25,7 +24,7 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
   const { apply } = useWorkspace();
   return (
     <div className="chat-strip flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-hint text-ink-2">
-      <State kind={stateOf(detail.state)} label={detail.state_detail ? `${detail.state}: ${detail.state_detail}` : detail.state} />
+      <State kind={stateOfView(detail)} label={stateWord(detail)} />
       {detail.model ? (
         <Chip title={`Model ${detail.model}${detail.effort ? `, ${detail.effort}` : ''}`}>
           <Icon name="agent" size={13} aria-hidden />
@@ -63,10 +62,13 @@ export function ChatBanner({ detail }: { detail: AgentDetail }) {
   );
 }
 
+/** The state in words: a restarting agent says so (as its rail row does), else the daemon's word with why it is not running. */
+const stateWord = (d: AgentDetail) => (d.handoff ? 'Restarting…' : d.state_detail ? `${d.state}: ${d.state_detail}` : d.state);
+
 /** The room's name over the chat, with the agent's state. */
-export const RoomTitle = ({ agent, state }: { agent: string; state: string }) => (
+export const RoomTitle = ({ agent, detail }: { agent: string; detail: AgentDetail }) => (
   <h2 className="m-0 min-w-0 flex-1 truncate text-body font-medium">
-    {agent} <span className="muted text-hint font-normal">{state}</span>
+    {agent} <span className="muted text-hint font-normal">{detail.handoff ? 'Restarting…' : detail.state}</span>
   </h2>
 );
 
@@ -78,12 +80,14 @@ export const useDecided = (agent: string) => decidedProposals(useHr({}).data?.pr
 
 /** A decided proposal in the timeline: one compact line with the result. Only the person decides (hr.decide), so it was them. */
 export function DecidedCard({ p }: { p: Proposal }) {
-  const word = p.state === 'rejected' ? 'Rejected' : p.kind === 'add' && p.asked?.team ? `Applied: ${p.agent} added to ${p.asked.team}` : 'Applied';
+  const word =
+    p.state === 'rejected' ? 'Rejected' : p.kind === 'add' && p.asked?.team ? `Applied: ${p.agent} added to ${p.asked.team}` : 'Applied';
   return (
     <div className="card-hr decided flex items-center gap-2 text-hint text-ink-2" data-kind="hr" data-proposal={p.id} data-state={p.state}>
       <Icon name="team" size={13} label="Proposal" />
       <span className="min-w-0 truncate">
-        <strong className="font-medium text-ink">{p.title}</strong> · <span className="outcome">{word} by you</span> · {p.settled ? clockTime(p.settled) : ''}
+        <strong className="font-medium text-ink">{p.title}</strong> · <span className="outcome">{word} by you</span> ·{' '}
+        {p.settled ? clockTime(p.settled) : ''}
       </span>
       <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
     </div>
@@ -102,12 +106,10 @@ export function HrCards({ agent }: { agent: string }) {
   const [sent, setSent] = useState<Record<number, { choice: 'approve' | 'reject'; wait: boolean; error?: string }>>({});
   const send = (p: { id: number; subject: string }, choice: 'approve' | 'reject', why?: string) => {
     setSent((m) => ({ ...m, [p.id]: { choice, wait: true } }));
-    decide
-      .mutateAsync({ proposal: p.id, decision: choice, subject: p.subject, ...(why ? { note: why } : {}) })
-      .then(
-        () => setSent((m) => ({ ...m, [p.id]: { choice, wait: false } })),
-        (e) => setSent((m) => ({ ...m, [p.id]: { choice, wait: false, error: sentence(classify(e)) } })),
-      );
+    decide.mutateAsync({ proposal: p.id, decision: choice, subject: p.subject, ...(why ? { note: why } : {}) }).then(
+      () => setSent((m) => ({ ...m, [p.id]: { choice, wait: false } })),
+      (e) => setSent((m) => ({ ...m, [p.id]: { choice, wait: false, error: sentence(classify(e)) } })),
+    );
   };
   const reject = () => {
     if (!rejecting || !note.trim()) return;
@@ -120,7 +122,8 @@ export function HrCards({ agent }: { agent: string }) {
     <>
       {shown.map((p) => {
         const mine = sent[p.id];
-        const failed = mine?.error ?? (mine && !mine.wait && p.state === 'apply_failed' ? `Not applied${p.error ? `: ${p.error}` : ''}` : undefined);
+        const failed =
+          mine?.error ?? (mine && !mine.wait && p.state === 'apply_failed' ? `Not applied${p.error ? `: ${p.error}` : ''}` : undefined);
         const pressed = (c: 'approve' | 'reject') => !!mine && mine.choice === c;
         return (
           <Card variant="chat" key={p.id} className="card-hr bg-surface" data-kind="hr" data-proposal={p.id} data-state={p.state}>
@@ -150,7 +153,11 @@ export function HrCards({ agent }: { agent: string }) {
                   className={pressed('approve') ? 'bg-raised' : ''}
                   onClick={() => send(p, 'approve')}
                 >
-                  {mine?.wait && pressed('approve') ? <span className="hr-wait" aria-hidden>…</span> : undefined}
+                  {mine?.wait && pressed('approve') ? (
+                    <span className="hr-wait" aria-hidden>
+                      …
+                    </span>
+                  ) : undefined}
                 </Button>
                 <Button
                   icon="dismiss"
@@ -206,20 +213,18 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
   );
 }
 
-/** While a session hands off: why and what, live, until the session marker takes its place. */
+/** While a session hands off: one centered line, its icon turning and its words changing in place, until the new session's line takes over. */
 export function HandoffCard({ detail }: { detail: AgentDetail }) {
-  const now = useNow(1000);
   const h = detail.handoff;
   if (!h) return null;
-  const { why, what } = handoffLine(h);
   return (
-    <Card variant="chat" className="card-handoff bg-surface" data-kind="handoff" data-phase={h.phase} role="status">
-      <Icon name="refresh" label="Handing off" />
-      <CardWhat stacked>
-        <strong>{why}</strong>
-        <span className="muted">{what}</span>
-        <span className="muted">{ago(h.since, now)}</span>
-      </CardWhat>
-    </Card>
+    <div className="card-handoff flex items-center gap-3 text-meta text-primary" data-kind="handoff" data-phase={h.phase} role="status">
+      <hr className="m-0 h-px flex-1 border-0 bg-line" />
+      <span className="inline-flex items-center gap-1.5">
+        <Icon name="refresh" size={14} aria-hidden className="animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none" />
+        {restartingLine(h)}
+      </span>
+      <hr className="m-0 h-px flex-1 border-0 bg-line" />
+    </div>
   );
 }

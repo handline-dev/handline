@@ -11,6 +11,7 @@ import {
   Ellipsis,
   CircleDot,
   Clock,
+  FileText,
   Gauge,
   GitCompare,
   HelpCircle,
@@ -210,6 +211,7 @@ const ICONS = {
   cancel: [CircleSlash, 'Cancel'],
   history: [History, 'History'],
   changes: [GitCompare, 'Changes'],
+  note: [FileText, 'Note'],
   model: [Cpu, 'Model'],
   // the markup tools
   pen: [PenTool, 'Pen'],
