@@ -1,4 +1,4 @@
-// The Usage page (#/accounts, #/accounts/:name; #/stats is the same page): one line per account with its gauges, state and agents, then the Stats section, and one account in three tabs.
+// The Usage page (#/accounts, #/stats): one line per account, then the Stats section; #/accounts/:name is one account in three tabs.
 import { useState } from 'react';
 import { STATE_WORD, outUntil, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';

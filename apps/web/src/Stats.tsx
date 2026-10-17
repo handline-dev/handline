@@ -20,7 +20,8 @@ const TILES: [string, keyof Pick<Stats, 'tasks_done' | 'moves' | 'handoffs' | 'b
   ['blocks', 'blocks', 'blocked'],
 ];
 
-const TILE = 'stat-tile flex flex-col gap-1 rounded-card bg-surface px-4 py-3 [&_svg]:text-ink-3 data-[warn]:[&_svg]:text-bad';
+const TILE =
+  'stat-tile flex flex-col gap-1 rounded-card bg-surface px-4 py-3 [&_svg]:text-ink-3 data-[warn]:[&_svg]:text-bad';
 
 /** Icon, count, name: the icon says what is counted, so the name can stay small. */
 function Tiles({ s }: { s: Stats }) {
