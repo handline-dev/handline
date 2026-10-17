@@ -1,6 +1,5 @@
-# The check of a pull request: what tools/check.sh runs for the change, in two jobs that each plan for themselves. The apps run
-# on GitHub's runners; the Go suite runs on the founder's own runner (docs/ci-runner.md), whose build and test caches stay on
-# its disk between runs, so go test reruns only what a change touched. Python is not checked here: it is being removed.
+# The check of a pull request: what tools/check.sh runs for the change, in two jobs that each plan for themselves, both on
+# GitHub's runners (docs/ci-runner.md). The Go job restores setup-go's module and build cache, keyed by go/go.sum.
 name: check
 
 on:
@@ -75,12 +74,8 @@ jobs:
           fi
 
   go:
-    # The runner is the founder's own machine: a pull request from a fork never reaches it.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, handline-ci]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      GOFLAGS: -p=1 # 2 cores and 3 GB of memory: one test binary at a time
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -97,10 +92,12 @@ jobs:
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go/go.mod
-          cache: false # GOCACHE and GOMODCACHE stay on the runner's disk
+          cache-dependency-path: go/go.sum
+      - if: steps.plan.outputs.kind == 'go'
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends tmux # the terminal tests drive a real tmux; git and python3 are on the image
       - if: steps.plan.outputs.kind == 'go'
         # Fails a run that leaves a process, tmux server or temp file behind. Its TMPDIR is <dir>/tmp/: the same path each run,
-        # as go test's cache needs, under the runner's temp directory, which the runner empties after every job.
+        # as go test's cache needs, under the runner's temp directory.
         run: tools/leakcheck.py run --dir "$RUNNER_TEMP/hlc" tools/test-go.sh
       - name: Contract files current
         if: steps.plan.outputs.kind == 'go'
