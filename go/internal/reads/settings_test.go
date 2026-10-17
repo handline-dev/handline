@@ -107,8 +107,12 @@ func TestEveryNotificationKindPushesUntilTheFounderTurnsItOff(t *testing.T) {
 			t.Fatalf("%s is off by default", k)
 		}
 	}
-	os.WriteFile(paths.ConfigFile(e.Home), []byte("push_task_done: false\n"), 0o644)
-	if v := values(); v["push_task_done"] != false || v["push_stall"] != true {
-		t.Fatalf("one kind turned off: %v", v)
+	for _, off := range kinds {
+		os.WriteFile(paths.ConfigFile(e.Home), []byte(off+": false\n"), 0o644)
+		for _, k := range kinds {
+			if v := values(); v[k] != (k != off) {
+				t.Fatalf("%s turned off: %s is %v", off, k, v[k])
+			}
+		}
 	}
 }

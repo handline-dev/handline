@@ -152,21 +152,23 @@ func TestSettingsSetWritesEveryKeyOrNoneAndClearsOnNull(t *testing.T) {
 	}
 }
 
-func TestAPushSwitchIsAFounderFlagForTheWholeTeam(t *testing.T) {
-	r := newRig(t)
-	r.result(r.one("settings.set", `{"changes":{"push_task_done":false},"request_id":"p1"}`))
-	if !strings.Contains(r.file("config.yaml"), "push_task_done: false") {
-		t.Fatalf("%q", r.file("config.yaml"))
-	}
-	if r.code(r.one("settings.set", `{"changes":{"push_stall":"no"},"request_id":"p2"}`)) != "bad_request" {
-		t.Fatal("a push switch is true or false")
-	}
-	if r.code(r.one("settings.set", `{"changes":{"push_stall":false},"agent":"alice","request_id":"p3"}`)) != "bad_request" {
-		t.Fatal("a push switch has no per-agent value")
-	}
-	r.result(r.one("settings.set", `{"changes":{"push_task_done":null},"request_id":"p4"}`))
-	if strings.Contains(r.file("config.yaml"), "push_task_done") {
-		t.Fatal("null clears it back to the default")
+func TestEveryPushSwitchIsAFounderFlagForTheWholeTeam(t *testing.T) {
+	for _, key := range []string{"push_prompt_asked", "push_task_done", "push_stall", "push_account_out"} {
+		r := newRig(t)
+		r.result(r.one("settings.set", `{"changes":{"`+key+`":false},"request_id":"p1"}`))
+		if !strings.Contains(r.file("config.yaml"), key+": false") {
+			t.Fatalf("%s: %q", key, r.file("config.yaml"))
+		}
+		if r.code(r.one("settings.set", `{"changes":{"`+key+`":"no"},"request_id":"p2"}`)) != "bad_request" {
+			t.Fatalf("%s: a push switch is true or false", key)
+		}
+		if r.code(r.one("settings.set", `{"changes":{"`+key+`":false},"agent":"alice","request_id":"p3"}`)) != "bad_request" {
+			t.Fatalf("%s: a push switch has no per-agent value", key)
+		}
+		r.result(r.one("settings.set", `{"changes":{"`+key+`":null},"request_id":"p4"}`))
+		if strings.Contains(r.file("config.yaml"), key) {
+			t.Fatalf("%s: null clears it back to the default", key)
+		}
 	}
 }
 
