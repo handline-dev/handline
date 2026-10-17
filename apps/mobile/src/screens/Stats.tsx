@@ -85,7 +85,7 @@ function Counts({ s }: { s: StatsData }) {
             </View>
           ))
         ) : (
-          <Text style={{ color: c.muted }}>Nothing recorded in this window.</Text>
+          <Text style={{ color: c.muted }}>{NOTHING}</Text>
         )}
         {idle ? (
           <Text style={{ color: c.muted }}>
@@ -198,7 +198,7 @@ function OutlookSection() {
         isEmpty={!!o && !o.past.length && !o.cost_per_day.length}
         skeleton="stats"
         label="the outlook"
-        empty="No usage recorded in this range."
+        empty={NOTHING}
       >
         {o ? view === 'left' ? <Left o={o} /> : <Cost o={o} /> : null}
       </Loadable>
@@ -215,7 +215,7 @@ function Numbers() {
   return (
     <View style={{ gap: space.lg }}>
       <Choice label="window" value={win} options={WINDOWS} onChange={setWin} />
-      <Loadable query={query} served={served} skeleton="stats" label="stats" empty="Nothing recorded in this window.">
+      <Loadable query={query} served={served} skeleton="stats" label="stats" empty={NOTHING}>
         {s ? (
           <View style={{ gap: space.md }}>
             <Text testID="stats-span" style={{ color: c.muted, fontSize: 12 }}>
@@ -230,6 +230,9 @@ function Numbers() {
 }
 
 /** The numbers and the outlook, for the Usage tab to show under the accounts. */
+/** What every empty part of the page says, so the three never read differently. */
+const NOTHING = 'Nothing recorded for this period.';
+
 export function Stats() {
   const c = usePalette();
   return (
