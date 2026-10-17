@@ -1,24 +1,15 @@
 # Development
 
 ```bash
-tools/test.sh     # every area file in parallel, no network, no tokens
-tools/test.sh tests/session/test_daemon_session.py    # one area file on its own (tests/<group>/test_<area>.py)
-tools/test.sh -k reconcile --write-labels before.txt   # a subset, labels saved
-tools/test.sh --diff-labels before.txt after.txt       # labels that changed state
-tools/check.sh main   # what a change needs: Go only for go/ and the apps, the whole suite otherwise
+tools/test.sh     # the contract's generated files current, then the Go suite (tools/test-go.sh); no network, no tokens
+tools/test.sh ./internal/reads -run X   # go test's own arguments: one package, one test
+tools/check.sh main   # what a change needs: nothing for docs, the app checks, the contract and the Go suite otherwise
 HANDLINE_GO_RACE=1 tools/check.sh main   # the same with go test -race: the auditor's run on a sha, nobody else's
 ```
 
-`tools/test.sh` runs them under the machine's venv python, unbuffered, with `OCP_AGENT` unset and a
-temp `OCP_HOME`; `tools/suite.sh` is the same thing.
-
-The tests live in `tests/<group>/test_<area>.py` over the shared fixtures in
-`tests/support.py`; `tests/test_ocp.py` runs every area file (`-j N` sets how
-many at once) and adds their counts.
-
 `HANDLINE_LIVE=1 tools/live-e2e.sh` drives one real haiku agent through a test daemon on a scratch home and prints how
 fast the event stream showed each step. It spends tokens on the account `tools/live_account.py` picks (the most headroom
-now), so it runs only by hand, by any agent, and never from `tools/test.sh` or `check.sh`.
+now), so it runs only by hand, by any agent, and never from `tools/test.sh` or `check.sh`. Name the account in `HANDLINE_LIVE_ACCOUNT`.
 
 `tools/prune_worktrees.py` lists the worktrees that are merged into main, clean and no agent's; `--remove` removes them.
 

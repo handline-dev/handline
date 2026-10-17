@@ -191,6 +191,19 @@ export function seedTasks(tasks: FakeTasks, at: string): void {
     delivered: ago(240),
     time_box: '8h',
     body: 'Plan the web UI.\n\nThree units, chat first.',
+    history: [
+      { at: ago(300), by: me, field: 'state', was: '', now: 'queued' },
+      { at: ago(300), by: me, field: 'assignee', was: '', now: 'handline.architect' },
+      { at: ago(290), by: 'handline.architect', field: 'state', was: 'queued', now: 'doing' },
+      { at: ago(280), by: me, field: 'title', was: 'Web UI plan', now: 'Web UI design' },
+      { at: ago(270), by: 'handline.architect', field: 'body', was: 'Plan the web UI.', now: 'Plan the web UI.\n\nThree units, chat first.' },
+      { at: ago(262), by: 'handline.pc', field: 'memo', was: '', now: 'Chat first, then tasks.', memo: 1 },
+      { at: ago(250), by: 'handline.auditor', field: 'state', was: 'doing', now: 'done', note: 'auditor PASS on 3f2a9c1; screenshot attached' },
+      { at: ago(246), by: 'handline.pc', field: 'memo', was: 'Chat first, then tasks.', now: 'Chat first, then tasks, then the timeline.', memo: 1 },
+      { at: ago(244), by: me, field: 'memo', was: 'Skip the gap list for now.', now: '', memo: 2 },
+      { at: ago(240), by: me, field: 'assignee', was: 'handline.term-build', now: 'handline.architect' },
+      { at: ago(236), by: me, field: 'priority', was: 'P2', now: 'P1' },
+    ],
   });
   tasks.seed({
     id: 1688,

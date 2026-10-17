@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +53,52 @@ func TestSweepHoldsRecordsWhyEachTaskWaitsAndWarnsOnceWhenNothingIsInTheWay(t *t
 	r.must(r.SweepHolds(r.clock + 2))
 	if _, found, _ := db.Meta(r.DB, "taskhold:1"); found {
 		t.Fatal("a done task still has a line")
+	}
+}
+
+// Only a task waiting for delivery to an able owner is a missed delivery; a task that waits on purpose never raises the alarm.
+func TestTheMissedDeliveryAlarmSkipsTasksThatWaitOnPurpose(t *testing.T) {
+	exec := func(r *rig, query string, args ...any) {
+		_, err := r.DB.Exec(query, args...)
+		r.must(err)
+	}
+	for _, c := range []struct {
+		name  string
+		wait  func(r *rig, tid int64)
+		alarm bool
+	}{
+		{"waiting for delivery to an able owner", func(*rig, int64) {}, true},
+		{"reported, awaiting the founder's accept", func(r *rig, tid int64) {
+			exec(r, "UPDATE tasks SET reporter = 'human', reported_at = ?, report = 'the doc' WHERE id = ?", r.clock, tid)
+		}, false},
+		{"blocked by a task", func(r *rig, tid int64) { db.AddBlock(r.DB, tid, r.newTask("alice", "alice", "dep")) }, false},
+		{"waiting on its open child", func(r *rig, tid int64) {
+			_, err := db.NewTask(r.DB, "child", "alice", "bob", tid, db.DefaultPriority, "", 0, "")
+			r.must(err)
+		}, false},
+		{"paused, waiting on a human", func(r *rig, tid int64) {
+			db.AddBlock(r.DB, tid, r.newTask(db.Human, "bob", "decide"))
+			db.AdvanceTaskTimeout(r.DB, tid, r.clock, 600)
+			db.PauseTaskTimeout(r.DB, tid, r.clock)
+		}, false},
+		{"a draft", func(r *rig, tid int64) {
+			exec(r, "UPDATE tasks SET queued_by = NULL, queued_at = NULL WHERE id = ?", tid)
+		}, false},
+		{"owned by the founder", func(r *rig, tid int64) { exec(r, "UPDATE tasks SET owner = 'human' WHERE id = ?", tid) }, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t)
+			r.agentUp("bob")
+			tid := r.newTask("bob", "alice", "job")
+			c.wait(r, tid)
+			r.must(r.SweepHolds(r.clock))
+			r.must(r.SweepHolds(r.clock + AbleWarnS))
+			var warned int
+			r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'human' AND body LIKE ?", fmt.Sprintf("T%d has waited %%", tid)).Scan(&warned)
+			if (warned == 1) != c.alarm || warned > 1 {
+				t.Fatalf("alarm %v, %d told", c.alarm, warned)
+			}
+		})
 	}
 }
 
@@ -127,7 +174,7 @@ func TestABusyAgentPastTheWindowGetsNoDigestUntilItsTurnEndsThenOne(t *testing.T
 	}
 	want := "Result digest - 3 results since "
 	got := r.term.last()
-	if !strings.Contains(got, want) || !strings.Contains(got, "T5 · alice · it works (#1)\nT6 · alice · discarded: not needed (#2)\nsomething else (#3)") {
+	if !strings.Contains(got, want) || !strings.Contains(got, "shows one whole:\nT5 · alice · it works (#1)\nT6 · alice · discarded: not needed (#2)\nsomething else (#3)\n") {
 		t.Fatalf("%q", got)
 	}
 	if left, _ := db.PendingNotices(r.DB, "bob"); len(left) != 0 {

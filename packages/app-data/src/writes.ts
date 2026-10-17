@@ -22,7 +22,7 @@ const listOf =
 
 const taskKeys = (d: string, p: never) => {
   const { task, tasks } = as<{ task?: number; tasks?: number[] }>(p);
-  return [qk.tasks(d), ...[...(task === undefined ? [] : [task]), ...(tasks ?? [])].map((t) => qk.task(d, t))];
+  return [qk.tasks(d), ...[...(task === undefined ? [] : [task]), ...(tasks ?? [])].flatMap((t) => [qk.task(d, t), qk.taskHistory(d, t)])];
 };
 const changeTasks = (c: Ctx, ids: number[], f: (t: Task) => Task | undefined) => {
   const one = (t: Task) => (ids.includes(t.id) ? (f(t) ?? t) : t);
@@ -70,10 +70,14 @@ const newTask = (c: Ctx, p: never): Task => {
   };
 };
 
-// A task's memos live in the memo list and in the task's detail; a memo write changes both.
-const memoKeys = (d: string, p: never) => [qk.memos(d, as<{ task: number }>(p).task), qk.task(d, as<{ task: number }>(p).task)];
+// A task's memos live in the memo list and in the task's detail; a memo write changes both, and adds a row to its history.
+const memoLists = (d: string, task: number) => [qk.memos(d, task), qk.task(d, task)];
+const memoKeys = (d: string, p: never) => {
+  const { task } = as<{ task: number }>(p);
+  return [...memoLists(d, task), qk.taskHistory(d, task)];
+};
 const changeMemos = (c: Ctx, task: number, f: (l: Memo[]) => Memo[]) => {
-  for (const key of memoKeys(c.d, { task } as never)) edit<List<'memos', Memo>>(c.qc, key, listOf('memos', f));
+  for (const key of memoLists(c.d, task)) edit<List<'memos', Memo>>(c.qc, key, listOf('memos', f));
 };
 
 const tasks: Record<string, WriteSpec> = {
@@ -155,6 +159,8 @@ const tasks: Record<string, WriteSpec> = {
       changeMemos(c, task, (l) => l.filter((m) => m.id !== memo));
     },
   },
+  'task.view.save': { kind: 'decided', label: 'save view', touches: (d) => [qk.taskViews(d)] },
+  'task.view.delete': { kind: 'decided', label: 'delete view', touches: (d) => [qk.taskViews(d)] },
 };
 
 // ---- inbox, settings, accounts, schedules, standing answers ----

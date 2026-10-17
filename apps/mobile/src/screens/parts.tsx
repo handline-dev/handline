@@ -93,6 +93,67 @@ export function PageHeader(props: {
   );
 }
 
+/** The boxed panel a form or a confirmation sits in. */
+export function Card(props: { children: React.ReactNode; testID?: string }) {
+  const c = usePalette();
+  return (
+    <View
+      testID={props.testID}
+      style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, backgroundColor: c.panel }}
+    >
+      {props.children}
+    </View>
+  );
+}
+
+/** A rounded choice: the picked one is ringed and ticked. `role` is radio for one pick among several, button for a toggle. */
+export function Pill(props: { on: boolean; label: string; testID: string; onPress: () => void; role?: 'button' | 'radio' }) {
+  const c = usePalette();
+  return (
+    <Pressable
+      testID={props.testID}
+      accessibilityRole={props.role ?? 'button'}
+      accessibilityState={{ selected: props.on }}
+      onPress={props.onPress}
+      style={{
+        minHeight: 36,
+        justifyContent: 'center',
+        borderWidth: props.on ? 2 : 1,
+        borderColor: props.on ? c.ink : c.line,
+        borderRadius: radius.pill,
+        paddingHorizontal: space.md,
+      }}
+    >
+      <Text style={{ color: c.ink, fontWeight: props.on ? '700' : '400' }}>{props.on ? `✓ ${props.label}` : props.label}</Text>
+    </Pressable>
+  );
+}
+
+/** A list row of a title over one muted line, set off by a rule above it. `style` adds to the row (a mark on its edge, dimming). */
+export function ListRow(props: { title: string; meta: string; metaColor?: string; onPress: () => void; testID: string; style?: ViewStyle }) {
+  const c = usePalette();
+  return (
+    <Pressable
+      testID={props.testID}
+      onPress={props.onPress}
+      style={{
+        minHeight: 48,
+        justifyContent: 'center',
+        paddingHorizontal: space.lg,
+        paddingVertical: space.sm,
+        borderTopWidth: 1,
+        borderTopColor: c.line,
+        ...props.style,
+      }}
+    >
+      <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '600' }}>
+        {props.title}
+      </Text>
+      <Text style={{ color: props.metaColor ?? c.muted, fontSize: 12 }}>{props.meta}</Text>
+    </Pressable>
+  );
+}
+
 export const Row = (props: { children: React.ReactNode; style?: ViewStyle }) => (
   <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, ...props.style }}>{props.children}</View>
 );

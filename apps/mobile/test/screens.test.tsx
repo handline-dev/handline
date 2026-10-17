@@ -106,8 +106,26 @@ describe('the inbox tab', () => {
     await until(() => $('unread-count')?.textContent === '0', 'the count to drop');
     await press($(`inbox-open-${DECISION}`));
     await press(done(DECISION));
-    await until(() => $('empty'), 'the empty sentence');
+    await until(() => $('inbox-clear'), 'the empty sentence');
     expect(text()).toContain('Nothing waits on you');
+    expect(item(RESULT)).toBeNull(); // what is read waits in the Read group, shut
+    await press($('inbox-group-open-read'));
+    await until(() => item(RESULT), 'the read item in its group');
+    m.store.stop();
+  });
+
+  it('shows the task board\'s messages as one row that opens to them', async () => {
+    const m = await mount((s) => {
+      s.daemon.inbox.add({ kind: 'say', agent: 'task-board', title: 'T1 done by a', created: new Date().toISOString() });
+      s.daemon.inbox.add({ kind: 'say', agent: 'task-board', title: 'T2 done by b', created: new Date().toISOString() });
+    });
+    await tab('inbox');
+    await until(() => $('inbox-group-digest'), 'the digest row');
+    expect(text($('inbox-group-digest'))).toContain('task-board: 2 messages');
+    expect(text()).not.toContain('T1 done by a'); // shut, they are not listed one by one
+    await press($('inbox-group-open-digest'));
+    await until(() => text($('inbox-group-digest')).includes('T2 done by b'), 'the messages');
+    expect(text($('inbox-group-digest'))).toContain('T1 done by a');
     m.store.stop();
   });
 
@@ -416,6 +434,17 @@ describe('the task verbs', () => {
     await until(() => $(`task-${MINE_DOING}`) && $('task-1650') === null, 'the open list');
   }, 20000);
 
+  it('draws Markdown in a memo', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DOING);
+    await fill('memo-text', '**bold** and `code`\n- one');
+    await press($('memo-send'));
+    await until(() => m.daemon.tasks.get({ task: MINE_DOING }).memos.length === 1, 'the daemon memo');
+    const id = m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.id;
+    await until(() => $(`memo-${id}`)?.textContent?.includes('•'), 'the drawn memo');
+    expect($(`memo-${id}`)?.textContent).not.toContain('**');
+  });
+
   it('edits and deletes a memo, asks before deleting, and puts it back with the reason on a refusal', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DOING);
@@ -547,7 +576,7 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
-  it('replies to a picked message with its number, and takes a queued message back into the box', async () => {
+  it('replies to a picked message with its number', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await until(() => msgOf('Use the contract fixtures.'), 'the messages');
@@ -558,10 +587,6 @@ describe('the chat tab', () => {
     await until(() => msgOf('about that'), 'the reply');
     expect(msgOf('about that')!.textContent).toContain('↩ #');
     expect($('replying')).toBeNull();
-    const id = Number(msgOf('about that')!.getAttribute('data-testid')!.slice(4));
-    await press($(`takeback-${id}`));
-    await until(() => ($('chat-input') as HTMLTextAreaElement).value === 'about that', 'the words back in the box');
-    expect(msgOf('about that')!.textContent).toContain('Withdrawn');
     m.store.stop();
   });
 
@@ -575,6 +600,20 @@ describe('the chat tab', () => {
     await press($('chat-send'));
     await until(() => msgOf('web first'), 'the reply');
     expect(msgOf('web first')!.textContent).toContain('↩ #');
+    m.store.stop();
+  });
+
+  it('a reply quoting another agent’s message stays in this chat, with the quote as its link', async () => {
+    const m = await mount(() => {}, undefined, 'founder');
+    await openChat();
+    const quoted = 'Review is done, see the notes.'; // said by handline.auditor, shown under All
+    await press($('scope-all'));
+    await until(() => msgOf(quoted), 'the quoted message');
+    await press(msgOf(quoted)!);
+    await type('chat-input', 'thanks, merging');
+    await press($('chat-send'));
+    await until(() => msgOf('thanks, merging'), 'the reply in this chat');
+    expect(msgOf('thanks, merging')!.textContent).toContain('↩ #');
     m.store.stop();
   });
 

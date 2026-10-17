@@ -25,7 +25,7 @@ import { classify, sentence, useAgentDetail, useAgents, useHr, usePending, useSe
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
-import { Button } from './parts.tsx';
+import { Button, Card as Panel } from './parts.tsx';
 import { useWhyNot } from './TaskActions.tsx';
 
 /** How many proposals wait on the founder; 0 while the list is not here or not served. */
@@ -346,10 +346,7 @@ function AgentSettings(props: { agent: string; onClose: () => void }) {
   );
   const err = problem || (set.isError ? sentence(classify(set.error)) : '');
   return (
-    <View
-      testID="hr-settings"
-      style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, backgroundColor: c.panel }}
-    >
+    <Panel testID="hr-settings">
       <Text style={{ color: c.ink, fontWeight: '600' }}>settings of {agent}</Text>
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         <Button
@@ -396,6 +393,6 @@ function AgentSettings(props: { agent: string; onClose: () => void }) {
           </View>
         );
       })}
-    </View>
+    </Panel>
   );
 }

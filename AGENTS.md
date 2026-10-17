@@ -31,8 +31,7 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   A story reaches main as one PR, which the founder checks by eye and merges.
   Only a fix for a red main, a daemon bug or a security fix goes straight to main,
   as its own PR. Main is merged into every `story/<n>` at least once a day.
-- New work goes in Go only, never in `handline/`: a Python file whose first line says `# DEPRECATED` is ported, so change
-  the Go; `tools/check.sh` refuses a diff that adds to one or adds a file under `handline/` (deleting is fine).
+- New work goes in Go. The Python package `handline/` is gone; Python stays only in `tools/` and `contract/` (dev and test harnesses).
 - Every PR to main shows, in its body, a screenshot of each screen it adds or
   changes, before and after, PC and phone where both change, so the founder can
   judge it from the PR alone. A PR with no UI change says so in one line.
@@ -112,23 +111,19 @@ agent (ROLE.md, base.md); this file does not repeat them.
 
 - Tests: when you change code, write unit tests for the change in the same
   commit. Work is not done until they pass. While iterating, run only the
-  tests you touched (`tools/test.sh -k <name>`, or `tools/test.sh tests/<group>/test_<area>.py`); do not run the
+  tests you touched (`cd go && go test ./internal/<pkg> -run <name>`); do not run the
   whole suite before you hand the task to the auditor. The auditor runs the tests once at the
   exact sha (`HANDLINE_GO_RACE=1 tools/check.sh <target>`: the variable adds `-race` to the Go tests, and only this run sets it; in the foreground with a 600000 ms Bash timeout, never in the
   background); a count you quote is not a verdict. `tools/check.sh` runs nothing for documentation; for anything else
   it runs, in order: the app checks (`pnpm turbo test typecheck lint` when an app or JS workspace file changed, else
-  `pnpm --dir packages/app-data test`), then the Go suite and the Python files that test only Go (its GO_FILES) for
-  a change to go/ or the apps only, the whole suite (`tools/suite.sh`) otherwise.
+  `pnpm --dir packages/app-data test`), the contract's generated files being current, then the Go suite (`tools/test-go.sh`).
 - Lighter review: a docs-only change, or a re-merge of main or the story branch onto an already
   PASSed sha with no conflict, lands without a new review round. The auditor records the PASS on the
   new sha at once and the merger lands it on its target.
 - Live checks: run them yourself, one short run each, and put the output in the task. They are opt-in:
   `HANDLINE_LIVE=1 tools/live-e2e.sh`, or `HANDLINE_LIVE=1 go test -run TestLive... ./internal/...`. Each spends
   the account with the most headroom now (`tools/live_account.py` says which and why) and runs a test daemon on a
-  scratch home, never the live one. Never from suite.sh, check.sh or CI. Do not send a live run to the founder.
-- Run tests only through `tools/test.sh`, never `python3 tests/...` by hand: it brings the
-  venv python, an unset `OCP_AGENT`, unbuffered output and a temp `OCP_HOME` (bridge tests
-  print nothing without them, and a hang looks like a stall).
+  scratch home, never the live one. Never from check.sh or CI. Do not send a live run to the founder.
 - TypeScript: run `pnpm turbo test typecheck lint` before you hand a task over. Aim for files under 250 lines and
   functions under 60; lint fails at 400 and 120 (tests 600, components 250), counted without blank or comment lines.
   A `max-lines` error means split the file by responsibility, not raise the limit or add a disable. The numbers are in

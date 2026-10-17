@@ -92,8 +92,7 @@ jobs:
           plan="$(CHECK_PLAN=1 tools/check.sh "$BASE")"
           echo "$plan"
           kind="${plan%% *}"; kind="${kind#kind=}"
-          # A change outside go/ and the apps (python, before) still runs the Go suite: the Python suite is not run in CI.
-          case "$kind" in go|python) echo "kind=go" ;; *) echo "kind=$kind" ;; esac >> "$GITHUB_OUTPUT"
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
       - if: steps.plan.outputs.kind == 'go'
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -103,10 +102,8 @@ jobs:
         # Fails a run that leaves a process, tmux server or temp file behind. Its TMPDIR is <dir>/tmp/: the same path each run,
         # as go test's cache needs, under the runner's temp directory, which the runner empties after every job.
         run: tools/leakcheck.py run --dir "$RUNNER_TEMP/hlc" tools/test-go.sh
-      - name: Go parity tests
+      - name: Contract files current
         if: steps.plan.outputs.kind == 'go'
-        env:
-          TMPDIR: ${{ runner.temp }}
         run: |
-          tools/test.sh tests/infra/test_go_schema.py
-          tools/test.sh tests/infra/test_go_tidy.py
+          python3 contract/generate.py --check
+          python3 tools/go_contract.py --check

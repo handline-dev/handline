@@ -126,14 +126,14 @@ describe('the transcript of a structured agent', () => {
     expect(text($('.tr'))).toContain('Earlier events are no longer kept');
   });
 
-  it('opens with a Transcript tab, offers it in the Add-tab menu, and has no terminal tab', async () => {
+  it('opens with a Transcript tab, keeps it out of the Add-tab menu, and has no terminal tab', async () => {
     await mount(AUD);
     expect(text($('[data-tab="transcript"]'))).toContain('Transcript');
     expect($('[data-tab^="terminal:"]')).toBeNull();
     await click($('button[aria-label="Add a tab"]')!);
     await until(() => document.querySelector('[role="menu"]'), 'the add-tab menu');
     const menu = text(document.querySelector('[role="menu"]'));
-    expect(menu).toContain('Transcript');
+    expect(menu).not.toContain('Transcript');
     expect(menu).not.toContain('Claude Code');
   });
 

@@ -22,6 +22,7 @@ import {
   moveTabBy,
   openTab,
   openTask,
+  openTaskTab,
   parseWorkspace,
   saveWorkspace,
   serialize,
@@ -378,4 +379,16 @@ test('the view switch goes from the chat to Claude Code and back, opening the ta
   assert.equal(shown(toggleView(defaultWorkspace(), 'h2')), 'terminal:h2');
   assert.equal(shown(toggleView(defaultWorkspace())), CHAT, 'no terminal to switch to');
   assert.equal(shown(toggleView(defaultWorkspace(), undefined, true)), 'transcript');
+});
+
+test('closing a task tab goes back to the tab it was opened from, not to the terminal beside it', () => {
+  const ws = defaultWorkspace({ terminal: 'term:a' });
+  assert.deepEqual(ids(ws), ['chat+terminal:term:a']);
+  const opened = openTaskTab(activate(ws, CHAT), 12);
+  assert.equal(groupOf(opened, 'tasks:12')!.activeTab, 'tasks:12');
+  assert.equal(groupOf(closeTab(opened, 'tasks:12'), CHAT)!.activeTab, CHAT);
+  // From the terminal it goes back to the terminal; a tab that is not showing closes without moving the focus.
+  const fromTerminal = openTaskTab(activate(ws, 'terminal:term:a'), 12);
+  assert.equal(groupOf(closeTab(fromTerminal, 'tasks:12'), CHAT)!.activeTab, 'terminal:term:a');
+  assert.equal(groupOf(closeTab(activate(opened, CHAT), 'tasks:12'), CHAT)!.activeTab, CHAT);
 });

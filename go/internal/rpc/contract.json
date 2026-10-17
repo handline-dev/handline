@@ -345,6 +345,15 @@
  "task.start": {
   "role": "agent"
  },
+ "task.view.delete": {
+  "role": "member"
+ },
+ "task.view.list": {
+  "role": "member"
+ },
+ "task.view.save": {
+  "role": "member"
+ },
  "task.withdraw": {
   "role": "agent"
  },

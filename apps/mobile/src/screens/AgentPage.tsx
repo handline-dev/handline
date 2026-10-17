@@ -140,6 +140,16 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   // The daemon says which agents run as a structured session: those are watched as a transcript (permission cards included), the rest keep the terminal.
   const structured = detail.structured === true;
   const controls: Control[] = [
+    ...(stalled && hasTimeline && !showTimeline
+      ? [
+          {
+            id: 'stalled',
+            label: stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`,
+            onPress: () => setExtra('timeline'),
+            kind: 'no' as const,
+          },
+        ]
+      : []),
     ...(ctl.start ? [{ id: 'start', label: 'Start', onPress: () => start.mutate({ agent: name }) }] : []),
     ...(ctl.resume ? [{ id: 'start-new', label: 'Start new', onPress: startNew }] : []),
     ...((structured ? ctl.interrupt : ctl.stop) ? [{ id: 'interrupt', label: 'Interrupt', onPress: () => stop('interrupt') }] : []),
@@ -149,16 +159,6 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   ].map((x) => ({ ...x, disabled: busy }));
   return (
     <View style={{ flex: 1 }}>
-      {stalled && hasTimeline && !showTimeline && (
-        <View style={{ paddingHorizontal: space.md, paddingBottom: space.sm }}>
-          <Button
-            testID="badge-stalled"
-            label={stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`}
-            kind="no"
-            onPress={() => setExtra('timeline')}
-          />
-        </View>
-      )}
       <AgentVerbs
         detail={detail}
         row={row}

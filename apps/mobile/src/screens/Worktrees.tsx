@@ -1,4 +1,4 @@
-// The Worktrees page (docs/pc-app-gaps.md X5): every worktree as a card with its status chip and Move to…, and one worktree as a page.
+// The Worktrees page (docs/pc-app-gaps.md X5): every worktree as a card with its status chip, and one worktree as a page, where Move to… is.
 // A status is a decided write: the card keeps its status, with a pending mark, until the refetch has read the new one.
 import { useState } from 'react';
 import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -105,7 +105,6 @@ function MoveMenu({ w, moves, onDone }: { w: Worktree; moves: Moves; onDone: () 
 function Card(props: { w: Worktree; moves: Moves; onOpen: () => void }) {
   const c = usePalette();
   const { w, moves } = props;
-  const [menu, setMenu] = useState(false);
   return (
     <View testID={`wt-${w.path}`} style={{ padding: space.lg, gap: space.sm, borderTopWidth: 1, borderTopColor: c.line }}>
       <Pressable testID={`wt-open-${w.path}`} accessibilityRole="button" onPress={props.onOpen} style={{ gap: 2 }}>
@@ -113,23 +112,9 @@ function Card(props: { w: Worktree; moves: Moves; onOpen: () => void }) {
           <Text style={{ color: c.ink, fontWeight: '600', flexShrink: 1 }}>{w.branch}</Text>
           <Chip word={w.status} />
         </View>
-        <Text style={{ color: c.muted, fontSize: 12 }}>
-          {w.repo} · {w.owner ?? 'no owner'} · {files(w)}
-        </Text>
+        <Text style={{ color: c.muted, fontSize: 12 }}>{[w.repo, w.owner, w.changed.length ? files(w) : null].filter(Boolean).join(' · ')}</Text>
       </Pressable>
       <Notes w={w} moves={moves} />
-      {moves.enabled && !moves.moving[w.path] ? (
-        menu ? (
-          <MoveMenu w={w} moves={moves} onDone={() => setMenu(false)} />
-        ) : (
-          <Button
-            testID={`wt-move-${w.path}`}
-            label="Move to…"
-            onPress={() => setMenu(true)}
-            style={{ alignSelf: 'flex-start', paddingVertical: space.sm }}
-          />
-        )
-      ) : null}
     </View>
   );
 }
