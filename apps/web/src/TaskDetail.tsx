@@ -15,6 +15,7 @@ import { CancelSheet, TaskLinks, TaskMeta, Verb } from './TaskDetailParts.tsx';
 import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from './TaskInline.tsx';
 import { TaskHistory } from './TaskHistory.tsx';
 import { Comments } from './TaskComments.tsx';
+import { Markdown } from './Markdown.tsx';
 import { RichText } from './RichText.tsx';
 import { View } from './View.tsx';
 
@@ -158,9 +159,9 @@ function Body({ t }: { t: Detail }) {
         <StateChip state={t.state} mark={mark} word to={t.to} />
       </header>
       <TaskMeta t={t} now={now} onAssign={() => setAsk('assign')} />
-      <div className="tbody-text mt-3 whitespace-pre-wrap">
+      <div className="tbody-text mt-3">
         <Inline can={edit.can.ok && open} label="Description" input={(close) => <BodyInline t={t} onClose={close} />}>
-          {t.body ? <RichText text={t.body} /> : <span className="muted">Add a description</span>}
+          {t.body ? <Markdown text={t.body} /> : <span className="muted">Add a description</span>}
         </Inline>
       </div>
 

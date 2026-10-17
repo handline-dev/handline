@@ -6,7 +6,7 @@ import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { BodyEditor } from './BodyEditor.tsx';
 import { MemoFiles } from './MemoFiles.tsx';
-import { RichText } from './RichText.tsx';
+import { Markdown } from './Markdown.tsx';
 import { AgentLink } from './TaskInline.tsx';
 import { useCan } from './taskui.tsx';
 import { Button } from './ui/index.ts';
@@ -35,8 +35,8 @@ export function Comments({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
                 {ago(m.at)}
                 {m.edited_at ? ' · edited' : ''}
               </span>
-              <div className="whitespace-pre-wrap">
-                <RichText text={m.text} />
+              <div>
+                <Markdown text={m.text} />
               </div>
               {m.files?.length ? <MemoFiles files={m.files} /> : null}
             </li>
