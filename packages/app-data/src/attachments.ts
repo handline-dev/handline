@@ -26,6 +26,8 @@ export const knownAttachments = (ids: string[] = []): Attachment[] =>
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 type Mime = Attachment['mime'];
+/** What attachment.get can answer: a memo's Markdown file as well as an image. */
+type ReadMime = Mime | 'text/markdown';
 
 /** Why a file cannot be attached, before anything is sent; null when it can. */
 export function whyNotImage(f: { type: string; size: number; name: string }): string | null {
@@ -95,12 +97,12 @@ export function useUploadImage() {
 }
 
 /** The bytes of an image: its small copy in one reply, or the original read to its end. */
-export async function readImage(call: Call, id: string, thumb: boolean): Promise<{ mime: Mime; bytes: Uint8Array }> {
+export async function readImage(call: Call, id: string, thumb: boolean): Promise<{ mime: ReadMime; bytes: Uint8Array }> {
   const parts: Uint8Array[] = [];
   let offset = 0;
   for (;;) {
     const r = (await call('attachment.get', { id, ...(thumb ? { thumb: true } : { offset }) })) as {
-      mime: Mime;
+      mime: ReadMime;
       offset: number;
       data: string;
       done: boolean;
@@ -160,7 +162,7 @@ export function useAttachmentUrl(id: string, thumb: boolean): { url: string | nu
   return state;
 }
 
-export type AttachmentRead = { state: 'loading' } | { state: 'ready'; mime: Mime; bytes: Uint8Array } | { state: 'gone' } | { state: 'failed' };
+export type AttachmentRead = { state: 'loading' } | { state: 'ready'; mime: ReadMime; bytes: Uint8Array } | { state: 'gone' } | { state: 'failed' };
 
 /** The bytes of an attachment, read on each mount (no cache, for an app that has no object URLs); `gone` when the daemon dropped it. */
 export function useAttachmentBytes(id: string, thumb: boolean): AttachmentRead {
