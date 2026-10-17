@@ -6,7 +6,7 @@ import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { BodyEditor } from './BodyEditor.tsx';
 import { MemoFiles } from './MemoFiles.tsx';
-import { RichText } from './RichText.tsx';
+import { Markdown } from './Markdown.tsx';
 import { AgentLink } from './TaskInline.tsx';
 import { useCan } from './taskui.tsx';
 import { Button } from './ui/index.ts';
@@ -14,7 +14,7 @@ import { Button } from './ui/index.ts';
 function Comment({ t, item }: { t: Detail; item: ActivityItem }) {
   const m = t.memos.find((x) => x.id === item.memo);
   return (
-    <li className="comment grid gap-0.5 rounded-card border border-line px-3 py-2">
+    <li className="comment grid min-w-0 gap-0.5 rounded-card border border-line px-3 py-2">
       <span className="text-hint text-ink-3">
         <strong className="font-medium text-ink-2">
           <AgentLink name={item.who} />
@@ -22,8 +22,8 @@ function Comment({ t, item }: { t: Detail; item: ActivityItem }) {
         {ago(item.at)}
         {item.edited ? ' · edited' : ''}
       </span>
-      <div className="whitespace-pre-wrap">
-        <RichText text={item.note} />
+      <div className="min-w-0">
+        <Markdown text={item.note} />
       </div>
       {m?.files?.length ? <MemoFiles files={m.files} /> : null}
     </li>
@@ -33,7 +33,7 @@ function Comment({ t, item }: { t: Detail; item: ActivityItem }) {
 function Event({ item }: { item: ActivityItem }) {
   const [open, setOpen] = useState(false);
   return (
-    <li className="tevent text-ink-2">
+    <li className="tevent min-w-0 text-ink-2">
       <span className="mr-2 inline-block h-2 w-2 rounded-pill bg-ink-3 align-middle" aria-hidden="true" />
       {item.line} <span className="text-hint text-ink-3">· {dateTime(item.at)}</span>
       {item.note ? (
@@ -43,8 +43,8 @@ function Event({ item }: { item: ActivityItem }) {
             {open ? 'Hide note' : 'Read note'}
           </button>
           {open ? (
-            <div className="mt-1 whitespace-pre-wrap rounded-card bg-raised p-2 text-ink">
-              <RichText text={item.note} />
+            <div className="mt-1 min-w-0 rounded-card bg-raised p-2 text-ink">
+              <Markdown text={item.note} />
             </div>
           ) : null}
         </>
@@ -66,7 +66,7 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
     add.mutate({ task: t.id, text: text.trim() }, { onSuccess: () => (setText(''), setFresh((n) => n + 1)) });
   };
   return (
-    <section className="mt-4 grid gap-2" aria-label="Activity">
+    <section className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" aria-label="Activity">
       <h3 className="m-0 text-ink-3">Activity</h3>
       {hidden ? (
         <button type="button" className="justify-self-start border-0 bg-transparent p-0 text-link" onClick={() => setAll(true)}>
@@ -74,7 +74,7 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
         </button>
       ) : null}
       {items.length ? (
-        <ul className="tmemos m-0 grid list-none gap-2 p-0">
+        <ul className="tmemos m-0 grid min-w-0 grid-cols-[minmax(0,1fr)] list-none gap-2 p-0">
           {items.map((i, n) =>
             i.kind === 'comment' ? <Comment key={`${n}-${i.memo}`} t={t} item={i} /> : <Event key={`${n}-${i.line}`} item={i} />,
           )}

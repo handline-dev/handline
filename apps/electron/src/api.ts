@@ -35,6 +35,8 @@ export function makeApi(ipc: Ipc): ShellApi {
     setMode: (m) => call(CHANNELS.setMode, m),
     phone: () => call(CHANNELS.phone),
     pairRemote: (a) => call(CHANNELS.pairRemote, a),
+    settingsGet: (a) => call(CHANNELS.settingsGet, a ?? {}),
+    settingsSet: (a) => call(CHANNELS.settingsSet, a),
     onNavigate(cb) {
       listener = cb;
       if (waiting) {

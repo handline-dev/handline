@@ -1,7 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Task } from '@handline/client';
-import { graphBands, groupTasks, timeBoxText, LISTED, defaultFilter, durationMs, idleText, isOver, shown, sortTasks, taskTree, timeoutText } from '../src/task-table.ts';
+import {
+  doneBucket,
+  graphBands,
+  groupTasks,
+  timeBoxText,
+  LISTED,
+  defaultFilter,
+  durationMs,
+  idleText,
+  isOver,
+  shown,
+  sortTasks,
+  taskTree,
+  timeoutText,
+} from '../src/task-table.ts';
 import { taskAfter } from '../src/tasks.ts';
 
 const NOW = Date.parse('2026-01-01T12:00:00Z');
@@ -97,16 +111,33 @@ test('editing the priority shows it at once', () => {
 test('the time box is one meaning: what is left of it, why it stands still, or how far over', () => {
   const now = Date.parse('2026-10-17T10:00:00Z');
   const t = (o: object) => ({ state: 'doing', time_box: '4h', waiting: null, ...o }) as never;
-  const clock = (o: object) => ({ length_s: 14400, default: false, start: null, end: null, overdue_since: null, told: 0, left_s: null, ...o });
+  const clock = (o: object) => ({
+    length_s: 14400,
+    default: false,
+    start: null,
+    end: null,
+    overdue_since: null,
+    told: 0,
+    left_s: null,
+    ...o,
+  });
   assert.equal(timeBoxText(t({ time: clock({ end: '2026-10-17T12:10:00Z' }) }), now), '2h10m left of 4h');
   assert.equal(timeBoxText(t({ time: clock({ end: '2026-10-17T09:00:00Z' }) }), now), 'over by 1h');
-  assert.equal(timeBoxText(t({ time: clock({ left_s: 7000 }), waiting: { on: 'founder', text: 'waiting on you', tasks: [], since: '' } }), now), 'paused: waiting on you');
+  assert.equal(
+    timeBoxText(t({ time: clock({ left_s: 7000 }), waiting: { on: 'founder', text: 'waiting on you', tasks: [], since: '' } }), now),
+    'paused: waiting on you',
+  );
   assert.equal(timeBoxText(t({ state: 'queued', time: clock({}) }), now), '4h');
   assert.equal(timeBoxText(t({ state: 'done', time: null }), now), '4h');
 });
 
 test('a time box just edited shows at once, before the clock has caught up', () => {
-  const t = { state: 'queued', time_box: '3h', waiting: null, time: { length_s: 3600, default: false, start: null, end: null, overdue_since: null, told: 0, left_s: null } } as never;
+  const t = {
+    state: 'queued',
+    time_box: '3h',
+    waiting: null,
+    time: { length_s: 3600, default: false, start: null, end: null, overdue_since: null, told: 0, left_s: null },
+  } as never;
   assert.equal(timeBoxText(t, 0), '3h');
 });
 
@@ -129,7 +160,10 @@ test('tasks group as Needs you, Running, Queued and Done, each keeping its order
       ['Done', [4]],
     ],
   );
-  assert.deepEqual(groupTasks([task(1)], 'me').map((x) => x.key), ['queued']);
+  assert.deepEqual(
+    groupTasks([task(1)], 'me').map((x) => x.key),
+    ['queued'],
+  );
 });
 
 test('the graph has Done (the last 24 h, newest first), Running and Queued bands, empty ones left out', () => {
@@ -141,7 +175,25 @@ test('the graph has Done (the last 24 h, newest first), Running and Queued bands
     task(5, { state: 'discarded', done: ago(3000) }),
   ];
   const b = graphBands(all, NOW);
-  assert.deepEqual(b.map((x) => [x.key, ids(x.tasks)]), [['done', [4, 3]], ['running', [2]], ['queued', [1]]]);
+  assert.deepEqual(
+    b.map((x) => [x.key, ids(x.tasks)]),
+    [
+      ['done', [4, 3]],
+      ['running', [2]],
+      ['queued', [1]],
+    ],
+  );
   assert.deepEqual(ids(graphBands(all, NOW, false)[0]!.tasks), [4, 3, 5]);
-  assert.deepEqual(graphBands([task(1)], NOW).map((x) => x.key), ['queued']);
+  assert.deepEqual(
+    graphBands([task(1)], NOW).map((x) => x.key),
+    ['queued'],
+  );
+});
+
+test('closed tasks fall in Today, Yesterday, This week or Earlier by the day they closed', () => {
+  const at = (days: number) => task(1, { state: 'done', done: new Date(NOW - days * 86_400_000).toISOString() });
+  assert.deepEqual(
+    [0, 1, 3, 9].map((d) => doneBucket(at(d), NOW)),
+    ['Today', 'Yesterday', 'This week', 'Earlier'],
+  );
 });

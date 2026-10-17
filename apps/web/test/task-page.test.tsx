@@ -74,6 +74,25 @@ describe('the task page', () => {
     expect($$('.tevent', act_)).toHaveLength(5);
   });
 
+  it('shows the brief, a Read note body and the waiting line as Markdown, not raw marks', async () => {
+    const s = setup();
+    const tasks = s.daemon.tasks as unknown as {
+      rows: { id: number; body: string; notes?: { at: string; who: string; text: string }[] }[];
+    };
+    const r = tasks.rows.find((x) => x.id === 1688)!;
+    r.body = '## Plan\n\n' + 'A long brief with **weight**. '.repeat(20);
+    r.notes = [{ at: '2026-01-01T10:00:00.000Z', who: 'handline.pc', text: 'see **this**:\n- `a`\n- b' }];
+    await mount('#/tasks/1688', s);
+    await until(() => $('article.tdetail h2, article.tdetail h3, article.tdetail h4') && $('.tevent'), 'the page');
+    const d = $('article.tdetail')!;
+    expect(text(d)).not.toContain('## Plan');
+    expect(text(d)).not.toContain('**weight**');
+    await click(button('Read note', d)!);
+    expect([...$$('.tevent strong', d)].map((b) => text(b))).toContain('this');
+    expect($$('.tevent li', d).map((l) => text(l))).toEqual(['a', 'b']);
+    expect($('section[aria-label="Activity"]')!.className).toContain('min-w-0'); // a long line cannot widen the list
+  });
+
   it('lists what closed today under a folded "Done today" that opens on a click', async () => {
     const s = setup();
     const rows = (s.daemon.tasks as unknown as { rows: { id: number; done: string | null }[] }).rows;
@@ -84,5 +103,16 @@ describe('the task page', () => {
     expect($('tr[data-task="1650"]')).toBeNull();
     await click(button('Done today')!);
     await until(() => $('tr[data-task="1650"]'), 'the done row');
+  });
+
+  it('splits Closed by the day a task closed', async () => {
+    const s = setup();
+    const rows = (s.daemon.tasks as unknown as { rows: { id: number; done: string | null }[] }).rows;
+    rows.find((r) => r.id === 1650)!.done = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    await mount('#/tasks', s);
+    await until(() => button('Closed'), 'the pills');
+    await click(button('Closed')!);
+    await until(() => $('tr.tgroup[data-group="done"]'), 'the Done groups');
+    expect($$('tr.tgroup[data-group="done"]').map((g) => text(g).trim())).toEqual(['This week 1']);
   });
 });

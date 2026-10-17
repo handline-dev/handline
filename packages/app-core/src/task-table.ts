@@ -189,3 +189,10 @@ export function graphBands(tasks: readonly Task[], now: number, recent = true): 
         : tasks.filter((t) => taskBand(t) === b.key),
   })).filter((b) => b.tasks.length);
 }
+
+/** When a closed task closed, in the words the Closed list groups by: today, yesterday, within a week, earlier. */
+export function doneBucket(t: Task, now: number): 'Today' | 'Yesterday' | 'This week' | 'Earlier' {
+  const day = (ms: number) => new Date(ms).setHours(0, 0, 0, 0);
+  const ago = Math.round((day(now) - day(Date.parse(t.done ?? t.created))) / DAY);
+  return ago <= 0 ? 'Today' : ago === 1 ? 'Yesterday' : ago < 7 ? 'This week' : 'Earlier';
+}

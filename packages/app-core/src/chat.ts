@@ -50,7 +50,23 @@ export function timeline(
     ...decided.flatMap((p): TimelineEntry[] => (p.settled ? [{ kind: 'proposal', at: p.settled, id: p.id, proposal: p }] : [])),
   ];
   const rank = (e: TimelineEntry) => (e.kind === 'item' ? 1 : e.kind === 'proposal' ? 2 : 0); // at one instant: messages, then the transcript, then a decision
-  return out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : rank(a) - rank(b) || a.id - b.id));
+  out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : rank(a) - rank(b) || a.id - b.id));
+  return out.reduce<TimelineEntry[]>((all, e) => {
+    const prev = all.at(-1);
+    if (prev?.kind === 'item' && e.kind === 'item' && prev.item.kind === 'session' && e.item.kind === 'session')
+      all[all.length - 1] = mergeSessions(prev, e);
+    else all.push(e);
+    return all;
+  }, []);
+}
+
+const PLAIN_START = new Set(['launch', 'start']);
+/** One restart is one line: back-to-back session starts collapse into the last, which keeps the handoff and the cause the run was told (a plain launch is the least telling cause). */
+function mergeSessions(a: Extract<TimelineEntry, { kind: 'item' }>, b: Extract<TimelineEntry, { kind: 'item' }>): TimelineEntry {
+  const [x, y] = [a.item.session, b.item.session];
+  const cause = [y?.cause, x?.cause].find((c) => c && !PLAIN_START.has(c)) ?? y?.cause ?? x?.cause;
+  const session = { ...y!, handoff: y?.handoff || x?.handoff || null, ...(cause ? { cause } : {}) };
+  return { ...b, item: { ...b.item, session } };
 }
 
 /** The name the daemon records for the person's own words: the CLI's `human`, or the device they typed on (`me`, e.g. "Handline desktop"). */
@@ -108,6 +124,25 @@ export function sessionLine(i: TranscriptItem): { reason: string; handoff: strin
   return { reason, handoff: i.session?.handoff || null };
 }
 
+const RESTART_WHY: Record<string, string> = {
+  handoff: 'from a handoff',
+  restart: 'restarted',
+  'fresh close': 'fresh conversation',
+  wake: 'woke from a close',
+  move: 'moved to another account',
+  context_full: 'context was full',
+  settings_applied: 'settings applied',
+  crash_recovery: 'resumed after a crash',
+  idle_close: 'woke after idle close',
+  launch: 'launched',
+  start: 'started',
+};
+/** The short cause after `New session at <time>`: the daemon's word in plain words, an unknown one as it came, null when the daemon sent none. */
+export function restartCause(i: TranscriptItem): string | null {
+  const cause = i.session?.cause?.trim();
+  return cause ? (RESTART_WHY[cause] ?? cause) : null;
+}
+
 const TASK_LABEL: Record<string, string> = { opened: 'Task added', changed: 'Task changed', done: 'Task done', withdrawn: 'Task deleted' };
 /** What a task line in the chat shows: the label (added / edited / done / deleted), the task, and only what changed, briefly. */
 export interface TaskRow {
@@ -157,4 +192,10 @@ export function handoffLine(h: { cause: string; phase: 'writing' | 'starting' })
     why: HANDOFF_WHY[h.cause] ?? h.cause,
     what: h.phase === 'writing' ? 'Writing the handoff' : 'Starting a new session',
   };
+}
+
+/** The live restart line: `Restarting: context full. Writing the handoff…`. */
+export function restartingLine(h: { cause: string; phase: 'writing' | 'starting' }): string {
+  const { why, what } = handoffLine(h);
+  return `Restarting: ${why.charAt(0).toLowerCase()}${why.slice(1)}. ${what}…`;
 }

@@ -246,7 +246,7 @@
   "words": {
    "running": "A turn is running (a hand-off in progress counts: moving is working).",
    "idle": "At its prompt with nothing to do, or nothing pending for it (a park with no work behind it, a finished one). state_detail may say what it waits on (a child task, background work).",
-   "queued": "Has work and will start at the daemon's next tick, with no time to wait for. state_detail may say why it is not running yet (a restart retry).",
+   "queued": "Has work and will start at the daemon's next tick, with no time to wait for: a restart between two sessions (`handoff.phase` starting) reads queued, not parked. state_detail may say why it is not running yet (a restart retry).",
    "starting": "A terminal agent's launch in progress: hl launch kept the session start, no hook of that session, no session end and no failed wake has come since, and its pane runs something other than its shell. A launch that died is back at the shell, so it never reads as starting. Never hides a running turn, a dialog or a stall.",
    "parked": "Waits for a time: the usage window rolling over, a park a person asked for, a throttle or degraded retry, or an account move settling. state_detail is the clock (`due` once it has passed; `moving` for an account move, which has no clock).",
    "waiting": "A person must answer: a dialog or a prompt is open (has_dialog is true).",

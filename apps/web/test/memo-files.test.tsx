@@ -27,6 +27,23 @@ afterEach(async () => {
 });
 
 describe('memo files', () => {
+  it('draws the images of a memo side by side as the pictures of a chat message, a click opening each', async () => {
+    const s = setup();
+    s.daemon.tasks.verbs = true;
+    const a = s.daemon.uploads.addMemoFile('one.png', 'image/png', PNG);
+    const b = s.daemon.uploads.addMemoFile('two.png', 'image/png', PNG);
+    s.daemon.tasks.memo({ task: 1684, text: 'Two shots', files: [a.id, b.id] }, 'add', 'handline.auditor');
+    location.hash = '#/tasks/1684';
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />);
+    });
+    await until(() => box.querySelectorAll('.memo-files .attachments img').length === 2, 'both images in one picture row');
+    await act(async () => void box.querySelector<HTMLElement>('button[aria-label="Open two.png"]')!.click());
+    await until(() => document.querySelector('[role="dialog"] img'), 'the full-size image');
+  });
+
   it('shows an image inline and renders a Markdown file', async () => {
     const s = setup();
     s.daemon.tasks.verbs = true;

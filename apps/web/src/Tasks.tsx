@@ -5,6 +5,7 @@ import {
   CLOSED,
   defaultFilter,
   shown,
+  doneBucket,
   groupTasks,
   sortTasks,
   taskAgents,
@@ -97,7 +98,7 @@ function TaskTable({
         </colgroup>
         <tbody className="max-sm:block">
           {groups.map((g) => (
-            <Fragment key={g.key}>
+            <Fragment key={g.label}>
               <tr className="tgroup max-sm:block" data-group={g.key}>
                 <th
                   colSpan={7}
@@ -157,10 +158,15 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
   const [showDone, setShowDone] = useState(false);
   const groups = useMemo(
     () =>
-      groupTasks(rows, me).map((g) =>
-        g.key === 'done' && scope === 'open' ? { ...g, label: 'Done today', folded: !showDone } : { ...g, folded: false },
-      ),
-    [rows, me, scope, showDone],
+      groupTasks(rows, me).flatMap((g) => {
+        if (g.key !== 'done') return [{ ...g, folded: false }];
+        if (scope === 'open') return [{ ...g, label: 'Done today', folded: !showDone }];
+        // Closed: by the day it closed, newest first
+        return ['Today', 'Yesterday', 'This week', 'Earlier']
+          .map((label) => ({ ...g, label, rows: g.rows.filter((t) => doneBucket(t, now) === label), folded: false }))
+          .filter((b) => b.rows.length);
+      }),
+    [rows, me, scope, showDone, now],
   );
   const order = useMemo(() => groups.flatMap((g) => (g.folded ? [] : g.rows)), [groups]);
   const { marked, setMarked, toggle, toggleAll } = useMarks(order.map((t) => t.id));

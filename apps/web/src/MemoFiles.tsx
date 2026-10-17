@@ -5,20 +5,20 @@ import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import type { MemoFile } from '@handline/client';
 import { useAttachmentBytes } from '@handline/app-data';
-import { AttachmentImage } from './AttachmentImage.tsx';
+import { Pictures } from './ChatAttach.tsx';
 import { BodyImage } from './BodyEditor.tsx';
 import { forEditor, resolveImages } from './bodyMarkdown.ts';
 
 export function MemoFiles({ files }: { files: MemoFile[] }) {
+  const pictures = files.filter((f) => f.kind === 'image');
   return (
     <div className="memo-files grid gap-2">
-      {files.map((f) =>
-        f.kind === 'image' ? (
-          <AttachmentImage key={f.id} id={f.id} name={f.name} />
-        ) : (
-          <MarkdownFile key={f.id} id={f.id} name={f.name} pictures={files.filter((x) => x.kind === 'image')} />
-        ),
-      )}
+      {pictures.length ? <Pictures items={pictures} /> : null}
+      {files
+        .filter((f) => f.kind !== 'image')
+        .map((f) => (
+          <MarkdownFile key={f.id} id={f.id} name={f.name} pictures={pictures} />
+        ))}
     </div>
   );
 }

@@ -106,6 +106,15 @@ func Oneline(value string) string {
 	}, strings.Join(Drawable(value, 4), " "))
 }
 
+// Lines is value as lines of printable text: Oneline for each line, the newlines kept.
+func Lines(value string) string {
+	lines := Drawable(value, 4)
+	for i, ln := range lines {
+		lines[i] = Oneline(ln)
+	}
+	return strings.Join(lines, "\n")
+}
+
 // Space is the characters inside a regexp class that Python's \s matches: Unicode white space, wider than RE2's ASCII \s.
 const Space = `\s\x{1c}-\x{1f}\x{85}\x{a0}\x{1680}\x{2000}-\x{200a}\x{2028}\x{2029}\x{202f}\x{205f}\x{3000}`
 

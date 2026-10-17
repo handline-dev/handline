@@ -113,6 +113,11 @@ describe('tasks and inbox', () => {
     expect(stale(qk.inbox(D, { unread: true }))).toBe(true);
     expect(stale(qk.inbox(D))).toBe(false);
   });
+  it('an inbox event reads the agent list again, for founder_unread', () => {
+    qc.setQueryData(qk.agents(D), { agents: [] });
+    applyEvent(c, ev('inbox.changed', item(1), { topic: 'inbox' }));
+    expect(stale(qk.agents(D))).toBe(true);
+  });
   it('inbox.changed replaces the item in place', () => {
     qc.setQueryData(qk.inbox(D), { items: [item(1), item(2)], more: false });
     applyEvent(c, ev('inbox.changed', item(1, true), { topic: 'inbox' }));

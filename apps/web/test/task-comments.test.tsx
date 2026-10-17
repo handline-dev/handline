@@ -34,9 +34,10 @@ const typeInto = async (value: string) => {
   });
 };
 
-async function mount() {
+async function mount(seed?: (s: ReturnType<typeof setup>) => void) {
   const s = setup();
   s.daemon.tasks.verbs = true;
+  seed?.(s);
   location.hash = '#/tasks/1688';
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
@@ -55,6 +56,15 @@ afterEach(async () => {
   location.hash = '';
 });
 
+describe('a comment', () => {
+  it('shows its Markdown', async () => {
+    await mount((s) => s.daemon.tasks.memo({ task: 1688, text: '**why** this:\n- `a`\n- b' }, 'add', 'human'));
+    await until(() => section()!.querySelector('.comment strong'), 'the comment');
+    expect([...section()!.querySelectorAll('.comment strong')].map((b) => b.textContent)).toContain('why');
+    expect([...section()!.querySelectorAll('.comment ul li')].map((l) => l.textContent)).toEqual(['a', 'b']);
+  });
+});
+
 describe('Comments on a task', () => {
   it('does not send an empty comment', async () => {
     await mount();
@@ -67,7 +77,10 @@ describe('Comments on a task', () => {
     const s = await mount();
     await typeInto('why this way? @handline.architect');
     await act(async () => void send().click());
-    await until(() => s.daemon.tasks.get({ task: 1688 }).memos.some((m: { text: string }) => m.text.includes('why this way?')), 'the daemon has it');
+    await until(
+      () => s.daemon.tasks.get({ task: 1688 }).memos.some((m: { text: string }) => m.text.includes('why this way?')),
+      'the daemon has it',
+    );
     await until(() => section()!.querySelector('.comment')?.textContent?.includes('why this way?'), 'the comment in the list');
     await until(() => !section()!.querySelector('textarea'), 'the box to clear');
     expect(box.querySelector('[aria-label="Message about this task"]')).toBeNull(); // no separate reply box

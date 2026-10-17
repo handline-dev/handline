@@ -15,6 +15,7 @@ import { CancelSheet, TaskChips, TaskLinks } from './TaskDetailParts.tsx';
 import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from './TaskInline.tsx';
 import { TaskHistory } from './TaskHistory.tsx';
 import { Activity } from './TaskActivity.tsx';
+import { Markdown } from './Markdown.tsx';
 import { RichText } from './RichText.tsx';
 import { View } from './View.tsx';
 
@@ -335,12 +336,12 @@ function Brief({ t, can }: { t: Detail; can: boolean }) {
   const [more, setMore] = useState(false);
   const long = t.body.length > 280 || t.body.split('\n').length > 4;
   return (
-    <div className="tbody-text mt-3 whitespace-pre-wrap">
+    <div className="tbody-text mt-3">
       <Inline can={can} label="Description" input={(close) => <BodyInline t={t} onClose={close} />}>
         {t.body ? (
           <>
             <div className={long && !more ? 'line-clamp-4' : undefined}>
-              <RichText text={t.body} />
+              <Markdown text={t.body} />
             </div>
             {long ? (
               <button type="button" className="border-0 bg-transparent p-0 text-link" onClick={() => setMore(!more)}>
