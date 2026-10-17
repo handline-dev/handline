@@ -308,6 +308,7 @@ export type Task = {
   /** The requests linked to the task, oldest first. */
   requests?: {
     id: number;
+    ref?: RequestRef;
     from: string;
     to: string;
     state: string;
@@ -440,6 +441,7 @@ export type DecisionOption = {
 
 export type InboxItem = {
   id: number;
+  ref?: RequestRef;
   kind: string;
   agent: AgentName | null;
   title: string;
@@ -802,6 +804,8 @@ export type Memo = {
   edited_at?: Timestamp | null;
   /** `text` cut at the images it names, as TaskDetail.body_parts; present only when it names one. */
   parts?: (TextPart | ImagePart)[];
+  /** The files the memo carries, in the order they were given; present only when it carries one. */
+  files?: MemoFile[];
 };
 
 export type TaskBoardRow = {
@@ -822,6 +826,7 @@ export type Landing = "queued" | "typed" | "delivered" | "delivered_unanswered" 
 export type ChatMessage = {
   /** Request id. */
   id: number;
+  ref?: RequestRef;
   at: Timestamp;
   /** When the request entered its current state (queued, typed, landed, withdrawn...). Never null; the creation time until it first changes. */
   state_at: Timestamp;
@@ -1163,6 +1168,8 @@ export type ChatRequestItem = {
   /** task_event only: the text typed with a handoff, else empty. Text from an agent. */
   note?: string;
   request?: number | null;
+  /** task_event only: the ref of the delivery in request. */
+  request_ref?: RequestRef | null;
   /** session only: why a new conversation started (restart, wake, fresh close, move, handoff, launch). An open set. */
   cause?: string;
   handoff?: string | null;
@@ -1385,6 +1392,20 @@ export type ImagePart = {
   path?: string;
 };
 
+/** A file a memo carries (task.memo.add files): an image or a Markdown text, kept on the daemon's machine like an attached image and read with attachment.get by its id. */
+export type MemoFile = {
+  id: AttachmentId;
+  kind: "image" | "markdown";
+  /** The file's name as its writer gave it, with no folder. Shown to the person; never used as a path. */
+  name: string;
+  mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/markdown";
+  bytes: number;
+  /** Where the daemon keeps it; only in an agent's reads, which read it with their own file tool. */
+  path?: string;
+  /** True when it is no longer kept: attachment.get then answers not_found. */
+  gone?: boolean;
+};
+
 /** One change to a task: who changed which field from what to what, and when. A field's change is one row; an edit of several fields is several rows with the same at. */
 export type HistoryRow = {
   at: Timestamp;
@@ -1401,6 +1422,9 @@ export type HistoryRow = {
   /** With a memo row: the memo's id. */
   memo?: number;
 };
+
+/** The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else. */
+export type RequestRef = string;
 
 export interface Methods {
   "hello": { params: {
@@ -1777,7 +1801,7 @@ export interface Methods {
   /** Where to read the original from. Default 0. Not with thumb. */
   offset?: number;
 }; result: {
-    mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+    mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/markdown";
     /** The size of the whole original, or of the thumbnail when thumb. */
     bytes: number;
     offset: number;
@@ -1919,6 +1943,7 @@ export interface Methods {
   wait_s?: number;
 }; result: {
     id: number;
+    ref?: RequestRef;
     requester: string;
     target: string;
     /** ask, task, say and the like; a request with none is an ask. */
@@ -1931,6 +1956,7 @@ export interface Methods {
     chain_depth: number;
     parent: {
       id: number;
+      ref?: RequestRef;
       /** The start of the parent's first line, at most 40 characters and an ellipsis. */
       line: string;
     } | null;
@@ -2160,6 +2186,8 @@ export interface Methods {
   text: string;
   /** Tell every reader at once, even mid-turn. */
   now?: boolean;
+  /** Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files). */
+  files?: string[];
   request_id: RequestId;
 }; result: Accepted & {
     memo: number;

@@ -1,0 +1,180 @@
+package attachments
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/handline/handline/go/internal/db"
+)
+
+// A memo's files are copied into the store and linked by id, so they never sit in a worktree.
+
+const Markdown = "text/markdown"
+
+var byExt = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".md": Markdown}
+
+func ext(mime string) string {
+	if mime == Markdown {
+		return "md"
+	}
+	return kinds[mime]
+}
+
+// FileMime checks an image by its first bytes, not only its ending.
+func FileMime(name string, b []byte) (string, error) {
+	mime, ok := byExt[strings.ToLower(filepath.Ext(name))]
+	switch {
+	case !ok:
+		return "", badParam(name+" is not a PNG, JPEG, GIF, WebP or .md file", "files")
+	case mime == Markdown:
+		if !utf8.Valid(b) || bytes.IndexByte(b, 0) >= 0 {
+			return "", badParam(name+" is not text", "files")
+		}
+	case Sniff(b) != mime:
+		return "", badParam(name+" is not "+mime+" by its first bytes", "files")
+	}
+	return mime, nil
+}
+
+// Add keeps b unclaimed, so it is swept after UnsentTTL unless a memo links it.
+func (s *Store) Add(name, mime string, b []byte) (Info, error) {
+	if err := s.ensure(); err != nil {
+		return Info{}, err
+	}
+	im := stored{Info: Info{ID: newID(), Name: FileName(name), Mime: mime, Bytes: int64(len(b))}, Created: s.now().Unix()}
+	if err := os.WriteFile(s.Path(im.Info), b, 0o600); err != nil {
+		return Info{}, err
+	}
+	if err := writeJSON(s.sub("meta", im.ID+".json"), im); err != nil {
+		os.Remove(s.Path(im.Info))
+		return Info{}, err
+	}
+	return im.Info, nil
+}
+
+func FilePaths(p map[string]any) ([]string, error) {
+	v, ok := p["files"]
+	if !ok || v == nil {
+		return nil, nil
+	}
+	list, ok := v.([]any)
+	if !ok || len(list) > MaxPerMessage {
+		return nil, badParam(fmt.Sprintf("files is a list of at most %d absolute file paths", MaxPerMessage), "files")
+	}
+	paths := make([]string, len(list))
+	for i, x := range list {
+		if paths[i], ok = x.(string); !ok {
+			return nil, badParam(fmt.Sprintf("files is a list of at most %d absolute file paths", MaxPerMessage), "files")
+		}
+	}
+	return paths, nil
+}
+
+// AddFiles reads and keeps the files at paths; one never linked is swept like an unsent upload.
+func (s *Store) AddFiles(q db.Q, home, by string, founder bool, paths []string) ([]Info, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	roots, err := Roots(q, home, by, founder)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Info, 0, len(paths))
+	for _, path := range paths {
+		b, err := ReadUnder(path, roots, MaxImage, "file", "files")
+		if err != nil {
+			return nil, err
+		}
+		mime, err := FileMime(path, b)
+		if err != nil {
+			return nil, err
+		}
+		info, err := s.Add(filepath.Base(path), mime, b)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+func (s *Store) AttachMemo(q db.Q, mid int64, files []Info) error {
+	if len(files) == 0 {
+		return nil
+	}
+	if err := LinkMemo(q, mid, files); err != nil {
+		return err
+	}
+	ids := make([]string, len(files))
+	for i, f := range files {
+		ids[i] = f.ID
+	}
+	_, err := s.Claim(ids)
+	return err
+}
+
+func memoKey(mid int64) string { return fmt.Sprintf("memo-files:%d", mid) }
+
+func LinkMemo(q db.Q, mid int64, infos []Info) error {
+	b, err := json.Marshal(infos)
+	if err != nil {
+		return err
+	}
+	return db.SetMeta(q, memoKey(mid), string(b))
+}
+
+// UnlinkMemo forgets the files of a deleted memo: they are kept KeepFor from their claim, then swept.
+func UnlinkMemo(q db.Q, mid int64) error {
+	_, err := q.Exec("DELETE FROM meta WHERE name = ?", memoKey(mid))
+	return err
+}
+
+func MemoFiles(q db.Q, mid int64) ([]Info, error) {
+	v, ok, err := db.Meta(q, memoKey(mid))
+	if err != nil || !ok {
+		return nil, err
+	}
+	var infos []Info
+	if json.Unmarshal([]byte(v), &infos) != nil {
+		return nil, nil
+	}
+	return infos, nil
+}
+
+const memoFilesHeld = `SELECT tm.task_id AS tid, m.value AS text FROM meta m JOIN task_memos tm ON m.name = 'memo-files:' || tm.id`
+
+// FileMap gives the path only withPath, since only an agent reads files by path.
+func (s *Store) FileMap(in Info, withPath bool) map[string]any {
+	kind := "image"
+	if in.Mime == Markdown {
+		kind = "markdown"
+	}
+	m := map[string]any{"id": in.ID, "kind": kind, "name": in.Name, "mime": in.Mime, "bytes": in.Bytes}
+	if _, err := s.Lookup(in.ID); err != nil {
+		m["gone"] = true
+	} else if withPath {
+		m["path"] = s.Path(in)
+	}
+	return m
+}
+
+// FileLines leaves out a file no longer kept.
+func (s *Store) FileLines(infos []Info) string {
+	var lines []string
+	for _, in := range infos {
+		if _, err := s.Lookup(in.ID); err == nil {
+			lines = append(lines, FileLine(len(lines)+1, s.Path(in), in.Mime, in.Bytes))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// FileLine takes where as a name for a reader not given the path.
+func FileLine(n int, where, mime string, bytes int64) string {
+	return fmt.Sprintf("[file %d: %s (%s, %s)]", n, where, mime, size(bytes))
+}

@@ -123,7 +123,7 @@ A method marked write takes a required `request_id`.
 | `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?` | `{items, more}` |  |  |
 | `inbox.queue` | agent |  | `whose?`, `all?`, `since?`, `wait_s?` | `{whose, newest, head, history, waiting, lines, dealt}` | `refused`, `bad_request` | listing |
 | `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem` | `not_found`, `bad_request` |  |
-| `request.read` | agent |  | `id`, `wait_s?` | `{id, requester, target, kind, state, created, relation, response, chain_depth, parent, body, answer, dismissal, parts}` | `not_found`, `bad_request` |  |
+| `request.read` | agent |  | `id`, `wait_s?` | `{id, ref, requester, target, kind, state, created, relation, response, chain_depth, parent, body, answer, dismissal, parts}` | `not_found`, `bad_request` |  |
 | `request.withdraw` | agent | yes | `id`, `reason?`, `request_id` | `{ok, said}` | `bad_request` |  |
 | `request.cancel` | founder | yes | `id`, `dry_run?`, `request_id` | `{ok, plan, said}` | `refused`, `bad_request` |  |
 | `team.seal` | founder | yes | `dry_run?`, `request_id` | `{ok, plan, said}` | `refused`, `bad_request` |  |
@@ -145,7 +145,7 @@ A method marked write takes a required `request_id`.
 | `task.begin` | agent | yes | `title`, `body?`, `message`, `priority?`, `expects?`, `why?`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.start` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.memo.list` | agent |  | `task`, `before?`, `limit?` | `{memos, more}` | `not_found` |  |
-| `task.memo.add` | agent | yes | `task`, `text`, `now?`, `request_id` | `Accepted & {memo}` | `refused`, `not_found`, `bad_request` |  |
+| `task.memo.add` | agent | yes | `task`, `text`, `now?`, `files?`, `request_id` | `Accepted & {memo}` | `refused`, `not_found`, `bad_request` |  |
 | `task.memo.edit` | agent | yes | `task`, `memo`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.memo.delete` | agent | yes | `task`, `memo`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.queue` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -382,7 +382,7 @@ Upload an image for a message, in chunks; the last chunk returns the Attachment 
 
 ### `attachment.get`
 
-Read an attached image, or a small copy of it, for drawing. See x-attachments. An id that no longer exists (never put, or kept past its time) is not_found.
+Read an attached image or a memo's file, or a small copy of an image, for drawing. See x-attachments. An id that no longer exists (never put, or kept past its time) is not_found.
 
 ### `terminal.attach`
 

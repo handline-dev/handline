@@ -89,16 +89,8 @@ func Register(s *rpc.Server, home string, tell Teller, decide CardDecider) {
 	s.Register("task.memo.delete", rpc.Method{Role: "agent", Write: true, Handler: memoDelete(tell)})
 }
 
-// claimImages checks the images text names, where it replaces was, and claims them (contract x-attachments, texts). by is the writer: an
-// agent names only images a task already shows.
 func claimImages(tx *sql.Tx, home, by, text, was, field string) error {
-	s := attachments.New(home)
-	ids, err := s.Check(tx, text, was, field, by != human)
-	if err != nil || len(ids) == 0 {
-		return err
-	}
-	_, err = s.Claim(ids)
-	return err
+	return attachments.New(home).ClaimText(tx, text, was, field, by != human)
 }
 
 func badParam(message, field string) *rpc.Error {
@@ -189,6 +181,12 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 		if err != nil {
 			return nil, err
 		}
+		paths, err := attachments.FilePaths(p)
+		if err != nil {
+			return nil, err
+		}
+		store := attachments.New(home)
+		var files []attachments.Info
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 			if ok, err := hasTask(tx, tid); err != nil || !ok {
 				if err != nil {
@@ -203,10 +201,20 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 			if err != nil {
 				return nil, err
 			}
+			if files, err = store.AddFiles(tx, home, c.Caller.Actor(), c.Caller.Actor() == human, paths); err != nil {
+				return nil, err
+			}
+			if err := store.AttachMemo(tx, mid, files); err != nil {
+				return nil, err
+			}
 			return accepted(fmt.Sprintf("memo %d added to T%d", mid, tid), map[string]any{"memo": mid}), nil
 		})
 		if err == nil && tell != nil {
-			tell.MemoChanged(tid, c.Caller.Actor(), "added", body, now)
+			told := body
+			if lines := store.FileLines(files); lines != "" {
+				told += "\n" + lines
+			}
+			tell.MemoChanged(tid, c.Caller.Actor(), "added", told, now)
 		}
 		return out, err
 	}
@@ -283,6 +291,9 @@ func memoDelete(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 				return nil, err
 			}
 			if err := db.DeleteMemo(tx, mid, c.Caller.Actor()); err != nil {
+				return nil, err
+			}
+			if err := attachments.UnlinkMemo(tx, mid); err != nil {
 				return nil, err
 			}
 			return accepted(fmt.Sprintf("memo %d deleted from T%d", mid, tid), nil), nil

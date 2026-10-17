@@ -21,8 +21,7 @@ const PAGES: [string, IconName, () => void][] = [
   ['Worktrees', 'worktrees', () => goWorktrees()],
   ['New agent', 'plus', () => goNew()],
   ['HR', 'team', () => goTeam('hr')],
-  ['Accounts', 'accounts', () => void (location.hash = '#/accounts')],
-  ['Stats', 'stats', () => void (location.hash = '#/stats')],
+  ['Usage', 'accounts', () => void (location.hash = '#/accounts')],
   ['Settings', 'settings', () => void (location.hash = '#/settings')],
 ];
 

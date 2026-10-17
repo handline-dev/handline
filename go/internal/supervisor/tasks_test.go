@@ -255,23 +255,22 @@ func TestTheUnblockIsStillTypedWhenTheAdvanceSendsSomethingElseOrNothing(t *test
 	}
 }
 
-func TestMemoHolderIsTypedOnlyForADoingTaskAndNotTheAuthor(t *testing.T) {
+func TestMemoHolderIsToldOnlyForADoingTaskAndNotTheAuthor(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	tid := r.newTask("bob", "alice", "job")
-	r.must(r.TellMemo(r.DB, tid, "alice", "added", "check the cache", false))
-	if len(r.term.typed) != 0 {
+	r.must(r.TellMemo(r.DB, tid, "alice", "added", "check the cache", "", false))
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 0 {
 		t.Fatal("told a holder whose task is not doing")
 	}
 	r.AdvanceCurrentTask(r.DB, "bob")
 	r.term.typed = nil
-	r.must(r.TellMemo(r.DB, tid, "alice", "added", "check the cache", false))
-	if !strings.Contains(r.term.last(), "T1 memo added by alice: check the cache") {
-		t.Fatalf("%q", r.term.last())
+	r.must(r.TellMemo(r.DB, tid, "alice", "added", "check the cache", "", false))
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 || left[0].Body != "T1 memo added by alice: check the cache" {
+		t.Fatalf("a memo with no @ waits in the holder's digest: %q %v", r.term.typed, left)
 	}
-	r.term.typed = nil
-	r.must(r.TellMemo(r.DB, tid, "bob", "added", "mine", false))
-	if len(r.term.typed) != 0 {
+	r.must(r.TellMemo(r.DB, tid, "bob", "added", "mine", "", false))
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 {
 		t.Fatal("told the holder of its own memo")
 	}
 }
@@ -364,7 +363,7 @@ func TestAMemoReachesTheOpenerAndTheAgentsItNamesWhateverTheTaskState(t *testing
 	r.register("carol", "dave")
 	r.agentUp("bob")
 	tid := r.newTask("bob", "alice", "job")
-	r.must(r.TellMemo(r.DB, tid, "bob", "added", "@carol please discard T2, it duplicates this; mail x@dave.example and @nobody", false)) // local-ref-ok: an address names nobody
+	r.must(r.TellMemo(r.DB, tid, "bob", "added", "@carol please discard T2, it duplicates this; mail x@dave.example and @nobody", "", false)) // local-ref-ok: an address names nobody
 	if says := r.saysTo("carol"); len(says) != 1 || !strings.Contains(says[0], "T1 memo added by bob: @carol please discard T2") {
 		t.Fatalf("the agent named was not told: %q", says)
 	}
@@ -376,7 +375,7 @@ func TestAMemoReachesTheOpenerAndTheAgentsItNamesWhateverTheTaskState(t *testing
 			t.Fatalf("%s was told: %q", a, says)
 		}
 	}
-	r.must(r.TellMemo(r.DB, tid, "alice", "edited", "@alice @carol mind the cache", false))
+	r.must(r.TellMemo(r.DB, tid, "alice", "edited", "@alice @carol mind the cache", "", false))
 	if len(r.saysTo("alice")) != 1 || len(r.saysTo("carol")) != 2 || len(r.saysTo("bob")) != 0 {
 		t.Fatalf("the writer was told, the agent named was not, or the holder of a task not doing was: %q %q %q", r.saysTo("alice"), r.saysTo("carol"), r.saysTo("bob"))
 	}
@@ -390,8 +389,8 @@ func TestAMemoWaitsForTheEndOfTheReadersTurnAndGoesOutWithTheOthersHeld(t *testi
 	r.agentUp("carol")
 	r.must(db.SetAgentState(r.DB, "carol", states.Running, 0, ""))
 	one, two := r.newTask("bob", "carol", "one"), r.newTask("bob", "carol", "two")
-	r.must(r.TellMemo(r.DB, one, "alice", "added", "first", false))
-	r.must(r.TellMemo(r.DB, two, "alice", "edited", "second", false))
+	r.must(r.TellMemo(r.DB, one, "alice", "added", "first", "", false))
+	r.must(r.TellMemo(r.DB, two, "alice", "edited", "second", "", false))
 	r.must(r.SweepNotices(r.clock + 2*900))
 	if len(r.term.typed) != 0 {
 		t.Fatalf("a reader mid-turn was told: %q", r.term.typed)
@@ -406,31 +405,37 @@ func TestAMemoWaitsForTheEndOfTheReadersTurnAndGoesOutWithTheOthersHeld(t *testi
 	}
 }
 
-// Told at once: a reader at its prompt, the holder of a doing task (it is its current task) even mid-turn, and anyone when the memo is sent now.
-func TestAMemoIsToldAtOnceToAnIdleReaderTheHolderOfItsCurrentTaskAndWhenSentNow(t *testing.T) {
+// Told at once: the reader a say named, a reader the memo names with @, and anyone when the memo is sent now. Any other reader, idle or the
+// holder of its current task, waits for its digest.
+func TestAMemoIsToldAtOnceOnlyToWhomItIsAimedAt(t *testing.T) {
 	r := newRig(t)
 	r.register("carol")
 	r.agentUp("carol")
 	r.agentUp("bob")
 	r.must(db.SetAgentState(r.DB, "carol", states.Idle, 0, ""))
 	tid := r.newTask("bob", "carol", "job")
-	r.must(r.TellMemo(r.DB, tid, "alice", "added", "idle", false))
-	if len(r.term.typed) != 1 || !strings.Contains(r.term.last(), "T1 memo added by alice: idle") {
-		t.Fatalf("an idle reader was not told at once: %q", r.term.typed)
-	}
 	r.AdvanceCurrentTask(r.DB, "bob")
-	r.must(db.SetAgentState(r.DB, "bob", states.Running, 0, ""))
-	r.must(db.SetAgentState(r.DB, "carol", states.Running, 0, ""))
 	r.term.typed = nil
-	r.must(r.TellMemo(r.DB, tid, "alice", "added", "current", false))
-	if len(r.term.typed) != 1 || len(r.saysTo("carol")) != 2 {
-		t.Fatalf("the holder of its current task was not told at once, or the reader mid-turn was: %q", r.term.typed)
+	r.must(r.TellMemo(r.DB, tid, "alice", "added", "plain", "", false))
+	carol, _ := db.PendingNotices(r.DB, "carol")
+	bob, _ := db.PendingNotices(r.DB, "bob")
+	if len(r.term.typed) != 0 || len(carol) != 1 || len(bob) != 1 {
+		t.Fatalf("a memo with no @ is typed to no one and waits in each reader's digest: %q %d %d", r.term.typed, len(carol), len(bob))
 	}
-	if left, _ := db.PendingNotices(r.DB, "carol"); len(left) != 1 {
-		t.Fatalf("the reader mid-turn has no memo held: %d", len(left))
+	r.must(r.TellMemo(r.DB, tid, "alice", "added", "@carol look", "", false))
+	if len(r.term.typed) != 1 || !strings.Contains(r.term.last(), "T1 memo added by alice: @carol look") {
+		t.Fatalf("the reader named with @ was not told at once: %q", r.term.typed)
+	}
+	if bob, _ := db.PendingNotices(r.DB, "bob"); len(bob) != 2 {
+		t.Fatalf("the reader not named waits: %d", len(bob))
 	}
 	r.term.typed = nil
-	r.must(r.TellMemo(r.DB, tid, "alice", "added", "urgent", true))
+	r.must(r.TellMemo(r.DB, tid, "alice", "added", "said", "bob", false))
+	if len(r.term.typed) != 1 || !strings.Contains(r.term.last(), "T1 memo added by alice: said") {
+		t.Fatalf("the reader a say named was not told at once: %q", r.term.typed)
+	}
+	r.term.typed = nil
+	r.must(r.TellMemo(r.DB, tid, "alice", "added", "urgent", "", true))
 	if len(r.term.typed) != 2 {
 		t.Fatalf("a memo sent now was not told at once to both readers: %q", r.term.typed)
 	}
@@ -446,18 +451,24 @@ func TestAHeldMemoUnreadForAnHourIsToldToTheReadersLeadOnce(t *testing.T) {
 	r.agentUp("carol")
 	r.must(db.SetAgentState(r.DB, "carol", states.Running, 0, ""))
 	tid := r.newTask("alice", "carol", "job")
-	r.must(r.TellMemo(r.DB, tid, "alice", "added", "please look", false))
+	r.must(r.TellMemo(r.DB, tid, "alice", "added", "please look", "", false))
 	r.must(r.SweepNotices(r.clock + MemoLeadS - 1))
 	if len(r.term.typed) != 0 {
 		t.Fatalf("told before the hour: %q", r.term.typed)
 	}
 	r.must(r.SweepNotices(r.clock + MemoLeadS))
-	if says := r.saysTo("bob"); len(says) != 1 || !strings.Contains(says[0], "carol has not read this memo in an hour") || !strings.Contains(says[0], "T1 memo added by alice: please look") {
-		t.Fatalf("the lead was not told: %q", says)
+	lead, _ := db.PendingNotices(r.DB, "bob")
+	if len(lead) != 1 || !strings.Contains(lead[0].Body, "carol has not read this memo in an hour") || !strings.Contains(lead[0].Body, "T1 memo added by alice: please look") {
+		t.Fatalf("the lead has no notice of it: %v", lead)
+	}
+	if len(r.term.typed) != 0 {
+		t.Fatalf("the lead's notice is typed at once: %q", r.term.typed)
 	}
 	r.must(r.SweepNotices(r.clock + 2*MemoLeadS))
-	if len(r.saysTo("bob")) != 1 {
-		t.Fatal("the lead was told twice")
+	var told int
+	r.must(r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'bob' AND body LIKE 'carol has not read this memo%'").Scan(&told))
+	if told != 1 {
+		t.Fatalf("the lead was told %d times", told)
 	}
 	if left, _ := db.PendingNotices(r.DB, "carol"); len(left) != 1 {
 		t.Fatal("the memo is no longer held for its reader")

@@ -58,7 +58,7 @@ afterEach(async () => {
 describe('palette', () => {
   it('lists every page, Worktrees, New agent and HR among them, and goes to one', async () => {
     await mount();
-    for (const page of ['Inbox', 'Tasks', 'Team', 'Worktrees', 'New agent', 'HR', 'Accounts', 'Stats', 'Settings'])
+    for (const page of ['Inbox', 'Tasks', 'Team', 'Worktrees', 'New agent', 'HR', 'Usage', 'Settings'])
       expect(options().some((o) => o.includes(page))).toBe(true);
     await type('worktrees');
     await act(async () => void $$('.palette [role="option"] button')[0]!.click());
