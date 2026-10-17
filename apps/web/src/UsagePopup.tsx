@@ -106,12 +106,9 @@ export function UsagePopup() {
           ) : (
             <p className="muted">No accounts configured.</p>
           )}
-          <div className="flex justify-end gap-3">
-            <a className="usage-stats" href="#/stats" onClick={() => setOpen(false)}>
-              Stats
-            </a>
+          <div className="flex justify-end">
             <a className="usage-all" href="#/accounts" onClick={() => setOpen(false)}>
-              All accounts
+              Usage
             </a>
           </div>
         </div>

@@ -10,7 +10,6 @@ import { MyTurnPage } from './MyTurn.tsx';
 import { SettingsPage } from './Settings.tsx';
 import { AdminPage } from './Admin.tsx';
 import { DebugTerminals } from './debug/DebugTerminals.tsx';
-import { StatsPage } from './Stats.tsx';
 import {
   useAccountsRoute,
   useDebugRoute,
@@ -145,14 +144,12 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             <Worktrees path={worktrees.path} storage={storage} />
           ) : inbox.open ? (
             <InboxPage item={inbox.item} />
-          ) : accounts.open ? (
+          ) : accounts.open || page === 'stats' ? (
             <AccountsPage name={accounts.name} />
           ) : tasks !== null ? (
             <TasksPage storage={storage} route={tasks} />
           ) : page === 'my-turn' ? (
             <MyTurnPage />
-          ) : page === 'stats' ? (
-            <StatsPage />
           ) : page === 'settings' ? (
             <SettingsPage />
           ) : page === 'admin' ? (

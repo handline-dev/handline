@@ -1,12 +1,12 @@
-// The Stats page (#/stats): the window's four counts, how long each agent worked, from stats.get; the usage outlook below them when the daemon
-// serves it. The accounts' use is the Accounts page (a link here). The previous window's figures stay on screen until the new ones arrive.
+// The Stats section of the Usage page (#/accounts, #/stats), under the account list: the window's four counts, how long each agent worked, from
+// stats.get; the usage outlook below them when the daemon serves it. The previous window's figures stay on screen until the new ones arrive.
 import { useEffect, useState } from 'react';
 import { agentTime, dateTime, span } from '@handline/app-core';
 import type { Stats } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useServes, useStats } from '@handline/app-data';
 import { OutlookSection } from './Outlook.tsx';
-import { ChartCard, ChartTitle, Icon, PageHead, PageTitle, ScrollPage, Segmented, type IconName } from './ui/index.ts';
+import { ChartCard, ChartTitle, Icon, SectionHead, Segmented, type IconName } from './ui/index.ts';
 import { View } from './View.tsx';
 
 const WINDOWS = ['24h', '7d'] as const;
@@ -20,8 +20,7 @@ const TILES: [string, keyof Pick<Stats, 'tasks_done' | 'moves' | 'handoffs' | 'b
   ['blocks', 'blocks', 'blocked'],
 ];
 
-const TILE =
-  'stat-tile flex flex-col gap-1 rounded-card bg-surface px-4 py-3 [&_svg]:text-ink-3 data-[warn]:[&_svg]:text-bad';
+const TILE = 'stat-tile flex flex-col gap-1 rounded-card bg-surface px-4 py-3 [&_svg]:text-ink-3 data-[warn]:[&_svg]:text-bad';
 
 /** Icon, count, name: the icon says what is counted, so the name can stay small. */
 function Tiles({ s }: { s: Stats }) {
@@ -66,18 +65,7 @@ function AgentTime({ s }: { s: Stats }) {
   );
 }
 
-/** Account use lives on the Accounts page, one line per account; this is the way there. */
-function AccountsLink() {
-  return (
-    <a className="stat-link flex h-11 items-center gap-2 rounded-card border border-line bg-surface px-4 text-ink no-underline hover:bg-raised" href="#/accounts" title="Account use: one line per account">
-      <Icon name="accounts" size={16} />
-      <span className="flex-1">Account use</span>
-      <Icon name="chevronRight" size={14} label="Open" />
-    </a>
-  );
-}
-
-export function StatsPage() {
+export function StatsSection() {
   const [win, setWin] = useState<Window>('24h');
   const q = useStats(win);
   const { served } = useServes('stats.get');
@@ -93,11 +81,11 @@ export function StatsPage() {
   }, []);
   const s = q.data;
   return (
-    <ScrollPage className="stats" aria-label="Stats">
-      <PageHead className="stats-head [&_.ui-seg]:ml-auto">
-        <PageTitle>Stats</PageTitle>
+    <section className="stats mt-6" aria-label="Stats">
+      <div className="stats-head mb-2 flex items-center [&_.ui-seg]:ml-auto">
+        <SectionHead className="!mb-0">Stats</SectionHead>
         <Segmented label="Window" value={win} onChange={setWin} options={WINDOWS.map((w) => ({ value: w, label: WORD[w] }))} />
-      </PageHead>
+      </div>
       <View q={q} served={served} shape="stats" what="stats">
         {s ? (
           <>
@@ -107,12 +95,11 @@ export function StatsPage() {
             <Tiles s={s} />
             <div className="charts mt-3 flex flex-col gap-3">
               <AgentTime s={s} />
-              <AccountsLink />
             </div>
           </>
         ) : null}
       </View>
       {outlook ? <OutlookSection /> : null}
-    </ScrollPage>
+    </section>
   );
 }

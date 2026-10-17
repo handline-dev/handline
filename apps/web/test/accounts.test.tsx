@@ -132,7 +132,6 @@ describe('the usage popup', () => {
     expect(text($$('.usage-row')[1])).not.toContain('agents stop at'); // the window resets in 1 h, before the stop at 2 h
     expect($$('.usage-row')[1]!.getAttribute('data-tone')).toBe('ok');
     expect(text($$('.usage-row')[0])).not.toContain('agents stop at');
-    expect($('.usage-stats')!.getAttribute('href')).toBe('#/stats');
     expect(rows[1]!.getAttribute('href')).toBe('#/accounts/beta');
     await click($('.usage-all'));
     expect(location.hash).toBe('#/accounts');
