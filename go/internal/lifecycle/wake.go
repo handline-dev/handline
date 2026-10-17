@@ -742,7 +742,8 @@ func (m *Manager) ownLateSession(agent string) (bool, int) {
 func (m *Manager) launchInPane(agent, handle, wt, cmd string, started func() bool) (bool, string) {
 	if handle != "" {
 		m.Spawn.Trust(agent, wt)
-		return m.Term.Relaunch(handle, cmd, started)
+		// Relaunch asks started right after the line is typed.
+		return m.Term.Relaunch(handle, cmd, func() bool { check(NoteLaunch(m.Q, m.OnLaunch, agent)); return started() })
 	}
 	ok, why, err := m.Spawn.StartIn(agent, wt, cmd)
 	check(err)
@@ -751,7 +752,7 @@ func (m *Manager) launchInPane(agent, handle, wt, cmd string, started func() boo
 	}
 	if ok {
 		if nh := must(db.Terminal(m.Q, agent)); nh != "" {
-			m.Term.WaitIdle(nh)
+			m.Term.WaitDrawn(nh)
 		}
 	}
 	return ok, why

@@ -376,7 +376,13 @@ def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, home: Path, g
     """Working and idle from hooks, timed: a normal turn, a permission prompt, an Esc mid-turn, and a CLI killed hard mid-turn."""
     d, a = r.d, r.agent
     t = time.time()
-    d.write("session.start", {"agent": a})
+    try:
+        d.write("session.start", {"agent": a})
+    except Refused as e:
+        # Under load hl launch can take longer to become claude than session.start waits to see it; the session still comes up.
+        if "no session is running in it after" not in str(e):
+            raise
+        print(f"live-e2e: session.start stopped waiting before claude was up; the steps below wait on", flush=True)
     r.step("starting shown until ready", t, agent_changed(a, "starting"))
     if not r.step("ready (idle)", t, agent_changed(a, "idle"), model=True):
         return r.fail("terminal turns", "the terminal agent never came up idle; nothing after it can be timed")

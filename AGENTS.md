@@ -36,8 +36,7 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 - Every PR to main shows, in its body, a screenshot of each screen it adds or
   changes, before and after, PC and phone where both change, so the founder can
   judge it from the PR alone. A PR with no UI change says so in one line.
-- An agent merges a PR with `hl land <PR>`, never `gh pr merge`: it merges only
-  when every CI check on the PR's head is green, and names each one that is not.
+- Main requires the go and apps checks (branch protection): a PR merges once they are green.
 - Before you ask for a review, merge the current target (`story/<n>`, or main)
   into the branch and run `tools/check.sh <target>`; the review request carries
   its result line. The auditor sends a request without it back, unreviewed.

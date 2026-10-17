@@ -157,6 +157,12 @@ function TaskList({ storage, selected }: { storage: KV | null; selected: number 
     if (cursor === null || !order.some((t) => t.id === cursor)) setCursor(order[0]?.id ?? null);
   }, [order, cursor]);
 
+  // A task opened from elsewhere (My turn, a link) is brought into view in the list.
+  const listed = order.length > 0;
+  useEffect(() => {
+    if (selected !== null && listed) root.current?.querySelector(`[data-task="${selected}"]`)?.scrollIntoView?.({ block: 'nearest' });
+  }, [selected, listed]);
+
   /** Closes the sheet and gives the keys back to the page, so the next key works without a click. */
   const shut = () => {
     setOpen(null);

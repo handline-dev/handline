@@ -68,9 +68,37 @@ type Spawns struct {
 	// TrustFolder marks folder trusted in every account agent's vendor may start it on, so the session opens without the folder-trust
 	// dialog. nil: nothing is marked.
 	TrustFolder func(agent, folder string)
+	// OnLaunch is told each time a launch has begun (NoteLaunch); nil tells no one.
+	OnLaunch func(agent string)
 }
 
 var _ Spawner = (*Spawns)(nil)
+
+// NoteLaunch records that the daemon has begun a launch for agent (the "launching" event, which the view reads as starting) and tells
+// on, so the view shows it now: hl launch keeps its own start only once it runs, which under load can be many seconds later.
+func NoteLaunch(q db.Q, on func(agent string), agent string) error {
+	if _, err := db.AddEvent(q, agent, "launching"); err != nil {
+		return err
+	}
+	if on != nil {
+		on(agent)
+	}
+	return nil
+}
+
+// took records that agent's launch went into terminal handle at dir and has begun; an unknown handle ("") records nothing.
+func (s *Spawns) took(agent, handle, dir string) error {
+	if handle == "" {
+		return nil
+	}
+	if err := db.SetTerminal(s.Q, agent, handle, dir); err != nil {
+		return err
+	}
+	if _, err := s.RegisterWorker(agent, handle); err != nil {
+		return err
+	}
+	return NoteLaunch(s.Q, s.OnLaunch, agent)
+}
 
 func (s *Spawns) sleep(d time.Duration) {
 	if s.Sleep != nil {
@@ -359,13 +387,8 @@ func (s *Spawns) StartIn(agent, worktree, cmd string) (bool, string, error) {
 	if handle == "" && why != "" {
 		return false, fmt.Sprintf("%s: could not start in %s: %s", agent, worktree, why), nil
 	}
-	if handle != "" {
-		if err := db.SetTerminal(s.Q, agent, handle, worktree); err != nil {
-			return false, "", err
-		}
-		if _, err := s.RegisterWorker(agent, handle); err != nil {
-			return false, "", err
-		}
+	if err := s.took(agent, handle, worktree); err != nil {
+		return false, "", err
 	}
 	shown := handle
 	if shown == "" {
@@ -453,13 +476,8 @@ func (s *Spawns) SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error
 	if handle == "" && failed != "" {
 		return false, fmt.Sprintf("worktree %s is ready, but starting the agent failed: %s", wt, failed), nil
 	}
-	if handle != "" {
-		if err := db.SetTerminal(s.Q, agent, handle, wt); err != nil {
-			return false, "", err
-		}
-		if _, err := s.RegisterWorker(agent, handle); err != nil {
-			return false, "", err
-		}
+	if err := s.took(agent, handle, wt); err != nil {
+		return false, "", err
 	}
 	from := "kept"
 	if baseRef != "" {

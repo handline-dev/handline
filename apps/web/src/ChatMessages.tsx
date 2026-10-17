@@ -29,9 +29,6 @@ export function jumpTo(id: number): boolean {
   return true;
 }
 
-/** Who a reply to this message goes to: the agent that said it, else the one it was said to. */
-export const replyTo = (m: ChatMessage, isAgent: (n: string) => boolean): string => (isAgent(m.from) ? m.from : m.to);
-
 const full = (at: string) => {
   const d = new Date(at);
   return Number.isNaN(+d) ? undefined : d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
@@ -102,6 +99,8 @@ export function Message(props: {
   byId?: Map<number, ChatMessage>;
   /** A message number in the text was clicked. */
   onRef?: (id: number) => void;
+  /** In the all-messages room: the sender's name over a message that is not the person's (null when the one before is from the same sender), never `from -> to`. */
+  group?: { name: string | null };
 }) {
   const { m, agent } = props;
   const act = useChatActions(agent);
@@ -125,7 +124,11 @@ export function Message(props: {
         aria-current={props.picked ? 'true' : undefined}
         onClick={pick}
       >
-        {side === 'other' ? (
+        {props.group && side !== 'person' ? (
+          props.group.name ? (
+            <div className={`${MSG_FROM} muted`}>{props.group.name}</div>
+          ) : null
+        ) : side === 'other' ? (
           <div className={`${MSG_FROM} muted`}>
             {m.from} <Icon name="forward" size={11} aria-hidden className="inline-block align-[-1px]" /> {m.to}
           </div>

@@ -121,15 +121,15 @@ func TestReopenSendsADoneTaskBackWithAReason(t *testing.T) {
 	line := func(id int, task int, note, rid string) string {
 		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.reopen","params":{"task":%d,"note":%q,"request_id":%q}}`, id, task, note, rid)
 	}
-	r := call(t, mk("manager"), line(2, 1, "  ", "m0"), line(3, 9, "x", "m1"), line(4, 1, "the result was wrong", "m2"), line(5, 1, "again", "m3"))
-	if r[0]["error"] == nil || r[1]["error"] == nil {
-		t.Fatalf("an empty reason and an unknown task are refused: %v %v", r[0], r[1])
+	r := call(t, mk("manager"), line(2, 9, "x", "m1"), line(3, 1, "the result was wrong", "m2"), line(4, 1, "again", "m3"))
+	if r[0]["error"] == nil {
+		t.Fatalf("an unknown task is refused: %v", r[0])
 	}
-	if r[2]["result"].(map[string]any)["said"] != "task T1 reopened by manager: the result was wrong" {
-		t.Fatalf("%v", r[2])
+	if r[1]["result"].(map[string]any)["said"] != "task T1 reopened by manager: the result was wrong" {
+		t.Fatalf("%v", r[1])
 	}
-	if r[3]["error"] == nil {
-		t.Fatalf("a task not done has nothing to reopen: %v", r[3])
+	if r[2]["error"] == nil {
+		t.Fatalf("a task not done has nothing to reopen: %v", r[2])
 	}
 	var ev sql.NullString
 	var n int
@@ -137,6 +137,13 @@ func TestReopenSendsADoneTaskBackWithAReason(t *testing.T) {
 	db.QueryRow("SELECT payload FROM events WHERE kind = 'reopen_task'").Scan(&ev)
 	if n != 1 || ev.String != `{"task_id": 1, "reason": "the result was wrong", "after_request": 0}` {
 		t.Fatalf("%d %q", n, ev.String)
+	}
+	if _, err := db.Exec("UPDATE tasks SET done_evidence = 'sha', done_at = 3, done_via = 'reason' WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	r = call(t, mk("manager"), line(5, 1, "  ", "m4"))
+	if r[0]["result"].(map[string]any)["said"] != "task T1 reopened by manager" {
+		t.Fatalf("a reopen needs no reason: %v", r[0])
 	}
 }
 

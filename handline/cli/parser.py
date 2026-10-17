@@ -556,7 +556,7 @@ def build_parser() -> argparse.ArgumentParser:
                                   "to --assign, checked against the routing table")
     p.add_argument("title")
     p.add_argument("body", nargs="?", default=None,
-                   help="the work itself, sent to --assign; required - the title is not a brief. "
+                   help="the work itself, sent to --assign. "
                         "'-' reads it from stdin")
     p.add_argument("--file", default=None, metavar="PATH",
                    help="read the body from this file, or from stdin with '-', instead of the "
@@ -595,7 +595,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("to", help="the agent that takes it")
     p.add_argument("note", nargs="?", default=None,
-                   help="required: what changed, and what the receiver should know")
+                   help="what changed, and what the receiver should know")
     p.add_argument("--file", default=None, metavar="PATH",
                    help="read the note from this file, or from stdin with '-' (the note may be '-' "
                         "too), instead of the inline argument - safe against a shell expanding "
@@ -695,13 +695,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = tk.add_parser("reopen", help="send a done task back to doing (#71) - anyone, with a "
                                      "one-line reason its opener and assignee are told")
     p.add_argument("task", type=_task_arg, metavar="T")
-    p.add_argument("reason")
+    p.add_argument("reason", nargs="?", default="")
     p.set_defaults(fn=cmd_task_reopen)
     p = tk.add_parser("release", help="take a doing task back to queued/draft, "
                                       "with a one-line reason its opener and assignee are told; "
                                       "the other answer to a timeout notice besides `edit --timeout`")
     p.add_argument("task", type=_task_arg, metavar="T")
-    p.add_argument("reason")
+    p.add_argument("reason", nargs="?", default="")
     p.set_defaults(fn=cmd_task_release)
     p = tk.add_parser("discard", help="throw away a task that is not done (#85) - anyone, with a "
                                       "one-line reason its opener and assignee are told")

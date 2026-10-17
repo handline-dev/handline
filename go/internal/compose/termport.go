@@ -36,6 +36,7 @@ func (p termPort) Available() bool { return p.t.Backend.Available() }
 func (p termPort) Missing() string { return p.t.Missing() }
 
 func (p termPort) WaitIdle(handle string) bool                 { return p.t.WaitIdle(handle, term.IdleTimeoutMs) }
+func (p termPort) WaitDrawn(handle string) bool                { return p.t.WaitDrawn(handle, term.DrawnTimeoutMs) }
 func (p termPort) TypeableNow(handle string) bool              { return p.t.TypeableNow(handle) }
 func (p termPort) ScreenBlocker(handle string) *term.Blocker   { return p.t.ScreenBlocker(handle) }
 func (p termPort) BackgroundWork(handle string) (string, bool) { return p.t.BackgroundWork(handle) }

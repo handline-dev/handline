@@ -8,6 +8,7 @@ import (
 
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
 )
@@ -158,11 +159,6 @@ func (e *Env) QueueDeliver(q db.Q, tid int64, by string, queued bool, row *db.Ta
 
 // ---------------------------------------------------------------- unblocked and result notices
 
-var urgentResult = regexp.MustCompile(`(?i)^(fail(ed|ure)?|blocked|fatal)\b`)
-
-// UrgentResult is whether a task's closing words say it failed or is blocked: it needs whoever waits on it now, not in a digest.
-func UrgentResult(result string) bool { return urgentResult.MatchString(strings.TrimSpace(result)) }
-
 // notifyUnblocked is told once, as a durable request linked to the task. Never called when the closer is the owner.
 func (e *Env) notifyUnblocked(q db.Q, depTID int64, owner, closer string, closedTID int64, how string) db.Notice {
 	text := fmt.Sprintf("task T%d is unblocked - T%d, its last open blocker, %s", depTID, closedTID, how)
@@ -208,7 +204,7 @@ func (e *Env) childResultNotice(q db.Q, dep *db.Task, by string, tid int64) *db.
 	}
 	text = strings.TrimRight(text, ": ")
 	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: dep.Owner, Body: text, Response: "fire_and_forget", Kind: "say",
-		Notice: !UrgentResult(child.DoneEvidence.String)}))
+		Notice: delivery.ClassOf(delivery.Result, false, delivery.Failed(child.DoneEvidence.String)) == delivery.ClassBatch}))
 	check(db.LinkRequest(q, dep.ID, rid))
 	must(db.AddEvent(q, by, "child_result_told", db.KV{K: "task_id", V: dep.ID}, db.KV{K: "child", V: tid}, db.KV{K: "request_id", V: rid}))
 	return &db.Notice{RID: rid, To: dep.Owner, Text: text}
@@ -380,7 +376,7 @@ func (e *Env) queueSay(q db.Q, owner, body, why string) int64 {
 }
 
 // TellMemo tells a memo's change to each of its readers (memoReaders). The holder of a doing task, a reader at its prompt, and every reader
-// when now are typed it at once like a say; any other reader gets it at the end of its turn (SweepDigests), and its lead hears of it if it
+// when now are typed it at once like a say; any other reader gets it in its next digest (SweepDigests), and its lead hears of it if it
 // waits an hour (SweepHeldMemos).
 func (e *Env) TellMemo(q db.Q, tid int64, by, what, text string, now bool) (err error) {
 	defer Catch(&err)
@@ -394,12 +390,12 @@ func (e *Env) TellMemo(q db.Q, tid int64, by, what, text string, now bool) (err 
 	}
 	body := memoLine(tid, what, by, text)
 	for _, a := range e.memoReaders(row, holder, by, text) {
-		if now || a == holder || e.idleWithSession(q, a) {
+		if delivery.ClassOf(delivery.Memo, now || a == holder, false) == delivery.ClassNow || e.idleWithSession(q, a) {
 			e.typeSay(q, a, body, "task memo")
 		} else {
-			rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: a, Body: body, Response: "fire_and_forget", Kind: "say", TurnEnd: true}))
+			rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: a, Body: body, Response: "fire_and_forget", Kind: "say", Memo: true}))
 			check(db.LinkRequest(q, tid, rid))
-			e.log("  %s: T%d memo held for the end of its turn (#%d)", a, tid, rid)
+			e.log("  %s: T%d memo held for its next digest (#%d)", a, tid, rid)
 		}
 	}
 	return nil
@@ -439,15 +435,15 @@ func memoLine(tid int64, what, by, text string) string {
 	return line + ": " + t
 }
 
-// MemoLeadS is how long a memo held for the end of its reader's turn may go unread before the reader's lead is told.
+// MemoLeadS is how long a memo held for its reader's digest may go unread before the reader's lead is told.
 const MemoLeadS = 3600
 
-// SweepHeldMemos tells the reader's lead, at once and once, of each memo held for the end of the reader's turn that has gone MemoLeadS
-// unread. The memo stays held for the reader.
+// SweepHeldMemos tells the reader's lead, at once and once, of each memo held for the reader's digest that has gone MemoLeadS unread. The
+// memo stays held for the reader.
 func (e *Env) SweepHeldMemos(now int64) (err error) {
 	defer Catch(&err)
 	q := db.Q(e.DB)
-	rows := must(db.TurnEndNoticesBefore(q, now-MemoLeadS))
+	rows := must(db.UnreadMemosBefore(q, now-MemoLeadS))
 	if len(rows) == 0 {
 		return nil
 	}
@@ -459,7 +455,7 @@ func (e *Env) SweepHeldMemos(now int64) (err error) {
 		}
 		check(db.SetCursor(q, key, 1))
 		if lead := t.SupervisorOf(r.Target); lead != "" && lead != db.Human && e.registered(lead) {
-			e.tellNowSay(q, lead, fmt.Sprintf("%s has not read this memo in an hour, held for the end of its turn (#%d): %s", r.Target, r.ID, r.Body), "memo unread 1h")
+			e.tellNowSay(q, lead, fmt.Sprintf("%s has not read this memo in an hour, held for its next digest (#%d): %s", r.Target, r.ID, r.Body), "memo unread 1h")
 		}
 	}
 	return nil

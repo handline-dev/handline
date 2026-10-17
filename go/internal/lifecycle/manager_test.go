@@ -73,6 +73,7 @@ func (f *fakeTerm) ResumeWith(_, p string) (bool, string) {
 }
 func (*fakeTerm) Available() bool                       { return true }
 func (*fakeTerm) WaitIdle(string) bool                  { return true }
+func (*fakeTerm) WaitDrawn(string) bool                 { return true }
 func (*fakeTerm) ScreenBlocker(string) *term.Blocker    { return nil }
 func (*fakeTerm) BackgroundWork(string) (string, bool)  { return "", true }
 func (*fakeTerm) CloseSession(string) (bool, string)    { return true, "" }
@@ -111,7 +112,7 @@ type fakeSpawn struct {
 }
 
 func (*fakeSpawn) WorktreePath(w string) string { return w }
-func (f *fakeSpawn) Trust(agent, wt string)      { f.trusted = append(f.trusted, agent+"@"+wt) }
+func (f *fakeSpawn) Trust(agent, wt string)     { f.trusted = append(f.trusted, agent+"@"+wt) }
 func (f *fakeSpawn) StartIn(agent, wt, _ string) (bool, string, error) {
 	f.startedIn = append(f.startedIn, agent+"@"+wt)
 	return f.ok, "start-in said", f.err
