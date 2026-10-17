@@ -24,6 +24,7 @@ type rig struct {
 	t    *testing.T
 	wt   string
 	srv  *rpc.Server
+	env  *Env
 	logs []string
 }
 
@@ -44,7 +45,8 @@ func newRig(t *testing.T) *rig {
 	r := &rig{t: t, wt: wt}
 	s := rpc.NewServer(auth{}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 	s.DB = d
-	Register(s, &Env{DB: d, Log: func(f string, a ...any) { r.logs = append(r.logs, fmt.Sprintf(f, a...)) }})
+	r.env = &Env{DB: d, Log: func(f string, a ...any) { r.logs = append(r.logs, fmt.Sprintf(f, a...)) }}
+	Register(s, r.env)
 	r.srv = s
 	return r
 }
@@ -213,5 +215,29 @@ func TestAFileOverTheCapIsNeverWrittenBackFromATruncatedRead(t *testing.T) {
 	}
 	if fi, _ := os.Stat(filepath.Join(r.wt, "big.md")); fi.Size() != MaxBytes+10 {
 		t.Fatalf("the file was cut to %d bytes", fi.Size())
+	}
+}
+
+func TestAFolderSwappedForALinkAfterTheChecksLeadsNowhere(t *testing.T) {
+	r := newRig(t)
+	outside := t.TempDir()
+	os.WriteFile(outside+"/a.md", []byte("outside"), 0o644)
+	r.put("docs/a.md", "inside")
+	read := result(t, r.call("file.read", map[string]any{"agent": "alice", "path": "docs/a.md"}))
+	r.env.beforeReplace = func() {
+		os.Rename(filepath.Join(r.wt, "docs"), filepath.Join(r.wt, "docs.old"))
+		os.Symlink(outside, filepath.Join(r.wt, "docs"))
+	}
+	if m := r.write("docs/a.md", "pwned", read["etag"].(string)); m["error"] == nil {
+		t.Fatalf("a write went through the swapped folder: %v", m)
+	}
+	if b, _ := os.ReadFile(outside + "/a.md"); string(b) != "outside" {
+		t.Fatalf("the file outside the worktree changed: %q", b)
+	}
+	if left, _ := filepath.Glob(outside + "/*.tmp"); len(left) != 0 {
+		t.Fatalf("a temp file landed outside: %v", left)
+	}
+	if b, _ := os.ReadFile(filepath.Join(r.wt, "docs.old", "a.md")); string(b) != "inside" {
+		t.Fatalf("the moved folder changed: %q", b)
 	}
 }

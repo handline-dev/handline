@@ -8,13 +8,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+	"path"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
-	"github.com/handline/handline/go/internal/atomicfile"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 )
@@ -27,6 +26,8 @@ type Env struct {
 	DB   db.Q
 	Log  func(format string, args ...any)
 	lock sync.Mutex // one write at a time, so the etag check and the replace are one step
+	// beforeReplace runs between the checks and the replace: a test swaps a folder for a link there.
+	beforeReplace func()
 }
 
 // Register adds file.read and file.write: the founder's, which a paired device is.
@@ -46,25 +47,26 @@ func bad(message, field string) error { return rpc.BadRequestError(message, fiel
 
 func denied(message string) error { return rpc.Refused(message, "denied", "") }
 
-// target is the agent's worktree and the file inside it that rel names, no link on the way.
-func (e *Env) target(p map[string]any) (agent, rel, root, full string, err error) {
+// target is the agent's worktree, opened as a root, and the path inside it that rel names. The root refuses, at every component and at the
+// moment of use, any path that leaves it, so a folder swapped for a link between a check and a write leads nowhere.
+func (e *Env) target(p map[string]any) (agent, rel string, root *os.Root, err error) {
 	agent, _ = p["agent"].(string)
 	rel, _ = p["path"].(string)
 	if agent == "" {
-		return "", "", "", "", bad("agent is an agent's name", "agent")
+		return "", "", nil, bad("agent is an agent's name", "agent")
 	}
 	if rel == "" || strings.HasPrefix(rel, "/") || strings.ContainsAny(rel, "\x00\\") {
-		return "", "", "", "", bad("path is relative to the agent's worktree", "path")
+		return "", "", nil, bad("path is relative to the agent's worktree", "path")
 	}
 	parts := strings.Split(rel, "/")
 	for _, part := range parts {
 		if part == ".." || part == "" || part == "." {
-			return "", "", "", "", bad("path has no .., empty or . part", "path")
+			return "", "", nil, bad("path has no .., empty or . part", "path")
 		}
 	}
 	st, err := db.GetAgentState(e.DB, agent)
 	if err != nil {
-		return "", "", "", "", err
+		return "", "", nil, err
 	}
 	wt := ""
 	if st != nil {
@@ -74,20 +76,20 @@ func (e *Env) target(p map[string]any) (agent, rel, root, full string, err error
 		wt = wt[i+2:]
 	}
 	if wt == "" {
-		return "", "", "", "", rpc.NotFoundError("no worktree for " + agent)
+		return "", "", nil, rpc.NotFoundError("no worktree for " + agent)
 	}
-	root, err = filepath.EvalSymlinks(wt)
-	if err != nil {
-		return "", "", "", "", rpc.NotFoundError("the worktree of " + agent + " is gone")
+	if root, err = os.OpenRoot(wt); err != nil {
+		return "", "", nil, rpc.NotFoundError("the worktree of " + agent + " is gone")
 	}
-	full = root
-	for _, part := range parts {
-		full = filepath.Join(full, part)
-		if fi, lerr := os.Lstat(full); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
-			return "", "", "", "", bad("path goes through a link: only what lies inside the worktree is used", "path")
+	cur := ""
+	for _, part := range parts { // a link inside the worktree is refused too, not only one that leaves it
+		cur = path.Join(cur, part)
+		if fi, lerr := root.Lstat(cur); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+			root.Close()
+			return "", "", nil, bad("path goes through a link: only what lies inside the worktree is used", "path")
 		}
 	}
-	return agent, rel, root, full, nil
+	return agent, rel, root, nil
 }
 
 // text is whether b, cut at a rune boundary when it was cut, is text a person edits.
@@ -103,8 +105,8 @@ func text(b []byte, cut bool) (string, bool) {
 	return string(b), true
 }
 
-func etagOf(path string) (string, error) {
-	f, err := os.Open(path)
+func etagOf(root *os.Root, rel string) (string, error) {
+	f, err := root.Open(rel)
 	if err != nil {
 		return "", err
 	}
@@ -119,18 +121,19 @@ func etagOf(path string) (string, error) {
 func stamp(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05Z") }
 
 func (e *Env) read(_ *rpc.Conn, p map[string]any) (any, error) {
-	_, rel, _, full, err := e.target(p)
+	_, rel, root, err := e.target(p)
 	if err != nil {
 		return nil, err
 	}
-	fi, err := os.Lstat(full)
+	defer root.Close()
+	fi, err := root.Lstat(rel)
 	if err != nil {
 		return nil, rpc.NotFoundError(rel + " is not there")
 	}
 	if !fi.Mode().IsRegular() {
 		return nil, bad(rel+" is not a file", "path")
 	}
-	f, err := os.Open(full)
+	f, err := root.Open(rel)
 	if err != nil {
 		return nil, bad("cannot read "+rel, "path")
 	}
@@ -144,7 +147,7 @@ func (e *Env) read(_ *rpc.Conn, p map[string]any) (any, error) {
 	if !ok {
 		return nil, bad(rel+" is not text", "path")
 	}
-	tag, err := etagOf(full)
+	tag, err := etagOf(root, rel)
 	if err != nil {
 		return nil, bad("cannot read "+rel, "path")
 	}
@@ -173,10 +176,11 @@ func checkWritable(rel string) error {
 }
 
 func (e *Env) write(c *rpc.Conn, p map[string]any) (any, error) {
-	agent, rel, _, full, err := e.target(p)
+	agent, rel, root, err := e.target(p)
 	if err != nil {
 		return nil, err
 	}
+	defer root.Close()
 	body, ok := p["text"].(string)
 	if !ok {
 		return nil, bad("text is the whole new content", "text")
@@ -197,7 +201,7 @@ func (e *Env) write(c *rpc.Conn, p map[string]any) (any, error) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 	mode := os.FileMode(0o644)
-	fi, err := os.Lstat(full)
+	fi, err := root.Lstat(rel)
 	switch {
 	case err == nil && !fi.Mode().IsRegular():
 		return nil, bad(rel+" is not a file", "path")
@@ -206,7 +210,7 @@ func (e *Env) write(c *rpc.Conn, p map[string]any) (any, error) {
 	case err == nil && etag == "":
 		return nil, rpc.Refused(rel+" exists: read it and write with its etag", "stale", "")
 	case err == nil:
-		have, terr := etagOf(full)
+		have, terr := etagOf(root, rel)
 		if terr != nil || have != etag {
 			return nil, rpc.Refused(rel+" changed since that etag: read it again", "stale", "")
 		}
@@ -214,19 +218,21 @@ func (e *Env) write(c *rpc.Conn, p map[string]any) (any, error) {
 	case etag != "":
 		return nil, rpc.Refused(rel+" is gone since that etag: read it again", "stale", "")
 	default:
-		if pi, perr := os.Stat(filepath.Dir(full)); perr != nil || !pi.IsDir() {
+		if pi, perr := root.Stat(path.Dir(rel)); perr != nil || !pi.IsDir() {
 			return nil, bad("the folder of "+rel+" is not there", "path")
 		}
 	}
-	if err := atomicfile.Write(full, body); err != nil {
-		return nil, err
+	if e.beforeReplace != nil {
+		e.beforeReplace()
 	}
-	os.Chmod(full, mode)
-	nfi, err := os.Stat(full)
+	if err := replace(root, rel, body, mode); err != nil {
+		return nil, bad("cannot write "+rel+": "+err.Error(), "path")
+	}
+	nfi, err := root.Stat(rel)
 	if err != nil {
 		return nil, err
 	}
-	tag, err := etagOf(full)
+	tag, err := etagOf(root, rel)
 	if err != nil {
 		return nil, err
 	}
@@ -238,4 +244,27 @@ func (e *Env) write(c *rpc.Conn, p map[string]any) (any, error) {
 		e.Log("  file.write by %s: %s in the worktree of %s (%d bytes)", who, rel, agent, len(body))
 	}
 	return map[string]any{"size": nfi.Size(), "mtime": stamp(nfi.ModTime()), "etag": tag}, nil
+}
+
+// replace writes body beside rel and renames it over rel, all inside root, so a reader sees the old file or the new.
+func replace(root *os.Root, rel, body string, mode os.FileMode) error {
+	tmp := path.Join(path.Dir(rel), fmt.Sprintf(".%s.%d.tmp", path.Base(rel), time.Now().UnixNano()))
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(body)
+	if cerr := f.Chmod(mode); err == nil {
+		err = cerr
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = root.Rename(tmp, rel)
+	}
+	if err != nil {
+		root.Remove(tmp)
+	}
+	return err
 }
