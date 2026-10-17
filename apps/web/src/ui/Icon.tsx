@@ -55,6 +55,12 @@ import {
   ExternalLink,
   Zap,
   Undo2,
+  Redo2,
+  PenTool,
+  MoveUpRight,
+  Square,
+  Type,
+  Hash,
   ArrowDown,
   ArrowLeft,
   ArrowRight,
@@ -203,6 +209,14 @@ const ICONS = {
   cancel: [CircleSlash, 'Cancel'],
   history: [History, 'History'],
   model: [Cpu, 'Model'],
+  // the markup tools
+  pen: [PenTool, 'Pen'],
+  arrow: [MoveUpRight, 'Arrow'],
+  box: [Square, 'Rectangle'],
+  textTool: [Type, 'Text'],
+  number: [Hash, 'Number'],
+  undo: [Undo2, 'Undo'],
+  redo: [Redo2, 'Redo'],
 } as const satisfies Record<string, readonly [ComponentType<SVGProps<SVGSVGElement>>, string]>;
 
 export type IconName = keyof typeof ICONS;

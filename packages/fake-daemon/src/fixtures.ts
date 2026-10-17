@@ -15,6 +15,8 @@ export interface AgentFixture {
   parent: string | null;
   worktree: string;
   branch: string;
+  /** owner/repo of the worktree's GitHub origin, or null. */
+  repo?: string | null;
   session: string | null;
   wall?: boolean;
   /** AgentView fields the agent_view_fields and agent_view_attention conformance fixtures pin, served as they are. */
@@ -33,6 +35,7 @@ export const AGENTS: AgentFixture[] = [
     parent: 'handline.architect',
     worktree: '/work/handline.term-build',
     branch: 'yourname/handline.term-build',
+    repo: 'handline-dev/handline',
     session: null,
   },
   {
@@ -46,6 +49,7 @@ export const AGENTS: AgentFixture[] = [
     parent: null,
     worktree: '/work/handline.architect',
     branch: 'yourname/handline.architect',
+    repo: 'handline-dev/handline',
     session: 's-arch-1',
   },
   {
@@ -59,6 +63,7 @@ export const AGENTS: AgentFixture[] = [
     parent: 'handline.architect',
     worktree: '/work/handline.auditor',
     branch: 'yourname/handline.auditor',
+    repo: 'handline-dev/handline',
     session: 's-aud-1',
     wall: true,
   },

@@ -17,6 +17,7 @@ async function until(cond: () => unknown, what: string, tries = 400) {
   }
   throw new Error(`timed out waiting for ${what}`);
 }
+const dialogAtCapture: boolean[] = [];
 let root: Root | null = null;
 let box: HTMLElement;
 const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
@@ -42,9 +43,18 @@ async function mount(hash: string) {
       api: 1,
       screen: async () => ({ ok: true }),
       unsent: async () => ({ ok: true }),
-      captureWindows: async () => ({ ok: true, windows: [{ id: 'window:7', name: 'Simulator', thumb: `data:image/png;base64,${PNG}` }] }),
-      captureWindow: async (a: { id: string }) =>
-        a.id === 'window:7' ? { ok: true, name: 'Simulator.png', png: PNG } : { ok: false, code: 'not_found', message: 'gone' },
+      captureWindows: async () => ({
+        ok: true,
+        windows: [
+          { id: 'window:7', name: 'Simulator', thumb: `data:image/png;base64,${PNG}` },
+          { id: 'window:throws', name: 'Broken', thumb: `data:image/png;base64,${PNG}` },
+        ],
+      }),
+      captureWindow: async (a: { id: string }) => {
+        dialogAtCapture.push(!!document.querySelector('.ui-dialog'));
+        if (a.id === 'window:throws') throw new Error('ipc down');
+        return a.id === 'window:7' ? { ok: true, name: 'Simulator.png', png: PNG } : { ok: false, code: 'not_found', message: 'gone' };
+      },
     },
   });
   location.hash = hash;
@@ -72,8 +82,9 @@ describe('capture', () => {
     await click($$('[aria-label="Windows"] button')[0]);
     await until(() => $('[data-testid="capture-preview"]'), 'the preview');
     await typeInto($('#capture-note') as HTMLTextAreaElement, 'The header overlaps the title');
+    await click(button('New task'));
     await choose($('select[aria-label="Owner"]') as HTMLSelectElement, 'handline.auditor');
-    await click(button('Ask'));
+    await click(button('Send'));
     await until(() => !$('[data-testid="capture-preview"]'), 'the dialog to close', 600);
     const list = (await s.client.call('tasks.list', {} as never)) as { items: { id: number; title: string }[] };
     const made = list.items.find((t) => t.title === 'The header overlaps the title')!;
@@ -86,6 +97,27 @@ describe('capture', () => {
     expect(t.body_parts?.[1]?.image?.name).toBe('Simulator.png');
   });
 
+  it('takes the picture with the dialog out of the way, then shows it again', async () => {
+    dialogAtCapture.length = 0;
+    await mount('#/tasks');
+    await until(() => button('Capture'), 'the Capture button');
+    await click(button('Capture'));
+    await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
+    await click($$('[aria-label="Windows"] button')[0]);
+    await until(() => $('[data-testid="capture-preview"]'), 'the preview');
+    expect(dialogAtCapture).toEqual([false]);
+  });
+
+  it('brings the dialog back when the capture call throws', async () => {
+    await mount('#/tasks');
+    await until(() => button('Capture'), 'the Capture button');
+    await click(button('Capture'));
+    await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
+    await click($$('[aria-label="Windows"] button')[1]);
+    await until(() => $('.ui-dialog'), 'the dialog back');
+    expect($$('[aria-label="Windows"] button').length).toBe(2);
+  });
+
   it('adds the picture as a comment on the open task', async () => {
     const s = await mount('#/tasks/1684');
     await until(() => button('Capture'), 'the Capture button');
@@ -93,10 +125,29 @@ describe('capture', () => {
     await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
     await click($$('[aria-label="Windows"] button')[0]);
     await until(() => $('[data-testid="capture-preview"]'), 'the preview');
-    await click(button('Comment'));
+    expect(button('Comment on T1684')).toBeTruthy();
+    await click(button('Send'));
     await until(() => !$('[data-testid="capture-preview"]'), 'the dialog to close', 600);
     const t = (await s.client.call('task.get', { task: 1684 } as never)) as { memos: { text: string; parts?: unknown[] }[] };
     expect(t.memos.at(-1)!.text).toMatch(/!\[Simulator\]\(attachment:/);
     expect(t.memos.at(-1)!.parts).toBeTruthy();
+  });
+
+  it('adds the picture as a comment on a task picked from the list, from a page that is not a task', async () => {
+    const s = await mount('#/tasks');
+    await until(() => button('Capture'), 'the Capture button');
+    await click(button('Capture'));
+    await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
+    await click($$('[aria-label="Windows"] button')[0]);
+    await until(() => $('[data-testid="capture-preview"]'), 'the preview');
+    await click(button('New task'));
+    await choose($('select[aria-label="Send as"]') as HTMLSelectElement, 'comment');
+    await click(button('Send'));
+    expect($('[role="alert"]')?.textContent).toBe('Pick the task.');
+    await choose($('select[aria-label="Task"]') as HTMLSelectElement, '1684');
+    await click(button('Send'));
+    await until(() => !$('[data-testid="capture-preview"]'), 'the dialog to close', 600);
+    const t = (await s.client.call('task.get', { task: 1684 } as never)) as { memos: { text: string }[] };
+    expect(t.memos.at(-1)!.text).toMatch(/!\[Simulator\]\(attachment:/);
   });
 });

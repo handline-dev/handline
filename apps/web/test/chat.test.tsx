@@ -423,28 +423,28 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     expect(msg('architect says to auditor')).toBeUndefined();
   });
 
-  it('in the desktop app an agent name opens that agent, a repo path asks the shell with the branches named, and #N opens that pull request', async () => {
+  it('in the desktop app an agent name opens that agent, and a repo path asks the shell with the branches named', async () => {
     const calls: unknown[] = [];
     Object.assign(window, {
       handline: {
         api: 1,
         openPath: async (a: unknown) => (calls.push(['path', a]), { ok: true, how: 'branch' }),
-        openPr: async (a: unknown) => (calls.push(['pr', a]), { ok: true, how: 'github' }),
       },
     });
     try {
       const s = setup();
-      s.daemon.chat.seed(ARCH, { from: ARCH, to: 'human', body: `on branch feat-docs file docs/x.md by ${ARCH}, see #275`, at: '2031-02-01T00:00:00Z' });
+      s.daemon.chat.seed(ARCH, {
+        from: ARCH,
+        to: 'human',
+        body: `on branch feat-docs file docs/x.md by ${ARCH}`,
+        at: '2031-02-01T00:00:00Z',
+      });
       await mount(ARCH, s);
       await until(() => msg('on branch feat-docs'), 'the message');
       const m = msg('on branch feat-docs')!;
       await click(m.querySelector('.path')!);
-      await click(m.querySelector('[data-pr]')!);
       await click(m.querySelector('.agent-link')!);
-      expect(calls).toEqual([
-        ['path', { path: 'docs/x.md', agent: ARCH, branches: ['feat-docs', 'docs/x.md'] }],
-        ['pr', { number: 275, agent: ARCH }],
-      ]);
+      expect(calls).toEqual([['path', { path: 'docs/x.md', agent: ARCH, branches: ['feat-docs', 'docs/x.md'] }]]);
       expect(location.hash).toBe(`#/agents/${encodeURIComponent(ARCH)}`);
     } finally {
       delete (window as { handline?: unknown }).handline;

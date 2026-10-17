@@ -104,20 +104,6 @@ export class Opener {
     return err ? fail('unavailable', err) : { ok: true, how: 'opened' };
   }
 
-  /** Opens #N as the repo's pull request page on GitHub; the repo is the one the agent's worktree has as origin. */
-  async openPr(e: Sender, arg: unknown): Promise<OpenReply> {
-    if (!fromWindow(e, this.origin)) return fail('bad_request', 'not from the app window');
-    const a = arg as { number?: unknown; agent?: unknown } | null;
-    if (typeof a !== 'object' || a === null || !Number.isInteger(a.number) || (a.number as number) < 1 || (a.number as number) > 999_999_999)
-      return fail('bad_request', 'openPr takes { number, agent? }');
-    if (a.agent !== undefined && typeof a.agent !== 'string') return fail('bad_request', 'agent is text');
-    const wt = a.agent ? await this.deps.worktreeOf(a.agent).catch(() => null) : null;
-    const repo = wt ? await this.deps.git?.repoOf(wt).catch(() => null) : null;
-    if (!repo || !this.deps.openExternal) return fail('not_found', 'no GitHub remote for this agent');
-    await this.deps.openExternal(`https://github.com/${repo}/pull/${a.number}`);
-    return { ok: true, how: 'github' };
-  }
-
   /** The git versions of a repo path, read-only: the named branches, or (`last`) main, then the same on GitHub. Null when none has it. */
   private async fromGit(wt: string, rel: string, branches: string[], last = false): Promise<OpenReply | null> {
     const git = this.deps.git!;

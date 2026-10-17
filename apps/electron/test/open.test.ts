@@ -177,11 +177,3 @@ test('a path that climbs out is never given to git', async () => {
   assert.equal((await callB(o, '../x', [])).ok, false);
   assert.deepEqual(log, []);
 });
-
-test('openPr opens the pull request page of the worktree repo, and only for a good number', async () => {
-  const { o, log } = withGit({}, []);
-  assert.deepEqual(await o.openPr(top, { number: 275, agent: 'handline.x' }), { ok: true, how: 'github' });
-  assert.deepEqual(log, ['web https://github.com/acme/app/pull/275']);
-  assert.equal((await o.openPr(top, { number: 0, agent: 'handline.x' })).ok, false);
-  assert.equal((await o.openPr(top, { number: 5, agent: 'unknown' })).ok, false);
-});

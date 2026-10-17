@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { dateTime, taskRef } from '@handline/app-core';
 import { useAgents, useChatSearch, useServes, useTasks } from '@handline/app-data';
+import { canCapture, requestCapture } from './Capture.tsx';
 import { snippet } from './ChatSearch.tsx';
 import { goAgent, goInbox, goMessage, goNew, goTasks, goTeam, goWorktrees } from './route.ts';
 import { Backdrop, Icon, PROW, PROW_HINT, PROW_NAME, type IconName } from './ui/index.ts';
@@ -43,6 +44,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
     const agents = agentData ?? [];
     const tasks = taskData ?? [];
     const all: Hit[] = [
+      ...(canCapture() ? [{ key: 'c:capture', icon: 'select', label: 'Capture a window', hint: 'action', run: requestCapture } satisfies Hit] : []),
       ...PAGES.map(([label, icon, run]): Hit => ({ key: `p:${label}`, icon, label, hint: 'page', run })),
       ...agents.map((a): Hit => ({ key: `a:${a.name}`, icon: 'agent', label: a.name, hint: a.state, run: () => goAgent(a.name) })),
       ...tasks.map((t): Hit => ({ key: `t:${t.id}`, icon: 'tasks', label: `${taskRef(t.id)} ${t.title}`, hint: t.to, run: () => goTasks(t.id) })),
