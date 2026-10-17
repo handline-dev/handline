@@ -633,7 +633,9 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	ms := make([]any, len(memos))
 	for i, m := range memos {
-		ms[i] = memoJSON(m, parts)
+		if ms[i], err = memoJSON(e.DB, m, parts, images, agent); err != nil {
+			return nil, err
+		}
 	}
 	task["memos"] = ms
 	if task["timeline"], err = e.taskTimeline(*tid, memos, reqs, parts); err != nil {
@@ -729,7 +731,7 @@ func (e *Env) taskResultOf(tid int64, task map[string]any) error {
 	return nil
 }
 
-func memoJSON(m row, parts func(string) []any) map[string]any {
+func memoJSON(q db.Q, m row, parts func(string) []any, store *attachments.Store, withPath bool) (map[string]any, error) {
 	var edited any
 	if m.set("edited_at") {
 		edited = ts(m["edited_at"])
@@ -739,7 +741,18 @@ func memoJSON(m row, parts func(string) []any) map[string]any {
 	if p := parts(m.str("body")); p != nil {
 		memo["parts"] = p
 	}
-	return memo
+	infos, err := attachments.MemoFiles(q, m.i("id"))
+	if err != nil {
+		return nil, err
+	}
+	if len(infos) > 0 {
+		files := make([]any, len(infos))
+		for i, in := range infos {
+			files[i] = store.FileMap(in, withPath)
+		}
+		memo["files"] = files
+	}
+	return memo, nil
 }
 
 // task.memo.list: a task's memos, oldest first. With limit, the newest limit memos, or the limit just older than before.
@@ -789,7 +802,9 @@ func (e *Env) taskMemoList(c *rpc.Conn, params map[string]any) (any, error) {
 	parts := func(text string) []any { return images.Parts(text, agent) }
 	memos := make([]any, len(rows))
 	for i, m := range rows {
-		memos[i] = memoJSON(m, parts)
+		if memos[i], err = memoJSON(e.DB, m, parts, images, agent); err != nil {
+			return nil, err
+		}
 	}
 	return map[string]any{"memos": memos, "more": more}, nil
 }

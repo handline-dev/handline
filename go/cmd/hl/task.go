@@ -321,7 +321,7 @@ func taskNote(c *hlclient.Client, args []string) (int, bool) {
 }
 
 func taskMemo(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--file"}, []string{"--now"}, nil)
+	p, ok := parse(args, []string{"--file", "--attach"}, []string{"--now"}, nil)
 	if !ok || len(p.pos) < 2 {
 		return 0, false
 	}
@@ -346,6 +346,11 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if now && verb != "add" {
 		fmt.Println("--now goes with add")
+		return 1, true
+	}
+	attach := p.each["--attach"]
+	if len(attach) > 0 && verb != "add" {
+		fmt.Println("--attach goes with add")
 		return 1, true
 	}
 	file, _ := p.opt("--file")
@@ -375,6 +380,13 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 		params := map[string]any{"task": tid, "text": rest[0]}
 		if now {
 			params["now"] = true
+		}
+		if len(attach) > 0 {
+			files := make([]string, len(attach))
+			for i, a := range attach {
+				files[i], _ = filepath.Abs(a) // the daemon reads it from its own cwd
+			}
+			params["files"] = files
 		}
 		return said(c.Write("task.memo.add", params)), true
 	}
