@@ -330,6 +330,30 @@ func TestAPassOverManyTaskDeliveriesLoadsTheBoardOnce(t *testing.T) {
 	}
 }
 
+func TestANoticeTheDigestListedIsNotDrawnAgainBesideTheDigest(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for _, q := range []string{
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, notice, landed_at) VALUES(1, 1, 'task-board', 'bob', 'task T1 now waits on T2', 'landed', 'say', 1, 1)",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, notice, landed_at, delivered_at) VALUES(2, 2, 'task-board', 'bob', 'T3 done by x: ok', 'landed', 'say', 1, 2, 3)",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, landed_at) VALUES(3, 4, 'task-board', 'bob', 'Result digest - 1 result since 00:00', 'landed', 'say', 4)",
+	} {
+		if _, err := e.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := e.chatMessages(nil, map[string]any{"agent": "bob", "scope": "all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	var out struct{ Messages []struct{ ID int64 } }
+	json.Unmarshal(b, &out)
+	if len(out.Messages) != 2 || out.Messages[0].ID != 3 || out.Messages[1].ID != 1 {
+		t.Fatalf("a notice still waiting for the digest and the digest are drawn; the digested one is not: %s", b)
+	}
+}
+
 func TestEveryTaskEventNamesWhoDidIt(t *testing.T) {
 	for kind := range transcriptEvents {
 		who := "by." + kind // the writer records the actor as the event's agent

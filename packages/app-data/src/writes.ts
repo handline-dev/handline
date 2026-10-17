@@ -385,4 +385,5 @@ export const NOT_FROM_UI = [
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',
+  'team.seal', // `hl team seal`; no screen yet
 ] as const;

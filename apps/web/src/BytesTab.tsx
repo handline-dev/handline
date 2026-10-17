@@ -117,8 +117,7 @@ export function BytesTab({
       const repaint = () => {
         const v = live.current?.view;
         if (!v) return;
-        const fits = sizes() && gridToSend(pane.propose(), v) === null;
-        pane.setFontSize(fits ? DEFAULT_FONT : fontFor(el.clientWidth, v.cols));
+        pane.setFontSize(sizes() ? DEFAULT_FONT : fontFor(el.clientWidth, v.cols)); // a font that tracked the host's grid would move the grid this pane proposes
       };
       const watch = new ResizeObserver(layout);
       const sendKeys = keySender(

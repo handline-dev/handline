@@ -1938,6 +1938,18 @@ export interface Methods {
     /** Without dry_run: what was cancelled and who was told, or `not cancelled - ` and the reason. */
     said?: string;
   } };
+  "team.seal": { params: {
+  /** Change nothing: answer `plan`. */
+  dry_run?: boolean;
+  request_id: RequestId;
+}; result: {
+    /** Always true: a refusal is an error. */
+    ok: boolean;
+    /** Dry run only: one line per file that would be sealed (its label, why, its digest), or that nothing needs sealing. */
+    plan?: string;
+    /** Without dry_run: one line per file sealed, or that nothing needed sealing. */
+    said?: string;
+  } };
   "inbox.mark_read": { params: {
   ids: number[];
   request_id: RequestId;
@@ -2543,6 +2555,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "request.read": { role: "agent", callers: null, write: false, since: 1 },
   "request.withdraw": { role: "agent", callers: null, write: true, since: 1 },
   "request.cancel": { role: "founder", callers: null, write: true, since: 1 },
+  "team.seal": { role: "founder", callers: null, write: true, since: 1 },
   "inbox.mark_read": { role: "agent", callers: null, write: true, since: 1 },
   "inbox.answer": { role: "member", callers: null, write: true, since: 1 },
   "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },

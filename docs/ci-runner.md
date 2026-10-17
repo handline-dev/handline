@@ -25,8 +25,9 @@ It never goes in the repository, a script default, a shell history line that is 
 ## Where things go, and what cleans them
 
 - Checkout: `~ci/runner/_work/handline`, reused; `actions/checkout` removes untracked files each run.
-- Test temp files: the job sets `TMPDIR` to the runner's temp directory, which the runner empties after every job, and
-  it kills the processes a job leaves behind (tmux servers, daemons) when the job ends.
+- Test temp files: the job runs the Go suite under `tools/leakcheck.py run --dir <runner temp>/hlc`, which sets `TMPDIR`
+  to the same path each run and fails the job when the suite leaves a process, tmux server or temp file behind. The
+  runner empties its temp directory after every job and kills the processes a job leaves behind when it ends.
 - Go caches: `~ci/.cache/go-build` and `~ci/go/pkg/mod`. `tools/go-env.sh` already drops build cache files
   no build used for two days, once a day. The hard cap is 10 GB, a root cron line:
   `0 4 * * * [ "$(du -sm ~ci/.cache/go-build | cut -f1)" -gt 10240 ] && sudo -u ci rm -rf ~ci/.cache/go-build`
