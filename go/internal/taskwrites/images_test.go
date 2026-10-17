@@ -154,3 +154,18 @@ func TestAHandoffNoteNamesImagesAsAMemoDoes(t *testing.T) {
 		t.Fatalf("the note holds the image while the task is open: %v", held)
 	}
 }
+
+func TestAnAgentAttachesToAMemoOnlyFilesFromItsOwnPlaces(t *testing.T) {
+	home := t.TempDir()
+	_, _, run := reportEnvIn(t, home, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'a', 'w', 'boss', 1)")
+	outside := filepath.Join(t.TempDir(), "plan.md")
+	inside := filepath.Join(home, "agents", "w", "plan.md")
+	for _, p := range []string{outside, inside} {
+		os.WriteFile(p, []byte("# plan"), 0o644)
+	}
+	files := func(p string) string { b, _ := json.Marshal([]string{p}); return `,"files":` + string(b) }
+	if r := run("w", "task.memo.add", "m1", params(1, "text", "see")+files(outside)); errData(r)["field"] != "files" {
+		t.Fatalf("a file outside the agent's places was read: %v", r)
+	}
+	said(t, run("w", "task.memo.add", "m2", params(1, "text", "see")+files(inside)))
+}

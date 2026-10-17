@@ -802,6 +802,8 @@ export type Memo = {
   edited_at?: Timestamp | null;
   /** `text` cut at the images it names, as TaskDetail.body_parts; present only when it names one. */
   parts?: (TextPart | ImagePart)[];
+  /** The files the memo carries, in the order they were given; present only when it carries one. */
+  files?: MemoFile[];
 };
 
 export type TaskBoardRow = {
@@ -1388,6 +1390,20 @@ export type ImagePart = {
   path?: string;
 };
 
+/** A file a memo carries (task.memo.add files): an image or a Markdown text, kept on the daemon's machine like an attached image and read with attachment.get by its id. */
+export type MemoFile = {
+  id: AttachmentId;
+  kind: "image" | "markdown";
+  /** The file's name as its writer gave it, with no folder. Shown to the person; never used as a path. */
+  name: string;
+  mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/markdown";
+  bytes: number;
+  /** Where the daemon keeps it; only in an agent's reads, which read it with their own file tool. */
+  path?: string;
+  /** True when it is no longer kept: attachment.get then answers not_found. */
+  gone?: boolean;
+};
+
 /** One change to a task: who changed which field from what to what, and when. A field's change is one row; an edit of several fields is several rows with the same at. */
 export type HistoryRow = {
   at: Timestamp;
@@ -1776,7 +1792,7 @@ export interface Methods {
   /** Where to read the original from. Default 0. Not with thumb. */
   offset?: number;
 }; result: {
-    mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+    mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/markdown";
     /** The size of the whole original, or of the thumbnail when thumb. */
     bytes: number;
     offset: number;
@@ -2161,6 +2177,8 @@ export interface Methods {
   text: string;
   /** Tell every reader at once, even mid-turn. */
   now?: boolean;
+  /** Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files). */
+  files?: string[];
   request_id: RequestId;
 }; result: Accepted & {
     memo: number;
