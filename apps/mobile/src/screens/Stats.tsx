@@ -229,10 +229,10 @@ function Numbers() {
   );
 }
 
-/** The numbers and the outlook, for the Usage tab to show under the accounts. */
 /** What every empty part of the page says, so the three never read differently. */
 const NOTHING = 'Nothing recorded for this period.';
 
+/** The numbers and the outlook, for the Usage tab to show under the accounts. */
 export function Stats() {
   const c = usePalette();
   return (

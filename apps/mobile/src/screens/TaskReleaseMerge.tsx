@@ -63,7 +63,8 @@ export function MergeTasks({ t, onClose }: { t: TaskDetail; onClose: () => void 
       {others.length === 0 ? <Text style={{ color: c.muted }}>No other open tasks.</Text> : null}
       <View style={{ gap: space.sm }}>
         {others.map((x) => (
-          <Pill role="radio"
+          <Pill
+            role="radio"
             key={x.id}
             on={picked.has(x.id)}
             label={`${taskRef(x.id)} ${x.title}`}
