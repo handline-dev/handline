@@ -32,7 +32,7 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
   return (
     <View testID={`gauge-${props.label}`} style={{ gap: 2 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-        <Text style={{ color: c.muted, width: 44 }}>{props.label}</Text>
+        <Text numberOfLines={1} style={{ color: c.muted, width: 76 }}>{props.label}</Text>
         <View style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: c.line }}>
           <View style={{ width: `${g.pct}%`, height: 6, borderRadius: 3, backgroundColor: tone }} />
           {g.through !== null ? (
