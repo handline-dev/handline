@@ -11,7 +11,7 @@ import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { AccountLogin } from './AccountLogin.tsx';
 import { Loadable } from './Loadable.tsx';
-import { Button, PageHeader } from './parts.tsx';
+import { Button, Card, PageHeader } from './parts.tsx';
 import { useWhyNot } from './TaskActions.tsx';
 
 const SPANS = { '5 hours': FIVE_HOURS_MS, week: WEEK_MS } as const;
@@ -272,10 +272,7 @@ function RemoveSheet({ a, onClose }: { a: Account; onClose: () => void }) {
   const would = plan.data?.would_remove === true;
   const failed = plan.error ?? remove.error;
   return (
-    <View
-      testID="sheet"
-      style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, backgroundColor: c.panel }}
-    >
+    <Card testID="sheet">
       <Text style={{ color: c.ink, fontWeight: '600' }}>Remove {a.label}</Text>
       {plan.isPending ? <Text style={{ color: c.muted }}>Checking what removing it would do…</Text> : null}
       {a.agents.length ? <Text style={{ color: c.wait }}>On it now: {a.agents.join(', ')}. Move them off first.</Text> : null}
@@ -306,6 +303,6 @@ function RemoveSheet({ a, onClose }: { a: Account; onClose: () => void }) {
         />
         <Button testID="sheet-cancel" label="Cancel" onPress={onClose} />
       </View>
-    </View>
+    </Card>
   );
 }

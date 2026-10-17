@@ -8,7 +8,8 @@ import type { TaskDetail } from '@handline/client';
 import { classify, sentence, useTasks, useWrite } from '@handline/app-data';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
-import { Chip, Input, Sheet } from './TaskActions.tsx';
+import { Input, Sheet } from './TaskActions.tsx';
+import { Pill } from './parts.tsx';
 
 export function ReleaseTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
   const release = useWrite('task.release');
@@ -62,7 +63,7 @@ export function MergeTasks({ t, onClose }: { t: TaskDetail; onClose: () => void 
       {others.length === 0 ? <Text style={{ color: c.muted }}>No other open tasks.</Text> : null}
       <View style={{ gap: space.sm }}>
         {others.map((x) => (
-          <Chip
+          <Pill role="radio"
             key={x.id}
             on={picked.has(x.id)}
             label={`${taskRef(x.id)} ${x.title}`}

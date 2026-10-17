@@ -3,7 +3,7 @@
 // disabled with the reason. The sheets keep what was typed until the daemon accepts.
 import { useState, type ReactNode } from 'react';
 import { taskRef } from '@handline/app-core';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
 import { classify, sentence, useAgents, usePending, useServes, useWrite } from '@handline/app-data';
@@ -11,7 +11,7 @@ import { radius, space } from '@handline/tokens';
 import { useConnection } from '@handline/app-react';
 import { usePalette } from '../theme.ts';
 import { ImageBodyInput } from './ImageBodyInput.tsx';
-import { Button, PageHeader } from './parts.tsx';
+import { Button, Card, PageHeader, Pill } from './parts.tsx';
 import { AskAbout } from './TaskAsk.tsx';
 import { ReportVerbs } from './TaskReport.tsx';
 import { MergeTasks, ReleaseTask } from './TaskReleaseMerge.tsx';
@@ -58,27 +58,6 @@ export function Input(props: {
   );
 }
 
-export function Chip(props: { on: boolean; label: string; onPress: () => void; testID: string }) {
-  const c = usePalette();
-  return (
-    <Pressable
-      testID={props.testID}
-      accessibilityRole="radio"
-      accessibilityState={{ selected: props.on }}
-      onPress={props.onPress}
-      style={{
-        borderWidth: props.on ? 2 : 1,
-        borderColor: props.on ? c.ink : c.line,
-        borderRadius: radius.pill,
-        paddingVertical: space.sm,
-        paddingHorizontal: space.md,
-      }}
-    >
-      <Text style={{ color: c.ink, fontWeight: props.on ? '700' : '400' }}>{props.on ? `✓ ${props.label}` : props.label}</Text>
-    </Pressable>
-  );
-}
-
 const PRIORITIES = [
   [1, '1 high'],
   [2, '2'],
@@ -101,10 +80,7 @@ export function Sheet(props: {
   const c = usePalette();
   const { submit, kind, onSubmit, onCancel, busy } = props;
   return (
-    <View
-      testID="sheet"
-      style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, backgroundColor: c.panel }}
-    >
+    <Card testID="sheet">
       <Text style={{ color: c.ink, fontWeight: '600' }}>{props.label}</Text>
       {props.children}
       {props.error ? (
@@ -118,7 +94,7 @@ export function Sheet(props: {
         )}
         <Button testID="sheet-cancel" label={onSubmit ? 'Cancel' : 'Close'} onPress={onCancel} style={onSubmit ? undefined : GROW} />
       </View>
-    </View>
+    </Card>
   );
 }
 
@@ -328,7 +304,7 @@ export function NewTask({ onClose }: { onClose: () => void }) {
   };
   const said = missing || (ask.isError ? sentence(classify(ask.error)) : '');
   const chip = (on: boolean, label: string, onPress: () => void, testID: string) => (
-    <Chip key={testID} on={on} label={label} onPress={onPress} testID={testID} />
+    <Pill role="radio" key={testID} on={on} label={label} onPress={onPress} testID={testID} />
   );
   return (
     <View testID="new-task" style={{ gap: space.md, padding: space.lg }}>
@@ -393,7 +369,7 @@ function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
       <Text style={{ color: c.muted, fontWeight: '600' }}>Owner</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
         {[...new Set([t.to, ...agents])].map((a) => (
-          <Chip key={a} on={owner === a} label={a} onPress={() => setOwner(a)} testID={`et-owner-${a}`} />
+          <Pill role="radio" key={a} on={owner === a} label={a} onPress={() => setOwner(a)} testID={`et-owner-${a}`} />
         ))}
       </View>
       <Input testID="et-title" label="Title" value={title} onChange={setTitle} />
@@ -401,7 +377,7 @@ function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
       <Input testID="et-box" label="Time box" value={box} onChange={setBox} />
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         {PRIORITIES.map(([p, l]) => (
-          <Chip key={p} on={priority === p} label={l} onPress={() => setPriority(p)} testID={`et-priority-${p}`} />
+          <Pill role="radio" key={p} on={priority === p} label={l} onPress={() => setPriority(p)} testID={`et-priority-${p}`} />
         ))}
       </View>
     </Sheet>
