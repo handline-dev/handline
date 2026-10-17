@@ -240,7 +240,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   return (
     <section className={CHAT}>
       <div className="chat-head flex h-[var(--h-tabs)] items-center gap-2 border-b border-line px-2">
-        <RoomTitle agent={agent} state={detail.state} />
+        <RoomTitle agent={agent} detail={detail} />
         <ChatSearch agent={agent} scope={scope} onGo={jump} />
         <Segmented
           label="Which messages"
