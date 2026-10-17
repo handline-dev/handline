@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"unicode"
@@ -11,7 +12,7 @@ import (
 
 // say sends a message that needs no answer and starts no work (cli/say.py cmd_say), through the say method.
 func say(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--file", "--parent", "--task", "--no-task"}, nil, nil)
+	p, ok := parse(args, []string{"--file", "--parent", "--task", "--no-task", "--attach"}, nil, nil)
 	if !ok || len(p.pos) > 2 {
 		return 0, false
 	}
@@ -47,6 +48,11 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 			"inside double quotes run as commands). Resend with single quotes, or `--file -` and a " +
 			"heredoc, if text is missing.")
 	}
+	attach, abs := p.each["--attach"], []string(nil)
+	for _, a := range attach {
+		f, _ := filepath.Abs(a) // the daemon reads it from its own cwd
+		abs = append(abs, f)
+	}
 	if !asking(c, "say") {
 		return 1, true
 	}
@@ -59,6 +65,9 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if hasNoTask {
 		params["no_task"] = noTask
+	}
+	if len(abs) > 0 {
+		params["files"] = abs
 	}
 	return said(c.Write("say", params)), true
 }

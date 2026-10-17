@@ -104,6 +104,36 @@ func (s *Store) AddFiles(q db.Q, home, by string, founder bool, paths []string) 
 	return out, nil
 }
 
+// AddImages is AddFiles for a message: only images, which a chat shows.
+func (s *Store) AddImages(q db.Q, home, by string, founder bool, paths []string) ([]Info, error) {
+	for _, p := range paths {
+		if strings.EqualFold(filepath.Ext(p), ".md") {
+			return nil, badParam(p+" is not an image: a message carries PNG, JPEG, GIF or WebP files", "files")
+		}
+	}
+	return s.AddFiles(q, home, by, founder, paths)
+}
+
+// Carry records files as the images of message rid and claims them.
+func (s *Store) Carry(q db.Q, rid int64, files []Info) error {
+	if len(files) == 0 {
+		return nil
+	}
+	if err := Record(q, rid, files); err != nil {
+		return err
+	}
+	return s.claimInfos(files)
+}
+
+func (s *Store) claimInfos(files []Info) error {
+	ids := make([]string, len(files))
+	for i, f := range files {
+		ids[i] = f.ID
+	}
+	_, err := s.Claim(ids)
+	return err
+}
+
 func (s *Store) AttachMemo(q db.Q, mid int64, files []Info) error {
 	if len(files) == 0 {
 		return nil
@@ -111,12 +141,7 @@ func (s *Store) AttachMemo(q db.Q, mid int64, files []Info) error {
 	if err := LinkMemo(q, mid, files); err != nil {
 		return err
 	}
-	ids := make([]string, len(files))
-	for i, f := range files {
-		ids[i] = f.ID
-	}
-	_, err := s.Claim(ids)
-	return err
+	return s.claimInfos(files)
 }
 
 func memoKey(mid int64) string { return fmt.Sprintf("memo-files:%d", mid) }

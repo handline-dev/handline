@@ -2,6 +2,7 @@ package chatwrites
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -151,5 +152,37 @@ func TestAMessageThatOpensATaskIsRefusedForAGoneImage(t *testing.T) {
 	}
 	if n := r.count("SELECT COUNT(*) FROM tasks"); n != 0 {
 		t.Fatalf("a refused send opened %d tasks", n)
+	}
+}
+
+func TestSayCarriesTheImageFilesItNamesAndRefusesAnythingElse(t *testing.T) {
+	r := newRig(t)
+	s := r.server("")
+	dir := t.TempDir()
+	png := dir + "/shot.png"
+	os.WriteFile(png, []byte("\x89PNG\r\n\x1a\n"+strings.Repeat("x", 2000)), 0o644)
+	os.WriteFile(dir+"/notes.md", []byte("# hi"), 0o644)
+	os.WriteFile(dir+"/fake.png", []byte("not a png"), 0o644)
+	res := r.result(r.one(s, "say", fmt.Sprintf(`{"target":"alice","body":"look","files":[%q],"request_id":"s1"}`, png)))
+	if res["accepted"] != true {
+		t.Fatalf("%v", res)
+	}
+	var rid int64
+	r.db.QueryRow("SELECT MAX(id) FROM requests").Scan(&rid)
+	got, err := attachments.Of(r.db, rid)
+	if err != nil || len(got) != 1 || got[0].Mime != "image/png" || got[0].Name != "shot.png" {
+		t.Fatalf("the say carries %v %v", got, err)
+	}
+	if maps := attachments.New(r.home).MessageMaps(r.db, rid, "look"); len(maps) != 1 {
+		t.Fatalf("chat.messages shows %v", maps)
+	}
+	for i, f := range []string{dir + "/notes.md", dir + "/fake.png"} {
+		d := r.errData(r.one(s, "say", fmt.Sprintf(`{"target":"alice","body":"x","files":[%q],"request_id":"s%d"}`, f, i+2)))
+		if d["field"] != "files" {
+			t.Fatalf("%s: %v", f, d)
+		}
+	}
+	if n := r.count("SELECT COUNT(*) FROM requests WHERE body = 'x'"); n != 0 {
+		t.Fatalf("a refused say wrote %d messages", n)
 	}
 }

@@ -2328,6 +2328,8 @@ export interface Methods {
   /** Why this carries no task. */
   no_task?: string;
   parent?: number;
+  /** Absolute paths of images the message carries (ChatMessage.attachments): PNG, JPEG, GIF or WebP, at most 10 MiB each, at most 6. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file that is not an image, or an image whose first bytes do not match its ending is bad_request (field files); the message is not written. */
+  files?: string[];
   request_id: RequestId;
 }; result: Accepted };
   "hook.record": { params: {

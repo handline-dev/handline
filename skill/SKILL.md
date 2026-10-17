@@ -16,4 +16,5 @@ hl task done T<n> "<evidence>"   finish your task (or `hl task handoff T<n> <age
 The rules for any agent tool are in AGENTS.md at the repo root, the source this
 skill follows. You are handed one task at a time; to change a task you gave
 that is not yet done, `hl task memo T<n> add "..."`, never a correction behind it.
+To show the founder a screenshot, `hl say human "..." --attach shot.png` (or `hl task memo ... --attach`); a path pasted in the text shows as plain text.
 `hl guide` lists topics, `hl guide <topic>` prints one.
