@@ -1,0 +1,320 @@
+{
+ "fixtures": [
+  {
+   "name": "task.history.unknown_task_is_not_found",
+   "spec": "task.history",
+   "about": "The history of a task nobody opened is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.history",
+      "params": {
+       "task": 999999
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.history.task_is_a_number",
+   "spec": "task.history",
+   "about": "task is an integer: bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.history",
+      "params": {
+       "task": "T1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.history.every_change_is_a_row_newest_first",
+   "spec": "task.history",
+   "as": "agent",
+   "with": {
+    "boss": "founder"
+   },
+   "about": "A task an agent opened from the founder's message, then retitled, with a memo added and edited: each change is a row of who, field, was, now and when, newest first; the memo's rows carry its id and its text before and after.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "caller": {
+       "name": {
+        "$save": "me"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{me}}",
+       "body": "keep a history",
+       "request_id": "conf-hist-0"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$save": "msg"
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.begin",
+      "params": {
+       "title": "history task",
+       "message": "{{msg}}",
+       "request_id": "conf-hist-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.memo.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "first words",
+       "request_id": "conf-hist-2"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "memo": {
+       "$save": "mid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.memo.edit",
+      "params": {
+       "task": "{{tid}}",
+       "memo": "{{mid}}",
+       "text": "second words",
+       "request_id": "conf-hist-3"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "task.edit",
+      "params": {
+       "task": "{{tid}}",
+       "title": "history task, renamed",
+       "request_id": "conf-hist-4"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "task.history",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "task": {
+       "$type": "integer"
+      },
+      "rows": {
+       "$each": {
+        "at": {
+         "$type": "timestamp"
+        },
+        "by": {
+         "$type": "string"
+        },
+        "field": {
+         "$type": "string"
+        },
+        "was": {
+         "$type": "string"
+        },
+        "now": {
+         "$type": "string"
+        }
+       },
+       "$contains": {
+        "by": {
+         "$type": "string"
+        },
+        "field": "title",
+        "was": "history task",
+        "now": "history task, renamed"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "task.history",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "rows": {
+       "$contains": {
+        "by": {
+         "$type": "string"
+        },
+        "field": "memo",
+        "memo": {
+         "$type": "integer"
+        },
+        "was": "first words",
+        "now": "second words"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 9,
+      "method": "task.history",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "rows": [
+       {
+        "field": "title",
+        "was": "history task",
+        "now": "history task, renamed"
+       },
+       {
+        "field": "memo",
+        "was": "first words",
+        "now": "second words"
+       },
+       {
+        "field": "memo",
+        "was": "",
+        "now": "first words"
+       },
+       {
+        "field": "state",
+        "was": "",
+        "now": "doing"
+       },
+       {
+        "field": "assignee",
+        "was": "",
+        "now": {
+         "$type": "string"
+        }
+       },
+       {
+        "field": "title",
+        "was": "",
+        "now": "history task"
+       }
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}
