@@ -167,10 +167,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     return () => cancelAnimationFrame(id);
   }, [chat.loadingOlder, entries.length]);
   const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
-  const repin = () => {
-    const el = stream.current;
-    if (el && pinned.current) el.scrollTop = el.scrollHeight;
-  };
+  const repin = () => void (pinned.current && stream.current && (stream.current.scrollTop = stream.current.scrollHeight));
 
   useLayoutEffect(repin, [last, entries.length, chat.working.turn_running]);
 
@@ -260,6 +257,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
       <div
         className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>.skeleton]:self-stretch"
         ref={stream}
+        onLoadCapture={(e) => e.target instanceof HTMLImageElement && repin()} // a picture arriving late grows the stream
         onScroll={(e) => {
           const el = e.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;

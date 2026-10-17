@@ -144,15 +144,16 @@ const release = (id: string, thumb: boolean) => {
   urls.delete(key);
 };
 
-/** The picture of an attachment as a URL once read: `gone` when the daemon has dropped it (the name is shown without the picture). */
-export function useAttachmentUrl(id: string, thumb: boolean): { url: string | null; gone: boolean } {
+/** The picture of an attachment as a URL once read: `gone` when the daemon has dropped it (the name is shown without the picture), `failed` when the read itself failed. */
+export function useAttachmentUrl(id: string, thumb: boolean): { url: string | null; gone: boolean; failed: boolean } {
   const store = useStore();
-  const [state, setState] = useState<{ url: string | null; gone: boolean }>({ url: null, gone: false });
+  const [state, setState] = useState<{ url: string | null; gone: boolean; failed: boolean }>({ url: null, gone: false, failed: false });
   useEffect(() => {
     let live = true;
+    setState({ url: null, gone: false, failed: false });
     urlOf((m, p) => store.client.call(m as never, p as never), id, thumb).then(
-      (url) => live && setState({ url, gone: url === null }),
-      () => {},
+      (url) => live && setState({ url, gone: url === null, failed: false }),
+      () => live && setState({ url: null, gone: false, failed: true }),
     );
     return () => {
       live = false;
@@ -162,7 +163,8 @@ export function useAttachmentUrl(id: string, thumb: boolean): { url: string | nu
   return state;
 }
 
-export type AttachmentRead = { state: 'loading' } | { state: 'ready'; mime: ReadMime; bytes: Uint8Array } | { state: 'gone' } | { state: 'failed' };
+export type AttachmentRead =
+  { state: 'loading' } | { state: 'ready'; mime: ReadMime; bytes: Uint8Array } | { state: 'gone' } | { state: 'failed' };
 
 /** The bytes of an attachment, read on each mount (no cache, for an app that has no object URLs); `gone` when the daemon dropped it. */
 export function useAttachmentBytes(id: string, thumb: boolean): AttachmentRead {
