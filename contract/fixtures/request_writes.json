@@ -31,7 +31,7 @@
      },
      "result": {
       "ok": false,
-      "said": "request 999999999 does not exist"
+      "said": "request M999999999 does not exist"
      }
     }
    ]
@@ -233,7 +233,7 @@
      },
      "result": {
       "ok": false,
-      "said": "not cancelled - #999999999 is gone"
+      "said": "not cancelled - M999999999 is gone"
      }
     }
    ]

@@ -291,7 +291,7 @@
   {
    "name": "inbox.get.id_is_a_number",
    "spec": "inbox.get",
-   "about": "An id that is not a number is bad_request naming it.",
+   "about": "An id that names no message (#1 is a PR, not a message) is bad_request naming it.",
    "as": "founder",
    "steps": [
     {
@@ -313,7 +313,7 @@
       "id": 2,
       "method": "inbox.get",
       "params": {
-       "id": "1"
+       "id": "#1"
       }
      },
      "error": {
