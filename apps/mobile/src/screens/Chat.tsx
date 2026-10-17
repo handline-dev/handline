@@ -14,6 +14,7 @@ import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
 import { Decided, Line } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
+import { PrBody } from './PrBody.tsx';
 import { ChatFind } from './ChatFind.tsx';
 import { ChatRefs, type Ref } from './ChatRefs.tsx';
 import { HandoffLine } from './HandoffLine.tsx';
@@ -382,11 +383,7 @@ function Bubble(props: {
           ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
         </Text>
       )}
-      {m.body ? (
-        <Text testID={`body-${m.id}`} style={{ color: c.ink }}>
-          {m.body}
-        </Text>
-      ) : null}
+      {m.body ? <PrBody id={m.id} agent={agent} body={m.body} /> : null}
       {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
       <Text style={{ color: c.muted, fontSize: 11 }}>
         {!unnumbered && `#${m.id} `}
