@@ -31,6 +31,9 @@ func duration(secs int64) string {
 
 func ended(t row) bool { return t.str("done_evidence") != "" || t.str("discarded_by") != "" }
 
+// openTask is ended in SQL, negated: a task with no done evidence that was not discarded.
+const openTask = "COALESCE(done_evidence, '') = '' AND COALESCE(discarded_by, '') = ''"
+
 // board is what the state of a task needs, read in a handful of queries (_board_facts in actions/tasks.py): the
 // tasks begun on a founder's message, the ones with a request out, each open task's open children, what every owner
 // holds now.
@@ -42,7 +45,7 @@ type board struct {
 	held     map[int64]row // the tasks owners hold now, for whether each ended
 }
 
-func (e *Env) loadBoard(open []row) (*board, error) {
+func (e *Env) loadBoard() (*board, error) {
 	b := &board{begun: map[int64]bool{}, sent: map[int64]bool{}, children: map[int64][]int64{},
 		current: map[string]int64{}, held: map[int64]row{}}
 	begunTask := "CASE WHEN json_valid(e.payload) THEN json_extract(e.payload, '$.task_id') END"
@@ -61,10 +64,11 @@ func (e *Env) loadBoard(open []row) (*board, error) {
 	for _, r := range rows {
 		b.sent[r.i("id")] = true
 	}
-	for _, t := range open {
-		if t.set("parent_task") {
-			b.children[t.i("parent_task")] = append(b.children[t.i("parent_task")], t.i("id"))
-		}
+	if rows, err = query(e.DB, "SELECT parent_task, id FROM tasks WHERE parent_task IS NOT NULL AND "+openTask+" ORDER BY priority, id"); err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		b.children[r.i("parent_task")] = append(b.children[r.i("parent_task")], r.i("id"))
 	}
 	if rows, err = query(e.DB, "SELECT agent, current_task FROM agent_state WHERE current_task IS NOT NULL"); err != nil {
 		return nil, err
@@ -104,7 +108,7 @@ func (b *board) asked(id int64) bool {
 	return false
 }
 
-// state is one of draft, queued, doing, reported, done, discarded.
+// state is one of draft, queued, doing, answered, done, discarded.
 func (b *board) state(t row) string {
 	if t.str("discarded_by") != "" {
 		return "discarded"
@@ -125,21 +129,9 @@ func (b *board) state(t row) string {
 	return "draft"
 }
 
-// boardRows are the tasks in priority then number order: every one, or the open ones.
-func (e *Env) boardRows(withEnded bool) (shown []row, open []row, err error) {
-	all, err := query(e.DB, "SELECT * FROM tasks ORDER BY priority, id")
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, t := range all {
-		if !ended(t) {
-			open = append(open, t)
-		}
-	}
-	if withEnded {
-		return all, open, nil
-	}
-	return open, open, nil
+// openTasks are the open tasks in priority then number order.
+func (e *Env) openTasks() ([]row, error) {
+	return query(e.DB, "SELECT * FROM tasks WHERE "+openTask+" ORDER BY priority, id")
 }
 
 // reach is the agents whose tasks agent sees: itself and everyone under it, walked down the supervisor edges the
@@ -217,6 +209,10 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optTags(params, "tags")
+	if err != nil {
+		return nil, err
+	}
 	turn, err := optBool(params, "my_turn") // the caller's own open tasks that wait on it: queued or doing, not draft or answered
 	if err != nil {
 		return nil, err
@@ -239,16 +235,72 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 			return nil, rpc.Refused(fmt.Sprintf("%s is not you or one of your reports: everyone shows every team's tasks", *name), "", "")
 		}
 	}
-	showEnded := withEnded || under != nil || (state != nil && (*state == "done" || *state == "discarded"))
-	shown, open, err := e.boardRows(showEnded)
+	// The filter is SQL, so a board of thousands is not loaded to show a few. Only the state's last step (draft, queued or doing) is
+	// the board's, read for the rows the SQL kept.
+	where, args := []string{"1 = 1"}, []any{}
+	cond := func(sql string, a ...any) {
+		where = append(where, sql)
+		args = append(args, a...)
+	}
+	if !(withEnded || under != nil || (state != nil && (*state == "done" || *state == "discarded"))) {
+		cond(openTask)
+	}
+	if turn {
+		cond("reported_at IS NULL")
+	}
+	if state != nil {
+		switch *state {
+		case "discarded":
+			cond("COALESCE(discarded_by, '') != ''")
+		case "done":
+			cond("COALESCE(discarded_by, '') = '' AND COALESCE(done_evidence, '') != ''")
+		case "answered":
+			cond("reported_at IS NOT NULL AND " + openTask)
+		default:
+			cond("reported_at IS NULL")
+		}
+	}
+	for _, f := range []struct {
+		col string
+		v   *string
+	}{{"owner", owner}, {"opened_by", opener}, {askerSQL, closer}} {
+		if f.v != nil {
+			cond(f.col+" = ?", *f.v)
+		}
+	}
+	if owners != nil { // a task is in scope by its assignee or its owner
+		names := make([]any, 0, len(owners))
+		for n := range owners {
+			names = append(names, n)
+		}
+		in := "(" + placeholders(len(names)) + ")"
+		cond("(owner IN "+in+" OR "+askerSQL+" IN "+in+")", append(names, names...)...)
+	}
+	if parent != nil {
+		cond("parent_task = ?", *parent)
+	}
+	if under != nil {
+		cond("id IN (WITH RECURSIVE story(id) AS (SELECT ? UNION SELECT k.id FROM tasks k JOIN story ON k.parent_task = story.id) SELECT id FROM story)", *under)
+	}
+	if before != nil {
+		cond("id < ?", *before)
+	}
+	for _, tag := range tags {
+		cond("EXISTS (SELECT 1 FROM task_tags g WHERE g.task_id = tasks.id AND g.tag = ?)", tag)
+	}
+	page := ""
+	sqlDecides := state == nil && !turn // my_turn leaves out drafts, which only the board knows
+	if state != nil {
+		sqlDecides = *state == "answered" || *state == "done" || *state == "discarded"
+	}
+	if sqlDecides { // SQL alone decides: it pages too
+		page = fmt.Sprintf(" LIMIT %d", limit+1)
+	}
+	shown, err := query(e.DB, "SELECT * FROM tasks WHERE "+strings.Join(where, " AND ")+" ORDER BY id DESC"+page, args...)
 	if err != nil {
 		return nil, err
 	}
-	var story map[int64]bool
-	if under != nil {
-		story = below(shown, *under)
-	}
-	b, err := e.loadBoard(open)
+	b, err := e.loadBoard()
 	if err != nil {
 		return nil, err
 	}
@@ -258,25 +310,10 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	var rows []item
 	for _, t := range shown {
-		if closer != nil || (owners != nil && !owners[t.str("owner")]) { // a task is in scope by its assignee or its owner
-			asker, err := e.askerOf(t)
-			if err != nil {
-				return nil, err
-			}
-			if (closer != nil && asker != *closer) || (owners != nil && !owners[t.str("owner")] && !owners[asker]) {
-				continue
-			}
+		if st := b.state(t); (state == nil || st == *state) && (!turn || st == "queued" || st == "doing") {
+			rows = append(rows, item{t, st})
 		}
-		st := b.state(t)
-		if (owner != nil && t.str("owner") != *owner) ||
-			(state != nil && st != *state) || (turn && st != "queued" && st != "doing") || (opener != nil && t.str("opened_by") != *opener) ||
-			(parent != nil && (!t.set("parent_task") || t.i("parent_task") != *parent)) || (story != nil && !story[t.i("id")]) ||
-			(before != nil && t.i("id") >= *before) {
-			continue
-		}
-		rows = append(rows, item{t, st})
 	}
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].t.i("id") > rows[j].t.i("id") })
 	items := []any{}
 	for i, r := range rows {
 		if i >= limit {
@@ -291,32 +328,15 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	return map[string]any{"items": items, "more": len(rows) > limit}, nil
 }
 
-// below is the task top and every task under it, at any depth.
-func below(tasks []row, top int64) map[int64]bool {
-	kids := map[int64][]int64{}
-	for _, t := range tasks {
-		if t.set("parent_task") {
-			kids[t.i("parent_task")] = append(kids[t.i("parent_task")], t.i("id"))
-		}
-	}
-	in, todo := map[int64]bool{top: true}, []int64{top}
-	for len(todo) > 0 {
-		id := todo[len(todo)-1]
-		todo = todo[:len(todo)-1]
-		for _, k := range kids[id] {
-			if !in[k] {
-				in[k] = true
-				todo = append(todo, k)
-			}
-		}
-	}
-	return in
-}
-
 func (e *Env) firstRequest(tid int64) (row, error) {
 	return queryOne(e.DB, "SELECT r.* FROM task_requests l JOIN requests r ON r.id = l.request_id "+
 		"WHERE l.task_id = ? ORDER BY l.rowid LIMIT 1", tid)
 }
+
+// askerSQL is askerOf as a column of a tasks row. The + keeps the planner off requests_requester, which would read every request
+// of the founder's for each task.
+const askerSQL = "COALESCE(NULLIF(reporter, ''), CASE WHEN EXISTS (SELECT 1 FROM task_requests l JOIN requests r ON r.id = l.request_id " +
+	"WHERE l.task_id = tasks.id AND +r.requester = 'human') THEN 'human' ELSE opened_by END)"
 
 // askerOf is actions.task_asker: who a task answers to when it closes. Its reporter when one was set; else the founder, if any request
 // linked to it came from the founder; else whoever opened it.
@@ -325,7 +345,7 @@ func (e *Env) askerOf(t row) (string, error) {
 		return r, nil
 	}
 	r, err := queryOne(e.DB, "SELECT 1 AS yes FROM task_requests l JOIN requests r ON r.id = l.request_id "+
-		"WHERE l.task_id = ? AND r.requester = ? LIMIT 1", t.i("id"), human)
+		"WHERE l.task_id = ? AND +r.requester = ? LIMIT 1", t.i("id"), human) // + as in askerSQL
 	if err != nil {
 		return "", err
 	}
@@ -396,7 +416,15 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 		linked[i] = map[string]any{"id": r.i("id"), "ref": r.str("ref"), "from": r.str("requester"), "to": r.str("target"),
 			"state": r.str("state"), "at": ts(r["ts"])}
 	}
-	task["last_activity"], task["edited_by"], task["requests"] = ts(active), t.strOrNil("edited_by"), linked
+	tagRows, err := query(e.DB, "SELECT tag FROM task_tags WHERE task_id = ? ORDER BY tag", t.i("id"))
+	if err != nil {
+		return nil, err
+	}
+	tags := make([]string, len(tagRows))
+	for i, r := range tagRows {
+		tags[i] = r.str("tag")
+	}
+	task["last_activity"], task["edited_by"], task["requests"], task["tags"] = ts(active), t.strOrNil("edited_by"), linked, tags
 	task["discarded"], task["report"] = nil, nil
 	if state == "answered" {
 		task["report"] = map[string]any{"by": t.str("owner"), "evidence": t.str("report"), "at": ts(t["reported_at"])}
@@ -543,11 +571,7 @@ func (e *Env) Tasks(ids []int64) (map[int64]map[string]any, error) {
 	if len(ids) == 0 {
 		return out, nil
 	}
-	_, open, err := e.boardRows(false)
-	if err != nil {
-		return nil, err
-	}
-	b, err := e.loadBoard(open)
+	b, err := e.loadBoard()
 	if err != nil {
 		return nil, err
 	}
@@ -580,11 +604,7 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 		nf.Data = map[string]any{"what": "task", "id": *tid}
 		return nil, nf
 	}
-	_, open, err := e.boardRows(false)
-	if err != nil {
-		return nil, err
-	}
-	b, err := e.loadBoard(open)
+	b, err := e.loadBoard()
 	if err != nil {
 		return nil, err
 	}

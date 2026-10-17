@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { clockTime, decidedProposals, landingLabel, sideOf, timeline } from '@handline/app-core';
-import { classify, sentence, useAgents, useChat, useChatActions, useHr, useInbox, useWrite, type ChatScope } from '@handline/app-data';
+import { classify, sentence, useChat, useChatActions, useHr, useInbox, useWrite, type ChatScope } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, Landing, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
@@ -82,7 +82,6 @@ export function Chat(props: { detail: AgentDetail }) {
     drafts.set(agent, v);
     setTextState(v);
   };
-  const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
   const hr = useHr({});
   const entries = timeline(chat.messages, chat.items, 'mine', agent, '', decidedProposals(hr.data?.proposals, agent));
 
@@ -140,8 +139,8 @@ export function Chat(props: { detail: AgentDetail }) {
   const send = (delivery?: 'now' | 'queue') => {
     if (empty) return;
     const attachments = img.ids;
-    // A picked message is a reference: a linked message to whoever said it, whatever it asked.
-    if (picked) act.send(text, { parent: picked.id, to: names.has(picked.from) ? picked.from : picked.to, delivery, attachments });
+    // A picked message is only a reference: the message goes to this chat's agent, whoever said the picked one.
+    if (picked) act.send(text, { parent: picked.id, delivery, attachments });
     else if (item) act.send(text, { parent_item: item.id, delivery, attachments });
     else act.send(text, { delivery, attachments });
     img.clear();

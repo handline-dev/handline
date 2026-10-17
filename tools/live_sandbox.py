@@ -8,7 +8,7 @@ home under a temp test root, in a tmux server of its own, and never touches the 
 founder switch sandbox_default on, the real shared settings, and one terminal agent per repo below whose agent.yaml says
 nothing about the sandbox, so each runs sandboxed exactly as a live agent would after the switch. Each agent's repo is the
 real repository and its worktree a temporary detached one of it, as a live agent's is, so its .git allowance is the real
-one. The pane's launch is the Go hl's: only it takes the real account's login under a test root (Python's settings
+one. The pane's launch is the Go hl's: only it takes the real account's login under a test root (the settings
 match it: tests/fixtures/claude_driver.json).
 
 One agent at a time: it is started on the test daemon and, once its CLI is up, the sandbox that CLI runs in is read

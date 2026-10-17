@@ -63,4 +63,4 @@ One line each. `ocp <command> --help` has the options, and `hl guide <topic>` pr
 | `hl hr list [--json]` / `approve <id>… \| --all [--yes]` / `reject <id> [reason] \| --all [--reason R]` / `apply <id>` | See proposals; the founder approves (applied at once) or rejects; `apply` retries an approved one that failed. |
 | `hl memory status` | Size of each agent's `ROLE.md` and `base.md` against its limit. |
 | `hl schedule` | Messages the daemon types at an agent on a cron schedule. From an agent's session, `add`/`edit`/`remove` with `--why` raise a proposal; so do `hl agent register` and setting a global switch (`idle-timeout`, `notice-digest`, `ignore-cache-expiry`, `auto-accept`, `dev-mode`). |
-| `hl fold [agent]` | Fold recorded events into the digest. The only command that calls a model. |
+| `agent.fold` (the app's "Fold into handoff") | Fold recorded events into the digest. The only model call. |

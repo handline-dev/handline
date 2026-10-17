@@ -443,17 +443,19 @@ func (e *Env) mentioned(text string) []string {
 	return out
 }
 
-// memoLine is the line a memo's reader is told: `T<n> memo <what> by <who>: <text>`, the text on one line and cut at 400 runes.
+// memoLine is the line a memo's reader is told: `T<n> memo <what> by <who>: <text>`, the text on one line and cut at 400 runes, then its file
+// lines whole.
 func memoLine(tid int64, what, by, text string) string {
 	line := fmt.Sprintf("T%d memo %s by %s", tid, what, by)
 	if text == "" {
 		return line
 	}
+	text, files := attachments.SplitFileLines(text)
 	t := textsafe.Oneline(text)
 	if r := []rune(t); len(r) > 400 {
 		t = attachments.KeepRefs(string(r[:400]), t)
 	}
-	return line + ": " + t
+	return strings.Join(append([]string{line + ": " + t}, files...), "\n")
 }
 
 // MemoLeadS is how long a memo held for its reader's digest may go unread before the reader's lead is told.

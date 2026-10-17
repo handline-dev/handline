@@ -174,8 +174,16 @@ func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 		if body == "" && images == "" {
 			body = emptyBody(q, head)
 		}
+		digest := head.Requester == db.NoticeRequester && strings.HasPrefix(body, db.DigestHead)
+		if digest { // a line per notice, as DigestText wrote it
+			lines := strings.Split(strings.TrimSpace(head.Body), "\n")
+			for i, l := range lines {
+				lines[i] = textsafe.Oneline(l)
+			}
+			body = strings.Join(lines, "\n")
+		}
 		// A reply to an earlier request is a verdict or an answer: cut, it hides the verdict.
-		whole := head.ParentID.Valid || (head.Requester == db.NoticeRequester && strings.HasPrefix(body, db.DigestHead))
+		whole := head.ParentID.Valid || digest
 		shown = body
 		if !whole && utf8.RuneCountInString(body) > 400 {
 			shown = string([]rune(body)[:400]) + "…"

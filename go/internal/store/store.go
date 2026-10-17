@@ -36,8 +36,7 @@ type migration struct {
 	sql      string
 }
 
-// migrations are the steps manifest.json lists, which tools/go_schema.py writes from handline/db/schema.py:
-// the Go store knows no step the Python one does not.
+// migrations are the steps manifest.json lists (tools/go_schema.py checks the files agree with it).
 func migrations() ([]migration, error) {
 	raw, err := migrationFiles.ReadFile("migrations/manifest.json")
 	if err != nil {

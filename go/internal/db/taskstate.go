@@ -121,7 +121,7 @@ func stateOf(t *Task, doing, asked bool) string {
 	return "draft"
 }
 
-// TaskState is actions.task_state: draft, queued, doing, reported (its done waits on acceptance), done or discarded.
+// TaskState is actions.task_state: draft, queued, doing, answered (its done waits on acceptance), done or discarded.
 func TaskState(q Q, t *Task) (string, error) {
 	if t.Ended() || t.Reported() {
 		return stateOf(t, false, false), nil

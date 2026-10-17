@@ -21,7 +21,7 @@ const stopWaitBackstopS = 900
 // perAgent is rpc_settings.PER_AGENT: the settings an agent.yaml may override.
 var perAgent = []string{"park_timeout_s", "ignore_cache_expiry", "bg_notice_s", "bg_grace_s", "bg_check_s", "notice_digest_s", handoff.PromptKey}
 
-// hooksWanted is session/events.py's CAPTURED, ANSWERS and GUARDS: the events our hook is installed for.
+// hooksWanted is the events our hook is installed for: claude.Wanted, which a test keeps equal.
 var hooksWanted = []string{"SessionStart", "SessionEnd", "Stop", "StopFailure", "SubagentStop", "PostCompact", "UserPromptSubmit",
 	"PermissionRequest", "TeammateIdle", "Notification", "PostToolUse", "PostToolUseFailure", "PreToolUse"}
 

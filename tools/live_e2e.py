@@ -3,7 +3,7 @@
 
   HANDLINE_LIVE=1 tools/live-e2e.sh [--daemon BINARY] [--json] [--terminal]
 
-Spends real tokens: run it only on purpose, never from tools/suite.sh, check.sh or CI. Any agent may run it. It spends the
+Spends real tokens: run it only on purpose, never from check.sh or CI. Any agent may run it. It spends the
 account tools/live_account.py picks (the most usage headroom now). It never touches the live daemon: it starts its own
 on a scratch home under a temp test root, with one haiku agent in permission mode `default` (the permission step needs a
 real prompt), the real shared settings, and the picked account's real config dir (HANDLINE_LIVE_ACCOUNTS: the keychain
