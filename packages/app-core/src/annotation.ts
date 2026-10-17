@@ -22,8 +22,10 @@ export type Shape =
 
 export interface AnnotationState {
   shapes: Shape[];
-  /** Undone shapes, newest first; any new shape empties it. */
-  redo: Shape[];
+  /** The `shapes` before each change, newest first; Undo steps back through them, so it also reverts a note edit or removal. */
+  past: Shape[][];
+  /** The `shapes` that Undo stepped back from, newest first; any new change empties it. */
+  redo: Shape[][];
   /** The shape under the finger, not yet in `shapes`. */
   draft: Shape | null;
   tool: AnnotationTool;
@@ -48,6 +50,7 @@ export const ANNOTATION_COLORS = ['#e5322d', '#f5a623', '#2fa84f', '#2f6bff', '#
 
 export const initialAnnotation = (): AnnotationState => ({
   shapes: [],
+  past: [],
   redo: [],
   draft: null,
   tool: 'pen',
@@ -60,7 +63,7 @@ export const initialAnnotation = (): AnnotationState => ({
 export const textSize = (width: number) => Math.max(14, width * 4);
 
 function commit(s: AnnotationState, shape: Shape): AnnotationState {
-  return { ...s, shapes: [...s.shapes, shape], redo: [], draft: null, next: s.next + 1 };
+  return { ...s, shapes: [...s.shapes, shape], past: [s.shapes, ...s.past], redo: [], draft: null, next: s.next + 1 };
 }
 
 export function annotate(s: AnnotationState, a: AnnotationAction): AnnotationState {
@@ -106,18 +109,18 @@ export function annotate(s: AnnotationState, a: AnnotationAction): AnnotationSta
     case 'noteText': {
       const text = a.text.trim();
       const shapes = s.shapes.flatMap((x) => (x.id !== a.id || x.kind !== 'note' ? [x] : text ? [{ ...x, text }] : []));
-      return { ...s, shapes, redo: [] };
+      return { ...s, shapes, past: [s.shapes, ...s.past], redo: [] };
     }
     case 'undo': {
-      const last = s.shapes[s.shapes.length - 1];
-      return last ? { ...s, shapes: s.shapes.slice(0, -1), redo: [last, ...s.redo], draft: null } : s;
+      const [shapes, ...past] = s.past;
+      return shapes ? { ...s, shapes, past, redo: [s.shapes, ...s.redo], draft: null } : s;
     }
     case 'redo': {
-      const [first, ...rest] = s.redo;
-      return first ? { ...s, shapes: [...s.shapes, first], redo: rest } : s;
+      const [shapes, ...redo] = s.redo;
+      return shapes ? { ...s, shapes, past: [s.shapes, ...s.past], redo } : s;
     }
     case 'clear':
-      return { ...s, shapes: [], redo: [], draft: null };
+      return { ...s, shapes: [], past: [], redo: [], draft: null };
   }
 }
 

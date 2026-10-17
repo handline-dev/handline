@@ -54,6 +54,13 @@ const enter = (el: Element) =>
   act(async () => void el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
 
 describe('pinned notes', () => {
+  it('opens with the Note tool on', async () => {
+    await mount();
+    expect(button('Note').getAttribute('aria-pressed')).toBe('true');
+    await drag([30, 30], [30, 30]);
+    expect(popover()).not.toBeNull();
+  });
+
   it('a click on the picture opens a popover there, and Enter pins the words and sends them with the picture', async () => {
     const sent: string[][] = [];
     await mount((_b, notes) => sent.push(notes));

@@ -51,7 +51,7 @@ export function Annotator({
   /** Controls drawn at the right end of the tool row. */
   extra?: ReactNode;
 }): ReactNode {
-  const [state, dispatch] = useReducer(annotate, undefined, initialAnnotation);
+  const [state, dispatch] = useReducer(annotate, undefined, () => ({ ...initialAnnotation(), tool: 'note' as const }));
   const [src, setSrc] = useState('');
   const [size, setSize] = useState({ w: 1, h: 1 });
   const [typing, setTyping] = useState<{ x: number; y: number; text: string } | null>(null);

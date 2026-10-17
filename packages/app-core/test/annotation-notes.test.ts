@@ -38,3 +38,16 @@ test('export outlines a region note and leaves its inside alone', () => {
   assert.deepEqual(px(out, 10, 30), [255, 0, 0, 255]);
   assert.deepEqual(px(out, 40, 40), [0, 0, 0, 0]);
 });
+
+test('undo reverts a note edit and a note removal, redo puts them back', () => {
+  const at = { x: 30, y: 30 };
+  let s = run({ type: 'note', from: at, to: at, text: 'wrong colour' });
+  const id = s.shapes[0]!.id;
+  s = annotate(s, { type: 'noteText', id, text: 'too dark' });
+  s = annotate(s, { type: 'undo' });
+  assert.equal(notesOf(s.shapes)[0]?.text, 'wrong colour');
+  s = annotate(s, { type: 'redo' });
+  assert.equal(notesOf(s.shapes)[0]?.text, 'too dark');
+  s = annotate(annotate(s, { type: 'noteText', id, text: '' }), { type: 'undo' });
+  assert.equal(notesOf(s.shapes)[0]?.text, 'too dark');
+});
