@@ -194,12 +194,24 @@ func TestANewFileNeedsAnEmptyEtagAndAFolderThatIsThere(t *testing.T) {
 func TestWriteNeverTouchesWhatAnAgentsToolsRunOrObey(t *testing.T) {
 	r := newRig(t)
 	for _, rel := range []string{".git/config.json", ".claude/settings.json", ".claude/notes.md", ".github/workflows/x.json", "sub/.git/x.md", ".Claude/x.md",
-		"settings.json", "app/settings.local.json", ".mcp.json", "package.json", "hooks/pre.json", "run.sh", "src/main.go", "README"} {
+		"settings.json", "app/settings.local.json", ".vscode/tasks.json", ".devcontainer/x.md", "tsconfig.json", ".mcp.json", "package.json", "hooks/pre.json", "run.sh", "src/main.go", "README"} {
 		if g := refusal(r.write(rel, "x", "")); g != "denied" {
 			t.Errorf("%s: %s", rel, g)
 		}
 		if _, err := os.Lstat(filepath.Join(r.wt, rel)); err == nil {
 			t.Errorf("%s was written", rel)
 		}
+	}
+}
+
+func TestAFileOverTheCapIsNeverWrittenBackFromATruncatedRead(t *testing.T) {
+	r := newRig(t)
+	r.put("big.md", strings.Repeat("a", MaxBytes+10))
+	read := result(t, r.call("file.read", map[string]any{"agent": "alice", "path": "big.md"}))
+	if g := refusal(r.write("big.md", read["text"].(string), read["etag"].(string))); g != "too_big" {
+		t.Fatalf("a truncated text written back: %s", g)
+	}
+	if fi, _ := os.Stat(filepath.Join(r.wt, "big.md")); fi.Size() != MaxBytes+10 {
+		t.Fatalf("the file was cut to %d bytes", fi.Size())
 	}
 }

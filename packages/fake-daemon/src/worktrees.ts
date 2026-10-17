@@ -86,14 +86,15 @@ const seed = (): Worktree[] => {
 };
 
 /** The folders and file names file.write never touches, and the only endings it writes, as the contract's `denied` gate says. */
-const DENIED_DIRS = ['.git', '.claude', '.github', '.husky', '.codex', '.cursor', 'hooks'];
-const DENIED_NAMES = ['settings.json', 'settings.local.json', '.mcp.json', 'mcp.json', 'hooks.json', 'package.json', '.claude.json'];
+const DENIED_DIRS = ['.git', '.claude', '.github', '.husky', '.codex', '.cursor', '.vscode', '.devcontainer', 'hooks'];
+const DENIED_NAMES = ['settings.json', 'settings.local.json', '.mcp.json', 'mcp.json', 'hooks.json', 'package.json', '.claude.json', 'tsconfig.json', 'turbo.json', 'deno.json', 'composer.json', 'lefthook.json'];
 const etagOf = (text: string) => createHash('sha256').update(text).digest('hex');
 const FILE_CAP = 1 << 20;
 
 export class FakeWorktrees {
   /** The files file.read serves, by `agent:path`; file.write changes them. */
   files = new Map<string, { text: string; mtime: string }>([
+    ['handline.architect:docs/big.md', { text: 'a'.repeat((1 << 20) + 10), mtime: '2026-10-17T09:00:00Z' }],
     ['handline.architect:docs/pc-app-gaps.md', { text: '# PC app gaps\n\n- the File tab\n', mtime: '2026-10-17T09:00:00Z' }],
   ]);
 
@@ -165,6 +166,7 @@ export class FakeWorktrees {
         throw invalidParams('text is not valid JSON', 'text');
       }
     }
+    if (have && have.text.length > FILE_CAP) throw refused('too_big', `${path} is over 1 MiB: it is not written back`);
     if (have ? etagOf(have.text) !== etag : etag !== '') throw refused('stale', `${path} changed since that etag: read it again`);
     const mtime = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
     this.files.set(key, { text, mtime });

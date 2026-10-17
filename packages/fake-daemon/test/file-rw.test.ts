@@ -29,3 +29,13 @@ test('file.write makes a new file only with an empty etag, and refuses what the 
     await assert.rejects(client.call('file.read', { agent: ARCH, path }), /relative to the agent worktree/);
   client.close();
 });
+
+test('a file over 1 MiB is read in part and never written back', async () => {
+  const { client } = setup();
+  await client.start();
+  const r = await client.call('file.read', { agent: ARCH, path: 'docs/big.md' });
+  assert.equal(r.truncated, true);
+  assert.equal(r.text.length, 1 << 20);
+  await assert.rejects(client.call('file.write', { agent: ARCH, path: 'docs/big.md', text: r.text, etag: r.etag, request_id: 'op-big' }), /over 1 MiB/);
+  client.close();
+});

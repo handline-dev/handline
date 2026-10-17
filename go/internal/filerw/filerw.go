@@ -37,8 +37,9 @@ func Register(s *rpc.Server, e *Env) {
 
 // deniedDirs and deniedNames are what a write never touches: what an agent's tools run or are allowed by.
 var (
-	deniedDirs  = []string{".git", ".claude", ".github", ".husky", ".codex", ".cursor", "hooks"}
-	deniedNames = []string{"settings.json", "settings.local.json", ".mcp.json", "mcp.json", "hooks.json", "package.json", ".claude.json"}
+	deniedDirs  = []string{".git", ".claude", ".github", ".husky", ".codex", ".cursor", ".vscode", ".devcontainer", "hooks"}
+	deniedNames = []string{"settings.json", "settings.local.json", ".mcp.json", "mcp.json", "hooks.json", "package.json", ".claude.json",
+		"tsconfig.json", "turbo.json", "deno.json", "composer.json", "lefthook.json"}
 )
 
 func bad(message, field string) error { return rpc.BadRequestError(message, field, rpc.InvalidParams) }
@@ -200,6 +201,8 @@ func (e *Env) write(c *rpc.Conn, p map[string]any) (any, error) {
 	switch {
 	case err == nil && !fi.Mode().IsRegular():
 		return nil, bad(rel+" is not a file", "path")
+	case err == nil && fi.Size() > MaxBytes:
+		return nil, rpc.Refused(rel+" is over 1 MiB: file.read gives only its start, so it is not written back", "too_big", "")
 	case err == nil && etag == "":
 		return nil, rpc.Refused(rel+" exists: read it and write with its etag", "stale", "")
 	case err == nil:
