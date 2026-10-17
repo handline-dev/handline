@@ -51,7 +51,7 @@ test('a request split over several WebSocket frames (a browser does it for a lar
   const sock = net.connect((server.address() as AddressInfo).port, '127.0.0.1');
   let got = '';
   sock.on('data', (d) => void (got += d.toString('latin1')));
-  sock.write('GET / HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n');
+  sock.write(`GET / HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${Buffer.from('the sample nonce').toString('base64')}\r\nSec-WebSocket-Version: 13\r\n\r\n`);
   await until(() => got.includes('101'), 'the upgrade');
   const text = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'hello', params: { client: 'frames', protocol: 1 } });
   const maskedFrame = (first: number, part: string) => {
