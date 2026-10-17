@@ -2512,6 +2512,36 @@ export interface Methods {
     diff: string;
     truncated: boolean;
   } };
+  "file.read": { params: {
+  agent: AgentName;
+  /** Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise. */
+  path: string;
+}; result: {
+    /** UTF-8 text; the first 1 MiB when the file is longer (truncated). */
+    text: string;
+    /** The file's size in bytes. */
+    size: number;
+    /** The file is over 1 MiB and text is its first 1 MiB. Do not write it back. */
+    truncated: boolean;
+    mtime: Timestamp;
+    /** SHA-256 of the whole file, hex: file.write takes it back. */
+    etag: string;
+  } };
+  "file.write": { params: {
+  agent: AgentName;
+  /** Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise. */
+  path: string;
+  /** The whole new content: UTF-8 text without NUL, at most 1 MiB; for a .json file, valid JSON. */
+  text: string;
+  /** The etag file.read gave; empty to create a file that must not exist (its folder must). */
+  etag: string;
+  request_id: RequestId;
+}; result: {
+    size: number;
+    mtime: Timestamp;
+    /** The new file's etag. */
+    etag: string;
+  } };
   "worktree.set_status": { params: {
   path: string;
   status: string;
@@ -2729,6 +2759,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "repos.list": { role: "member", callers: null, write: false, since: 1 },
   "worktrees.list": { role: "member", callers: null, write: false, since: 1 },
   "worktree.diff": { role: "member", callers: null, write: false, since: 1 },
+  "file.read": { role: "founder", callers: null, write: false, since: 1 },
+  "file.write": { role: "founder", callers: null, write: true, since: 1 },
   "worktree.set_status": { role: "member", callers: null, write: true, since: 1 },
   "schedules.list": { role: "agent", callers: null, write: false, since: 1 },
   "schedule.add": { role: "founder", callers: null, write: true, since: 1 },

@@ -129,6 +129,12 @@
  "events.feed": {
   "role": "agent"
  },
+ "file.read": {
+  "role": "founder"
+ },
+ "file.write": {
+  "role": "founder"
+ },
  "hello": {
   "role": "anonymous"
  },
