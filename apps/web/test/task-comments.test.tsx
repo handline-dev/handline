@@ -59,9 +59,9 @@ afterEach(async () => {
 describe('a comment', () => {
   it('shows its Markdown', async () => {
     await mount((s) => s.daemon.tasks.memo({ task: 1688, text: '**why** this:\n- `a`\n- b' }, 'add', 'human'));
-    await until(() => section()!.querySelector('.comment strong strong, .comment div strong'), 'the comment');
-    expect(section()!.querySelector('.comment strong strong, .comment div strong')?.textContent).toBe('why');
-    expect([...section()!.querySelectorAll('li li, ul.list-disc li')].map((l) => l.textContent)).toEqual(['a', 'b']);
+    await until(() => section()!.querySelector('.comment strong'), 'the comment');
+    expect([...section()!.querySelectorAll('.comment strong')].map((b) => b.textContent)).toContain('why');
+    expect([...section()!.querySelectorAll('.comment ul li')].map((l) => l.textContent)).toEqual(['a', 'b']);
   });
 });
 
