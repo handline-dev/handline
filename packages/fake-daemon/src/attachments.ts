@@ -1,7 +1,7 @@
 // The fake daemon's images: attachment.put takes a file in chunks, attachment.get gives it back, a message or a task's text names the finished ones.
 // Image bytes live here only; the replay store (replies, events) holds a digest or the Attachment, never the data.
 import { createHash, randomBytes } from 'node:crypto';
-import type { Attachment, ImagePart, TextPart } from '@handline/contract';
+import type { Attachment, ImagePart, MemoFile, TextPart } from '@handline/contract';
 import { badRequest, Failure, invalidParams, refused } from './errors.ts';
 
 // These mirror the contract's x-attachments limits (kept in prose there; app-data holds the client's copy).
@@ -42,6 +42,20 @@ export class FakeAttachments {
   /** Ids a test or the daemon's clock has let go of: attachment.get answers not_found. */
   expire(id: string) {
     this.files.delete(id);
+  }
+
+  /** A file a memo carries (an image or Markdown), kept as the daemon keeps one; a test passes the returned id as task.memo.add `files`. */
+  addMemoFile(name: string, mime: MemoFile['mime'], data: Buffer): MemoFile {
+    const file: MemoFile = { id: newId(), kind: mime === 'text/markdown' ? 'markdown' : 'image', name, mime, bytes: data.length };
+    this.files.set(file.id, { ...file, mime: mime as Mime, data, sent: true });
+    return file;
+  }
+
+  /** The MemoFile for an id `addMemoFile` gave. */
+  memoFile(id: string): MemoFile {
+    const f = this.files.get(id);
+    if (!f) throw new Failure('not_found', 'That file is gone.');
+    return { id, kind: (f.mime as string) === 'text/markdown' ? 'markdown' : 'image', name: f.name, mime: f.mime, bytes: f.bytes };
   }
 
   put(p: Record<string, unknown>): { upload: string; received: number; attachment?: Attachment } {

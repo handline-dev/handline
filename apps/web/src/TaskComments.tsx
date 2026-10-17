@@ -5,6 +5,7 @@ import { ago } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { BodyEditor } from './BodyEditor.tsx';
+import { MemoFiles } from './MemoFiles.tsx';
 import { RichText } from './RichText.tsx';
 import { AgentLink } from './TaskInline.tsx';
 import { useCan } from './taskui.tsx';
@@ -37,6 +38,7 @@ export function Comments({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
               <div className="whitespace-pre-wrap">
                 <RichText text={m.text} />
               </div>
+              {m.files?.length ? <MemoFiles files={m.files} /> : null}
             </li>
           ))}
         </ul>
