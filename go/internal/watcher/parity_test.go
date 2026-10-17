@@ -167,7 +167,7 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 				t.Errorf("a queued task nothing is out for says so: %v", goTask["mismatch"])
 			}
 		case "5":
-			if goTask["mismatch"] != "draft with work out (#51) - its opener has not queued it" {
+			if goTask["mismatch"] != "draft with work out (M51) - its opener has not queued it" {
 				t.Errorf("a draft with work out names the request: %v", goTask["mismatch"])
 			}
 			if reqs, _ := goTask["requests"].([]any); len(reqs) != 2 {

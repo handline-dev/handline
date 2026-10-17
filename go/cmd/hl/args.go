@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/handline/handline/go/internal/hlclient"
+	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/timefmt"
 )
 
@@ -138,17 +139,8 @@ func integer(text string) (int, bool) {
 	return n, err == nil
 }
 
-// requestArg takes 12 digits as a ref, not a number, since a ref may be all digits.
-func requestArg(text string) (any, bool) {
-	t := strings.ToLower(strings.TrimPrefix(text, "#"))
-	if digits(t) && len(t) < 12 {
-		return integer(t)
-	}
-	if len(t) >= 6 && len(t) <= 12 && strings.Trim(t, "0123456789abcdef") == "" {
-		return t, true
-	}
-	return nil, false
-}
+// requestArg is a message as typed: M<n>, a bare number or a ref (requestref.Name). A #<n> is a PR: why says so, and the caller prints it.
+func requestArg(text string) (v any, why string, ok bool) { return requestref.Name(text) }
 
 func digits(s string) bool { return s != "" && strings.Trim(s, "0123456789") == "" }
 

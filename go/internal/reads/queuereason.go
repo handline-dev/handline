@@ -60,7 +60,7 @@ func (e *Env) QueueReason(agent string, rid int64) (string, error) {
 		return "", err
 	}
 	if head != nil && head.ID != rid {
-		return fmt.Sprintf("behind #%d", head.ID), nil
+		return fmt.Sprintf("behind M%d", head.ID), nil
 	}
 	return e.deliveryState(agent, "waiting for the agent")
 }

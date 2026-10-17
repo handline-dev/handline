@@ -44,22 +44,62 @@ func MayRead(q db.Q, home, viewer string, id int64, requester, target string) bo
 	return linked > 0
 }
 
-// Resolve is the id of the request value names in field: a JSON integer is an id; a string is a ref, #ref, or a prefix of at least
-// MinPrefix characters matched only among the requests viewer may read. One viewer may not read is not_found, like one that does not exist.
+// Name reads a message as a person names it: M<n>, or a bare number under 12 digits, is its id; 6 to 12 hex characters are its ref (12
+// digits can only be a ref). A #<n> is a GitHub PR, never a message, so it is refused with the line why says. ok false with no why is
+// not a message name at all.
+func Name(text string) (v any, why string, ok bool) {
+	t := strings.ToLower(strings.TrimSpace(text))
+	if rest, found := strings.CutPrefix(t, "#"); found {
+		if isDigits(rest) {
+			return nil, fmt.Sprintf("#%s is PR %s; a message is M%s", rest, rest, rest), false
+		}
+		return nil, fmt.Sprintf("%s: # names a PR; a message is M<n>, or its ref without #", text), false
+	}
+	if rest, found := strings.CutPrefix(t, "m"); found && isDigits(rest) {
+		n, err := strconv.ParseInt(rest, 10, 64)
+		return n, "", err == nil
+	}
+	if isDigits(t) && len(t) < 12 {
+		n, err := strconv.ParseInt(t, 10, 64)
+		return n, "", err == nil
+	}
+	if refShape.MatchString(t) {
+		return t, "", true
+	}
+	return nil, "", false
+}
+
+func isDigits(s string) bool { return s != "" && strings.Trim(s, "0123456789") == "" }
+
+// Resolve is the id of the request value names in field: a JSON integer is an id; a string is Name's M<n> or ref, a ref matched as a
+// prefix of at least MinPrefix characters only among the requests viewer may read. One viewer may not read is not_found, like one that
+// does not exist.
 func Resolve(q db.Q, home string, value any, viewer, field string) (int64, error) {
-	if id, ok := rpc.AsInt(value); ok {
+	if s, isText := value.(string); isText {
+		v, why, ok := Name(s)
+		if why != "" {
+			return 0, rpc.BadRequestError(why, field, rpc.InvalidParams)
+		}
+		if ok {
+			value = v
+		}
+	}
+	id, isID := rpc.AsInt(value)
+	if n, named := value.(int64); named {
+		id, isID = n, true
+	}
+	if isID {
 		var requester, target string
 		err := q.QueryRow("SELECT requester, target FROM requests WHERE id = ?", id).Scan(&requester, &target)
 		if err != nil || !MayRead(q, home, viewer, id, requester, target) {
 			n := strconv.FormatInt(id, 10)
-			return 0, noRequest(n, n)
+			return 0, noRequest(n, Label(n))
 		}
 		return id, nil
 	}
-	s, ok := value.(string)
-	ref := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(s), "#"))
+	ref, ok := value.(string)
 	if !ok || !refShape.MatchString(ref) {
-		return 0, rpc.BadRequestError(fmt.Sprintf("%s is a request number, or its ref (#ref, or %d to 12 of its hex characters)", field, MinPrefix),
+		return 0, rpc.BadRequestError(fmt.Sprintf("%s is a message, M<n>, or its ref (%d to 12 of its hex characters)", field, MinPrefix),
 			field, rpc.InvalidParams)
 	}
 	rows, err := q.Query("SELECT id, requester, target FROM requests WHERE ref >= ? AND ref < ? ORDER BY id", ref, ref+"g")
@@ -91,11 +131,11 @@ func Resolve(q db.Q, home string, value any, viewer, field string) (int64, error
 	}
 	switch len(found) {
 	case 0:
-		return 0, noRequest(ref, "#"+ref)
+		return 0, noRequest(ref, ref)
 	case 1:
 		return found[0], nil
 	}
-	return 0, rpc.BadRequestError(fmt.Sprintf("#%s is ambiguous: it begins %d requests you may read; give more of the ref", ref, len(found)), field, rpc.InvalidParams)
+	return 0, rpc.BadRequestError(fmt.Sprintf("%s is ambiguous: it begins %d requests you may read; give more of the ref", ref, len(found)), field, rpc.InvalidParams)
 }
 
 // Missing is the id or ref a caller gave that Resolve found no request of its for, so a method answers it as it answers a missing one.
@@ -106,6 +146,14 @@ func Missing(err error) (string, bool) {
 		return name, true
 	}
 	return "", false
+}
+
+// Label is a request's name as it is printed: M<n> for an id, the ref as it is.
+func Label(name string) string {
+	if isDigits(name) && len(name) < 12 {
+		return "M" + name
+	}
+	return name
 }
 
 func noRequest(name, shown string) *rpc.Error {

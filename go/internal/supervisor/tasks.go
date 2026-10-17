@@ -309,7 +309,7 @@ func (e *Env) deliverUnblocked(q db.Q, notices []db.Notice, freed []string) {
 			must(db.MarkSendNow(q, n.RID))
 		}
 		if err := e.deliver(n.RID, db.NoticeRequester, n.To, n.Text, "", team.Decision{Allowed: true, Reason: "task unblocked", Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
-			e.log("  #%d: the inbox file for %s was not written: %v", n.RID, n.To, err)
+			e.log("  M%d: the inbox file for %s was not written: %v", n.RID, n.To, err)
 		}
 		if queued {
 			e.Push(q, n.To, n.RID)
@@ -384,7 +384,7 @@ func (e *Env) queueSay(q db.Q, owner, body, why string) int64 {
 	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: owner, Body: body, Response: "fire_and_forget", Kind: "say"}))
 	must(db.MarkSendNow(q, rid))
 	if err := e.deliver(rid, db.NoticeRequester, owner, body, "", team.Decision{Allowed: true, Reason: why, Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
-		e.log("  #%d: the inbox file for %s was not written: %v", rid, owner, err)
+		e.log("  M%d: the inbox file for %s was not written: %v", rid, owner, err)
 	}
 	return rid
 }
@@ -410,7 +410,7 @@ func (e *Env) TellMemo(q db.Q, tid int64, by, what, text, to string, now bool) (
 		} else {
 			rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: a, Body: body, Response: "fire_and_forget", Kind: "say", Memo: true}))
 			check(db.LinkRequest(q, tid, rid))
-			e.log("  %s: T%d memo held for its next digest (#%d)", a, tid, rid)
+			e.log("  %s: T%d memo held for its next digest (M%d)", a, tid, rid)
 		}
 	}
 	return nil
@@ -478,7 +478,7 @@ func (e *Env) SweepHeldMemos(now int64) (err error) {
 		}
 		check(db.SetCursor(q, key, 1))
 		if lead := t.SupervisorOf(r.Target); lead != "" && lead != db.Human && e.registered(lead) {
-			must(e.Notice(q, lead, fmt.Sprintf("%s has not read this memo in an hour, held for its next digest (#%d): %s", r.Target, r.ID, r.Body), "memo unread 1h"))
+			must(e.Notice(q, lead, fmt.Sprintf("%s has not read this memo in an hour, held for its next digest (M%d): %s", r.Target, r.ID, r.Body), "memo unread 1h"))
 		}
 	}
 	return nil

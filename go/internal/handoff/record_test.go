@@ -19,11 +19,11 @@ func TestTheRequestLineNamesTheDeliveredHeadOrSaysNone(t *testing.T) {
 		t.Errorf("an undelivered head: %q", got)
 	}
 	w.heads.heads["a"] = told(4, "b", "first line of it\nsecond\n"+strings.Repeat("x", 300))
-	if got, _ := w.RequestLine("a"); got != "request: #4 from b - first line of it" {
+	if got, _ := w.RequestLine("a"); got != "request: M4 from b - first line of it" {
 		t.Errorf("got %q", got)
 	}
 	w.heads.heads["a"] = told(4, "b", strings.Repeat("é", 200))
-	if got, _ := w.RequestLine("a"); got != "request: #4 from b - "+strings.Repeat("é", 120) {
+	if got, _ := w.RequestLine("a"); got != "request: M4 from b - "+strings.Repeat("é", 120) {
 		t.Errorf("a long line is cut at 120 characters: %q", got)
 	}
 }
@@ -33,7 +33,7 @@ func TestProgressIsKeptOnTheRequestThenTheTaskThenTheAgent(t *testing.T) {
 	w.agent("a", "IDLE", "", "")
 	w.heads.heads["a"] = told(9, "b", "do it")
 	ok, where, err := w.SetProgress("a", "  done: x\x1b[31m  ")
-	if !ok || err != nil || where != "#9" {
+	if !ok || err != nil || where != "M9" {
 		t.Fatalf("%v %q %v", ok, where, err)
 	}
 	if got, _ := w.GetProgress("a"); got != "done: x[31m" && got != "done: x" {
@@ -180,7 +180,7 @@ func TestCaptureIsTheFactsAndNamesWhatItCouldNotRead(t *testing.T) {
 		t.Fatalf("%v %q", err, missing)
 	}
 	lines := strings.Split(text, "\n")
-	want := []string{"# handoff · a", "captured: ", "request: #4 from b - do the thing", "progress (written by the agent):", "  done: x", "  left: y",
+	want := []string{"# handoff · a", "captured: ", "request: M4 from b - do the thing", "progress (written by the agent):", "  done: x", "  left: y",
 		"memory: over budget", "previous session: s1, recorded at /t/s1.jsonl", "Grep it for what you need - do not read it whole, it is a JSONL transcript with every tool result in it.",
 		"worktree: " + repo}
 	for i, wl := range want {

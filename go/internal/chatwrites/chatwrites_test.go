@@ -170,7 +170,7 @@ func TestSendWritesTheMessageOnceAndRefusesWhatIsNotASend(t *testing.T) {
 	for _, c := range []struct{ params, code, field string }{
 		{`{"agent":"nobody","body":"hi","request_id":"s2"}`, "not_found", ""},
 		{`{"agent":"alice","body":" ","request_id":"s3"}`, "bad_request", "body"},
-		{`{"agent":"alice","body":"x","parent":"1","request_id":"s4"}`, "bad_request", "request"},
+		{`{"agent":"alice","body":"x","parent":"#1","request_id":"s4"}`, "bad_request", "request"},
 	} {
 		e, _ := r.one(s, "chat.send", c.params)["error"].(map[string]any)
 		data, _ := e["data"].(map[string]any)

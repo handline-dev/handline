@@ -79,7 +79,7 @@ func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, ma
 				var err error
 				*request, err = requestref.Resolve(tx, home, p["request"], requestref.Viewer(c), "request")
 				if name, missing := requestref.Missing(err); missing {
-					return nil, refusal("no request #" + name)
+					return nil, refusal("no request " + requestref.Label(name))
 				}
 				if err != nil {
 					return nil, err
@@ -204,14 +204,14 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		var state string
 		switch err := tx.QueryRow("SELECT state FROM requests WHERE id = ?", *request).Scan(&state); {
 		case err == sql.ErrNoRows:
-			return nil, refusal(fmt.Sprintf("no request #%d", *request))
+			return nil, refusal(fmt.Sprintf("no request M%d", *request))
 		case err != nil:
 			return nil, err
 		}
 		if state == "queued" {
-			return nil, refusal(fmt.Sprintf("request #%d is still queued - not answered yet", *request))
+			return nil, refusal(fmt.Sprintf("request M%d is still queued - not answered yet", *request))
 		}
-		mark, via = fmt.Sprintf("request #%d", *request), "request"
+		mark, via = fmt.Sprintf("request M%d", *request), "request"
 	default:
 		mark, via = words, "reason"
 	}

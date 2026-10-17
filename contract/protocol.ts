@@ -1453,7 +1453,7 @@ export type TaskView = {
   at: Timestamp;
 };
 
-/** A request named by its integer id, or by its ref: the 12 hex characters, with or without a leading #, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist. */
+/** A request named by its integer id, as M<n> (M42) or a bare number, or by its ref: the 12 hex characters, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A #<n> is a GitHub PR, never a message: it is bad_request, and the message says so. A request the caller may not read is not_found, the same answer as one that does not exist. */
 export type RequestName = number | string;
 
 export interface Methods {

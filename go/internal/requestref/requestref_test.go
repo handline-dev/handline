@@ -37,7 +37,11 @@ func TestResolveTakesAnIdOrARefOnlyForAViewerWhoMayReadIt(t *testing.T) {
 	}{
 		{"an old integer", json.Number("1"), "alice", 1, ""},
 		{"the full ref", "3f9a0c71be2d", "alice", 1, ""},
-		{"#ref, any case", "#3F9A0C00AA11", "alice", 2, ""},
+		{"a ref in any case", "3F9A0C00AA11", "alice", 2, ""},
+		{"M<n>", "M1", "alice", 1, ""},
+		{"m<n>", "m2", "alice", 2, ""},
+		{"#<n> is a PR, not a message", "#1", "alice", 0, "bad_request"},
+		{"#ref is a PR's mark too", "#3f9a0c00aa11", "alice", 0, "bad_request"},
 		{"a unique prefix", "3f9a0c7", "alice", 1, ""},
 		{"a prefix two readable requests share", "3f9a0c", "alice", 0, "bad_request"},
 		{"one readable among three is no longer ambiguous", "3f9a0c", "carol", 3, ""},
@@ -53,5 +57,31 @@ func TestResolveTakesAnIdOrARefOnlyForAViewerWhoMayReadIt(t *testing.T) {
 		if got != c.want || code(err) != c.code {
 			t.Errorf("%s: %d %v, want %d %q", c.name, got, err, c.want, c.code)
 		}
+	}
+}
+
+// A message is named M<n>, a bare number or its ref; #<n> is a GitHub PR, refused with the line hl prints.
+func TestNameReadsMNAndRefusesHashN(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want any
+		why  string
+	}{
+		{"M42", int64(42), ""},
+		{" m7 ", int64(7), ""},
+		{"42", int64(42), ""},
+		{"c0ffee", "c0ffee", ""},
+		{"123456789012", "123456789012", ""},
+		{"#42", nil, "#42 is PR 42; a message is M42"},
+		{"#c0ffee", nil, "#c0ffee: # names a PR; a message is M<n>, or its ref without #"},
+		{"Mx", nil, ""},
+	} {
+		v, why, ok := Name(c.in)
+		if v != c.want || why != c.why || ok != (c.want != nil) {
+			t.Errorf("%q: %v %q %v", c.in, v, why, ok)
+		}
+	}
+	if Label("42") != "M42" || Label("c0ffee") != "c0ffee" {
+		t.Fatal("Label")
 	}
 }

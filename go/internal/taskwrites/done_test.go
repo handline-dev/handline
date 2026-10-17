@@ -73,8 +73,8 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 	refused("not the owner", done("else", "a2", 1, `,"evidence":"x"`), "task T1 can only be marked done by its owner (w) or the founder")
 	refused("both", done("w", "a3", 1, `,"evidence":"x","request":11`), "done takes exactly one of evidence or request")
 	refused("neither", done("w", "a4", 1, ``), "done takes exactly one of evidence or request")
-	refused("a queued request", done("w", "a5", 1, `,"request":10`), "request #10 is still queued - not answered yet")
-	refused("a missing request", done("w", "a6", 1, `,"request":77`), "no request #77")
+	refused("a queued request", done("w", "a5", 1, `,"request":10`), "request M10 is still queued - not answered yet")
+	refused("a missing request", done("w", "a6", 1, `,"request":77`), "no request M77")
 	refused("an open child", done("w", "a7", 2, `,"evidence":"x"`), "task T2 still has open child tasks - it is done once they are closed:\n  T3  draft  w  kid\n"+
 		"close each: `hl task discard T3 \"<reason>\"` for one not needed (a duplicate of T2, say), or its assignee's `hl task done T3` for one finished")
 	refused("an open blocker", done("w", "a8", 4, `,"evidence":"x"`), "task T4 is waiting on T5 - it is done only once they are")

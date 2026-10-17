@@ -42,7 +42,11 @@ func withdraw(c *hlclient.Client, args []string) (int, bool) {
 	if !ok || len(p.pos) != 1 {
 		return 0, false
 	}
-	id, ok := requestArg(p.pos[0])
+	id, why, ok := requestArg(p.pos[0])
+	if why != "" {
+		fmt.Println(why)
+		return 1, true
+	}
 	if !ok {
 		return 0, false
 	}
@@ -71,7 +75,7 @@ func listingRefusal(c *hlclient.Client, caller, target string) string {
 	if t, err := team.LoadTeam(c.Home); err == nil && t.SupervisorOf(target) == caller {
 		return ""
 	}
-	return fmt.Sprintf("%s may not list %s's messages: only %s, its supervisor and the human may. `hl read <id>` shows one request by number.", caller, target, target)
+	return fmt.Sprintf("%s may not list %s's messages: only %s, its supervisor and the human may. `hl read M<n>` shows one request by number.", caller, target, target)
 }
 
 func anum(v any) int64 {
@@ -171,9 +175,9 @@ func inbox(c *hlclient.Client, args []string) (int, bool) {
 			fmt.Printf("%s: inbox empty\n", agent)
 			return 0, true
 		}
-		fmt.Printf("%d total. `hl read <id>` shows one whole.\n", len(hist))
+		fmt.Printf("%d total. `hl read M<n>` shows one whole.\n", len(hist))
 		for _, r := range hist {
-			fmt.Printf("#%-5d from %s %s depth=%d %s\n", anum(r["id"]), pad(text(r["requester"]), 12), pad(text(r["state"]), 9),
+			fmt.Printf("M%-5d from %s %s depth=%d %s\n", anum(r["id"]), pad(text(r["requester"]), 12), pad(text(r["state"]), 9),
 				anum(r["chain_depth"]), textsafe.Oneline(text(r["line"])))
 		}
 		return 0, true
@@ -183,7 +187,7 @@ func inbox(c *hlclient.Client, args []string) (int, bool) {
 		fmt.Printf("%s: inbox empty\n", agent)
 		return 0, true
 	}
-	fmt.Printf("#%d from %s  depth=%d\n\n", anum(head["id"]), text(head["requester"]), anum(head["chain_depth"]))
+	fmt.Printf("M%d from %s  depth=%d\n\n", anum(head["id"]), text(head["requester"]), anum(head["chain_depth"]))
 	body := text(head["body"])
 	if body == "" {
 		body = "(empty)"
@@ -196,7 +200,7 @@ func inbox(c *hlclient.Client, args []string) (int, bool) {
 	// Only a look at one's own queue counts as being told.
 	if agent == caller {
 		if ok, why := c.Write("inbox.mark_read", map[string]any{"ids": []any{anum(head["id"])}}); !ok {
-			fmt.Fprintf(os.Stderr, "#%d is shown but not marked read: %s\n", anum(head["id"]), why)
+			fmt.Fprintf(os.Stderr, "M%d is shown but not marked read: %s\n", anum(head["id"]), why)
 		}
 	}
 	return 0, true
@@ -216,7 +220,7 @@ func humanInbox(got map[string]any, showAll bool) int {
 		fmt.Println("nothing waiting on you")
 		return 0
 	}
-	fmt.Printf("%d waiting. `hl read <id>` shows one whole.\n", anum(got["waiting"]))
+	fmt.Printf("%d waiting. `hl read M<n>` shows one whole.\n", anum(got["waiting"]))
 	for _, m := range lines {
 		mark := "."
 		if m["decision"] == true {
@@ -228,9 +232,9 @@ func humanInbox(got map[string]any, showAll bool) int {
 		if u := anum(m["unread"]); u > 1 {
 			behind = fmt.Sprintf(" (+%d)", u-1)
 		}
-		fmt.Printf("%s #%-5d %s %s %s%s\n", mark, anum(m["id"]), pad(text(m["from"]), 12), pad(text(m["kind"]), 9), textsafe.Oneline(text(m["line"])), behind)
+		fmt.Printf("%s M%-5d %s %s %s%s\n", mark, anum(m["id"]), pad(text(m["from"]), 12), pad(text(m["kind"]), 9), textsafe.Oneline(text(m["line"])), behind)
 	}
-	fmt.Println("`hl say <who> --parent <id> \"<text>\"` answers one - a reply settles what it answers, and on a `<` row it goes back in that thread.")
+	fmt.Println("`hl say <who> --parent M<n> \"<text>\"` answers one - a reply settles what it answers, and on a `<` row it goes back in that thread.")
 	if showAll {
 		dealt := rows(got["dealt"])
 		fmt.Printf("\n%d most recent, already dealt with:\n", len(dealt))
@@ -239,7 +243,7 @@ func humanInbox(got map[string]any, showAll bool) int {
 			if r["outgoing"] == true {
 				arrow = "→"
 			}
-			fmt.Printf("  #%-5d %s %s %s %s\n", anum(r["id"]), arrow, pad(text(r["agent"]), 12), pad(text(r["state"]), 9), textsafe.Oneline(text(r["line"])))
+			fmt.Printf("  M%-5d %s %s %s %s\n", anum(r["id"]), arrow, pad(text(r["agent"]), 12), pad(text(r["state"]), 9), textsafe.Oneline(text(r["line"])))
 		}
 	}
 	return 0
@@ -258,7 +262,11 @@ func read(c *hlclient.Client, args []string) (int, bool) {
 	if !ok || len(p.pos) != 1 {
 		return 0, false
 	}
-	id, ok := requestArg(p.pos[0])
+	id, why, ok := requestArg(p.pos[0])
+	if why != "" {
+		fmt.Println(why)
+		return 1, true
+	}
 	if !ok {
 		return 0, false
 	}
@@ -281,9 +289,9 @@ func read(c *hlclient.Client, args []string) (int, bool) {
 		if err != nil {
 			var rpcErr *hlclient.RPCError
 			if errors.As(err, &rpcErr) && rpcErr.Code == "not_found" {
-				fmt.Printf("no request #%v\n", id)
+				fmt.Printf("no request M%v\n", id)
 			} else {
-				fmt.Fprintf(os.Stderr, "could not read #%v: %v\n", id, err)
+				fmt.Fprintf(os.Stderr, "could not read M%v: %v\n", id, err)
 			}
 			return 1, true
 		}
@@ -293,20 +301,20 @@ func read(c *hlclient.Client, args []string) (int, bool) {
 		}
 	}
 	if wait && !settled(text(row["state"])) {
-		fmt.Fprintf(os.Stderr, "nothing after %ds: #%v has no answer yet\n", timeout, id)
+		fmt.Fprintf(os.Stderr, "nothing after %ds: M%v has no answer yet\n", timeout, id)
 		return 1, true
 	}
 	when := text(row["created"])
 	if ts, err := time.Parse(time.RFC3339, when); err == nil {
 		when = timefmt.Stamp(ts.Unix(), "2006-01-02 15:04")
 	}
-	fmt.Printf("#%d  %s → %s  %s  %s  %s\n", anum(row["id"]), text(row["requester"]), text(row["target"]), text(row["kind"]), text(row["state"]), when)
+	fmt.Printf("M%d  %s → %s  %s  %s  %s\n", anum(row["id"]), text(row["requester"]), text(row["target"]), text(row["kind"]), text(row["state"]), when)
 	if parent, ok := row["parent"].(map[string]any); ok {
 		line := ""
 		if l := text(parent["line"]); l != "" {
 			line = ": " + textsafe.Oneline(l)
 		}
-		fmt.Printf("in reply to #%d%s\n", anum(parent["id"]), line)
+		fmt.Printf("in reply to M%d%s\n", anum(parent["id"]), line)
 	}
 	fmt.Printf("relation %v   response %v   depth %d\n\n", orNone(row["relation"]), orNone(row["response"]), anum(row["chain_depth"]))
 	body := text(row["body"])

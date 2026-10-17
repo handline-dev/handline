@@ -30,14 +30,14 @@ func (e *Env) recordTold(q db.Q, agent string, head *db.Request, depth int, sess
 	how := ""
 	switch {
 	case parked:
-		how = fmt.Sprintf(" (behind #%d)", aheadOf.ID)
+		how = fmt.Sprintf(" (behind M%d)", aheadOf.ID)
 	case aheadOf != nil:
 		how = " (send now)"
 	}
 	if more != 0 {
 		how += fmt.Sprintf(" (%d more waiting)", more)
 	}
-	e.log("  %s: told about #%d%s", agent, head.ID, how)
+	e.log("  %s: told about M%d%s", agent, head.ID, how)
 }
 
 func requestIDs(rs []*db.Request) []int64 {
@@ -100,7 +100,7 @@ func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, ah
 		e.NoteTyped(r.ID)
 		check(db.MarkToldAhead(q, agent, r.ID, requestIDs(must(db.QueuedFor(q, agent)))))
 		must(db.AddEvent(q, agent, "notified", db.KV{K: "request_id", V: r.ID}, db.KV{K: "more_waiting", V: depth - 1}))
-		e.log("  %s: told about #%d (batched with #%d)", agent, r.ID, live[0].ID)
+		e.log("  %s: told about M%d (batched with M%d)", agent, r.ID, live[0].ID)
 	}
 	return true
 }
@@ -195,7 +195,7 @@ func cancelledText(q db.Q, row *db.Request, verdict string) string {
 			held = fmt.Sprintf(", and T%d is %s - `hl task list` shows what you hold", t.ID, st)
 		}
 	}
-	return fmt.Sprintf("#%d from %s was cancelled: %s. Stop work on it; it is closed and needs no resolve%s. `hl read %d` shows it.",
+	return fmt.Sprintf("M%d from %s was cancelled: %s. Stop work on it; it is closed and needs no resolve%s. `hl read M%d` shows it.",
 		row.ID, row.Requester, verdict, held, row.ID)
 }
 

@@ -278,7 +278,7 @@ assignee and owner changes
 		t.Errorf("show: %d\n%s", code, out)
 	}
 	list := "T7    Fix it  [b.two] doing  P2  owner a.one  #fe  waiting: x  active 2026-10-01 10:00\n" +
-		"        request #11 a.one → b.two queued 2026-10-01 10:00\n" +
+		"        request M11 a.one → b.two queued 2026-10-01 10:00\n" +
 		"reason (last 30d): 1/4 retirements carry no reason, 2 closures by sha, 0 by request, 3 by reason\n"
 	if out, _, code := r.run(asAgent, "task", "list", "--assign", "b.two", "--owner", "a.one", "--tag", "fe", "--all"); code != 0 || out != list {
 		t.Errorf("list: %d\n%s", code, out)

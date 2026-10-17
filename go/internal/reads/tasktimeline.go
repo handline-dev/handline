@@ -68,7 +68,7 @@ func (e *Env) taskTimeline(tid int64, memos, reqs []row, parts func(string) []an
 		if lines := textsafe.SplitLines(strings.TrimSpace(r.str("body"))); len(lines) > 0 {
 			first = lines[0]
 		}
-		add(seconds(r["ts"]), r.str("requester")+" → "+r.str("target"), "request", fmt.Sprintf("#%d  %s  %s", r.i("id"), r.str("state"), first),
+		add(seconds(r["ts"]), r.str("requester")+" → "+r.str("target"), "request", fmt.Sprintf("M%d  %s  %s", r.i("id"), r.str("state"), first),
 			nil, nil, false)
 	}
 	for _, ev := range events {

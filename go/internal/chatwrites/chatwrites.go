@@ -67,7 +67,7 @@ func (w *writes) refParam(q db.Q, c *rpc.Conn, p map[string]any, key string, mis
 	return rid, err
 }
 
-func noMessage(name string) error { return notFound("message", name, "no message "+name) }
+func noMessage(name string) error { return notFound("message", name, "no message "+requestref.Label(name)) }
 
 func text(p map[string]any, key string) (string, error) {
 	s, ok := p[key].(string)
@@ -292,7 +292,7 @@ func (w *writes) dismiss(c *rpc.Conn, p map[string]any) (any, error) {
 			return nil, nil, err
 		}
 		if row.Target != db.Human && row.Requester != db.Human {
-			return nil, nil, rpc.Refused(fmt.Sprintf("#%d is not between the person and an agent", rid), "state", "")
+			return nil, nil, rpc.Refused(fmt.Sprintf("M%d is not between the person and an agent", rid), "state", "")
 		}
 		res, err := DismissWrite(w.e, tx, rid, c.Caller.Actor(), "", nil, nil, nil)
 		return res, nil, err
@@ -325,7 +325,7 @@ func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {
 			return nil, nil, err
 		}
 		if row.Requester != db.Human {
-			return nil, nil, rpc.Refused(fmt.Sprintf("#%d is not a message the person sent", rid), "state", "")
+			return nil, nil, rpc.Refused(fmt.Sprintf("M%d is not a message the person sent", rid), "state", "")
 		}
 		if _, err := w.e.ReopenConfirmed(tx, row); err != nil { // rolled back with the transaction when the confirm is missing
 			return nil, nil, err
@@ -364,7 +364,7 @@ func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {
 			if cp == nil { // never delivered: withdrawn, and nobody is told
 				return note
 			}
-			return guarded(w.e, fmt.Sprintf("telling after the cancel of #%d", rid), func() (string, error) { return w.e.CancelTell(w.e.DB, cp) })
+			return guarded(w.e, fmt.Sprintf("telling after the cancel of M%d", rid), func() (string, error) { return w.e.CancelTell(w.e.DB, cp) })
 		}}, nil, nil
 	})
 	if err == nil {
@@ -382,7 +382,7 @@ func (w *writes) seen(c *rpc.Conn, p map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	said := fmt.Sprintf("%s's messages up to #%d are seen", agent, upto)
+	said := fmt.Sprintf("%s's messages up to M%d are seen", agent, upto)
 	return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 		if err := ForYouSeen(tx, agent, upto); err != nil {
 			return nil, err

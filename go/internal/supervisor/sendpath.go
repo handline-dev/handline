@@ -314,7 +314,7 @@ func (e *Env) deliveryUnknown(q db.Q, agent, op, outcome, advice string) {
 			continue
 		}
 		told[row.Requester] = true
-		text := fmt.Sprintf("#%d to %s %s. It is not sent again; %s.", rid, agent, outcome, advice)
+		text := fmt.Sprintf("M%d to %s %s. It is not sent again; %s.", rid, agent, outcome, advice)
 		if row.Requester == db.Human {
 			must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: db.Human, Body: text, Response: "fire_and_forget", Kind: "say"}))
 			continue
@@ -369,6 +369,6 @@ func (e *Env) tellStructured(q db.Q, row *db.Request, d delivery.Delivery) (what
 		check(db.MarkLanded(q, rid))
 		e.FinishSay(q, row) // a say that was only written can still be taken back, with its confirm
 	}
-	e.log("  %s: told about #%d at once", agent, rid)
+	e.log("  %s: told about M%d at once", agent, rid)
 	return "sent", state, nil
 }

@@ -73,7 +73,7 @@ func noItem(i int64) *rpc.Error {
 	return notFound("item", strconv.FormatInt(i, 10), fmt.Sprintf("no item %d in this inbox", i))
 }
 
-func noItemNamed(name string) error { return notFound("item", name, "no item "+name+" in this inbox") }
+func noItemNamed(name string) error { return notFound("item", name, "no item "+requestref.Label(name)+" in this inbox") }
 
 func (w *writes) idList(c *rpc.Conn, p map[string]any) ([]int64, error) {
 	list, ok := p["ids"].([]any)

@@ -171,7 +171,7 @@ func (e *Env) taskReason(q db.Q, t *db.Task, now int64) (why, cause string, able
 		return "", "", false, false
 	}
 	if head := e.effectiveHead(q, agent); head != nil && head.ID != req.ID {
-		return fmt.Sprintf("behind #%d, which %s has not resolved", head.ID, agent), "owner", false, true
+		return fmt.Sprintf("behind M%d, which %s has not resolved", head.ID, agent), "owner", false, true
 	}
 	if why, able := e.agentReason(q, agent, now); why != "" {
 		return why, e.ownerCause(q, agent), able, true

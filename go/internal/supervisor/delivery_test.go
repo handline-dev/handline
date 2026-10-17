@@ -26,7 +26,7 @@ func TestASayIsTypedWithItsLines(t *testing.T) {
 	out, _, err := r.Say(r.DB, SayIn{Target: "bob", Body: "Done:\n\n- one\x07\n- two\n", Requester: "alice"})
 	r.must(err)
 	head := mustReq(r, out.RID)
-	if got := tellText(r.DB, head, 1, nil, false, nil, ""); !strings.HasPrefix(got, "#1 from alice, waiting for you:\nDone:\n\n- one\n- two\n`hl read 1`") {
+	if got := tellText(r.DB, head, 1, nil, false, nil, ""); !strings.HasPrefix(got, "M1 from alice, waiting for you:\nDone:\n\n- one\n- two\n`hl read M1`") {
 		t.Fatalf("%q", got)
 	}
 }
@@ -57,7 +57,7 @@ func TestDeliverQueuedTellsTheHeadTaskThenBatchesWhatArrivesBehindIt(t *testing.
 	if n, _ := db.Cursor(r.DB, "notify:bob"); n != head {
 		t.Fatalf("notify cursor %d", n)
 	}
-	if got := r.term.last(); !strings.HasPrefix(got, "#1 from alice, waiting for you:\nfirst job\n`hl read 1` shows it whole; you own T1 now: hand it on with ") {
+	if got := r.term.last(); !strings.HasPrefix(got, "M1 from alice, waiting for you:\nfirst job\n`hl read M1` shows it whole; you own T1 now: hand it on with ") {
 		t.Fatalf("%q", got)
 	}
 	// two more arrive behind the open head: told as a batch, once a minute
@@ -69,7 +69,7 @@ func TestDeliverQueuedTellsTheHeadTaskThenBatchesWhatArrivesBehindIt(t *testing.
 	}
 	r.clock += BatchEveryS
 	sent, _ = r.DeliverQueued(r.DB, "bob")
-	if !sent || !strings.HasPrefix(r.term.last(), "2 more tasks queued behind #1, which is still open:\n#2 from alice: second job\n#3 from alice: third job\n") {
+	if !sent || !strings.HasPrefix(r.term.last(), "2 more tasks queued behind M1, which is still open:\nM2 from alice: second job\nM3 from alice: third job\n") {
 		t.Fatalf("%v %q", sent, r.term.last())
 	}
 	if sent, _ := r.DeliverQueued(r.DB, "bob"); sent {
@@ -83,7 +83,7 @@ func TestSeveralUntoldTasksGoOutAsOneBatchWithTheHeadFirst(t *testing.T) {
 	r.task("bob", "alice", "one")
 	r.task("bob", "alice", "two")
 	sent, _ := r.DeliverQueued(r.DB, "bob")
-	if !sent || !strings.HasPrefix(r.term.last(), "2 tasks waiting for you:\n#1 from alice: one\n#2 from alice: two\n`hl read <id>` shows one whole.") {
+	if !sent || !strings.HasPrefix(r.term.last(), "2 tasks waiting for you:\nM1 from alice: one\nM2 from alice: two\n`hl read M<n>` shows one whole.") {
 		t.Fatalf("%v %q", sent, r.term.last())
 	}
 	if n, _ := db.Cursor(r.DB, "notify:bob"); n != 1 {
@@ -103,7 +103,7 @@ func TestDeliverQueuedExplainsWhyItIsHolding(t *testing.T) {
 	if !ok || why != "no live session" || contestable {
 		t.Fatalf("%q %v %v", why, contestable, ok)
 	}
-	if !r.logged("#1 is held - no live session") {
+	if !r.logged("M1 is held - no live session") {
 		t.Fatal(r.logs)
 	}
 	r.logs = nil
@@ -196,7 +196,7 @@ func TestDeliverAnswersTellsWhatCameBackOnce(t *testing.T) {
 	if !ok || !strings.Contains(msg, "alice has been told") {
 		t.Fatal(ok, msg)
 	}
-	if r.term.last() != "Answers to what you asked:\n#1 (you asked: what time is it) bob: noon" {
+	if r.term.last() != "Answers to what you asked:\nM1 (you asked: what time is it) bob: noon" {
 		t.Fatalf("%q", r.term.last())
 	}
 	if again, _ := r.DeliverAnswers(r.DB, "alice"); again {
@@ -210,7 +210,7 @@ func TestWaitingPromptIsTheTellTheNextTickWouldType(t *testing.T) {
 	rid := r.ask("alice", "bob", "wake up", "ask")
 	text, told, ok, err := r.WaitingPrompt(r.DB, "bob")
 	r.must(err)
-	if !ok || !strings.HasPrefix(text, "#1 from alice, waiting for you:\nwake up\n") {
+	if !ok || !strings.HasPrefix(text, "M1 from alice, waiting for you:\nwake up\n") {
 		t.Fatalf("%q", text)
 	}
 	if row, _ := db.GetRequest(r.DB, rid); !row.DeliveredAt.Valid {

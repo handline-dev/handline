@@ -35,7 +35,7 @@ var resultNotice = regexp.MustCompile(`(?s)\AT(\d+) (done|discarded) by (.+?):\s
 func (e *Env) say(q db.Q, to, text, reason string) int64 {
 	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Response: "fire_and_forget", Kind: "say"}))
 	if err := e.deliver(rid, db.NoticeRequester, to, text, "", team.Decision{Allowed: true, Reason: reason, Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
-		e.log("  #%d: the inbox file for %s was not written: %v", rid, to, err)
+		e.log("  M%d: the inbox file for %s was not written: %v", rid, to, err)
 	}
 	must(db.AddEvent(q, db.NoticeRequester, "notice_told", db.KV{K: "request_id", V: rid}, db.KV{K: "to", V: to}, db.KV{K: "reason", V: reason}))
 	return rid
@@ -46,7 +46,7 @@ func (e *Env) Notice(q db.Q, to, text, reason string) (rid int64, err error) {
 	defer Catch(&err)
 	rid = must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Response: "fire_and_forget", Kind: "say", Notice: true}))
 	if err := e.deliver(rid, db.NoticeRequester, to, text, "", team.Decision{Allowed: true, Reason: reason, Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
-		e.log("  #%d: the inbox file for %s was not written: %v", rid, to, err)
+		e.log("  M%d: the inbox file for %s was not written: %v", rid, to, err)
 	}
 	return rid, nil
 }
@@ -56,7 +56,7 @@ func (e *Env) tellNowSay(q db.Q, to, text, reason string) {
 	must(e.TellNow(q, rid))
 }
 
-// DigestLine is `T<n> · who · result (#id)` for a result notice; any other notice is its own text. A memo's file lines follow, one each, so
+// DigestLine is `T<n> · who · result (M<n>)` for a result notice; any other notice is its own text. A memo's file lines follow, one each, so
 // every path can be read whole.
 func DigestLine(r *db.Request) string {
 	text, files := attachments.SplitFileLines(r.Body)
@@ -71,7 +71,7 @@ func digestSummary(text string, id int64) string {
 	body := oneSpace(textsafe.Oneline(text))
 	m := resultNotice.FindStringSubmatch(body)
 	if m == nil {
-		return fmt.Sprintf("%s (#%d)", firstRunes(body, ResultShown+30), id)
+		return fmt.Sprintf("%s (M%d)", firstRunes(body, ResultShown+30), id)
 	}
 	tid, how, who, result := m[1], m[2], m[3], m[4]
 	if how != "done" {
@@ -80,7 +80,7 @@ func digestSummary(text string, id int64) string {
 	if utf8.RuneCountInString(result) > ResultShown {
 		result = strings.TrimRight(string([]rune(result)[:ResultShown]), " \t\n\r\v\f") + "…"
 	}
-	return fmt.Sprintf("T%s · %s · %s (#%d)", tid, who, result, id)
+	return fmt.Sprintf("T%s · %s · %s (M%d)", tid, who, result, id)
 }
 
 func firstRunes(s string, n int) string {
@@ -101,7 +101,7 @@ func DigestText(rows []*db.Request) string {
 	if len(rows) == 1 {
 		plural = ""
 	}
-	head := fmt.Sprintf("%s%d result%s since %s - `hl read <id>` shows one whole:", db.DigestHead, len(rows), plural,
+	head := fmt.Sprintf("%s%d result%s since %s - `hl read M<n>` shows one whole:", db.DigestHead, len(rows), plural,
 		time.Unix(rows[0].LandedAt.Int64, 0).Format("15:04"))
 	lines := []string{head}
 	for _, r := range shown {
@@ -138,7 +138,7 @@ func (e *Env) SweepDigests(now int64) (err error) {
 		check(db.MarkNoticesDigested(q, ids))
 		must(db.AddEvent(q, db.NoticeRequester, "notices_digested", db.KV{K: "request_id", V: rid}, db.KV{K: "to", V: w.Agent}, db.KV{K: "notices", V: ids}))
 		must(e.TellNow(q, rid))
-		e.log("  %s: %d waiting result(s) told in one digest (#%d)", w.Agent, len(rows), rid)
+		e.log("  %s: %d waiting result(s) told in one digest (M%d)", w.Agent, len(rows), rid)
 	}
 	return nil
 }

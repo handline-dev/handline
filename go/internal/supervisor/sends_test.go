@@ -23,10 +23,10 @@ func TestSayVerbQueuesAndTypesAtOnce(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	out := r.say(SayVerbIn{Requester: "alice", Target: "bob", Body: "psst"})
-	if !out.OK || !strings.HasPrefix(out.Msg, "queued as #1 for bob (response=async)") {
+	if !out.OK || !strings.HasPrefix(out.Msg, "queued as M1 for bob (response=async)") {
 		t.Fatalf("%+v", out)
 	}
-	if !strings.Contains(r.term.last(), "#1 from alice, waiting for you:\npsst") {
+	if !strings.Contains(r.term.last(), "M1 from alice, waiting for you:\npsst") {
 		t.Fatalf("%q", r.term.last())
 	}
 	if out := r.say(SayVerbIn{Target: "bob", Body: "x"}); out.OK || out.Msg != noWho {
@@ -80,7 +80,7 @@ func TestAReplyToTheFoundersRequestMustSayWhatItBecomes(t *testing.T) {
 	r.agentUp("alice")
 	ask := r.ask("human", "alice", "please build x", "")
 	out := r.say(SayVerbIn{Requester: "alice", Target: "human", Body: "on it", Parent: ask})
-	if out.OK || !strings.Contains(out.Msg, "#1 is the founder's: say whether work follows it. --task T<n> names the tasks it opened") || !strings.Contains(out.Msg, "Try:\n  hl say human 'on it' --parent 1 --no-task '<why>'") {
+	if out.OK || !strings.Contains(out.Msg, "M1 is the founder's: say whether work follows it. --task T<n> names the tasks it opened") || !strings.Contains(out.Msg, "Try:\n  hl say human 'on it' --parent M1 --no-task '<why>'") {
 		t.Fatalf("%q", out.Msg)
 	}
 	if row, _ := db.GetRequest(r.DB, ask); row.State != "queued" {
@@ -125,7 +125,7 @@ func TestAReplyWithATaskLandsInItsThreadNotAsAMemo(t *testing.T) {
 	var rid int64
 	r.DB.QueryRow("SELECT id FROM requests WHERE requester = 'alice' AND target = 'human' AND parent_id = 1").Scan(&rid)
 	if rid == 0 {
-		t.Fatal("no reply in the thread of #1")
+		t.Fatal("no reply in the thread of M1")
 	}
 	links, _ := db.TaskRequests(r.DB, tid)
 	found := false
@@ -133,7 +133,7 @@ func TestAReplyWithATaskLandsInItsThreadNotAsAMemo(t *testing.T) {
 		found = found || l.ID == rid
 	}
 	if !found {
-		t.Fatalf("the reply #%d is not linked to T%d: %+v", rid, tid, links)
+		t.Fatalf("the reply M%d is not linked to T%d: %+v", rid, tid, links)
 	}
 }
 
@@ -191,7 +191,7 @@ func TestPushVerbsCheckTheirTargetsAndHandOver(t *testing.T) {
 	if ok, msg := r.PushVerb("bob", rid); !ok || msg != Handed {
 		t.Fatal(msg)
 	}
-	if !strings.Contains(r.term.last(), "#1 from alice") {
+	if !strings.Contains(r.term.last(), "M1 from alice") {
 		t.Fatalf("%q", r.term.last())
 	}
 	task := r.task("bob", "alice", "a task")
@@ -211,10 +211,10 @@ func TestNotifyCancelledVerbOnlyForADeliveredRequestClosedUnderIt(t *testing.T) 
 	r := newRig(t)
 	r.agentUp("bob")
 	rid := r.ask("alice", "bob", "job", "ask")
-	if ok, msg, _ := r.NotifyCancelledVerb(r.DB, rid); ok || msg != "#1 was not cancelled after it was delivered" {
+	if ok, msg, _ := r.NotifyCancelledVerb(r.DB, rid); ok || msg != "M1 was not cancelled after it was delivered" {
 		t.Fatal(msg)
 	}
-	if ok, msg, _ := r.NotifyCancelledVerb(r.DB, 99); ok || msg != "no request #99" {
+	if ok, msg, _ := r.NotifyCancelledVerb(r.DB, 99); ok || msg != "no request M99" {
 		t.Fatal(msg)
 	}
 	r.TellNow(r.DB, rid)
@@ -226,7 +226,7 @@ func TestNotifyCancelledVerbOnlyForADeliveredRequestClosedUnderIt(t *testing.T) 
 	}
 	r.term.typed = nil
 	ok, msg, _ := r.NotifyCancelledVerb(r.DB, rid)
-	if !ok || msg != Handed || !strings.Contains(r.term.last(), "#1 from alice was cancelled: withdrawn by the founder") {
+	if !ok || msg != Handed || !strings.Contains(r.term.last(), "M1 from alice was cancelled: withdrawn by the founder") {
 		t.Fatalf("%v %q %q", ok, msg, r.term.typed)
 	}
 	_ = plan

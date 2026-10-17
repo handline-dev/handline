@@ -186,7 +186,7 @@ func (e *Env) WorkWaiting(agent string, row *AgentRow, now int64) (string, error
 		return "", err
 	}
 	if head != nil && (notified != head.ID || d.SessionChanged(agent)) {
-		s := fmt.Sprintf("request #%d", head.ID)
+		s := fmt.Sprintf("request M%d", head.ID)
 		if behind := d.QueueDepth(agent) - 1; behind > 0 {
 			s += fmt.Sprintf(" (+%d behind)", behind)
 		}
@@ -195,7 +195,7 @@ func (e *Env) WorkWaiting(agent string, row *AgentRow, now int64) (string, error
 	if answers := d.UnannouncedAnswers(agent); len(answers) > 0 {
 		var ids []string
 		for _, id := range answers[:min(3, len(answers))] {
-			ids = append(ids, fmt.Sprintf("#%d", id))
+			ids = append(ids, fmt.Sprintf("M%d", id))
 		}
 		s := "answer " + strings.Join(ids, ", ")
 		if len(answers) > 3 {
@@ -209,7 +209,7 @@ func (e *Env) WorkWaiting(agent string, row *AgentRow, now int64) (string, error
 		return "", err
 	}
 	if idle != nil && idle.IdleS >= d.NudgeAfterS() && nudged != idle.Head.ID && !d.HeadTaskBlocked(agent, idle.Head) {
-		parts = append(parts, fmt.Sprintf("reminder to resolve #%d", idle.Head.ID))
+		parts = append(parts, fmt.Sprintf("reminder to resolve M%d", idle.Head.ID))
 	}
 	return strings.Join(parts, "; "), nil
 }
@@ -805,7 +805,7 @@ func (e *Env) raise(recs []*Block, now int64) error {
 	if err := e.BlockSetRequest(agents, rid); err != nil {
 		return err
 	}
-	e.log("  blocked: raised #%d for %s", rid, strings.Join(agents, ", "))
+	e.log("  blocked: raised M%d for %s", rid, strings.Join(agents, ", "))
 	return nil
 }
 

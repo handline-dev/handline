@@ -97,18 +97,22 @@ func orEmpty(v any) any {
 	return v
 }
 
-// cancel is `hl cancel <id> [--yes]`: a request taken out of an agent's queue, after the daemon's plan is shown and confirmed.
+// cancel is `hl cancel M<n> [--yes]`: a request taken out of an agent's queue, after the daemon's plan is shown and confirmed.
 func cancel(c *hlclient.Client, args []string) (int, bool) {
 	p, ok := parse(args, nil, []string{"--yes", "-y"}, map[string]string{"-y": "--yes"})
 	if !ok || len(p.pos) != 1 {
 		return 0, false
 	}
-	id, ok := integer(p.pos[0])
+	id, why, ok := requestArg(p.pos[0])
+	if why != "" {
+		fmt.Println(why)
+		return 1, true
+	}
 	if !ok {
 		return 0, false
 	}
 	if c.AskingAgent() != hlclient.Human {
-		fmt.Println("cancel is the founder's: an agent takes back its own request with `hl withdraw`, and answers one it was handed with `hl say <them> --parent <id>`.")
+		fmt.Println("cancel is the founder's: an agent takes back its own request with `hl withdraw`, and answers one it was handed with `hl say <them> --parent M<n>`.")
 		return 1, true
 	}
 	if !p.flags["--yes"] {

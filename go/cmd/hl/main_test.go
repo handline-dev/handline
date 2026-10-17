@@ -200,10 +200,10 @@ func (r *rig) daemon(results map[string]string) (calls func() []map[string]any) 
 
 func TestProgressWritesAndShowsTheNoteThroughTheDaemon(t *testing.T) {
 	r := newRig(t)
-	calls := r.daemon(map[string]string{"task.progress": `{"said":"progress kept on #7"}`,
+	calls := r.daemon(map[string]string{"task.progress": `{"said":"progress kept on M7"}`,
 		"progress.get": `{"note":"done: a\u001b[31m"}`})
 	agent := []string{"HANDLINE_AGENT=a.one"}
-	if out, errs, code := r.run(agent, "progress", "done: a"); code != 0 || out != "progress kept on #7\n" || errs != "" {
+	if out, errs, code := r.run(agent, "progress", "done: a"); code != 0 || out != "progress kept on M7\n" || errs != "" {
 		t.Fatalf("write: %q %q %d", out, errs, code)
 	}
 	if out, _, code := r.run(agent, "progress"); code != 0 || out != "done: a\n" {

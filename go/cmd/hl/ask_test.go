@@ -10,21 +10,21 @@ import (
 func TestWithdrawReadAndInboxAnswerWithoutPython(t *testing.T) {
 	r := agentsRig(t)
 	calls := r.daemon(map[string]string{
-		"request.withdraw": `{"accepted":true,"said":"#7 withdrawn"}`,
+		"request.withdraw": `{"accepted":true,"said":"M7 withdrawn"}`,
 		"request.read": `{"id":7,"requester":"a.one","target":"b.two","kind":"say","state":"landed","created":"2026-10-16T00:00:00Z","parent":null,
 			"relation":"peer","response":"fire_and_forget","chain_depth":0,"body":"hello","answer":"fine","dismissal":null,"parts":[]}`,
 		"inbox.queue": `{"newest":9,"head":{"id":9,"requester":"a.one","chain_depth":1,"body":"do it","more_waiting_line":"","how_to_close":"answer with hl say"},"history":[]}`,
 	})
-	if out, _, code := r.run(asAgent, "withdraw", "7", "--reason", "oops"); code != 0 || out != "#7 withdrawn\n" {
+	if out, _, code := r.run(asAgent, "withdraw", "7", "--reason", "oops"); code != 0 || out != "M7 withdrawn\n" {
 		t.Errorf("withdraw: %d %q", code, out)
 	}
 	out, _, code := r.run(asAgent, "read", "7")
-	if code != 0 || !strings.Contains(out, "#7  a.one → b.two  say  landed") || !strings.Contains(out, "hello") ||
+	if code != 0 || !strings.Contains(out, "M7  a.one → b.two  say  landed") || !strings.Contains(out, "hello") ||
 		!strings.Contains(out, "--- answered by b.two ---\nfine") {
 		t.Errorf("read: %d %q", code, out)
 	}
 	out, _, code = r.run(asAgent, "inbox")
-	if code != 0 || !strings.Contains(out, "#9 from a.one  depth=1\n\ndo it\n") {
+	if code != 0 || !strings.Contains(out, "M9 from a.one  depth=1\n\ndo it\n") {
 		t.Errorf("inbox: %d %q", code, out)
 	}
 	want := []string{`request.withdraw {"id":7,"reason":"oops"}`, `request.read {"id":7,"wait_s":0}`,
@@ -73,14 +73,24 @@ func TestReadWithdrawAndSayParentSendARefAsTextAndANumberAsANumber(t *testing.T)
 			"relation":"peer","response":"fire_and_forget","chain_depth":0,"body":"hello","answer":null,"dismissal":null,"parts":[]}`,
 		"say": `{"accepted":true,"said":"sent"}`,
 	})
-	r.run(asAgent, "read", "#C0FFEE")
-	r.run(asAgent, "read", "#7")
+	r.run(asAgent, "read", "C0FFEE")
+	r.run(asAgent, "read", "M7")
 	r.run(asAgent, "withdraw", "123456789012")
 	r.run(asAgent, "say", "b.two", "hi", "--parent", "c0ffee000001", "--no-task", "chat")
 	want := []string{`request.read {"id":"c0ffee","wait_s":0}`, `request.read {"id":7,"wait_s":0}`, `request.withdraw {"id":"123456789012"}`}
 	got := sent(calls())
 	if len(got) < 4 || !reflect.DeepEqual(got[:3], want) || !strings.Contains(got[3], `"parent":"c0ffee000001"`) {
 		t.Errorf("calls\n got  %v\n want %v then a say with the parent ref", got, want)
+	}
+	// #<n> is a PR: each verb that names a message refuses it with one line and calls nothing
+	for _, args := range [][]string{{"read", "#42"}, {"withdraw", "#42"}, {"say", "b.two", "hi", "--parent", "#42", "--no-task", "chat"},
+		{"task", "done", "T1", "--request", "#42"}} {
+		if out, _, code := r.run(asAgent, args...); code != 1 || out != "#42 is PR 42; a message is M42\n" {
+			t.Errorf("%v: %d %q", args, code, out)
+		}
+	}
+	if got := sent(calls()); len(got) != 4 {
+		t.Errorf("a refused #<n> calls nothing: %v", got)
 	}
 	for _, bad := range []string{"c0ffe", "nothex", "1234567890123"} {
 		if _, errs, code := r.run(asAgent, "read", bad); code != 2 || !strings.Contains(errs, "arguments not understood") {

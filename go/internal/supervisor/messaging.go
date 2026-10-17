@@ -17,7 +17,7 @@ import (
 func (e *Env) FinishSay(q db.Q, row *db.Request) {
 	if row.Kind.String == "say" {
 		if _, _, err := e.Resolve(q, ResolveIn{RID: row.ID}); err != nil {
-			e.log("  #%d: settling the say failed: %v", row.ID, err)
+			e.log("  M%d: settling the say failed: %v", row.ID, err)
 		}
 	}
 }
@@ -135,7 +135,7 @@ func (e *Env) DeliverPending(q db.Q, agent string) (sent bool, err error) {
 	row := rows[0]
 	ok, _ := e.deliverRow(q, agent, row.ID, row.Text)
 	if ok {
-		e.log("  %s: typed a pending message (#%d)", agent, row.ID)
+		e.log("  %s: typed a pending message (M%d)", agent, row.ID)
 	}
 	return ok, nil
 }
@@ -153,7 +153,7 @@ func (e *Env) MigrateOldMessages(q db.Q) (err error) {
 		if _, _, err := e.Resolve(q, ResolveIn{RID: id}); err != nil {
 			return err
 		}
-		e.log("  #%d: an old say, settled", id)
+		e.log("  M%d: an old say, settled", id)
 	}
 	_, err = q.Exec("UPDATE requests SET typed_at = delivered_at WHERE state = 'queued' AND target != ? AND delivered_at IS NOT NULL AND typed_at IS NULL AND landed_at IS NULL", db.Human)
 	return err

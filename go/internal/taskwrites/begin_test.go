@@ -36,13 +36,13 @@ func TestBeginOpensATaskOnTheFoundersMessageAndStartsIt(t *testing.T) {
 		line(7, `"title":"x","message":2,"why":"w","priority":"P9",`, "b6"),
 		line(8, `"title":"x","message":4,"why":7,`, "b7"),
 		line(9, `"title":"three","message":4,`, "b8"))
-	if said := r[0]["result"].(map[string]any)["said"]; said != "task T1 begun from founder message #1 and is now your current task" {
+	if said := r[0]["result"].(map[string]any)["said"]; said != "task T1 begun from founder message M1 and is now your current task" {
 		t.Fatalf("%v", r[0])
 	}
-	if e := r[1]["error"].(map[string]any); e["message"] != "request #1 already opened T1" {
+	if e := r[1]["error"].(map[string]any); e["message"] != "request M1 already opened T1" {
 		t.Fatalf("a message opens one task: %v", r[1])
 	}
-	if said := r[2]["result"].(map[string]any)["said"]; said != "task T2 begun from founder message #2; T1 is still current - `hl task start T2` when you switch" {
+	if said := r[2]["result"].(map[string]any)["said"]; said != "task T2 begun from founder message M2; T1 is still current - `hl task start T2` when you switch" {
 		t.Fatalf("%v", r[2])
 	}
 	for i := 3; i < 5; i++ {

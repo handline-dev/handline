@@ -30,7 +30,7 @@ func TestDeviceListRevokeAndPairGoThroughTheDaemon(t *testing.T) {
 
 func TestCancelIsRefusedToAnAgentAndToAScriptWithNoTerminal(t *testing.T) {
 	r := founderRig(t)
-	calls := r.daemon(map[string]string{"request.cancel": `{"ok":true,"plan":"would cancel #7","said":"cancelled #7"}`})
+	calls := r.daemon(map[string]string{"request.cancel": `{"ok":true,"plan":"would cancel M7","said":"cancelled M7"}`})
 	for name, env := range map[string][]string{"an agent": asAgent, "no terminal": nil} {
 		if out, _, code := r.run(env, "cancel", "7", "--yes"); code != 1 || out == "" {
 			t.Errorf("%s cancelled: %q %d", name, out, code)

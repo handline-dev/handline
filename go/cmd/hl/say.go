@@ -15,7 +15,7 @@ const sayUsage = `usage: hl say <target> '<one sentence>'
        hl say <target> --file - <<'EOF'
        <the body, in Markdown: as many lines as it needs>
        EOF
-options: --parent <id> (a reply, in its thread), --task T<n>, --no-task '<why>', --file PATH`
+options: --parent M<n> (a reply, in its thread), --task T<n>, --no-task '<why>', --file PATH`
 
 // oneLineMax is the longest body hl say takes on one line without a hint to break it into lines.
 const oneLineMax = 300
@@ -34,7 +34,11 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 	var parentN any
 	ok1 := true
 	if hasParent {
-		parentN, ok1 = requestArg(parent)
+		var why string
+		if parentN, why, ok1 = requestArg(parent); why != "" {
+			fmt.Println(why)
+			return 1, true
+		}
 	}
 	taskN, hasTask, ok2 := optTask(p, "--task")
 	noTask, hasNoTask := p.opt("--no-task")

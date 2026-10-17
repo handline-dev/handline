@@ -31,7 +31,7 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 		line(9, base+`"parent":99,`, "n7"),
 		line(10, base+`"relation":"x",`, "n8"))
 	res := r[0]["result"].(map[string]any)
-	if res["task"].(float64) != 4 || res["said"] != "task T4 opened for worker (P1, timeout 2h00m): queued as #1 for worker" {
+	if res["task"].(float64) != 4 || res["said"] != "task T4 opened for worker (P1, timeout 2h00m): queued as M1 for worker" {
 		t.Fatalf("%v", r[0])
 	}
 	if r[1]["result"].(map[string]any)["replayed"] != true || count(t, db, "SELECT COUNT(*) FROM tasks WHERE opened_by = 'manager' AND title LIKE 'build%'") != 1 {

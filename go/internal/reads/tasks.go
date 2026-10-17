@@ -490,7 +490,7 @@ func taskMismatch(t row, state string, reqs []row) any {
 	if t.str("queued_by") == "" && sent {
 		for _, r := range reqs {
 			if r.str("state") == "queued" || (r.str("state") == "landed" && r.str("kind") == "task" && r.set("queue_order")) {
-				return fmt.Sprintf("draft with work out (#%d) - its opener has not queued it", r.i("id"))
+				return fmt.Sprintf("draft with work out (M%d) - its opener has not queued it", r.i("id"))
 			}
 		}
 		return "draft with work out - its opener has not queued it"

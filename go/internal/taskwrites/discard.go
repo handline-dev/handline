@@ -141,7 +141,7 @@ func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason str
 					return nil, err
 				}
 				if plan == nil {
-					return nil, refusal(fmt.Sprintf("task T%d not discarded: #%d was closed while this ran - nothing to cancel", tid, r.ID))
+					return nil, refusal(fmt.Sprintf("task T%d not discarded: M%d was closed while this ran - nothing to cancel", tid, r.ID))
 				}
 				if plan.RID != 0 {
 					cancelled = append(cancelled, *plan)
@@ -152,9 +152,9 @@ func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason str
 		} else if len(live) > 0 {
 			var open []string
 			for _, r := range live {
-				open = append(open, fmt.Sprintf("#%d (with %s)", r.ID, r.Target))
+				open = append(open, fmt.Sprintf("M%d (with %s)", r.ID, r.Target))
 			}
-			return nil, refusal(fmt.Sprintf("task T%d still has a request open: %s - withdraw or cancel it first (the founder's `hl cancel <id>`), "+
+			return nil, refusal(fmt.Sprintf("task T%d still has a request open: %s - withdraw or cancel it first (the founder's `hl cancel M<n>`), "+
 				"or its target keeps working on thrown-away work", tid, strings.Join(open, ", ")))
 		}
 		res, err := tx.Exec("UPDATE tasks SET discarded_by = ?, discarded_at = ?, discard_reason = ? WHERE id = ? AND "+openSQL, by, time.Now().Unix(), said, tid)

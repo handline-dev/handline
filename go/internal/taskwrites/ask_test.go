@@ -23,7 +23,7 @@ func TestAskPutsTheFoundersQuestionToAnAgentOnTheTaskWithoutMovingIt(t *testing.
 		line(7, `"task":"1","to":"other","text":"x",`, "a5"),
 		line(8, `"task":1,"to":"","text":"x",`, "a6"))
 	res := r[0]["result"].(map[string]any)
-	if res["request"].(float64) != 1 || res["said"] != "queued as #1 for other" {
+	if res["request"].(float64) != 1 || res["said"] != "queued as M1 for other" {
 		t.Fatalf("%v", r[0])
 	}
 	if r[1]["result"].(map[string]any)["replayed"] != true {

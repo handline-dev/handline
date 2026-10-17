@@ -78,7 +78,7 @@ func TestAnAgentsProposeRaisesADecisionForTheFounder(t *testing.T) {
 	if err := r.db.QueryRow("SELECT request_id FROM task_requests WHERE task_id = ?", tid).Scan(&rid); err != nil {
 		t.Fatal(err)
 	}
-	want := "proposal " + id + " raised as #" + strconv.FormatInt(rid, 10) + ". Nothing changes until the founder answers it; an approve is applied then, and you are told how it went."
+	want := "proposal " + id + " raised as M" + strconv.FormatInt(rid, 10) + ". Nothing changes until the founder answers it; an approve is applied then, and you are told how it went."
 	if res["said"] != want {
 		t.Fatalf("said %q", res["said"])
 	}

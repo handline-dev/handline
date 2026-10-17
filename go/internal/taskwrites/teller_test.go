@@ -168,7 +168,7 @@ func (f *fakeTeller) TaskAsk(tx *sql.Tx, in AskReq) (*Asked, error) {
 	if err := within(rid); err != nil {
 		return nil, err
 	}
-	return &Asked{OK: true, Msg: fmt.Sprintf("queued as #%d for %s", rid, to), RID: rid, After: f.after}, nil
+	return &Asked{OK: true, Msg: fmt.Sprintf("queued as M%d for %s", rid, to), RID: rid, After: f.after}, nil
 }
 func (f *fakeTeller) HandoffRetire(tx *sql.Tx, rid int64, verdict string) (func(), error) {
 	ok, err := db.CloseIfQueued(tx, rid, "done", verdict, db.CloseOpts{Announced: true, NoSettle: true})
@@ -190,7 +190,7 @@ func (f *fakeTeller) TaskSay(tx *sql.Tx, to, body string, within func(rid int64,
 	if err != nil {
 		return nil, err
 	}
-	note := fmt.Sprintf("queued as #%d for %s", rid, to)
+	note := fmt.Sprintf("queued as M%d for %s", rid, to)
 	if err := within(rid, note); err != nil {
 		return nil, err
 	}

@@ -8,7 +8,7 @@ import (
 
 func TestSaySendsItsParamsAndPrintsWhatTheDaemonSaid(t *testing.T) {
 	r := agentsRig(t)
-	calls := r.daemon(map[string]string{"say": `{"accepted":true,"said":"queued as #9 for b.two"}`})
+	calls := r.daemon(map[string]string{"say": `{"accepted":true,"said":"queued as M9 for b.two"}`})
 	cases := []struct {
 		stdin string
 		args  []string
@@ -28,7 +28,7 @@ func TestSaySendsItsParamsAndPrintsWhatTheDaemonSaid(t *testing.T) {
 		all := sent(calls())
 		got := all[seen:]
 		seen = len(all)
-		if code != 0 || errs != "" || out != "queued as #9 for b.two\n" || !reflect.DeepEqual(got, []string{c.want}) {
+		if code != 0 || errs != "" || out != "queued as M9 for b.two\n" || !reflect.DeepEqual(got, []string{c.want}) {
 			t.Errorf("%v: exit %d, out %q, err %q\n got  %v\n want %v", c.args, code, out, errs, got, c.want)
 		}
 	}

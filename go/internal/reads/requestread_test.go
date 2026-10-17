@@ -76,7 +76,7 @@ func TestRequestReadSaysADismissalAndNotAnAnswer(t *testing.T) {
 		4: map[string]any{"by": "human", "reason": "stale"},
 	} {
 		if got := read(t, e, asBob, id); !reflect.DeepEqual(got["dismissal"], want) || got["answer"] != nil {
-			t.Errorf("#%d: %v %v", id, got["dismissal"], got["answer"])
+			t.Errorf("M%d: %v %v", id, got["dismissal"], got["answer"])
 		}
 	}
 	if got := read(t, e, asBob, 3); got["dismissal"] != nil || got["answer"] != "taken back" || got["state"] != "withdrawn" {
@@ -272,7 +272,7 @@ func TestRequestReadTakesARefOrPrefixUnderTheSameRule(t *testing.T) {
 	agent := func(name string) *rpc.Conn {
 		return &rpc.Conn{Caller: rpc.Caller{Role: "agent", Info: map[string]any{"kind": "agent", "name": name}}}
 	}
-	for _, ref := range []string{"c0ffee000001", "#c0ffee000001", "c0ffee"} {
+	for _, ref := range []string{"c0ffee000001", "C0FFEE000001", "c0ffee"} {
 		if got, err := e.requestRead(agent("bob"), map[string]any{"id": ref}); err != nil || got.(map[string]any)["id"] != int64(1) {
 			t.Errorf("%s: %v %v", ref, got, err)
 		}

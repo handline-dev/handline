@@ -165,7 +165,7 @@ func TestNudgeWalksTheScheduleAndStops(t *testing.T) {
 	r.clock += NudgeAfterS
 	sent, err := r.NudgeForgottenResolve(r.DB, "bob", row, r.clock)
 	r.must(err)
-	if !sent || !strings.HasPrefix(r.term.last(), "T1 (#1) is still yours and you have been idle 10m. Done: hand it on (`hl task handoff T1 ...`) or `hl task done T1`.") {
+	if !sent || !strings.HasPrefix(r.term.last(), "T1 (M1) is still yours and you have been idle 10m. Done: hand it on (`hl task handoff T1 ...`) or `hl task done T1`.") {
 		t.Fatalf("%v %q", sent, r.term.last())
 	}
 	if r.nudgeCount(r.DB, "bob", head) != 1 {

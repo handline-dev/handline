@@ -64,7 +64,7 @@ func TestAMismatchNamesTheRequestOutAndASettledOneLeavesTheNumberOut(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[1]["mismatch"] != "draft with work out (#7) - its opener has not queued it" ||
+	if got[1]["mismatch"] != "draft with work out (M7) - its opener has not queued it" ||
 		got[2]["mismatch"] != "draft with work out - its opener has not queued it" {
 		t.Fatalf("%v / %v", got[1]["mismatch"], got[2]["mismatch"])
 	}

@@ -410,7 +410,7 @@ func (t *Trust) Propose(root, why, requester string, raise Raise) (ok bool, said
 	if err := t.SaveProposal(p); err != nil {
 		return false, "", "", err
 	}
-	return true, fmt.Sprintf("proposal %s raised as #%d. Nothing changes until the founder answers it; an approve is applied then, and you are told how it went.", id, rid), id, nil
+	return true, fmt.Sprintf("proposal %s raised as M%d. Nothing changes until the founder answers it; an approve is applied then, and you are told how it went.", id, rid), id, nil
 }
 
 // Enact is the founder adding a root directly, with no proposal to approve.

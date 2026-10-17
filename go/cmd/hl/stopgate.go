@@ -98,7 +98,7 @@ func stopDecide(d *sql.DB, home, agent string, raw map[string]any) (bool, string
 		}
 		_ = db.SetMeta(d, "answer_reminded:"+agent, strconv.FormatInt(rid, 10))
 		_, _ = db.AddEvent(d, agent, "stop_gate", db.KV{K: "answer_reminder", V: rid}, db.KV{K: "enforced", V: true})
-		return true, fmt.Sprintf("#%d may be waiting for an answer: if you have one, reply with `hl say %s --parent %d \"...\"` (what you write "+
+		return true, fmt.Sprintf("M%d may be waiting for an answer: if you have one, reply with `hl say %s --parent M%d \"...\"` (what you write "+
 			"in the terminal reaches no one).", rid, sender, rid)
 	}
 	tid, _, _ := db.CurrentTask(d, agent)

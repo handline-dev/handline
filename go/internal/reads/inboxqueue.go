@@ -81,7 +81,7 @@ func (e *Env) listingRefusal(caller, whose string) string {
 		return ""
 	}
 	return caller + " may not list " + whose + "'s messages: only " + whose + ", its supervisor and the human may. " +
-		"`hl read <id>` shows one request by number."
+		"`hl read M<n>` shows one request by number."
 }
 
 // newestWaiting is the number of the newest thing that waits in whose inbox, 0 for nothing: for the founder a mailbox row (an answer
@@ -111,7 +111,7 @@ func (e *Env) agentQueue(whose string, newest int64, all bool) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		closes := "`hl say " + first.Requester + " --parent <id> \"<answer>\"` answers it"
+		closes := "`hl say " + first.Requester + " --parent M<n> \"<answer>\"` answers it"
 		if first.Kind.String == "task" {
 			if closes, err = supervisor.AnswerVerb(e.DB, first); err != nil {
 				return nil, err

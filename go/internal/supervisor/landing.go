@@ -87,7 +87,7 @@ func entryTexts(entry map[string]any) []string {
 }
 
 func holds(line []byte, rid int64, header *regexp.Regexp) bool {
-	if !bytes.Contains(line, []byte(fmt.Sprintf("#%d from ", rid))) {
+	if !bytes.Contains(line, []byte(fmt.Sprintf("M%d from ", rid))) {
 		return false
 	}
 	var entry map[string]any
@@ -105,7 +105,7 @@ func holds(line []byte, rid int64, header *regexp.Regexp) bool {
 // ShownIn is whether the transcript holds the line that tells an agent about request rid: its last tailBytes, where a landing is; whole
 // reads it all, for the one look that decides a line was never shown.
 func ShownIn(transcript string, rid int64, whole bool) bool {
-	header := regexp.MustCompile(fmt.Sprintf(`#%d from [^\n]*waiting for you:`, rid))
+	header := regexp.MustCompile(fmt.Sprintf(`M%d from [^\n]*waiting for you:`, rid))
 	f, err := os.Open(transcript)
 	if err != nil {
 		return false
@@ -228,7 +228,7 @@ func (e *Env) LandingSweep(q db.Q, agent string) (err error) {
 		if shown {
 			check(db.MarkLanded(q, r.ID))
 			must(db.AddEvent(q, agent, "landed", db.KV{K: "request_id", V: r.ID}, db.KV{K: "after_s", V: now - r.TypedAt.Int64}))
-			e.log("  %s: #%d is in its transcript", agent, r.ID)
+			e.log("  %s: M%d is in its transcript", agent, r.ID)
 			continue
 		}
 		if !expired {
@@ -240,7 +240,7 @@ func (e *Env) LandingSweep(q db.Q, agent string) (err error) {
 		if gone {
 			ended = " (its session ended)"
 		}
-		e.log("  %s: #%d never reached its transcript%s - typed again", agent, r.ID, ended)
+		e.log("  %s: M%d never reached its transcript%s - typed again", agent, r.ID, ended)
 	}
 	return nil
 }

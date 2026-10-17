@@ -307,10 +307,10 @@ func (e *Env) NudgeForgottenResolve(q db.Q, agent string, row *db.AgentState, no
 		task = taskOf(q, head)
 	}
 	if task != nil {
-		text = fmt.Sprintf("T%d (#%d) is still yours and you have been idle %s%s. Done: hand it on (`hl task handoff T%d ...`) or `hl task done T%d`. "+
+		text = fmt.Sprintf("T%d (M%d) is still yours and you have been idle %s%s. Done: hand it on (`hl task handoff T%d ...`) or `hl task done T%d`. "+
 			"Waiting on something: record it - `hl task edit T%d --blocked-by T<m>`, or a child or decision task.", task.ID, head.ID, idle, after, task.ID, task.ID, task.ID)
 	} else {
-		text = fmt.Sprintf("#%d was delivered to you and is still open, and you have been idle %s%s. If the work is done, %s; if it is not, say what you are waiting on.",
+		text = fmt.Sprintf("M%d was delivered to you and is still open, and you have been idle %s%s. If the work is done, %s; if it is not, say what you are waiting on.",
 			head.ID, idle, after, answerVerb(q, head))
 	}
 	sent, err = e.TypeNotice(q, agent, text)
@@ -321,7 +321,7 @@ func (e *Env) NudgeForgottenResolve(q db.Q, agent string, row *db.AgentState, no
 		check(db.SetCursor(q, "nudge:"+agent, head.ID))
 		check(db.SetCursor(q, "nudge_count:"+agent, count+1))
 		must(db.AddEvent(q, agent, "nudged", db.KV{K: "request_id", V: head.ID}, db.KV{K: "idle_s", V: found.IdleS}, db.KV{K: "behind", V: found.Behind}))
-		e.log("  %s: idle %s with #%d open and nothing outstanding - nudged to resolve it", agent, timefmt.Ago(found.IdleS), head.ID)
+		e.log("  %s: idle %s with M%d open and nothing outstanding - nudged to resolve it", agent, timefmt.Ago(found.IdleS), head.ID)
 	}
 	return sent, nil
 }

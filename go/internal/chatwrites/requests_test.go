@@ -34,7 +34,7 @@ func TestWithdrawTakesBackTheCallersOwnUndeliveredRequestAndSaysWhyNot(t *testin
 		t.Fatalf("another's request is refused in the reply: %v", res)
 	}
 	res := withdraw(1, mine, `,"reason":"asked the wrong one"`, "w2")
-	if res["ok"] != true || res["said"] != fmt.Sprintf("request #%d to bob withdrawn", mine) || r.state(mine) != "withdrawn" {
+	if res["ok"] != true || res["said"] != fmt.Sprintf("request M%d to bob withdrawn", mine) || r.state(mine) != "withdrawn" {
 		t.Fatalf("%v %s", res, r.state(mine))
 	}
 	if r.count("SELECT COUNT(*) FROM events WHERE agent = 'alice' AND kind = 'withdraw' AND payload LIKE '%asked the wrong one%'") != 1 {
@@ -48,7 +48,7 @@ func TestWithdrawTakesBackTheCallersOwnUndeliveredRequestAndSaysWhyNot(t *testin
 	if res := withdraw(1, sent, "", "w4"); res["ok"] != false || !strings.Contains(res["said"].(string), "too late to withdraw") || r.state(sent) != "queued" {
 		t.Fatalf("%v", res)
 	}
-	if res := withdraw(1, 999999, "", "w5"); res["ok"] != false || res["said"] != "request 999999 does not exist" {
+	if res := withdraw(1, 999999, "", "w5"); res["ok"] != false || res["said"] != "request M999999 does not exist" {
 		t.Fatalf("%v", res)
 	}
 	own := r.request("human", "alice", "never mind")
@@ -75,7 +75,7 @@ func TestCancelPlansWithoutWritingAndClosesAnyQueuedRequest(t *testing.T) {
 	const written = "SELECT COUNT(*) FROM events WHERE kind != 'founder_key'" // each call's hello records its key; the call is what is checked
 	events := r.count(written)
 	plan := cancel(rid, `,"dry_run":true`, "c1")
-	if plan["ok"] != true || !strings.HasPrefix(plan["plan"].(string), fmt.Sprintf("cancel #%d (delivered to bob)", rid)) {
+	if plan["ok"] != true || !strings.HasPrefix(plan["plan"].(string), fmt.Sprintf("cancel M%d (delivered to bob)", rid)) {
 		t.Fatalf("%v", plan)
 	}
 	if r.state(rid) != "queued" || r.count(written) != events {
@@ -89,17 +89,17 @@ func TestCancelPlansWithoutWritingAndClosesAnyQueuedRequest(t *testing.T) {
 	if r.count("SELECT COUNT(*) FROM events WHERE kind = 'rpc_write'") != 1 {
 		t.Fatal("the cancel is recorded as one write")
 	}
-	if res := cancel(rid, "", "c2"); res["ok"] != false || res["said"] != fmt.Sprintf("not cancelled - #%d is already landed", rid) {
+	if res := cancel(rid, "", "c2"); res["ok"] != false || res["said"] != fmt.Sprintf("not cancelled - M%d is already landed", rid) {
 		t.Fatalf("%v", res)
 	}
-	if plan := cancel(rid, `,"dry_run":true`, "c3"); plan["ok"] != false || plan["plan"] != fmt.Sprintf("#%d is already landed", rid) {
+	if plan := cancel(rid, `,"dry_run":true`, "c3"); plan["ok"] != false || plan["plan"] != fmt.Sprintf("M%d is already landed", rid) {
 		t.Fatalf("%v", plan)
 	}
-	if res := cancel(999999, "", "c4"); res["ok"] != false || res["said"] != "not cancelled - #999999 is gone" {
+	if res := cancel(999999, "", "c4"); res["ok"] != false || res["said"] != "not cancelled - M999999 is gone" {
 		t.Fatalf("%v", res)
 	}
 	own := r.request("human", "alice", "never mind")
-	if res := cancel(own, "", "c5"); res["ok"] != true || res["said"] != fmt.Sprintf("request #%d to alice withdrawn", own) || r.state(own) != "withdrawn" {
+	if res := cancel(own, "", "c5"); res["ok"] != true || res["said"] != fmt.Sprintf("request M%d to alice withdrawn", own) || r.state(own) != "withdrawn" {
 		t.Fatalf("the founder's own undelivered request is withdrawn: %v", res)
 	}
 	r.refusedWith(r.one(r.server("alice"), "request.cancel", fmt.Sprintf(`{"id":%d,"request_id":"c6"}`, r.request("alice", "bob", "x"))), "role")
@@ -125,13 +125,13 @@ func TestAStrangersRequestIsAnsweredAsAMissingOneByIdOrRef(t *testing.T) {
 	theirs := r.request("bob", "human", "private")
 	var ref string
 	r.db.QueryRow("SELECT ref FROM requests WHERE id = ?", theirs).Scan(&ref)
-	for i, id := range []string{fmt.Sprint(theirs), fmt.Sprintf("%q", ref), fmt.Sprintf("%q", "#"+ref[:6])} {
+	for i, id := range []string{fmt.Sprint(theirs), fmt.Sprintf("%q", ref), fmt.Sprintf("%q", ref[:6])} {
 		res := r.result(r.one(alice, "request.withdraw", fmt.Sprintf(`{"id":%s,"request_id":"s%d"}`, id, i)))
 		if res["ok"] != false || !strings.HasSuffix(res["said"].(string), " does not exist") || r.state(theirs) != "queued" {
 			t.Errorf("%s: %v", id, res)
 		}
 	}
-	if res := r.result(r.one(alice, "request.withdraw", `{"id":999999,"request_id":"s9"}`)); res["said"] != "request 999999 does not exist" {
+	if res := r.result(r.one(alice, "request.withdraw", `{"id":999999,"request_id":"s9"}`)); res["said"] != "request M999999 does not exist" {
 		t.Errorf("a missing one: %v", res)
 	}
 }

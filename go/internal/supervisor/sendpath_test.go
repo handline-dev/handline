@@ -242,7 +242,7 @@ func TestABatchWhoseEchoLandsItDuringTheWriteIsStillDelivered(t *testing.T) {
 	}
 	for _, rid := range []int64{a, b} {
 		if row, _ := db.GetRequest(r.DB, rid); !row.DeliveredAt.Valid || !row.LandedAt.Valid {
-			t.Fatalf("#%d: %+v", rid, row)
+			t.Fatalf("M%d: %+v", rid, row)
 		}
 	}
 }
@@ -472,7 +472,7 @@ func TestADeliveryActedOnSinceIsNotReportedWhenItsSessionEnds(t *testing.T) {
 	}
 	for _, rid := range []int64{read, settled} {
 		if v, _ := db.Cursor(r.DB, ledgerKey("bob", requestOp(rid))); v != 0 {
-			t.Fatalf("#%d still on the ledger: %d", rid, v)
+			t.Fatalf("M%d still on the ledger: %d", rid, v)
 		}
 	}
 }

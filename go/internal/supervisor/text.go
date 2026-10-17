@@ -64,12 +64,12 @@ func answerVerb(q db.Q, head *db.Request) string {
 		}
 	}
 	if head.Requester == db.Human {
-		return fmt.Sprintf("answer the founder now, before other work: `hl say human --parent %d \"...\" --task T<n>` (or `--no-task \"<why>\"`) - if it is work, one line on what you will do or who has it", head.ID)
+		return fmt.Sprintf("answer the founder now, before other work: `hl say human --parent M%d \"...\" --task T<n>` (or `--no-task \"<why>\"`) - if it is work, one line on what you will do or who has it", head.ID)
 	}
 	if head.Kind.String == "say" {
 		return "it asks nothing"
 	}
-	return fmt.Sprintf("answer with `hl say %s --parent %d \"<answer>\"`", head.Requester, head.ID)
+	return fmt.Sprintf("answer with `hl say %s --parent M%d \"<answer>\"`", head.Requester, head.ID)
 }
 
 // MoreWaiting is what an agent is told about the queue behind the request it reads, "" for nothing.
@@ -109,7 +109,7 @@ func noticesText(q db.Q, agent string, folded []*db.Request) string {
 		if utf8.RuneCountInString(t) <= NoticeShown { // a cut notice names its id: the cut part held the result's paths and caveats
 			lines[i] = t
 		} else {
-			lines[i] = fmt.Sprintf("%s… (hl read %d)", strings.TrimRight(string([]rune(t)[:NoticeShown]), " \t\n\r\v\f"), r.ID)
+			lines[i] = fmt.Sprintf("%s… (hl read M%d)", strings.TrimRight(string([]rune(t)[:NoticeShown]), " \t\n\r\v\f"), r.ID)
 		}
 	}
 	left := len(must(db.PendingNotices(q, agent))) - len(folded)
@@ -137,7 +137,7 @@ func inReplyTo(q db.Q, r *db.Request) string {
 	if first != "" {
 		first = ": " + first
 	}
-	return fmt.Sprintf("in reply to #%d%s", parent.ID, first)
+	return fmt.Sprintf("in reply to M%d%s", parent.ID, first)
 }
 
 // splitLines is Python's str.splitlines for the separators a request body holds.
@@ -210,12 +210,12 @@ func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 	}
 	switch {
 	case parked:
-		tail = fmt.Sprintf(" [Queued behind #%d, which is still open: the next task comes when you hand it on or finish it.]", aheadOf.ID)
+		tail = fmt.Sprintf(" [Queued behind M%d, which is still open: the next task comes when you hand it on or finish it.]", aheadOf.ID)
 	case aheadOf != nil:
 		if head.ParentID.Valid && head.ParentID.Int64 == aheadOf.ID {
-			tail = fmt.Sprintf(" [A follow-up to #%d, which is still open.]", aheadOf.ID)
+			tail = fmt.Sprintf(" [A follow-up to M%d, which is still open.]", aheadOf.ID)
 		} else {
-			tail = fmt.Sprintf(" [Sent now, ahead of #%d, which is still open.]", aheadOf.ID)
+			tail = fmt.Sprintf(" [Sent now, ahead of M%d, which is still open.]", aheadOf.ID)
 		}
 	}
 	reply := ""
@@ -226,7 +226,7 @@ func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 	if head.Requester == db.Human || head.Kind.String == "say" {
 		end = "."
 	}
-	return fmt.Sprintf("#%d from %s%s, waiting for you:\n%s%s\n`hl read %d` shows it whole; %s%s",
+	return fmt.Sprintf("M%d from %s%s, waiting for you:\n%s%s\n`hl read M%d` shows it whole; %s%s",
 		head.ID, head.Requester, reply, shown, tail, head.ID, answerVerb(q, head), end)
 }
 
@@ -250,13 +250,13 @@ func batchText(q db.Q, batch []*db.Request, folded []*db.Request, aheadOf *db.Re
 		if utf8.RuneCountInString(text) > BatchLine {
 			text = strings.TrimRight(string([]rune(text)[:BatchLine]), " \t\n\r\v\f") + "…"
 		}
-		lines[i] = fmt.Sprintf("#%d from %s: %s", r.ID, r.Requester, text)
+		lines[i] = fmt.Sprintf("M%d from %s: %s", r.ID, r.Requester, text)
 	}
 	head := fmt.Sprintf("%d tasks waiting for you:", len(batch))
 	if aheadOf != nil {
-		head = fmt.Sprintf("%d more tasks queued behind #%d, which is still open:", len(batch), aheadOf.ID)
+		head = fmt.Sprintf("%d more tasks queued behind M%d, which is still open:", len(batch), aheadOf.ID)
 	}
-	foot := "`hl read <id>` shows one whole. You do one at a time, in this order: each ends with `hl task done T<n>` or `hl task handoff T<n> <agent> \"<note>\"`." +
+	foot := "`hl read M<n>` shows one whole. You do one at a time, in this order: each ends with `hl task done T<n>` or `hl task handoff T<n> <agent> \"<note>\"`." +
 		noticesText(q, batch[0].Target, folded)
 	return strings.Join(append(append([]string{head}, lines...), foot), "\n")
 }
@@ -271,11 +271,11 @@ func AnswerLine(r *db.Request) (string, bool) {
 	asked := ellipsize(strings.TrimSpace(textsafe.Oneline(r.Body)), AskedShown)
 	var head string
 	if tid, _, _, _, ok := HandoffParts(r.Body); ok && r.Kind.String == "task" {
-		head = fmt.Sprintf("#%d (your handoff of T%d to %s)", r.ID, tid, r.Target)
+		head = fmt.Sprintf("M%d (your handoff of T%d to %s)", r.ID, tid, r.Target)
 	} else if asked != "" {
-		head = fmt.Sprintf("#%d (you asked: %s)", r.ID, asked)
+		head = fmt.Sprintf("M%d (you asked: %s)", r.ID, asked)
 	} else {
-		head = fmt.Sprintf("#%d", r.ID)
+		head = fmt.Sprintf("M%d", r.ID)
 	}
 	shown := said
 	if utf8.RuneCountInString(shown) > 160 {
@@ -317,14 +317,14 @@ func AnswersText(answered []*db.Request) string {
 		// Named, not counted: every id that is marked told has to have been said.
 		ids := make([]string, len(rest))
 		for i, r := range rest {
-			ids[i] = fmt.Sprintf("#%d", r.ID)
+			ids[i] = fmt.Sprintf("M%d", r.ID)
 		}
 		lines = append(lines, "also answered: "+strings.Join(ids, ", "))
 		cut = true
 	}
 	tail := ""
 	if cut {
-		tail = "\nRead one whole with `hl read <id>`."
+		tail = "\nRead one whole with `hl read M<n>`."
 	}
 	return "Answers to what you asked:\n" + strings.Join(lines, " | ") + tail
 }

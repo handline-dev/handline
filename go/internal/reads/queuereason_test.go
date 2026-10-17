@@ -89,9 +89,9 @@ func TestQueueReasonNamesTheLineAheadAndASay(t *testing.T) {
 	queue(t, e, 1, "task")
 	queue(t, e, 2, "task")
 	queue(t, e, 3, "say")
-	for id, want := range map[int64]string{2: "behind #1", 3: "mid-turn"} { // a say is told now, so only the agent's state holds it
+	for id, want := range map[int64]string{2: "behind M1", 3: "mid-turn"} { // a say is told now, so only the agent's state holds it
 		if got, _ := e.QueueReason("bob", id); got != want {
-			t.Errorf("#%d: %q, want %q", id, got, want)
+			t.Errorf("M%d: %q, want %q", id, got, want)
 		}
 	}
 	if got, _ := e.QueueReason("bob", 1); got != "mid-turn" {

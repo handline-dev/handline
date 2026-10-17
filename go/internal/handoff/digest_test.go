@@ -106,7 +106,7 @@ func TestValidateAgreesWithPython(t *testing.T) {
 }
 
 func TestRenderParseRoundTrips(t *testing.T) {
-	d := &Digest{Date: "2026-09-15", Agent: "backend", Updated: "14:32 (handoff #3)", FoldedThrough: 7, Facts: "one\ntwo", Late: []string{"x"},
+	d := &Digest{Date: "2026-09-15", Agent: "backend", Updated: "14:32 (handoff M3)", FoldedThrough: 7, Facts: "one\ntwo", Late: []string{"x"},
 		Sections: emptySections()}
 	d.Sections["done"] = []string{"a", "b"}
 	d.Sections["next"] = []string{"c"}

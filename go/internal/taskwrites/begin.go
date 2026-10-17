@@ -65,7 +65,7 @@ func begin(c *rpc.Conn, p map[string]any, home string) (any, error) {
 		}
 		chat, err := requestref.Resolve(tx, home, p["message"], me, "message")
 		if name, missing := requestref.Missing(err); missing {
-			return nil, refusal("no request #" + name)
+			return nil, refusal("no request " + requestref.Label(name))
 		}
 		if err != nil {
 			return nil, err
@@ -75,14 +75,14 @@ func begin(c *rpc.Conn, p map[string]any, home string) (any, error) {
 			return nil, err
 		}
 		if req.Requester != human || req.Target != me {
-			return nil, refusal(fmt.Sprintf("request #%d is not a message from the founder to %s: only that lets you start a task without approval", chat, me))
+			return nil, refusal(fmt.Sprintf("request M%d is not a message from the founder to %s: only that lets you start a task without approval", chat, me))
 		}
 		used, err := db.TasksForRequest(tx, chat)
 		if err != nil {
 			return nil, err
 		}
 		if len(used) > 0 {
-			return nil, refusal(fmt.Sprintf("request #%d already opened T%d", chat, used[0].ID))
+			return nil, refusal(fmt.Sprintf("request M%d already opened T%d", chat, used[0].ID))
 		}
 		tid, err := db.NewTask(tx, clean, me, me, 0, prio, "report", 0, "")
 		if err != nil {
@@ -107,7 +107,7 @@ func begin(c *rpc.Conn, p map[string]any, home string) (any, error) {
 		if err := addEvent(tx, me, "task_begin", ev...); err != nil {
 			return nil, err
 		}
-		msg := fmt.Sprintf("task T%d begun from founder message #%d", tid, chat)
+		msg := fmt.Sprintf("task T%d begun from founder message M%d", tid, chat)
 		if !has {
 			msg += " and is now your current task"
 		} else {

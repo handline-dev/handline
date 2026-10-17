@@ -54,7 +54,7 @@ func TestAMessageToAStructuredAgentCarriesItsReceiptAndLandsAsItSays(t *testing.
 		w := wants[m.ID]
 		state, _ := m.Receipt["state"].(string)
 		if m.Landing != w.landing || state != w.receipt || (w.receipt != "" && m.Receipt["uuid"] != "u"+string(rune('0'+m.ID))) {
-			t.Errorf("#%d: landing %s receipt %v, want %s %s", m.ID, m.Landing, m.Receipt, w.landing, w.receipt)
+			t.Errorf("M%d: landing %s receipt %v, want %s %s", m.ID, m.Landing, m.Receipt, w.landing, w.receipt)
 		}
 		if m.ID == 4 && m.SendingReason != "unknown" {
 			t.Errorf("a lost message says why it is not delivered: %v", m.SendingReason)

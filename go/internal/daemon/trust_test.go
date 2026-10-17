@@ -211,7 +211,7 @@ func TestAnApproveDeclaresNothingWhenTheCardNoLongerNamesTheRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	ok, said, err := tr.Apply(d.db, id)
-	if err != nil || ok || !strings.Contains(said, fmt.Sprintf("does not match what #%d asked the founder to approve", card)) {
+	if err != nil || ok || !strings.Contains(said, fmt.Sprintf("does not match what M%d asked the founder to approve", card)) {
 		t.Fatal(ok, said, err)
 	}
 	if len(tr.Declared()) != 0 {

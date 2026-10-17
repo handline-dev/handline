@@ -14,7 +14,7 @@ import (
 // questionBody is actions.question_body: what an agent is told when the founder asks about a task.
 func questionBody(tid int64, text string) string {
 	return fmt.Sprintf("Question on T%d from the founder (the task keeps its holder): %s\n\n"+
-		"Answer by replying to this message: hl say human --parent <this message's #id> '<answer>'", tid, text)
+		"Answer by replying to this message: hl say human --parent <this message's M<n>> '<answer>'", tid, text)
 }
 
 // askMethod is task.ask (actions.ask_on_task): the founder asks an agent about a task from its page. The question is a say linked to the task,

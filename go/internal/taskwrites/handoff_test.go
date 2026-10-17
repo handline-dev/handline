@@ -33,7 +33,7 @@ func TestHandoffMovesTheTaskToItsNewOwnerWithOneRequestAndRetiresTheOldOnes(t *t
 
 	r = call(t, mk("worker", f), line(2, 1, "other", "built; test it", "h1"), line(3, 1, "other", "built; test it", "h1"))
 	res := r[0]["result"].(map[string]any)
-	if res["said"] != "T1 handed to other: queued as #11 for other\npushed" {
+	if res["said"] != "T1 handed to other: queued as M11 for other\npushed" {
 		t.Fatalf("%v", r[0])
 	}
 	if r[1]["result"].(map[string]any)["replayed"] != true || len(f.handed) != 1 {

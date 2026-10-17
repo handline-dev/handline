@@ -30,7 +30,7 @@ func drawn(q map[string]any, all bool) string {
 		if len(lines) == 0 && !all {
 			return "nothing waiting on you\n"
 		}
-		fmt.Fprintf(&b, "%d waiting. `hl read <id>` shows one whole.\n", q["waiting"])
+		fmt.Fprintf(&b, "%d waiting. `hl read M<n>` shows one whole.\n", q["waiting"])
 		for _, l := range lines {
 			l := l.(map[string]any)
 			mark, behind := ".", ""
@@ -42,9 +42,9 @@ func drawn(q map[string]any, all bool) string {
 			if n := l["unread"].(int); n > 1 {
 				behind = fmt.Sprintf(" (+%d)", n-1)
 			}
-			fmt.Fprintf(&b, "%s #%-5d %-12s %-9s %s%s\n", mark, l["id"], l["from"], l["kind"], l["line"], behind)
+			fmt.Fprintf(&b, "%s M%-5d %-12s %-9s %s%s\n", mark, l["id"], l["from"], l["kind"], l["line"], behind)
 		}
-		b.WriteString("`hl say <who> --parent <id> \"<text>\"` answers one - a reply settles what it answers, and on a `<` row it goes back in that thread.\n")
+		b.WriteString("`hl say <who> --parent M<n> \"<text>\"` answers one - a reply settles what it answers, and on a `<` row it goes back in that thread.\n")
 		if all {
 			dealt := q["dealt"].([]any)
 			fmt.Fprintf(&b, "\n%d most recent, already dealt with:\n", len(dealt))
@@ -54,7 +54,7 @@ func drawn(q map[string]any, all bool) string {
 				if d["outgoing"].(bool) {
 					arrow = "→"
 				}
-				fmt.Fprintf(&b, "  #%-5d %s %-12s %-9s %s\n", d["id"], arrow, d["agent"], d["state"], d["line"])
+				fmt.Fprintf(&b, "  M%-5d %s %-12s %-9s %s\n", d["id"], arrow, d["agent"], d["state"], d["line"])
 			}
 		}
 		return b.String()
@@ -64,10 +64,10 @@ func drawn(q map[string]any, all bool) string {
 		if len(rows) == 0 {
 			return fmt.Sprintf("%s: inbox empty\n", q["whose"])
 		}
-		fmt.Fprintf(&b, "%d total. `hl read <id>` shows one whole.\n", len(rows))
+		fmt.Fprintf(&b, "%d total. `hl read M<n>` shows one whole.\n", len(rows))
 		for _, r := range rows {
 			r := r.(map[string]any)
-			fmt.Fprintf(&b, "#%-5d from %-12s %-9s depth=%d %s\n", r["id"], r["requester"], r["state"], r["chain_depth"], r["line"])
+			fmt.Fprintf(&b, "M%-5d from %-12s %-9s depth=%d %s\n", r["id"], r["requester"], r["state"], r["chain_depth"], r["line"])
 		}
 		return b.String()
 	}
@@ -75,7 +75,7 @@ func drawn(q map[string]any, all bool) string {
 	if !ok {
 		return fmt.Sprintf("%s: inbox empty\n", q["whose"])
 	}
-	fmt.Fprintf(&b, "#%d from %s  depth=%d\n\n%s\n", head["id"], head["requester"], head["chain_depth"], head["body"])
+	fmt.Fprintf(&b, "M%d from %s  depth=%d\n\n%s\n", head["id"], head["requester"], head["chain_depth"], head["body"])
 	if w := head["more_waiting_line"].(string); w != "" {
 		fmt.Fprintf(&b, "\n%s\n", w)
 	}
@@ -160,7 +160,7 @@ func TestInboxQueueListsOnlyForTheAgentItsSupervisorAndTheFounder(t *testing.T) 
 		if ok && err != nil {
 			t.Errorf("bob lists %s: %v", whose, err)
 		} else if !ok && (!errors.As(err, &refused) || refused.Code != "refused" || refused.Data["gate"] != "listing" ||
-			refused.Message != "bob may not list "+whose+"'s messages: only "+whose+", its supervisor and the human may. `hl read <id>` shows one request by number.") {
+			refused.Message != "bob may not list "+whose+"'s messages: only "+whose+", its supervisor and the human may. `hl read M<n>` shows one request by number.") {
 			t.Errorf("bob lists %s: %v", whose, err)
 		}
 	}

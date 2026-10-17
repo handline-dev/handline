@@ -89,7 +89,7 @@ func answerWrite(e *supervisor.Env, tell taskwrites.Teller, q db.Q, rid int64, v
 		return nil, err
 	}
 	if row == nil {
-		return refusal(fmt.Sprintf("#%d is gone", rid)), nil
+		return refusal(fmt.Sprintf("M%d is gone", rid)), nil
 	}
 	if row.State == "queued" && row.Target == db.Human {
 		tid, err := db.DecisionTaskOfCard(q, rid)
@@ -127,7 +127,7 @@ func answerWrite(e *supervisor.Env, tell taskwrites.Teller, q db.Q, rid int64, v
 		return refusal(msg), nil
 	}
 	return &Result{OK: true, Tell: func() string {
-		return guarded(e, fmt.Sprintf("telling after the answer to #%d", rid), func() (string, error) { return e.ResolveTell(e.DB, r) })
+		return guarded(e, fmt.Sprintf("telling after the answer to M%d", rid), func() (string, error) { return e.ResolveTell(e.DB, r) })
 	}}, nil
 }
 
@@ -303,7 +303,7 @@ func DismissWrite(e *supervisor.Env, q db.Q, rid int64, me, reason string, tasks
 		return nil, err
 	}
 	if row == nil {
-		return said(fmt.Sprintf("#%d is gone", rid)), nil
+		return said(fmt.Sprintf("M%d is gone", rid)), nil
 	}
 	record := func(msg string) (*Result, error) {
 		if effect != nil {
@@ -325,12 +325,12 @@ func DismissWrite(e *supervisor.Env, q db.Q, rid int64, me, reason string, tasks
 	}
 	if row.State != "queued" {
 		if me != "" && me == row.Target {
-			return record(fmt.Sprintf("#%d was already answered - nothing more for you to do", rid))
+			return record(fmt.Sprintf("M%d was already answered - nothing more for you to do", rid))
 		}
 		if err := db.MarkAnnounced(q, []int64{rid}); err != nil {
 			return nil, err
 		}
-		return record(fmt.Sprintf("#%d marked read", rid))
+		return record(fmt.Sprintf("M%d marked read", rid))
 	}
 	by := me
 	if by == "" {
@@ -352,7 +352,7 @@ func DismissWrite(e *supervisor.Env, q db.Q, rid int64, me, reason string, tasks
 	}
 	requester := row.Requester
 	return &Result{OK: true, Note: note, Tell: func() string {
-		told := guarded(e, fmt.Sprintf("telling after the dismissal of #%d", rid), func() (string, error) { return e.ResolveTell(e.DB, r) })
+		told := guarded(e, fmt.Sprintf("telling after the dismissal of M%d", rid), func() (string, error) { return e.ResolveTell(e.DB, r) })
 		return fmt.Sprintf("%s (dismissed; %s is not told)", told, requester)
 	}}, nil
 }
@@ -364,14 +364,14 @@ func CancelPlan(q db.Q, rid int64) (bool, string, error) {
 		return false, "", err
 	}
 	if row == nil {
-		return false, fmt.Sprintf("#%d is gone", rid), nil
+		return false, fmt.Sprintf("M%d is gone", rid), nil
 	}
 	if row.State != "queued" {
-		return false, fmt.Sprintf("#%d is already %s", rid, row.State), nil
+		return false, fmt.Sprintf("M%d is already %s", rid, row.State), nil
 	}
 	target, requester := row.Target, row.Requester
 	if requester == db.Human && !row.DeliveredAt.Valid {
-		return true, fmt.Sprintf("withdraw #%d to %s: not delivered yet, so nobody is told", rid, target), nil
+		return true, fmt.Sprintf("withdraw M%d to %s: not delivered yet, so nobody is told", rid, target), nil
 	}
 	queued, err := db.QueuedFor(q, target)
 	if err != nil {
@@ -397,9 +397,9 @@ func CancelPlan(q db.Q, rid int64) (bool, string, error) {
 	if row.DeliveredAt.Valid {
 		way = "delivered to"
 	}
-	out := fmt.Sprintf("cancel #%d (%s %s): closed as rejected, '%s'; %s", rid, way, target, supervisor.CancelVerdict, strings.Join(told, ", "))
+	out := fmt.Sprintf("cancel M%d (%s %s): closed as rejected, '%s'; %s", rid, way, target, supervisor.CancelVerdict, strings.Join(told, ", "))
 	if row.DeliveredAt.Valid && behind != 0 {
-		out += fmt.Sprintf("; #%d delivers next", behind)
+		out += fmt.Sprintf("; M%d delivers next", behind)
 	}
 	return true, out, nil
 }

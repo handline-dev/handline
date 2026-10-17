@@ -63,7 +63,7 @@ const AskTemplate = "Write your handoff to {path} now, while your prompt cache i
 	"30 lines, only what `hl` and your memory cannot tell it: (1) what you were deciding " +
 	"and why; (2) what you meant to do next; (3) promises or doubts not yet on any task; " +
 	"(4) the founder's preferences and the pitfalls you learned this session; (5) who you " +
-	"wait on, as T<n>/#<n> numbers only. Do not restate what a task or message holds; cite " +
+	"wait on, as T<n>/M<n> numbers only. Do not restate what a task or message holds; cite " +
 	"its T or # number. A lasting lesson or preference goes to your memory first, not here. " +
 	"If there is nothing, write the single word: nothing."
 

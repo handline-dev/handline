@@ -34,8 +34,8 @@ type event struct {
 var notTold = map[string]bool{"SessionStart": true, "SessionEnd": true, "Stop": true, "StopFailure": true, "SubagentStop": true,
 	"PostCompact": true, "UserPromptSubmit": true, "verb_chain": true}
 
-// idRE is an explicit reference to a request: #N, or "request N". A bare number is not one.
-var idRE = regexp.MustCompile(`(?i)#(\d+)|\brequest\s+(\d+)\b`)
+// idRE is an explicit reference to a request: MN, or "request N". A bare number is not one, nor is #N (a PR).
+var idRE = regexp.MustCompile(`\bM(\d+)\b|(?i:\brequest\s+M?(\d+)\b)`)
 
 func (e *Env) eventsAfter(after int64, agent string) ([]event, error) {
 	rows, err := e.DB.Query("SELECT id, ts, kind, payload FROM events WHERE id > ? AND agent = ? AND kind NOT IN ('fold','fold_failed') ORDER BY id LIMIT 10000", after, agent)

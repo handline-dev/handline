@@ -49,8 +49,8 @@ One line each. `ocp <command> --help` has the options, and `hl guide <topic>` pr
 | `hl progress "<note>"` | Record what is done and what is left on your task. |
 | `hl say <agent> "..."` | A message that needs no answer. |
 | `hl inbox` / `hl inbox --all` | What is waiting for you, or the whole queue. |
-| `hl read <id>` | One request in full, with its answer. |
-| `hl cancel <id>` | The founder takes a request out of an agent's queue. |
+| `hl read M<n>` | One request in full, with its answer. |
+| `hl cancel M<n>` | The founder takes a request out of an agent's queue. |
 
 ## Team
 
