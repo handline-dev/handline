@@ -124,7 +124,7 @@ export function view(s: Session): AgentView {
 export function detail(s: Session): AgentDetail {
   return {
     ...view(s),
-    worktree: { path: s.fx.worktree, branch: s.fx.branch },
+    worktree: { path: s.fx.worktree, branch: s.fx.branch, repo: s.fx.repo ?? null },
     cwd: s.fx.worktree,
     can: Object.fromEntries(
       ['terminal', 'wake', 'close', 'restart', 'park', 'fold', 'move'].map((k) => [k, { ok: true, why: null }]),
