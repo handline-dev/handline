@@ -673,7 +673,7 @@ Worktrees with status and changed files.
 
 ### `worktree.diff`
 
-Read-only git diff run by the daemon. Without `file`: the changes to tracked files against HEAD, then a new-file diff of each untracked file that .gitignore does not ignore (at most 200). With `file`: that file alone, untracked or not.
+Read-only git diff run by the daemon. Without `file`: the changes to tracked files against HEAD, then a new-file diff of each untracked file that .gitignore does not ignore (at most 200; one too big for what is left of the size cap is listed as `(new file, N bytes: not shown)`, not diffed). With `file`: that file alone, untracked or not.
 
 ### `worktree.set_status`
 

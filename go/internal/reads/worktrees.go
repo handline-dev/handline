@@ -3,6 +3,7 @@ package reads
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -322,7 +323,12 @@ func untrackedDiffs(root string) string {
 		if file == "" || i >= maxChanged || out.Len() > maxDiffChars {
 			break
 		}
-		if st, err := os.Lstat(filepath.Join(root, file)); err != nil || !st.Mode().IsRegular() {
+		st, err := os.Lstat(filepath.Join(root, file))
+		if err != nil || !st.Mode().IsRegular() {
+			continue
+		}
+		if left := maxDiffChars - out.Len(); st.Size() > int64(left) { // git would read all of it before the cap cuts in
+			fmt.Fprintf(&out, "diff --git a/%[1]s b/%[1]s\nnew file mode 100644\n(new file, %d bytes: not shown)\n", file, st.Size())
 			continue
 		}
 		_, d := git(root, "diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--", os.DevNull, file)

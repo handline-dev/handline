@@ -99,4 +99,9 @@ func TestTheDiffOfAWholeWorktreeIncludesUntrackedFilesButNotIgnoredOnes(t *testi
 	if one := diff("b.txt"); !strings.Contains(got, one) {
 		t.Fatalf("the per-file diff of the untracked file is part of the whole:\n%s", one)
 	}
+	write("dump.txt", strings.Repeat("x\n", maxDiffChars))
+	got = diff(nil)
+	if !strings.Contains(got, "(new file, 400000 bytes: not shown)") || strings.Contains(got, "+x\n+x") || !strings.Contains(got, "+++ b/b.txt") {
+		t.Fatalf("an untracked file over the cap is listed, not diffed:\n%.300s", got)
+	}
 }
