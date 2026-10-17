@@ -90,3 +90,25 @@ func TestSettingsShowTheHandoffPromptAsSetOrTheBuiltInAndAnAgentsOwn(t *testing.
 		t.Fatalf("ann's own: %q", got)
 	}
 }
+
+func TestEveryNotificationKindPushesUntilTheFounderTurnsItOff(t *testing.T) {
+	e := testEnv(t)
+	kinds := []string{"push_prompt_asked", "push_task_done", "push_stall", "push_account_out"}
+	values := func() map[string]any {
+		t.Helper()
+		out, err := e.settingsGet(nil, map[string]any{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out.(map[string]any)["values"].(map[string]any)
+	}
+	for _, k := range kinds {
+		if values()[k] != true {
+			t.Fatalf("%s is off by default", k)
+		}
+	}
+	os.WriteFile(paths.ConfigFile(e.Home), []byte("push_task_done: false\n"), 0o644)
+	if v := values(); v["push_task_done"] != false || v["push_stall"] != true {
+		t.Fatalf("one kind turned off: %v", v)
+	}
+}

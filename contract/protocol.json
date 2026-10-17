@@ -8153,6 +8153,21 @@
    ]
   },
   {
+   "name": "connection.get",
+   "summary": "How this process is reached: its listener, the heavy-run slots and dev mode. Read only.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/ConnectionInfo"
+    }
+   },
+   "x-role": "founder",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
    "name": "settings.get",
    "summary": "Timings, terminal host, trust folders, hooks installed.",
    "paramStructure": "by-name",
@@ -12913,6 +12928,26 @@
       "type": "string",
       "maxLength": 4000,
       "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent."
+     },
+     "push_prompt_asked": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
+     },
+     "push_task_done": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
+     },
+     "push_stall": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
+     },
+     "push_account_out": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
      }
     },
     "description": "Every global setting by its config.yaml name, with its default; every one is the founder's to set. Per-account keys (label, cap, usage recovery, cycle) are account.set; per-agent keys are agent.set and schedule.*; a key marked Per agent also takes `agent` in settings.set."
@@ -13087,6 +13122,50 @@
        }
       ],
       "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. An empty string is the built-in prompt; null removes the key (back to the default)."
+     },
+     "push_prompt_asked": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
+     },
+     "push_task_done": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
+     },
+     "push_stall": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
+     },
+     "push_account_out": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
      }
     },
     "description": "settings.set's changes: any of SettingsValues' keys; null removes one."
@@ -14475,6 +14554,111 @@
    "RequestRef": {
     "type": "string",
     "description": "The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else."
+   },
+   "ConnectionInfo": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "served_by": {
+      "type": "string",
+      "enum": [
+       "daemon",
+       "gateway"
+      ],
+      "description": "Which process answered. A daemon behind a gateway has no listener of its own; ask the gateway's local socket for the gateway's."
+     },
+     "listener": {
+      "oneOf": [
+       {
+        "type": "null"
+       },
+       {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+         "address": {
+          "type": "string",
+          "description": "The host:port a pairing names (-advertise, else where the listener binds)."
+         },
+         "encryption": {
+          "type": "string",
+          "enum": [
+           "tls",
+           "none"
+          ],
+          "description": "none is Tailscale mode: plain ws on a Tailscale or loopback address."
+         },
+         "fingerprint": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "description": "sha256 of the certificate presented; null in Tailscale mode."
+         },
+         "tailscale_host": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "description": "The address's host when it is a *.ts.net name, else null."
+         }
+        },
+        "required": [
+         "address",
+         "encryption",
+         "fingerprint",
+         "tailscale_host"
+        ]
+       }
+      ],
+      "description": "The network listener of this process; null when it has none."
+     },
+     "heavy_slots": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+       "slots": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "HANDLINE_HEAVY_SLOTS as this process sees it, default 1."
+       },
+       "dir": {
+        "oneOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "description": "Where the slot locks are kept: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots."
+       }
+      },
+      "required": [
+       "slots",
+       "dir"
+      ]
+     },
+     "dev_mode": {
+      "type": "boolean",
+      "description": "SettingsValues.dev_mode."
+     }
+    },
+    "required": [
+     "served_by",
+     "listener",
+     "heavy_slots",
+     "dev_mode"
+    ],
+    "description": "How this process is reached, read only."
    }
   },
   "errors": {

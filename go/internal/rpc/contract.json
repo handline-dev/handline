@@ -108,6 +108,9 @@
  "chat.transcript": {
   "role": "member"
  },
+ "connection.get": {
+  "role": "founder"
+ },
  "daemon.status": {
   "role": "agent"
  },

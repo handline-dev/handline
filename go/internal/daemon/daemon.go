@@ -445,6 +445,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 		renv.Login = d.logins.Of
 	}
 	reads.Register(s, renv)
+	s.Register("connection.get", rpc.Method{Role: "founder", Handler: d.connectionGet})
 	if d.cfg.Gateway {
 		d.gatewayMethods(s, transport)
 	}
