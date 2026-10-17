@@ -273,7 +273,7 @@ def task_and_permission(r: Run) -> None:
     # at once, so queued and doing usually fall in one scan: the first task.changed already says doing.
     first_seen = lambda ev: None if ev["data"]["state"] == "queued" else \
         ("merged", f"first seen {ev['data']['state']}: delivered within one scan")
-    r.step("task queued", t, is_task("queued", "doing", "reported", "done"), judge=first_seen)
+    r.step("task queued", t, is_task("queued", "doing", "answered", "done"), judge=first_seen)
     r.step("task doing", t, is_task("doing"), model=True)
     asked = r.step("permission prompt shown as needs_you", t,
                    lambda ev: agent_changed(a, "waiting")(ev) and (ev["data"].get("needs_you") or {}).get("kind") == "permission",
@@ -290,8 +290,8 @@ def task_and_permission(r: Run) -> None:
         r.answerer.answered.add(open_prompt["id"])
         d.write("prompt.answer", {"agent": a, "prompt": open_prompt["id"], "choice": yes(open_prompt)})
     r.answerer.on.set()
-    closed = r.step("task done", t, is_task("done", "reported"), model=True)
-    if closed and closed["data"].get("state") == "reported":
+    closed = r.step("task done", t, is_task("done", "answered"), model=True)
+    if closed and closed["data"].get("state") == "answered":
         d.write("task.accept", {"task": task})
     r.s.wait(t, agent_changed(a, "idle"), time.time() + MODEL_S)
 

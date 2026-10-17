@@ -112,7 +112,7 @@ func stateOf(t *Task, doing, asked bool) string {
 	case t.DoneEvidence.String != "":
 		return "done"
 	case t.ReportedAt.Valid:
-		return "reported"
+		return "answered"
 	case doing:
 		return "doing"
 	case t.QueuedBy.Valid && t.QueuedBy.String != "" || asked:

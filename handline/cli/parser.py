@@ -633,7 +633,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--everyone", action="store_true",
                    help="every team's tasks, not just yours and your reports'")
     p.add_argument("--state", default=None,
-                   choices=("draft", "queued", "doing", "reported", "done", "discarded"),
+                   choices=("draft", "queued", "doing", "answered", "done", "discarded"),
                    help="only tasks in this state; a done or discarded one shows even without --all")
     p.set_defaults(fn=cmd_task_list)
     p = tk.add_parser("queue", help="approve draft tasks to run - anyone; its opener and assignee are told")
@@ -683,11 +683,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--shot", action="append", default=None, metavar="FILE.png",
                    help="a screenshot of the result, kept with the task; repeat for more")
     p.set_defaults(fn=cmd_task_done)
-    p = tk.add_parser("accept", help="close a reported task: its owner's done is the evidence - whoever "
+    p = tk.add_parser("accept", help="close an answered task: its owner's done is the evidence - whoever "
                                      "it answers to, its opener or the founder")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.set_defaults(fn=cmd_task_accept)
-    p = tk.add_parser("reject", help="send a reported task back to its owner's queue - whoever it "
+    p = tk.add_parser("reject", help="send an answered task back to its owner's queue - whoever it "
                                      "answers to, its opener or the founder; needs a one-line note")
     p.add_argument("task", type=_task_arg, metavar="T")
     p.add_argument("note", help="what is missing; told to the owner")

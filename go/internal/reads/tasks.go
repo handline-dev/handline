@@ -113,7 +113,7 @@ func (b *board) state(t row) string {
 		return "done"
 	}
 	if t.set("reported_at") {
-		return "reported"
+		return "answered"
 	}
 	asked := b.asked(t.i("id"))
 	if asked && b.holds(t) {
@@ -217,6 +217,17 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	turn, err := optBool(params, "my_turn") // the caller's own open tasks that wait on it: queued or doing, not draft or answered
+	if err != nil {
+		return nil, err
+	}
+	if turn {
+		if owner != nil {
+			return nil, badParam("my_turn is the caller's own tasks: it takes no owner", "owner")
+		}
+		me := c.Caller.Actor()
+		owner = &me
+	}
 	var owners map[string]bool
 	if !everyone && c.Caller.Role == "agent" {
 		if owners, err = e.reach(c.Caller.Info["name"].(string)); err != nil {
@@ -258,7 +269,7 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 		}
 		st := b.state(t)
 		if (owner != nil && t.str("owner") != *owner) ||
-			(state != nil && st != *state) || (opener != nil && t.str("opened_by") != *opener) ||
+			(state != nil && st != *state) || (turn && st != "queued" && st != "doing") || (opener != nil && t.str("opened_by") != *opener) ||
 			(parent != nil && (!t.set("parent_task") || t.i("parent_task") != *parent)) || (story != nil && !story[t.i("id")]) ||
 			(before != nil && t.i("id") >= *before) {
 			continue
@@ -387,7 +398,7 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	}
 	task["last_activity"], task["edited_by"], task["requests"] = ts(active), t.strOrNil("edited_by"), linked
 	task["discarded"], task["report"] = nil, nil
-	if state == "reported" {
+	if state == "answered" {
 		task["report"] = map[string]any{"by": t.str("owner"), "evidence": t.str("report"), "at": ts(t["reported_at"])}
 	}
 	if t.str("discarded_by") != "" {

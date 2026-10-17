@@ -26,7 +26,7 @@ func (e *Env) taskClock(t row, state string) (any, error) {
 		}
 		return clock, nil
 	}
-	if state != "doing" && state != "reported" {
+	if state != "doing" && state != "answered" {
 		return clock, nil
 	}
 	now, end := time.Now().Unix(), t.i("timeout_at")

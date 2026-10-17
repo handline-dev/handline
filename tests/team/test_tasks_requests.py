@@ -3873,15 +3873,15 @@ def test_a_task_has_a_reporter_apart_from_its_owner(home: Path) -> None:
 
 def test_a_reported_task_reads_as_awaiting_who_it_answers_to() -> None:
     from handline.cli import parser as cli_parser, task as clitask
-    t = {"id": 7, "title": "fix it", "state": "reported", "from": "a.one", "to": "b.two", "asker": "c", "priority": 2, "parent": None,
+    t = {"id": 7, "title": "fix it", "state": "answered", "from": "a.one", "to": "b.two", "asker": "c", "priority": 2, "parent": None,
          "created": None, "time": None, "evidence": None, "body": "", "memos": [],
          "report": {"by": "b.two", "evidence": "built", "at": "2026-10-02T11:30:00Z"}}
     lines = clitask._detail_lines(t, 0)
     check("task show: a reported task names whom it awaits, and its report",
-          lines[1].startswith("state reported, awaiting c   assignee b.two") and lines[2].startswith("reported ") and lines[2].endswith(": built"),
+          lines[1].startswith("state answered, awaiting c   assignee b.two") and lines[2].startswith("answered ") and lines[2].endswith(": built"),
           str(lines))
     check("task show: an older daemon's Task without an asker awaits its opener",
-          clitask._state({**t, "asker": None}) == "reported, awaiting a.one")
+          clitask._state({**t, "asker": None}) == "answered, awaiting a.one")
     box = {"length_s": 7200, "default": False, "start": None, "end": None, "overdue_since": None, "told": 0, "left_s": 4800}
     held = {**t, "state": "doing", "time": box, "blockers": [{"task": 9, "owner": "c", "title": "first"}],
             "subtasks": [{"id": 8, "owner": "d", "state": "doing", "title": "child"}, {"id": 6, "owner": "d", "state": "done", "title": "old"}]}
@@ -3891,7 +3891,7 @@ def test_a_reported_task_reads_as_awaiting_who_it_answers_to() -> None:
           clitask._detail_lines({**held, "blockers": [], "subtasks": []}, 0)[3] == "paused, 1h20m left")
     check("task show: a wait on the founder says so - held by them, awaiting their accept, or a blocker they hold",
           clitask._detail_lines({**held, "to": "human"}, 0)[3] == "timeout paused: waiting on human"
-          and clitask._detail_lines({**held, "state": "reported", "asker": "human"}, 0)[3] == "timeout paused: waiting on human"
+          and clitask._detail_lines({**held, "state": "answered", "asker": "human"}, 0)[3] == "timeout paused: waiting on human"
           and clitask._detail_lines({**held, "blockers": [{"task": 9, "owner": "human", "title": "x"}], "subtasks": []}, 0)[3]
           == "timeout paused: waiting on T9 (human)")
     p = cli_parser.build_parser()

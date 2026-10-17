@@ -238,7 +238,8 @@ func TestSendUnderAQuestionIsOnlyASayUnderIt(t *testing.T) {
 	}
 }
 
-func TestAnswerOnADecisionCardDecidesItsTask(t *testing.T) {
+// The founder's answer to an agent's card is their done on its task: answered, still the founder's, until alice accepts or takes it back.
+func TestAnswerOnADecisionCardAnswersItsTask(t *testing.T) {
 	r := newRig(t)
 	s := r.server("")
 	card := r.request("alice", "human", "which one?")
@@ -251,8 +252,30 @@ func TestAnswerOnADecisionCardDecidesItsTask(t *testing.T) {
 	if res["said"] != fmt.Sprintf("T%d decided", tid) {
 		t.Fatal(res)
 	}
-	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence = 'the first'", tid) != 1 {
-		t.Fatal("the answer is the task's evidence")
+	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND owner = 'human' AND report = 'the first' AND reported_at IS NOT NULL AND done_evidence IS NULL", tid) != 1 {
+		t.Fatal("the answer is kept on the task, which stays open with the founder")
+	}
+	if r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND state != 'queued'", card) != 1 {
+		t.Fatal("the card is answered")
+	}
+	if r.count("SELECT COUNT(*) FROM requests WHERE target = 'alice' AND body LIKE ?", fmt.Sprintf("T%d answered by the founder: the first - accept it%%", tid)) != 1 {
+		t.Fatal("alice is told how to accept or take it back")
+	}
+}
+
+// The founder's answer to their own card closes the task: nobody else asked it.
+func TestAnswerOnTheFoundersOwnCardClosesItsTask(t *testing.T) {
+	r := newRig(t)
+	s := r.server("")
+	card := r.request("human", "human", "remember the milk")
+	tid, err := dbpkg.NewTask(r.db, "remember the milk", "human", "human", 0, dbpkg.DefaultPriority, "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbpkg.LinkRequest(r.db, tid, card)
+	r.result(r.one(s, "inbox.answer", fmt.Sprintf(`{"id":%d,"text":"bought","request_id":"d1"}`, card)))
+	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence = 'bought'", tid) != 1 {
+		t.Fatal("the founder's own task closes with the answer")
 	}
 }
 
@@ -275,7 +298,7 @@ func TestDecideCardLeavesATaskTheFounderDoesNotOwnToTaskDone(t *testing.T) {
 	}
 }
 
-func TestDecideMarksATaskDoneWhenItsCardWasClosedSomeOtherWay(t *testing.T) {
+func TestDecideAnswersATaskWhenItsCardWasClosedSomeOtherWay(t *testing.T) {
 	r := newRig(t)
 	gone := r.request("alice", "human", "which one?")
 	dbpkg.MarkDelivered(r.db, gone)
@@ -297,11 +320,11 @@ func TestDecideMarksATaskDoneWhenItsCardWasClosedSomeOtherWay(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if res.Tell() != fmt.Sprintf("T%d decided", tid) || note != fmt.Sprintf("task T%d done (the second)", tid) {
+	if res.Tell() != fmt.Sprintf("T%d decided", tid) || note != fmt.Sprintf("task T%d answered (the second); it stays with human until alice accepts it or takes it back", tid) {
 		t.Fatalf("%q %q", res.Tell(), note)
 	}
-	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence = 'the second'", tid) != 1 {
-		t.Fatal("the decision is the task's evidence, though no open card settled it")
+	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND report = 'the second' AND done_evidence IS NULL", tid) != 1 {
+		t.Fatal("the decision is the task's answer, though no open card settled it")
 	}
 }
 

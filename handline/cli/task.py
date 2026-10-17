@@ -184,7 +184,7 @@ def cmd_task_reopen(args) -> int:
 
 
 def cmd_task_accept(args) -> int:
-    """Close a reported task, its owner's done the evidence - whoever it answers to, its opener or the founder."""
+    """Close an answered task, its owner's done the evidence - whoever it answers to, its opener or the founder."""
     if askmod.asking_agent() is None:
         print(_who_refusal("accept a task"))
         return 1
@@ -192,7 +192,7 @@ def cmd_task_accept(args) -> int:
 
 
 def cmd_task_reject(args) -> int:
-    """Send a reported task back to its owner's queue, the note told to the owner."""
+    """Send an answered task back to its owner's queue, the note told to the owner."""
     if askmod.asking_agent() is None:
         print(_who_refusal("reject a task"))
         return 1
@@ -439,13 +439,13 @@ def cmd_task_merge(args) -> int:
 
 
 def _state(t: dict) -> str:
-    """A task's state as read: a reported one names who it waits on (asker, absent from an older daemon's Task, else its opener)."""
-    return f"reported, awaiting {t.get('asker') or t['from']}" if t["state"] == "reported" else t["state"]
+    """A task's state as read: an answered one names who it waits on (asker, absent from an older daemon's Task, else its opener)."""
+    return f"answered, awaiting {t.get('asker') or t['from']}" if t["state"] == "answered" else t["state"]
 
 
 def _print_board(tasks: list[dict]) -> None:
     """Each task (the wire's `Task`), then the requests linked to it as they stand now: state and date are
-    the request's, never held on the task. `state` (#71) is one of draft, queued, doing, reported, done, discarded.
+    the request's, never held on the task. `state` (#71) is one of draft, queued, doing, answered, done, discarded.
     The Go daemon's Task may leave out edited_by, discarded, mismatch, requests, last_activity and asker, so
     each is optional, as in the Go hl's printBoard."""
     if not tasks:
@@ -487,7 +487,7 @@ def _clock(time_box: dict, now: float) -> dict:
 def _waits_on(t: dict) -> str:
     """What holds a task's clock: the founder when they hold it or must accept it, else its open blockers and open
     children, each the founder holds marked so; "" for none."""
-    if t["to"] == "human" or t.get("state") == "reported" and (t.get("asker") or t["from"]) == "human":
+    if t["to"] == "human" or t.get("state") == "answered" and (t.get("asker") or t["from"]) == "human":
         return "human"
     held = [(b["task"], b.get("owner")) for b in t.get("blockers") or []]
     held += [(k["id"], k.get("owner")) for k in t.get("subtasks") or [] if k["state"] not in ("done", "discarded")]
@@ -520,7 +520,7 @@ def _detail_lines(t: dict, now: float) -> list[str]:
     if t["evidence"]:
         out.append(f"done {timefmt.stamp(client.epoch(t['done']))}: {t['evidence']}")
     if t.get("report"):
-        out.append(f"reported {timefmt.stamp(client.epoch(t['report']['at']))}: {t['report']['evidence']}")
+        out.append(f"answered {timefmt.stamp(client.epoch(t['report']['at']))}: {t['report']['evidence']}")
     if t.get("result"):
         out += _result_lines(t["result"], t["id"])
     if t.get("discarded"):
@@ -631,7 +631,7 @@ def cmd_task_board(args) -> int:
                 "sub_task": "sub-task: " + ", ".join(now["agents"]),
                 "held_as_sub_task": "held as sub-task " + ", ".join(f"T{n} ({a})" for n, a in zip(now["tasks"], now["agents"])),
                 "result_in": "you - a result is in"}.get(now["kind"], "nobody holds it")
-        if t["state"] == "reported":
+        if t["state"] == "answered":
             said = _state(t)
         parent = f" (under T{t['parent']})" if t["parent"] else ""
         print(_fit100(f"{actions.task_ref(t['id']):<5} {textsafe.oneline(t['title'])}{parent}"))

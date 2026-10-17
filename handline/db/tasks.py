@@ -240,7 +240,8 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     sets = ["edited_by = ?", "edited_at = ?"]
     params: list = [by, now]
     if owner is not None:
-        sets += ["owner = ?", "delivered_at = NULL", "sent_at = NULL"]       # the new owner has not had it yet
+        sets += ["owner = ?", "delivered_at = NULL", "sent_at = NULL",     # the new owner has not had it yet, nor answered it
+                 "reported_at = NULL", "report = NULL", "report_via = NULL"]
         params.append(owner)
     if reporter is not None:
         sets.append("reporter = ?")

@@ -389,13 +389,13 @@ type TaskEdit struct {
 }
 
 // EditTask is db.edit_task: a changed owner, reporter, title, priority or timeout, stamped with who and when. The caller has checked permission and
-// that something changed; this only writes. A new owner has not had the task yet, so delivered_at and sent_at clear.
+// that something changed; this only writes. A new owner has not had the task yet, so delivered_at and sent_at clear, and has not answered it.
 func EditTask(q Q, tid int64, by string, ed TaskEdit) error {
 	now := Now()
 	sets := []string{"edited_by = ?", "edited_at = ?"}
 	args := []any{by, now}
 	if ed.Owner != nil {
-		sets = append(sets, "owner = ?", "delivered_at = NULL", "sent_at = NULL")
+		sets = append(sets, "owner = ?", "delivered_at = NULL", "sent_at = NULL", "reported_at = NULL", "report = NULL", "report_via = NULL")
 		args = append(args, *ed.Owner)
 	}
 	if ed.Reporter != nil {

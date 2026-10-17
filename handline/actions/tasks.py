@@ -1315,8 +1315,8 @@ def memo_summary(con, tid: int, cap: int = 500) -> str:
 
 
 def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
-    """Why `me` may not hand this task to `to`, or None. A task moves to another
-    owner when its owner (or the founder) says so, with a note. Who reviews and who
+    """Why `me` may not hand this task to `to`, or None. Anyone moves an open task
+    to another owner, with a note (its asker takes it back so). Who reviews and who
     merges is the project's guideline, not a rule here: the owner keeps its task
     and waits on a child task it opens for them."""
     tid = row["id"]
@@ -1326,8 +1326,6 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
         return f"no agent named {to}"
     if to == row["owner"]:
         return f"T{tid} is already {to}'s"
-    if me != HUMAN and me != row["owner"]:
-        return f"T{tid} is {row['owner']}'s: only its owner hands it on"
     return None
 
 

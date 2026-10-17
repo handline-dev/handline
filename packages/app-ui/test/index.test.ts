@@ -5,7 +5,7 @@ import { STATE_GLYPH, blockedBy, toneOf } from '../src/index.ts';
 test('a state has a glyph and a tone, and an unknown state is idle', () => {
   assert.equal(STATE_GLYPH.doing, 'taskDoing');
   assert.equal(toneOf('blocked'), 'block');
-  assert.equal(toneOf('reported'), 'idle');
+  assert.equal(toneOf('answered'), 'idle');
 });
 
 test('waiting words', () => {
