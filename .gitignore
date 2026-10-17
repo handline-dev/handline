@@ -13,6 +13,7 @@ docs/vendor-extension-board.md
 /go/cmd/handlined/handlined
 /go/hl
 /go/hl.src
+/go/heavyslot
 
 node_modules/
 .turbo/
