@@ -1,6 +1,7 @@
 // What the Tasks page draws, decided without a screen: which rows pass the filters, in what order, as a list or as a tree, and the
 // idle and timeout words of a row. The columns and the default states follow the bridge's tasks_view.py (`HEADS`, `LISTED`).
 import type { Task } from '@handline/client';
+import { isPerson } from './chat.ts';
 
 export const TASK_STATES = ['pending', 'draft', 'queued', 'doing', 'blocked', 'reported', 'done', 'discarded'] as const;
 /** What a list shows when it opens: done and discarded are out of the way until asked for. */
@@ -142,3 +143,23 @@ export function taskTree(rows: readonly Task[], all: readonly Task[]): TreeRow[]
 
 /** The agents named on any task, for the agent filter. */
 export const taskAgents = (tasks: readonly Task[]): string[] => [...new Set(tasks.flatMap((t) => [t.to, t.from]))].sort();
+
+export type TaskGroupKey = 'needs' | 'running' | 'queued' | 'done';
+export const TASK_GROUPS: readonly { key: TaskGroupKey; label: string }[] = [
+  { key: 'needs', label: 'Needs you' },
+  { key: 'running', label: 'Running' },
+  { key: 'queued', label: 'Queued' },
+  { key: 'done', label: 'Done' },
+];
+
+/** The group a task sits in: what waits on the person, what runs, what waits its turn, what is closed. */
+export function taskGroup(t: Task, me: string): TaskGroupKey {
+  if (CLOSED.includes(t.state)) return 'done';
+  if (isPerson(t.to, me) || (t.state === 'reported' && isPerson(t.from, me))) return 'needs';
+  return t.state === 'doing' ? 'running' : 'queued';
+}
+
+/** The rows in their order, split into the groups that have any; each group keeps the order of `rows`. */
+export function groupTasks(rows: readonly Task[], me: string): { key: TaskGroupKey; label: string; rows: Task[] }[] {
+  return TASK_GROUPS.map((g) => ({ ...g, rows: rows.filter((t) => taskGroup(t, me) === g.key) })).filter((g) => g.rows.length);
+}

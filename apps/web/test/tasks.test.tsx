@@ -74,17 +74,11 @@ const cursorTo = async (id: number) => {
 const mark = (id: number) => click($(`input[aria-label="Mark T${id}"]`));
 
 describe('the list', () => {
-  it('shows the open tasks sorted by priority, with the columns of the bridge, and leaves done ones out until asked', async () => {
+  it('groups the open tasks by status, sorted by priority inside a group, and leaves done ones out until asked', async () => {
     await mount();
     await loaded();
     expect(rowIds()).toEqual([1684, 1688, 1700, 1690]); // P1, then P2 by number, then P3
-    expect(
-      $$('th').map((h) =>
-        text(h)
-          .trim()
-          .replace(/ [▴▾]$/, ''),
-      ),
-    ).toEqual(['', '#', 'P', 'state', 'title', 'time', '']);
+    expect($$('tr.tgroup').map((g) => text(g).trim())).toEqual(['Running 2', 'Queued 2']);
     expect(text(row(1684))).toContain('P1');
     expect(text(row(1688))).toContain('doing');
     expect(text(row(1684))).toContain('handline.architect');
@@ -93,20 +87,19 @@ describe('the list', () => {
     await click(button('Closed')!);
     await until(() => row(1650), 'the done task');
     expect(text(row(1650))).toContain('done');
+    expect($$('tr.tgroup').map((g) => text(g).trim())).toEqual(['Done 1']);
     expect(row(1688)).toBeNull(); // Closed shows only the closed ones
   });
 
-  it('sorts by a column head and by the s key, and reverses with S', async () => {
+  it('sorts with the s key and reverses with S, inside each group', async () => {
     await mount();
     await loaded();
-    await click(button('#')!);
-    expect(rowIds()).toEqual([1684, 1688, 1690, 1700]);
-    await click(button('#')!);
-    expect(rowIds()).toEqual([1700, 1690, 1688, 1684]);
-    expect($('th[aria-sort="descending"]')).not.toBeNull();
     await focusPage();
-    await press('S'); // next column from number is priority, reversed
-    expect(rowIds()).toEqual([1690, 1688, 1700, 1684]);
+    await press('S'); // next column from priority is the state, reversed: queued before draft
+    expect(rowIds()).toEqual([1684, 1688, 1690, 1700]);
+    await press('s');
+    await press('s'); // title: Pair... by name, still inside the groups
+    expect(rowIds().slice(0, 2).sort()).toEqual([1684, 1688]);
   });
 
   it('moves the cursor with j and k, marks with space and A, and keeps its marks in the action bar', async () => {
@@ -118,29 +111,14 @@ describe('the list', () => {
     expect(row(1688)!.classList.contains('cursor')).toBe(true);
     await press(' ');
     expect(($('input[aria-label="Mark T1688"]') as HTMLInputElement).checked).toBe(true); // local-ref-ok
-    expect(text($('.tbar'))).toContain('1 marked');
+    expect(text($('.tbar'))).toContain('1 selected');
     await press('A');
-    expect(text($('.tbar'))).toContain('4 marked');
+    expect(text($('.tbar'))).toContain('4 selected');
     await press('A');
-    expect(text($('.tbar'))).not.toContain('marked');
+    expect(text($('.tbar'))).not.toContain('selected');
     await press(' ');
     await press('Escape'); // clears the marks
-    expect(text($('.tbar'))).not.toContain('marked');
-  });
-
-  it('shows the tree under the parent, remembers the choice, and a hidden parent stays as a dimmed row', async () => {
-    const storage = memory();
-    await mount('#/tasks', undefined, storage);
-    await loaded();
-    await focusPage();
-    await press('t');
-    expect(rowIds()).toEqual([1684, 1688, 1690, 1700]);
-    expect($$('th').map((h) => text(h).trim())).toEqual(['', 'task', 'state', '']);
-    expect(($('td.c-title', row(1688)!) as HTMLElement).style.paddingLeft).toBe('26px');
-    expect(text(row(1688))).toContain('T1684'); // local-ref-ok
-    expect(storage.data.get('tasksView')).toBe('tree');
-    await click($('.ui-seg[aria-label="View"] button')!); // back to the list
-    expect(rowIds()).toEqual([1684, 1688, 1700, 1690]);
+    expect(text($('.tbar'))).not.toContain('selected');
   });
 
   it('searches the number, title, owner and asker, every word having to match', async () => {
@@ -164,13 +142,12 @@ describe('the list', () => {
     await loaded();
     const agent = () => $('select[aria-label="Agent"]') as HTMLSelectElement;
     expect(agent()).toBeNull(); // the popover is closed
-    await click(button('Filters')!);
+    await click(button('Filter')!);
     await choose(agent(), 'handline.auditor');
     expect(rowIds()).toEqual([1690]);
-    expect($('.tdot')).not.toBeNull(); // a filter is on, said by a mark and not by colour
-    expect($('button[aria-label="Filters, on"]')).not.toBeNull(); // and said to a screen reader
+    expect(text(button('Filter'))).toContain('on'); // a filter is on, said in words
     await choose(agent(), '');
-    expect($('.tdot')).toBeNull();
+    expect(text(button('Filter'))).not.toContain('on');
     await press('Escape');
     expect(agent()).toBeNull();
     await focusPage();
@@ -206,7 +183,7 @@ describe('the list', () => {
     await focusPage();
     await press('?');
     const keys = sheet('Keys on this page')!;
-    for (const k of ['Space', 'Enter', 'd', 'o', 'p', 'm', 's / S', 'a', 'v', 't', 'f']) expect($$('kbd', keys).map(text)).toContain(k);
+    for (const k of ['Space', 'Enter', 'd', 'o', 'p', 'm', 's / S', 'a', 'v', 'f']) expect($$('kbd', keys).map(text)).toContain(k);
     await press('Escape', {}, keys);
     expect(sheet('Keys on this page')).toBeUndefined();
   });
@@ -332,24 +309,38 @@ describe('writes', () => {
     expect($('.ui-dialog')).toBeNull(); // the form closed on success
   });
 
-  it("acts on a row from the row's own icons, with no bar under the table until rows are marked", async () => {
+  it('puts what waits on the person under Needs you, with owner and priority chips on the row', async () => {
+    const s = setup();
+    (s.daemon.tasks as unknown as { rows: { id: number; to: string }[] }).rows.find((r) => r.id === 1690)!.to = 'human';
+    await mount('#/tasks', s);
+    await loaded();
+    await until(() => $('tr.tgroup[data-group="needs"]'), 'the Needs you group');
+    expect(text($('tr.tgroup[data-group="needs"]')).trim()).toBe('Needs you 1');
+    expect(text($('.c-owner', row(1690)!))).toBe('you');
+    expect(text($('.c-pri', row(1690)!))).toBe('P3');
+  });
+
+  it('has no icons on a row: a click opens the task, only a ticked box floats the bar, with words', async () => {
     await mount();
     await loaded();
+    expect($$('button', row(1700)!)).toHaveLength(0);
     expect($('.tbar')).toBeNull();
-    await click(button('Priority', row(1700)!)!);
+    await mark(1700);
+    expect(text($('.tbar'))).toContain('1 selected');
+    for (const w of ['Assign', 'Priority', 'Merge', 'More']) expect(button(w, $('.tbar')!)).toBeDefined();
+    await click(button('Priority', $('.tbar')!)!);
     expect(sheet('priority (1 high, 2, 3 low):')).toBeDefined();
-    expect(row(1700)!.classList.contains('cursor')).toBe(true); // the sheet is for that row
   });
 
   it('keeps Discard and Merge disabled, with the reason, until the daemon serves them', async () => {
     await mount();
     await loaded();
-    const d = button('Discard', row(1684)!)!; // the row's own icon
-    expect((d as HTMLButtonElement).disabled).toBe(true);
-    expect(d.title).toBe('This daemon does not serve task.discard yet');
     await mark(1684);
     expect(button('Merge')!.title).toBe('This daemon does not serve task.merge yet');
-    expect((button('Owner') as HTMLButtonElement).disabled).toBe(false);
+    expect((button('Assign') as HTMLButtonElement).disabled).toBe(false);
+    await click(button('More', $('.tbar')!));
+    expect(document.querySelector('[role="menuitem"][title="This daemon does not serve task.discard yet"]')).not.toBeNull();
+    await press('Escape');
     await focusPage();
     await press('d');
     expect($('.tsheet')).toBeNull(); // the key does nothing either
@@ -574,8 +565,9 @@ describe('actions on one task or many', () => {
     await mark(ids[0]!);
     await shiftClick($(`input[aria-label="Mark T${ids[2]}"]`));
     expect($$('input[type="checkbox"]:checked').filter((c) => c.getAttribute('aria-label')?.startsWith('Mark T'))).toHaveLength(3);
-    await click(button('Select all'));
-    expect(text($('.ui-toolbar, [role="toolbar"]'))).toContain(`${ids.length} marked`);
+    await focusPage();
+    await press('A');
+    expect(text($('.tbar'))).toContain(`${ids.length} selected`);
   });
 
   it('runs Done on the marked tasks after a confirm with the count, and lists which failed and why', async () => {
@@ -585,7 +577,7 @@ describe('actions on one task or many', () => {
     await mark(1684);
     await mark(1688);
     s.daemon.knobs.refuse('task.done', 'state', 'task is locked', undefined, 1);
-    await menu(box, 'More actions', 'Done');
+    await menu($('.tbar')!, 'More', 'Done');
     const sh = sheet('Done 2 tasks?')!;
     expect(sh).toBeTruthy();
     await typeInto($('input[aria-label="what came of it?"]', sh) as HTMLInputElement, 'checked by hand');
@@ -601,7 +593,7 @@ describe('actions on one task or many', () => {
     await loaded();
     await mark(1690); // queued
     await mark(1700); // draft
-    await menu(box, 'More actions', 'Queue');
+    await menu($('.tbar')!, 'More', 'Queue');
     const sh = sheet('Queue 1 task?')!;
     expect(text(sh)).toContain('1 skipped');
     expect(text(sh)).toContain('1690 is not a draft');
@@ -609,11 +601,12 @@ describe('actions on one task or many', () => {
     await until(() => s.daemon.tasks.get({ task: 1700 }).state === 'queued', 'the draft is queued');
   });
 
-  it("a row's own menu releases a running task", async () => {
+  it("the bar's More menu releases a running task", async () => {
     const s = withVerbs(setup());
     await mount('#/tasks', s);
     await loaded();
-    await menu(row(1684)!, 'Actions', 'Release');
+    await mark(1684);
+    await menu($('.tbar')!, 'More', 'Release');
     const ask = sheet('Release 1 task?')!;
     await click(button('Release', ask));
     expect(text(ask)).toContain('This is required.');
@@ -625,7 +618,8 @@ describe('actions on one task or many', () => {
   it('a verb the daemon does not serve is listed but cannot be used, and says why', async () => {
     await mount('#/tasks', setup());
     await loaded();
-    await click(button('Actions', row(1684)!));
+    await mark(1684);
+    await click(button('More', $('.tbar')!));
     const done = popupRow('Done')!;
     expect(done.getAttribute('aria-disabled')).toBe('true');
     expect(done.getAttribute('title')).toContain('does not serve task.done');

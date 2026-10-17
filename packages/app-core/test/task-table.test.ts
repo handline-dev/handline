@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Task } from '@handline/client';
-import { timeBoxText, LISTED, defaultFilter, durationMs, idleText, isOver, shown, sortTasks, taskTree, timeoutText } from '../src/task-table.ts';
+import { groupTasks, timeBoxText, LISTED, defaultFilter, durationMs, idleText, isOver, shown, sortTasks, taskTree, timeoutText } from '../src/task-table.ts';
 import { taskAfter } from '../src/tasks.ts';
 
 const NOW = Date.parse('2026-01-01T12:00:00Z');
@@ -108,4 +108,26 @@ test('the time box is one meaning: what is left of it, why it stands still, or h
 test('a time box just edited shows at once, before the clock has caught up', () => {
   const t = { state: 'queued', time_box: '3h', waiting: null, time: { length_s: 3600, default: false, start: null, end: null, overdue_since: null, told: 0, left_s: null } } as never;
   assert.equal(timeBoxText(t, 0), '3h');
+});
+
+test('tasks group as Needs you, Running, Queued and Done, each keeping its order', () => {
+  const all = [
+    task(1),
+    task(2, { state: 'doing' }),
+    task(3, { to: 'human' }),
+    task(4, { state: 'done' }),
+    task(5, { state: 'reported', from: 'human' }),
+    task(6, { state: 'doing' }),
+  ];
+  const g = groupTasks(all, 'me');
+  assert.deepEqual(
+    g.map((x) => [x.label, ids(x.rows)]),
+    [
+      ['Needs you', [3, 5]],
+      ['Running', [2, 6]],
+      ['Queued', [1]],
+      ['Done', [4]],
+    ],
+  );
+  assert.deepEqual(groupTasks([task(1)], 'me').map((x) => x.key), ['queued']);
 });
