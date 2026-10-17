@@ -84,5 +84,6 @@ test('a circle is drawn as an outline inside its box: the rim is painted, the mi
   assert.deepEqual(px(out, 50, 10), [255, 0, 0, 255]);
   assert.deepEqual(px(out, 50, 50), [0, 0, 0, 0]);
   assert.deepEqual(px(out, 12, 12), [0, 0, 0, 0]);
-  assert.equal(shapesToSvg(s.shapes, 100, 100).elements[0]?.type === 'path' && shapesToSvg(s.shapes, 100, 100).elements[0].d.endsWith('Z'), true);
+  const first = shapesToSvg(s.shapes, 100, 100).elements[0];
+  assert.equal(first?.type === 'path' && first.d.endsWith('Z'), true);
 });
