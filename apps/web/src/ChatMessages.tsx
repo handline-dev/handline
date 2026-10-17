@@ -47,15 +47,16 @@ const receiptLabel = (state: string) => RECEIPT[state] ?? RECEIPT.sent!;
 /** A click on a control inside a bubble is that control's, not a pick of the bubble. */
 const onControl = (e: MouseEvent) => !!(e.target as HTMLElement).closest('button, a, input, textarea, form');
 
-/** The stamp hangs in the gutter beside the bubble, out of the flow: an agent's to its right, the person's to its left — the bubble never resizes for it. */
-function Stamp({ left, children }: { left?: boolean; children: ReactNode }) {
+/** The stamp hangs in the gutter beside the bubble, out of the flow: an agent's to its right, the person's to its left — the bubble never resizes for it. The time shows on hover; the ticks (`always`) show all the time. */
+function Stamp({ left, time, always }: { left?: boolean; time: ReactNode; always?: ReactNode }) {
   return (
     <div
-      className={`${MSG_META} absolute bottom-0 hidden items-center justify-end whitespace-nowrap gap-1.5 text-ink-3 peer-hover:flex peer-aria-current:flex ${
+      className={`${MSG_META} absolute bottom-0 flex items-center justify-end whitespace-nowrap gap-1.5 text-ink-3 ${
         left ? 'right-full mr-1.5' : 'left-full ml-1.5'
       }`}
     >
-      {children}
+      <span className="hidden [.peer:hover~*_&]:inline [.peer[aria-current]~*_&]:inline">{time}</span>
+      {always}
     </div>
   );
 }
@@ -82,8 +83,8 @@ function Ticks({ level, label, receipt }: { level: 0 | 1 | 2; label: string; rec
     >
       <Icon name="delivered" size={13} strokeWidth={3} className={level >= 1 ? 'text-ok' : 'text-ink-3'} aria-hidden />
       {/* The front tick has a ring in the chat background, so it reads as lying on the back one. */}
-      <span className={`relative -ml-[8px] inline-flex ${level >= 2 ? 'text-ok' : 'text-ink-3'}`}>
-        <Icon name="delivered" size={13} strokeWidth={6} className="absolute inset-0 text-canvas" aria-hidden />
+      <span className={`relative -ml-[6px] inline-flex ${level >= 2 ? 'text-ok' : 'text-ink-3'}`}>
+        <Icon name="delivered" size={13} strokeWidth={5.5} className="absolute inset-0 text-canvas" aria-hidden />
         <Icon name="delivered" size={13} strokeWidth={3} className="relative" aria-hidden />
       </span>
     </span>
@@ -179,10 +180,11 @@ export function Message(props: {
           </div>
         ) : null}
       </div>
-      <Stamp left={side !== 'agent'}>
-        <span>{clockTime(m.at)}</span>
-        {side === 'person' && !failed ? <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} /> : null}
-      </Stamp>
+      <Stamp
+        left={side !== 'agent'}
+        time={clockTime(m.at)}
+        always={side === 'person' && !failed ? <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} /> : null}
+      />
     </>
   );
 }
@@ -349,9 +351,7 @@ export function Item({
             <RichText text={i.text ?? ''} />
           </div>
         </div>
-        <Stamp>
-          <span>{clockTime(i.at)}</span>
-        </Stamp>
+        <Stamp time={clockTime(i.at)} />
       </>
     );
   if (i.kind === 'tool') return <ToolLine i={i} />;
