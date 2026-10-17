@@ -282,10 +282,10 @@ func TestAGatewayRelaysWhatItDoesNotServeToTheRelayAsTheDevice(t *testing.T) {
 	}
 }
 
-func TestACallAboveAMemberOrOutsideTheContractNeverReachesTheRelay(t *testing.T) {
+func TestACallForAgentsOnlyOrOutsideTheContractNeverReachesTheRelay(t *testing.T) {
 	d, f, _ := startGateway(t, "")
 	c := helloAs(t, d, mustPair(t, d))
-	for _, call := range []string{"account.remove", "account.login", "settings.set", "hook.record", "task.progress"} {
+	for _, call := range []string{"hook.record", "task.progress", "progress.get"} {
 		r := c.ask(`{"jsonrpc":"2.0","id":1,"method":"` + call + `","params":{"request_id":"x"}}`)
 		if gate(r) != "role" {
 			t.Fatalf("%s: %v", call, r)
@@ -298,6 +298,17 @@ func TestACallAboveAMemberOrOutsideTheContractNeverReachesTheRelay(t *testing.T)
 		}
 	}
 	f.onlyHelloReached(t)
+}
+
+// A paired device is the founder: the founder's methods reach the relay for it, as the settings page needs.
+func TestAPairedDeviceReachesTheFoundersMethodsThroughTheRelay(t *testing.T) {
+	d, _, _ := startGateway(t, "")
+	c := helloAs(t, d, mustPair(t, d))
+	for _, call := range []string{"settings.get", "settings.set", "account.set", "account.remove", "devices.list"} {
+		if r := c.ask(`{"jsonrpc":"2.0","id":1,"method":"` + call + `","params":{"request_id":"x"}}`); r["result"] == nil {
+			t.Fatalf("%s: %v", call, r)
+		}
+	}
 }
 
 func mustPair(t *testing.T, d *Daemon) string { token, _ := pair(t, d, "phone"); return token }

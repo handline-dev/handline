@@ -170,7 +170,7 @@ func (e *Env) notifyUnblocked(q db.Q, depTID int64, owner, closer string, closed
 	check(db.LinkRequest(q, depTID, rid))
 	must(db.AddEvent(q, closer, "task_unblocked", db.KV{K: "task_id", V: depTID}, db.KV{K: "request_id", V: rid}, db.KV{K: "closed_task", V: closedTID},
 		db.KV{K: "after_request", V: must(db.NewestRequest(q))}))
-	return db.Notice{RID: rid, To: owner, Text: text}
+	return db.Notice{RID: rid, To: owner, Text: text, Unblocked: depTID}
 }
 
 func oneSpace(s string) string { return strings.Join(strings.Fields(s), " ") }
@@ -285,9 +285,24 @@ func (e *Env) freeBlockedBy(q db.Q, tid int64, by string) ([]db.Notice, []string
 }
 
 // deliverUnblocked is the half of a release that happens after the write: tell the owners, and give each freed owner its next task now. An
-// "unblocked" notice is typed (it tells a waiting owner to go on); a result notice is not - it rides on the owner's next delivery.
+// "unblocked" notice is typed (it tells a waiting owner to go on), unless that task goes out to its owner in this step; a result notice is
+// not - it rides on the owner's next delivery.
 func (e *Env) deliverUnblocked(q db.Q, notices []db.Notice, freed []string) {
+	moved := map[string]bool{}
+	for _, owner := range freed {
+		changed, _, err := e.AdvanceCurrentTask(q, owner)
+		if err != nil {
+			panic(dbFailure{err})
+		}
+		moved[owner] = changed
+	}
 	for _, n := range notices {
+		if n.Unblocked != 0 && moved[n.To] {
+			if cur, ok := ok2(db.CurrentTask(q, n.To)); ok && cur == n.Unblocked {
+				must(db.RetireIfUndelivered(q, n.RID, "withdrawn", "the task itself went out to its owner in the same step", false))
+				continue
+			}
+		}
 		queued := must(db.GetRequest(q, n.RID)).State == "queued" // a notice is born landed
 		if queued {
 			must(db.MarkSendNow(q, n.RID))
@@ -300,9 +315,7 @@ func (e *Env) deliverUnblocked(q db.Q, notices []db.Notice, freed []string) {
 		}
 	}
 	for _, owner := range freed {
-		if changed, _, err := e.AdvanceCurrentTask(q, owner); err != nil {
-			panic(dbFailure{err})
-		} else if changed {
+		if moved[owner] {
 			e.Push(q, owner, 0)
 		}
 	}

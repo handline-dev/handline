@@ -15,7 +15,7 @@ appId: dev.handline.mobile
 - tapOn:
     id: pair-uri
 - inputText: ${URI}
-- tapOn: Pair with a daemon
+- tapOn: Connect to your computer
 - tapOn:
     id: pair-go
 - extendedWaitUntil:

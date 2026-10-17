@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,7 +128,7 @@ func TestQueueDeliverSaysWhetherTheTaskWentOut(t *testing.T) {
 	}
 }
 
-func TestADiscardedBlockerReleasesWhatItBlockedAndTellsItsOwnerOnce(t *testing.T) {
+func TestADiscardedBlockerReleasesWhatItBlockedOnce(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	blocker := r.newTask("alice", "alice", "first")
@@ -142,8 +143,12 @@ func TestADiscardedBlockerReleasesWhatItBlockedAndTellsItsOwnerOnce(t *testing.T
 	if bs, _ := db.TaskBlockers(r.DB, waiting); len(bs) != 0 {
 		t.Fatal("still blocked")
 	}
-	if !strings.Contains(strings.Join(r.term.typed, "\n"), "task T2 is unblocked - T1, its last open blocker, discarded") {
+	typed := strings.Join(r.term.typed, "\n")
+	if !strings.Contains(typed, "second") || strings.Contains(typed, "is unblocked") {
 		t.Fatalf("%q", r.term.typed)
+	}
+	if req, _ := db.GetRequest(r.DB, 1); req.State != "withdrawn" {
+		t.Fatalf("the unblocked say left as %s", req.State)
 	}
 	// and it is the owner's current task now
 	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != waiting {
@@ -180,8 +185,8 @@ func TestADoneBlockerReleasesOncePerFinishAndAChildTellsItsParentsOwner(t *testi
 	if left, _ := db.PendingNotices(r.DB, "bob"); len(left) != 0 {
 		t.Fatalf("a shown notice stays pending: %+v", left)
 	}
-	if !strings.Contains(strings.Join(r.term.typed, "\n"), "task T1 is unblocked - T2, its last open blocker, done") {
-		t.Fatalf("%q", r.term.typed)
+	if strings.Contains(typed, "is unblocked") {
+		t.Fatalf("the task went out, the unblocked say is extra: %q", r.term.typed)
 	}
 	// the block row stays for a reopen: no second release for the same finish
 	r.ReleaseEndedBlockers()
@@ -189,6 +194,64 @@ func TestADoneBlockerReleasesOncePerFinishAndAChildTellsItsParentsOwner(t *testi
 	r.DB.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'released_at_done'").Scan(&released)
 	if released != 1 {
 		t.Fatalf("released again for the same finish: %d", released)
+	}
+}
+
+func TestAnOwnerBusyWithItsCurrentTaskIsStillToldTheUnblock(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	busy := r.newTask("bob", "alice", "first")
+	r.must(func() error { _, _, err := r.AdvanceCurrentTask(r.DB, "bob"); return err }())
+	blocker := r.newTask("alice", "alice", "blocker")
+	waiting := r.newTask("bob", "alice", "second")
+	db.AddBlock(r.DB, waiting, blocker)
+	db.DiscardTask(r.DB, blocker, "alice", "not needed")
+	r.term.typed = nil
+	if _, err := r.ReleaseEndedBlockers(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(r.term.typed, "\n"), "task T3 is unblocked - T2, its last open blocker, discarded") {
+		t.Fatalf("%q", r.term.typed)
+	}
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != busy {
+		t.Fatalf("current %d", cur)
+	}
+}
+
+func TestTheUnblockIsStillTypedWhenTheAdvanceSendsSomethingElseOrNothing(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		draft bool
+		setup func(r *rig) int64
+	}{
+		{"a draft goes nowhere", true, func(r *rig) int64 { return 0 }},
+		{"a higher task goes first", false, func(r *rig) int64 {
+			tid, _ := db.NewTask(r.DB, "urgent", "bob", "alice", 0, 1, "", 0, "")
+			db.SetTaskQueued(r.DB, tid, "alice")
+			return tid
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := newRig(t)
+			r.agentUp("bob")
+			blocker := r.newTask("alice", "alice", "blocker")
+			waiting, _ := db.NewTask(r.DB, "second", "bob", "alice", 0, db.DefaultPriority, "", 0, "")
+			if !c.draft {
+				db.SetTaskQueued(r.DB, waiting, "alice")
+			}
+			db.AddBlock(r.DB, waiting, blocker)
+			other := c.setup(r)
+			db.DiscardTask(r.DB, blocker, "alice", "not needed")
+			if _, err := r.ReleaseEndedBlockers(); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(strings.Join(r.term.typed, "\n"), fmt.Sprintf("task T%d is unblocked - T%d, its last open blocker, discarded", waiting, blocker)) {
+				t.Fatalf("%q", r.term.typed)
+			}
+			if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != other {
+				t.Fatalf("current %d, want %d", cur, other)
+			}
+		})
 	}
 }
 

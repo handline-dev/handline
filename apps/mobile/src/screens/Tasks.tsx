@@ -10,7 +10,7 @@ import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
-import { Button } from './parts.tsx';
+import { Button, PageHeader } from './parts.tsx';
 import { MemoBox, MemoRow } from './Memos.tsx';
 import { NewTask, TaskVerbs, useTaskPending } from './TaskActions.tsx';
 import { TaskGraph } from './TaskGraph.tsx';
@@ -51,7 +51,6 @@ export function Tasks(props: { selected: number | null; onSelect: (id: number | 
 }
 
 function List(props: { onSelect: (id: number) => void }) {
-  const c = usePalette();
   const { served } = useServes('tasks.list');
   const me = useStore().me;
   const [scope, setScope] = useState<Scope>('open');
@@ -67,6 +66,8 @@ function List(props: { onSelect: (id: number) => void }) {
   );
   const [creating, setCreating] = useState(false);
   const [graph, setGraph] = useState(false);
+  const [filtering, setFiltering] = useState(false);
+  const narrowed = states.size !== defaultFilter().states.size;
   if (creating)
     return (
       <ScrollView keyboardShouldPersistTaps="handled">
@@ -75,11 +76,15 @@ function List(props: { onSelect: (id: number) => void }) {
     );
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', padding: space.lg }}>
-        <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700', flex: 1 }}>Tasks</Text>
-        <Button testID="graph-toggle" label={graph ? 'List' : 'Graph'} onPress={() => setGraph(!graph)} style={{ marginRight: space.sm }} />
-        <Button testID="new-task-open" label="New task" onPress={() => setCreating(true)} style={{ marginRight: space.xl }} />
-      </View>
+      <PageHeader
+        title="Tasks"
+        actions={
+          <>
+            <Button testID="graph-toggle" label={graph ? 'List' : 'Graph'} onPress={() => setGraph(!graph)} />
+            <Button testID="new-task-open" label="New task" onPress={() => setCreating(true)} />
+          </>
+        }
+      />
       {graph ? (
         <Loadable query={query} served={served} isEmpty={false} skeleton="tasks" label="tasks" empty="No open tasks.">
           <TaskGraph tasks={query.data?.items ?? []} onSelect={props.onSelect} />
@@ -90,8 +95,16 @@ function List(props: { onSelect: (id: number) => void }) {
             {SCOPES.map(([id, label]) => (
               <Pill key={id} testID={`scope-${id}`} on={scope === id} label={label} onPress={() => setScope(id)} />
             ))}
+            {scope !== 'closed' && (
+              <Pill
+                testID="filter-toggle"
+                on={filtering || narrowed}
+                label="Filter"
+                onPress={() => setFiltering(!filtering)}
+              />
+            )}
           </View>
-          {scope !== 'closed' && (
+          {scope !== 'closed' && filtering && (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, padding: space.lg }}>
               {TASK_STATES.filter((s) => !CLOSED.includes(s)).map((s) => (
                 <Pill
@@ -164,7 +177,7 @@ export function Detail(props: { id: number; onBack: () => void }) {
   const gone = query.isError && classify(query.error).kind === 'not_found';
   return (
     <View style={{ flex: 1 }}>
-      <Button testID="task-back" label="‹ Tasks" onPress={props.onBack} style={{ margin: space.lg, alignSelf: 'flex-start' }} />
+      <PageHeader back={{ label: 'Tasks', onPress: props.onBack, testID: 'task-back' }} />
       {gone ? (
         <Text testID="empty" style={{ color: c.muted, padding: space.lg }}>
           This task no longer exists.
@@ -188,13 +201,19 @@ function Section(props: { title: string; children: React.ReactNode }) {
   );
 }
 
+/** The last delivery and how many there were, not one line per attempt. */
+function deliverySummary(ds: TaskDetail['deliveries']): string {
+  const d = [...ds].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0]!;
+  return `${ds.length > 1 ? `${ds.length} deliveries, last: ` : ''}${ago(d.at)} · ${d.how} · ${d.outcome}`;
+}
+
 function Body({ t }: { t: TaskDetail }) {
   const c = usePalette();
   const now = Date.now();
   const memos = useMemos(t.id).data?.memos ?? t.memos; // the memo list is the one a memo write edits at once
   const sending = useTaskPending(t.id);
-  const line = (s: string) => (
-    <Text key={s} style={{ color: c.ink }}>
+  const line = (s: string, key: string | number = s) => (
+    <Text key={key} style={{ color: c.ink }}>
       {s}
     </Text>
   );
@@ -210,16 +229,17 @@ function Body({ t }: { t: TaskDetail }) {
         </Text>
       )}
       <TaskVerbs t={t} />
-      {t.block_reason ? <Text style={{ color: c.block }}>{t.block_reason}</Text> : null}
-      {t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
+      {/* The Waits on section already says what holds it; the reason lines are for a task with no listed blocker. */}
+      {!t.blockers.length && t.block_reason ? <Text style={{ color: c.block }}>{t.block_reason}</Text> : null}
+      {!t.blockers.length && t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
       {t.body ? <Section title="Brief">{line(t.body)}</Section> : null}
       {t.blockers.length ? (
-        <Section title="Waits on">{t.blockers.map((b) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`))}</Section>
+        <Section title="Waits on">{t.blockers.map((b, i) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`, i))}</Section>
       ) : null}
-      {t.children.length ? <Section title="Subtasks">{t.children.map((k) => line(`${taskRef(k)}`))}</Section> : null}
+      {t.children.length ? <Section title="Subtasks">{t.children.map((k, i) => line(`${taskRef(k)}`, i))}</Section> : null}
       {t.evidence ? <Section title="Evidence">{line(t.evidence)}</Section> : null}
       {t.deliveries.length ? (
-        <Section title="Delivery">{t.deliveries.map((d) => line(`${ago(d.at)} · ${d.how} · ${d.outcome}`))}</Section>
+        <Section title="Delivery">{line(deliverySummary(t.deliveries))}</Section>
       ) : null}
       {memos.length ? (
         <Section title="Memos">
@@ -229,7 +249,7 @@ function Body({ t }: { t: TaskDetail }) {
         </Section>
       ) : null}
       <MemoBox id={t.id} />
-      {t.handoffs.length ? <Section title="Handoffs">{t.handoffs.map((h) => line(`${h.from} → ${h.to}: ${h.note}`))}</Section> : null}
+      {t.handoffs.length ? <Section title="Handoffs">{t.handoffs.map((h, i) => line(`${h.from} → ${h.to}: ${h.note}`, i))}</Section> : null}
     </ScrollView>
   );
 }

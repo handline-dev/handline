@@ -101,7 +101,7 @@ func TestOnlyTheFounderReadingARequestOpensIt(t *testing.T) {
 		}
 		return report.set("read_at"), answer.set("delivered_at")
 	}
-	asMember := &rpc.Conn{Caller: rpc.Caller{Role: "member", Info: map[string]any{"kind": "person"}}}
+	asMember := &rpc.Conn{Caller: rpc.Caller{Role: "founder", Info: map[string]any{"kind": "device", "device": "d1", "name": "phone"}}}
 	for _, c := range []*rpc.Conn{asBob, asMember} {
 		read(t, e, c, 1)
 		read(t, e, c, 2)

@@ -10,7 +10,7 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only, subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. */
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. */
 export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr" | "transcript";
 
 export type Caller = {
@@ -743,7 +743,8 @@ export type Settings = {
 export type Device = {
   id: string;
   name: string;
-  role: "member";
+  /** A paired device is the founder. */
+  role: "founder";
   created: Timestamp;
   last_seen: Timestamp | null;
   connected: boolean;
@@ -1018,6 +1019,8 @@ export type SettingsValues = {
   token_prices?: { [key: string]: number };
   /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). */
   input_hold_idle_s?: number;
+  /** The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. */
+  handoff_prompt?: string;
 };
 
 /** settings.set's changes: any of SettingsValues' keys; null removes one. */
@@ -1048,6 +1051,8 @@ export type SettingsChanges = {
   token_prices?: { [key: string]: number } | null;
   /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). null removes the key (back to the default). */
   input_hold_idle_s?: number | null;
+  /** The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. An empty string is the built-in prompt; null removes the key (back to the default). */
+  handoff_prompt?: string | null;
 };
 
 /** One method as a daemon lists it: its role and whether this caller may call it. */
@@ -2464,7 +2469,7 @@ export interface Methods {
 }; result: Settings };
   "settings.set": { params: {
   changes: SettingsChanges;
-  /** Write the per-agent override of: park_timeout_s, ignore_cache_expiry, bg_notice_s, bg_grace_s, bg_check_s, notice_digest_s. Any other key with `agent` is bad_request. */
+  /** Write the per-agent override of: park_timeout_s, ignore_cache_expiry, bg_notice_s, bg_grace_s, bg_check_s, notice_digest_s, handoff_prompt. Any other key with `agent` is bad_request. */
   agent?: AgentName;
   request_id: RequestId;
 }; result: Accepted };
