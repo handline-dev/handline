@@ -31,6 +31,20 @@ func TestASayIsTypedWithItsLines(t *testing.T) {
 	}
 }
 
+func TestAHandoffNoteIsTypedWithItsLinesAndTheTitleOnItsOwn(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	for note, want := range map[string]string{
+		"Step 1:\n- a\x07\n- b": "T1 handed to you. Note: Step 1:\n- a\n- b\nTitle: write the docs\n",
+		"check it":              "T1 handed to you. Note: check it Title: write the docs\n",
+	} {
+		head := mustReq(r, r.ask("alice", "bob", "T1 handed to you by alice: write the docs\n\n"+note, "task"))
+		if got := tellText(r.DB, head, 1, nil, false, nil, ""); !strings.Contains(got, "waiting for you:\n"+want) {
+			t.Errorf("%q", got)
+		}
+	}
+}
+
 func TestDeliverQueuedTellsTheHeadTaskThenBatchesWhatArrivesBehindIt(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
