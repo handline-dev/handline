@@ -153,11 +153,11 @@ func (e *Env) prExists(_ *rpc.Conn, params map[string]any) (any, error) {
 	seen := map[int]bool{}
 	var numbers []int
 	for _, v := range raw {
-		f, isNum := v.(float64)
-		if !isNum || f != float64(int(f)) || f < 1 {
+		i, isInt := rpc.AsInt(v)
+		if !isInt || i < 1 {
 			return nil, badParam("numbers holds positive integers", "numbers")
 		}
-		if n := int(f); !seen[n] {
+		if n := int(i); !seen[n] {
 			seen[n] = true
 			numbers = append(numbers, n)
 		}

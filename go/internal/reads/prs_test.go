@@ -1,7 +1,9 @@
 package reads
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os/exec"
 	"reflect"
@@ -49,7 +51,14 @@ func prAgent(t *testing.T, e *Env, name, origin string) {
 
 func askPRs(t *testing.T, e *Env, agent string, numbers ...any) (map[string]any, error) {
 	t.Helper()
-	got, err := e.prExists(nil, map[string]any{"agent": agent, "numbers": numbers})
+	b, _ := json.Marshal(map[string]any{"agent": agent, "numbers": numbers})
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber() // as the server decodes params
+	var params map[string]any
+	if err := dec.Decode(&params); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.prExists(nil, params)
 	if err != nil {
 		return nil, err
 	}
