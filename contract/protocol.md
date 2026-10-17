@@ -561,7 +561,7 @@ Take a doing task back to queued or draft: anyone may, with a reason the opener 
 
 ### `task.discard`
 
-Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told.
+Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told. Refused while a request on the task is still waiting to be typed (withdraw or cancel it first). A request that already landed in its agent's session does not refuse the task's asker or the founder: the task is discarded, that request closes with it and its holder is told why; anyone else is refused.
 
 ### `task.board`
 

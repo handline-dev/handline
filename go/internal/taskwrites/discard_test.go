@@ -219,3 +219,44 @@ func TestClosingQueuedDeliveriesQuietly(t *testing.T) {
 		t.Fatal("the task no longer reads as sent")
 	}
 }
+
+// A request that already landed is in its holder's hands, and no cancel takes it back: the task's asker or the founder discards the task
+// all the same, the request closes with it and the holder is told why. Anyone else is refused, and a request still waiting to be typed
+// keeps refusing as before.
+func TestTheAskerOrTheFounderDiscardsATaskWhoseRequestLandedAndTheHolderIsTold(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, sent_at) VALUES(70, 'a', 'worker', 'manager', 1, 1), (71, 'b', 'worker', 'manager', 1, 1), "+
+			"(72, 'c', 'worker', 'manager', 1, NULL)",
+		"INSERT INTO requests(id, requester, target, body, state, kind, queue_order, ts, landed_at, delivered_at) VALUES"+
+			"(80, 'manager', 'worker', 'do a', 'queued', 'task', 80, 1, 5, 5), (81, 'manager', 'worker', 'do b', 'queued', 'task', 81, 1, 5, 5), "+
+			"(82, 'manager', 'worker', 'do c', 'queued', 'task', 82, 1, NULL, NULL)",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(70, 80), (71, 81), (72, 82)")
+	r := call(t, mk("other"), discardLine(2, 70, "x", "o1"))
+	if msg := errText(r[0]); msg != "task T70 is in its holder's hands (#80 (with worker)) - only manager, who it answers to, or the founder can discard it now" ||
+		count(t, db, "SELECT COUNT(*) FROM tasks WHERE id = 70 AND discarded_by IS NULL") != 1 {
+		t.Fatalf("neither its asker nor the founder: %v", r[0])
+	}
+	f := &fakeTeller{}
+	if r := call(t, mk("manager", f), discardLine(2, 70, "not needed", "m1")); r[0]["error"] != nil {
+		t.Fatalf("the asker discards: %v", r[0])
+	}
+	if count(t, db, "SELECT COUNT(*) FROM tasks WHERE id = 70 AND discarded_by = 'manager'") != 1 ||
+		count(t, db, "SELECT COUNT(*) FROM requests WHERE id = 80 AND state != 'queued' AND queue_order IS NULL") != 1 {
+		t.Fatal("the task is discarded and its landed request closed")
+	}
+	toldWorker := false
+	for _, n := range f.told {
+		toldWorker = toldWorker || n.To == "worker" && n.Text == "T70 discarded by manager: not needed"
+	}
+	if !toldWorker {
+		t.Fatalf("the holder is told in one line: %+v", f.told)
+	}
+	if r := call(t, mk("", &fakeTeller{}), discardLine(2, 71, "folded into T70", "h1")); r[0]["error"] != nil ||
+		count(t, db, "SELECT COUNT(*) FROM tasks WHERE id = 71 AND discarded_by = 'human'") != 1 {
+		t.Fatalf("the founder discards: %v", r[0])
+	}
+	if r := call(t, mk("manager"), discardLine(2, 72, "x", "m2")); r[0]["error"] == nil {
+		t.Fatalf("a request still waiting to be typed refuses as before: %v", r[0])
+	}
+}

@@ -46,6 +46,16 @@ func withdrawMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (a
 	}
 }
 
+// allLanded is whether every open request on a task has landed in its agent's session (none is still waiting to be typed); false for none.
+func allLanded(live []linked) bool {
+	for _, r := range live {
+		if !r.LandedAt.Valid && r.State != "landed" {
+			return false
+		}
+	}
+	return len(live) > 0
+}
+
 // discard throws a task away before it is done (actions.discard_task, without the founder's stop of open requests, which is
 // task.cancel's): refused while a child is open, while it waits on an open blocker, or while a request is still out on it.
 // What follows the commit - the says typed, the owner's next task, the closed requests' inbox files - is the Teller's.
@@ -121,6 +131,15 @@ func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason str
 		}
 		cancelled, sayStop = nil, false
 		inHand := false
+		// A request that already landed is held by its agent and no cancel can take it back: the asker or the founder discards the task
+		// all the same, the hold ends with it and the holder is told.
+		var holders []string
+		if !stop && (by == who || by == human) && allLanded(live) {
+			for _, r := range live {
+				holders = append(holders, r.Target)
+			}
+			live = nil
+		}
 		if stop && by == human && len(live) > 0 { // the founder's stop: the open requests are cancelled instead of refusing
 			cur, _, err := db.CurrentTask(tx, t.Owner)
 			if err != nil {
@@ -154,6 +173,10 @@ func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason str
 			for _, r := range live {
 				open = append(open, fmt.Sprintf("#%d (with %s)", r.ID, r.Target))
 			}
+			if allLanded(live) {
+				return nil, refusal(fmt.Sprintf("task T%d is in its holder's hands (%s) - only %s, who it answers to, or the founder can discard it now",
+					tid, strings.Join(open, ", "), who))
+			}
 			return nil, refusal(fmt.Sprintf("task T%d still has a request open: %s - withdraw or cancel it first (the founder's `hl cancel <id>`), "+
 				"or its target keeps working on thrown-away work", tid, strings.Join(open, ", ")))
 		}
@@ -182,6 +205,7 @@ func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason str
 			also = append(also, t.Owner)
 		}
 		also = append(also, who, t.OpenedBy)
+		also = append(also, holders...)
 		ended, gone, err := endTask(tx, home, tid, by, t, strings.TrimRight(fmt.Sprintf("T%d discarded by %s: %s", tid, byWord, said), ": "), false, also)
 		if err != nil {
 			return nil, err
