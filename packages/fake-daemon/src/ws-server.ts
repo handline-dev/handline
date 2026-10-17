@@ -33,11 +33,13 @@ function wrap(sock: Duplex): Transport {
     },
   };
   let buf = Buffer.alloc(0);
+  let parts: Buffer[] = []; // the pieces of a text message sent in several frames (a browser splits a large one)
   sock.on('data', (d: Buffer) => {
     buf = Buffer.concat([buf, d]);
     for (;;) {
       if (buf.length < 2) return;
       const op = buf[0] & 15;
+      const first = buf[0]!;
       let len = buf[1] & 127,
         off = 2;
       if (len === 126) {
@@ -55,7 +57,14 @@ function wrap(sock: Duplex): Transport {
       const payload = Buffer.from(buf.subarray(off + (masked ? 4 : 0), off + (masked ? 4 : 0) + len));
       if (mask) for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i & 3];
       buf = buf.subarray(off + (masked ? 4 : 0) + len);
-      if (op === 1) t.onmessage?.(payload.toString());
+      const fin = (first & 128) !== 0;
+      if (op === 1 || op === 0) {
+        parts.push(payload);
+        if (fin) {
+          t.onmessage?.(Buffer.concat(parts).toString());
+          parts = [];
+        }
+      }
       else if (op === 8) {
         sock.end();
         return;
