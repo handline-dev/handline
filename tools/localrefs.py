@@ -37,8 +37,8 @@ PATTERNS: list[tuple[str, re.Pattern]] = [
     ("email", re.compile(r"[A-Za-z0-9._%+-]+@(?!\d+\.\d)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z][A-Za-z0-9-]*")),
     ("home path", re.compile(r"(?:/Users|/home)/([A-Za-z0-9._-]+)|[A-Za-z]:\\Users\\([A-Za-z0-9._-]+)")),
     ("task id", re.compile(_L + r"(?:T\d{2,}|t\d{3,})" + _R)),
-    # A message is M<n> (a #<n> is a GitHub PR, fine to name): 3-5 digits and a hard edge on both sides
-    ("message number", re.compile(r"(?<![A-Za-z0-9_&#/-])M\d{3,5}" + _R)),
+    # A message is M<n> (a #<n> is a GitHub PR, fine to name): 3-7 digits and a hard edge on both sides
+    ("message number", re.compile(r"(?<![A-Za-z0-9_&#/-])M\d{3,7}" + _R)),
     ("agent name", re.compile(r"(?<![\w./-])orcapipe\.(?!(?:py|ya?ml|json|db|log|sock|md|toml|plist|lock|sqlite|txt|sh|backup)\b)[a-z][a-z0-9_]*")),
     ("token", re.compile(r"sk-ant-[A-Za-z0-9_-]{10,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}"
                          r"|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{10,}"
