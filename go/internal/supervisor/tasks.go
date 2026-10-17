@@ -289,9 +289,8 @@ func (e *Env) freeBlockedBy(q db.Q, tid int64, by string) ([]db.Notice, []string
 }
 
 // deliverUnblocked is the half of a release that happens after the write: tell the owners, and give each freed owner its next task now. An
-// "unblocked" notice is typed (it tells a waiting owner to go on), unless that task itself goes out to its owner in this same step, whose
-// delivery says as much; a result notice is not - it rides on the owner's next delivery. The owners are advanced before anything is typed,
-// so a delivery is pushed after the says it follows.
+// "unblocked" notice is typed (it tells a waiting owner to go on), unless that task goes out to its owner in this step; a result notice is
+// not - it rides on the owner's next delivery.
 func (e *Env) deliverUnblocked(q db.Q, notices []db.Notice, freed []string) {
 	moved := map[string]bool{}
 	for _, owner := range freed {

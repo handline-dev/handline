@@ -143,7 +143,6 @@ func TestADiscardedBlockerReleasesWhatItBlockedOnce(t *testing.T) {
 	if bs, _ := db.TaskBlockers(r.DB, waiting); len(bs) != 0 {
 		t.Fatal("still blocked")
 	}
-	// bob was free, so the task itself went out: no "unblocked" say on top of it
 	typed := strings.Join(r.term.typed, "\n")
 	if !strings.Contains(typed, "second") || strings.Contains(typed, "is unblocked") {
 		t.Fatalf("%q", r.term.typed)
@@ -223,7 +222,7 @@ func TestTheUnblockIsStillTypedWhenTheAdvanceSendsSomethingElseOrNothing(t *test
 	for _, c := range []struct {
 		name  string
 		draft bool
-		setup func(r *rig) int64 // answers the task bob should hold after the release, 0 for none
+		setup func(r *rig) int64
 	}{
 		{"a draft goes nowhere", true, func(r *rig) int64 { return 0 }},
 		{"a higher task goes first", false, func(r *rig) int64 {

@@ -809,7 +809,7 @@ func StandingDenial(q Q, requester, target, body, files string, since int64) (in
 type Notice struct {
 	RID       int64
 	To, Text  string
-	Unblocked int64 // the task an "unblocked" say is about: not typed when that task goes out to its owner in the same step
+	Unblocked int64 // the task an "unblocked" say is about
 }
 
 // InboxFile names the inbox file a request wrote for its target, which goes when the request leaves the queue.
