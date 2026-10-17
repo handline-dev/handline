@@ -5,6 +5,8 @@ html,
 body {
   height: 100%;
   margin: 0;
+  /* The window never scrolls; each pane does. clip, not hidden: a hidden box still scrolls when a focused or revealed row inside a pane asks it to. */
+  overflow: clip;
 }
 body {
   background: var(--bg-0);
@@ -83,6 +85,10 @@ button:disabled {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
+/* A pane body takes focus when its content opens, for the keys; it is not a control, so it draws no ring. A utility class would lose to the rule above. */
+.tbody:focus-visible {
+  outline: none;
+}
 .muted {
   color: var(--muted);
 }
@@ -105,6 +111,9 @@ summary::-webkit-details-marker {
   padding: 3px 7px;
 }
 /* The desktop shell: the frame's app fills the window, not the viewport; the floated rail frees the main column. */
+.frame {
+  overflow: clip;
+}
 .frame > #app {
   flex: 1;
   min-height: 0;

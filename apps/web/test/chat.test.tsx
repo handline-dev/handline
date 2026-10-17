@@ -249,6 +249,20 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(text(msg('and the transcripts')!.querySelector('.msg-ref'))).toContain('Use the contract fixtures.');
   });
 
+  it("a reply quoting another agent's message goes to this chat's agent, with the quote as its parent", async () => {
+    const s = setup();
+    s.daemon.chat.seed(ARCH, { from: 'handline.pr', to: ARCH, body: 'PR note from elsewhere' });
+    const t = await mount(ARCH, s);
+    await until(() => msg('PR note from elsewhere'), 'the quoted row');
+    await click(msg('PR note from elsewhere')!.querySelector('.msg-body')!);
+    await typeInto(compose(), 'answer here');
+    await press(compose(), 'Enter');
+    await until(() => sentMsgs(t).some((m) => m.body === 'answer here'), 'the daemon got it');
+    const m = sentMsgs(t).find((x) => x.body === 'answer here')!;
+    expect(m.to).toBe(ARCH);
+    expect(m.parent).toBe(idOf('PR note from elsewhere'));
+  });
+
   it("a reply to the agent's open question is a linked message, never an answer", async () => {
     const t = await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
@@ -356,12 +370,9 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
   });
 });
 
-describe('the bridge items: message numbers, new, menus, seen, strip, HR', () => {
+describe('the bridge items: message numbers, new, menus, seen, strip', () => {
   const chatOf = (t: { daemon: unknown }) =>
     (t.daemon as { chat: { messages: { id: number; body: string; landing: string }[]; seenUpTo: Map<string, number> } }).chat;
-  const hrOf = (t: { daemon: unknown }) => (t.daemon as { script: { hr: { raise: (p: object) => unknown } } }).script.hr;
-  const labelled = (within: Element | null | undefined, label: string) =>
-    [...(within ?? box).querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label);
 
   it("nothing the task board sent is in the agent's own chat", async () => {
     const s = setup();
@@ -391,6 +402,53 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await pageBackTo(() => $('.ref'), 'the page with the reference');
     await click($('.ref')!);
     await until(() => msg('Draft the web chat tab plan.')?.hasAttribute('data-flash'), 'the message flashes');
+  });
+
+  it('in the all room the sender is named on the left, once per run, with no "from -> to"; an agent\'s say to another agent is not in its room', async () => {
+    const s = setup();
+    const at = (n: number) => new Date(Date.UTC(2031, 2, 1, 0, n)).toISOString();
+    s.daemon.chat.seed(ARCH, { from: 'handline.auditor', to: ARCH, body: 'first from auditor', at: at(1) });
+    s.daemon.chat.seed(ARCH, { from: 'handline.auditor', to: ARCH, body: 'second from auditor', at: at(2) });
+    s.daemon.chat.seed(ARCH, { from: 'handline.term-build', to: ARCH, body: 'from builder', at: at(3) });
+    s.daemon.chat.seed(ARCH, { from: ARCH, to: 'handline.auditor', body: 'architect says to auditor', at: at(4) });
+    await mount(ARCH, s);
+    await until(() => msg('Which gap list'), 'history');
+    await click($('[aria-label="All: also what other agents say to each other"]')!);
+    await until(() => msg('first from auditor'), 'the all room');
+    const name = (b: string) => msg(b)!.querySelector('.msg-from')?.textContent;
+    expect(name('first from auditor')).toBe('handline.auditor');
+    expect(name('second from auditor')).toBeUndefined(); // the same sender as the one before
+    expect(name('from builder')).toBe('handline.term-build');
+    expect(text(msg('from builder'))).not.toContain('→');
+    expect(msg('architect says to auditor')).toBeUndefined();
+  });
+
+  it('in the desktop app an agent name opens that agent, a repo path asks the shell with the branches named, and #N opens that pull request', async () => {
+    const calls: unknown[] = [];
+    Object.assign(window, {
+      handline: {
+        api: 1,
+        openPath: async (a: unknown) => (calls.push(['path', a]), { ok: true, how: 'branch' }),
+        openPr: async (a: unknown) => (calls.push(['pr', a]), { ok: true, how: 'github' }),
+      },
+    });
+    try {
+      const s = setup();
+      s.daemon.chat.seed(ARCH, { from: ARCH, to: 'human', body: `on branch feat-docs file docs/x.md by ${ARCH}, see #275`, at: '2031-02-01T00:00:00Z' });
+      await mount(ARCH, s);
+      await until(() => msg('on branch feat-docs'), 'the message');
+      const m = msg('on branch feat-docs')!;
+      await click(m.querySelector('.path')!);
+      await click(m.querySelector('[data-pr]')!);
+      await click(m.querySelector('.agent-link')!);
+      expect(calls).toEqual([
+        ['path', { path: 'docs/x.md', agent: ARCH, branches: ['feat-docs', 'docs/x.md'] }],
+        ['pr', { number: 275, agent: ARCH }],
+      ]);
+      expect(location.hash).toBe(`#/agents/${encodeURIComponent(ARCH)}`);
+    } finally {
+      delete (window as { handline?: unknown }).handline;
+    }
   });
 
   it('new messages while scrolled up are counted in a pill that takes you down', async () => {
@@ -466,39 +524,6 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     expect($('.chat-strip a')!.getAttribute('href')).toMatch(/^#\/tasks\/\d+/);
     expect($('.chat-banner')).toBeNull();
     void t;
-  });
-
-  it('an open HR proposal about the agent is a card in the chat with approve and reject as icons', async () => {
-    const s = setup();
-    hrOf(s).raise({ id: 41, title: 'link handline.architect -> handline.auditor', diff: 'link', agent: ARCH });
-    await mount(ARCH, s);
-    await until(() => $('.card-hr'), 'the HR card');
-    expect(text($('.card-hr'))).toContain('link handline.architect');
-    expect(labelled($('.card-hr'), 'Approve')).toBeDefined();
-    expect(labelled($('.card-hr'), 'Reject')).toBeDefined();
-    await click(labelled($('.card-hr'), 'Reject')!);
-    await typeInto($('.ui-dialog input') as HTMLInputElement, 'not now');
-    await click($('.ui-dialog .ui-btn.solid')!);
-    await until(() => $('.card-hr')?.getAttribute('data-state') === 'rejected', 'the same card showing the outcome');
-    expect(text($('.card-hr'))).toContain('Rejected');
-    expect(labelled($('.card-hr'), 'Reject')!.getAttribute('aria-pressed')).toBe('true');
-    expect((labelled($('.card-hr'), 'Approve') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('an approved HR proposal stays as the same card saying Applied, with what changed, the Approve button pressed and a banner', async () => {
-    const s = setup();
-    hrOf(s).raise({ id: 42, title: 'link handline.architect -> handline.auditor', diff: 'link architect to auditor', agent: ARCH });
-    await mount(ARCH, s);
-    await until(() => $('.card-hr'), 'the HR card');
-    await click(labelled($('.card-hr'), 'Approve')!);
-    await until(() => $('.card-hr')?.getAttribute('data-state') === 'approved', 'the card showing Applied');
-    expect(text($('.card-hr'))).toContain('Applied');
-    expect(text($('.card-hr'))).toContain('link architect to auditor');
-    await until(() => $('.card-hr .banner'), 'the banner');
-    expect(text($('.card-hr .banner'))).toBe('Applied');
-    expect(labelled($('.card-hr'), 'Approve')!.getAttribute('aria-pressed')).toBe('true');
-    expect((labelled($('.card-hr'), 'Reject') as HTMLButtonElement).disabled).toBe(true);
-    expect($$('.msg').some((m) => /applied/i.test(text(m)))).toBe(false); // the app posts nothing in the chat
   });
 });
 

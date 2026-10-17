@@ -5,7 +5,6 @@ import type { KV, Verb } from '@handline/app-core';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { useAgents, useChatActions } from '@handline/app-data';
 import { setting } from './daemon.ts';
-import { replyTo } from './ChatMessages.tsx';
 import { menuOf, useEntries, useOpenTerminal, type Entry, type MenuKind } from './ChatMenus.tsx';
 import { VerbSheet } from './AgentVerbs.tsx';
 import { useScreenKeys, type KeyRows } from './screenKeys.ts';
@@ -45,7 +44,6 @@ export function Compose(props: {
   const att = useAttachDraft();
   const canAttach = useCan('attachment.put');
   const agents = useAgents().data?.agents ?? [];
-  const names = new Set(agents.map((a) => a.name));
   const view = agents.find((a) => a.name === agent);
   const draft = setting(storage, `handline.draft.${agent}`, '');
   const [text, setText] = useState(draft.value);
@@ -107,11 +105,11 @@ export function Compose(props: {
     }
     setRefused(null);
     const delivery = choosing && now ? ('now' as const) : undefined;
-    // A picked message is a reference: a linked message to whoever said it, whatever it asked.
+    // A picked message is only a reference (the parent link): the message goes to this chat's agent, whoever said it.
     const attachments = att.ids;
     // A dropped file or folder reaches the agent as its absolute path, one to a line after the words.
     const body = [text, ...att.refs.map((r) => r.path)].filter(Boolean).join('\n');
-    if (target) act.send(body, { parent: target.id, to: replyTo(target, (n) => names.has(n)), delivery, attachments });
+    if (target) act.send(body, { parent: target.id, delivery, attachments });
     else if (item) act.send(body, { parent_item: item.id, delivery, attachments });
     else act.send(body, { delivery, attachments });
     att.clear();

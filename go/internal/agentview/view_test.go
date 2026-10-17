@@ -366,3 +366,33 @@ func TestALaunchReadsStartingFromWhatIsRecordedUntilItsSessionsFirstHook(t *test
 		}
 	}
 }
+
+func TestALaunchTheDaemonBeganReadsStartingBeforeHlLaunchKeepsItsStart(t *testing.T) {
+	r := newRig(t, "new")
+	r.state(t, "new", states.Idle, "")
+	shell := true // the launch line is typed at the pane's shell and runs there through hl's bash wrapper
+	r.env.PaneRuns = func(string) bool { return !shell }
+	db.AddEventAt(r.env.Q, 4980, "new", "SessionEnd") // the session before this launch
+	db.AddEventAt(r.env.Q, 4990, "new", "launching")
+	r.env.RefreshOne("new")
+	if w := r.stored(t, "new")["state"]; w != "starting" {
+		t.Fatalf("no session_starts row yet, the pane still at its shell: %v", w)
+	}
+	now := r.env.Now
+	r.env.Now = func() int64 { return 4990 + LaunchShellGraceS }
+	r.env.RefreshOne("new")
+	if w := r.stored(t, "new")["state"]; w == "starting" {
+		t.Fatal("a launch still at the shell after the grace died there")
+	}
+	shell = false
+	r.env.RefreshOne("new")
+	if w := r.stored(t, "new")["state"]; w != "starting" {
+		t.Fatalf("a launch whose pane runs claude is starting however long it takes: %v", w)
+	}
+	r.env.Now = now
+	db.AddEventAt(r.env.Q, 4995, "new", "SessionStart")
+	r.env.RefreshOne("new")
+	if w := r.stored(t, "new")["state"]; w == "starting" {
+		t.Fatal("its first hook ends starting")
+	}
+}

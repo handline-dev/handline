@@ -88,7 +88,7 @@ def test_only_a_non_opener_is_told_in_the_digest_when_a_task_ends(home: Path) ->
 def test_ocp_notice_digest_shows_and_sets_the_wait(home: Path) -> None:
     _world(home)
     out = support._capture(lambda: climod.main(["notice-digest"]))
-    check("cli: shows the default, 15m", "default:" in out and "15m after the first" in out, out)
+    check("cli: shows the default, 5m", "default:" in out and "5m after the first" in out, out)
     out = support._capture(lambda: climod.main(["notice-digest", "20m"]))
     check("cli: sets the common wait", "20m after" in out, out)
     out = support._capture(lambda: climod.main(["notice-digest", "--agent", "backend", "5m"]))

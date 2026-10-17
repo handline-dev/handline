@@ -114,6 +114,8 @@ openPath(a: { path: string; agent?: string }): Promise<
 
 **Plain browser:** a path stays plain, selectable text (code style). No link, no click. A path the page cannot open is not a loss; the person can copy it.
 
+**Repo paths and `#N`.** `openPath` also takes `branches?: string[]` (words of the message that may be branch names, up to 20). A relative path is tried as the version on the first named branch that exists locally or on origin and has the file (`git show`, run in the agent's worktree with no shell, copied to a read-only file in a fresh temp folder and opened from there; `how: 'branch'`), then the worktree's own file as above, then `main` the same way (`how: 'main'`), then `https://github.com/<owner>/<repo>/blob/<branch or main>/<path>` in the browser (`how: 'github'`). `openPr({ number, agent? })` opens `https://github.com/<owner>/<repo>/pull/<number>`; the repo is the agent's worktree's `origin`, `not_found` when it has none on GitHub. Git is reached through injected deps (`git-view.ts`), so `open.ts` still holds no `child_process`.
+
 ### 4.2 `compose` and `cancelCompose`
 
 ```ts

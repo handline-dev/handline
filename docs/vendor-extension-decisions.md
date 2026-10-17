@@ -55,7 +55,7 @@ it has never been usable:
 
 | measured | `inactiveClaudeAccounts[]` | the active account |
 |---|---|---|
-| first pass | 3 entries, **40.3-42.9h old**, `isFetching: false`, disagreeing sharply (ehalim111: ocp 5h 15% / 7d 87% vs Orca 100% / 31%) | 3.4h old |
+| first pass | 3 entries, **40.3-42.9h old**, `isFetching: false`, disagreeing sharply (one account: ocp 5h 15% / 7d 87% vs Orca 100% / 31%) | 3.4h old |
 | #1353 | **empty - 0 entries** | 0.8h old, agrees with ours |
 
 So the invariant is not "Orca's numbers are old". It is that **the number is

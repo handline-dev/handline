@@ -47,6 +47,14 @@ func taskOf(q db.Q, r *db.Request) *db.Task {
 	return nil
 }
 
+// emptyBody stands in for a request with no body: a task shows its title, anything else "(empty)".
+func emptyBody(q db.Q, r *db.Request) string {
+	if t := taskOf(q, r); t != nil && r.Kind.String == "task" {
+		return fmt.Sprintf("T%d (no body) Title: %s", t.ID, t.Title)
+	}
+	return "(empty)"
+}
+
 // AnswerVerb is how the agent answers what it was just told: a task is handed on or finished; the founder is answered through ocp;
 // another agent's request by a reply that names it; a say or a report asks nothing.
 func answerVerb(q db.Q, head *db.Request) string {
@@ -164,7 +172,7 @@ func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 	} else {
 		body := strings.TrimSpace(textsafe.Oneline(head.Body))
 		if body == "" && images == "" {
-			body = "(empty)"
+			body = emptyBody(q, head)
 		}
 		// A reply to an earlier request is a verdict or an answer: cut, it hides the verdict.
 		whole := head.ParentID.Valid || (head.Requester == db.NoticeRequester && strings.HasPrefix(body, db.DigestHead))
@@ -222,8 +230,8 @@ func batchText(q db.Q, batch []*db.Request, folded []*db.Request, aheadOf *db.Re
 			text = fmt.Sprintf("T%d handed to you: %s - %s", tid, title, note)
 		} else {
 			text = r.Body
-			if text == "" {
-				text = "(empty)"
+			if strings.TrimSpace(text) == "" {
+				text = emptyBody(q, r)
 			}
 		}
 		text = strings.TrimSpace(textsafe.Oneline(text))

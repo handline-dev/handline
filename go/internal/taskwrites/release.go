@@ -52,10 +52,10 @@ func releaseMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 				return nil, refusal(fmt.Sprintf("no task T%d", tid))
 			}
 			said := strings.TrimSpace(textsafe.Oneline(reason))
-			if said == "" {
-				return nil, refusal("releasing needs a one-line reason")
+			why = fmt.Sprintf("T%d released by %s", tid, by)
+			if said != "" {
+				why += ": " + said
 			}
-			why = fmt.Sprintf("T%d released by %s: %s", tid, by, said)
 			st, err := state(tx, t)
 			if err != nil {
 				return nil, err

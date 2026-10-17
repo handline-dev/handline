@@ -8,6 +8,7 @@ import (
 
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/taskresult"
 	"github.com/handline/handline/go/internal/textsafe"
@@ -92,7 +93,7 @@ func acceptMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any
 				return nil, err
 			}
 			text := fmt.Sprintf("%s (accepted by %s)", doneText(tid, t.Owner, t.Report.String), by)
-			notes, forget, err := endTask(tx, home, tid, by, t, text, urgent(t.Report.String), []string{t.Owner})
+			notes, forget, err := endTask(tx, home, tid, by, t, text, delivery.Failed(t.Report.String), []string{t.Owner})
 			if err != nil {
 				return nil, err
 			}
