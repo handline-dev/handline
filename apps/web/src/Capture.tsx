@@ -91,9 +91,11 @@ export function CaptureDialog({
     setProblem('');
     setHidden(true); // our own window would show this dialog dimmed over it; two frames let the unmount reach the screen
     await new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
-    const r = await shell('captureWindow')?.captureWindow?.({ id: w.id });
+    const r = await shell('captureWindow')
+      ?.captureWindow?.({ id: w.id })
+      .catch((e: unknown) => ({ ok: false as const, message: sentence(classify(e)) }))
+      .finally(() => setHidden(false));
     if (gone.current) return;
-    setHidden(false);
     if (!r) return setProblem('This app cannot capture a window.');
     if (!r.ok) return setProblem(r.message);
     setShot({ name: r.name, blob: asBlob(r.png) });

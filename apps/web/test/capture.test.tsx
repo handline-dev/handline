@@ -43,9 +43,16 @@ async function mount(hash: string) {
       api: 1,
       screen: async () => ({ ok: true }),
       unsent: async () => ({ ok: true }),
-      captureWindows: async () => ({ ok: true, windows: [{ id: 'window:7', name: 'Simulator', thumb: `data:image/png;base64,${PNG}` }] }),
+      captureWindows: async () => ({
+        ok: true,
+        windows: [
+          { id: 'window:7', name: 'Simulator', thumb: `data:image/png;base64,${PNG}` },
+          { id: 'window:throws', name: 'Broken', thumb: `data:image/png;base64,${PNG}` },
+        ],
+      }),
       captureWindow: async (a: { id: string }) => {
         dialogAtCapture.push(!!document.querySelector('.ui-dialog'));
+        if (a.id === 'window:throws') throw new Error('ipc down');
         return a.id === 'window:7' ? { ok: true, name: 'Simulator.png', png: PNG } : { ok: false, code: 'not_found', message: 'gone' };
       },
     },
@@ -98,6 +105,16 @@ describe('capture', () => {
     await click($$('[aria-label="Windows"] button')[0]);
     await until(() => $('[data-testid="capture-preview"]'), 'the preview');
     expect(dialogAtCapture).toEqual([false]);
+  });
+
+  it('brings the dialog back when the capture call throws', async () => {
+    await mount('#/tasks');
+    await until(() => button('Capture'), 'the Capture button');
+    await click(button('Capture'));
+    await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
+    await click($$('[aria-label="Windows"] button')[1]);
+    await until(() => $('.ui-dialog'), 'the dialog back');
+    expect($$('[aria-label="Windows"] button').length).toBe(2);
   });
 
   it('adds the picture as a comment on the open task', async () => {
