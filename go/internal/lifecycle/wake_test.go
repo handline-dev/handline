@@ -456,6 +456,26 @@ func TestAResumeThatComesUpAfterTheWaitIsNotLaunchedOverFresh(t *testing.T) {
 	}
 }
 
+func TestARelaunchIsToldAsALaunchOnceItsLineIsTyped(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	var told []string
+	m.OnLaunch = func(agent string) {
+		if _, _, ok, _ := db.LastEvent(m.Q, agent, "launching"); !ok {
+			t.Error("told before the launching event was recorded")
+		}
+		told = append(told, agent)
+	}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if len(told) != 1 || told[0] != "a" {
+		t.Fatalf("told %q", told)
+	}
+}
+
 // firstTurn is a terminal host where a launch typed at a shell draws a session that is mid-turn until done closes: the turn a woken
 // session runs on its wake prompt.
 type firstTurn struct {
