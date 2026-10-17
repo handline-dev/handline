@@ -25,6 +25,7 @@ import { TasksTab } from './TasksTab.tsx';
 import { TimelineTab } from './TimelineTab.tsx';
 import { Badges } from './Badges.tsx';
 import { DropZones } from './DropZones.tsx';
+import { ChangesTab } from './ChangesTab.tsx';
 import { BytesTab } from './BytesTab.tsx';
 import { wantsBytes } from './terminal/choose.ts';
 import { Watch } from './TranscriptTab.tsx';
@@ -44,12 +45,14 @@ const label = (t: Tab, structured = false): string =>
         : 'Tasks'
       : t.kind === 'timeline'
         ? 'Timeline'
-        : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
+        : t.kind === 'changes'
+          ? 'Changes'
+          : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
           ? 'Transcript'
           : t.kind === 'terminal'
             ? 'Claude Code'
             : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
-const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history', new: 'plus' };
+const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history', changes: 'changes', new: 'plus' };
 
 const TAB_KEYS: KeyRows = [
   ['Alt+Left Alt+Right', 'move the focused tab along the strip'],
@@ -68,6 +71,7 @@ export function Pane({ group }: { group: Group }) {
   const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; disabled?: boolean }[] = [
     { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
     { kind: 'timeline', params: {}, label: 'Timeline', icon: 'history' },
+    { kind: 'changes', params: {}, label: 'Changes', icon: 'changes', disabled: !detail.worktree },
   ];
   const structured = detail.structured === true;
   // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.
@@ -213,6 +217,8 @@ export function Pane({ group }: { group: Group }) {
           <TasksTab agent={agent} task={typeof tab.params.task === 'number' ? tab.params.task : null} />
         ) : tab.kind === 'timeline' ? (
           <TimelineTab agent={agent} />
+        ) : tab.kind === 'changes' ? (
+          <ChangesTab agent={agent} detail={detail} />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (
           <Watch
             agent={agent}

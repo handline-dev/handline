@@ -12,6 +12,7 @@ import {
   CircleDot,
   Clock,
   Gauge,
+  GitCompare,
   HelpCircle,
   Inbox,
   ListChecks,
@@ -208,6 +209,7 @@ const ICONS = {
   merge: [GitMerge, 'Merge'],
   cancel: [CircleSlash, 'Cancel'],
   history: [History, 'History'],
+  changes: [GitCompare, 'Changes'],
   model: [Cpu, 'Model'],
   // the markup tools
   pen: [PenTool, 'Pen'],
