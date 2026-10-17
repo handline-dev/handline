@@ -1,11 +1,12 @@
-# The Android APK on GitHub Releases. Nightly: a prerelease built every night from main. Stable: a full release cut by hand from a
-# chosen commit. Both are signed with the one fixed key in the repository secrets, so an installed app updates in place; the app
-# reads these releases to offer the update. versionCode is the run number: it only grows, across both channels.
+# The Android APK on GitHub Releases. Nightly: a prerelease built from every push to main; a newer push cancels a build still running.
+# Stable: a full release cut by hand from a chosen commit. Both are signed with the one fixed key in the repository secrets, so an
+# installed app updates in place; the app reads these releases to offer the update. versionCode is the run number: it only grows,
+# across both channels.
 name: android-release
 
 on:
-  schedule:
-    - cron: '0 18 * * *'
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       channel:
@@ -21,8 +22,8 @@ on:
         default: ''
 
 concurrency:
-  group: android-release
-  cancel-in-progress: false
+  group: android-release-${{ inputs.channel == 'stable' && 'stable' || 'nightly' }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 permissions:
   contents: write
@@ -37,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ inputs.ref || 'main' }}
+          ref: ${{ inputs.ref || github.sha }}
       - name: Version
         id: v
         run: |
