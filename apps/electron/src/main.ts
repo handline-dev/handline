@@ -232,7 +232,6 @@ if (!app.requestSingleInstanceLock()) {
     });
     const composer = new Composer(origin, { env: editorEnv, tmp: app.getPath('temp') });
     ipcMain.handle(CHANNELS.openPath, (e, arg) => opener.openPath(e, arg));
-    ipcMain.handle(CHANNELS.openPr, (e, arg) => opener.openPr(e, arg));
     ipcMain.handle(CHANNELS.compose, (e, arg) => composer.compose(e, arg));
     ipcMain.handle(CHANNELS.cancelCompose, (e, arg) => composer.cancel(e, arg));
     app.on('quit', () => composer.dispose());

@@ -1,6 +1,7 @@
 // The read hooks: `useRead` is the one place a read becomes a query, and every named hook is a line over it.
 import { useCallback, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { hashNumbers } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { CallParams, InboxItem, Methods } from '@handline/client';
 import { useData, useFeed, useServes } from './provider.ts';
@@ -97,6 +98,13 @@ export function useTimeline(agent: string) {
     }
   }, [store, agent, items, older]);
   return { query: first, items, more, loadOlder, loadingOlder: state.busy, olderError: state.error };
+}
+/** Which `#N` of a text are pull requests of the agent's repo, and where that repo is: a text with none asks nothing, a daemon without pr.exists or an agent without a GitHub repo finds none. */
+export function usePullRequests(agent: string | undefined, text: string): { repo: string | null; isPr: (n: number) => boolean } {
+  const numbers = agent ? hashNumbers(text).sort((a, b) => a - b) : [];
+  const { data } = useRead('pr.exists', { agent: agent ?? '', numbers }, { enabled: numbers.length > 0 });
+  const found = new Set(data?.found ?? []);
+  return { repo: data?.repo ?? null, isPr: (n) => found.has(n) };
 }
 export const useAgentOptions = () => useRead('agent.options', {});
 export const useTriggers = (agent?: string) => useRead('agent.triggers', { agent });
