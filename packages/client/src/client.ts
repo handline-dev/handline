@@ -29,6 +29,7 @@ export interface ClientOptions {
   connect: () => Promise<Transport>;
   client: string; // who is calling; the daemon names this actor on what it does
   token?: string; // the device token from pairing; the network listener admits no one without it
+  key?: () => string | null; // the founder key, read at each hello: the person's own app proves itself on the Unix socket with it
   reconnect?: { minMs: number; maxMs: number } | false;
   newRequestId?: () => string;
 }
@@ -127,7 +128,7 @@ export class DaemonClient {
   }
 
   private async handshake(t: Transport): Promise<void> {
-    const hello = await this.callNow('hello', { client: this.opts.client, protocol: PROTOCOL, token: this.opts.token });
+    const hello = await this.callNow('hello', { client: this.opts.client, protocol: PROTOCOL, token: this.opts.token, key: this.opts.key?.() ?? undefined });
     if (hello.min_client > PROTOCOL || hello.protocol < PROTOCOL) {
       t.onclose = null;
       t.close();
