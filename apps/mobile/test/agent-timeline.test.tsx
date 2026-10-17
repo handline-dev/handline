@@ -48,8 +48,10 @@ describe('the Timeline tab', () => {
     await record(m, 3);
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
-    await until(() => $('badge-stalled'), 'the mark');
-    await press($('badge-stalled'));
+    await until(() => $('verbs-open'), 'the menu');
+    await press($('verbs-open'));
+    await until(() => $('control-stalled'), 'the mark');
+    await press($('control-stalled'));
     await until(() => entries().length === 3, 'the entries');
     expect(entries()).toEqual([3, 2, 1]);
     m.store.stop();

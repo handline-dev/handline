@@ -189,7 +189,8 @@ describe('the session controls of a structured agent', () => {
     await until(() => $('verbs-open'), 'the menu button');
     expect(controls()).toEqual([]);
     await openMenu();
-    expect(controls()).toEqual(['Close', 'Kill']);
+    // The fixture agent is stalled, and the stalled mark now sits first in the menu.
+    expect(controls()).toEqual([expect.stringMatching(/^blocked: wall/), 'Close', 'Kill']);
     m.store.stop();
   });
 
