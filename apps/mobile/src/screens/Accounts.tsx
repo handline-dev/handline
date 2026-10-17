@@ -211,19 +211,27 @@ function Settings({ a }: { a: Account }) {
   const c = usePalette();
   const save = useWrite('account.set', a.name);
   const off = useWhyNot('account.set');
-  const was = { alias: a.label === a.name ? '' : a.label, cap: a.cap === null ? '' : String(a.cap) };
+  const was = {
+    alias: a.label === a.name ? '' : a.label,
+    cap: a.cap === null ? '' : String(a.cap),
+    end: a.cycle.end_is_default ? '' : (a.cycle.end ?? ''),
+  };
   const [alias, setAlias] = useState(was.alias);
   const [cap, setCap] = useState(was.cap);
+  const [end, setEnd] = useState(was.end);
   // Another client's change arrives through the topic and replaces what the boxes show.
   useEffect(() => setAlias(was.alias), [was.alias]);
   useEffect(() => setCap(was.cap), [was.cap]);
+  useEffect(() => setEnd(was.end), [was.end]);
   const n = Number(cap);
   const badCap = cap !== '' && !(Number.isInteger(n) && n >= 1);
-  const changed = alias.trim() !== was.alias || (cap !== was.cap && cap !== '');
+  const badEnd = end !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(end.trim());
+  const changed = alias.trim() !== was.alias || (cap !== was.cap && cap !== '') || end.trim() !== was.end;
   const submit = () => {
-    const p: { account: string; label?: string; cap?: number } = { account: a.name };
+    const p: { account: string; label?: string; cap?: number; cycle_end?: string | null } = { account: a.name };
     if (alias.trim() !== was.alias) p.label = alias.trim();
     if (cap !== was.cap && cap !== '') p.cap = n;
+    if (end.trim() !== was.end) p.cycle_end = end.trim() || null;
     save.mutate(p);
   };
   return (
@@ -235,14 +243,40 @@ function Settings({ a }: { a: Account }) {
           The cap is a whole number, 1 or more.
         </Text>
       ) : null}
+      <Toggle testID="account-recover" label="Usage recovery" on={a.recover} disabled={!!off} onChange={(on) => save.mutate({ account: a.name, recover: on })} />
+      <Toggle testID="account-cycle" label="Ends this month" on={a.cycle.on} disabled={!!off} onChange={(on) => save.mutate({ account: a.name, cycle: on })} />
+      <Input testID="account-cycle-end" label="Last day, as 2026-10-31 (blank: the monthly anniversary)" value={end} onChange={setEnd} />
+      {badEnd ? (
+        <Text accessibilityRole="alert" style={{ color: c.block }}>
+          The last day is a date like 2026-10-31.
+        </Text>
+      ) : null}
       <Button
         testID="account-save"
         label={save.isPending ? 'Saving…' : 'Save'}
-        disabled={!!off || badCap || !changed || save.isPending}
+        disabled={!!off || badCap || badEnd || !changed || save.isPending}
         onPress={submit}
       />
       {off ? <Text style={{ color: c.muted }}>Locked: {off}.</Text> : null}
     </View>
+  );
+}
+
+function Toggle(props: { label: string; on: boolean; disabled: boolean; onChange: (on: boolean) => void; testID: string }) {
+  const c = usePalette();
+  return (
+    <Pressable
+      testID={props.testID}
+      accessibilityRole="switch"
+      accessibilityLabel={props.label}
+      accessibilityState={{ checked: props.on, disabled: props.disabled }}
+      disabled={props.disabled}
+      onPress={() => props.onChange(!props.on)}
+      style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44, opacity: props.disabled ? 0.4 : 1 }}
+    >
+      <Text style={{ color: c.ink }}>{props.label}</Text>
+      <Text style={{ color: props.on ? c.run : c.muted, fontWeight: '700' }}>{props.on ? 'On' : 'Off'}</Text>
+    </Pressable>
   );
 }
 
