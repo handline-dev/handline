@@ -2087,12 +2087,6 @@ export interface Methods {
   /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
   priority?: 1 | 2 | 3;
   expects?: Expects;
-  /** Also answer the founder's message with text, where {task} is this task's real number. */
-  reply?: {
-    message: RequestName;
-    /** {task} is replaced by the new task's number. */
-    text: string;
-  };
   /** The task shows something on a screen. A label only: task.done takes a screenshot (shots) but never requires one. */
   ui?: boolean;
   request_id: RequestId;

@@ -3,6 +3,7 @@
 package requestref
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"regexp"
@@ -50,6 +51,9 @@ func Resolve(q db.Q, home string, value any, viewer, field string) (int64, error
 	if id, ok := rpc.AsInt(value); ok {
 		var requester, target string
 		err := q.QueryRow("SELECT requester, target FROM requests WHERE id = ?", id).Scan(&requester, &target)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return 0, err
+		}
 		if err != nil || !MayRead(q, home, viewer, id, requester, target) {
 			n := strconv.FormatInt(id, 10)
 			return 0, noRequest(n, n)

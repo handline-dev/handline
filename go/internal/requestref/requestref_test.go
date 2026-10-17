@@ -55,3 +55,17 @@ func TestResolveTakesAnIdOrARefOnlyForAViewerWhoMayReadIt(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveAnswersADatabaseErrorAsItself(t *testing.T) {
+	home := t.TempDir()
+	q, err := store.Open(filepath.Join(home, "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q.Close()
+	if _, err := Resolve(q, home, json.Number("1"), "alice", "id"); err == nil {
+		t.Fatal("no error from a closed database")
+	} else if _, missing := Missing(err); missing {
+		t.Errorf("a closed database answered as a missing request: %v", err)
+	}
+}

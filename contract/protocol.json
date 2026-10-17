@@ -5055,27 +5055,6 @@
      }
     },
     {
-     "name": "reply",
-     "required": false,
-     "schema": {
-      "type": "object",
-      "properties": {
-       "message": {
-        "$ref": "#/components/schemas/RequestName"
-       },
-       "text": {
-        "type": "string",
-        "description": "{task} is replaced by the new task's number."
-       }
-      },
-      "required": [
-       "message",
-       "text"
-      ],
-      "description": "Also answer the founder's message with text, where {task} is this task's real number."
-     }
-    },
-    {
      "name": "ui",
      "required": false,
      "schema": {

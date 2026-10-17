@@ -56,7 +56,6 @@ func (w *writes) say(c *rpc.Conn, p map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	var noTask *string
 	if v := p["no_task"]; v != nil {
 		s, ok := v.(string)
