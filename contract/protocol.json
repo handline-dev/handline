@@ -4172,6 +4172,9 @@
       "id": {
        "type": "integer"
       },
+      "ref": {
+       "$ref": "#/components/schemas/RequestRef"
+      },
       "requester": {
        "type": "string"
       },
@@ -4219,6 +4222,9 @@
          "properties": {
           "id": {
            "type": "integer"
+          },
+          "ref": {
+           "$ref": "#/components/schemas/RequestRef"
           },
           "line": {
            "type": "string",
@@ -9787,6 +9793,9 @@
         "id": {
          "type": "integer"
         },
+        "ref": {
+         "$ref": "#/components/schemas/RequestRef"
+        },
         "from": {
          "type": "string"
         },
@@ -10366,6 +10375,9 @@
     "properties": {
      "id": {
       "type": "integer"
+     },
+     "ref": {
+      "$ref": "#/components/schemas/RequestRef"
      },
      "kind": {
       "type": "string"
@@ -12043,6 +12055,9 @@
       "type": "integer",
       "description": "Request id."
      },
+     "ref": {
+      "$ref": "#/components/schemas/RequestRef"
+     },
      "at": {
       "$ref": "#/components/schemas/Timestamp"
      },
@@ -13387,6 +13402,17 @@
        }
       ]
      },
+     "request_ref": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/RequestRef"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "task_event only: the ref of the delivery in request."
+     },
      "cause": {
       "type": "string",
       "description": "session only: why a new conversation started (restart, wake, fresh close, move, handoff, launch). An open set."
@@ -14281,6 +14307,10 @@
      "was",
      "now"
     ]
+   },
+   "RequestRef": {
+    "type": "string",
+    "description": "The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else."
    }
   },
   "errors": {

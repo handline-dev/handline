@@ -32,7 +32,8 @@ CREATE TABLE requests (
   read_at INTEGER,
   state_at INTEGER,
   moot_by     INTEGER,
-  edge_ok INTEGER
+  edge_ok INTEGER,
+  ref TEXT
 , settles INTEGER);
 CREATE TABLE tasks (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,

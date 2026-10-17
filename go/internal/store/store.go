@@ -148,12 +148,13 @@ func newerStepsOnlyAdd(db *sql.DB, latest int) (bool, error) {
 }
 
 // byHand are the steps tools/go_schema.py cannot dump because they change a table an earlier step made: ported here,
-// run after the step's generated SQL (a comment only).
+// run before the step's generated SQL, which may index a column they add.
 var byHand = map[int]func(*sql.Tx) error{
 	10: addExtraWorktrees, // agent_extra_worktrees
 	13: addTaskReporter,   // task_reporter
 	16: addTaskReport,     // task_report
 	17: addTimeoutLeft,    // task_timeout_left
+	19: addRequestRef,     // requests_ref
 }
 
 // addExtraWorktrees is _agent_extra_worktrees in schema.py: a database made before the column has none.
@@ -199,6 +200,22 @@ func addTimeoutLeft(tx *sql.Tx) error {
 		return err
 	}
 	_, err := tx.Exec("ALTER TABLE tasks ADD COLUMN timeout_left INTEGER")
+	return err
+}
+
+// addRequestRef is _requests_ref in schema.py, but for the index and trigger the generated SQL makes: a database made
+// before the column has none, and its rows are given a ref here.
+func addRequestRef(tx *sql.Tx) error {
+	var n int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM pragma_table_info('requests') WHERE name = 'ref'").Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		if _, err := tx.Exec("ALTER TABLE requests ADD COLUMN ref TEXT"); err != nil {
+			return err
+		}
+	}
+	_, err := tx.Exec("UPDATE requests SET ref = lower(hex(randomblob(6))) WHERE ref IS NULL")
 	return err
 }
 
@@ -255,15 +272,15 @@ func bringUp(db *sql.DB, path string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(m.sql); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("migration %d (%s): %w", m.version, m.name, err)
-		}
 		if step := byHand[m.version]; step != nil {
 			if err := step(tx); err != nil {
 				tx.Rollback()
 				return fmt.Errorf("migration %d (%s): %w", m.version, m.name, err)
 			}
+		}
+		if _, err := tx.Exec(m.sql); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migration %d (%s): %w", m.version, m.name, err)
 		}
 		if _, err := tx.Exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY, " +
 			"name TEXT NOT NULL, applied_at INTEGER NOT NULL, additive INTEGER NOT NULL DEFAULT 0)"); err != nil {

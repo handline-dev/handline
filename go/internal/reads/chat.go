@@ -31,7 +31,7 @@ const (
 // neverReached are the states of a request that no chat draws: withdrawn, replaced, denied.
 const neverReached = "('denied', 'withdrawn', 'replaced')"
 
-const requestSelect = "SELECT id, ts, state_at, requester, target, state, body, " + answerSQL + ", " + dismissedSQL + ", " +
+const requestSelect = "SELECT id, ref, ts, state_at, requester, target, state, body, " + answerSQL + ", " + dismissedSQL + ", " +
 	"delivered_at, typed_at, landed_at, parent_id, kind, settles, " +
 	"(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks, " +
 	"(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, " +
@@ -276,7 +276,7 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 		answer = map[string]any{"id": r.i("answer_id"), "text": verdict, "at": ts(answeredAt(r))}
 	}
 	dismissed, _, _ := dismissal(r)
-	m := map[string]any{"id": r.i("id"), "at": ts(r["ts"]), "state_at": ts(stateAt), "from": r.str("requester"), "to": r.str("target"),
+	m := map[string]any{"id": r.i("id"), "ref": r.str("ref"), "at": ts(r["ts"]), "state_at": ts(stateAt), "from": r.str("requester"), "to": r.str("target"),
 		"state": r.str("state"), "landing": state, "sending_reason": why, "body": orEmpty(r["body"]), "answer": answer,
 		"dismissed": dismissed, "delivered_at": ts(r["delivered_at"]), "typed_at": ts(r["typed_at"]), "landed_at": ts(r["landed_at"]),
 		"parent": r.intOrNil("parent_id"), "kind": orEmpty(r["kind"]), "tasks": tasks, "is_task_question": r.i("task_question") != 0}
@@ -494,6 +494,7 @@ type step struct {
 	change  string
 	note    string
 	request any
+	ref     any
 }
 
 // taskEvents are the changes, since the first of rows, of the tasks delivered in them: a state it reached, a handoff, an edit.
@@ -518,7 +519,8 @@ func (c *chat) taskEvents(rs []row) ([]map[string]any, error) {
 			since = w
 		}
 	}
-	evs, err := query(c.e.DB, "SELECT ts, agent, kind, payload, "+eventTask+" AS tid FROM events WHERE kind IN ("+placeholders(len(chatEventKinds))+
+	evs, err := query(c.e.DB, "SELECT ts, agent, kind, payload, "+eventTask+" AS tid, "+
+		"(SELECT ref FROM requests WHERE id = json_extract(payload, '$.request_id')) AS request_ref FROM events WHERE kind IN ("+placeholders(len(chatEventKinds))+
 		") AND "+eventTask+" IN ("+placeholders(len(ids))+") ORDER BY id", append(anySlice(chatEventKinds), ids...)...)
 	if err != nil {
 		return nil, err
@@ -533,7 +535,7 @@ func (c *chat) taskEvents(rs []row) ([]map[string]any, error) {
 		p := decodeObject(e.str("payload"))
 		if kind == "task_handoff" {
 			steps = append(steps, step{at: e.i("ts"), task: e.i("tid"), who: e.str("agent"), change: "handed to " + jsonStr(p["to"]),
-				note: jsonStr(orEmpty(p["note"])), request: p["request_id"]})
+				note: jsonStr(orEmpty(p["note"])), request: p["request_id"], ref: e["request_ref"]})
 			continue
 		}
 		for _, n := range editNotes(p) {
@@ -563,7 +565,7 @@ func (c *chat) taskEvents(rs []row) ([]map[string]any, error) {
 		}
 		if s.at >= since {
 			out = append(out, map[string]any{"type": "task_event", "at": ts(s.at), "task": s.task, "title": cards[s.task], "who": s.who,
-				"change": change, "note": s.note, "request": s.request, "_ts": s.at})
+				"change": change, "note": s.note, "request": s.request, "request_ref": s.ref, "_ts": s.at})
 		}
 	}
 	return out, nil

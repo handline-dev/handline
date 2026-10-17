@@ -382,7 +382,7 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	linked := make([]map[string]any, len(reqs))
 	for i, r := range reqs {
 		active = max(active, r.i("touched"))
-		linked[i] = map[string]any{"id": r.i("id"), "from": r.str("requester"), "to": r.str("target"),
+		linked[i] = map[string]any{"id": r.i("id"), "ref": r.str("ref"), "from": r.str("requester"), "to": r.str("target"),
 			"state": r.str("state"), "at": ts(r["ts"])}
 	}
 	task["last_activity"], task["edited_by"], task["requests"] = ts(active), t.strOrNil("edited_by"), linked

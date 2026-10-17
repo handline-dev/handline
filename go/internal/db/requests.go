@@ -50,7 +50,7 @@ const heldDelivery = "(requests.state = 'landed' AND requests.kind = 'task' AND 
 // Request is one requests row, with the columns GetRequest adds (Answer, AnsweredAt, Dismisser, DismissReason).
 type Request struct {
 	ID, TS, ChainDepth                                  int64
-	Requester, Target, Body, State                      string
+	Requester, Target, Body, State, Ref                 string
 	Files, Relation, Response, Kind, ChainID, TypedSess sql.NullString
 	ParentID, DeliveredAt, TypedAt, LandedAt, SendNow   sql.NullInt64
 	Notice, ReadAt, StateAt, MootBy, EdgeOK, Settles    sql.NullInt64
@@ -61,12 +61,12 @@ type Request struct {
 }
 
 const requestCols = "id, ts, requester, target, body, files, relation, response, kind, chain_depth, parent_id, chain_id, state, queue_order, " +
-	"delivered_at, typed_at, typed_session, landed_at, send_now, notice, read_at, state_at, moot_by, edge_ok, settles"
+	"delivered_at, typed_at, typed_session, landed_at, send_now, notice, read_at, state_at, moot_by, edge_ok, settles, ref"
 
 func (r *Request) dest() []any {
 	return []any{&r.ID, &r.TS, &r.Requester, &r.Target, &r.Body, &r.Files, &r.Relation, &r.Response, &r.Kind, &r.ChainDepth, &r.ParentID,
 		&r.ChainID, &r.State, &r.QueueOrder, &r.DeliveredAt, &r.TypedAt, &r.TypedSess, &r.LandedAt, &r.SendNow, &r.Notice, &r.ReadAt,
-		&r.StateAt, &r.MootBy, &r.EdgeOK, &r.Settles}
+		&r.StateAt, &r.MootBy, &r.EdgeOK, &r.Settles, &r.Ref}
 }
 
 func requestRows(q Q, query string, args ...any) ([]*Request, error) {
