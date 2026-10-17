@@ -255,23 +255,37 @@ func TestTheUnblockIsStillTypedWhenTheAdvanceSendsSomethingElseOrNothing(t *test
 	}
 }
 
-func TestMemoHolderIsToldOnlyForADoingTaskAndNotTheAuthor(t *testing.T) {
+func TestMemoAssigneeIsToldWhateverTheTaskStateAndNotTheAuthor(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	tid := r.newTask("bob", "alice", "job")
 	r.must(r.TellMemo(r.DB, tid, "alice", "added", "check the cache", "", false))
-	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 0 {
-		t.Fatal("told a holder whose task is not doing")
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 || left[0].Body != "T1 memo added by alice: check the cache" {
+		t.Fatalf("the assignee of a task not yet doing waits for the memo in its digest: %q %v", r.term.typed, left)
 	}
 	r.AdvanceCurrentTask(r.DB, "bob")
 	r.term.typed = nil
 	r.must(r.TellMemo(r.DB, tid, "alice", "added", "check the cache", "", false))
-	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 || left[0].Body != "T1 memo added by alice: check the cache" {
-		t.Fatalf("a memo with no @ waits in the holder's digest: %q %v", r.term.typed, left)
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 2 {
+		t.Fatalf("a memo with no @ waits in the doing assignee's digest: %q %v", r.term.typed, left)
 	}
 	r.must(r.TellMemo(r.DB, tid, "bob", "added", "mine", "", false))
-	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 {
-		t.Fatal("told the holder of its own memo")
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 2 {
+		t.Fatal("told the assignee of its own memo")
+	}
+}
+
+// The stall this guards against: the founder commented on a task it holds and nobody was told. Its reporter is; the founder, who reads the
+// board, gets no inbox row.
+func TestTheFoundersMemoOnATaskItHoldsReachesTheReporter(t *testing.T) {
+	r := newRig(t)
+	tid := r.newTask(db.Human, "alice", "decide")
+	r.must(r.TellMemo(r.DB, tid, db.Human, "added", "go with the reassign model", "", false))
+	if says := r.saysTo("alice"); len(says) != 1 || says[0] != "T1 memo added by human: go with the reassign model" {
+		t.Fatalf("the reporter was not told: %q", says)
+	}
+	if says := r.saysTo(db.Human); len(says) != 0 {
+		t.Fatalf("the founder was told: %q", says)
 	}
 }
 
@@ -357,7 +371,7 @@ func (r *rig) saysTo(agent string) []string {
 }
 
 // The stall this guards against: the holder of a task asked, in a memo on it, an agent with no part in the task to discard a duplicate, and
-// nobody was told. The opener and anyone named with @ are told; the writer is not.
+// nobody was told. The opener, the assignee and anyone named with @ are told; the writer is not.
 func TestAMemoReachesTheOpenerAndTheAgentsItNamesWhateverTheTaskState(t *testing.T) {
 	r := newRig(t)
 	r.register("carol", "dave")
@@ -376,8 +390,8 @@ func TestAMemoReachesTheOpenerAndTheAgentsItNamesWhateverTheTaskState(t *testing
 		}
 	}
 	r.must(r.TellMemo(r.DB, tid, "alice", "edited", "@alice @carol mind the cache", "", false))
-	if len(r.saysTo("alice")) != 1 || len(r.saysTo("carol")) != 2 || len(r.saysTo("bob")) != 0 {
-		t.Fatalf("the writer was told, the agent named was not, or the holder of a task not doing was: %q %q %q", r.saysTo("alice"), r.saysTo("carol"), r.saysTo("bob"))
+	if len(r.saysTo("alice")) != 1 || len(r.saysTo("carol")) != 2 || len(r.saysTo("bob")) != 1 {
+		t.Fatalf("the writer was told, or the agent named or the assignee of a task not doing was not: %q %q %q", r.saysTo("alice"), r.saysTo("carol"), r.saysTo("bob"))
 	}
 }
 

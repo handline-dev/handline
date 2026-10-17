@@ -398,13 +398,9 @@ func (e *Env) TellMemo(q db.Q, tid int64, by, what, text, to string, now bool) (
 	if row == nil {
 		return nil
 	}
-	holder := ""
-	if must(db.TaskState(q, row)) == "doing" {
-		holder = row.Owner
-	}
 	body := memoLine(tid, what, by, text)
 	named := e.mentioned(text)
-	for _, a := range e.memoReaders(row, holder, by, named) {
+	for _, a := range e.memoReaders(row, by, named) {
 		if delivery.ClassOf(delivery.Memo, now || a == to || slices.Contains(named, a), false) == delivery.ClassNow {
 			e.typeSay(q, a, body, "task memo")
 		} else {
@@ -416,11 +412,10 @@ func (e *Env) TellMemo(q db.Q, tid int64, by, what, text, to string, now bool) (
 	return nil
 }
 
-// memoReaders is whom a memo on row concerns, each once: its holder (empty unless the task is doing; one not yet doing reads its memos when it
-// is delivered), who the task answers to, and every registered agent the memo names with @. Never the writer, or the founder, who reads the
-// board.
-func (e *Env) memoReaders(row *db.Task, holder, by string, mentioned []string) []string {
-	named := append([]string{holder, row.AnswersTo()}, mentioned...)
+// memoReaders is whom a memo on row concerns, each once: who the task answers to (its reporter), its assignee whatever the task's state, and
+// every registered agent the memo names with @. Never the writer, or the founder, who reads the board.
+func (e *Env) memoReaders(row *db.Task, by string, mentioned []string) []string {
+	named := append([]string{row.AnswersTo(), row.Owner}, mentioned...)
 	skip := map[string]bool{"": true, by: true, db.Human: true}
 	var out []string
 	for _, a := range named {

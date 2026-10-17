@@ -518,7 +518,7 @@ Memos beside a task.
 
 ### `task.memo.add`
 
-Add a memo; anyone may. It is told to the holder of a doing task, to whom the task answers (its reporter, else its opener) and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. memo.edit and memo.delete are told the same way.
+Add a memo; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. memo.edit and memo.delete are told the same way.
 
 ### `task.memo.edit`
 
