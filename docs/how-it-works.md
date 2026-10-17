@@ -1,7 +1,7 @@
 # How it works
 
 The daemon decides what to do with agents and accounts using fixed rules. No model is involved.
-The one command that calls a model is `hl fold`, which summarizes recorded events into a digest.
+The one model call is the daemon's fold, which summarizes recorded events into a digest.
 Nothing that moves, parks, or resumes an agent depends on it.
 
 ## Usage numbers

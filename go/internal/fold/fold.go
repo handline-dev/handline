@@ -1,36 +1,34 @@
 // Package fold is the digest upkeep that is not a decision: the midnight rollover, which carries yesterday's open items into
-// today's digest with no model, and agent.fold, which runs `hl fold` as a subprocess (handline/session/fold.py). The daemon makes no
-// model call of its own: the one call the system has stays in that command.
+// today's digest with no model, and agent.fold, which rewrites a digest from the event delta with the one model call the system has.
 package fold
 
 import (
-	"bytes"
-	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/handline/handline/go/internal/atomicfile"
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/gitrun"
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/paths"
-	"github.com/handline/handline/go/internal/textsafe"
+	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/usage"
 )
 
-// Timeout is how long a fold may run: fold.FOLD_TIMEOUT_S and the 30 seconds control.py allows beside it.
-const Timeout = 210 * time.Second
+// Timeout is how long the fold's model call may run (fold.FOLD_TIMEOUT_S).
+const Timeout = 180 * time.Second
 
-// Env is what the two need.
+// Env is what the two need; Fold also needs DB, Usage and Accounts.
 type Env struct {
-	Home string
-	// Cmd is the argv that runs hl; "fold <agent>" is appended. Empty runs `hl` from the path.
-	Cmd     []string
-	Timeout time.Duration // zero is Timeout
-	Today   func() string
+	Home     string
+	DB       db.Q
+	Usage    *usage.Env
+	Accounts team.Accounts
+	Timeout  time.Duration // zero is Timeout
+	Today    func() string
 }
 
 func (e *Env) today() string {
@@ -91,33 +89,4 @@ func (e *Env) commit(file, message string) {
 	}
 	gitrun.Run(e.Home, "add", rel)
 	gitrun.Run(e.Home, "commit", "-q", "-m", message)
-}
-
-// Fold is control.fold: `hl fold <agent>` run to the end, said as the verb says it. ok is false when the fold was rejected.
-func (e *Env) Fold(agent string) (ok bool, said string) {
-	limit := e.Timeout
-	if limit == 0 {
-		limit = Timeout
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), limit)
-	defer cancel()
-	argv := append(append([]string{}, e.Cmd...), "fold", agent)
-	if len(e.Cmd) == 0 {
-		argv = []string{"hl", "fold", agent}
-	}
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Env = append(os.Environ(), "HANDLINE_HOME="+e.Home, "OCP_HOME="+e.Home)
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	err := cmd.Run()
-	msg := strings.TrimSpace(textsafe.Text(out.String()))
-	switch {
-	case ctx.Err() != nil:
-		return false, fmt.Sprintf("%s: fold rejected - timed out after %s", agent, limit)
-	case err != nil && msg == "":
-		return false, fmt.Sprintf("%s: fold rejected - %v", agent, err)
-	case err != nil:
-		return false, fmt.Sprintf("%s: fold rejected - %s", agent, msg)
-	}
-	return true, msg
 }
