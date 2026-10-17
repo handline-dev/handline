@@ -206,7 +206,6 @@ func pathLines(parts []obj, indent string) []string {
 	return out
 }
 
-// fileLines are a memo's files: where each is stored for an agent, its name for the founder, or that it is gone.
 func fileLines(files []obj, indent string) []string {
 	out := make([]string, len(files))
 	for i, f := range files {

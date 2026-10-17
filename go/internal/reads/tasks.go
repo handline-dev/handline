@@ -731,7 +731,6 @@ func (e *Env) taskResultOf(tid int64, task map[string]any) error {
 	return nil
 }
 
-// memoJSON is the Memo: files, the files it carries, with where each is stored for an agent (withPath).
 func memoJSON(q db.Q, m row, parts func(string) []any, store *attachments.Store, withPath bool) (map[string]any, error) {
 	var edited any
 	if m.set("edited_at") {

@@ -12,16 +12,12 @@ import (
 	"github.com/handline/handline/go/internal/db"
 )
 
-// The files a memo carries (task.memo.add files): images and Markdown its writer names by path. The daemon reads each, keeps it in the store
-// like an uploaded image, and links it to the memo by id, so the files never sit in a worktree.
+// A memo's files are copied into the store and linked by id, so they never sit in a worktree.
 
-// Markdown is the type a memo's .md file is kept as.
 const Markdown = "text/markdown"
 
-// byExt is the type each file name ending takes; nothing else is kept.
 var byExt = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".md": Markdown}
 
-// ext is the extension a file of mime is stored with.
 func ext(mime string) string {
 	if mime == Markdown {
 		return "md"
@@ -29,7 +25,7 @@ func ext(mime string) string {
 	return kinds[mime]
 }
 
-// FileMime is the type the file named name, holding b, is kept as: an image whose first bytes match its ending, or Markdown text.
+// FileMime checks an image by its first bytes, not only its ending.
 func FileMime(name string, b []byte) (string, error) {
 	mime, ok := byExt[strings.ToLower(filepath.Ext(name))]
 	switch {
@@ -45,7 +41,7 @@ func FileMime(name string, b []byte) (string, error) {
 	return mime, nil
 }
 
-// Add keeps b as a finished file that nothing names yet: like an upload, it goes after UnsentTTL unless a memo links it.
+// Add keeps b unclaimed, so it is swept after UnsentTTL unless a memo links it.
 func (s *Store) Add(name, mime string, b []byte) (Info, error) {
 	if err := s.ensure(); err != nil {
 		return Info{}, err
@@ -61,9 +57,69 @@ func (s *Store) Add(name, mime string, b []byte) (Info, error) {
 	return im.Info, nil
 }
 
+func FilePaths(p map[string]any) ([]string, error) {
+	v, ok := p["files"]
+	if !ok || v == nil {
+		return nil, nil
+	}
+	list, ok := v.([]any)
+	if !ok || len(list) > MaxPerMessage {
+		return nil, badParam(fmt.Sprintf("files is a list of at most %d absolute file paths", MaxPerMessage), "files")
+	}
+	paths := make([]string, len(list))
+	for i, x := range list {
+		if paths[i], ok = x.(string); !ok {
+			return nil, badParam(fmt.Sprintf("files is a list of at most %d absolute file paths", MaxPerMessage), "files")
+		}
+	}
+	return paths, nil
+}
+
+// AddFiles reads and keeps the files at paths; one never linked is swept like an unsent upload.
+func (s *Store) AddFiles(q db.Q, home, by string, founder bool, paths []string) ([]Info, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	roots, err := Roots(q, home, by, founder)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Info, 0, len(paths))
+	for _, path := range paths {
+		b, err := ReadUnder(path, roots, MaxImage, "file", "files")
+		if err != nil {
+			return nil, err
+		}
+		mime, err := FileMime(path, b)
+		if err != nil {
+			return nil, err
+		}
+		info, err := s.Add(filepath.Base(path), mime, b)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+func (s *Store) AttachMemo(q db.Q, mid int64, files []Info) error {
+	if len(files) == 0 {
+		return nil
+	}
+	if err := LinkMemo(q, mid, files); err != nil {
+		return err
+	}
+	ids := make([]string, len(files))
+	for i, f := range files {
+		ids[i] = f.ID
+	}
+	_, err := s.Claim(ids)
+	return err
+}
+
 func memoKey(mid int64) string { return fmt.Sprintf("memo-files:%d", mid) }
 
-// LinkMemo records the files memo mid carries, in order.
 func LinkMemo(q db.Q, mid int64, infos []Info) error {
 	b, err := json.Marshal(infos)
 	if err != nil {
@@ -78,7 +134,6 @@ func UnlinkMemo(q db.Q, mid int64) error {
 	return err
 }
 
-// MemoFiles is the files memo mid carries; none for a memo with none.
 func MemoFiles(q db.Q, mid int64) ([]Info, error) {
 	v, ok, err := db.Meta(q, memoKey(mid))
 	if err != nil || !ok {
@@ -91,11 +146,9 @@ func MemoFiles(q db.Q, mid int64) ([]Info, error) {
 	return infos, nil
 }
 
-// memoFilesHeld is the files of every memo, with its task, for Held.
 const memoFilesHeld = `SELECT tm.task_id AS tid, m.value AS text FROM meta m JOIN task_memos tm ON m.name = 'memo-files:' || tm.id`
 
-// FileMap is the MemoFile of the contract: an image or Markdown, read with attachment.get; gone when it is no longer kept. withPath adds
-// where it is stored, for an agent, which reads it by path.
+// FileMap gives the path only withPath, since only an agent reads files by path.
 func (s *Store) FileMap(in Info, withPath bool) map[string]any {
 	kind := "image"
 	if in.Mime == Markdown {
@@ -110,7 +163,7 @@ func (s *Store) FileMap(in Info, withPath bool) map[string]any {
 	return m
 }
 
-// FileLines is what an agent told of a memo reads after it: one line per file still kept, `[file N: /path (type, size)]`. "" for none.
+// FileLines leaves out a file no longer kept.
 func (s *Store) FileLines(infos []Info) string {
 	var lines []string
 	for _, in := range infos {
@@ -121,7 +174,7 @@ func (s *Store) FileLines(infos []Info) string {
 	return strings.Join(lines, "\n")
 }
 
-// FileLine is how a memo's file n is shown: `[file N: /path (type, size)]`; where is its name for a reader not given the path.
+// FileLine takes where as a name for a reader not given the path.
 func FileLine(n int, where, mime string, bytes int64) string {
 	return fmt.Sprintf("[file %d: %s (%s, %s)]", n, where, mime, size(bytes))
 }

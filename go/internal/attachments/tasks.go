@@ -36,8 +36,7 @@ UNION ALL SELECT task_id, body FROM task_memos WHERE body LIKE '%](attachment:%'
 UNION ALL SELECT json_extract(payload, '$.task_id'), json_extract(payload, '$.note') FROM events
 	WHERE kind IN ('reject_task', 'task_handoff') AND json_valid(payload) AND payload LIKE '%](attachment:%'`
 
-// Held is every image a task names, and every file its memos carry, with the time it is kept from: now while a task naming it is open,
-// else when the last task naming it was done or discarded.
+// Held is kept from now while a task naming it (or a memo file) is open, else from when the last such task closed.
 func Held(q db.Q, now int64) (map[string]int64, error) {
 	held := map[string]int64{}
 	err := heldBy(q, now, taskTexts, func(text string) []string {
@@ -61,7 +60,6 @@ func Held(q db.Q, now int64) (map[string]int64, error) {
 	}, held)
 }
 
-// heldBy adds to held the ids that ids reads from each row of rowsOf (a task and a text), kept from the time its task says.
 func heldBy(q db.Q, now int64, rowsOf string, ids func(string) []string, held map[string]int64) error {
 	rows, err := q.Query(`SELECT x.text, CASE WHEN COALESCE(t.done_evidence, '') = '' AND COALESCE(t.discarded_by, '') = '' THEN ?
 		ELSE MAX(COALESCE(t.done_at, 0), COALESCE(t.discarded_at, 0)) END FROM (`+rowsOf+`) x JOIN tasks t ON t.id = x.tid`, now)
@@ -118,6 +116,15 @@ func (s *Store) Check(q db.Q, text, was, field string, agent bool) ([]string, er
 		ids = append(ids, r.ID)
 	}
 	return ids, nil
+}
+
+func (s *Store) ClaimText(q db.Q, text, was, field string, agent bool) error {
+	ids, err := s.Check(q, text, was, field, agent)
+	if err != nil || len(ids) == 0 {
+		return err
+	}
+	_, err = s.Claim(ids)
+	return err
 }
 
 // checkID is whether a write may name id in field: well formed, its upload finished, still kept.

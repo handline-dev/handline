@@ -4,15 +4,14 @@
 package taskresult
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 )
@@ -22,8 +21,6 @@ const (
 	MaxShot  = 10 << 20  // bytes of one screenshot
 	MaxChunk = 512 << 10 // bytes of file in one task.shot reply
 )
-
-var pngMagic = []byte("\x89PNG\r\n\x1a\n")
 
 // Shot is one stored screenshot of a task, numbered from 1.
 type Shot struct {
@@ -131,54 +128,12 @@ func bad(message, field string) *rpc.Error {
 	return rpc.BadRequestError(message, field, rpc.InvalidParams)
 }
 
-// under is whether path is inside one of the folders, links resolved on both sides.
-func under(path string, roots []string) bool {
-	real, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return false
-	}
-	for _, r := range roots {
-		if root, err := filepath.EvalSymlinks(r); err == nil && strings.HasPrefix(real, root+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
-}
-
 func readPNG(p string, roots []string) ([]byte, error) {
-	b, err := ReadUnder(p, roots, MaxShot, "screenshot", "shots")
-	if err == nil && !bytes.HasPrefix(b, pngMagic) {
+	b, err := attachments.ReadUnder(p, roots, MaxShot, "screenshot", "shots")
+	if err == nil && attachments.Sniff(b) != "image/png" {
 		return nil, bad(p+" is not a PNG", "shots")
 	}
 	return b, err
-}
-
-// ReadUnder reads the file an agent names by path for the daemon to keep (a screenshot, a memo's file): absolute, a regular file of at most
-// max bytes and, when roots is not nil, under one of them. A refusal is bad_request on field and calls the file a what.
-func ReadUnder(p string, roots []string, max int64, what, field string) ([]byte, error) {
-	if !filepath.IsAbs(p) {
-		return nil, bad("a "+what+" is named by its absolute path: "+p, field)
-	}
-	if roots != nil && !under(p, roots) {
-		return nil, bad(p+" is outside the places a "+what+" may be taken from: the agent's worktree, its folder and the scratch folder", field)
-	}
-	f, err := os.Open(p)
-	if err != nil {
-		return nil, bad("cannot read the "+what+" "+p, field)
-	}
-	defer f.Close()
-	st, err := f.Stat()
-	if err != nil || !st.Mode().IsRegular() {
-		return nil, bad(p+" is not a file", field)
-	}
-	if st.Size() > max {
-		return nil, bad(fmt.Sprintf("%s is over %d MiB", p, max>>20), field)
-	}
-	b, err := io.ReadAll(io.LimitReader(f, max+1))
-	if err != nil || int64(len(b)) > max {
-		return nil, bad("cannot read the "+what+" "+p, field)
-	}
-	return b, nil
 }
 
 // Register adds task.shot to the server's table.
