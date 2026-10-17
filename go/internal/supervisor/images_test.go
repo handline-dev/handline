@@ -38,7 +38,7 @@ func TestAnAgentIsToldWhereTheImagesOfATasksTextsAre(t *testing.T) {
 	}
 	r.AdvanceCurrentTask(r.DB, "bob")
 	r.term.typed = nil
-	r.must(r.TellMemo(r.DB, tid, "alice", "added", strings.Repeat("w", 420)+" ![m](attachment:"+memo.ID+")", false))
+	r.must(r.TellMemo(r.DB, tid, "alice", "added", strings.Repeat("w", 420)+" ![m](attachment:"+memo.ID+")", "", true))
 	if !strings.Contains(r.term.last(), line(1, memo)) {
 		t.Fatalf("a long memo still names its image: %q", r.term.last())
 	}

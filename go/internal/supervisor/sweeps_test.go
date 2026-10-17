@@ -149,6 +149,17 @@ func TestAnIdleAgentGetsItsDigestAtTheWindowNotBefore(t *testing.T) {
 	}
 }
 
+func TestAnAgentAtItsPromptWithBackgroundWorkStillGetsItsDigest(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.must(db.SetCursor(r.DB, "bgwork:bob", 1))
+	db.AddRequest(r.DB, db.NewRequest{Requester: db.NoticeRequester, Target: "bob", Body: "T9 done by alice: ok", Kind: "say", Notice: true})
+	r.must(r.SweepDigests(r.clock + 900))
+	if !strings.Contains(r.term.last(), "Result digest - 1 result since ") {
+		t.Fatalf("the digest waited on background work: %q", r.term.typed)
+	}
+}
+
 func TestDigestTextCapsItsLines(t *testing.T) {
 	var rows []*db.Request
 	for i := 0; i < 23; i++ {

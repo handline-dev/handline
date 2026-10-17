@@ -52,6 +52,8 @@ type TimeboxPorts interface {
 	StopWaitReason(q db.Q, agent string) string
 	// SendNotice is delivery.type_notice, sent through the session: true when the line was sent.
 	SendNotice(q db.Q, agent, text string) bool
+	// SendBatch writes text as a notice for the agent's next digest (delivery.ClassBatch).
+	SendBatch(q db.Q, agent, text string) error
 	BgStale(q db.Q, agent string, now int64) bool
 	BgOwesNothing(q db.Q, agent string) bool
 	BgSilentS(q db.Q, agent string, now int64) (int64, bool)
@@ -87,6 +89,13 @@ func (b *Timebox) tell(t *Tick, who, text string, now int64) bool {
 	}
 	check(db.SetCursor(t.Q, key, now))
 	return b.Ports.SendNotice(t.Q, who, text)
+}
+
+// note is tell for status: it waits in who's next digest instead of being typed now.
+func (b *Timebox) note(t *Tick, who, text string) {
+	if who != db.Human {
+		check(b.Ports.SendBatch(t.Q, who, text))
+	}
 }
 
 func (b *Timebox) stateOf(t *Tick, agent string) string {
@@ -166,18 +175,17 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 		title := shortTitle(row.Title)
 		text := fmt.Sprintf("T%d (%s), held by %s, has been doing past its %s timeout. Keep it going: `hl task edit T%d --timeout <duration>`. "+
 			"Stop it: `hl task release T%d \"<reason>\"` takes it back.", tid, title, row.Owner, timefmt.Ago(box), tid, tid)
-		if b.tell(t, row.OpenedBy, text, now) {
-			check(db.AdvanceTaskTimeout(t.Q, tid, now, db.DefaultTaskTimeoutS))
-			// the deadline missed and the one that replaced it: a screen chains notices by them
-			next := must(db.GetTask(t.Q, tid))
-			var nextAt any
-			if next != nil && next.TimeoutAt.Valid {
-				nextAt = next.TimeoutAt.Int64
-			}
-			must(db.AddEvent(t.Q, row.OpenedBy, "task_timeout_exceeded", db.KV{K: "task_id", V: tid}, db.KV{K: "timeout_s", V: box},
-				db.KV{K: "text", V: text}, db.KV{K: "deadline", V: row.TimeoutAt.Int64}, db.KV{K: "next", V: nextAt}))
-			t.logf("  T%d: doing, past its %s timeout - %s told", tid, timefmt.Ago(box), row.OpenedBy)
+		b.note(t, row.OpenedBy, text)
+		check(db.AdvanceTaskTimeout(t.Q, tid, now, db.DefaultTaskTimeoutS))
+		// the deadline missed and the one that replaced it: a screen chains notices by them
+		next := must(db.GetTask(t.Q, tid))
+		var nextAt any
+		if next != nil && next.TimeoutAt.Valid {
+			nextAt = next.TimeoutAt.Int64
 		}
+		must(db.AddEvent(t.Q, row.OpenedBy, "task_timeout_exceeded", db.KV{K: "task_id", V: tid}, db.KV{K: "timeout_s", V: box},
+			db.KV{K: "text", V: text}, db.KV{K: "deadline", V: row.TimeoutAt.Int64}, db.KV{K: "next", V: nextAt}))
+		t.logf("  T%d: doing, past its %s timeout - %s told", tid, timefmt.Ago(box), row.OpenedBy)
 	}
 }
 
@@ -204,13 +212,12 @@ func (b *Timebox) remindReported(t *Tick, row *db.Task, now int64) {
 	to := row.AnswersTo()
 	text := fmt.Sprintf("T%d (%s) was reported done by %s and waits on you: accept it (`hl task accept T%d`) or send it back (`hl task reject T%d \"<note>\"`).",
 		row.ID, shortTitle(row.Title), row.Owner, row.ID, row.ID)
-	if b.tell(t, to, text, now) {
-		check(db.AdvanceTaskTimeout(t.Q, row.ID, now, db.DefaultTaskTimeoutS))
-		next := must(db.GetTask(t.Q, row.ID))
-		must(db.AddEvent(t.Q, to, "task_timeout_exceeded", db.KV{K: "task_id", V: row.ID}, db.KV{K: "timeout_s", V: row.TimeoutS.Int64},
-			db.KV{K: "text", V: text}, db.KV{K: "deadline", V: row.TimeoutAt.Int64}, db.KV{K: "next", V: next.TimeoutAt.Int64}))
-		t.logf("  T%d: reported, past its timeout - %s reminded", row.ID, to)
-	}
+	b.note(t, to, text)
+	check(db.AdvanceTaskTimeout(t.Q, row.ID, now, db.DefaultTaskTimeoutS))
+	next := must(db.GetTask(t.Q, row.ID))
+	must(db.AddEvent(t.Q, to, "task_timeout_exceeded", db.KV{K: "task_id", V: row.ID}, db.KV{K: "timeout_s", V: row.TimeoutS.Int64},
+		db.KV{K: "text", V: text}, db.KV{K: "deadline", V: row.TimeoutAt.Int64}, db.KV{K: "next", V: next.TimeoutAt.Int64}))
+	t.logf("  T%d: reported, past its timeout - %s reminded", row.ID, to)
 }
 
 // SweepStaleBackground tells the supervisor once that an agent's background work is stale, and that its session may be closed - which
@@ -376,11 +383,10 @@ func (b *Timebox) SweepStopWaitBackstop(t *Tick, now int64) {
 		who := b.answerer(t, agent, tid)
 		text := fmt.Sprintf("%s has been idle %s on T%d: %s. Ask it what it waits on: `hl say %s \"...\" --task T%d`.",
 			agent, timefmt.Ago(now-since), tid, why, agent, tid)
-		if b.tell(t, who, text, now) {
-			check(db.SetCursor(t.Q, toldKey, 1))
-			must(db.AddEvent(t.Q, agent, "stop_wait_stuck", db.KV{K: "why", V: why}, db.KV{K: "for_s", V: now - since}, db.KV{K: "told", V: who}))
-			t.logf("  %s: %s, idle %s with nothing recorded - %s told", agent, why, timefmt.Ago(now-since), who)
-		}
+		b.note(t, who, text)
+		check(db.SetCursor(t.Q, toldKey, 1))
+		must(db.AddEvent(t.Q, agent, "stop_wait_stuck", db.KV{K: "why", V: why}, db.KV{K: "for_s", V: now - since}, db.KV{K: "told", V: who}))
+		t.logf("  %s: %s, idle %s with nothing recorded - %s told", agent, why, timefmt.Ago(now-since), who)
 	}
 }
 
