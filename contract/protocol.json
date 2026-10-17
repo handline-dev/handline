@@ -30,7 +30,7 @@
    "member",
    "founder"
   ],
-  "rule": "x-role on a method is the lowest role that may call it. Roles are proven, not assumed. founder: the connection said hello with the founder key and it matches (a Unix-socket peer being the same user proves nothing, because agents run as that user). agent: the peer pid verifies against a recorded session. member: a paired device's token. Anything else is anonymous: on the Unix socket it may call only hello and device.redeem; on the network listener it is unpaired and may call only device.redeem (see Framing, network). A call below its role is refused, gate `role`. session.type and session.keys act at a shell prompt as they do anywhere in the pane: only a paired device can connect to the network listener and an unpaired caller gets no data, so a shell is within what a paired device may reach."
+  "rule": "x-role on a method is the lowest role that may call it. Roles are proven, not assumed. founder: the connection said hello with the founder key and it matches (a Unix-socket peer being the same user proves nothing, because agents run as that user). agent: the peer pid verifies against a recorded session. member: no caller holds it today, since a paired device (its token proves it) is the founder; the role stays as the lowest a method can ask of a person. Anything else is anonymous: on the Unix socket it may call only hello and device.redeem; on the network listener it is unpaired and may call only device.redeem (see Framing, network). A call below its role is refused, gate `role`. session.type and session.keys act at a shell prompt as they do anywhere in the pane: only a paired device can connect to the network listener and an unpaired caller gets no data, so a shell is within what a paired device may reach."
  },
  "x-gates": {
   "role": "Caller's role is agent: a person-at-the-terminal method.",
@@ -4890,6 +4890,52 @@
    ]
   },
   {
+   "name": "task.history",
+   "summary": "Every change to a task, newest first: one row per field changed, with who made it, the value before and after, and when. It is read from the events each task write keeps in its own transaction, so it is never edited or deleted; a fix is a later row. A deleted memo's words stay in it. Anyone may edit a task (task.edit); this history is what makes that safe to undo by hand.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "task": {
+       "type": "integer"
+      },
+      "rows": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/HistoryRow"
+       }
+      }
+     },
+     "required": [
+      "task",
+      "rows"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "task.shot",
    "summary": "A screenshot kept with a finished task.",
    "paramStructure": "by-name",
@@ -8136,7 +8182,7 @@
      "required": false,
      "schema": {
       "$ref": "#/components/schemas/AgentName",
-      "description": "Write the per-agent override of: park_timeout_s, ignore_cache_expiry, bg_notice_s, bg_grace_s, bg_check_s, notice_digest_s. Any other key with `agent` is bad_request."
+      "description": "Write the per-agent override of: park_timeout_s, ignore_cache_expiry, bg_notice_s, bg_grace_s, bg_check_s, notice_digest_s, handoff_prompt. Any other key with `agent` is bad_request."
      }
     },
     {
@@ -8557,7 +8603,7 @@
      "hr",
      "transcript"
     ],
-    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only, subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section."
    },
    "Caller": {
     "type": "object",
@@ -11776,8 +11822,9 @@
      },
      "role": {
       "type": "string",
+      "description": "A paired device is the founder.",
       "enum": [
-       "member"
+       "founder"
       ]
      },
      "created": {
@@ -12826,6 +12873,11 @@
       "minimum": 1,
       "default": 600,
       "description": "NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice)."
+     },
+     "handoff_prompt": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent."
      }
     },
     "description": "Every global setting by its config.yaml name, with its default; every one is the founder's to set. Per-account keys (label, cap, usage recovery, cycle) are account.set; per-agent keys are agent.set and schedule.*; a key marked Per agent also takes `agent` in settings.set."
@@ -12988,6 +13040,18 @@
        }
       ],
       "description": "NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). null removes the key (back to the default)."
+     },
+     "handoff_prompt": {
+      "oneOf": [
+       {
+        "type": "string",
+        "maxLength": 4000
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. An empty string is the built-in prompt; null removes the key (back to the default)."
      }
     },
     "description": "settings.set's changes: any of SettingsValues' keys; null removes one."
@@ -14259,6 +14323,58 @@
     "required": [
      "image",
      "caption"
+    ]
+   },
+   "HistoryRow": {
+    "type": "object",
+    "description": "One change to a task: who changed which field from what to what, and when. A field's change is one row; an edit of several fields is several rows with the same at.",
+    "properties": {
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "by": {
+      "type": "string",
+      "description": "Who made the change: an agent, or human."
+     },
+     "field": {
+      "type": "string",
+      "enum": [
+       "title",
+       "assignee",
+       "owner",
+       "body",
+       "priority",
+       "timeout",
+       "state",
+       "blocked_by",
+       "merged_into",
+       "memo"
+      ],
+      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>."
+     },
+     "was": {
+      "type": "string",
+      "description": "The value before; empty when there was none (a task just opened, a wait just added, a memo just added)."
+     },
+     "now": {
+      "type": "string",
+      "description": "The value after; empty when it is gone (a wait removed, a memo deleted)."
+     },
+     "note": {
+      "type": "string",
+      "description": "With a state row: the done evidence, the report, or the reason or note given. Absent when none was."
+     },
+     "memo": {
+      "type": "integer",
+      "description": "With a memo row: the memo's id."
+     }
+    },
+    "required": [
+     "at",
+     "by",
+     "field",
+     "was",
+     "now"
     ]
    }
   },

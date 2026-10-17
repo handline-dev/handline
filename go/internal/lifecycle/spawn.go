@@ -65,6 +65,9 @@ type Spawns struct {
 	Sleep    func(time.Duration)
 	Now      func() time.Time
 	Locks    *AgentLocks
+	// TrustFolder marks folder trusted in every account agent's vendor may start it on, so the session opens without the folder-trust
+	// dialog. nil: nothing is marked.
+	TrustFolder func(agent, folder string)
 	// OnLaunch is told each time a launch has begun (NoteLaunch); nil tells no one.
 	OnLaunch func(agent string)
 }
@@ -233,6 +236,13 @@ func (s *Spawns) PromptLanded(agent string, sinceID int64, timeout time.Duration
 	}
 }
 
+// Trust marks the folder the daemon is about to start agent in as trusted. Only a folder it launches in is marked, never one a caller names.
+func (s *Spawns) Trust(agent, folder string) {
+	if s.TrustFolder != nil {
+		s.TrustFolder(agent, folder)
+	}
+}
+
 // WorktreePath is the directory an agent works in, out of what its row holds, "" when it is gone. `hl launch` records what the host
 // handed it, which is a selector - the repo's id, then `::`, then the path - while spawn records a plain path. Testing the selector as a
 // path finds nothing, so an agent that still had its worktree was given a second one beside it.
@@ -372,6 +382,7 @@ func (s *Spawns) StartIn(agent, worktree, cmd string) (bool, string, error) {
 			return false, "", err
 		}
 	}
+	s.Trust(agent, worktree)
 	handle, why := s.Host.OpenTerminal(cmd, worktree, agent)
 	if handle == "" && why != "" {
 		return false, fmt.Sprintf("%s: could not start in %s: %s", agent, worktree, why), nil
@@ -460,6 +471,7 @@ func (s *Spawns) SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error
 	if err != nil {
 		return false, "", err
 	}
+	s.Trust(agent, wt)
 	handle, failed := s.Host.OpenTerminal(cmd, wt, agent)
 	if handle == "" && failed != "" {
 		return false, fmt.Sprintf("worktree %s is ready, but starting the agent failed: %s", wt, failed), nil

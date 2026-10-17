@@ -60,6 +60,7 @@ func Register(s *rpc.Server, env Env) {
 	s.Register("agent.timeline", rpc.Method{Role: "member", Handler: e.agentTimeline})
 	s.Register("tasks.list", rpc.Method{Role: "agent", Handler: e.tasksList})
 	s.Register("task.get", rpc.Method{Role: "agent", Handler: e.taskGet})
+	s.Register("task.history", rpc.Method{Role: "agent", Handler: e.taskHistory})
 	s.Register("task.memo.list", rpc.Method{Role: "agent", Handler: e.taskMemoList})
 	s.Register("events.feed", rpc.Method{Role: "agent", Handler: e.eventsFeed})
 	s.Register("prompt.list", rpc.Method{Role: "member", Handler: e.promptList})

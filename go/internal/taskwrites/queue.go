@@ -187,12 +187,10 @@ func setQueued(tx *sql.Tx, home string, tid int64, by string, queued bool, kept 
 			return queuedSet{}, err
 		}
 		if kept != "" {
-			res, err := tx.Exec("INSERT INTO task_memos(task_id, author, body, created_at) VALUES (?, ?, ?, ?)", tid, by, kept,
-				float64(time.Now().UnixNano())/1e9)
+			mid, err := db.AddMemo(tx, tid, by, kept)
 			if err != nil {
 				return queuedSet{}, err
 			}
-			mid, _ := res.LastInsertId()
 			memo = fmt.Sprintf(", memo %d keeps where %s stopped", mid, parked)
 		}
 	}

@@ -154,7 +154,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           ) : page === 'stats' ? (
             <StatsPage />
           ) : page === 'settings' ? (
-            <SettingsPage />
+            <SettingsPage storage={storage} />
           ) : page === 'admin' ? (
             <AdminPage />
           ) : agent && settings ? (
