@@ -87,19 +87,14 @@ func TestRolloverRollsFromTheLatestEarlierDay(t *testing.T) {
 	}
 }
 
-func openDB(t *testing.T) db.Q {
-	t.Helper()
-	d, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+func foldEnv(t *testing.T) *Env {
+	home := t.TempDir()
+	d, err := store.Open(filepath.Join(home, "db.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { d.Close() })
-	return d
-}
-
-func foldEnv(t *testing.T) *Env {
-	home := t.TempDir()
-	return &Env{Home: home, DB: openDB(t), Usage: &usage.Env{Home: home}, Accounts: team.Accounts{Home: home},
+	return &Env{Home: home, DB: d, Usage: &usage.Env{Home: home}, Accounts: team.Accounts{Home: home},
 		Today: func() string { return "2026-10-10" }}
 }
 
