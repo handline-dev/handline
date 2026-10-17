@@ -15,15 +15,12 @@ const msg = (over: Partial<ChatMessage>): ChatMessage => ({
   landing: 'delivered',
   sending_reason: null,
   body: 'hi',
-  answer: null,
-  dismissed: false,
   delivered_at: null,
   typed_at: null,
   landed_at: null,
   parent: null,
   kind: 'message',
   tasks: [],
-  is_task_question: false,
   ...over,
 });
 const item = (over: Partial<TranscriptItem>): TranscriptItem => ({ id: 1, at: '2026-01-01T00:00:00Z', kind: 'reply', text: 'ok', ...over });
@@ -60,7 +57,7 @@ test('who a message is from', () => {
   assert.equal(sideOf(mine, A, 'Handline desktop'), 'person');
   assert.equal(sideOf(ask, A, 'Handline desktop'), 'agent');
   assert.equal(sideOf(msg({ from: 'handline.auditor' }), A, 'Handline desktop'), 'other');
-  for (const old of ['delivered_unanswered', 'answered', 'dismissed'] as const) assert.equal(landingLabel(old), 'Delivered');
+  for (const old of ['delivered_unanswered', 'answered', 'dismissed']) assert.equal(landingLabel(old as never), 'Delivered'); // a daemon still sends these
   assert.equal(landingLabel('something_new' as never), 'something_new'); // an open set: unknown states show as sent
 });
 
@@ -134,7 +131,7 @@ test('a message can be taken back until it is withdrawn, and the agent is asked 
   assert.deepEqual(takeBack(pm({ landing: 'queued' })), { confirm: false });
   assert.deepEqual(takeBack(pm({ landing: 'typed' })), { confirm: false });
   assert.deepEqual(takeBack(pm({ landing: 'delivered' })), { confirm: true });
-  assert.deepEqual(takeBack(pm({ landing: 'delivered_unanswered' })), { confirm: true });
+  assert.deepEqual(takeBack(pm({ landing: 'delivered_unanswered' as never })), { confirm: true }); // a daemon still sends it
   assert.equal(takeBack(pm({ landing: 'withdrawn' })), null);
   const r = (state: 'queued' | 'sent' | 'confirmed') => pm({ landing: 'typed', receipt: { state, uuid: 'u' } as never });
   assert.deepEqual(takeBack(r('queued')), { confirm: false });

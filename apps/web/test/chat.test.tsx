@@ -98,8 +98,8 @@ describe('the Chat tab', () => {
   it('draws every message state and transcript kind from the daemon', async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
-    expect(landing('Draft the web chat tab plan.')).toBe('answered');
-    expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
+    expect(landing('Draft the web chat tab plan.')).toBe('delivered');
+    expect(landing('Use the contract fixtures.')).toBe('delivered');
     expect(landing('Hold that, scope changed.')).toBe('withdrawn');
     expect(landing('Also add the list of gaps.')).toBe('typed');
     expect(link('Withdraw', msg('Also add the list of gaps.')!)).toBeUndefined(); // the chat has no Withdraw button
@@ -169,8 +169,8 @@ describe('the Chat tab', () => {
     t.daemon.chat.tick();
     await until(() => $('.working')?.getAttribute('title')?.includes('Reading the code'), 'the working line');
     t.daemon.chat.tick();
-    await until(() => landing('ship it') === 'answered', 'answered');
-    expect($('.working')).toBeNull();
+    await until(() => !$('.working'), 'the turn over');
+    expect(landing('ship it')).toBe('delivered');
     await until(() => text($('.stream')).includes('Got it: "ship it"'), 'the reply');
     expect(storage.data.get(`handline.draft.${ARCH}`)).toBe('');
   });
@@ -201,7 +201,7 @@ describe('the Chat tab', () => {
     await other.call('chat.send', { agent: ARCH, body: 'from elsewhere' });
     await until(() => msg('from elsewhere'), 'the message from the other screen');
     for (let i = 0; i < 4; i++) t.daemon.chat.tick();
-    await until(() => landing('from elsewhere') === 'answered', 'answered');
+    await until(() => landing('from elsewhere') === 'delivered', 'delivered');
     other.close();
   });
 

@@ -44,11 +44,6 @@ func trustDaemon(t *testing.T) (d *Daemon, id string, card int64, root string) {
 	return d, id, 1, root
 }
 
-func answerCard(t *testing.T, d *Daemon, card int64, text string) {
-	t.Helper()
-	result(t, pipeTo(t, d, "k").ask(fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"inbox.answer","params":{"id":%d,"text":%q,"request_id":"a1"}}`, card, text)))
-}
-
 // doneCard is the founder's task.done on the card's decision task, with text as the evidence: how the apps decide.
 func doneCard(t *testing.T, d *Daemon, card int64, text string) {
 	t.Helper()
@@ -59,8 +54,8 @@ func doneCard(t *testing.T, d *Daemon, card int64, text string) {
 	result(t, pipeTo(t, d, "k").ask(fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.done","params":{"task":%d,"evidence":%q,"request_id":"a1"}}`, tid, text)))
 }
 
-// decisions are the founder's two ways to decide a trust proposal; each must apply it the same.
-var decisions = map[string]func(*testing.T, *Daemon, int64, string){"inbox.answer": answerCard, "task.done": doneCard}
+// decisions are how the founder decides a trust proposal: task.done on its decision task.
+var decisions = map[string]func(*testing.T, *Daemon, int64, string){"task.done": doneCard}
 
 // reply is the answer the proposer is told.
 func reply(t *testing.T, d *Daemon, card int64) string {

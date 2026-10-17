@@ -30,10 +30,6 @@ export function waitingMessage(
     landing: 'queued',
     sending_reason: null,
     body,
-    // The contract still requires these three; they go with it.
-    answer: null,
-    dismissed: false,
-    is_task_question: false,
     delivered_at: null,
     typed_at: null,
     landed_at: null,
