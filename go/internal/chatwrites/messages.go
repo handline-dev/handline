@@ -56,10 +56,7 @@ func (w *writes) say(c *rpc.Conn, p map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	parent, err := numberParam(p, "parent")
-	if err != nil {
-		return nil, err
-	}
+
 	var noTask *string
 	if v := p["no_task"]; v != nil {
 		s, ok := v.(string)
@@ -74,6 +71,13 @@ func (w *writes) say(c *rpc.Conn, p map[string]any) (any, error) {
 	res, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 		if _, err := w.images.CheckMessage(tx, body, "body", nil, c.Caller.Role == "agent"); err != nil {
 			return nil, err
+		}
+		var parent int64
+		if p["parent"] != nil {
+			var err error
+			if parent, err = w.refParam(tx, c, p, "parent", func(name string) error { return kept("parent request " + name + " does not exist") }); err != nil {
+				return nil, err
+			}
 		}
 		var err error
 		out, err = w.e.SayVerb(tx, supervisor.SayVerbIn{Requester: me, Speaker: speaker, Target: target, Body: body, Task: task, NoTask: noTask,

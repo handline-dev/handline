@@ -42,7 +42,7 @@ func withdraw(c *hlclient.Client, args []string) (int, bool) {
 	if !ok || len(p.pos) != 1 {
 		return 0, false
 	}
-	id, ok := integer(p.pos[0])
+	id, ok := requestArg(p.pos[0])
 	if !ok {
 		return 0, false
 	}
@@ -258,7 +258,7 @@ func read(c *hlclient.Client, args []string) (int, bool) {
 	if !ok || len(p.pos) != 1 {
 		return 0, false
 	}
-	id, ok := integer(p.pos[0])
+	id, ok := requestArg(p.pos[0])
 	if !ok {
 		return 0, false
 	}
@@ -281,9 +281,9 @@ func read(c *hlclient.Client, args []string) (int, bool) {
 		if err != nil {
 			var rpcErr *hlclient.RPCError
 			if errors.As(err, &rpcErr) && rpcErr.Code == "not_found" {
-				fmt.Printf("no request #%d\n", id)
+				fmt.Printf("no request #%v\n", id)
 			} else {
-				fmt.Fprintf(os.Stderr, "could not read #%d: %v\n", id, err)
+				fmt.Fprintf(os.Stderr, "could not read #%v: %v\n", id, err)
 			}
 			return 1, true
 		}
@@ -293,7 +293,7 @@ func read(c *hlclient.Client, args []string) (int, bool) {
 		}
 	}
 	if wait && !settled(text(row["state"])) {
-		fmt.Fprintf(os.Stderr, "nothing after %ds: #%d has no answer yet\n", timeout, id)
+		fmt.Fprintf(os.Stderr, "nothing after %ds: #%v has no answer yet\n", timeout, id)
 		return 1, true
 	}
 	when := text(row["created"])

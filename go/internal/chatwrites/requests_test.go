@@ -118,3 +118,20 @@ func TestCancelTakesAHeldMessageBackFromTheSessionsQueue(t *testing.T) {
 		t.Fatalf("withdrawn in the row and in the session, so the session never writes it: %v %s %v", res, r.state(rid), op)
 	}
 }
+
+func TestAStrangersRequestIsAnsweredAsAMissingOneByIdOrRef(t *testing.T) {
+	r := newRig(t)
+	alice := r.server("alice")
+	theirs := r.request("bob", "human", "private")
+	var ref string
+	r.db.QueryRow("SELECT ref FROM requests WHERE id = ?", theirs).Scan(&ref)
+	for i, id := range []string{fmt.Sprint(theirs), fmt.Sprintf("%q", ref), fmt.Sprintf("%q", "#"+ref[:6])} {
+		res := r.result(r.one(alice, "request.withdraw", fmt.Sprintf(`{"id":%s,"request_id":"s%d"}`, id, i)))
+		if res["ok"] != false || !strings.HasSuffix(res["said"].(string), " does not exist") || r.state(theirs) != "queued" {
+			t.Errorf("%s: %v", id, res)
+		}
+	}
+	if res := r.result(r.one(alice, "request.withdraw", `{"id":999999,"request_id":"s9"}`)); res["said"] != "request 999999 does not exist" {
+		t.Errorf("a missing one: %v", res)
+	}
+}
