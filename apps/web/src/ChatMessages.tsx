@@ -3,7 +3,7 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { type TaskChange, clockTime, isPerson, landingLabel, openTask, sessionLine, sideOf, taskRow, tickLevel } from '@handline/app-core';
+import { type TaskChange, clockTime, isPerson, landingLabel, openTask, restartCause, sideOf, taskRow, tickLevel } from '@handline/app-core';
 import { useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
@@ -215,23 +215,26 @@ function ToolLine({ i }: { i: TranscriptItem }) {
   );
 }
 
-/** A session boundary: a centered divider with the reason in words, and the handoff the new session began from in a dialog. */
+/** A restart is one centered line: when the new session began and why, and the handoff note it began from in a dialog. */
 function SessionCard({ i }: { i: TranscriptItem }) {
   const [open, setOpen] = useState(false);
-  const { reason, handoff } = sessionLine(i);
+  const cause = restartCause(i);
+  const handoff = i.session?.handoff || null;
   return (
     <div className="card-session flex items-center gap-3 text-meta text-muted" data-kind="session">
       <hr className="m-0 h-px flex-1 border-0 bg-line" />
-      <span>{reason}</span>
+      <span>
+        New session at <span className="card-time">{clockTime(i.at)}</span>
+        {cause ? `: ${cause}` : ''}
+      </span>
       {handoff ? (
-        <Button variant="outline" size="sm" label="Handoff" onClick={() => setOpen(true)}>
-          Handoff
+        <Button variant="outline" size="sm" icon="note" label="Handoff note" onClick={() => setOpen(true)}>
+          Handoff note
         </Button>
       ) : null}
-      <span className="card-time">{clockTime(i.at)}</span>
       <hr className="m-0 h-px flex-1 border-0 bg-line" />
       {open ? (
-        <Dialog title="Handoff" onClose={() => setOpen(false)}>
+        <Dialog title="Handoff note" onClose={() => setOpen(false)}>
           <CodeBlock className="handoff-full max-h-[60vh] overflow-auto whitespace-pre-wrap">{handoff}</CodeBlock>
         </Dialog>
       ) : null}
