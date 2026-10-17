@@ -5,6 +5,7 @@
 package reads
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -42,14 +43,19 @@ type Env struct {
 	// LoginState is whether an account has credentials, known false when this process cannot tell; nil asks the machine
 	// (team.Accounts).
 	LoginState func(account string) (loggedIn, known bool)
+	// PullRequests answers which of the numbers are pull requests of a GitHub repo; nil asks gh.
+	PullRequests func(ctx context.Context, repo string, numbers []int) ([]int, error)
+	prs          *prCache
 }
 
 // Register adds the read methods to the server's table.
 func Register(s *rpc.Server, env Env) {
 	e := &env
+	e.prs = newPRCache()
 	s.Register("daemon.status", rpc.Method{Role: "agent", Handler: e.status})
 	s.Register("agents.list", rpc.Method{Role: "agent", Handler: e.agentsList})
 	s.Register("agent.get", rpc.Method{Role: "agent", Handler: e.agentGet})
+	s.Register("pr.exists", rpc.Method{Role: "member", Handler: e.prExists})
 	s.Register("agent.strip", rpc.Method{Role: "member", Handler: e.agentStrip})
 	s.Register("agent.timeline", rpc.Method{Role: "member", Handler: e.agentTimeline})
 	s.Register("tasks.list", rpc.Method{Role: "agent", Handler: e.tasksList})
