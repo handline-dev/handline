@@ -23,8 +23,11 @@ const chip = (word: string) =>
   [...box.querySelectorAll<HTMLButtonElement>('.thistory [aria-pressed]')].find((b) => b.textContent!.startsWith(word))!;
 const rows = () => [...box.querySelectorAll<HTMLElement>('.thistory [data-field]')];
 
+// The fixture's rows are minutes before the daemon's clock; pinned to midday they all fall on one local day, so the memo fold never splits at midnight.
+const NOON = new Date(2026, 9, 14, 12, 0, 0);
+
 async function mount() {
-  const s = setup();
+  const s = setup({ daemon: { now: () => NOON } });
   location.hash = '#/tasks/1684';
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
