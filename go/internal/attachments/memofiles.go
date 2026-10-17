@@ -116,32 +116,27 @@ func (s *Store) AddImages(q db.Q, home, by string, founder bool, paths []string)
 
 // Carry records files as the images of message rid and claims them.
 func (s *Store) Carry(q db.Q, rid int64, files []Info) error {
+	return s.keep(files, func() error { return Record(q, rid, files) })
+}
+
+func (s *Store) AttachMemo(q db.Q, mid int64, files []Info) error {
+	return s.keep(files, func() error { return LinkMemo(q, mid, files) })
+}
+
+// keep links files with link, then claims them; no files is nothing to do.
+func (s *Store) keep(files []Info, link func() error) error {
 	if len(files) == 0 {
 		return nil
 	}
-	if err := Record(q, rid, files); err != nil {
+	if err := link(); err != nil {
 		return err
 	}
-	return s.claimInfos(files)
-}
-
-func (s *Store) claimInfos(files []Info) error {
 	ids := make([]string, len(files))
 	for i, f := range files {
 		ids[i] = f.ID
 	}
 	_, err := s.Claim(ids)
 	return err
-}
-
-func (s *Store) AttachMemo(q db.Q, mid int64, files []Info) error {
-	if len(files) == 0 {
-		return nil
-	}
-	if err := LinkMemo(q, mid, files); err != nil {
-		return err
-	}
-	return s.claimInfos(files)
 }
 
 func memoKey(mid int64) string { return fmt.Sprintf("memo-files:%d", mid) }
