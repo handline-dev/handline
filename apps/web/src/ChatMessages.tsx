@@ -156,12 +156,32 @@ export function Message(props: {
             <span className="min-w-0 truncate">{m.parent_item.text.replace(/\s+/g, ' ')}</span>
           </blockquote>
         ) : null}
-        {m.body ? (
-          <div className={MSG_BODY}>
-            <Markdown text={m.body} agent={agent} onRef={props.onRef} />
-          </div>
-        ) : null}
-        {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
+        {m.parts?.length ? (
+          m.parts.map((p, n) =>
+            'text' in p ? (
+              p.text ? (
+                <div key={n} className={MSG_BODY}>
+                  <Markdown text={p.text} agent={agent} onRef={props.onRef} />
+                </div>
+              ) : null
+            ) : p.gone ? (
+              <span key={n} className="attachment gone muted text-[12px]">
+                {p.caption || p.image.name || 'image'} - no longer kept
+              </span>
+            ) : (
+              <Pictures key={n} items={[{ id: p.image.id, name: p.image.name ?? p.caption }]} />
+            ),
+          )
+        ) : (
+          <>
+            {m.body ? (
+              <div className={MSG_BODY}>
+                <Markdown text={m.body} agent={agent} onRef={props.onRef} />
+              </div>
+            ) : null}
+            {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
+          </>
+        )}
         {m.receipt?.state === 'unknown' ? (
           <div className={MSG_FAILED} role="note">
             <Icon name="maybeRan" size={13} /> This message may or may not have run. It is not sent again; send it again yourself if it
