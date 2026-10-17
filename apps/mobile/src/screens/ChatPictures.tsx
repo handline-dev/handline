@@ -7,6 +7,9 @@ import { useAttachmentBytes } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 
+/** What a picture needs of its file: a chat attachment or an image a memo carries. */
+export type Picture = Pick<Attachment, 'id' | 'name'>;
+
 const toBase64 = (bytes: Uint8Array) => {
   let s = '';
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -31,7 +34,7 @@ function useImage(id: string, thumb: boolean): Read {
 const GONE = 'This image is no longer kept.';
 const FAILED = 'This image could not be loaded.';
 
-function Full({ a, onClose }: { a: Attachment; onClose: () => void }) {
+function Full({ a, onClose }: { a: Picture; onClose: () => void }) {
   const c = usePalette();
   const read = useImage(a.id, false);
   const [bad, setBad] = useState(false);
@@ -66,7 +69,7 @@ function Full({ a, onClose }: { a: Attachment; onClose: () => void }) {
   );
 }
 
-function Thumb({ a }: { a: Attachment }) {
+function Thumb({ a }: { a: Picture }) {
   const c = usePalette();
   const read = useImage(a.id, true);
   const [open, setOpen] = useState(false);
@@ -99,7 +102,7 @@ function Thumb({ a }: { a: Attachment }) {
 }
 
 /** The pictures of a message, in the order they were attached. */
-export function Pictures({ items }: { items: Attachment[] }) {
+export function Pictures({ items }: { items: Picture[] }) {
   return (
     <View testID="pictures" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
       {items.map((a) => (

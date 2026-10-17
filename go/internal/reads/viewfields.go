@@ -24,11 +24,11 @@ type viewFields struct {
 
 // viewFields reads the board once for every agent.
 func (e *Env) viewFields() (*viewFields, error) {
-	_, open, err := e.boardRows(false)
+	open, err := e.openTasks()
 	if err != nil {
 		return nil, err
 	}
-	b, err := e.loadBoard(open)
+	b, err := e.loadBoard()
 	if err != nil {
 		return nil, err
 	}

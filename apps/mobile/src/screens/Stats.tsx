@@ -13,8 +13,6 @@ import { Loadable } from './Loadable.tsx';
 const WINDOWS = ['24h', '7d'] as const;
 type Window = (typeof WINDOWS)[number];
 type Range = Outlook['range'];
-const HEADROOM: Range[] = ['12h', '24h', '3d', '7d', '14d'];
-const COST: Range[] = ['7d', '14d', '30d'];
 
 const TILES = [
   ['tasks done', 'tasks_done'],
@@ -85,7 +83,7 @@ function Counts({ s }: { s: StatsData }) {
             </View>
           ))
         ) : (
-          <Text style={{ color: c.muted }}>Nothing recorded in this window.</Text>
+          <Text style={{ color: c.muted }}>{NOTHING}</Text>
         )}
         {idle ? (
           <Text style={{ color: c.muted }}>
@@ -178,27 +176,23 @@ function Cost({ o }: { o: Outlook }) {
   );
 }
 
-function OutlookSection() {
+function OutlookSection({ range }: { range: Range }) {
   const c = usePalette();
   const [view, setView] = useState<'left' | 'cost'>('left');
-  const [range, setRange] = useState<Range>('24h');
-  const ranges = view === 'left' ? HEADROOM : COST;
-  const shown = ranges.includes(range) ? range : ranges[0]!;
-  const query = useOutlook(shown);
+  const query = useOutlook(range);
   const { served } = useServes('stats.outlook');
   const o = query.data;
   return (
     <View testID="outlook" style={{ gap: space.md }}>
       <Text style={{ color: c.ink, fontWeight: '600' }}>Outlook</Text>
       <Choice label="view" value={view} options={['left', 'cost'] as const} onChange={setView} />
-      <Choice label="range" value={shown} options={ranges} onChange={setRange} />
       <Loadable
         query={query}
         served={served}
         isEmpty={!!o && !o.past.length && !o.cost_per_day.length}
         skeleton="stats"
         label="the outlook"
-        empty="No usage recorded in this range."
+        empty={NOTHING}
       >
         {o ? view === 'left' ? <Left o={o} /> : <Cost o={o} /> : null}
       </Loadable>
@@ -206,37 +200,30 @@ function OutlookSection() {
   );
 }
 
-function Numbers() {
-  const c = usePalette();
-  const [win, setWin] = useState<Window>('24h');
+function Numbers({ win }: { win: Window }) {
   const query = useStats(win);
   const { served } = useServes('stats.get');
   const s = query.data;
   return (
-    <View style={{ gap: space.lg }}>
-      <Choice label="window" value={win} options={WINDOWS} onChange={setWin} />
-      <Loadable query={query} served={served} skeleton="stats" label="stats" empty="Nothing recorded in this window.">
-        {s ? (
-          <View style={{ gap: space.md }}>
-            <Text testID="stats-span" style={{ color: c.muted, fontSize: 12 }}>
-              {new Date(s.since).toLocaleString()} to {new Date(s.until).toLocaleString()}
-            </Text>
-            <Counts s={s} />
-          </View>
-        ) : null}
-      </Loadable>
-    </View>
+    <Loadable query={query} served={served} skeleton="stats" label="stats" empty={NOTHING}>
+      {s ? <Counts s={s} /> : null}
+    </Loadable>
   );
 }
+
+/** What every empty part of the page says, so the three never read differently. */
+const NOTHING = 'Nothing recorded for this period.';
 
 /** The numbers and the outlook, for the Usage tab to show under the accounts. */
 export function Stats() {
   const c = usePalette();
+  const [win, setWin] = useState<Window>('24h');
   return (
-    <View testID="stats-page" style={{ padding: space.lg, gap: space.xl }}>
+    <View testID="stats-page" style={{ padding: space.lg, paddingBottom: space.xl * 2, gap: space.xl }}>
       <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>Stats</Text>
-      <Numbers />
-      <OutlookSection />
+      <Choice label="window" value={win} options={WINDOWS} onChange={setWin} />
+      <Numbers win={win} />
+      <OutlookSection range={win} />
     </View>
   );
 }

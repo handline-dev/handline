@@ -1,15 +1,18 @@
 // A task's memos on the phone (docs/pc-app-gaps.md U11): add, edit and delete, each a `useWrite` that shows at once and rolls back with the daemon's reason.
 import { useState } from 'react';
 import { Text, View } from 'react-native';
+import type { MemoFile } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { ImageBodyInput } from './ImageBodyInput.tsx';
 import { Button } from './parts.tsx';
+import { MemoFiles } from './MemoFiles.tsx';
 import { Input, Sheet, useWhyNot } from './TaskActions.tsx';
+import { Markdown } from './Markdown.tsx';
 
 /** One memo with Edit and Delete (as the web's MemoRow). Both show at once and roll back with the reason on a refusal; Delete asks first. */
-export function MemoRow({ task, memo, when }: { task: number; memo: { id: number; author: string; text: string }; when: string }) {
+export function MemoRow({ task, memo, when }: { task: number; memo: { id: number; author: string; text: string; files?: MemoFile[] }; when: string }) {
   const c = usePalette();
   const edit = useWrite('task.memo.edit', String(task));
   const del = useWrite('task.memo.delete', String(task));
@@ -21,7 +24,9 @@ export function MemoRow({ task, memo, when }: { task: number; memo: { id: number
   const close = () => (setAsk(null), edit.reset(), del.reset());
   return (
     <View testID={`memo-${memo.id}`} style={{ gap: space.sm }}>
-      <Text style={{ color: c.ink }}>{`${memo.author} ${when}: ${memo.text}`}</Text>
+      <Text style={{ color: c.muted, fontSize: 12 }}>{`${memo.author} ${when}`}</Text>
+      <Markdown text={memo.text} breaks />
+      {memo.files?.length ? <MemoFiles files={memo.files} /> : null}
       {ask === null && (
         <View style={{ flexDirection: 'row', gap: space.sm }}>
           <Button

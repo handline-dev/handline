@@ -160,7 +160,7 @@ func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 	var shown string
 	tid, _, title, note, isHandoff := HandoffParts(head.Body)
 	if head.Kind.String == "task" && isHandoff {
-		note = textsafe.Oneline(note)
+		note = textsafe.Lines(note)
 		if note == "" {
 			note = "(no note)"
 		}
@@ -168,14 +168,26 @@ func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 		if utf8.RuneCountInString(title) > TitleShown {
 			title = strings.TrimRight(string([]rune(title)[:TitleShown]), " \t\n\r\v\f") + "…"
 		}
-		shown = fmt.Sprintf("T%d handed to you. Note: %s Title: %s", tid, note, title)
+		sep := " " // after a note of several lines, the title gets a line of its own
+		if strings.Contains(note, "\n") {
+			sep = "\n"
+		}
+		shown = fmt.Sprintf("T%d handed to you. Note: %s%sTitle: %s", tid, note, sep, title)
 	} else {
-		body := strings.TrimSpace(textsafe.Oneline(head.Body))
+		body := strings.TrimSpace(textsafe.Lines(head.Body))
 		if body == "" && images == "" {
 			body = emptyBody(q, head)
 		}
+		digest := head.Requester == db.NoticeRequester && strings.HasPrefix(body, db.DigestHead)
+		if digest { // a line per notice, as DigestText wrote it
+			lines := strings.Split(strings.TrimSpace(head.Body), "\n")
+			for i, l := range lines {
+				lines[i] = textsafe.Oneline(l)
+			}
+			body = strings.Join(lines, "\n")
+		}
 		// A reply to an earlier request is a verdict or an answer: cut, it hides the verdict.
-		whole := head.ParentID.Valid || (head.Requester == db.NoticeRequester && strings.HasPrefix(body, db.DigestHead))
+		whole := head.ParentID.Valid || digest
 		shown = body
 		if !whole && utf8.RuneCountInString(body) > 400 {
 			shown = string([]rune(body)[:400]) + "…"

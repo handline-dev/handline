@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/protected"
@@ -92,7 +91,7 @@ func TestIdleBackgroundSaysNeverToldWhenIdleNeverCloses(t *testing.T) {
 	}
 }
 
-func TestSettingsAnAgentOrAKeylessTerminalAndWhatIsNotParsedArePythons(t *testing.T) {
+func TestSettingsAnAgentOrAKeylessTerminalAndWhatIsNotParsedAreRefused(t *testing.T) {
 	keyless := agentsRig(t)
 	keyless.daemon(nil)
 	r := founderRig(t)
@@ -112,7 +111,7 @@ func TestSettingsAnAgentOrAKeylessTerminalAndWhatIsNotParsedArePythons(t *testin
 	}
 	for _, c := range cases {
 		out, _, code := c.r.run(c.env, c.args...)
-		if code != 0 || !strings.HasPrefix(out, "python ") || !strings.HasSuffix(out, " "+strings.Join(c.args, " ")+"\n") {
+		if code != 2 || out != "" {
 			t.Errorf("%v: %q %d", c.args, out, code)
 		}
 	}
@@ -133,7 +132,7 @@ func TestDevModeShowsAndSetsThroughSettings(t *testing.T) {
 	if got := sent(calls()); !reflect.DeepEqual(got, []string{`settings.get {}`, `settings.set {"changes":{"dev_mode":false}}`}) {
 		t.Fatalf("calls %v", got)
 	}
-	if out, _, _ := r.run(asAgent, "dev-mode", "on", "--why", "w"); !strings.HasPrefix(out, "python ") {
-		t.Errorf("an agent's proposal went to Go: %q", out)
+	if out, _, _ := r.run(asAgent, "dev-mode", "on", "--why", "w"); out != "" {
+		t.Errorf("an agent's proposal was not refused: %q", out)
 	}
 }

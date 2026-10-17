@@ -21,6 +21,19 @@ type parsed struct {
 
 func (p parsed) opt(name string) (string, bool) { v, ok := p.opts[name]; return v, ok }
 
+// tags is every tag given under name, each value a tag or several split by commas (`--tag fe --tag be`, `--tag fe,be`).
+func (p parsed) tags(name string) []any {
+	var out []any
+	for _, v := range p.each[name] {
+		for _, t := range strings.Split(v, ",") {
+			if t = strings.TrimSpace(t); t != "" {
+				out = append(out, t)
+			}
+		}
+	}
+	return out
+}
+
 func (p *parsed) set(name, value string) {
 	p.opts[name] = value
 	p.each[name] = append(p.each[name], value)

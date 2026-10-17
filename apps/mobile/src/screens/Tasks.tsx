@@ -2,7 +2,7 @@
 // of TaskActions: new task, done, reopen, queue, draft, discard, edit, memo, withdraw, cancel. The pills Open / Mine / Closed and the state
 // chips narrow the list as on the web.
 import { useState } from 'react';
-import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
+import { FlatList, ScrollView, Text, View } from 'react-native';
 import { ago, CLOSED, defaultFilter, idleText, shown, sortTasks, TASK_STATES, timeoutText, taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
@@ -10,10 +10,11 @@ import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
-import { Button, PageHeader } from './parts.tsx';
+import { Button, ListRow, PageHeader, Pill } from './parts.tsx';
 import { MemoBox, MemoRow } from './Memos.tsx';
 import { NewTask, TaskVerbs, useTaskPending } from './TaskActions.tsx';
 import { TaskGraph } from './TaskGraph.tsx';
+import { Markdown } from './Markdown.tsx';
 
 type Scope = 'open' | 'mine' | 'closed';
 const SCOPES: [Scope, string][] = [
@@ -21,28 +22,6 @@ const SCOPES: [Scope, string][] = [
   ['mine', 'Mine'],
   ['closed', 'Closed'],
 ];
-
-function Pill(props: { on: boolean; label: string; testID: string; onPress: () => void }) {
-  const c = usePalette();
-  return (
-    <Pressable
-      testID={props.testID}
-      accessibilityRole="button"
-      accessibilityState={{ selected: props.on }}
-      onPress={props.onPress}
-      style={{
-        minHeight: 36,
-        justifyContent: 'center',
-        borderWidth: props.on ? 2 : 1,
-        borderColor: props.on ? c.ink : c.line,
-        borderRadius: 999,
-        paddingHorizontal: space.md,
-      }}
-    >
-      <Text style={{ color: c.ink, fontWeight: props.on ? '700' : '400' }}>{props.on ? `✓ ${props.label}` : props.label}</Text>
-    </Pressable>
-  );
-}
 
 const PRIORITY = { 1: 'P1', 2: 'P2', 3: 'P3' } as const;
 
@@ -66,6 +45,7 @@ function List(props: { onSelect: (id: number) => void }) {
   );
   const [creating, setCreating] = useState(false);
   const [graph, setGraph] = useState(false);
+  const [menu, setMenu] = useState(false);
   const [filtering, setFiltering] = useState(false);
   const narrowed = states.size !== defaultFilter().states.size;
   if (creating)
@@ -80,11 +60,23 @@ function List(props: { onSelect: (id: number) => void }) {
         title="Tasks"
         actions={
           <>
-            <Button testID="graph-toggle" label={graph ? 'List' : 'Graph'} onPress={() => setGraph(!graph)} />
             <Button testID="new-task-open" label="New task" onPress={() => setCreating(true)} />
+            <Button testID="tasks-menu" label="⋯" accessibilityLabel="More" onPress={() => setMenu(!menu)} />
           </>
         }
       />
+      {menu && (
+        <View style={{ paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+          <Button
+            testID="graph-toggle"
+            label={graph ? 'List' : 'Graph'}
+            onPress={() => {
+              setGraph(!graph);
+              setMenu(false);
+            }}
+          />
+        </View>
+      )}
       {graph ? (
         <Loadable query={query} served={served} isEmpty={false} skeleton="tasks" label="tasks" empty="No open tasks.">
           <TaskGraph tasks={query.data?.items ?? []} onSelect={props.onSelect} />
@@ -142,32 +134,10 @@ function List(props: { onSelect: (id: number) => void }) {
 }
 
 function Row(props: { t: Task; onPress: () => void }) {
-  const c = usePalette();
   const t = props.t;
   const now = Date.now();
-  return (
-    <Pressable
-      testID={`task-${t.id}`}
-      onPress={props.onPress}
-      style={{
-        minHeight: 48,
-        justifyContent: 'center',
-        paddingHorizontal: space.lg,
-        paddingVertical: space.sm,
-        borderTopWidth: 1,
-        borderTopColor: c.line,
-      }}
-    >
-      <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '600' }}>
-        {t.title}
-      </Text>
-      <Text style={{ color: c.muted, fontSize: 12 }}>
-        {[`${taskRef(t.id)}`, t.state, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, idleText(t, now) || ago(t.created)]
-          .filter(Boolean)
-          .join(' · ')}
-      </Text>
-    </Pressable>
-  );
+  const meta = [`→ ${t.to}`, t.state, idleText(t, now) || ago(t.created)];
+  return <ListRow testID={`task-${t.id}`} title={t.title} meta={meta.filter(Boolean).join(' · ')} onPress={props.onPress} />;
 }
 
 export function Detail(props: { id: number; onBack: () => void }) {
@@ -232,12 +202,12 @@ function Body({ t }: { t: TaskDetail }) {
       {/* The Waits on section already says what holds it; the reason lines are for a task with no listed blocker. */}
       {!t.blockers.length && t.block_reason ? <Text style={{ color: c.block }}>{t.block_reason}</Text> : null}
       {!t.blockers.length && t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
-      {t.body ? <Section title="Brief">{line(t.body)}</Section> : null}
+      {t.body ? <Section title="Brief"><Markdown text={t.body} breaks /></Section> : null}
       {t.blockers.length ? (
         <Section title="Waits on">{t.blockers.map((b, i) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`, i))}</Section>
       ) : null}
       {t.children.length ? <Section title="Subtasks">{t.children.map((k, i) => line(`${taskRef(k)}`, i))}</Section> : null}
-      {t.evidence ? <Section title="Evidence">{line(t.evidence)}</Section> : null}
+      {t.evidence ? <Section title="Evidence"><Markdown text={t.evidence} breaks /></Section> : null}
       {t.deliveries.length ? (
         <Section title="Delivery">{line(deliverySummary(t.deliveries))}</Section>
       ) : null}
