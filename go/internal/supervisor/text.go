@@ -160,7 +160,7 @@ func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 	var shown string
 	tid, _, title, note, isHandoff := HandoffParts(head.Body)
 	if head.Kind.String == "task" && isHandoff {
-		note = textsafe.Oneline(note)
+		note = textsafe.Lines(note)
 		if note == "" {
 			note = "(no note)"
 		}
@@ -170,7 +170,7 @@ func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 		}
 		shown = fmt.Sprintf("T%d handed to you. Note: %s Title: %s", tid, note, title)
 	} else {
-		body := strings.TrimSpace(textsafe.Oneline(head.Body))
+		body := strings.TrimSpace(textsafe.Lines(head.Body))
 		if body == "" && images == "" {
 			body = emptyBody(q, head)
 		}

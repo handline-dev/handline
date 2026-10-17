@@ -65,6 +65,7 @@ back to the account its session lives on.""",
   hl say <agent> "..."           a message: typed at once, needs no answer, starts no work.
                                   To one of your reports it carries --task T<n> (a memo on that task)
   hl say <agent> "..." --parent <id>   a reply, in its thread
+  hl say <agent> --file - <<'EOF'      a message of more than a sentence: its lines, in Markdown, up to EOF
   hl inbox                       the one thing currently waiting for you, and a count
   hl inbox --all                 the whole queue and its history
   hl read <id>                   one of them whole

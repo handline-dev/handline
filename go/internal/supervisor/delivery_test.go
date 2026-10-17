@@ -20,6 +20,17 @@ func (r *rig) ask(from, to, body, kind string) int64 {
 	return out.RID
 }
 
+func TestASayIsTypedWithItsLines(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	out, _, err := r.Say(r.DB, SayIn{Target: "bob", Body: "Done:\n\n- one\x07\n- two\n", Requester: "alice"})
+	r.must(err)
+	head := mustReq(r, out.RID)
+	if got := tellText(r.DB, head, 1, nil, false, nil, ""); !strings.HasPrefix(got, "#1 from alice, waiting for you:\nDone:\n\n- one\n- two\n`hl read 1`") {
+		t.Fatalf("%q", got)
+	}
+}
+
 func TestDeliverQueuedTellsTheHeadTaskThenBatchesWhatArrivesBehindIt(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
