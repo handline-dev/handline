@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -206,6 +208,17 @@ func (e *Env) draft(actor, kind string, args map[string]any, why string, registe
 	if kind == "team" && repo == "" {
 		return nil, fmt.Sprintf("team %s needs --repo <path> for its manager; a member without its own --member SUFFIX=REPO works there too. Each worktree is made in it.", name)
 	}
+	if kind == "add" || kind == "team" {
+		var why string
+		if repo, why = e.checkout(actor, repo); why != "" {
+			return nil, why
+		}
+		for n, r := range repos {
+			if repos[n], why = e.checkout(actor, r); why != "" {
+				return nil, why
+			}
+		}
+	}
 	prop, err := newProp(kind, name, actor, why)
 	if err != nil {
 		return nil, err.Error()
@@ -238,6 +251,30 @@ func (e *Env) draft(actor, kind string, args map[string]any, why string, registe
 		}
 	}
 	return prop, ""
+}
+
+// checkout is the repo a new agent works in as it is kept: absolute, a relative one taken from the proposer's own repo, and refused ("" and
+// why) unless it is an existing git checkout, since a spawn resolves a bad path to one where no worktree can be made. "" stays "".
+func (e *Env) checkout(actor, repo string) (string, string) {
+	if repo == "" {
+		return "", ""
+	}
+	path := repo
+	if !filepath.IsAbs(path) {
+		base := team.NewRoster(e.Home).RepoOf(actor)
+		if base == "" || !filepath.IsAbs(base) {
+			return "", fmt.Sprintf("repo %s is a relative path and %s has no repo to take it from: give the absolute path of the checkout", repo, actor)
+		}
+		path = filepath.Join(base, path)
+	}
+	path = filepath.Clean(path)
+	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
+		return "", fmt.Sprintf("repo %s is not a folder (%s): give the absolute path of a git checkout", repo, path)
+	}
+	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+		return "", fmt.Sprintf("repo %s is not a git checkout (%s has no .git): give the absolute path of one", repo, path)
+	}
+	return path, ""
 }
 
 // newProp is a proposal's header: a fresh id, what it is about, who asks and why.
