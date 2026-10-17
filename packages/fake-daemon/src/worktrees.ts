@@ -15,8 +15,20 @@ const REPOS: Repo[] = [
 const unified = (c: Worktree['changed'][number]): string => {
   const add = Array.from({ length: Math.min(c.added, 6) }, (_, i) => `+added line ${i + 1}`);
   const del = Array.from({ length: Math.min(c.deleted, 6) }, (_, i) => `-removed line ${i + 1}`);
-  const head = [`diff --git a/${c.path} b/${c.path}`, ...(c.status === 'A' ? ['new file mode 100644'] : c.status === 'D' ? ['deleted file mode 100644'] : [])];
-  return [...head, `--- ${c.status === 'A' ? '/dev/null' : `a/${c.path}`}`, `+++ ${c.status === 'D' ? '/dev/null' : `b/${c.path}`}`, `@@ -1,${c.deleted} +1,${c.added} @@`, ' context line', ...del, ...add, ''].join('\n');
+  const head = [
+    `diff --git a/${c.path} b/${c.path}`,
+    ...(c.status === 'A' ? ['new file mode 100644'] : c.status === 'D' ? ['deleted file mode 100644'] : []),
+  ];
+  return [
+    ...head,
+    `--- ${c.status === 'A' ? '/dev/null' : `a/${c.path}`}`,
+    `+++ ${c.status === 'D' ? '/dev/null' : `b/${c.path}`}`,
+    `@@ -1,${c.deleted} +1,${c.added} @@`,
+    ' context line',
+    ...del,
+    ...add,
+    '',
+  ].join('\n');
 };
 
 const file = (path: string, status: string, added: number, deleted: number) => ({ path, status, added, deleted });
@@ -104,7 +116,7 @@ export class FakeWorktrees {
           throw invalidParams('the file must stay inside the worktree', 'file');
         if (!this.rows.some((w) => w.path === p.path)) throw new Failure('not_found', `no worktree ${p.path}`, { what: 'path' });
         const row = this.rows.find((w) => w.path === p.path)!;
-        const files = row.changed.filter((c) => p.file === undefined || c.path === p.file);
+        const files = row.changed.filter((c) => (p.file === undefined ? c.status !== '?' : c.path === p.file));
         return { path: p.path, file: p.file ?? null, diff: files.map(unified).join(''), truncated: false };
       }
       default:

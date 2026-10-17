@@ -20,13 +20,14 @@ const lineClass = (l: string): string =>
 
 export function ChangesTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const path = detail.worktree?.path ?? '';
-  const q = useWorktrees({ owner: agent });
+  const q = useWorktrees();
   const { served } = useServes('worktrees.list');
   const row = q.data?.worktrees.find((w) => w.path === path);
   const changed = row?.changed ?? [];
   const [picked, setPicked] = useState<string | null>(null);
   const file = changed.some((c) => c.path === picked) ? picked : null;
   const open = shell('openPath');
+  const diffQ = useWorktreeDiff(path, file ?? undefined);
   const copy = (text: string) => void navigator.clipboard?.writeText(text);
   return (
     <section className="changes-tab flex h-full min-h-0 flex-col" aria-label={`Changes of ${agent}`}>
@@ -35,7 +36,7 @@ export function ChangesTab({ agent, detail }: { agent: string; detail: AgentDeta
         <span className="mono min-w-0 flex-1 truncate text-meta text-ink-2" title={path}>
           {detail.worktree?.branch ?? ''}
         </span>
-        <Button icon="refresh" size="sm" variant="outline" label="Reload" onClick={() => void q.refetch()}>
+        <Button icon="refresh" size="sm" variant="outline" label="Reload" onClick={() => void Promise.all([q.refetch(), diffQ.refetch()])}>
           Reload
         </Button>
         <MenuButton icon="open" size="sm" variant="outline" label="Open outside" name="Open outside" trigger="Open outside">
@@ -75,9 +76,7 @@ export function ChangesTab({ agent, detail }: { agent: string; detail: AgentDeta
                   aria-pressed={file === c.path}
                   title={`${STATUS[c.status] ?? c.status}: ${c.path}`}
                 >
-                  <span className="status mono w-3 flex-none text-ink-2" aria-label={STATUS[c.status] ?? c.status}>
-                    {c.status}
-                  </span>
+                  <span className="status flex-none text-hint text-ink-2">{STATUS[c.status] ?? c.status}</span>
                   <span className="min-w-0 flex-1 truncate">{c.path}</span>
                   <span className="flex-none text-hint text-ok">+{c.added}</span>
                   <span className="flex-none text-hint text-bad">−{c.deleted}</span>
@@ -85,22 +84,22 @@ export function ChangesTab({ agent, detail }: { agent: string; detail: AgentDeta
               </li>
             ))}
           </ul>
-          <Diff path={path} file={file} />
+          <Diff q={diffQ} untracked={file === null && changed.some((c) => c.status === '?')} />
         </div>
       </View>
     </section>
   );
 }
 
-function Diff({ path, file }: { path: string; file: string | null }) {
-  const q = useWorktreeDiff(path, file ?? undefined);
+function Diff({ q, untracked }: { q: ReturnType<typeof useWorktreeDiff>; untracked: boolean }) {
   const { served } = useServes('worktree.diff');
   const d = q.data;
   return (
     <div className="diff min-w-0 flex-1 overflow-auto p-2">
-      <View q={q} served={served} shape="worktrees" what="the diff" empty={d && !d.diff && 'No difference to show.'}>
+      <View q={q} served={served} shape="worktrees" what="the diff" empty={d && !d.diff && !untracked && 'No difference to show.'}>
         {d ? (
           <>
+            {untracked && !d.diff.trim() ? <p className="muted">Untracked files: pick the file.</p> : null}
             <pre className="m-0 font-mono text-[12px] leading-5">
               {d.diff.split('\n').map((l, i) => (
                 <div key={i} className={lineClass(l)}>
