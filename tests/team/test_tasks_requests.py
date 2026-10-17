@@ -252,7 +252,7 @@ def test_own_withdraw_is_not_an_answer(home: Path) -> None:
 
 
 def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
-    """Review of buddyron/one-task-at-a-time: the first version of this
+    """Review of yourname/one-task-at-a-time: the first version of this
     migration marked every existing queued row delivered, so none was left
     to promote ahead of the rest."""
     import sqlite3
@@ -291,7 +291,7 @@ def test_migration_marks_only_each_targets_head_delivered(home: Path) -> None:
 
 
 def test_retire_if_undelivered_is_the_gate_against_the_delivery_race(home: Path) -> None:
-    """Review of buddyron/one-task-at-a-time: a plain read-then-write let a
+    """Review of yourname/one-task-at-a-time: a plain read-then-write let a
     delivery land between checking delivered_at and retiring the row. The
     atomic conditional update is the only thing withdraw/replace may trust."""
     use_home(home)
