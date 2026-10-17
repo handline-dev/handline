@@ -5,22 +5,7 @@ import { routeOfTarget, type ShellApi } from '@handline/app-core';
 import { useBusy, useUnread } from '@handline/app-data';
 import { RpcError, type ClientOptions } from '@handline/client';
 
-type Call =
-  | 'screen'
-  | 'unsent'
-  | 'onNavigate'
-  | 'openPath'
-  | 'compose'
-  | 'cancelCompose'
-  | 'mode'
-  | 'setMode'
-  | 'pairRemote'
-  | 'phone'
-  | 'captureWindows'
-  | 'captureWindow'
-  | 'pathOf'
-  | 'settingsGet'
-  | 'settingsSet';
+type Call = 'screen' | 'unsent' | 'onNavigate' | 'openPath' | 'compose' | 'cancelCompose' | 'mode' | 'setMode' | 'pairRemote' | 'phone' | 'captureWindows' | 'captureWindow' | 'pathOf' | 'settingsGet' | 'settingsSet';
 
 /** True in the desktop shell; main.tsx marks <html data-shell=desktop> from it. */
 export const inShell = (): boolean => typeof window !== 'undefined' && 'handline' in window;

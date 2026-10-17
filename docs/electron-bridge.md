@@ -31,7 +31,7 @@ One object, `window.handline`, made by a preload with `contextBridge`. No other 
 | `onNavigate` | shell → page | E2 | none; a deep link is the URL itself |
 | `openPath`, `cancelCompose`, `compose` | page → shell | E3 | §4 |
 | `mode`, `setMode`, `pairRemote`, `phone` | page → shell | modes | the pairing screen shows no mode section |
-| `settingsGet`, `settingsSet` | page → shell | the window is a paired device, which the daemon refuses `settings.get` and `settings.set`; the shell's founder connection makes just these two calls, with the same sender and argument checks (names and plain values, no other method) | the page calls the daemon itself |
+| `settingsGet`, `settingsSet` | page → shell | the window is a paired device, which the daemon refuses `settings.get` and `settings.set`; the shell's founder connection makes just these two calls, with the same sender and argument checks (only the keys the Settings page edits, plain values, no other method) | the page calls the daemon itself |
 
 ## 3. Badge, notices, update, and the notice's click
 

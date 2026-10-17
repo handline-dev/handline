@@ -165,6 +165,8 @@ test('settings: only get and set with checked arguments reach the daemon, and on
     { changes: {} },
     { changes: [] },
     { changes: { 'Bad Key': 1 } },
+    { changes: { dev_mode: true } }, // a daemon setting the page does not edit
+    { changes: { active_cap: 3, handoff_prompt: 'x' } },
     { changes: { active_cap: {} } },
     { changes: { active_cap: Infinity } },
     { changes: { active_cap: 3 }, method: 'agent.remove' },

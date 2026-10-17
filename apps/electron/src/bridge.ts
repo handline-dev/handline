@@ -1,6 +1,6 @@
 // The shell's side of window.handline (docs/electron-bridge.md §2, §3): what the page last said, and the check each call passes.
 // Electron's own objects are injected, so this runs under node.
-import type { Fail } from '@handline/app-core';
+import { PAGE_SETTINGS, type Fail } from '@handline/app-core';
 import type { Methods } from '@handline/client';
 import { parseMode, type Mode, type OfferInput } from './mode.ts';
 
@@ -137,9 +137,10 @@ export interface SettingsDeps {
 }
 
 export type SettingsFail = Fail<'bad_request' | 'refused' | 'unavailable'>;
-const SETTING_KEY = /^[a-z][a-z0-9_]{0,63}$/;
+const SETTING_KEYS: readonly string[] = PAGE_SETTINGS;
 const MAX_CHANGES = 64;
 const MAX_VALUE = 4096;
+const refuse = (message: string): SettingsFail => ({ ok: false, code: 'bad_request', message });
 
 /** settings.get and settings.set for the page, which connects as a paired device: only these two, with the founder's connection the shell holds. */
 export class Settings {
@@ -151,17 +152,16 @@ export class Settings {
   }
 
   async get(e: Sender, arg: unknown): Promise<{ ok: true; result: Methods['settings.get']['result'] } | SettingsFail> {
-    if (!fromWindow(e, this.origin)) return bad('not from the app window') as SettingsFail;
+    if (!fromWindow(e, this.origin)) return refuse('not from the app window');
     const a = arg ?? {};
-    if (!isPlain(a) || Object.keys(a).some((k) => k !== 'agent') || !optionalName(a.agent))
-      return bad('settingsGet takes { agent? }') as SettingsFail;
+    if (!isPlain(a) || Object.keys(a).some((k) => k !== 'agent') || !optionalName(a.agent)) return refuse('settingsGet takes { agent? }');
     return this.run(() => this.d.get(a.agent as string | undefined));
   }
 
   async set(e: Sender, arg: unknown): Promise<{ ok: true; result: Methods['settings.set']['result'] } | SettingsFail> {
-    if (!fromWindow(e, this.origin)) return bad('not from the app window') as SettingsFail;
+    if (!fromWindow(e, this.origin)) return refuse('not from the app window');
     if (!isPlain(arg) || Object.keys(arg).some((k) => k !== 'changes' && k !== 'agent') || !optionalName(arg.agent))
-      return bad('settingsSet takes { changes, agent? }') as SettingsFail;
+      return refuse('settingsSet takes { changes, agent? }');
     const changes = arg.changes;
     const entries = isPlain(changes) ? Object.entries(changes) : null;
     const okChanges =
@@ -170,13 +170,13 @@ export class Settings {
       entries.length <= MAX_CHANGES &&
       entries.every(
         ([k, v]) =>
-          SETTING_KEY.test(k) &&
+          SETTING_KEYS.includes(k) &&
           (v === null ||
             typeof v === 'boolean' ||
             (typeof v === 'number' && Number.isFinite(v)) ||
             (typeof v === 'string' && v.length <= MAX_VALUE)),
       );
-    if (!okChanges) return bad('changes are setting names with a number, true or false, text or null') as SettingsFail;
+    if (!okChanges) return refuse('changes are settings the page edits, with a number, true or false, text or null');
     return this.run(() => this.d.set(changes as Record<string, unknown>, arg.agent as string | undefined));
   }
 
