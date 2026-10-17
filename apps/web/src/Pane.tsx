@@ -68,11 +68,6 @@ export function Pane({ group }: { group: Group }) {
   const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; disabled?: boolean }[] = [
     { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
     { kind: 'timeline', params: {}, label: 'Timeline', icon: 'history' },
-    detail.structured === true
-      ? { kind: 'transcript', params: {}, label: 'Transcript', icon: 'terminal' }
-      : detail.terminal
-        ? { kind: 'terminal', params: { handle: detail.terminal }, label: 'Claude Code', icon: 'terminal' }
-        : { kind: 'terminal', params: {}, label: 'No terminal: start the agent first', icon: 'noTerminal', disabled: true },
   ];
   const structured = detail.structured === true;
   // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.

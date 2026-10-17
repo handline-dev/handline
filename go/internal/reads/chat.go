@@ -57,11 +57,8 @@ func (c *chat) taskState(taskID int64) (any, error) {
 	}
 	if c.b == nil {
 		c.loads++
-		_, open, err := c.e.boardRows(false)
-		if err != nil {
-			return nil, err
-		}
-		if c.b, err = c.e.loadBoard(open); err != nil {
+		var err error
+		if c.b, err = c.e.loadBoard(); err != nil {
 			return nil, err
 		}
 	}

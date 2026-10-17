@@ -25,6 +25,8 @@ export interface Tab {
   id: string;
   kind: TabKind;
   params: TabParams;
+  /** The tab that was showing when this one was opened; closing this one returns there. */
+  from?: string;
 }
 /** A pane: its own tab strip. Never empty, so `activeTab` always names one of `tabs`. */
 export interface Group {
@@ -161,7 +163,7 @@ export function openTab(ws: Workspace, kind: TabKind, params: TabParams = {}, in
   return {
     ...ws,
     active: target.id,
-    tabs: { ...ws.tabs, [id]: { id, kind, params } },
+    tabs: { ...ws.tabs, [id]: { id, kind, params, from: target.activeTab } },
     root: replaceGroup(ws.root, target.id, (g) => ({ ...g, tabs: [...g.tabs, id], activeTab: id })),
   };
 }
@@ -182,7 +184,11 @@ export function closeTab(ws: Workspace, id: string): Workspace {
   if (id === CHAT || !ws.tabs[id]) return ws;
   const { root, heir } = detach(ws, id);
   const { [id]: _gone, ...tabs } = ws.tabs;
-  return { ...ws, tabs, root: root!, active: heir ?? ws.active };
+  const closed = { ...ws, tabs, root: root!, active: heir ?? ws.active };
+  const from = ws.tabs[id]!.from;
+  const g = groupOf(ws, id)!;
+  // Closing the tab that is showing goes back to the one it was opened from, not to its neighbour on the strip.
+  return from && g.activeTab === id && groupOf(closed, from)?.id === g.id ? activate(closed, from) : closed;
 }
 
 /** Drops a tab on a group's strip: into that group at `index` (the end by default). Within a group it reorders. */
@@ -364,7 +370,7 @@ export function parseWorkspace(raw: unknown): Workspace | null {
   for (const [id, t] of Object.entries(raw.tabs)) {
     if (!isObj(t) || t.id !== id || !TAB_KINDS.includes(t.kind as TabKind) || !isObj(t.params)) return null;
     if ((t.kind === 'chat') !== (id === CHAT)) return null;
-    tabs[id] = { id, kind: t.kind as TabKind, params: t.params as TabParams };
+    tabs[id] = { id, kind: t.kind as TabKind, params: t.params as TabParams, ...(typeof t.from === 'string' ? { from: t.from } : {}) };
   }
   const seen = new Set<string>(),
     ids = new Set<string>();

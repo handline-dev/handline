@@ -5,6 +5,7 @@ import type { Proposal, TranscriptItem } from '@handline/client';
 import { clockTime, sessionLine } from '@handline/app-core';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
+import { Markdown } from './Markdown.tsx';
 import { Sheet } from './TaskActions.tsx';
 
 /** A transcript line that is not a message. */
@@ -14,7 +15,7 @@ export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: Transcri
   if (i.kind === 'reply')
     return (
       <View testID={`reply-${i.id}`} style={{ alignSelf: 'flex-start', maxWidth: '88%', padding: space.md }}>
-        <Text style={{ color: c.ink }}>{i.text}</Text>
+        <Markdown text={i.text ?? ''} breaks />
         <Text style={small}>{clockTime(i.at)}</Text>
         {onReply && (
           <Pressable

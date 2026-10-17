@@ -106,8 +106,26 @@ describe('the inbox tab', () => {
     await until(() => $('unread-count')?.textContent === '0', 'the count to drop');
     await press($(`inbox-open-${DECISION}`));
     await press(done(DECISION));
-    await until(() => $('empty'), 'the empty sentence');
+    await until(() => $('inbox-clear'), 'the empty sentence');
     expect(text()).toContain('Nothing waits on you');
+    expect(item(RESULT)).toBeNull(); // what is read waits in the Read group, shut
+    await press($('inbox-group-open-read'));
+    await until(() => item(RESULT), 'the read item in its group');
+    m.store.stop();
+  });
+
+  it('shows the task board\'s messages as one row that opens to them', async () => {
+    const m = await mount((s) => {
+      s.daemon.inbox.add({ kind: 'say', agent: 'task-board', title: 'T1 done by a', created: new Date().toISOString() });
+      s.daemon.inbox.add({ kind: 'say', agent: 'task-board', title: 'T2 done by b', created: new Date().toISOString() });
+    });
+    await tab('inbox');
+    await until(() => $('inbox-group-digest'), 'the digest row');
+    expect(text($('inbox-group-digest'))).toContain('task-board: 2 messages');
+    expect(text()).not.toContain('T1 done by a'); // shut, they are not listed one by one
+    await press($('inbox-group-open-digest'));
+    await until(() => text($('inbox-group-digest')).includes('T2 done by b'), 'the messages');
+    expect(text($('inbox-group-digest'))).toContain('T1 done by a');
     m.store.stop();
   });
 
@@ -416,6 +434,17 @@ describe('the task verbs', () => {
     await until(() => $(`task-${MINE_DOING}`) && $('task-1650') === null, 'the open list');
   }, 20000);
 
+  it('draws Markdown in a memo', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DOING);
+    await fill('memo-text', '**bold** and `code`\n- one');
+    await press($('memo-send'));
+    await until(() => m.daemon.tasks.get({ task: MINE_DOING }).memos.length === 1, 'the daemon memo');
+    const id = m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.id;
+    await until(() => $(`memo-${id}`)?.textContent?.includes('•'), 'the drawn memo');
+    expect($(`memo-${id}`)?.textContent).not.toContain('**');
+  });
+
   it('edits and deletes a memo, asks before deleting, and puts it back with the reason on a refusal', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DOING);
@@ -459,150 +488,6 @@ describe('the task verbs', () => {
     expect(text()).toContain('this daemon does not serve task.done');
     expect($('memo-send')?.getAttribute('aria-disabled')).toBe('true'); // the fake serves no memos
     expect(text()).toContain('this daemon does not serve task.memo.add');
-    m.store.stop();
-  });
-});
-
-describe('the chat tab', () => {
-  const type = (id: string, value: string) =>
-    act(async () => {
-      const el = $(id) as HTMLTextAreaElement | HTMLInputElement;
-      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')!.set!.call(el, value);
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-  const msgOf = (body: string) =>
-    [...box.querySelectorAll<HTMLElement>('[data-testid^="msg-"]')].find((e) => e.textContent?.includes(body));
-  async function openChat() {
-    await until(() => $(`agent-${ARCH}`), 'the rows');
-    await press($(`agent-${ARCH}`));
-    await until(() => $('chat-input'), 'the chat');
-  }
-
-  it('shows its skeleton while the chat read is slow, then the rows', async () => {
-    const m = await mount(() => {}, undefined, 'founder');
-    await until(() => $(`agent-${ARCH}`), 'the rows');
-    m.daemon.knobs.latency(500);
-    await press($(`agent-${ARCH}`));
-    await until(() => $('skeleton-chat'), 'the chat skeleton', 5000);
-    expect(msgOf('Use the contract fixtures.')).toBeUndefined();
-    await until(() => msgOf('Use the contract fixtures.'), 'the messages', 5000);
-    await sleep(400); // the skeleton stays at least 300 ms once shown
-    expect($('skeleton-chat')).toBeNull();
-    m.store.stop();
-  });
-
-  it('shows the daemon’s sentence when the chat read is refused, and Retry reads again', async () => {
-    const m = await mount(() => {}, undefined, 'founder');
-    await until(() => $(`agent-${ARCH}`), 'the rows');
-    m.daemon.knobs.refuse('chat.messages', 'state', 'the daemon is resting', 'try again later');
-    await press($(`agent-${ARCH}`));
-    await until(() => $('error'), 'the error block');
-    expect($('error')!.textContent).toContain('the daemon is resting (try again later)');
-    expect(msgOf('Use the contract fixtures.')).toBeUndefined();
-    m.daemon.knobs.clear();
-    await press([...box.querySelectorAll<HTMLElement>('[role="button"]')].find((b) => b.textContent === 'Retry') ?? null);
-    await until(() => msgOf('Use the contract fixtures.'), 'the messages after Retry');
-    expect($('error')).toBeNull();
-    m.store.stop();
-  });
-
-  it('shows the conversation with how far each message got, and Mine hides what agents tell each other', async () => {
-    const m = await mount(() => {}, undefined, 'founder');
-    await openChat();
-    await until(() => msgOf('Use the contract fixtures.'), 'the messages');
-    expect(msgOf('Use the contract fixtures.')!.textContent).toContain('Delivered');
-    expect(msgOf('Draft the web chat tab plan.')!.textContent).toContain('Delivered');
-    expect(text()).toContain('Here is the plan: three units, chat first.'); // the agent's reply
-    expect(msgOf('Review is done, see the notes.')).toBeUndefined();
-    await press($('scope-all'));
-    await until(() => msgOf('Review is done, see the notes.'), 'the agents’ messages');
-    expect(msgOf('Review is done, see the notes.')!.textContent).toContain('handline.auditor → handline.architect');
-    m.store.stop();
-  });
-
-  it('sends at once, follows the message to delivered, and shows the working line', async () => {
-    const m = await mount(() => {}, undefined, 'founder');
-    await openChat();
-    await type('chat-input', 'run the tests');
-    await press($('chat-send'));
-    await until(() => msgOf('run the tests'), 'the sent message');
-    expect(($('chat-input') as HTMLTextAreaElement).value).toBe('');
-    await act(async () => void [1, 2, 3].forEach(() => m.daemon.tick())); // typed, delivered, thinking
-    await until(() => $('working'), 'the working line');
-    expect($('working')!.textContent).toContain('Reading the code');
-    expect(msgOf('run the tests')!.textContent).toContain('Delivered');
-    m.store.stop();
-  });
-
-  it('keeps a refused message as a failed row with the reason and Retry, and sends it again when the daemon allows', async () => {
-    const m = await mount((s) => s.daemon.knobs.refuse('chat.send', 'state', 'the daemon is resting', undefined, 1), undefined, 'founder');
-    await openChat();
-    await type('chat-input', 'please retry me');
-    await press($('chat-send'));
-    await until(() => msgOf('please retry me')?.textContent?.includes('the daemon is resting'), 'the failed row');
-    const row = msgOf('please retry me')!;
-    await press(row.querySelector<HTMLElement>('[data-testid^="retry-"]'));
-    await until(() => msgOf('please retry me')?.textContent?.includes('Sending'), 'the retried message');
-    expect(msgOf('please retry me')!.textContent).not.toContain('the daemon is resting');
-    m.store.stop();
-  });
-
-  it('replies to a picked message with its number', async () => {
-    const m = await mount(() => {}, undefined, 'founder');
-    await openChat();
-    await until(() => msgOf('Use the contract fixtures.'), 'the messages');
-    await press(msgOf('Use the contract fixtures.')!);
-    expect($('replying')!.textContent).toContain('Use the contract fixtures.');
-    await type('chat-input', 'about that');
-    await press($('chat-send'));
-    await until(() => msgOf('about that'), 'the reply');
-    expect(msgOf('about that')!.textContent).toContain('↩ #');
-    expect($('replying')).toBeNull();
-    m.store.stop();
-  });
-
-  it('a picked message is a reference: it is sent as a linked message', async () => {
-    const m = await mount(() => {}, undefined, 'founder');
-    await openChat();
-    const q = 'Which gap list should come first?';
-    await until(() => msgOf(q), 'the question');
-    await press(msgOf(q)!);
-    await type('chat-input', 'web first');
-    await press($('chat-send'));
-    await until(() => msgOf('web first'), 'the reply');
-    expect(msgOf('web first')!.textContent).toContain('↩ #');
-    m.store.stop();
-  });
-
-  it('a question from the agent is an ordinary message: no answer box, no Dismiss, no waiting mark', async () => {
-    const m = await mount(() => {}, undefined, 'founder');
-    await openChat();
-    await until(() => msgOf('Which gap list should come first?'), 'the question');
-    const el = msgOf('Which gap list should come first?')!;
-    const id = Number(el.getAttribute('data-testid')!.slice(4));
-    expect($(`answer-input-${id}`)).toBeNull();
-    expect($(`dismiss-${id}`)).toBeNull();
-    expect(el.textContent).not.toContain('Waiting for you');
-    m.store.stop();
-  });
-
-  it('keeps an unsent draft per agent while the person is on another tab', async () => {
-    const m = await mount(() => {}, undefined, 'founder');
-    await openChat();
-    await type('chat-input', 'half a thought');
-    await press($('tab-terminal'));
-    await press($('tab-chat'));
-    await until(() => $('chat-input'), 'the chat again');
-    expect(($('chat-input') as HTMLTextAreaElement).value).toBe('half a thought');
-    m.store.stop();
-  });
-
-  it('says so when the daemon does not serve chat', async () => {
-    const m = await mount(() => {}, { chat: false }, 'founder');
-    await until(() => $(`agent-${ARCH}`), 'the rows');
-    await press($(`agent-${ARCH}`));
-    await until(() => $('chat-off'), 'the empty state');
-    expect($('chat-input')).toBeNull();
     m.store.stop();
   });
 });

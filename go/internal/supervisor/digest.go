@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
@@ -55,12 +56,22 @@ func (e *Env) tellNowSay(q db.Q, to, text, reason string) {
 	must(e.TellNow(q, rid))
 }
 
-// DigestLine is `T<n> · who · result (#id)` for a result notice; any other notice is its own text.
+// DigestLine is `T<n> · who · result (#id)` for a result notice; any other notice is its own text. A memo's file lines follow, one each, so
+// every path can be read whole.
 func DigestLine(r *db.Request) string {
-	body := oneSpace(textsafe.Oneline(r.Body))
+	text, files := attachments.SplitFileLines(r.Body)
+	line := digestSummary(text, r.ID)
+	for _, f := range files {
+		line += "\n  " + textsafe.Oneline(f)
+	}
+	return line
+}
+
+func digestSummary(text string, id int64) string {
+	body := oneSpace(textsafe.Oneline(text))
 	m := resultNotice.FindStringSubmatch(body)
 	if m == nil {
-		return fmt.Sprintf("%s (#%d)", firstRunes(body, ResultShown+30), r.ID)
+		return fmt.Sprintf("%s (#%d)", firstRunes(body, ResultShown+30), id)
 	}
 	tid, how, who, result := m[1], m[2], m[3], m[4]
 	if how != "done" {
@@ -69,7 +80,7 @@ func DigestLine(r *db.Request) string {
 	if utf8.RuneCountInString(result) > ResultShown {
 		result = strings.TrimRight(string([]rune(result)[:ResultShown]), " \t\n\r\v\f") + "…"
 	}
-	return fmt.Sprintf("T%s · %s · %s (#%d)", tid, who, result, r.ID)
+	return fmt.Sprintf("T%s · %s · %s (#%d)", tid, who, result, id)
 }
 
 func firstRunes(s string, n int) string {

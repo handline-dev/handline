@@ -11,7 +11,7 @@ import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { AccountLogin } from './AccountLogin.tsx';
 import { Loadable } from './Loadable.tsx';
-import { Button, PageHeader } from './parts.tsx';
+import { Button, Card, PageHeader } from './parts.tsx';
 import { useWhyNot } from './TaskActions.tsx';
 
 const SPANS = { '5 hours': FIVE_HOURS_MS, week: WEEK_MS } as const;
@@ -55,7 +55,7 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
 function stateText(a: Account): string {
   const s = stateOf(a);
   const until = s === 'out' ? outUntil(a) : null;
-  return until ? `out until ${span(Date.parse(until) - Date.now())} from now` : STATE_WORD[s];
+  return until ? `out until ${span(Date.parse(until) - Date.now())} from now` : s === 'in_use' ? '' : STATE_WORD[s];
 }
 
 function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
@@ -90,9 +90,15 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
                   {a.agents.length}/{a.cap_effective} agents
                 </Text>
               </View>
-              <Text style={{ color: c.muted, fontSize: 12 }}>{stateText(a)}</Text>
-              <Gauge label="5 hours" w={a.five_hour} />
-              <Gauge label="week" w={a.weekly} />
+              {stateText(a) ? <Text style={{ color: c.muted, fontSize: 12 }}>{stateText(a)}</Text> : null}
+              {stateOf(a) === 'needs_login' ? (
+                <Button testID={`login-${a.name}`} label="Log in" onPress={() => props.onSelect(a.name)} style={{ alignSelf: 'flex-start' }} />
+              ) : (
+                <>
+                  <Gauge label="5 hours" w={a.five_hour} />
+                  <Gauge label="week" w={a.weekly} />
+                </>
+              )}
             </Pressable>
           )}
         />
@@ -196,7 +202,7 @@ function Body({ a }: { a: Account }) {
   return (
     <ScrollView testID="account-detail" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
       <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>{a.label}</Text>
-      <Text style={{ color: c.muted }}>{stateText(a)}</Text>
+      {stateText(a) ? <Text style={{ color: c.muted }}>{stateText(a)}</Text> : null}
       <Gauge label="5 hours" w={a.five_hour} detail />
       <Gauge label="week" w={a.weekly} detail />
       <Text style={{ color: c.ink }}>{a.agents.length ? `On it: ${a.agents.join(', ')}` : 'No agents are on it.'}</Text>
@@ -211,19 +217,27 @@ function Settings({ a }: { a: Account }) {
   const c = usePalette();
   const save = useWrite('account.set', a.name);
   const off = useWhyNot('account.set');
-  const was = { alias: a.label === a.name ? '' : a.label, cap: a.cap === null ? '' : String(a.cap) };
+  const was = {
+    alias: a.label === a.name ? '' : a.label,
+    cap: a.cap === null ? '' : String(a.cap),
+    end: a.cycle.end_is_default ? '' : (a.cycle.end ?? ''),
+  };
   const [alias, setAlias] = useState(was.alias);
   const [cap, setCap] = useState(was.cap);
+  const [end, setEnd] = useState(was.end);
   // Another client's change arrives through the topic and replaces what the boxes show.
   useEffect(() => setAlias(was.alias), [was.alias]);
   useEffect(() => setCap(was.cap), [was.cap]);
+  useEffect(() => setEnd(was.end), [was.end]);
   const n = Number(cap);
   const badCap = cap !== '' && !(Number.isInteger(n) && n >= 1);
-  const changed = alias.trim() !== was.alias || (cap !== was.cap && cap !== '');
+  const badEnd = end !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(end.trim());
+  const changed = alias.trim() !== was.alias || (cap !== was.cap && cap !== '') || end.trim() !== was.end;
   const submit = () => {
-    const p: { account: string; label?: string; cap?: number } = { account: a.name };
+    const p: { account: string; label?: string; cap?: number; cycle_end?: string | null } = { account: a.name };
     if (alias.trim() !== was.alias) p.label = alias.trim();
     if (cap !== was.cap && cap !== '') p.cap = n;
+    if (end.trim() !== was.end) p.cycle_end = end.trim() || null;
     save.mutate(p);
   };
   return (
@@ -235,14 +249,40 @@ function Settings({ a }: { a: Account }) {
           The cap is a whole number, 1 or more.
         </Text>
       ) : null}
+      <Toggle testID="account-recover" label="Usage recovery" on={a.recover} disabled={!!off} onChange={(on) => save.mutate({ account: a.name, recover: on })} />
+      <Toggle testID="account-cycle" label="Ends this month" on={a.cycle.on} disabled={!!off} onChange={(on) => save.mutate({ account: a.name, cycle: on })} />
+      <Input testID="account-cycle-end" label="Last day, as 2026-10-31 (blank: the monthly anniversary)" value={end} onChange={setEnd} />
+      {badEnd ? (
+        <Text accessibilityRole="alert" style={{ color: c.block }}>
+          The last day is a date like 2026-10-31.
+        </Text>
+      ) : null}
       <Button
         testID="account-save"
         label={save.isPending ? 'Saving…' : 'Save'}
-        disabled={!!off || badCap || !changed || save.isPending}
+        disabled={!!off || badCap || badEnd || !changed || save.isPending}
         onPress={submit}
       />
       {off ? <Text style={{ color: c.muted }}>Locked: {off}.</Text> : null}
     </View>
+  );
+}
+
+function Toggle(props: { label: string; on: boolean; disabled: boolean; onChange: (on: boolean) => void; testID: string }) {
+  const c = usePalette();
+  return (
+    <Pressable
+      testID={props.testID}
+      accessibilityRole="switch"
+      accessibilityLabel={props.label}
+      accessibilityState={{ checked: props.on, disabled: props.disabled }}
+      disabled={props.disabled}
+      onPress={() => props.onChange(!props.on)}
+      style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44, opacity: props.disabled ? 0.4 : 1 }}
+    >
+      <Text style={{ color: c.ink }}>{props.label}</Text>
+      <Text style={{ color: props.on ? c.run : c.muted, fontWeight: '700' }}>{props.on ? 'On' : 'Off'}</Text>
+    </Pressable>
   );
 }
 
@@ -272,10 +312,7 @@ function RemoveSheet({ a, onClose }: { a: Account; onClose: () => void }) {
   const would = plan.data?.would_remove === true;
   const failed = plan.error ?? remove.error;
   return (
-    <View
-      testID="sheet"
-      style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, backgroundColor: c.panel }}
-    >
+    <Card testID="sheet">
       <Text style={{ color: c.ink, fontWeight: '600' }}>Remove {a.label}</Text>
       {plan.isPending ? <Text style={{ color: c.muted }}>Checking what removing it would do…</Text> : null}
       {a.agents.length ? <Text style={{ color: c.wait }}>On it now: {a.agents.join(', ')}. Move them off first.</Text> : null}
@@ -306,6 +343,6 @@ function RemoveSheet({ a, onClose }: { a: Account; onClose: () => void }) {
         />
         <Button testID="sheet-cancel" label="Cancel" onPress={onClose} />
       </View>
-    </View>
+    </Card>
   );
 }

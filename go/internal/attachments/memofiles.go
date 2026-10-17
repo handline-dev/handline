@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -177,4 +178,16 @@ func (s *Store) FileLines(infos []Info) string {
 // FileLine takes where as a name for a reader not given the path.
 func FileLine(n int, where, mime string, bytes int64) string {
 	return fmt.Sprintf("[file %d: %s (%s, %s)]", n, where, mime, size(bytes))
+}
+
+var fileLine = regexp.MustCompile(`\A\[file \d+: .*\]\z`)
+
+// SplitFileLines takes the FileLines off the end of a text told with them.
+func SplitFileLines(told string) (text string, files []string) {
+	lines := strings.Split(told, "\n")
+	n := len(lines)
+	for n > 1 && fileLine.MatchString(lines[n-1]) {
+		n--
+	}
+	return strings.Join(lines[:n], "\n"), lines[n:]
 }

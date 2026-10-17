@@ -15,7 +15,7 @@ reads it.
 
 ## Rules that do not change
 
-- Decisions stay deterministic and fail-closed. No model call outside `hl fold`.
+- Decisions stay deterministic and fail-closed. No model call outside the fold.
 - Triggers are levels read from persisted state, never edges.
 - Nothing reads, writes or copies credentials.
 - With the daemon down there is no fallback path that acts on an agent (the standing decision for
@@ -307,7 +307,7 @@ sqlite store, the rpc server, hooks ingest, the reads for agents, tasks and inbo
 | G4 | terminal channel | bytes and text frames, screen state, the shared poller, input holder, gates | 1.4k | G3 | `terminal.*`, `input.*` |
 | G5 | messaging and delivery | ask routing, sends, landing, delivery, task queue and holds, notice digest, the task subset of `actions.tasks` the supervisor calls | 3.6k | G1, G3 | |
 | G6 | launch and lifecycle | launch, spawn, recover, lifecycle, reconciler, idle close, locks | 3.3k | G2, G3, G5 | |
-| G7 | record path | handoff and its note, fold trigger (subprocess `hl fold`), events, digest, spool, subscriptions | 2.8k | G5 | `events.feed` |
+| G7 | record path | handoff and its note, fold trigger, events, digest, spool, subscriptions | 2.8k | G5 | `events.feed` |
 | G8 | tick and policies | triggers, evaluate, cost pilot, time box, login expiry, dev mode, apply settings, the loop | 1.9k | G5 to G7 | |
 | G9 | session methods | `session.*` (start, stop, park, wake, restart, input, type, keys, interrupt), `agent.create`, `operation.get`, `agent.options` | 0.5k | G3, G4, G6 | those |
 
@@ -346,7 +346,7 @@ work is paused, not the plan.
 | Startup: `reconcile`, `migrate_old_messages`, `start_waiting`, `reload_pending`, founder key, daemon singleton | `lifecycle/reconciler.go`, `supervisor/messaging.go`, `tick/evaluate.go`, `sessiontoken` | the units, `compose/tick_test.go` for the start order, `daemon/ownprompts_test.go` for the lock | done |
 | Loop extras: dev-mode restart, log rotation, fd check, scratch sweep, SIGUSR1 stack dump, account relink | `tick/devmode.go`, `housekeeping/` (log rotation, fd check, SIGUSR1 stack dump; the scratch sweep is not carried over), `Sweeps.RelinkAccounts` | `tick_test.go` `TestDevMode...`, the `housekeeping` tests | done |
 | Schedules runner (cron messages typed at agents) | `schedules/schedules.go`, `compose/passes.go`; writes in `adminwrites/schedules.go` | `schedules/schedules_test.go` | done |
-| Midnight rollover and `agent.fold` (the one model call) | `fold/fold.go`, `compose/tick.go` `Rollover`, `sessionrpc` `agent.fold` (shells to `hl fold`) | `fold/fold_test.go`, the `agent.fold` fixtures | done |
+| Midnight rollover and `agent.fold` (the one model call) | `fold/fold.go`, `compose/tick.go` `Rollover`, `sessionrpc` `agent.fold` | `fold/fold_test.go`, the `agent.fold` fixtures | done |
 | Login expiry: mark the account, move its agents | `tick/login.go`, `compose/login.go`, `handoff.AuthFailed`; `team/accounts.go` marks; the reconciler lifts the stall | their tests, and `compose/termtick_test.go` for a terminal agent | done: a `StopFailure` with `authentication_failed` on the agent's account marks it and moves the agent (terminal agents too, under `-terminal-tick`); a refusal left on the account it was moved from marks nothing; a later `UserPromptSubmit` ends it |
 | Blocked sweep, auto-accept, screen snapshots, screen-based prompt watch, folder-trust and past-dialog presses | `session/blocked.go`, `prompts/watch.go`, `lifecycle/trust.go` | their tests | dropped (no dialog auto-answers) |
 | Peer inbox delivery proven live on a real terminal agent (the scratch rehearsal cannot show it) | | | human step |
