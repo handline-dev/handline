@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -555,5 +556,71 @@ func TestASecondClosedAgentIsWokenWhileTheFirstOnesFirstTurnRuns(t *testing.T) {
 	}
 	if len(d.told) != 2 {
 		t.Fatalf("each told once: %q", d.told)
+	}
+}
+
+// tryTyping is the terminal lock as it is: whoever holds it, nobody else gets it until it is released.
+type tryTyping struct{ mu sync.Mutex }
+
+func (l *tryTyping) TakeTerminal(string) (func(), bool) {
+	if !l.mu.TryLock() {
+		return nil, false
+	}
+	return l.mu.Unlock, true
+}
+
+// slowSpawn opens a terminal whose session is slow to come up: StartIn waits on up, then says no session ran in time.
+type slowSpawn struct {
+	fakeSpawn
+	q      db.Q
+	up     chan struct{}
+	mu     sync.Mutex
+	opened []string
+}
+
+func (s *slowSpawn) StartIn(agent, wt, _ string) (bool, string, error) {
+	s.mu.Lock()
+	handle := "%" + strconv.Itoa(len(s.opened)+1)
+	s.opened = append(s.opened, handle)
+	s.mu.Unlock()
+	db.SetTerminal(s.q, agent, handle, wt)
+	<-s.up
+	return false, agent + ": started in " + wt + " (terminal " + handle + ")\n  but no session is running in it after 20s", nil
+}
+
+// Seen live: every message waiting for a closed agent asked for a start while the first one's session was still coming up, each opened a
+// terminal of its own, and three slow starts stalled an agent that came up after all.
+func TestASlowStartOpensOneTerminalWhoeverElseAsksMeanwhile(t *testing.T) {
+	m, _, _ := newManager(t)
+	m.Agents = fakeAgents{repo: "/repo"}
+	sp := &slowSpawn{q: m.Q, up: make(chan struct{})}
+	m.Spawn, m.Typing = sp, &tryTyping{}
+	db.AddPending(m.Q, "a", "x", 1)
+	db.SetAgentState(m.Q, "a", states.Idle, 0, "")
+	db.SetTerminal(m.Q, "a", "", "/wt-a")
+	first := make(chan string)
+	go func() { said, _ := m.StartForWork("a"); first <- said }()
+	for {
+		sp.mu.Lock()
+		n := len(sp.opened)
+		sp.mu.Unlock()
+		if n == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	for range 2 {
+		if said, _ := m.StartForWork("a"); said != "a: a start or wake is under way - not starting twice" {
+			t.Fatalf("a second start while the first comes up: %q", said)
+		}
+	}
+	close(sp.up)
+	<-first
+	if said, _ := m.StartForWork("a"); said != "a: started already - not starting twice" {
+		t.Fatalf("a start after the first opened its terminal: %q", said)
+	}
+	row, _ := db.GetAgentState(m.Q, "a")
+	if len(sp.opened) != 1 || row.State == states.Stalled || row.WakeFailures != 1 {
+		t.Fatalf("one terminal and no stall: %v %+v", sp.opened, row)
 	}
 }

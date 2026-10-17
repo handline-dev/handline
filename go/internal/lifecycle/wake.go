@@ -149,6 +149,16 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	if !m.Launch.ChooseAccount(m.Q, agent) {
 		return fmt.Sprintf("%s: not started - %s", agent, m.Launch.NoRoom(agent)), nil
 	}
+	// Each waiting message can ask for a start while the last one's session is still coming up: one start at a time, and a start that
+	// lost the race finds the terminal the winner opened.
+	release, mine := m.Typing.TakeTerminal(agent)
+	if !mine {
+		return agent + ": a start or wake is under way - not starting twice", nil
+	}
+	defer release()
+	if row = must(db.GetAgentState(m.Q, agent)); m.hasSession(agent, row) || m.ResumableWithoutTerminal(row) {
+		return agent + ": started already - not starting twice", nil
+	}
 	if row != nil && row.WakeFailures >= states.MaxFailedAttempts {
 		if row.State == states.Stalled {
 			return fmt.Sprintf("%s: not started again - %d attempts have failed", agent, row.WakeFailures), nil
@@ -183,7 +193,7 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	check(db.BumpCounter(m.Q, agent, "wake_failures", 1))
 	m.Log("  %s: could not start for waiting work: %s", agent, first)
 	if fresh := must(db.GetAgentState(m.Q, agent)); fresh != nil && fresh.WakeFailures >= states.MaxFailedAttempts {
-		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d starts for waiting work failed: %s", fresh.WakeFailures, first)))
+		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d %s: %s", fresh.WakeFailures, StartStall, first)))
 		m.Log("  %s: STALLED after %d failed starts", agent, fresh.WakeFailures)
 	}
 	return fmt.Sprintf("%s: could not be started - %s", agent, first), nil
@@ -692,7 +702,7 @@ func (m *Manager) wakeFailed(agent, session, why string, took, foreign bool) str
 		// Work arriving retries the wake every tick, so a launch that will never work is a loop that never ends and never says so.
 		// Three launches that started nothing is not the wall - that was turned away above - and not a resume that can be dropped,
 		// which the fallback above already did. It waits for a human, or for the sweep to see a session after all.
-		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d wakes started no session: %s", f.WakeFailures, why)))
+		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d %s: %s", f.WakeFailures, WakeStall, why)))
 		m.Log("  %s: STALLED after %d failed wakes", agent, f.WakeFailures)
 	}
 	return why
