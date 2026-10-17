@@ -2,7 +2,7 @@
 """Generate contract/protocol.md and contract/protocol.ts from contract/protocol.json.
 
   python3 contract/generate.py            write both files
-  python3 contract/generate.py --check    exit 1 if either file is stale (tests/infra/test_contract.py runs this)
+  python3 contract/generate.py --check    exit 1 if either file is stale (tools/check.sh and CI run this)
 """
 from __future__ import annotations
 

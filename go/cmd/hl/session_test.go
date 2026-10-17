@@ -2,7 +2,6 @@ package main
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -76,14 +75,14 @@ func TestRestartAnswersWhatItDoesNotParseWithItsUsage(t *testing.T) {
 	}
 }
 
-func TestWhatTheSessionPortDoesNotParseIsPythons(t *testing.T) {
+func TestWhatTheSessionPortDoesNotParseIsRefused(t *testing.T) {
 	r := agentsRig(t)
 	calls := r.daemon(nil)
 	for _, args := range [][]string{
 		{"close"}, {"close", "a", "b"}, {"close", "a", "--force"}, {"close", "١٢"},
 	} {
 		out, _, code := r.run(asAgent, args...)
-		if code != 0 || !strings.HasPrefix(out, "python ") || !strings.HasSuffix(out, " "+strings.Join(args, " ")+"\n") {
+		if code != 2 || out != "" {
 			t.Errorf("%v: %q %d", args, out, code)
 		}
 	}

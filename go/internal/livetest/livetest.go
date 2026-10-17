@@ -1,5 +1,5 @@
 // Package livetest is what the live tests share: they run only when HANDLINE_LIVE=1 asks for them, and spend the account
-// tools/live_account.py picks, the one with the most usage headroom now. Nothing in tools/suite.sh, tools/check.sh or CI sets it.
+// tools/live_account.py picks, the one with the most usage headroom now. Nothing in tools/check.sh or CI sets it.
 package livetest
 
 import (
