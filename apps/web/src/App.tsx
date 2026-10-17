@@ -151,7 +151,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           ) : page === 'my-turn' ? (
             <MyTurnPage />
           ) : page === 'settings' ? (
-            <SettingsPage />
+            <SettingsPage storage={storage} />
           ) : page === 'admin' ? (
             <AdminPage />
           ) : agent && settings ? (
