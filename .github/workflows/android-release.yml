@@ -1,12 +1,12 @@
-# The Android APK on GitHub Releases. Nightly: a prerelease built from every push to main; a newer push cancels a build still running.
-# Stable: a full release cut by hand from a chosen commit. Both are signed with the one fixed key in the repository secrets, so an
-# installed app updates in place; the app reads these releases to offer the update. versionCode is the run number: it only grows,
-# across both channels.
+# The Android APK on GitHub Releases. Nightly: a prerelease built every 3 hours from main, only when main has commits the last
+# prerelease does not have. Stable: a full release cut by hand from a chosen commit. Both are signed with the one fixed key in the
+# repository secrets, so an installed app updates in place; the app reads these releases to offer the update. versionCode is the
+# run number: it only grows, across both channels.
 name: android-release
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: '0 */3 * * *'
   workflow_dispatch:
     inputs:
       channel:
@@ -22,14 +22,33 @@ on:
         default: ''
 
 concurrency:
-  group: android-release-${{ inputs.channel == 'stable' && 'stable' || 'nightly' }}
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  group: android-release
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.p.outputs.build }}
+    steps:
+      - id: p
+        name: Build only when main has moved since the last prerelease (a manual run always builds)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build=true
+          if [ "${{ github.event_name }}" = schedule ]; then
+            last="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 30 --json tagName,isPrerelease -q '[.[] | select(.isPrerelease)][0].tagName')"
+            at=""; [ -z "$last" ] || at="$(gh release view "$last" --repo "$GITHUB_REPOSITORY" --json targetCommitish -q .targetCommitish)"
+            [ "$at" != "$GITHUB_SHA" ] || build=false
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
   apk:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -38,7 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ inputs.ref || 'main' }}
       - name: Version
         id: v
         run: |
