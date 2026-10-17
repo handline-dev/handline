@@ -121,8 +121,8 @@ type NewRequest struct {
 	State                                    string // "": queued
 	Verdict                                  string
 	Notice                                   bool
-	// TurnEnd makes it a notice that waits for the end of the target's turn with no digest window (notice 2): a memo's tell.
-	TurnEnd bool
+	// Memo makes it a notice that is a memo's tell (notice 2): its reader's lead is told when it goes unread an hour (UnreadMemosBefore).
+	Memo bool
 }
 
 // AddRequest is db.add_request. A notice, or a say to the founder, is born landed. The edge of a request written here is
@@ -136,7 +136,7 @@ func AddRequest(q Q, n NewRequest) (int64, error) {
 	now := Now()
 	var landedAt, notice, parent any
 	switch {
-	case n.TurnEnd:
+	case n.Memo:
 		notice = 2
 	case n.Notice:
 		notice = 1
@@ -406,8 +406,7 @@ func PendingNotices(q Q, target string) ([]*Request, error) {
 	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE target = ? AND notice >= 1 AND state = 'landed' AND delivered_at IS NULL ORDER BY id", target)
 }
 
-// NoticeWaiting is one agent with a notice waiting and when its oldest unshown notice with a digest window landed (0: only notices held to
-// the end of its turn wait).
+// NoticeWaiting is one agent with a notice waiting and when its oldest unshown notice landed.
 type NoticeWaiting struct {
 	Agent string
 	Since int64
@@ -415,7 +414,7 @@ type NoticeWaiting struct {
 
 // AgentsWithNotices is db.agents_with_notices.
 func AgentsWithNotices(q Q) ([]NoticeWaiting, error) {
-	rows, err := q.Query("SELECT target, MIN(CASE WHEN notice = 1 THEN landed_at END) FROM requests WHERE notice >= 1 AND state = 'landed' AND delivered_at IS NULL AND target != ? GROUP BY target ORDER BY target", Human)
+	rows, err := q.Query("SELECT target, MIN(landed_at) FROM requests WHERE notice >= 1 AND state = 'landed' AND delivered_at IS NULL AND target != ? GROUP BY target ORDER BY target", Human)
 	if err != nil {
 		return nil, err
 	}
@@ -433,9 +432,8 @@ func AgentsWithNotices(q Q) ([]NoticeWaiting, error) {
 	return out, rows.Err()
 }
 
-// TurnEndNoticesBefore is every notice held to the end of its target's turn (a memo's tell) that landed at or before `before` and has been
-// neither shown nor read, oldest first.
-func TurnEndNoticesBefore(q Q, before int64) ([]*Request, error) {
+// UnreadMemosBefore is every memo's tell that landed at or before `before` and has been neither shown nor read, oldest first.
+func UnreadMemosBefore(q Q, before int64) ([]*Request, error) {
 	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE notice = 2 AND state = 'landed' AND delivered_at IS NULL AND read_at IS NULL AND landed_at <= ? ORDER BY id", before)
 }
 

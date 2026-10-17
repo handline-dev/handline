@@ -97,7 +97,7 @@ def test_the_suite_and_the_package_name_only_what_exists() -> None:
 
 
 def test_run_recovers_from_an_uncaught_error() -> None:
-    """Review of buddyron/test-suite-agent-independent: checked by hand is not
+    """Review of yourname/test-suite-agent-independent: checked by hand is not
     checked by the suite. Both a plain exception and a `sys.exit` from code
     under test must be recorded as a failure, not left to end the run."""
     real_pass, real_fail, real_log = support.PASS, support.FAIL, support.LABEL_LOG

@@ -186,3 +186,15 @@ test('handoffLine says why and what for each phase', () => {
   assert.equal(handoffLine({ cause: 'context_full', phase: 'starting' }).what, 'Starting a new session');
   assert.equal(handoffLine({ cause: 'odd', phase: 'writing' }).why, 'odd');
 });
+
+test('in the all room, what the agent says to another agent is not shown; what it says to the person, and what reaches it, is', () => {
+  const ms = [
+    msg({ id: 1, from: A, to: 'handline.auditor', body: 'say to auditor' }),
+    msg({ id: 2, from: 'handline.auditor', to: A, body: 'say to me' }),
+    msg({ id: 3, from: A, to: 'human', body: 'to the person' }),
+    msg({ id: 4, from: A, to: 'Handline desktop', body: 'to the device' }),
+  ];
+  assert.deepEqual(timeline(ms, [], 'all', A, 'Handline desktop').map((e) => e.id), [2, 3, 4]);
+  assert.deepEqual(timeline(ms, [], 'mine', A, 'Handline desktop').map((e) => e.id), [1, 2, 3, 4]); // mine is left as it was
+  assert.deepEqual(timeline(ms, [], 'all', A).map((e) => e.id), [2, 3]); // no `me`: a device name is not known as the person
+});

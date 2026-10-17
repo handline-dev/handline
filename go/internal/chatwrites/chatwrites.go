@@ -260,14 +260,10 @@ func checkTask(task any) error {
 	return nil
 }
 
-// sendUnder is a message that replies to parent: a say to the agent with the parent link, whatever the parent asked. It answers and settles nothing.
+// sendUnder is a message that replies to parent: a say to the agent with the parent link, whatever the parent asked and whoever it is between. It answers and settles nothing.
 func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, act func(rid int64)) (*Result, error) {
-	row, err := message(tx, parent)
-	if err != nil {
+	if _, err := message(tx, parent); err != nil {
 		return nil, err
-	}
-	if agent != row.Target && agent != row.Requester {
-		return nil, rpc.Refused(fmt.Sprintf("%s is not on #%d", agent, parent), "state", "")
 	}
 	return sayWriteLinked(w.e, tx, db.Human, agent, body, parent, true, nil, act)
 }

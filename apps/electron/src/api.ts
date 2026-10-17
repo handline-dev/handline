@@ -27,6 +27,7 @@ export function makeApi(ipc: Ipc): ShellApi {
     screen: (s) => call(CHANNELS.screen, s),
     unsent: (on) => call(CHANNELS.unsent, on),
     openPath: (a) => call(CHANNELS.openPath, a),
+    openPr: (a) => call(CHANNELS.openPr, a),
     compose: (a) => call(CHANNELS.compose, a ?? {}),
     cancelCompose: () => call(CHANNELS.cancelCompose),
     captureWindows: () => call(CHANNELS.captureWindows),

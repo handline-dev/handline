@@ -272,9 +272,6 @@ depth > max_chain_depth → escalate to the orchestrator (gate)
 A→B→A detected inside one chain → stop at once + gate
 ```
 
-Review loops are especially dangerous: `backend → reviewer → (finding) → backend → reviewer → ...`
-If the review round trips on the same file pass 3, it is **escalated automatically to product.** When two agents cannot agree, it is usually a planning problem.
-
 ---
 
 ## 7. Folder layout (adds to infra §3)
