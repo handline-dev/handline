@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/handline/handline/go/internal/attachments"
@@ -375,10 +376,10 @@ func (e *Env) queueSay(q db.Q, owner, body, why string) int64 {
 	return rid
 }
 
-// TellMemo tells a memo's change to each of its readers (memoReaders). The holder of a doing task, a reader at its prompt, and every reader
-// when now are typed it at once like a say; any other reader gets it in its next digest (SweepDigests), and its lead hears of it if it
-// waits an hour (SweepHeldMemos).
-func (e *Env) TellMemo(q db.Q, tid int64, by, what, text string, now bool) (err error) {
+// TellMemo tells a memo's change to each of its readers (memoReaders). The reader it was said to (to, "" for none), a reader the memo names
+// with @, and every reader when now are typed it at once like a say; any other reader gets it in its next digest (SweepDigests), and its
+// lead hears of it if it waits an hour (SweepHeldMemos).
+func (e *Env) TellMemo(q db.Q, tid int64, by, what, text, to string, now bool) (err error) {
 	defer Catch(&err)
 	row := must(db.GetTask(q, tid))
 	if row == nil {
@@ -389,8 +390,9 @@ func (e *Env) TellMemo(q db.Q, tid int64, by, what, text string, now bool) (err 
 		holder = row.Owner
 	}
 	body := memoLine(tid, what, by, text)
-	for _, a := range e.memoReaders(row, holder, by, text) {
-		if delivery.ClassOf(delivery.Memo, now || a == holder, false) == delivery.ClassNow || e.idleWithSession(q, a) {
+	named := e.mentioned(text)
+	for _, a := range e.memoReaders(row, holder, by, named) {
+		if delivery.ClassOf(delivery.Memo, now || a == to || slices.Contains(named, a), false) == delivery.ClassNow {
 			e.typeSay(q, a, body, "task memo")
 		} else {
 			rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: a, Body: body, Response: "fire_and_forget", Kind: "say", Memo: true}))
@@ -404,19 +406,25 @@ func (e *Env) TellMemo(q db.Q, tid int64, by, what, text string, now bool) (err 
 // memoReaders is whom a memo on row concerns, each once: its holder (empty unless the task is doing; one not yet doing reads its memos when it
 // is delivered), who the task answers to, and every registered agent the memo names with @. Never the writer, or the founder, who reads the
 // board.
-func (e *Env) memoReaders(row *db.Task, holder, by, text string) []string {
-	named := []string{holder, row.AnswersTo()}
-	for _, m := range mentionRe.FindAllStringSubmatch(text, -1) {
-		if name := strings.TrimRight(m[1], ".-"); e.registered(name) {
-			named = append(named, name)
-		}
-	}
+func (e *Env) memoReaders(row *db.Task, holder, by string, mentioned []string) []string {
+	named := append([]string{holder, row.AnswersTo()}, mentioned...)
 	skip := map[string]bool{"": true, by: true, db.Human: true}
 	var out []string
 	for _, a := range named {
 		if !skip[a] {
 			skip[a] = true
 			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// mentioned is every registered agent text names with @.
+func (e *Env) mentioned(text string) []string {
+	var out []string
+	for _, m := range mentionRe.FindAllStringSubmatch(text, -1) {
+		if name := strings.TrimRight(m[1], ".-"); e.registered(name) {
+			out = append(out, name)
 		}
 	}
 	return out
@@ -438,7 +446,7 @@ func memoLine(tid int64, what, by, text string) string {
 // MemoLeadS is how long a memo held for its reader's digest may go unread before the reader's lead is told.
 const MemoLeadS = 3600
 
-// SweepHeldMemos tells the reader's lead, at once and once, of each memo held for the reader's digest that has gone MemoLeadS unread. The
+// SweepHeldMemos tells the reader's lead once, in its digest, of each memo held for the reader's digest that has gone MemoLeadS unread. The
 // memo stays held for the reader.
 func (e *Env) SweepHeldMemos(now int64) (err error) {
 	defer Catch(&err)
@@ -455,7 +463,7 @@ func (e *Env) SweepHeldMemos(now int64) (err error) {
 		}
 		check(db.SetCursor(q, key, 1))
 		if lead := t.SupervisorOf(r.Target); lead != "" && lead != db.Human && e.registered(lead) {
-			e.tellNowSay(q, lead, fmt.Sprintf("%s has not read this memo in an hour, held for its next digest (#%d): %s", r.Target, r.ID, r.Body), "memo unread 1h")
+			must(e.Notice(q, lead, fmt.Sprintf("%s has not read this memo in an hour, held for its next digest (#%d): %s", r.Target, r.ID, r.Body), "memo unread 1h"))
 		}
 	}
 	return nil
