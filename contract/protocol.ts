@@ -52,6 +52,13 @@ export type RefusalData = {
   plan?: string;
   /** With gate duplicate_title: the open task the new one repeats. */
   task?: number;
+  /** With gate open_children: the task's open child tasks. */
+  children?: {
+    task: number;
+    state: string;
+    assignee: string;
+    title: string;
+  }[];
 };
 
 /** Like 2h, 30m, 1d. */
@@ -949,6 +956,8 @@ export type HrArgs = {
   repos?: { [key: string]: string };
   /** settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` or `base.md`; empty text or control characters other than tab and newline is bad_request. */
   sets?: { [key: string]: string };
+  /** bundle: the steps, at most 40, each judged against the roster the earlier ones leave. name is then ignored (send the count, `3 changes`). */
+  changes?: { [key: string]: unknown }[];
 };
 
 export type StandingAnswer = {
@@ -1466,6 +1475,10 @@ export interface Methods {
   agent: AgentName;
   request_id: RequestId;
 }; result: Accepted };
+  "agent.retire": { params: {
+  agent: AgentName;
+  request_id: RequestId;
+}; result: Accepted };
   "agent.create": { params: {
   name: AgentName;
   /** A free string today. */
@@ -1925,6 +1938,18 @@ export interface Methods {
     /** Without dry_run: what was cancelled and who was told, or `not cancelled - ` and the reason. */
     said?: string;
   } };
+  "team.seal": { params: {
+  /** Change nothing: answer `plan`. */
+  dry_run?: boolean;
+  request_id: RequestId;
+}; result: {
+    /** Always true: a refusal is an error. */
+    ok: boolean;
+    /** Dry run only: one line per file that would be sealed (its label, why, its digest), or that nothing needs sealing. */
+    plan?: string;
+    /** Without dry_run: one line per file sealed, or that nothing needed sealing. */
+    said?: string;
+  } };
   "inbox.mark_read": { params: {
   ids: number[];
   request_id: RequestId;
@@ -2096,6 +2121,8 @@ export interface Methods {
   task: number;
   /** Markdown. It may name images (x-attachments, texts). */
   text: string;
+  /** Tell every reader at once, even mid-turn. */
+  now?: boolean;
   request_id: RequestId;
 }; result: Accepted & {
     memo: number;
@@ -2484,6 +2511,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "agent.fold": { role: "agent", callers: null, write: true, since: 1 },
   "agent.move": { role: "agent", callers: null, write: true, since: 1 },
   "agent.unstall": { role: "founder", callers: null, write: true, since: 1 },
+  "agent.retire": { role: "founder", callers: null, write: true, since: 1 },
   "agent.create": { role: "founder", callers: null, write: true, since: 1 },
   "session.start": { role: "agent", callers: null, write: true, since: 1 },
   "session.wake": { role: "agent", callers: null, write: true, since: 1 },
@@ -2527,6 +2555,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "request.read": { role: "agent", callers: null, write: false, since: 1 },
   "request.withdraw": { role: "agent", callers: null, write: true, since: 1 },
   "request.cancel": { role: "founder", callers: null, write: true, since: 1 },
+  "team.seal": { role: "founder", callers: null, write: true, since: 1 },
   "inbox.mark_read": { role: "agent", callers: null, write: true, since: 1 },
   "inbox.answer": { role: "member", callers: null, write: true, since: 1 },
   "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },

@@ -82,16 +82,16 @@ func TestSayRefusalsBeforeAnyCall(t *testing.T) {
 	}
 }
 
-func TestWhatTheSayPortDoesNotParseIsPythons(t *testing.T) {
+func TestWhatTheSayPortDoesNotParseIsRefused(t *testing.T) {
 	r := agentsRig(t)
 	calls := r.daemon(nil)
 	for _, args := range [][]string{
 		{"say", "a", "b", "c"}, {"say", "a", "b", "--parent", "x"}, {"say", "a", "b", "--task", "3"}, {"say", "a", " "},
 		{"say", "", "b"}, {"say", "a", "b", "--no-task", ""}, {"say", "a", "b", "-h"}, {"say", "a", "--", "b"},
 	} {
-		out, _, code := r.run(asAgent, args...)
-		if code != 0 || !strings.HasPrefix(out, "python ") || !strings.HasSuffix(out, " "+strings.Join(args, " ")+"\n") {
-			t.Errorf("%v: %q %d", args, out, code)
+		out, errs, code := r.run(asAgent, args...)
+		if code != 2 || out != "" || !strings.Contains(errs, "arguments not understood") {
+			t.Errorf("%v: %q %q %d", args, out, errs, code)
 		}
 	}
 	if got := calls(); len(got) != 0 {

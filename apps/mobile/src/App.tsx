@@ -1,3 +1,4 @@
+import { UpdateBanner } from './screens/AppUpdate.tsx';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, SafeAreaView, StatusBar as RNStatusBar, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -55,6 +56,7 @@ export default function App() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, paddingTop: Platform.OS === 'android' ? (RNStatusBar.currentHeight ?? 0) : 0 }}>
       <StatusBar style="auto" />
+      <UpdateBanner />
       <View style={{ flex: 1 }}>{body}</View>
     </SafeAreaView>
   );
