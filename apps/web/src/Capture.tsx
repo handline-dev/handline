@@ -1,12 +1,13 @@
 // Capture a window of this machine and send it: pick a window, look at it, write a note, then ask a new task whose body holds the picture
-// or add it as a comment on a task of the list (docs/story1-research.md, 1-1). The picture is marked up first (Annotate.tsx). Only in the desktop shell, which owns the capture.
+// or add it as a comment on a task of the list (docs/story1-research.md, 1-1). The picture is marked up first (Annotate.tsx) and takes the whole window,
+// its notes pinned to spots on it. Only in the desktop shell, which owns the capture.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { taskRef, titleFromNote, withImages } from '@handline/app-core';
 import { classify, sentence, useAgents, useTasks, useUploadImage, useWrite } from '@handline/app-data';
 import { Annotator } from './Annotate.tsx';
 import { useTasksRoute } from './route.ts';
 import { shell } from './shell.ts';
-import { Button, Dialog, FIELD, FIELD_LABEL, NOTE, Select, Textarea } from './ui/index.ts';
+import { Button, Dialog, NOTE, Select, Textarea } from './ui/index.ts';
 
 /** True when this shell can capture a window. */
 export const canCapture = (): boolean => shell('captureWindow') !== null;
@@ -59,6 +60,7 @@ export function CaptureDialog({
   const [problem, setProblem] = useState('');
   const [shot, setShot] = useState<{ name: string; blob: Blob } | null>(null);
   const [marked, setMarked] = useState<Blob | null>(null);
+  const [pinned, setPinned] = useState<string[]>([]); // the words of the notes pinned on the picture, numbered as it shows them
   const [note, setNote] = useState('');
   const [owner, setOwner] = useState('');
   const [as, setAs] = useState<'task' | 'comment'>(task === null ? 'task' : 'comment');
@@ -107,9 +109,11 @@ export function CaptureDialog({
     setProblem('');
     try {
       const a = await upload(picture, shot.name, 'image/png');
-      const text = withImages(note, [a.id], shot.name.replace(/\.png$/, ''));
+      const said = [note.trim(), ...pinned.map((t, i) => `${i + 1}. ${t}`)].filter(Boolean).join('\n');
+      const text = withImages(said, [a.id], shot.name.replace(/\.png$/, ''));
       if (as === 'comment' && target !== null) await memo.mutateAsync({ task: target, text });
-      else await ask.mutateAsync({ owner, title: titleFromNote(note, 'Capture'), body: text, time_box: '2h', priority: 2 });
+      else
+        await ask.mutateAsync({ owner, title: titleFromNote(note || pinned[0] || '', 'Capture'), body: text, time_box: '2h', priority: 2 });
       if (!gone.current) onClose();
     } catch (e) {
       if (!gone.current) {
@@ -123,7 +127,19 @@ export function CaptureDialog({
     <Dialog
       title="Capture a window"
       onClose={onClose}
+      full={!!shot}
       action={shot ? { label: as === 'task' ? 'Ask' : 'Comment', keys: '⌘↵', onClick: () => void send(), disabled: sending } : undefined}
+      bar={
+        <Textarea
+          id="capture-note"
+          rows={1}
+          aria-label="Message"
+          placeholder="Message"
+          className="min-w-0 flex-1"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+      }
     >
       {!shot ? (
         <div className="grid gap-3">
@@ -144,44 +160,42 @@ export function CaptureDialog({
           <Button label="Refresh" onClick={() => void list()} />
         </div>
       ) : (
-        <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
-          <Annotator image={shot.blob} onChange={setMarked} />
-          <div className={FIELD}>
-            <label htmlFor="capture-note" className={FIELD_LABEL}>
-              Note
-            </label>
-            <Textarea id="capture-note" rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
-          </div>
-          <Select
-            label="Send as"
-            value={as}
-            onChange={(e) => setAs(e.target.value as 'task' | 'comment')}
-            options={[
-              { value: 'task', label: 'A new task' },
-              { value: 'comment', label: 'A comment on a task' },
-            ]}
-          />
-          {as === 'comment' ? (
-            <Select
-              label="Task"
-              value={target === null ? '' : String(target)}
-              onChange={(e) => setTarget(e.target.value ? Number(e.target.value) : null)}
-              options={[
-                { value: '', label: 'pick a task' },
-                ...open.map((t) => ({ value: String(t.id), label: `${taskRef(t.id)} ${t.title}` })),
-              ]}
-            />
-          ) : null}
-          {as === 'task' ? (
-            <Select
-              label="Owner"
-              value={owner}
-              onChange={(e) => setOwner(e.target.value)}
-              options={[{ value: '', label: 'pick an agent' }, ...agents.map((a) => ({ value: a, label: a }))]}
-            />
-          ) : null}
-          <Button label="Another window" onClick={() => setShot(null)} />
-        </div>
+        <Annotator
+          image={shot.blob}
+          onChange={(b, notes) => (setMarked(b), setPinned(notes))}
+          extra={
+            <>
+              <Select
+                label="Send as"
+                value={as}
+                onChange={(e) => setAs(e.target.value as 'task' | 'comment')}
+                options={[
+                  { value: 'task', label: 'A new task' },
+                  { value: 'comment', label: 'A comment on a task' },
+                ]}
+              />
+              {as === 'comment' ? (
+                <Select
+                  label="Task"
+                  value={target === null ? '' : String(target)}
+                  onChange={(e) => setTarget(e.target.value ? Number(e.target.value) : null)}
+                  options={[
+                    { value: '', label: 'pick a task' },
+                    ...open.map((t) => ({ value: String(t.id), label: `${taskRef(t.id)} ${t.title}` })),
+                  ]}
+                />
+              ) : (
+                <Select
+                  label="Owner"
+                  value={owner}
+                  onChange={(e) => setOwner(e.target.value)}
+                  options={[{ value: '', label: 'pick an agent' }, ...agents.map((a) => ({ value: a, label: a }))]}
+                />
+              )}
+              <Button icon="back" label="Another window" onClick={() => setShot(null)} />
+            </>
+          }
+        />
       )}
       {problem ? (
         <p className={`${NOTE} text-bad`} role="alert">

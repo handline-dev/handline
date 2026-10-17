@@ -14,7 +14,7 @@ const button = (label: string) =>
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const drag = (from: [number, number], to: [number, number]) =>
   act(async () => {
-    const svg = $('svg');
+    const svg = $('svg[aria-label="Draw here"]');
     svg.getBoundingClientRect = () => ({
       left: 0,
       top: 0,
@@ -50,25 +50,25 @@ describe('the markup editor', () => {
     expect(button('Undo').hasAttribute('disabled')).toBe(true);
     await click(button('Circle'));
     await drag([10, 10], [60, 60]);
-    expect(box.querySelectorAll('svg path')).toHaveLength(1);
+    expect(box.querySelectorAll('svg[aria-label="Draw here"] path')).toHaveLength(1);
     await click(button('Arrow'));
     await drag([0, 0], [90, 0]);
     await click(button('Pen'));
     await drag([5, 5], [20, 30]);
-    expect(box.querySelectorAll('svg path')).toHaveLength(3);
+    expect(box.querySelectorAll('svg[aria-label="Draw here"] path')).toHaveLength(3);
     await click(button('Undo'));
-    expect(box.querySelectorAll('svg path')).toHaveLength(2);
+    expect(box.querySelectorAll('svg[aria-label="Draw here"] path')).toHaveLength(2);
     await click(button('Redo'));
-    expect(box.querySelectorAll('svg path')).toHaveLength(3);
+    expect(box.querySelectorAll('svg[aria-label="Draw here"] path')).toHaveLength(3);
     await click(button('Clear'));
-    expect(box.querySelectorAll('svg path')).toHaveLength(0);
+    expect(box.querySelectorAll('svg[aria-label="Draw here"] path')).toHaveLength(0);
   });
 
   it('puts text where it is clicked, on Enter', async () => {
     await mount();
     await click(button('Text'));
     await act(async () => {
-      const svg = $('svg');
+      const svg = $('svg[aria-label="Draw here"]');
       svg.getBoundingClientRect = () => ({
         left: 0,
         top: 0,
