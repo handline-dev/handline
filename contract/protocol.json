@@ -4679,6 +4679,14 @@
      }
     },
     {
+     "name": "reporter",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Who the task answers to (Task.asker)."
+     }
+    },
+    {
      "name": "from",
      "required": false,
      "schema": {
@@ -4690,6 +4698,17 @@
      "required": false,
      "schema": {
       "type": "string"
+     }
+    },
+    {
+     "name": "tags",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "Tasks that carry every one of these tags (lowercased first). With the other filters, every one given must hold."
      }
     },
     {
@@ -5044,6 +5063,17 @@
        3
       ],
       "description": "1 high, 2 default, 3 low (written P1-P3). Absent means 2."
+     }
+    },
+    {
+     "name": "tags",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Its tags; each is kept as a history row of the task."
      }
     },
     {
@@ -5867,6 +5897,114 @@
    ]
   },
   {
+   "name": "task.view.list",
+   "summary": "The saved views of the task board, by name.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "views": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/TaskView"
+       }
+      }
+     },
+     "required": [
+      "views"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-since": 1,
+   "errors": [],
+   "x-write": false
+  },
+  {
+   "name": "task.view.save",
+   "summary": "Keep a filter of the task board under a name, replacing a view already kept under it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "name",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "One line, 1 to 60 characters."
+     }
+    },
+    {
+     "name": "filter",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/TaskFilter"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.view.delete",
+   "summary": "Delete a saved view.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "name",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "task.queue",
    "summary": "Approve draft tasks to run: anyone may; each task's opener and assignee are told.",
    "paramStructure": "by-name",
@@ -6321,6 +6459,28 @@
      "schema": {
       "type": "integer",
       "description": "A task number this one no longer waits on; clearing the last one lets its owner's current task advance."
+     }
+    },
+    {
+     "name": "add_tags",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Tags to add; one it has already is left as it is. Each change is a history row. Nobody is told of a tag change."
+     }
+    },
+    {
+     "name": "remove_tags",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Tags to remove; one it has not got is left as it is."
      }
     },
     {
@@ -9725,6 +9885,13 @@
        3
       ],
       "description": "1 high, 2 default, 3 low (written P1-P3)."
+     },
+     "tags": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Its tags, in order."
      },
      "last_activity": {
       "$ref": "#/components/schemas/Timestamp",
@@ -14277,11 +14444,12 @@
        "priority",
        "timeout",
        "state",
+       "tag",
        "blocked_by",
        "merged_into",
        "memo"
       ],
-      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>."
+      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty)."
      },
      "was": {
       "type": "string",
@@ -14311,6 +14479,73 @@
    "RequestRef": {
     "type": "string",
     "description": "The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else."
+   },
+   "Tag": {
+    "type": "string",
+    "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$",
+    "description": "A free label on a task, such as fe or be: lowercase letters, digits, '.', '_' or '-', up to 32. A writer lowercases what it is given; a task carries at most 20."
+   },
+   "TaskFilter": {
+    "type": "object",
+    "description": "What tasks.list narrows to: every key given must hold (AND). It is tasks.list's own params, so a saved view's filter is passed to tasks.list as it is.",
+    "properties": {
+     "tags": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Tasks that carry every one of these tags."
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "draft",
+       "queued",
+       "doing",
+       "reported",
+       "done",
+       "discarded"
+      ]
+     },
+     "owner": {
+      "type": "string",
+      "description": "Who works the task (its assignee)."
+     },
+     "reporter": {
+      "type": "string",
+      "description": "Who the task answers to (its asker: hl's --owner)."
+     },
+     "from": {
+      "type": "string",
+      "description": "Who opened it."
+     }
+    },
+    "additionalProperties": false
+   },
+   "TaskView": {
+    "type": "object",
+    "description": "A saved view: a filter kept under a name, so it is picked, not typed again. One set for the founder's devices.",
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "filter": {
+      "$ref": "#/components/schemas/TaskFilter"
+     },
+     "by": {
+      "type": "string",
+      "description": "Who saved it last."
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     }
+    },
+    "required": [
+     "name",
+     "filter",
+     "by",
+     "at"
+    ]
    }
   },
   "errors": {

@@ -133,6 +133,13 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if err != nil {
 			return nil, err
 		}
+		tags, err := TagList(p, "tags")
+		if err != nil {
+			return nil, err
+		}
+		if len(tags) > maxTags {
+			return nil, badParam(fmt.Sprintf("a task carries at most %d tags", maxTags), "tags")
+		}
 		blocker, hasBlocker, err := optionalTask(p, "blocked_by")
 		if err != nil {
 			return nil, err
@@ -153,7 +160,7 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			}
 			var err error
 			tid, asked, err = OpenTask(tx, tell, me, NewIn{Owner: owner, Title: clean, Body: body, Secs: secs, Prio: prio, Expects: expects,
-				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter, UI: ui, DuplicateOK: duplicateOK})
+				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter, UI: ui, DuplicateOK: duplicateOK, Tags: tags})
 			if err != nil {
 				return nil, err
 			}
@@ -190,6 +197,7 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 type NewIn struct {
 	Owner, Title, Body string
 	Reporter           string // who the task answers to; "" is the opener
+	Tags               []string
 	Secs, Prio         int64
 	Expects            string
 	Parent, Blocker    int64
@@ -268,7 +276,16 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 				return err
 			}
 		}
-		if err := addEvent(tx, me, "task_new", kv{"task_id", tid}, kv{"request_id", rid}, kv{"owner", owner}, kv{"expects", expects}); err != nil {
+		payload := []kv{{"task_id", tid}, {"request_id", rid}, {"owner", owner}, {"expects", expects}}
+		if len(in.Tags) > 0 {
+			payload = append(payload, kv{"tags", in.Tags})
+		}
+		for _, tag := range in.Tags {
+			if _, err := tx.Exec("INSERT INTO task_tags(task_id, tag) VALUES(?, ?)", tid, tag); err != nil {
+				return err
+			}
+		}
+		if err := addEvent(tx, me, "task_new", payload...); err != nil {
 			return err
 		}
 		if hasParent { // a child task always blocks its parent

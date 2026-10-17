@@ -87,6 +87,8 @@ func Register(s *rpc.Server, home string, tell Teller, decide CardDecider) {
 	s.Register("task.memo.add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd(home, tell)})
 	s.Register("task.memo.edit", rpc.Method{Role: "agent", Write: true, Handler: memoEdit(home, tell)})
 	s.Register("task.memo.delete", rpc.Method{Role: "agent", Write: true, Handler: memoDelete(tell)})
+	s.Register("task.view.save", rpc.Method{Role: "member", Write: true, Handler: viewSave})
+	s.Register("task.view.delete", rpc.Method{Role: "member", Write: true, Handler: viewDelete})
 }
 
 // claimImages checks the images text names, where it replaces was, and claims them (contract x-attachments, texts). by is the writer: an

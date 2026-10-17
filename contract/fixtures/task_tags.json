@@ -1,0 +1,364 @@
+{
+ "fixtures": [
+  {
+   "name": "task.tags.set_filtered_edited_and_kept_in_history",
+   "spec": "task.new",
+   "as": "founder",
+   "about": "Tags given to task.new are lowercased and served on the Task; tasks.list keeps a task that carries every tag asked for and leaves it out for a tag it lacks; task.edit adds and removes tags, and each change is a tag row of the history.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "tagged task",
+       "tags": [
+        "Conf-FE",
+        "conf-be"
+       ],
+       "request_id": "conf-tag-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.get",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "id": "{{tid}}",
+      "tags": [
+       "conf-be",
+       "conf-fe"
+      ]
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "tasks.list",
+      "params": {
+       "tags": [
+        "conf-fe",
+        "conf-be"
+       ]
+      }
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "id": "{{tid}}",
+        "tags": [
+         "conf-be",
+         "conf-fe"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.edit",
+      "params": {
+       "task": "{{tid}}",
+       "add_tags": [
+        "conf-ops"
+       ],
+       "remove_tags": [
+        "conf-fe"
+       ],
+       "request_id": "conf-tag-2"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "tasks.list",
+      "params": {
+       "tags": [
+        "conf-fe"
+       ]
+      }
+     },
+     "result": {
+      "items": {
+       "$each": {
+        "id": {
+         "$type": "integer"
+        },
+        "tags": {
+         "$contains": "conf-fe"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "task.get",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "tags": [
+       "conf-be",
+       "conf-ops"
+      ]
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "task.history",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "rows": {
+       "$contains": {
+        "field": "tag",
+        "was": "conf-fe",
+        "now": ""
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 9,
+      "method": "task.history",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "rows": {
+       "$contains": {
+        "field": "tag",
+        "was": "",
+        "now": "conf-ops"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 10,
+      "method": "task.edit",
+      "params": {
+       "task": "{{tid}}",
+       "add_tags": [
+        "two words"
+       ],
+       "request_id": "conf-tag-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "add_tags"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.view.saved_listed_and_deleted_by_name",
+   "spec": "task.view.save",
+   "as": "founder",
+   "about": "A filter saved under a name is listed with its tags lowercased; saving the name again replaces it; deleting it removes it, and deleting it again is not_found.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.view.save",
+      "params": {
+       "name": "conf view",
+       "filter": {
+        "tags": [
+         "Conf-FE"
+        ],
+        "state": "doing"
+       },
+       "request_id": "conf-view-1"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.view.list",
+      "params": {}
+     },
+     "result": {
+      "views": {
+       "$contains": {
+        "name": "conf view",
+        "filter": {
+         "tags": [
+          "conf-fe"
+         ],
+         "state": "doing"
+        },
+        "by": {
+         "$type": "string"
+        },
+        "at": {
+         "$type": "timestamp"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.view.save",
+      "params": {
+       "name": "conf view",
+       "filter": {
+        "owner": "human"
+       },
+       "request_id": "conf-view-2"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.view.list",
+      "params": {}
+     },
+     "result": {
+      "views": {
+       "$contains": {
+        "name": "conf view",
+        "filter": {
+         "$exact": true,
+         "owner": "human"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "task.view.save",
+      "params": {
+       "name": "conf bad",
+       "filter": {
+        "title": "x"
+       },
+       "request_id": "conf-view-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "filter"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "task.view.delete",
+      "params": {
+       "name": "conf view",
+       "request_id": "conf-view-4"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "task.view.delete",
+      "params": {
+       "name": "conf view",
+       "request_id": "conf-view-5"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "view"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

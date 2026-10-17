@@ -54,6 +54,8 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "new", "--assign", "b.two", "-t", "1h", "x"},
 			[]string{`task.new {"owner":"b.two","time_box":"3600s","title":"x"}`}},
 		{"", []string{"task", "new", "--assign", "b.two", "x"}, []string{`task.new {"owner":"b.two","title":"x"}`}},
+		{"", []string{"task", "new", "--assign", "b.two", "x", "--tag", "fe", "--tag", "be, ops"},
+			[]string{`task.new {"owner":"b.two","tags":["fe","be","ops"],"title":"x"}`}},
 		{"", []string{"task", "begin", "t", "--chat", "7", "--why", "w"},
 			[]string{`task.begin {"expects":"report","message":7,"title":"t","why":"w"}`}},
 		{"", []string{"task", "begin", "t", "--chat", "7"},
@@ -72,6 +74,7 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 			[]string{`task.edit {"priority":3,"task":3,"time_box":"7200s","title":"t","unblock":4}`}},
 		{"new brief", []string{"task", "edit", "T3", "--body", "-", "--assign", "b.two", "--owner", "a.one", "--blocked-by", "T9"},
 			[]string{`task.edit {"blocked_by":9,"body":"new brief","owner":"b.two","reporter":"a.one","task":3}`}},
+		{"", []string{"task", "edit", "T3", "--tag", "fe", "--untag", "be"}, []string{`task.edit {"add_tags":["fe"],"remove_tags":["be"],"task":3}`}},
 		{"", []string{"task", "merge", "T1", "T2", "T3"}, []string{`task.merge {"into":1,"tasks":[2,3]}`}},
 		{"", []string{"task", "done", "T3", "abc", "--reason", "--repo", "./a//b/"},
 			[]string{`task.done {"evidence":"abc","reason":true,"repo":"a/b","task":3}`}},
@@ -138,7 +141,7 @@ func TestTaskRefusalsBeforeAnyCall(t *testing.T) {
 		{asAgent, []string{"task", "handoff", "T3", "b.two", "n", "--file", "f"}, "give note inline or with --file, not both\n"},
 		{asAgent, []string{"task", "edit", "T3", "--owner", "b.two"}, "--owner is who answers for a task, not who works it, so it needs --assign too. To move the work:\n" +
 			"  hl task edit T3 --assign b.two\nTo change only who answers for it, name the assignee it keeps:\n  hl task edit T3 --owner b.two --assign <its assignee>\n"},
-		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, or --timeout\n"},
+		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, --timeout, --tag or --untag\n"},
 		{asAgent, []string{"task", "memo", "T3", "add"}, "add takes the memo text\n"},
 		{asAgent, []string{"task", "memo", "T3", "delete", "4", "--now"}, "--now goes with add\n"},
 		{asAgent, []string{"task", "memo", "T3", "edit", "4"}, "edit takes the memo id, then the new text\n"},
@@ -225,7 +228,7 @@ func TestTaskShowReadsAPausedClock(t *testing.T) {
 func TestTaskShowListAndBoardRead(t *testing.T) {
 	r := agentsRig(t)
 	calls := r.daemon(map[string]string{
-		"task.get": `{"id":7,"title":"Fix it","state":"done","to":"b.two","from":"a.one","priority":1,"parent":3,
+		"task.get": `{"id":7,"title":"Fix it","state":"done","to":"b.two","from":"a.one","priority":1,"parent":3,"tags":["be","fe"],
 			"created":"2026-10-01T10:00:00Z","time":{"length_s":3600,"default":false,"start":null,"end":null,"overdue_since":null,"told":0},
 			"evidence":"abc123","done":"2026-10-02T11:30:00Z","discarded":null,"body":"the brief",
 			"result":{"commit":"abc1234def","on_main":false,"shots":[{"n":1,"bytes":2048},{"n":2,"bytes":10}]},
@@ -234,14 +237,14 @@ func TestTaskShowListAndBoardRead(t *testing.T) {
 			"handoffs":[{"at":"2026-10-01T13:00:00Z","from":"a.one","to":"b.two","note":"over to you"}],
 			"assignments":[{"at":"2026-10-01T14:00:00Z","by":"c","what":"owner","from":"a.one","to":"c"}]}`,
 		"tasks.list": `{"items":[{"id":7,"title":"Fix it","to":"b.two","state":"doing","parent":null,"edited_by":null,"evidence":null,
-			"discarded":null,"block_reason":"waiting: x","last_activity":"2026-10-01T10:00:00Z","priority":2,"asker":"a.one",
+			"discarded":null,"block_reason":"waiting: x","last_activity":"2026-10-01T10:00:00Z","priority":2,"asker":"a.one","tags":["fe"],
 			"mismatch":"","hold_reason":"","requests":[{"id":11,"from":"a.one","to":"b.two","state":"queued","at":"2026-10-01T10:00:00Z"}]}],
 			"more":false,"reason_gaps":{"retirements_blank":1,"retirements":4,"closures_sha":2,"closures_request":0,"closures_reason":3}}`,
 		"task.board": `{"mine":[{"task":{"id":7,"title":"Fix it","to":"b.two","asker":"a.one","priority":2,"parent":3,"hold_reason":"","mismatch":""},
 			"now":{"kind":"held_as_sub_task","tasks":[8],"agents":["d"]}}],"reports":[]}`,
 	})
 	show := `T7  Fix it
-state done   assignee b.two   owner a.one   P1   parent T3   created 2026-10-01 10:00
+state done   assignee b.two   owner a.one   P1   parent T3   #be #fe   created 2026-10-01 10:00
 timeout 1h00m
 timeout paused: waiting on T9, T8
 done 2026-10-02 11:30: abc123
@@ -272,10 +275,10 @@ assignee and owner changes
 	if out, _, code := r.run(asAgent, "task", "show", "t7"); code != 0 || out != show {
 		t.Errorf("show: %d\n%s", code, out)
 	}
-	list := "T7    Fix it  [b.two] doing  P2  owner a.one  waiting: x  active 2026-10-01 10:00\n" +
+	list := "T7    Fix it  [b.two] doing  P2  owner a.one  #fe  waiting: x  active 2026-10-01 10:00\n" +
 		"        request #11 a.one → b.two queued 2026-10-01 10:00\n" +
 		"reason (last 30d): 1/4 retirements carry no reason, 2 closures by sha, 0 by request, 3 by reason\n"
-	if out, _, code := r.run(asAgent, "task", "list", "--assign", "b.two", "--owner", "a.one", "--all"); code != 0 || out != list {
+	if out, _, code := r.run(asAgent, "task", "list", "--assign", "b.two", "--owner", "a.one", "--tag", "fe", "--all"); code != 0 || out != list {
 		t.Errorf("list: %d\n%s", code, out)
 	}
 	board := "T7    Fix it (under T3)\n      assignee b.two  owner a.one  now: held as sub-task T8 (d)\n"
@@ -283,7 +286,7 @@ assignee and owner changes
 		t.Errorf("board: %d\n%q", code, out)
 	}
 	got := sent(calls())
-	want := []string{`task.get {"task":7}`, `tasks.list {"all":true,"everyone":false,"limit":200,"owner":"b.two","reason_gaps":true,"reporter":"a.one"}`,
+	want := []string{`task.get {"task":7}`, `tasks.list {"all":true,"everyone":false,"limit":200,"owner":"b.two","reason_gaps":true,"reporter":"a.one","tags":["fe"]}`,
 		`task.board {"everyone":false}`}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("calls\n got  %v\n want %v", got, want)

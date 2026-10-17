@@ -852,6 +852,25 @@ def _requests_ref(con) -> None:
     """)
 
 
+def _task_tags_and_views(con) -> None:
+    """A task's tags: free lowercase labels, one row each, so the board filters on them in SQL. And the founder's saved views: a
+    tasks.list filter under a name, kept here so the PC and the phone show the same ones. Additive: new tables only."""
+    con.executescript("""
+        CREATE TABLE IF NOT EXISTS task_tags (
+          task_id INTEGER NOT NULL REFERENCES tasks(id),
+          tag     TEXT    NOT NULL,
+          PRIMARY KEY (task_id, tag)
+        ) WITHOUT ROWID;
+        CREATE INDEX IF NOT EXISTS task_tags_tag ON task_tags(tag, task_id);
+        CREATE TABLE IF NOT EXISTS task_views (
+          name       TEXT    PRIMARY KEY,
+          filter     TEXT    NOT NULL,
+          updated_by TEXT    NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+    """)
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
@@ -872,6 +891,7 @@ MIGRATIONS = [
     (17, "task_timeout_left", _task_timeout_left, True),
     (18, "requests_touched", _requests_touched, True),
     (19, "requests_ref", _requests_ref, True),
+    (20, "task_tags_and_views", _task_tags_and_views, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 
