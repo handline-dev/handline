@@ -1,7 +1,10 @@
 package reads
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/operations"
@@ -51,5 +54,49 @@ func TestARunningOperationNobodyRunsIsReportedFailed(t *testing.T) {
 		if s := got.(map[string]any)["state"]; s != want {
 			t.Fatalf("%s: %v, want %s", id, s, want)
 		}
+	}
+}
+
+func TestTheDiffOfAWholeWorktreeIncludesUntrackedFilesButNotIgnoredOnes(t *testing.T) {
+	e := testEnv(t)
+	prAgent(t, e, "w", "")
+	row, _ := queryOne(e.DB, "SELECT worktree FROM agent_state WHERE agent = 'w'")
+	dir := row.str("worktree")
+	git := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	write := func(name, text string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	diff := func(file any) string {
+		t.Helper()
+		got, err := e.worktreeDiff(nil, map[string]any{"path": dir, "file": file})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.(map[string]any)["diff"].(string)
+	}
+	write(".gitignore", "*.log\n")
+	write("a.txt", "one\n")
+	git("add", ".")
+	git("commit", "-q", "-m", "first")
+	write("b.txt", "brand new\n")
+	write("noise.log", "ignored\n")
+	got := diff(nil)
+	if !strings.Contains(got, "+++ b/b.txt") || !strings.Contains(got, "+brand new") || strings.Contains(got, "noise.log") {
+		t.Fatalf("the only change is one untracked file:\n%s", got)
+	}
+	write("a.txt", "two\n")
+	if got = diff(nil); !strings.Contains(got, "+two") || !strings.Contains(got, "+++ b/b.txt") {
+		t.Fatalf("a tracked change and an untracked file:\n%s", got)
+	}
+	if one := diff("b.txt"); !strings.Contains(got, one) {
+		t.Fatalf("the per-file diff of the untracked file is part of the whole:\n%s", one)
 	}
 }

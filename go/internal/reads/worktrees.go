@@ -311,6 +311,26 @@ func throughALink(root, file string) bool {
 	return real != root && !strings.HasPrefix(real, root+"/")
 }
 
+// untrackedDiffs are the new-file diffs of the files git does not track and does not ignore, as the per-file diff shows one.
+func untrackedDiffs(root string) string {
+	ok, list := git(root, "ls-files", "--others", "--exclude-standard", "-z")
+	if !ok {
+		return ""
+	}
+	var out strings.Builder
+	for i, file := range strings.Split(list, "\x00") {
+		if file == "" || i >= maxChanged || out.Len() > maxDiffChars {
+			break
+		}
+		if st, err := os.Lstat(filepath.Join(root, file)); err != nil || !st.Mode().IsRegular() {
+			continue
+		}
+		_, d := git(root, "diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--", os.DevNull, file)
+		out.WriteString(d)
+	}
+	return out.String()
+}
+
 func (e *Env) reposList(_ *rpc.Conn, _ map[string]any) (any, error) {
 	return map[string]any{"repos": e.repos()}, nil
 }
@@ -393,6 +413,9 @@ func (e *Env) worktreeDiff(_ *rpc.Conn, params map[string]any) (any, error) {
 				_, out = git(root, "diff", "--no-index", "--no-ext-diff", "--no-textconv", "--no-color", "--", os.DevNull, file)
 			}
 		}
+	}
+	if !hasFile {
+		out += untrackedDiffs(root)
 	}
 	shown, truncated := out, false
 	if len(out) > maxDiffChars {
