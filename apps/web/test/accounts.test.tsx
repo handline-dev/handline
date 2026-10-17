@@ -62,7 +62,7 @@ describe('the list', () => {
     await until(() => $('.accounts .skeleton'), 'the skeleton');
     expect($('.accounts .skeleton')!.getAttribute('aria-busy')).toBe('true');
     await until(() => $$('.acct-row').length === 3, 'the rows', 600);
-    expect($('.accounts .skeleton')).toBeNull();
+    await until(() => !$('.accounts .skeleton'), 'the Stats section below them to load too', 600);
     expect(text(card('alpha').querySelector('.acct-state'))).toBe('in use');
     expect(text(card('beta').querySelector('strong'))).toBe('review');
     expect(text(card('gamma').querySelector('.acct-state'))).toBe('login needed');
