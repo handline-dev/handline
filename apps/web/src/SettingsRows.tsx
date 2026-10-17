@@ -1,7 +1,6 @@
 // The rows of the Home settings page: a title, one grey line and the control, each saving through settings.set on its own.
 import { useEffect, useState, type ReactNode } from 'react';
-import { INVALID } from '@handline/app-core';
-import type { SettingsChanges } from '@handline/client';
+import { INVALID, type PageSettings } from '@handline/app-core';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { Field, Icon, RowControl, RowHint, RowText, RowTitle, SettingsRow, Switch, NOTE } from './ui/index.ts';
 import { useOff } from './useOff.ts';
@@ -47,7 +46,7 @@ export function NumberRow(props: {
   unit: string;
   current: string;
   parse: (t: string) => number | null | typeof INVALID;
-  change: (v: number | null) => SettingsChanges;
+  change: (v: number | null) => PageSettings;
   allowed: string;
 }) {
   const save = useWrite('settings.set');
@@ -98,7 +97,7 @@ export function NumberRow(props: {
   );
 }
 
-export function SwitchRow(props: { label: string; hint: string; on: boolean; change: (on: boolean) => SettingsChanges }) {
+export function SwitchRow(props: { label: string; hint: string; on: boolean; change: (on: boolean) => PageSettings }) {
   const save = useWrite('settings.set');
   const off = useOff('settings.set');
   return (

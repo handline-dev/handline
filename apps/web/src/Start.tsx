@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Store, type KV } from '@handline/app-core';
 import { DaemonClient, webSocketTransport, type Transport } from '@handline/client';
 import { App } from './App.tsx';
-import { shell } from './shell.ts';
+import { settingsRelay, shell } from './shell.ts';
 import { forgetToken, loadToken, needsToken, pairWith, tokenRefused } from './pairing.ts';
 
 type Open = (url: string) => Promise<Transport>;
@@ -40,7 +40,7 @@ export function Start({
     };
   }, [url, token, open, storage]);
   const store = useMemo(() => {
-    const s = new Store(new DaemonClient({ client: 'web-pc', token: token ?? undefined, connect: () => open(url) }));
+    const s = new Store(new DaemonClient({ client: 'web-pc', token: token ?? undefined, connect: () => open(url), relay: settingsRelay() }));
     if (failure) s.fail(failure);
     else if (insecure) s.fail(`Refusing ${url}: use wss:// for a daemon that is not on this machine.`);
     return s;
