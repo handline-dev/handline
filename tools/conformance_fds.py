@@ -15,6 +15,9 @@ import secrets
 import socket
 import sqlite3
 import subprocess
+import ctypes
+import ctypes.util
+import struct
 import sys
 import tempfile
 import time
@@ -22,9 +25,26 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "contract"))
-sys.path.insert(0, str(ROOT))
 import conformance  # noqa: E402
-from handline.infra.sessiontoken import NS as SESSION_NS, session_line  # noqa: E402
+
+SESSION_NS = "session-tokens"  # the protected store's folder of agent session records
+
+
+def session_line(pid: int) -> str | None:
+    """`pid` as a line of an agent's session record, "pid start" (the start time from the kernel); None when no such process runs."""
+    if sys.platform == "darwin":
+        libproc = ctypes.CDLL(ctypes.util.find_library("proc"))
+        buf = ctypes.create_string_buffer(136)
+        if libproc.proc_pidinfo(pid, 3, 0, buf, 136) != 136:  # PROC_PIDTBSDINFO
+            return None
+        start = struct.unpack_from("QQ", buf, 120)  # pbi_start_tvsec, pbi_start_tvusec
+        return f"{pid} {start[0]}.{start[1]:06d}"
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            rest = f.read().rsplit(")", 1)[1].split()
+    except (OSError, IndexError):
+        return None
+    return f"{pid} {rest[19]}"  # starttime in ticks
 
 PAIRS = 512
 AGENT_PAIRS = 128

@@ -299,6 +299,8 @@ export type Task = {
   evidence: string | null;
   /** 1 high, 2 default, 3 low (written P1-P3). */
   priority?: 1 | 2 | 3;
+  /** Its tags, in order. */
+  tags?: Tag[];
   /** The newest of the task's creation, edit, done and discard and of any request linked to it: what a list sorts a person's tasks by. Absent from a daemon that does not send it. */
   last_activity?: Timestamp;
   /** Who last changed the task's owner, title, priority or brief; null when never. */
@@ -1419,8 +1421,8 @@ export type HistoryRow = {
   at: Timestamp;
   /** Who made the change: an agent, or human. */
   by: string;
-  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. */
-  field: "title" | "assignee" | "owner" | "body" | "priority" | "timeout" | "state" | "blocked_by" | "merged_into" | "memo";
+  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
+  field: "title" | "assignee" | "owner" | "body" | "priority" | "timeout" | "state" | "tag" | "blocked_by" | "merged_into" | "memo";
   /** The value before; empty when there was none (a task just opened, a wait just added, a memo just added). */
   was: string;
   /** The value after; empty when it is gone (a wait removed, a memo deleted). */
@@ -1433,6 +1435,31 @@ export type HistoryRow = {
 
 /** The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else. */
 export type RequestRef = string;
+
+/** A free label on a task, such as fe or be: lowercase letters, digits, '.', '_' or '-', up to 32. A writer lowercases what it is given; a task carries at most 20. */
+export type Tag = string;
+
+/** What tasks.list narrows to: every key given must hold (AND). It is tasks.list's own params, so a saved view's filter is passed to tasks.list as it is. */
+export type TaskFilter = {
+  /** Tasks that carry every one of these tags. */
+  tags?: Tag[];
+  state?: "draft" | "queued" | "doing" | "reported" | "done" | "discarded";
+  /** Who works the task (its assignee). */
+  owner?: string;
+  /** Who the task answers to (its asker: hl's --owner). */
+  reporter?: string;
+  /** Who opened it. */
+  from?: string;
+};
+
+/** A saved view: a filter kept under a name, so it is picked, not typed again. One set for the founder's devices. */
+export type TaskView = {
+  name: string;
+  filter: TaskFilter;
+  /** Who saved it last. */
+  by: string;
+  at: Timestamp;
+};
 
 export interface Methods {
   "hello": { params: {
@@ -2033,8 +2060,12 @@ export interface Methods {
 }; result: Accepted };
   "tasks.list": { params: {
   owner?: string;
+  /** Who the task answers to (Task.asker). */
+  reporter?: string;
   from?: string;
   state?: string;
+  /** Tasks that carry every one of these tags (lowercased first). With the other filters, every one given must hold. */
+  tags?: string[];
   parent?: number;
   /** That task and every task below it, at any depth, done and discarded included (all is implied); still within the caller's scope, newest first and paged as without it. */
   under?: number;
@@ -2100,6 +2131,8 @@ export interface Methods {
   blocked_by?: number;
   /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
   priority?: 1 | 2 | 3;
+  /** Its tags; each is kept as a history row of the task. */
+  tags?: Tag[];
   expects?: Expects;
   /** Also answer the founder's message with text, where {task} is this task's real number. */
   reply?: {
@@ -2212,6 +2245,19 @@ export interface Methods {
   memo: number;
   request_id: RequestId;
 }; result: Accepted };
+  "task.view.list": { params: { [key: string]: unknown }; result: {
+    views: TaskView[];
+  } };
+  "task.view.save": { params: {
+  /** One line, 1 to 60 characters. */
+  name: string;
+  filter: TaskFilter;
+  request_id: RequestId;
+}; result: Accepted };
+  "task.view.delete": { params: {
+  name: string;
+  request_id: RequestId;
+}; result: Accepted };
   "task.queue": { params: {
   tasks: number[];
   request_id: RequestId;
@@ -2269,6 +2315,10 @@ export interface Methods {
   blocked_by?: number;
   /** A task number this one no longer waits on; clearing the last one lets its owner's current task advance. */
   unblock?: number;
+  /** Tags to add; one it has already is left as it is. Each change is a history row. Nobody is told of a tag change. */
+  add_tags?: Tag[];
+  /** Tags to remove; one it has not got is left as it is. */
+  remove_tags?: Tag[];
   request_id: RequestId;
 }; result: Accepted };
   "task.ask": { params: {
@@ -2651,6 +2701,9 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.memo.add": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.edit": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.delete": { role: "agent", callers: null, write: true, since: 1 },
+  "task.view.list": { role: "member", callers: null, write: false, since: 1 },
+  "task.view.save": { role: "member", callers: null, write: true, since: 1 },
+  "task.view.delete": { role: "member", callers: null, write: true, since: 1 },
   "task.queue": { role: "agent", callers: null, write: true, since: 1 },
   "task.draft": { role: "agent", callers: null, write: true, since: 1 },
   "task.merge": { role: "agent", callers: null, write: true, since: 1 },

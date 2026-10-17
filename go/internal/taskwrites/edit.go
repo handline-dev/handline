@@ -314,9 +314,18 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 		if err != nil {
 			return nil, err
 		}
+		addTags, err := TagList(p, "add_tags")
+		if err != nil {
+			return nil, err
+		}
+		removeTags, err := TagList(p, "remove_tags")
+		if err != nil {
+			return nil, err
+		}
+		hasTags := len(addTags) > 0 || len(removeTags) > 0
 		fields := owner != nil || reporter != nil || title != nil || body != nil || timeoutS != nil || priority != nil
-		if !fields && !hasBlocker && !hasUnblock {
-			return nil, badParam("edit needs an owner, a reporter, a title, a priority, a body, a time_box, blocked_by or unblock", "")
+		if !fields && !hasBlocker && !hasUnblock && !hasTags {
+			return nil, badParam("edit needs an owner, a reporter, a title, a priority, a body, a time_box, blocked_by, unblock, add_tags or remove_tags", "")
 		}
 		for _, who := range []*string{owner, reporter} {
 			if who != nil && *who != human && !contains(paths.ListAgents(home), *who) {
@@ -346,6 +355,16 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 				}
 				msgs = append(msgs, msg)
 				tellMsgs = append(tellMsgs, msg)
+			}
+			if hasTags { // a tag is bookkeeping: it is in the reply and the history, and nobody is told
+				why, msg, err := retag(tx, tid, me, addTags, removeTags)
+				if err != nil {
+					return nil, err
+				}
+				if why != "" {
+					return nil, refusal(why)
+				}
+				msgs = append(msgs, msg)
 			}
 			if hasBlocker {
 				why, err := recordBlock(tx, tid, blocker, me)
