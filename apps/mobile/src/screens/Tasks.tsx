@@ -14,6 +14,7 @@ import { Button, PageHeader } from './parts.tsx';
 import { MemoBox, MemoRow } from './Memos.tsx';
 import { NewTask, TaskVerbs, useTaskPending } from './TaskActions.tsx';
 import { TaskGraph } from './TaskGraph.tsx';
+import { Markdown } from './Markdown.tsx';
 
 type Scope = 'open' | 'mine' | 'closed';
 const SCOPES: [Scope, string][] = [
@@ -232,12 +233,12 @@ function Body({ t }: { t: TaskDetail }) {
       {/* The Waits on section already says what holds it; the reason lines are for a task with no listed blocker. */}
       {!t.blockers.length && t.block_reason ? <Text style={{ color: c.block }}>{t.block_reason}</Text> : null}
       {!t.blockers.length && t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
-      {t.body ? <Section title="Brief">{line(t.body)}</Section> : null}
+      {t.body ? <Section title="Brief"><Markdown text={t.body} breaks /></Section> : null}
       {t.blockers.length ? (
         <Section title="Waits on">{t.blockers.map((b, i) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`, i))}</Section>
       ) : null}
       {t.children.length ? <Section title="Subtasks">{t.children.map((k, i) => line(`${taskRef(k)}`, i))}</Section> : null}
-      {t.evidence ? <Section title="Evidence">{line(t.evidence)}</Section> : null}
+      {t.evidence ? <Section title="Evidence"><Markdown text={t.evidence} breaks /></Section> : null}
       {t.deliveries.length ? (
         <Section title="Delivery">{line(deliverySummary(t.deliveries))}</Section>
       ) : null}

@@ -7,6 +7,7 @@ import { usePalette } from '../theme.ts';
 import { ImageBodyInput } from './ImageBodyInput.tsx';
 import { Button } from './parts.tsx';
 import { Input, Sheet, useWhyNot } from './TaskActions.tsx';
+import { Markdown } from './Markdown.tsx';
 
 /** One memo with Edit and Delete (as the web's MemoRow). Both show at once and roll back with the reason on a refusal; Delete asks first. */
 export function MemoRow({ task, memo, when }: { task: number; memo: { id: number; author: string; text: string }; when: string }) {
@@ -21,7 +22,8 @@ export function MemoRow({ task, memo, when }: { task: number; memo: { id: number
   const close = () => (setAsk(null), edit.reset(), del.reset());
   return (
     <View testID={`memo-${memo.id}`} style={{ gap: space.sm }}>
-      <Text style={{ color: c.ink }}>{`${memo.author} ${when}: ${memo.text}`}</Text>
+      <Text style={{ color: c.muted, fontSize: 12 }}>{`${memo.author} ${when}`}</Text>
+      <Markdown text={memo.text} breaks />
       {ask === null && (
         <View style={{ flexDirection: 'row', gap: space.sm }}>
           <Button
