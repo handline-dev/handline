@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/hlclient/client.go; do not change, change the Go
 """The commands' way to the daemon's methods: one JSON-RPC call on a fresh connection (`infra.daemonclient.call`), as the
 founder when this terminal holds the founder key, and as the agent when it runs in an agent's session (the daemon
 tells which from the process, not from anything said here). `connect` is the one place a socket comes from, so a

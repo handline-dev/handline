@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/usage/prices.go; do not change, change the Go
 """What a token costs, by model and by kind, so a share of an account's tokens can
 be a share of what those tokens cost (T45).
 

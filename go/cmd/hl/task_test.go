@@ -63,6 +63,7 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "start", "T3"}, []string{`task.start {"task":3}`}},
 		{"", []string{"task", "note", "T3", "hi"}, []string{`task.memo.add {"task":3,"text":"hi"}`}},
 		{"", []string{"task", "memo", "T3", "add", "hi"}, []string{`task.memo.add {"task":3,"text":"hi"}`}},
+		{"", []string{"task", "memo", "T3", "add", "hi", "--now"}, []string{`task.memo.add {"now":true,"task":3,"text":"hi"}`}},
 		{"from stdin", []string{"task", "memo", "T3", "edit", "4", "-"}, []string{`task.memo.edit {"memo":4,"task":3,"text":"from stdin"}`}},
 		{"", []string{"task", "memo", "T3", "delete", "4"}, []string{`task.memo.delete {"memo":4,"task":3}`}},
 		{"", []string{"task", "queue", "T1", "T2"}, []string{`task.queue {"tasks":[1]}`, `task.queue {"tasks":[2]}`}},
@@ -136,6 +137,7 @@ func TestTaskRefusalsBeforeAnyCall(t *testing.T) {
 			"  hl task edit T3 --assign b.two\nTo change only who answers for it, name the assignee it keeps:\n  hl task edit T3 --owner b.two --assign <its assignee>\n"},
 		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, or --timeout\n"},
 		{asAgent, []string{"task", "memo", "T3", "add"}, "add takes the memo text\n"},
+		{asAgent, []string{"task", "memo", "T3", "delete", "4", "--now"}, "--now goes with add\n"},
 		{asAgent, []string{"task", "memo", "T3", "edit", "4"}, "edit takes the memo id, then the new text\n"},
 		{nil, []string{"task", "start", "T3"}, "cannot tell who is start a tasking this: OCP_AGENT is unset and this is not an " +
 			"interactive shell. Agents are started with `hl launch <agent>`, which sets it.\n"},
@@ -150,7 +152,7 @@ func TestTaskRefusalsBeforeAnyCall(t *testing.T) {
 	}
 }
 
-func TestWhatTheTaskPortDoesNotParseIsPythons(t *testing.T) {
+func TestWhatTheTaskPortDoesNotParseIsRefused(t *testing.T) {
 	r := agentsRig(t)
 	calls := r.daemon(nil)
 	for _, args := range [][]string{
@@ -161,9 +163,9 @@ func TestWhatTheTaskPortDoesNotParseIsPythons(t *testing.T) {
 		{"task", "memo", "T1", "bogus"}, {"task", "memo", "T1", "delete", "abc"}, {"task", "done", "T1", "--request", "x"},
 		{"task", "edit", "T1", "--title"}, {"task", "queue"}, {"task", "merge", "T1"},
 	} {
-		out, _, code := r.run(asAgent, args...)
-		if code != 0 || !strings.HasPrefix(out, "python ") || !strings.HasSuffix(strings.TrimSpace(out), strings.Join(args, " ")) {
-			t.Errorf("%v: %q %d", args, out, code)
+		out, errs, code := r.run(asAgent, args...)
+		if code != 2 || out != "" || !strings.Contains(errs, "arguments not understood") {
+			t.Errorf("%v: %q %q %d", args, out, errs, code)
 		}
 	}
 	if got := calls(); len(got) != 0 {

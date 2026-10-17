@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/protected/protected.go; do not change, change the Go
 """The protected store: what only the founder may say, kept where no agent can write it.
 
 Everything under ~/.orcapipe - agent.yaml, the db, every file ocp keeps - is

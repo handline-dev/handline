@@ -1,3 +1,4 @@
+# DEPRECATED: ported to go/internal/usage/outlook.go; do not change, change the Go
 """The weekly headroom of all accounts together, the last day and the next (founder #824).
 
 Past points are what `usage_samples` recorded. The future is a guess: each account keeps using

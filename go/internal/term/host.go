@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/handline/handline/go/internal/paths"
 )
 
 // Host is what a backend adds to start and end the terminals the daemon runs agents in.
@@ -38,9 +40,11 @@ func (t Tmux) CreateTerminal(command, cwd, title string) (string, string) {
 	if cwd != "" {
 		args = append(args, "-c", cwd)
 	}
-	// The home the daemon runs on goes into the window's environment, so what runs there reads the same one under either spelling.
-	if home := getenv("HOME"); home != "" {
-		args = append(args, "-e", "OCP_HOME="+home, "-e", "HANDLINE_HOME="+home)
+	// The daemon's home and its tmux server go into the window's environment under both spellings, so what runs there reads
+	// them and not whatever the tmux server or the daemon's own environment was started with.
+	if t.Home != "" {
+		sock := paths.TmuxSocket(t.Home)
+		args = append(args, "-e", "OCP_HOME="+t.Home, "-e", "HANDLINE_HOME="+t.Home, "-e", "OCP_TMUX_SOCKET="+sock, "-e", "HANDLINE_TMUX_SOCKET="+sock)
 	}
 	args = append(args, "-P", "-F", "#{pane_id}")
 	var code int

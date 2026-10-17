@@ -270,6 +270,7 @@ func (v *Mover) PerformHandoff(agent string, t HandoffTrigger, dest string) (ok 
 	// session at the wall cannot take a turn.
 	if t.Kind != "forced" && t.Kind != LoginTrigger && !settled && v.E.NoteHold(m.Q, agent, now) {
 		v.log("  %s: %s fired - waiting for its handoff note", agent, t.Kind)
+		check(db.MarkNoteWait(m.Q, agent, t.Kind, now))
 		return true, nil
 	}
 	return v.perform(agent, t, dest), nil
@@ -278,6 +279,7 @@ func (v *Mover) PerformHandoff(agent string, t HandoffTrigger, dest string) (ok 
 func (v *Mover) perform(agent string, t HandoffTrigger, dest string) bool {
 	m := v.M
 	hid := newHandoffID()
+	check(db.ClearNoteWait(m.Q, agent))
 	acct := m.Agents.CurrentAccount(m.Q, agent)
 	st := m.Status.ReadForAgent(agent, acct)
 	check(db.StartHandoff(m.Q, hid, agent, st.SessionID, t.Kind, m.now()+states.HandoffDeadlineS))

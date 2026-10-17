@@ -37,7 +37,8 @@ const requestSelect = "SELECT id, ts, state_at, requester, target, state, body, 
 	"(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, " +
 	"(SELECT MIN(task_id) FROM task_requests WHERE request_id = requests.id) AS task_id, " +
 	"(SELECT a.id FROM requests a WHERE a.settles = requests.id ORDER BY a.id LIMIT 1) AS answer_id, " +
-	"EXISTS (SELECT 1 FROM events WHERE dedup_key = 'task_question:' || requests.id) AS task_question FROM requests"
+	"EXISTS (SELECT 1 FROM events WHERE dedup_key = 'task_question:' || requests.id) AS task_question, " +
+	"(SELECT json_extract(payload, '$.proposal') FROM events WHERE dedup_key = 'hr_outcome:' || requests.id) AS proposal FROM requests"
 
 // chat is what one call reads with: the database and the task board, loaded when a task delivery needs it.
 type chat struct {
@@ -67,11 +68,13 @@ func (c *chat) taskState(taskID int64) (any, error) {
 	return c.b.state(t), nil
 }
 
+// chatScope is the requests a chat draws. A notice the digest has listed is left out: the digest line carries it, and drawing both shows it twice.
 func chatScope(agent string, everyone bool) (string, []any) {
+	const undigested = " AND NOT (notice = 1 AND delivered_at IS NOT NULL AND typed_at IS NULL)"
 	if everyone {
-		return "(requester = ? OR target = ?)", []any{agent, agent}
+		return "((requester = ? OR target = ?)" + undigested + ")", []any{agent, agent}
 	}
-	return "((requester = ? AND target = ?) OR (requester = ? AND target = ?))", []any{human, agent, agent, human}
+	return "(((requester = ? AND target = ?) OR (requester = ? AND target = ?))" + undigested + ")", []any{human, agent, agent, human}
 }
 
 // rows adds the live state of the task a task delivery carries (the only row drawn as a card).
@@ -279,6 +282,9 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 		"parent": r.intOrNil("parent_id"), "kind": orEmpty(r["kind"]), "tasks": tasks, "is_task_question": r.i("task_question") != 0}
 	if receipt != nil {
 		m["receipt"] = receipt
+	}
+	if r["proposal"] != nil {
+		m["proposal"] = r.i("proposal")
 	}
 	images := attachments.New(c.e.Home)
 	if pictures := images.MessageMaps(c.e.DB, r.i("id"), r.str("body")); pictures != nil {
@@ -957,7 +963,7 @@ func taskItemOf(ev row) (item map[string]any, task int64, ok bool) {
 	} else if event == "withdrawn" {
 		evidence = p["reason"]
 	}
-	body := map[string]any{"event": event, "task": tid, "request": p["request_id"], "evidence": evidence}
+	body := map[string]any{"event": event, "task": tid, "request": p["request_id"], "evidence": evidence, "who": ev.str("agent")}
 	if change := changeOf(ev.str("kind"), p); change != "" {
 		body["change"] = change
 	}
