@@ -11,6 +11,14 @@ const REPOS: Repo[] = [
   { name: 'docs-site', path: '/work/docs-site', default_branch: 'master' },
 ];
 
+/** A unified diff for one changed file, made up from its counts: the fake has no repository to run git in. */
+const unified = (c: Worktree['changed'][number]): string => {
+  const add = Array.from({ length: Math.min(c.added, 6) }, (_, i) => `+added line ${i + 1}`);
+  const del = Array.from({ length: Math.min(c.deleted, 6) }, (_, i) => `-removed line ${i + 1}`);
+  const head = [`diff --git a/${c.path} b/${c.path}`, ...(c.status === 'A' ? ['new file mode 100644'] : c.status === 'D' ? ['deleted file mode 100644'] : [])];
+  return [...head, `--- ${c.status === 'A' ? '/dev/null' : `a/${c.path}`}`, `+++ ${c.status === 'D' ? '/dev/null' : `b/${c.path}`}`, `@@ -1,${c.deleted} +1,${c.added} @@`, ' context line', ...del, ...add, ''].join('\n');
+};
+
 const file = (path: string, status: string, added: number, deleted: number) => ({ path, status, added, deleted });
 
 /** One worktree per agent fixture, plus a spare with no owner and a docs one with a status outside the four a board knows. */
@@ -95,7 +103,9 @@ export class FakeWorktrees {
         if (p.file !== undefined && (typeof p.file !== 'string' || p.file.startsWith('/') || p.file.split('/').includes('..')))
           throw invalidParams('the file must stay inside the worktree', 'file');
         if (!this.rows.some((w) => w.path === p.path)) throw new Failure('not_found', `no worktree ${p.path}`, { what: 'path' });
-        throw new Failure('refused', 'the fake daemon does not serve worktree.diff', { reason: 'unsupported', gate: 'unsupported' });
+        const row = this.rows.find((w) => w.path === p.path)!;
+        const files = row.changed.filter((c) => p.file === undefined || c.path === p.file);
+        return { path: p.path, file: p.file ?? null, diff: files.map(unified).join(''), truncated: false };
       }
       default:
         throw new Failure('refused', `the fake daemon does not serve ${method}`, { reason: 'unsupported', gate: 'unsupported' });

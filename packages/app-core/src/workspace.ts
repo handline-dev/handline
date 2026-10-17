@@ -6,7 +6,7 @@ import { detach, group, groupOf, groupsOf, replaceGroup } from './layout-tree.ts
 
 export { groupOf, groupsOf };
 
-export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review' | 'timeline' | 'new';
+export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review' | 'timeline' | 'changes' | 'new';
 export const TAB_KINDS: readonly TabKind[] = [
   'chat',
   'tasks',
@@ -18,6 +18,7 @@ export const TAB_KINDS: readonly TabKind[] = [
   'markdown',
   'review',
   'timeline',
+  'changes',
   'new',
 ];
 export type TabParams = Record<string, string | number>;
@@ -72,6 +73,7 @@ export function tabId(ws: Workspace | null, kind: TabKind, params: TabParams): s
   if (kind === 'tasks') return params.pinned ? `tasks:${params.task}` : TASKS;
   if (kind === 'transcript') return TRANSCRIPT;
   if (kind === 'timeline') return TIMELINE;
+  if (kind === 'changes') return 'changes';
   const named = params.handle ?? params.path ?? params.port ?? params.url ?? params.device ?? params.id;
   if (named !== undefined) return `${kind}:${named}`;
   let n = 1;
