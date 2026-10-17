@@ -38,10 +38,10 @@ func reopenMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any
 				return nil, refusal(fmt.Sprintf("task T%d is not done - nothing to reopen", tid))
 			}
 			said := strings.TrimSpace(textsafe.Oneline(note))
-			if said == "" {
-				return nil, refusal("reopening needs a one-line reason")
+			msg := fmt.Sprintf("task T%d reopened by %s", tid, by)
+			if said != "" {
+				msg += ": " + said
 			}
-			msg := fmt.Sprintf("task T%d reopened by %s: %s", tid, by, said)
 			if err := refreshSent(tx, tid); err != nil { // done cleared it; a request still out on it sends it again
 				return nil, err
 			}

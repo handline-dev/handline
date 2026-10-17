@@ -73,7 +73,7 @@ describe('X1 Worktrees', () => {
     release();
     await until(() => rows().length === 5, 'the rows');
     expect($('.worktrees .skeleton')).toBeNull();
-    expect(text(row('/work/handline.term-build'))).toContain('buddyron/handline.term-build');
+    expect(text(row('/work/handline.term-build'))).toContain('yourname/handline.term-build');
     expect(text(row('/work/handline.term-build'))).toContain('in progress');
     expect(text(row('/work/handline.term-build'))).toContain('3 +126 -31');
     expect(text(row('/work/handline.term-build'))).toContain('handline.term-build');

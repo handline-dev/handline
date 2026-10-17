@@ -430,27 +430,28 @@ func stateOf(view string) string {
 	return v.State
 }
 
-func TestTheNoticeDigestIsSweptByTheGoTickOnlyFromTheCutover(t *testing.T) {
+func TestTheNoticeSweepsRunInTheGoTickOnlyFromTheCutover(t *testing.T) {
 	for _, cutover := range []bool{false, true} {
 		p, _, _, _ := wired(t)
 		d := p.db
-		if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: dbpkg.NoticeRequester, Target: "alice", Body: "T3 done by bob: ok", Kind: "say", Notice: true}); err != nil {
+		// alice is closed, so no digest is typed to her: the stopped sweep's mark says whether the sweeps ran
+		if err := dbpkg.SetAgentState(d, "alice", "STALLED", 0, "gone wrong"); err != nil {
 			t.Fatal(err)
 		}
 		tk := p.Tick(cfgOf(p), TickConfig{Cutover: cutover})
 		for _, s := range tk.Tick.Passes {
 			if s.Name == "notice-digest" {
-				if err := s.Run(d, time.Now().Unix()+86400); err != nil {
+				if err := s.Run(d, time.Now().Unix()); err != nil {
 					t.Fatal(err)
 				}
 			}
 		}
-		left, err := dbpkg.PendingNotices(d, "alice")
+		marked, err := dbpkg.Cursor(d, "stopped_told:fatal:alice")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cutover == (len(left) != 0) {
-			t.Fatalf("cutover=%v: %d notices left waiting", cutover, len(left))
+		if cutover != (marked != 0) {
+			t.Fatalf("cutover=%v: stopped mark %d", cutover, marked)
 		}
 	}
 }

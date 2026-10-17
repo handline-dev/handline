@@ -32,7 +32,7 @@ export const AGENTS: AgentFixture[] = [
     task: null,
     parent: 'handline.architect',
     worktree: '/work/handline.term-build',
-    branch: 'buddyron/handline.term-build',
+    branch: 'yourname/handline.term-build',
     session: null,
   },
   {
@@ -45,7 +45,7 @@ export const AGENTS: AgentFixture[] = [
     task: { id: 1684, title: 'Web UI design' },
     parent: null,
     worktree: '/work/handline.architect',
-    branch: 'buddyron/handline.architect',
+    branch: 'yourname/handline.architect',
     session: 's-arch-1',
   },
   {
@@ -58,7 +58,7 @@ export const AGENTS: AgentFixture[] = [
     task: null,
     parent: 'handline.architect',
     worktree: '/work/handline.auditor',
-    branch: 'buddyron/handline.auditor',
+    branch: 'yourname/handline.auditor',
     session: 's-aud-1',
     wall: true,
   },

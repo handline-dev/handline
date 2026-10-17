@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Task } from '@handline/client';
-import { LISTED, defaultFilter, durationMs, idleText, isOver, shown, sortTasks, taskTree, timeoutText } from '../src/task-table.ts';
+import { timeBoxText, LISTED, defaultFilter, durationMs, idleText, isOver, shown, sortTasks, taskTree, timeoutText } from '../src/task-table.ts';
 import { taskAfter } from '../src/tasks.ts';
 
 const NOW = Date.parse('2026-01-01T12:00:00Z');
@@ -92,4 +92,20 @@ test('the tree puts children under their parent, keeps a hidden parent as a dimm
 test('editing the priority shows it at once', () => {
   assert.equal(taskAfter('edit', task(1), 'now', { priority: 1 })?.priority, 1);
   assert.equal(taskAfter('edit', task(1, { priority: 3 }), 'now', { title: 'x' })?.priority, 3);
+});
+
+test('the time box is one meaning: what is left of it, why it stands still, or how far over', () => {
+  const now = Date.parse('2026-10-17T10:00:00Z');
+  const t = (o: object) => ({ state: 'doing', time_box: '4h', waiting: null, ...o }) as never;
+  const clock = (o: object) => ({ length_s: 14400, default: false, start: null, end: null, overdue_since: null, told: 0, left_s: null, ...o });
+  assert.equal(timeBoxText(t({ time: clock({ end: '2026-10-17T12:10:00Z' }) }), now), '2h10m left of 4h');
+  assert.equal(timeBoxText(t({ time: clock({ end: '2026-10-17T09:00:00Z' }) }), now), 'over by 1h');
+  assert.equal(timeBoxText(t({ time: clock({ left_s: 7000 }), waiting: { on: 'founder', text: 'waiting on you', tasks: [], since: '' } }), now), 'paused: waiting on you');
+  assert.equal(timeBoxText(t({ state: 'queued', time: clock({}) }), now), '4h');
+  assert.equal(timeBoxText(t({ state: 'done', time: null }), now), '4h');
+});
+
+test('a time box just edited shows at once, before the clock has caught up', () => {
+  const t = { state: 'queued', time_box: '3h', waiting: null, time: { length_s: 3600, default: false, start: null, end: null, overdue_since: null, told: 0, left_s: null } } as never;
+  assert.equal(timeBoxText(t, 0), '3h');
 });

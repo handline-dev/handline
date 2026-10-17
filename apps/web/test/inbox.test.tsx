@@ -256,7 +256,7 @@ describe('read = gone', () => {
 });
 
 describe('the verbs', () => {
-  it('mark read drops the card, the header count, the bell and the tab title at once, and the daemon agrees', async () => {
+  it('mark read drops the card, the header count and the tab title at once, and the daemon agrees', async () => {
     const s = await mount();
     await until(() => $$('.inbox-card').length === 3, 'the cards');
     s.daemon.knobs.latency(300);
@@ -410,14 +410,14 @@ describe('deep links and the daemon', () => {
     expect(text($('.banner'))).toContain('Item 99 is no longer in the inbox');
   });
 
-  it('a daemon that does not serve the inbox gets "does not serve", no cards and no bell', async () => {
+  it('a daemon that does not serve the inbox gets "does not serve", no cards and no unread count', async () => {
     await mount('#/inbox', setup({ daemon: { inbox: false } }));
     await until(() => text($('.inbox')).includes('does not serve the inbox'), 'the notice');
     expect($$('.inbox-card')).toHaveLength(0);
     expect($('.bell')).toBeNull();
   });
 
-  it('the sidebar bell shows the unread count and opens the inbox', async () => {
+  it('the sidebar shows the unread count on More and on its Inbox item, and the header carries no second badge', async () => {
     const mem = memory();
     mem.setItem('rail', '1');
     location.hash = '#/agents/handline.architect';
@@ -427,9 +427,13 @@ describe('deep links and the daemon', () => {
     await act(async () => {
       root!.render(<App store={new Store(s.client)} daemon="test" storage={mem} />);
     });
-    await until(() => $('.bell'), 'the bell');
-    await until(() => text($('.bell')) === '2', 'the chat read the result'); // opening the architect's chat reads it
-    await click($('.bell'));
+    const more = () => $('.rail-nav [aria-label^="More"]')!;
+    await until(() => more().getAttribute('aria-label') === 'More (2 waiting)', 'the chat read the result'); // opening the architect's chat reads it
+    expect($('.bell')).toBeNull();
+    await click(more());
+    const item = () => [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((b) => text(b).trim().startsWith('Inbox'))!;
+    expect(text(item()).trim()).toBe('Inbox 2');
+    await click(item());
     expect(location.hash).toBe('#/inbox');
     await until(() => $('.inbox'), 'the page');
   });
