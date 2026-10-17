@@ -142,9 +142,7 @@ export class FakeTasks {
     let rows = this.rows.filter(
       (r) =>
         (p.all === true || p.under !== undefined || (r.state !== 'done' && r.state !== 'discarded')) &&
-        (p.owner === undefined || r.to === p.owner) &&
-        // the fake's caller is the founder: my_turn is the tasks assigned to them that wait on them
-        (p.my_turn !== true || (r.to === 'human' && (r.state === 'queued' || r.state === 'doing'))) &&
+        (p.my_turn === true ? r.to === 'human' && ['queued', 'doing'].includes(r.state) : p.owner === undefined || r.to === p.owner) &&
         (p.from === undefined || r.from === p.from) &&
         (p.state === undefined || r.state === p.state) &&
         (p.parent === undefined || r.parent === p.parent) &&
@@ -288,14 +286,13 @@ export class FakeTasks {
 
   // ---- the verbs of the daemon's task plan (D3), served only when the fake is asked to ----
 
-  /** A done by the holder of a task that answers to someone else, the founder included, is an answer: the task stays with its holder,
-   * answered, for task.accept, task.reject or a reassign. */
+  /** A done by the holder (the founder too) of a task someone else asked is an answer: it stays theirs until accept, reject or a reassign. */
   done(p: Record<string, unknown>, person: string): string {
     const t = this.find(p.task);
     if (t.state !== 'doing' && t.state !== 'queued') throw new TaskFailure('refused', `task ${t.id} is ${t.state}, not open`);
     const evidence = String(p.evidence ?? '') || null;
-    const holds = person === t.to || (t.to === 'human' && !this.isAgent(person)); // a person who is no agent is the founder
-    if (holds && t.from !== person && (t.to !== 'human' || this.isAgent(t.from))) {
+    // a person who is no agent is the founder, who holds what is assigned to human
+    if (t.from !== person && (person === t.to || (t.to === 'human' && !this.isAgent(person) && this.isAgent(t.from)))) {
       this.change(t, { state: 'answered', report: { by: t.to, evidence: evidence ?? '', at: this.now() } });
       return `task T${t.id} answered (${evidence ?? ''}); it stays with ${t.to} until ${t.from} accepts it or takes it back`;
     }
