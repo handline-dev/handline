@@ -12,6 +12,7 @@ import (
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/taskwrites"
@@ -55,6 +56,18 @@ func requestParam(p map[string]any, key string) (int64, error) {
 	}
 	return n, nil
 }
+
+// refParam is the request p[key] names, by id or ref. One the caller may not read gets missing's answer, so it is told what a missing
+// one is told.
+func (w *writes) refParam(q db.Q, c *rpc.Conn, p map[string]any, key string, missing func(name string) error) (int64, error) {
+	rid, err := requestref.Resolve(q, w.e.Home, p[key], requestref.Viewer(c), key)
+	if name, ok := requestref.Missing(err); ok {
+		return 0, missing(name)
+	}
+	return rid, err
+}
+
+func noMessage(name string) error { return notFound("message", name, "no message "+name) }
 
 func text(p map[string]any, key string) (string, error) {
 	s, ok := p[key].(string)
@@ -188,7 +201,7 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 		if task != nil {
 			return nil, badParam("a message under another is not a task", "parent")
 		}
-		if parent, err = requestParam(p, "parent"); err != nil {
+		if parent, err = w.refParam(w.e.DB, c, p, "parent", noMessage); err != nil {
 			return nil, err
 		}
 	}
@@ -269,7 +282,7 @@ func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, 
 }
 
 func (w *writes) dismiss(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := requestParam(p, "request")
+	rid, err := w.refParam(w.e.DB, c, p, "request", noMessage)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +300,7 @@ func (w *writes) dismiss(c *rpc.Conn, p map[string]any) (any, error) {
 }
 
 func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := requestParam(p, "request")
+	rid, err := w.refParam(w.e.DB, c, p, "request", noMessage)
 	if err != nil {
 		return nil, err
 	}
@@ -379,9 +392,11 @@ func (w *writes) seen(c *rpc.Conn, p map[string]any) (any, error) {
 }
 
 func (w *writes) sendNow(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, ok := rpc.AsInt(p["request"])
-	if !ok {
-		return nil, badParam("request is the integer id of a queued message", "request")
+	rid, err := w.refParam(w.e.DB, c, p, "request", func(name string) error {
+		return notFound("request", name, "no message "+name+" of yours")
+	})
+	if err != nil {
+		return nil, err
 	}
 	if out, handled, err := w.promoteHeld(c, rid); handled {
 		return out, err

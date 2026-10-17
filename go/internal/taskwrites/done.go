@@ -9,6 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/gitrun"
+	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/taskresult"
 	"github.com/handline/handline/go/internal/team"
@@ -34,12 +35,8 @@ func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, ma
 			evidence = &s
 		}
 		var request *int64
-		if v := p["request"]; v != nil {
-			n, ok := rpc.AsInt(v)
-			if !ok {
-				return nil, badParam("request is a request number", "request")
-			}
-			request = &n
+		if p["request"] != nil {
+			request = new(int64) // resolved in the write's transaction
 		}
 		if (evidence == nil) == (request == nil) {
 			return nil, badParam("done takes exactly one of evidence or request", "evidence")
@@ -78,6 +75,16 @@ func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, ma
 		var done *DoneResult
 		var decided func()
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+			if request != nil {
+				var err error
+				*request, err = requestref.Resolve(tx, home, p["request"], requestref.Viewer(c), "request")
+				if name, missing := requestref.Missing(err); missing {
+					return nil, refusal("no request #" + name)
+				}
+				if err != nil {
+					return nil, err
+				}
+			}
 			in.Sha, in.Words, in.Request, in.Repo = sha, words, request, repo
 			if decide != nil && by == db.Human && words != "" && in.Commit == "" && len(in.Shots) == 0 {
 				handled, said, then, err := decide(tx, tid, words)

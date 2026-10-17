@@ -31,9 +31,10 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 		return 0, false
 	}
 	parent, hasParent := p.opt("--parent")
-	parentN, ok1 := 0, true
+	var parentN any
+	ok1 := true
 	if hasParent {
-		parentN, ok1 = integer(parent)
+		parentN, ok1 = requestArg(parent)
 	}
 	taskN, hasTask, ok2 := optTask(p, "--task")
 	noTask, hasNoTask := p.opt("--no-task")
