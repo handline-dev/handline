@@ -21,7 +21,7 @@ func TestTheTellerTypesTheMemoSayAndSendsAQueuedTaskToAFreeOwner(t *testing.T) {
 		t.Fatal(msg)
 	}
 	r.term.typed = nil
-	r.MemoChanged(tid, "alice", "added", "mind the cache", false)
+	r.MemoChanged(tid, "alice", "added", "mind the cache", true)
 	if !strings.Contains(r.term.last(), "T1 memo added by alice: mind the cache") {
 		t.Fatalf("%q", r.term.last())
 	}

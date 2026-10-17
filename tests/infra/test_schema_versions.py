@@ -6,6 +6,7 @@ Run on its own: tools/test.sh tests/infra/test_schema_versions.py   (all areas: 
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 import subprocess
 import sys
@@ -145,6 +146,30 @@ def test_a_database_at_step_fourteen_loses_the_land_tables_on_connect(home: Path
     left = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE name IN ('lands', 'land_passes', 'land_fixes')")]
     check("drop_lands: a plain connect drops the land tables, rows and all", not left
           and dbschema.schema_version(con) == dbschema.LATEST_VERSION, str(left))
+    con.close()
+
+
+def test_every_request_old_or_new_gets_its_own_ref_on_connect(home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    p = home / "refs.db"
+    dbschema.connect(p).close()
+    insert = "INSERT INTO requests(ts, requester, target, body) VALUES(1, 'a', 'b', 'x')"
+    raw = sqlite3.connect(p)
+    raw.executescript("DROP TRIGGER requests_ref; DROP INDEX requests_ref; ALTER TABLE requests DROP COLUMN ref;"
+                      "DELETE FROM schema_version WHERE version >= 19;" + f"{insert};" * 50)
+    raw.close()
+    con = dbschema.connect(p)
+    for _ in range(50):
+        con.execute(insert)
+    refs = [r[0] for r in con.execute("SELECT ref FROM requests")]
+    check("requests_ref: old rows and new ones each have a ref of 12 lowercase hex, none shared",
+          len(refs) == 100 and len(set(refs)) == 100 and all(re.fullmatch("[0-9a-f]{12}", r or "") for r in refs), str(refs[:3]))
+    try:
+        con.execute("INSERT INTO requests(ts, requester, target, body, ref) VALUES(1, 'a', 'b', 'x', ?)", (refs[0],))
+        taken = False
+    except sqlite3.IntegrityError:
+        taken = True
+    check("requests_ref: a ref already in use is refused", taken)
     con.close()
 
 
@@ -367,6 +392,7 @@ def main() -> int:
         run(lambda: test_a_database_made_before_the_extra_worktrees_column_gets_it_on_connect(Path(td) / "v2e"))
         run(lambda: test_a_database_made_before_agent_terminals_records_every_terminal_after_connect(Path(td) / "v2f"))
         run(lambda: test_a_database_at_step_fourteen_loses_the_land_tables_on_connect(Path(td) / "v2g"))
+        run(lambda: test_every_request_old_or_new_gets_its_own_ref_on_connect(Path(td) / "v2h"))
         run(lambda: test_the_command_a_refusal_names_parses(Path(td) / "v2b"))
         run(lambda: test_the_daemon_migrates_a_database_waiting_for_a_step_once(Path(td) / "v2c"))
         run(lambda: test_a_migrator_that_holds_the_lock_too_long_is_named(Path(td) / "v2d"))

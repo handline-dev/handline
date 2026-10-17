@@ -1,6 +1,5 @@
-// Package attachments keeps the images a person attaches to a chat message or a task's text (contract x-attachments): uploaded in chunks,
-// stored under the daemon's home, and named to the agent by path. All state is in files, so a restart loses nothing and the database has no
-// new table.
+// Package attachments is the one way an image or file enters the daemon (chat, task texts, memos, screenshots). All state is in files, so a
+// restart loses nothing and the database has no new table.
 package attachments
 
 import (
@@ -370,8 +369,8 @@ func (s *Store) finish(uploadID string, up upload) (*Info, error) {
 	return &im.Info, nil
 }
 
-// Path is where the image is stored: named by its id and the extension of its type, never by the name a client gave.
-func (s *Store) Path(i Info) string { return s.sub(i.ID + "." + kinds[i.Mime]) }
+// Path is named by id, never by the name a client gave.
+func (s *Store) Path(i Info) string { return s.sub(i.ID + "." + ext(i.Mime)) }
 
 // Lookup is the Attachment of id; not_found when it was never put or has been removed.
 func (s *Store) Lookup(id string) (Info, error) {

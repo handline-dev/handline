@@ -26,4 +26,10 @@ export function parseMinutes(text: string): number | null | typeof INVALID {
   if (t === '') return null;
   return /^\d+$/.test(t) ? Number(t) * 60 : INVALID;
 }
+/** A seconds field: empty clears it (null), whole seconds are sent, anything else is not. */
+export function parseSeconds(text: string): number | null | typeof INVALID {
+  const t = text.trim();
+  if (t === '') return null;
+  return /^\d+$/.test(t) ? Number(t) : INVALID;
+}
 export const minutesOf = (seconds: number | undefined): string => (seconds === undefined ? '' : String(Math.round(seconds / 60)));

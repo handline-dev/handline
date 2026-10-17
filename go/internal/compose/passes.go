@@ -123,6 +123,10 @@ func (t timeboxPorts) SendNotice(q db.Q, agent, text string) bool {
 	sent, err := t.env.TypeNotice(q, agent, text)
 	return err == nil && sent
 }
+func (t timeboxPorts) SendBatch(q db.Q, agent, text string) error {
+	_, err := t.env.Notice(q, agent, text, "timebox")
+	return err
+}
 func (t timeboxPorts) BgStale(q db.Q, agent string, now int64) bool {
 	ok, _ := t.env.BgStale(q, agent, now)
 	return ok

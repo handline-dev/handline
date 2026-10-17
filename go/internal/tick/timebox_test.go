@@ -16,7 +16,8 @@ type tbPorts struct {
 	boss       string
 	stopWait   string
 	sendOK     bool
-	sent       []string // "who: text"
+	sent       []string // "who: text", typed at once
+	batched    []string // "who: text", for the digest
 	bgStale    bool
 	bgOwes     bool
 	never      bool
@@ -50,6 +51,10 @@ func (p *tbPorts) NudgeScheduleLen() int                       { return 3 }
 func (p *tbPorts) ForgottenResolve(db.Q, string, *db.AgentState, int64) *Forgotten {
 	return p.forgotten
 }
+func (p *tbPorts) SendBatch(_ db.Q, who, text string) error {
+	p.batched = append(p.batched, who+": "+text)
+	return nil
+}
 func (p *tbPorts) SendNotice(_ db.Q, who, text string) bool {
 	p.sent = append(p.sent, who+": "+text)
 	return p.sendOK
@@ -76,20 +81,23 @@ func TestATaskThatIsDoingStartsItsClockThenTellsItsOpenerPastTheDeadlineAndRearm
 	p.doing[tid] = true
 	b.SweepTaskTimeouts(tk, 1000)
 	task, _ := db.GetTask(tk.Q, tid)
-	if !task.TimeoutAt.Valid || task.TimeoutAt.Int64 != 1100 || len(p.sent) != 0 {
-		t.Fatalf("the clock starts where it becomes doing: %+v %v", task, p.sent)
+	if !task.TimeoutAt.Valid || task.TimeoutAt.Int64 != 1100 || len(p.batched) != 0 {
+		t.Fatalf("the clock starts where it becomes doing: %+v %v", task, p.batched)
 	}
 	b.SweepTaskTimeouts(tk, 1099)
-	if len(p.sent) != 0 {
-		t.Fatalf("told before the deadline: %v", p.sent)
+	if len(p.batched) != 0 {
+		t.Fatalf("told before the deadline: %v", p.batched)
 	}
 	b.SweepTaskTimeouts(tk, 1200)
-	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "boss: T") || !strings.Contains(p.sent[0], "the work on the thing") ||
-		!strings.Contains(p.sent[0], "held by a") || !strings.Contains(p.sent[0], "hl task edit T") {
-		t.Fatalf("%v", p.sent)
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "boss: T") || !strings.Contains(p.batched[0], "the work on the thing") ||
+		!strings.Contains(p.batched[0], "held by a") || !strings.Contains(p.batched[0], "hl task edit T") {
+		t.Fatalf("%v", p.batched)
 	}
-	if !strings.Contains(p.sent[0], `hl task release T1 "<reason>"`) {
-		t.Fatalf("any doing task can be released, with a reason: %v", p.sent)
+	if !strings.Contains(p.batched[0], `hl task release T1 "<reason>"`) {
+		t.Fatalf("any doing task can be released, with a reason: %v", p.batched)
+	}
+	if len(p.sent) != 0 {
+		t.Fatalf("the opener's notice is typed at once: %v", p.sent)
 	}
 	task, _ = db.GetTask(tk.Q, tid)
 	if task.TimeoutAt.Int64 != 1300 {
@@ -108,16 +116,19 @@ func TestAReportedTasksClockRunsOnAndRemindsWhoeverItAnswersTo(t *testing.T) {
 	report(t, tk, tid)
 	p.doing[tid] = false
 	b.SweepTaskTimeouts(tk, 1050)
-	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 1100 || len(p.sent) != 0 {
-		t.Fatalf("a reported task's clock does not pause: %+v %v", task, p.sent)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 1100 || len(p.batched) != 0 {
+		t.Fatalf("a reported task's clock does not pause: %+v %v", task, p.batched)
 	}
 	b.SweepTaskTimeouts(tk, 1200)
-	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "mgr: T") || !strings.Contains(p.sent[0], "reported done by a") ||
-		!strings.Contains(p.sent[0], "hl task accept T") || !strings.Contains(p.sent[0], "hl task reject T") {
-		t.Fatalf("%v", p.sent)
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "mgr: T") || !strings.Contains(p.batched[0], "reported done by a") ||
+		!strings.Contains(p.batched[0], "hl task accept T") || !strings.Contains(p.batched[0], "hl task reject T") {
+		t.Fatalf("%v", p.batched)
 	}
 	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 1300 || countEvents(t, tk, "mgr", "task_timeout_exceeded") != 1 {
 		t.Fatalf("the reminder re-arms the clock and is chained like an overrun notice: %+v", task)
+	}
+	if len(p.sent) != 0 {
+		t.Fatalf("the reminder is typed at once: %v", p.sent)
 	}
 }
 
@@ -133,12 +144,12 @@ func TestATaskReportedBeforeItsClockStartedIsStillReminded(t *testing.T) {
 	tid := newTask(t, tk, "a", "boss", 100)
 	report(t, tk, tid)
 	b.SweepTaskTimeouts(tk, 1000)
-	if task, _ := db.GetTask(tk.Q, tid); !task.TimeoutAt.Valid || task.TimeoutAt.Int64 != 1100 || len(p.sent) != 0 {
-		t.Fatalf("the clock starts where it is first seen reported: %+v %v", task, p.sent)
+	if task, _ := db.GetTask(tk.Q, tid); !task.TimeoutAt.Valid || task.TimeoutAt.Int64 != 1100 || len(p.batched) != 0 {
+		t.Fatalf("the clock starts where it is first seen reported: %+v %v", task, p.batched)
 	}
 	b.SweepTaskTimeouts(tk, 1200)
-	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "mgr: T") || !strings.Contains(p.sent[0], "reported done by a") {
-		t.Fatalf("%v", p.sent)
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "mgr: T") || !strings.Contains(p.batched[0], "reported done by a") {
+		t.Fatalf("%v", p.batched)
 	}
 }
 
@@ -154,12 +165,12 @@ func TestATaskReportedWhileItsClockIsPausedResumesAndIsReminded(t *testing.T) {
 	}
 	report(t, tk, tid)
 	b.SweepTaskTimeouts(tk, 2000)
-	if task, _ := db.GetTask(tk.Q, tid); !task.TimeoutAt.Valid || task.TimeoutAt.Int64 != 2060 || len(p.sent) != 0 {
-		t.Fatalf("the clock resumes with what it had left: %+v %v", task, p.sent)
+	if task, _ := db.GetTask(tk.Q, tid); !task.TimeoutAt.Valid || task.TimeoutAt.Int64 != 2060 || len(p.batched) != 0 {
+		t.Fatalf("the clock resumes with what it had left: %+v %v", task, p.batched)
 	}
 	b.SweepTaskTimeouts(tk, 2060)
-	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "mgr: T") {
-		t.Fatalf("%v", p.sent)
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "mgr: T") {
+		t.Fatalf("%v", p.batched)
 	}
 }
 
@@ -170,8 +181,8 @@ func TestATerminalAgentsTaskIsClockedOnlyAtTheCutover(t *testing.T) {
 	p.doing[mine], p.doing[terminal] = true, true
 	b.SweepTaskTimeouts(tk, 1000)
 	b.SweepTaskTimeouts(tk, 1200)
-	if task, _ := db.GetTask(tk.Q, terminal); task.TimeoutAt.Valid || len(p.sent) != 1 || !strings.Contains(p.sent[0], "held by a") {
-		t.Fatalf("the Python daemon's clock was run too: %+v %v", task, p.sent)
+	if task, _ := db.GetTask(tk.Q, terminal); task.TimeoutAt.Valid || len(p.batched) != 1 || !strings.Contains(p.batched[0], "held by a") {
+		t.Fatalf("the Python daemon's clock was run too: %+v %v", task, p.batched)
 	}
 	b.Cutover = true
 	b.SweepTaskTimeouts(tk, 1300)
@@ -189,7 +200,7 @@ func countEvents(t *testing.T, tk *Tick, agent, kind string) int {
 	return n
 }
 
-func TestATaskThatStopsBeingDoneHasItsClockPausedAndANoticeThatCannotBeSentIsRetried(t *testing.T) {
+func TestATaskThatStopsBeingDoneHasItsClockPausedAndItsOverrunNoticeWaitsForTheDigest(t *testing.T) {
 	tk, _, b, p := timebox(t)
 	tid := newTask(t, tk, "a", "boss", 100)
 	p.doing[tid] = true
@@ -199,17 +210,13 @@ func TestATaskThatStopsBeingDoneHasItsClockPausedAndANoticeThatCannotBeSentIsRet
 	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Valid {
 		t.Fatalf("a task that is not doing keeps a deadline: %+v", task)
 	}
-	// Past the deadline with the opener's session busy: not marked told, so the next try (after the retry wait) sends it.
+	// Past the deadline with the opener's session busy: the notice waits in its digest, so nothing is retried.
 	p.doing[tid], p.sendOK = true, false
 	b.SweepTaskTimeouts(tk, 2000)
 	b.SweepTaskTimeouts(tk, 2200)
-	if len(p.sent) != 1 {
-		t.Fatalf("%v", p.sent)
-	}
-	p.sendOK = true
 	b.SweepTaskTimeouts(tk, 2200+NoticeRetryS+1)
-	if len(p.sent) != 2 || countEvents(t, tk, "boss", "task_timeout_exceeded") != 1 {
-		t.Fatalf("%v", p.sent)
+	if len(p.batched) != 1 || len(p.sent) != 0 || countEvents(t, tk, "boss", "task_timeout_exceeded") != 1 {
+		t.Fatalf("%v %v", p.batched, p.sent)
 	}
 }
 
@@ -224,8 +231,8 @@ func TestAWaitingTaskStopsItsClockAndStartsAgainFromZeroWhenTheWaitEnds(t *testi
 	}
 	b.SweepTaskTimeouts(tk, 1040)
 	b.SweepTaskTimeouts(tk, 1500) // past the first deadline, 1100
-	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Valid || len(p.sent) != 0 {
-		t.Fatalf("a blocked task's clock ran: %+v %v", task, p.sent)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Valid || len(p.batched) != 0 {
+		t.Fatalf("a blocked task's clock ran: %+v %v", task, p.batched)
 	}
 	if _, err := db.RemoveBlock(tk.Q, tid, blocker); err != nil {
 		t.Fatal(err)
@@ -235,8 +242,8 @@ func TestAWaitingTaskStopsItsClockAndStartsAgainFromZeroWhenTheWaitEnds(t *testi
 		t.Fatalf("the clock did not start again from zero: %+v", task)
 	}
 	b.SweepTaskTimeouts(tk, 1600)
-	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "boss: T") {
-		t.Fatalf("the opener is told a full stretch after the wait: %v", p.sent)
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "boss: T") {
+		t.Fatalf("the opener is told a full stretch after the wait: %v", p.batched)
 	}
 
 	// overdue, then an open child of its own: no reminder while it is open, a full stretch once it closes
@@ -249,8 +256,8 @@ func TestAWaitingTaskStopsItsClockAndStartsAgainFromZeroWhenTheWaitEnds(t *testi
 		t.Fatal(err)
 	}
 	b.SweepTaskTimeouts(tk, 9000)
-	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 9100 || len(p.sent) != 1 {
-		t.Fatalf("a task waiting on its child starts again from zero: %+v %v", task, p.sent)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 9100 || len(p.batched) != 1 {
+		t.Fatalf("a task waiting on its child starts again from zero: %+v %v", task, p.batched)
 	}
 }
 
@@ -267,8 +274,8 @@ func TestAWaitAcrossADaemonRestartNeitherLosesNorRepeatsAReminder(t *testing.T) 
 	// a new daemon: nothing carried but the db
 	b2 := &Timebox{Ports: p}
 	b2.SweepTaskTimeouts(tk, 5000)
-	if len(p.sent) != 0 {
-		t.Fatalf("reminded while waiting: %v", p.sent)
+	if len(p.batched) != 0 {
+		t.Fatalf("reminded while waiting: %v", p.batched)
 	}
 	if _, err := tk.Q.Exec("UPDATE tasks SET done_evidence = 'x' WHERE id = ?", blocker); err != nil {
 		t.Fatal(err)
@@ -276,13 +283,13 @@ func TestAWaitAcrossADaemonRestartNeitherLosesNorRepeatsAReminder(t *testing.T) 
 	b2.SweepTaskTimeouts(tk, 5000)
 	b3 := &Timebox{Ports: p}
 	b3.SweepTaskTimeouts(tk, 5099)
-	if len(p.sent) != 0 {
-		t.Fatalf("told before a full stretch: %v", p.sent)
+	if len(p.batched) != 0 {
+		t.Fatalf("told before a full stretch: %v", p.batched)
 	}
 	b3.SweepTaskTimeouts(tk, 5100)
 	b3.SweepTaskTimeouts(tk, 5100+NoticeRetryS)
-	if len(p.sent) != 1 {
-		t.Fatalf("told once, a full stretch after the wait: %v", p.sent)
+	if len(p.batched) != 1 {
+		t.Fatalf("told once, a full stretch after the wait: %v", p.batched)
 	}
 }
 
@@ -306,8 +313,8 @@ func TestATaskOpenedByTheFounderIsToldAsAnEventAndNothingIsSent(t *testing.T) {
 	p.doing[tid] = true
 	b.SweepTaskTimeouts(tk, 1000)
 	b.SweepTaskTimeouts(tk, 1200)
-	if len(p.sent) != 0 || countEvents(t, tk, db.Human, "task_timeout_exceeded") != 1 {
-		t.Fatalf("%v", p.sent)
+	if len(p.batched) != 0 || countEvents(t, tk, db.Human, "task_timeout_exceeded") != 1 {
+		t.Fatalf("%v", p.batched)
 	}
 }
 
@@ -394,13 +401,16 @@ func TestTheStopWaitBackstopTellsTheTasksOpenerOnceWhenAnIdleAgentHasNoRecordedW
 	p.stopWait = "its task has no wait recorded"
 	b.SweepStopWaitBackstop(tk, 1000)
 	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS-1)
-	if len(p.sent) != 0 {
-		t.Fatalf("told before the limit: %v", p.sent)
+	if len(p.batched) != 0 {
+		t.Fatalf("told before the limit: %v", p.batched)
 	}
 	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS)
 	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS+100)
-	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "asker: a has been idle") || countEvents(t, tk, "a", "stop_wait_stuck") != 1 || !w.logged("asker told") {
-		t.Fatalf("told once, to the opener: %v %v", p.sent, w.logs)
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "asker: a has been idle") || countEvents(t, tk, "a", "stop_wait_stuck") != 1 || !w.logged("asker told") {
+		t.Fatalf("told once, to the opener: %v %v", p.batched, w.logs)
+	}
+	if len(p.sent) != 0 {
+		t.Fatalf("the lead's idle notice is typed at once: %v", p.sent)
 	}
 }
 
@@ -413,8 +423,8 @@ func TestTheStopWaitBackstopTellsTheSupervisorWhenTheFounderOrTheAgentOpenedTheT
 		p.stopWait = "its task has no wait recorded"
 		b.SweepStopWaitBackstop(tk, 1000)
 		b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS)
-		if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "lead: ") {
-			t.Fatalf("opened by %s: %v", opener, p.sent)
+		if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "lead: ") {
+			t.Fatalf("opened by %s: %v", opener, p.batched)
 		}
 	}
 	// No supervisor either: the founder, as an event.
@@ -424,8 +434,8 @@ func TestTheStopWaitBackstopTellsTheSupervisorWhenTheFounderOrTheAgentOpenedTheT
 	p.stopWait = "its task has no wait recorded"
 	b.SweepStopWaitBackstop(tk, 1000)
 	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS)
-	if len(p.sent) != 0 || countEvents(t, tk, "a", "stop_wait_stuck") != 1 || !w.logged("human told") {
-		t.Fatalf("%v %v", p.sent, w.logs)
+	if len(p.batched) != 0 || countEvents(t, tk, "a", "stop_wait_stuck") != 1 || !w.logged("human told") {
+		t.Fatalf("%v %v", p.batched, w.logs)
 	}
 }
 
@@ -474,12 +484,12 @@ func TestATaskGivenNoTimeoutRunsFourHoursBeforeItsOpenerIsTold(t *testing.T) {
 		t.Fatalf("the default is 4h: %+v", task)
 	}
 	b.SweepTaskTimeouts(tk, 1000+4*3600-60)
-	if len(p.sent) != 0 {
-		t.Fatalf("told at 3h59m: %v", p.sent)
+	if len(p.batched) != 0 {
+		t.Fatalf("told at 3h59m: %v", p.batched)
 	}
 	b.SweepTaskTimeouts(tk, 1000+4*3600+60)
-	if len(p.sent) != 1 {
-		t.Fatalf("not told at 4h01m: %v", p.sent)
+	if len(p.batched) != 1 {
+		t.Fatalf("not told at 4h01m: %v", p.batched)
 	}
 }
 
@@ -490,16 +500,16 @@ func TestATaskTheFounderHoldsRemindsNoAgentAndItsClockStartsFreshWhenItLeavesThe
 	p.doing[tid] = true
 	b.SweepTaskTimeouts(tk, 1000)
 	(&Timebox{Ports: p, Cutover: true}).SweepTaskTimeouts(tk, 9000) // a restart in between
-	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Valid || len(p.sent) != 0 || countEvents(t, tk, "boss", "task_timeout_exceeded") != 0 {
-		t.Fatalf("the founder's task reminded its opener: %+v %v", task, p.sent)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Valid || len(p.batched) != 0 || countEvents(t, tk, "boss", "task_timeout_exceeded") != 0 {
+		t.Fatalf("the founder's task reminded its opener: %+v %v", task, p.batched)
 	}
 	if _, err := tk.Q.Exec("UPDATE tasks SET owner = 'a' WHERE id = ?", tid); err != nil {
 		t.Fatal(err)
 	}
 	b.SweepTaskTimeouts(tk, 9000)
 	b.SweepTaskTimeouts(tk, 9100)
-	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "boss: T") {
-		t.Fatalf("back with an agent, a full stretch then one notice: %v", p.sent)
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "boss: T") {
+		t.Fatalf("back with an agent, a full stretch then one notice: %v", p.batched)
 	}
 }
 
@@ -513,8 +523,8 @@ func TestATaskReportedToTheFounderRunsNoClock(t *testing.T) {
 	}
 	b.SweepTaskTimeouts(tk, 1050)
 	b.SweepTaskTimeouts(tk, 9000)
-	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Valid || len(p.sent) != 0 || countEvents(t, tk, db.Human, "task_timeout_exceeded") != 0 {
-		t.Fatalf("a task awaiting the founder's accept ran its clock: %+v %v", task, p.sent)
+	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Valid || len(p.batched) != 0 || countEvents(t, tk, db.Human, "task_timeout_exceeded") != 0 {
+		t.Fatalf("a task awaiting the founder's accept ran its clock: %+v %v", task, p.batched)
 	}
 }
 
@@ -533,15 +543,15 @@ func TestATaskWaitingOnTheFounderThroughAChainOrACycleIsNotReminded(t *testing.T
 	p.doing[top], p.doing[mid], p.doing[founders] = true, true, true
 	b.SweepTaskTimeouts(tk, 1000)
 	b.SweepTaskTimeouts(tk, 9000)
-	if len(p.sent) != 0 {
-		t.Fatalf("a chain ending at the founder reminded: %v", p.sent)
+	if len(p.batched) != 0 {
+		t.Fatalf("a chain ending at the founder reminded: %v", p.batched)
 	}
 	// blockers that wait on each other: each sweep still ends, and nothing is sent
 	if err := db.AddBlock(tk.Q, mid, top); err != nil {
 		t.Fatal(err)
 	}
 	b.SweepTaskTimeouts(tk, 20000)
-	if len(p.sent) != 0 {
-		t.Fatalf("a cycle reminded: %v", p.sent)
+	if len(p.batched) != 0 {
+		t.Fatalf("a cycle reminded: %v", p.batched)
 	}
 }

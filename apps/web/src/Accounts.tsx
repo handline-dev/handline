@@ -1,4 +1,4 @@
-// The Accounts page (#/accounts, #/accounts/:name): one line per account with its gauges, state and agents, and one account in three tabs.
+// The Usage page (#/accounts, #/stats): one line per account, then the Stats section; #/accounts/:name is one account in three tabs.
 import { useState } from 'react';
 import { STATE_WORD, outUntil, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';
@@ -7,6 +7,7 @@ import { classify, sentence, useAccountUsage, useAccounts, useAgents, useServes,
 import { AccountLogin } from './AccountLogin.tsx';
 import { AccountSettings } from './AccountSettings.tsx';
 import { Gauge, useNow } from './Gauge.tsx';
+import { StatsSection } from './Stats.tsx';
 import { goAgent } from './route.ts';
 import { Button, Card, Dialog, Field, Icon, NOTE, ScrollPage, PageHead, PageTitle, TabStrip, type IconName } from './ui/index.ts';
 import { View } from './View.tsx';
@@ -139,14 +140,14 @@ export function AccountsPage({ name }: { name: string | null }) {
   const list = (q.data?.accounts ?? []).map((account) => ({ ...usage?.find((u) => u.name === account.name), ...account }));
   const one = name === null ? null : list.find((account) => account.name === name);
   return (
-    <ScrollPage className="accounts" aria-label="Accounts">
+    <ScrollPage className="accounts" aria-label={name === null ? 'Usage' : 'Accounts'}>
       <PageHead className="accounts-head">
         {name === null ? (
-          <PageTitle>Accounts</PageTitle>
+          <PageTitle>Usage</PageTitle>
         ) : (
           <>
-            <Button className="back" icon="back" label="Back to accounts" onClick={() => (location.hash = '#/accounts')}>
-              Accounts
+            <Button className="back" icon="back" label="Back to usage" onClick={() => (location.hash = '#/accounts')}>
+              Usage
             </Button>
             <PageTitle>{one?.label ?? name}</PageTitle>
           </>
@@ -166,11 +167,12 @@ export function AccountsPage({ name }: { name: string | null }) {
           <div className="empty">
             <strong>This account no longer exists</strong>
             <p>
-              <a href="#/accounts">Back to accounts</a>
+              <a href="#/accounts">Back to usage</a>
             </p>
           </div>
         )}
       </View>
+      {name === null ? <StatsSection /> : null}
     </ScrollPage>
   );
 }

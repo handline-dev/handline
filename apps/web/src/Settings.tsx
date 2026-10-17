@@ -1,127 +1,26 @@
 // The Home settings page (#/settings), founder only: the default cap, idle close and three switches through settings.set, each field saving on its
 // own (authored: it shows at once and goes back with its own note when refused), and the standing answers. A section nav on the left, then one
 // card per section whose rows are a title, one grey line and the control on the right (docs/design-gaps.md G80).
-import { useEffect, useState, type ReactNode } from 'react';
-import { INVALID, minutesOf, parseCap, parseMinutes } from '@handline/app-core';
-import type { SettingsChanges } from '@handline/client';
-import { classify, sentence, useServes, useSettings, useWrite } from '@handline/app-data';
+import { useEffect, useState } from 'react';
+import { minutesOf, parseCap, parseMinutes, type KV } from '@handline/app-core';
+import { useServes, useSettings } from '@handline/app-data';
 import { Answers } from './Answers.tsx';
 import { Devices } from './Devices.tsx';
 import { DebugEntry } from './debug/DebugEntry.tsx';
-import { Field, PageHead, PageTitle, ScrollPage, Icon, RowControl, RowHint, RowText, RowTitle, SectionHead, SettingsCard, SettingsRow, Switch, type IconName, NOTE } from './ui/index.ts';
-import { useOff } from './useOff.ts';
+import { PageHead, PageTitle, ScrollPage, Icon, RowHint, SectionHead, SettingsCard, type IconName } from './ui/index.ts';
+import { NumberRow, SwitchRow } from './SettingsRows.tsx';
+import { Appearance, BackgroundRows, Connection, Notifications } from './SettingsMore.tsx';
 import { View } from './View.tsx';
-
-/** The note under a row: saving (an icon and a word), or why the value is not saved (an icon, never colour alone). */
-function Note({ error, pending, bad }: { error: unknown; pending: boolean; bad: string | null }) {
-  const text = bad ?? (error ? `not saved: ${sentence(classify(error))}` : null);
-  return (
-    <>
-      {pending ? (
-        <p className={NOTE} role="status">
-          <Icon name="sending" size={14} />
-          saving
-        </p>
-      ) : null}
-      {text ? (
-        <p className={`${NOTE} text-bad`} role="alert">
-          <Icon name="failed" size={14} label="Not saved" />
-          {text}
-        </p>
-      ) : null}
-    </>
-  );
-}
-
-function Row(props: { label: string; hint: string; more?: string; children: ReactNode; note?: ReactNode }) {
-  return (
-    <SettingsRow data-setting={props.label}>
-      <RowText title={props.more}>
-        <RowTitle>{props.label}</RowTitle>
-        <RowHint>{props.hint}</RowHint>
-      </RowText>
-      <RowControl>{props.children}</RowControl>
-      {props.note}
-    </SettingsRow>
-  );
-}
-
-function NumberRow(props: {
-  label: string;
-  hint: string;
-  more?: string;
-  unit: string;
-  current: string;
-  parse: (t: string) => number | null | typeof INVALID;
-  change: (v: number | null) => SettingsChanges;
-  allowed: string;
-}) {
-  const save = useWrite('settings.set');
-  const off = useOff('settings.set');
-  const { current } = props;
-  const [text, setText] = useState(current);
-  const [bad, setBad] = useState<string | null>(null);
-  const [focus, setFocus] = useState(false);
-  useEffect(() => {
-    if (!focus) setText(current);
-  }, [current, focus]);
-  // A refusal puts the field back even when the cache went to the new value and back inside one render.
-  const failed = save.isError;
-  useEffect(() => {
-    if (failed) setText(current);
-  }, [failed, current]);
-  const commit = () => {
-    const v = props.parse(text);
-    if (v === INVALID) return setBad(`${props.allowed}`);
-    setBad(null);
-    if (text.trim() !== props.current.trim()) save.mutate({ changes: props.change(v) });
-  };
-  return (
-    <Row label={props.label} hint={props.hint} more={props.more} note={<Note error={save.error} pending={save.isPending} bad={bad} />}>
-      <Field
-        label={props.label}
-        unit={props.unit}
-        inputMode="numeric"
-        value={text}
-        disabled={!!off}
-        title={off}
-        tone={bad ? 'bad' : undefined}
-        onFocus={() => setFocus(true)}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={() => {
-          setFocus(false);
-          commit();
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') commit();
-          if (e.key === 'Escape') {
-            setText(props.current);
-            setBad(null);
-          }
-        }}
-      />
-    </Row>
-  );
-}
-
-function SwitchRow(props: { label: string; hint: string; on: boolean; change: (on: boolean) => SettingsChanges }) {
-  const save = useWrite('settings.set');
-  const off = useOff('settings.set');
-  return (
-    <Row label={props.label} hint={props.hint} note={<Note error={save.error} pending={save.isPending} bad={null} />}>
-      <span title={off}>
-        <Switch label={props.label} on={props.on} disabled={!!off} onChange={(on) => save.mutate({ changes: props.change(on) })} />
-      </span>
-    </Row>
-  );
-}
 
 const SECTIONS: { id: string; title: string; icon: IconName; group: string }[] = [
   { id: 'concurrency', title: 'Concurrency', icon: 'agent', group: 'Agents' },
   { id: 'closing', title: 'Closing windows', icon: 'waiting', group: 'Agents' },
+  { id: 'notifications', title: 'Notifications', icon: 'inbox', group: 'Agents' },
   { id: 'automation', title: 'Automation', icon: 'sendNow', group: 'Automation' },
   { id: 'answers', title: 'Standing answers', icon: 'answered', group: 'Automation' },
   { id: 'devices', title: 'Paired devices', icon: 'agent', group: 'Access' },
+  { id: 'appearance', title: 'Appearance', icon: 'settings', group: 'This window' },
+  { id: 'connection', title: 'Connection', icon: 'accounts', group: 'This window' },
 ];
 
 /** The nav follows the page: the first section that shows in the top part of the scrolling page is the current one. */
@@ -173,7 +72,7 @@ function SectionNav({ ready }: { ready: boolean }) {
   );
 }
 
-export function SettingsPage() {
+export function SettingsPage({ storage }: { storage: KV | null }) {
   const q = useSettings();
   const { served } = useServes('settings.get');
   const v = q.data?.values;
@@ -221,7 +120,11 @@ export function SettingsPage() {
                         change={(s) => ({ park_timeout_s: s })}
                         allowed="whole minutes, 0 for never, or empty for the default"
                       />
+                      <BackgroundRows notice={v.bg_notice_s} grace={v.bg_grace_s} check={v.bg_check_s} />
                     </SettingsCard>
+                  </section>
+                  <section id="set-notifications">
+                    <Notifications digest={v.notice_digest_s} />
                   </section>
                   <section id="set-automation">
                     <SectionHead>Automation</SectionHead>
@@ -245,6 +148,12 @@ export function SettingsPage() {
                   </section>
                   <section id="set-devices">
                     <Devices />
+                  </section>
+                  <section id="set-appearance">
+                    <Appearance storage={storage} />
+                  </section>
+                  <section id="set-connection">
+                    <Connection />
                   </section>
                 </>
               ) : null}

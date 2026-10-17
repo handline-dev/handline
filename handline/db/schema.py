@@ -92,7 +92,10 @@ CREATE TABLE IF NOT EXISTS requests (
   -- against the sealed routing table by a process that can read the seal. An
   -- agent's own `ask` cannot, so it leaves this NULL and the daemon sets it;
   -- nothing hands a request out (`head_of_queue`) before then.
-  edge_ok INTEGER
+  edge_ok INTEGER,
+  -- The name a request is read by from outside: 12 random hex characters, set by the trigger of
+  -- `requests_ref` on insert. `id` stays the key everything inside joins and orders by.
+  ref TEXT
 );
 CREATE INDEX IF NOT EXISTS requests_target ON requests(target, state);
 CREATE INDEX IF NOT EXISTS requests_requester ON requests(requester, ts);
@@ -832,6 +835,23 @@ def _requests_touched(con) -> None:
     con.execute("CREATE INDEX IF NOT EXISTS requests_answered_ts ON requests(ts) WHERE settles IS NOT NULL")
 
 
+def _requests_ref(con) -> None:
+    """Each request's ref, so it can be named by something a reader cannot guess from another. A trigger fills it on
+    insert, so every writer gets one without setting it; rows from before are given one here. The unique index fails
+    an insert loudly on a collision instead of letting two requests share a ref. Step 1 adds the column to a new
+    database only. Additive: code that names no ref reads and writes the table as before."""
+    if "ref" not in _cols(con, "requests"):
+        con.execute("ALTER TABLE requests ADD COLUMN ref TEXT")
+    con.execute("UPDATE requests SET ref = lower(hex(randomblob(6))) WHERE ref IS NULL")
+    con.executescript("""
+        CREATE UNIQUE INDEX IF NOT EXISTS requests_ref ON requests(ref);
+        CREATE TRIGGER IF NOT EXISTS requests_ref AFTER INSERT ON requests WHEN NEW.ref IS NULL
+        BEGIN
+          UPDATE requests SET ref = lower(hex(randomblob(6))) WHERE id = NEW.id;
+        END;
+    """)
+
+
 MIGRATIONS = [
     (1, "baseline", _baseline, True),
     (2, "rpc_replies", _rpc_replies, True),
@@ -851,6 +871,7 @@ MIGRATIONS = [
     (16, "task_report", _task_report, True),
     (17, "task_timeout_left", _task_timeout_left, True),
     (18, "requests_touched", _requests_touched, True),
+    (19, "requests_ref", _requests_ref, True),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 

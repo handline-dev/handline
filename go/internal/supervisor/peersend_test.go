@@ -202,6 +202,9 @@ func TestAMessageNeverWrittenSaysSoAndOneWrittenAndUnseenSaysItMayHaveBeenRead(t
 		if n != 1 {
 			t.Fatalf("written=%v: the sender was told %d times", written, n)
 		}
+		if left, _ := db.PendingNotices(r.DB, "alice"); len(left) != 1 || left[0].SendNow.Valid {
+			t.Fatalf("written=%v: the sender's note waits in its digest, not typed at once: %+v", written, left)
+		}
 		r.must(r.SessionNotDelivered("bob", op, "no inbox", written)) // settled once
 		r.must(r.DB.QueryRow("SELECT count(*) FROM events WHERE agent = 'bob' AND kind = 'needs_you'").Scan(&n))
 		if n != 1 {

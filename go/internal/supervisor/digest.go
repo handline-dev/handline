@@ -40,6 +40,16 @@ func (e *Env) say(q db.Q, to, text, reason string) int64 {
 	return rid
 }
 
+// Notice writes one notice from the task board to `to` (delivery.ClassBatch): it waits for the next digest or rides on the next delivery.
+func (e *Env) Notice(q db.Q, to, text, reason string) (rid int64, err error) {
+	defer Catch(&err)
+	rid = must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Response: "fire_and_forget", Kind: "say", Notice: true}))
+	if err := e.deliver(rid, db.NoticeRequester, to, text, "", team.Decision{Allowed: true, Reason: reason, Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
+		e.log("  #%d: the inbox file for %s was not written: %v", rid, to, err)
+	}
+	return rid, nil
+}
+
 func (e *Env) tellNowSay(q db.Q, to, text, reason string) {
 	rid := e.say(q, to, text, reason)
 	must(e.TellNow(q, rid))
@@ -92,10 +102,10 @@ func DigestText(rows []*db.Request) string {
 	return strings.Join(lines, "\n")
 }
 
-// idleWithSession: a live session at its prompt, not mid-turn, not closed, no background work running.
-func (e *Env) idleWithSession(q db.Q, agent string) bool {
+// atPrompt: a live session at its prompt, not mid-turn and not closed. Background work it left running does not hold a digest back.
+func (e *Env) atPrompt(q db.Q, agent string) bool {
 	row := stateOf(q, agent)
-	return row != nil && row.State == states.Idle && !(row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) && !e.hasBackgroundWork(q, agent) && e.sessionPresent(agent)
+	return row != nil && row.State == states.Idle && !(row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) && e.sessionPresent(agent)
 }
 
 // SweepDigests types one digest to each agent whose oldest waiting notice has run its window out, once it is at its prompt: an agent mid-turn
@@ -104,7 +114,7 @@ func (e *Env) SweepDigests(now int64) (err error) {
 	defer Catch(&err)
 	q := db.Q(e.DB)
 	for _, w := range must(db.AgentsWithNotices(q)) {
-		if !e.registered(w.Agent) || now-w.Since < e.Idle.NoticeDigestS(w.Agent) || !e.idleWithSession(q, w.Agent) {
+		if !e.registered(w.Agent) || now-w.Since < e.Idle.NoticeDigestS(w.Agent) || !e.atPrompt(q, w.Agent) {
 			continue
 		}
 		rows := must(db.PendingNotices(q, w.Agent))

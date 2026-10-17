@@ -4,10 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/gitrun"
-	"github.com/handline/handline/go/internal/housekeeping"
-	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/taskresult"
 )
 
@@ -60,34 +59,15 @@ func doneResult(tx db.Q, home, by string, t *task, in DoneIn, via, mark string) 
 		res.Commit, res.OnMain = mark, true
 	}
 	if len(in.Shots) > 0 {
-		var roots []string // the founder may name any file; an agent only its own places, since the daemon reads it outside the agent's sandbox
-		if by != human {
-			if roots, err = shotRoots(tx, home, by); err != nil {
-				return res, nil, err
-			}
+		var roots []string
+		if roots, err = attachments.Roots(tx, home, by, by == human); err != nil {
+			return res, nil, err
 		}
 		if res.Shots, finalize, err = taskresult.Stage(home, t.ID, in.Shots, roots); err != nil {
 			return res, nil, err
 		}
 	}
 	return res, finalize, nil
-}
-
-// shotRoots are the folders an agent's screenshots may be read from: its worktree, its folder under the home and the scratch folder.
-func shotRoots(q db.Q, home, agent string) ([]string, error) {
-	roots := []string{paths.AgentDir(home, agent), housekeeping.ScratchRoot()}
-	st, err := db.GetAgentState(q, agent)
-	if err != nil {
-		return nil, err
-	}
-	if st != nil && st.Worktree.String != "" {
-		wt := st.Worktree.String
-		if i := strings.Index(wt, "::"); i >= 0 { // the column may hold `<repo>::<path>`
-			wt = wt[i+2:]
-		}
-		roots = append(roots, wt)
-	}
-	return roots, nil
 }
 
 // commitIn is the full sha that sha names in repo, and whether main reaches it; "" and why when it names no commit.
