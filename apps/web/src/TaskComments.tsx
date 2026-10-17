@@ -6,7 +6,7 @@ import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { BodyEditor } from './BodyEditor.tsx';
 import { MemoFiles } from './MemoFiles.tsx';
-import { RichText } from './RichText.tsx';
+import { Markdown } from './Markdown.tsx';
 import { AgentLink } from './TaskInline.tsx';
 import { useCan } from './taskui.tsx';
 import { Button } from './ui/index.ts';
@@ -22,12 +22,12 @@ export function Comments({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
     add.mutate({ task: t.id, text: text.trim() }, { onSuccess: () => (setText(''), setFresh((n) => n + 1)) });
   };
   return (
-    <section className="mt-4 grid gap-2" aria-label="Comments">
+    <section className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" aria-label="Comments">
       <h3 className="m-0 text-ink-3">Comments {t.memos.length ? t.memos.length : ''}</h3>
       {t.memos.length ? (
-        <ul className="tmemos m-0 grid list-none gap-3 p-0">
+        <ul className="tmemos m-0 grid min-w-0 grid-cols-[minmax(0,1fr)] list-none gap-3 p-0">
           {t.memos.map((m) => (
-            <li key={m.id} className="comment grid gap-0.5">
+            <li key={m.id} className="comment grid min-w-0 gap-0.5">
               <span className="text-hint text-ink-3">
                 <strong className="font-medium text-ink-2">
                   <AgentLink name={m.author} />
@@ -35,8 +35,8 @@ export function Comments({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
                 {ago(m.at)}
                 {m.edited_at ? ' · edited' : ''}
               </span>
-              <div className="whitespace-pre-wrap">
-                <RichText text={m.text} />
+              <div className="min-w-0">
+                <Markdown text={m.text} />
               </div>
               {m.files?.length ? <MemoFiles files={m.files} /> : null}
             </li>

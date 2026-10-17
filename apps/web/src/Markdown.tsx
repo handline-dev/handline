@@ -84,25 +84,34 @@ export function Markdown({ text, agent, onRef }: { text: string; agent?: string;
             </code>
           </pre>
         ) : b.kind === 'heading' ? (
-          <div key={i} role="heading" aria-level={b.level} className={`${HEADINGS[b.level - 1]} my-1 font-semibold first:mt-0 last:mb-0`}>
+          <div
+            key={i}
+            role="heading"
+            aria-level={b.level}
+            className={`${HEADINGS[b.level - 1]} my-1 font-semibold [overflow-wrap:anywhere] first:mt-0 last:mb-0`}
+          >
             {inline(b.text)}
           </div>
         ) : b.kind === 'list' ? (
           b.ordered ? (
             <ol key={i} className="my-1 list-decimal pl-5 first:mt-0 last:mb-0">
               {b.items.map((t, j) => (
-                <li key={j}>{inline(t)}</li>
+                <li key={j} className="[overflow-wrap:anywhere]">
+                  {inline(t)}
+                </li>
               ))}
             </ol>
           ) : (
             <ul key={i} className="my-1 list-disc pl-5 first:mt-0 last:mb-0">
               {b.items.map((t, j) => (
-                <li key={j}>{inline(t)}</li>
+                <li key={j} className="[overflow-wrap:anywhere]">
+                  {inline(t)}
+                </li>
               ))}
             </ul>
           )
         ) : (
-          <p key={i} className="my-1 whitespace-pre-wrap first:mt-0 last:mb-0">
+          <p key={i} className="my-1 whitespace-pre-wrap [overflow-wrap:anywhere] first:mt-0 last:mb-0">
             {inline(b.text)}
           </p>
         ),
