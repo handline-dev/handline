@@ -24,3 +24,4 @@ export * from './images.ts';
 export * from './my-turn.ts';
 export * from './annotation.ts';
 export * from './annotation-raster.ts';
+export * from './task-history.ts';

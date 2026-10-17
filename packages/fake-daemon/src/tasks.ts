@@ -1,6 +1,6 @@
 // The fake daemon's tasks: the rows `tasks.list` and `task.get` answer and the writes that change them, on the tasks topic.
 // A task the founder asks for starts as `queued`; withdrawing or cancelling one that has not been delivered discards it.
-import type { Memo, Task, TaskClock, TaskDetail } from '@handline/contract';
+import type { HistoryRow, Memo, Task, TaskClock, TaskDetail } from '@handline/contract';
 import { seedTasks } from './fixtures.ts';
 import { invalidParams, refused, storeFailure } from './errors.ts';
 import { refs, type FakeAttachments } from './attachments.ts';
@@ -25,6 +25,8 @@ type Row = Task & {
   notes?: { at: string; who: string; text: string }[]; // the notes it was sent back with
   blockers: { task: number; reason: string; at?: string }[];
   clock?: TaskClock | null;
+  /** What changed, oldest first; task.history answers it newest first. */
+  history?: HistoryRow[];
 };
 
 export class FakeTasks {
@@ -34,6 +36,8 @@ export class FakeTasks {
   private now: () => string;
   /** Serve the verbs of the daemon's plan (D3: done, reopen, queue, draft, discard, merge) too; off, as the real daemon is today. */
   verbs = false;
+  /** Who the write now being answered is from, so the history can say who changed what. */
+  by = 'founder';
 
   constructor(host: Host, now: () => string) {
     this.host = host;
@@ -85,6 +89,27 @@ export class FakeTasks {
       blockers: [],
       ...t,
     });
+    const row = this.rows[this.rows.length - 1]!;
+    row.history ??= [
+      { at: row.created, by: row.from, field: 'state', was: '', now: 'queued' },
+      { at: row.created, by: row.from, field: 'assignee', was: '', now: row.to },
+    ];
+  }
+
+  /** The history rows a patch makes: one per field it changes. */
+  private record(t: Row, patch: Partial<Row>): void {
+    const at = this.now();
+    const log = (field: HistoryRow['field'], was: unknown, now: unknown) => {
+      if (String(was ?? '') !== String(now ?? '')) (t.history ??= []).push({ at, by: this.by, field, was: String(was ?? ''), now: String(now ?? '') });
+    };
+    if ('title' in patch) log('title', t.title, patch.title);
+    if ('to' in patch) log('assignee', t.to, patch.to);
+    if ('body' in patch) log('body', t.body, patch.body);
+    if ('priority' in patch) log('priority', t.priority ? `P${t.priority}` : '', patch.priority ? `P${patch.priority}` : '');
+    if ('time_box' in patch) log('timeout', t.time_box, patch.time_box);
+    if ('state' in patch) log('state', t.state, patch.state);
+    if (patch.blockers && patch.blockers.length > t.blockers.length)
+      log('blocked_by', '', `T${patch.blockers.find((b) => !t.blockers.some((o) => o.task === b.task))?.task}`);
   }
 
   find(id: unknown): Row {
@@ -118,6 +143,7 @@ export class FakeTasks {
     };
   }
   private change(t: Row, patch: Partial<Row>): void {
+    this.record(t, patch);
     Object.assign(t, patch);
     this.emit(this.view(t));
     // As the daemon: a discarded task blocks nothing, so it leaves every waits (a done one stays, open false).
@@ -157,16 +183,26 @@ export class FakeTasks {
       const id = memos.reduce((n, m) => Math.max(n, m.id), 0) + 1;
       const files = Array.isArray(p.files) ? p.files.map((f) => this.host.uploads.memoFile(String(f))) : [];
       memos.push({ id, task: t.id, author: person, at: this.now(), text: String(p.text), ...(files.length ? { files } : {}) });
+      (t.history ??= []).push({ at: this.now(), by: person, field: 'memo', was: '', now: String(p.text), memo: id });
       return id;
     }
     const i = memos.findIndex((m) => m.id === p.memo);
     if (i < 0) throw new TaskFailure('refused', `memo ${String(p.memo)} does not exist`);
     if (op === 'edit') {
       this.images(String(p.text), memos[i]!.text, 'text', agent);
+      (t.history ??= []).push({ at: this.now(), by: person, field: 'memo', was: memos[i]!.text, now: String(p.text), memo: memos[i]!.id });
       memos[i] = { ...memos[i]!, text: String(p.text) };
+    } else {
+      (t.history ??= []).push({ at: this.now(), by: person, field: 'memo', was: memos[i]!.text, now: '', memo: memos[i]!.id });
+      memos.splice(i, 1);
     }
-    else memos.splice(i, 1);
     return memos[i]?.id ?? 0;
+  }
+
+  /** Every change to a task, newest first (rows of one edit keep the order they were made in). */
+  history(p: Record<string, unknown>): { task: number; rows: HistoryRow[] } {
+    const t = this.find(p.task);
+    return { task: t.id, rows: [...(t.history ?? [])].sort((a, b) => b.at.localeCompare(a.at)) };
   }
 
   get(p: Record<string, unknown>, agent = false): TaskDetail {
@@ -224,6 +260,7 @@ export class FakeTasks {
       parent: typeof p.parent === 'number' ? p.parent : null,
       blockers: typeof p.blocked_by === 'number' ? [{ task: this.find(p.blocked_by).id, reason: '', at: this.now() }] : [],
     });
+    this.find(id).history![0]!.by = person;
     this.emit(this.view(this.find(id)));
     return id;
   }
@@ -328,7 +365,7 @@ export class FakeTasks {
 }
 
 // The task methods the fake serves; the rest (handoff) are refused as `unsupported`.
-const BASIC = new Set(['tasks.list', 'task.get', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel', 'task.ask']);
+const BASIC = new Set(['tasks.list', 'task.get', 'task.history', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel', 'task.ask']);
 const VERBS = new Set([
   'task.done',
   'task.accept',
@@ -357,8 +394,11 @@ export function taskCall(
   },
 ): unknown {
   const ok = (said: string, extra?: Record<string, unknown>) => script.accepted(said, extra);
+  tasks.by = person;
   try {
     switch (method) {
+      case 'task.history':
+        return tasks.history(p);
       case 'tasks.list':
         return tasks.list(p);
       case 'task.get':

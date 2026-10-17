@@ -163,6 +163,7 @@ export function useAgentTasks(agent: string) {
 }
 export const useAgentStrip = (agent: string) => useRead('agent.strip', { agent }, { enabled: agent !== '' });
 export const useTask = (task: number) => useRead('task.get', { task });
+export const useTaskHistory = (task: number) => useRead('task.history', { task });
 export const useMemos = (task: number) => useRead('task.memo.list', { task });
 export const useTaskBoard = () => useRead('task.board', {});
 export const useTrust = () => useRead('trust.list', {});
