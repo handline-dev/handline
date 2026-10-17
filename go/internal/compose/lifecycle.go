@@ -92,8 +92,12 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	if cfg.Turns != nil {
 		tm.Turns = cfg.Turns
 	}
+	var onLaunch func(string) // the view is told through the turns tracker, which the tick hands it
+	if cfg.Turns != nil {
+		onLaunch = cfg.Turns.Refresh
+	}
 	spawns := &lifecycle.Spawns{Q: q, Host: termHost{tm}, Launch: launchPort, Delivery: lc.Env, Roster: roster, Now: cfg.Now,
-		Locks: p.Locks}
+		Locks: p.Locks, OnLaunch: onLaunch}
 	waiting := func(q db.Q, agent string) bool {
 		head, err := lc.Env.EffectiveHead(q, agent)
 		if err != nil || head != nil {
@@ -106,7 +110,7 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	m := &lifecycle.Manager{Q: q, Home: home, Log: cfg.Log, Settings: settings,
 		Delivery: lc.Env, Handoff: hp, Term: termPort{tm}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawns,
 		Agents: agentsPort{home: home, roster: roster, trust: team.NewTrust(home), accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q},
-		Observe: observer{p: p}, Typing: terminalLock{home: p.home}, TermRun: termRun{p}, Locks: p.Locks}
+		Observe: observer{p: p}, Typing: terminalLock{home: p.home}, TermRun: termRun{p}, Locks: p.Locks, OnLaunch: onLaunch}
 	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho, Env: lc.Env, usage: uenv, roster: roster, term: tm}
 	hp.mover = func() *lifecycle.Mover { return p.LC.Mover }
 	p.LC.Mover = p.newMover(m, uenv, lc.Env, func() int64 { return nowOf(cfg.Now)().Unix() })

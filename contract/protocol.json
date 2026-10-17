@@ -12726,8 +12726,8 @@
      "notice_digest_s": {
       "type": "integer",
       "minimum": 1,
-      "default": 900,
-      "description": "Seconds after the first waiting result before the agent is woken once with a digest. Per agent."
+      "default": 300,
+      "description": "Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent."
      },
      "stop_wait_backstop_s": {
       "type": "integer",
@@ -12871,7 +12871,7 @@
         "type": "null"
        }
       ],
-      "description": "Seconds after the first waiting result before the agent is woken once with a digest. Per agent. null removes the key (back to the default)."
+      "description": "Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. null removes the key (back to the default)."
      },
      "stop_wait_backstop_s": {
       "oneOf": [

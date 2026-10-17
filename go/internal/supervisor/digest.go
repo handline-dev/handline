@@ -15,10 +15,10 @@ import (
 
 // Results told to whoever opened the work reach them in one digest, not one wake each (daemon/noticedigest.py).
 //
-// A result notice (a task done or discarded, a child's result) is information: it never wakes anyone. A target that is working a turn gets it
-// folded: it rides on the target's next real delivery, and the first notice starts a clock, so when it has run the notice digest window the
-// notices still waiting are typed once, as a single message of one line each. A target with a live session that is not working is told at once,
-// in the tick. A closed agent keeps the clock: a result is not worth waking it for.
+// A notice (delivery.ClassBatch: a task done or discarded, a child's result, a task change, a memo) is information: it never wakes anyone and
+// is never typed mid-turn. It rides on the target's next real delivery, and the first notice starts a clock: once it has run the notice digest
+// window, the notices still waiting are typed as one message of one line each, the next time the tick finds the target at its prompt with a
+// live session. A closed agent keeps the clock: a notice is not worth waking it for.
 //
 // What goes wrong is not information. A task that ends FAIL, blocked or FATAL, and an agent the daemon finds FATAL or blocked, are told to the
 // agents waiting on them at once, as their own message, not held for a digest. Both are read as levels from the database each tick.
@@ -98,16 +98,13 @@ func (e *Env) idleWithSession(q db.Q, agent string) bool {
 	return row != nil && row.State == states.Idle && !(row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) && !e.hasBackgroundWork(q, agent) && e.sessionPresent(agent)
 }
 
-// SweepDigests types one digest to each idle agent with a notice waiting, and to a busy one whose oldest notice has waited its window out. A
-// memo's tell has no window: it waits for the turn's end.
+// SweepDigests types one digest to each agent whose oldest waiting notice has run its window out, once it is at its prompt: an agent mid-turn
+// waits for the turn's end.
 func (e *Env) SweepDigests(now int64) (err error) {
 	defer Catch(&err)
 	q := db.Q(e.DB)
 	for _, w := range must(db.AgentsWithNotices(q)) {
-		if !e.registered(w.Agent) {
-			continue
-		}
-		if (w.Since == 0 || now-w.Since < e.Idle.NoticeDigestS(w.Agent)) && !e.idleWithSession(q, w.Agent) {
+		if !e.registered(w.Agent) || now-w.Since < e.Idle.NoticeDigestS(w.Agent) || !e.idleWithSession(q, w.Agent) {
 			continue
 		}
 		rows := must(db.PendingNotices(q, w.Agent))
