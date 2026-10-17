@@ -416,6 +416,17 @@ describe('the task verbs', () => {
     await until(() => $(`task-${MINE_DOING}`) && $('task-1650') === null, 'the open list');
   }, 20000);
 
+  it('draws Markdown in a memo', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DOING);
+    await fill('memo-text', '**bold** and `code`\n- one');
+    await press($('memo-send'));
+    await until(() => m.daemon.tasks.get({ task: MINE_DOING }).memos.length === 1, 'the daemon memo');
+    const id = m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.id;
+    await until(() => $(`memo-${id}`)?.textContent?.includes('•'), 'the drawn memo');
+    expect($(`memo-${id}`)?.textContent).not.toContain('**');
+  });
+
   it('edits and deletes a memo, asks before deleting, and puts it back with the reason on a refusal', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DOING);
