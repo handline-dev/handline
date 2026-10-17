@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/weblogin"
 )
 
@@ -91,5 +92,28 @@ func TestStatusPickNamesAnAccountThatIsLoggedIn(t *testing.T) {
 	m := got.(map[string]any)
 	if len(m["candidates"].([]any)) != 1 {
 		t.Fatalf("%v", m)
+	}
+}
+
+func TestAccountsListServesTheNextFiveHourAndWeekResetFromTheStatusFile(t *testing.T) {
+	e := testEnv(t)
+	dir := filepath.Join(e.Home, "accounts", "main")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	status := `{"collected_at": 1000, "windows": [` +
+		`{"minutes": 10080, "used_percent": 40, "resets_at": 90000, "observed_at": 1000},` +
+		`{"minutes": 300, "used_percent": 10, "resets_at": 3600, "observed_at": 1000}]}`
+	if err := os.WriteFile(paths.StatusFile(e.Home, "main"), []byte(status), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.accountsList(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := got.(map[string]any)["accounts"].([]any)[0].(map[string]any)
+	five, week := a["five_hour"].(map[string]any), a["weekly"].(map[string]any)
+	if five["resets_at"] != "1970-01-01T01:00:00Z" || week["resets_at"] != "1970-01-02T01:00:00Z" || five["source"] != "measured" {
+		t.Fatalf("%v", a)
 	}
 }

@@ -187,6 +187,14 @@ export type AgentView = {
     phase: "writing" | "starting";
     since: Timestamp;
   } | null;
+  /** The agent's newest request to the founder; null when it never wrote to them. Absent from a daemon that does not serve it yet. */
+  last_to_founder?: {
+    /** The whole body of its newest request to the founder (a say, ask or decision), whether or not it was read. */
+    text: string;
+    at: Timestamp;
+  } | null;
+  /** How many of the agent's open requests to the founder they have not seen yet (past the for_you_seen cursor, as `hl inbox` counts them). Absent from a daemon that does not serve it yet. */
+  founder_unread?: number;
 };
 
 export type AgentDetail = AgentView & {

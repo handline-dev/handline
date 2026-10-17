@@ -20,6 +20,10 @@ type viewFields struct {
 	taskCount map[string]int
 	// ready is the agents whose current task is queued and held by no open blocker.
 	ready map[string]bool
+	// lastToFounder is each agent's newest request to the founder, whatever became of it; founderUnread counts those the founder has
+	// not yet seen (past the for_you_seen cursor, as `hl inbox` counts them).
+	lastToFounder map[string]map[string]any
+	founderUnread map[string]int
 }
 
 // viewFields reads the board once for every agent.
@@ -41,7 +45,11 @@ func (e *Env) viewFields() (*viewFields, error) {
 	for _, r := range rows {
 		blocked[r.i("task_id")] = true
 	}
-	f := &viewFields{taskCount: map[string]int{}, ready: map[string]bool{}}
+	f := &viewFields{taskCount: map[string]int{}, ready: map[string]bool{}, lastToFounder: map[string]map[string]any{},
+		founderUnread: map[string]int{}}
+	if err := e.founderFields(f); err != nil {
+		return nil, err
+	}
 	for _, t := range open {
 		owner, id := t.str("owner"), t.i("id")
 		state := b.state(t)
@@ -54,6 +62,38 @@ func (e *Env) viewFields() (*viewFields, error) {
 		}
 	}
 	return f, nil
+}
+
+// founderFields reads what each agent last said to the founder and how much of its mailbox they have not seen.
+func (e *Env) founderFields(f *viewFields) error {
+	last, err := query(e.DB, "SELECT requester, ts, body FROM requests WHERE target = ? AND id IN "+
+		"(SELECT MAX(id) FROM requests WHERE target = ? GROUP BY requester)", human, human)
+	if err != nil {
+		return err
+	}
+	for _, r := range last {
+		f.lastToFounder[r.str("requester")] = map[string]any{"text": r.str("body"), "at": ts(r.i("ts"))}
+	}
+	rows, err := e.mailboxRows()
+	if err != nil {
+		return err
+	}
+	seen := map[string]int64{}
+	for _, m := range rows {
+		cur, ok := seen[m.from]
+		if !ok {
+			cr, err := queryOne(e.DB, "SELECT row_id FROM cursors WHERE name = ?", "for_you_seen:"+m.from)
+			if err != nil {
+				return err
+			}
+			cur = cr.i("row_id")
+			seen[m.from] = cur
+		}
+		if m.seq > cur {
+			f.founderUnread[m.from]++
+		}
+	}
+	return nil
 }
 
 // viewCtx is what the fields of every agent's view are read from, read once.
@@ -78,6 +118,10 @@ func (e *Env) addFields(name string, view map[string]any, x *viewCtx) error {
 	}
 	view["cache_ignored"] = (&lifecycle.Settings{Home: e.Home, Roster: x.roster}).IgnoreCacheExpiry(name)
 	view["task_count"] = x.taskCount[name]
+	view["last_to_founder"], view["founder_unread"] = nil, x.founderUnread[name]
+	if m := x.lastToFounder[name]; m != nil {
+		view["last_to_founder"] = m
+	}
 	view["ready"] = x.ready[name] && screenIdle(view["state"])
 	if e.Delivery == nil {
 		// No lifecycle here to say: the wall, fire and attention the stored view holds (the Python tick writes them) stand.
