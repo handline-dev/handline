@@ -295,6 +295,16 @@ func TestAHandoffShowsFromTheNoteWaitThroughTheLaunchUntilTheNewSessionBegins(t 
 	if h["cause"] != "context_full" || h["phase"] != "starting" {
 		t.Fatalf("released: %v", h)
 	}
+	// Parked until a time already past, as a restart parks it, with work waiting: it waits for its next session, not a clock, so the
+	// agent list keeps it among the waking, not the sleeping.
+	db.AddPending(r.env.Q, "a", "x", 1)
+	if err := db.SetAgentState(r.env.Q, "a", states.Parked, 5000, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.env.RefreshOne("a")
+	if v := r.stored(t, "a"); v["state"] != "queued" || v["state_detail"] != "" {
+		t.Fatalf("a restart reads %v %q", v["state"], v["state_detail"])
+	}
 
 	if _, err := db.NoteSessionStart(r.env.Q, "a", "context_full", false, "", "", "", ""); err != nil {
 		t.Fatal(err)
