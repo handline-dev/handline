@@ -200,7 +200,7 @@ func noticeDigest(c *hlclient.Client, args []string) (int, bool) {
 		who = "default"
 		secs, _ = seconds(s.values["notice_digest_s"])
 	}
-	fmt.Printf("%s: results of work it opened are told in one digest %s after the first (sooner with any message); "+
+	fmt.Printf("%s: notices are told in one digest at its prompt, from %s after the first and never mid-turn (sooner with any message); "+
 		"a failure, block or FATAL at once\n", who, timefmt.Ago(secs))
 	return 0, true
 }

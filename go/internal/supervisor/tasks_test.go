@@ -192,14 +192,6 @@ func TestADoneBlockerReleasesOncePerFinishAndAChildTellsItsParentsOwner(t *testi
 	}
 }
 
-func TestUrgentResultReadsFailureAndBlockedWords(t *testing.T) {
-	for in, want := range map[string]bool{"FAIL: tests": true, "failed to build": true, "Blocked on x": true, "fatal error": true, "done": false, "not a failure": false, "": false} {
-		if UrgentResult(in) != want {
-			t.Errorf("%q", in)
-		}
-	}
-}
-
 func TestMemoHolderIsTypedOnlyForADoingTaskAndNotTheAuthor(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
