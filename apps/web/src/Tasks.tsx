@@ -18,7 +18,7 @@ import { useStore } from '@handline/app-react';
 import { useAgents, useServes, useTasks } from '@handline/app-data';
 import { goTasks } from './route.ts';
 import { TaskDetail } from './TaskDetail.tsx';
-import { TaskGraphPage } from './TaskGraph.tsx';
+import { TaskBands } from './TaskGraph.tsx';
 import { NewTask } from './NewTask.tsx';
 import { Row } from './TaskRows.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from './TasksHead.tsx';
@@ -51,7 +51,7 @@ const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|T
 export function TasksPage({ route }: { route: string }) {
   const id = route && route !== 'graph' ? Number(route) : null;
   const wide = useWide(1100);
-  if (route === 'graph') return <TaskGraphPage />;
+  if (route === 'graph') return <TaskList selected={null} graph />;
   if (id !== null && !wide) return <TaskDetail id={id} onBack={() => goTasks()} />;
   return (
     <div className={`tasks-split relative flex min-h-0 min-w-0 flex-1${id !== null ? ' with-pane' : ''}`}>
@@ -103,7 +103,7 @@ function TaskTable({
   );
 }
 
-function TaskList({ selected }: { selected: number | null }) {
+function TaskList({ selected, graph }: { selected: number | null; graph?: boolean }) {
   const now = useNow();
   const [filter, setFilter] = useState<TaskFilter>(defaultFilter);
   const [scope, setScope] = useState<Scope>('open');
@@ -114,17 +114,17 @@ function TaskList({ selected }: { selected: number | null }) {
   const [query, setQuery] = useState('');
   const root = useRef<HTMLElement>(null);
 
-  const q = useTasks(scope === 'closed' ? { all: true } : {});
+  const q = useTasks(scope === 'closed' || graph ? { all: true } : {}); // the graph also shows what closed lately
   const all = useMemo(() => q.data?.items ?? [], [q.data]);
   const rows = useMemo(
     () =>
       sortTasks(
-        inScope(shown(all, { ...filter, closed: scope === 'closed' }), scope, me).filter(matches(query)),
+        inScope(shown(all, { ...filter, closed: scope === 'closed' || !!graph }), scope, me).filter(matches(query)),
         sort.by,
         sort.reverse,
         now,
       ),
-    [all, filter, scope, me, query, sort, now],
+    [all, filter, scope, graph, me, query, sort, now],
   );
   const groups = useMemo(() => groupTasks(rows, me), [rows, me]);
   const order = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
@@ -217,14 +217,11 @@ function TaskList({ selected }: { selected: number | null }) {
 
   const listBody = (
     <>
-      <TaskTable
-        groups={groups}
-        total={order.length}
-        now={now}
-        busy={q.isFetching && !q.data}
-        markCell={marked.size > 0}
-        rowProps={rowProps}
-      />
+      {graph ? (
+        <TaskBands tasks={rows} now={now} recent={scope !== 'closed'} />
+      ) : (
+        <TaskTable groups={groups} total={order.length} now={now} busy={q.isFetching && !q.data} markCell={marked.size > 0} rowProps={rowProps} />
+      )}
       {open === 'discard' ? (
         <ReasonSheet
           label={targets().some((id) => all.find((t) => t.id === id)?.state === 'doing') ? 'stop it and discard - why:' : 'discard - why:'}
@@ -277,11 +274,11 @@ function TaskList({ selected }: { selected: number | null }) {
         scope={scope}
         onScope={setScope}
         filtering={open === 'states'}
-        view="list"
+        view={graph ? 'graph' : 'list'}
         query={query}
         onQuery={setQuery}
         onFilter={setFilter}
-        onView={(v) => v === 'graph' && goTasks('graph')}
+        onView={(v) => goTasks(v === 'graph' ? 'graph' : undefined)}
         onAct={(what) => (what === 'states' && open === 'states' ? shut() : act(what))}
       />
       {open === 'new' ? <NewTask agents={agents} onClose={shut} /> : null}

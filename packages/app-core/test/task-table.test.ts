@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Task } from '@handline/client';
-import { groupTasks, timeBoxText, LISTED, defaultFilter, durationMs, idleText, isOver, shown, sortTasks, taskTree, timeoutText } from '../src/task-table.ts';
+import { graphBands, groupTasks, timeBoxText, LISTED, defaultFilter, durationMs, idleText, isOver, shown, sortTasks, taskTree, timeoutText } from '../src/task-table.ts';
 import { taskAfter } from '../src/tasks.ts';
 
 const NOW = Date.parse('2026-01-01T12:00:00Z');
@@ -130,4 +130,18 @@ test('tasks group as Needs you, Running, Queued and Done, each keeping its order
     ],
   );
   assert.deepEqual(groupTasks([task(1)], 'me').map((x) => x.key), ['queued']);
+});
+
+test('the graph has Done (the last 24 h, newest first), Running and Queued bands, empty ones left out', () => {
+  const all = [
+    task(1),
+    task(2, { state: 'doing' }),
+    task(3, { state: 'done', done: ago(60) }),
+    task(4, { state: 'done', done: ago(10) }),
+    task(5, { state: 'discarded', done: ago(3000) }),
+  ];
+  const b = graphBands(all, NOW);
+  assert.deepEqual(b.map((x) => [x.key, ids(x.tasks)]), [['done', [4, 3]], ['running', [2]], ['queued', [1]]]);
+  assert.deepEqual(ids(graphBands(all, NOW, false)[0]!.tasks), [4, 3, 5]);
+  assert.deepEqual(graphBands([task(1)], NOW).map((x) => x.key), ['queued']);
 });

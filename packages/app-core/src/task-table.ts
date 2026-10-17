@@ -163,3 +163,29 @@ export function taskGroup(t: Task, me: string): TaskGroupKey {
 export function groupTasks(rows: readonly Task[], me: string): { key: TaskGroupKey; label: string; rows: Task[] }[] {
   return TASK_GROUPS.map((g) => ({ ...g, rows: rows.filter((t) => taskGroup(t, me) === g.key) })).filter((g) => g.rows.length);
 }
+
+export type TaskBand = 'done' | 'running' | 'queued';
+export const TASK_BANDS: readonly { key: TaskBand; label: string }[] = [
+  { key: 'done', label: 'Done' },
+  { key: 'running', label: 'Running' },
+  { key: 'queued', label: 'Queued' },
+];
+const DAY = 86_400_000;
+
+/** The band a task's box sits in on the graph: it moves down or up when the task's state changes. */
+export const taskBand = (t: Task): TaskBand => (CLOSED.includes(t.state) ? 'done' : t.state === 'doing' ? 'running' : 'queued');
+
+/**
+ * The graph's bands, top to bottom, the empty ones left out. Done holds what closed in the last 24 h (newest first), or every closed
+ * task when `recent` is false; the others keep the order of `tasks`.
+ */
+export function graphBands(tasks: readonly Task[], now: number, recent = true): { key: TaskBand; label: string; tasks: Task[] }[] {
+  const closedAt = (t: Task) => Date.parse(t.done ?? t.created);
+  return TASK_BANDS.map((b) => ({
+    ...b,
+    tasks:
+      b.key === 'done'
+        ? tasks.filter((t) => taskBand(t) === 'done' && (!recent || now - closedAt(t) <= DAY)).sort((x, y) => closedAt(y) - closedAt(x))
+        : tasks.filter((t) => taskBand(t) === b.key),
+  })).filter((b) => b.tasks.length);
+}
