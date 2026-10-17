@@ -310,10 +310,13 @@ def cmd_task_handoff(args) -> int:
     if me is None:
         print(_who_refusal("hand a task over"))
         return 1
-    note, err = _text_arg(args.note, args.file, "note")
-    if err:
-        print(err)
-        return 1
+    if args.note is None and not args.file:    # a note is optional: none given is none sent
+        note = "" if sys.stdin.isatty() else sys.stdin.read()
+    else:
+        note, err = _text_arg(args.note, args.file, "note")
+        if err:
+            print(err)
+            return 1
     ok, msg = client.write("task.handoff", {"task": args.task, "to": args.to, "note": note})
     print(msg)
     return 0 if ok else 1

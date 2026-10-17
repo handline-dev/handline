@@ -93,9 +93,6 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			if !ok {
 				return nil, badParam("body is text", "body")
 			}
-			if strings.TrimSpace(b) == "" {
-				return nil, badParam("body is text and not empty", "body")
-			}
 			body = strings.TrimSpace(textsafe.Text(b))
 		}
 		secs, err := timeBox(p, "time_box")
@@ -229,9 +226,6 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 				return 0, nil, refusal(fmt.Sprintf("a child of T%d cannot wait on T%d: that would be a cycle, %s", parent, blocker, strings.Join(ring, " -> ")))
 			}
 		}
-	}
-	if body == "" {
-		return 0, nil, refusal("a task needs a body: the work itself, what done looks like - the title alone is not a brief")
 	}
 	if hasParent {
 		if ok, err := hasTask(tx, parent); err != nil {

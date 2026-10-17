@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { colors, font } from '@handline/tokens';
 import { DEFAULT_FONT, isEscapeChord, isTerminalSwitch, type CreateTerm } from './core.ts';
+import { traceResize } from './trace.ts';
 import '@xterm/xterm/css/xterm.css';
 
 /** Opens a link only after the person has seen where it really goes. Only http(s) is ever offered. */
@@ -82,11 +83,15 @@ export const createXterm: CreateTerm = (host) => {
       return term.onRender(() => {
         const p = fit.proposeDimensions();
         const now = p ? `${p.cols}x${p.rows}` : '';
-        if (p && now !== last) fn();
+        if (p && now !== last) {
+          traceResize('fit', `${now}`);
+          fn();
+        }
         last = now;
       });
     },
     setFontSize: (px) => {
+      if (term.options.fontSize !== px) traceResize('font', `${term.options.fontSize} -> ${px}`);
       term.options.fontSize = px;
     },
     mark: (label) => {

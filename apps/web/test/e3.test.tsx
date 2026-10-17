@@ -83,7 +83,7 @@ describe('E3 in the page', () => {
     expect(links.map(text)).toEqual(['src/a.ts:42', '~/notes/b.md']);
     expect(calls.open).toEqual([]); // rendering calls nothing
     await click(links[0]!);
-    expect(calls.open).toEqual([{ path: 'src/a.ts', agent: ARCH }]);
+    expect(calls.open).toEqual([{ path: 'src/a.ts', agent: ARCH, branches: ['src/a.ts'] }]);
   });
 
   it('a path the shell only revealed or could not find says so beside the text', async () => {

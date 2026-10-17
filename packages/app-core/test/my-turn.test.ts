@@ -119,3 +119,15 @@ test('has_dialog without needs_you is a dialog card with only Open terminal', ()
     ['terminal'],
   );
 });
+
+test('a card about a task is titled with the task and says who asks; a decision has Done beside Reply', () => {
+  const cards = myTurn({
+    items: [item({ id: 7, task: 9, kind: 'decision', title: 'Decision needed: the release', body: 'Decision needed: the release\nPick A or B.', agent: 'human' })],
+    agents: [],
+    tasks: [task({ id: 9, title: 'Pick login timeout fix', from: 'handline.pc' } as Partial<Task>)],
+  });
+  assert.equal(cards[0]!.title, 'Pick login timeout fix');
+  assert.match(cards[0]!.detail, /Pick A or B/);
+  assert.equal(cards[0]!.from, 'handline.pc');
+  assert.deepEqual(cards[0]!.actions.slice(0, cards[0]!.primary).map((a) => a.type), ['answer', 'done']);
+});

@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
@@ -198,12 +197,10 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 			if err := claimImages(tx, home, c.Caller.Actor(), body, "", "text"); err != nil {
 				return nil, err
 			}
-			res, err := tx.Exec("INSERT INTO task_memos(task_id, author, body, created_at) VALUES (?, ?, ?, ?)", tid, c.Caller.Actor(), body,
-				float64(time.Now().UnixNano())/1e9)
+			mid, err := db.AddMemo(tx, tid, c.Caller.Actor(), body)
 			if err != nil {
 				return nil, err
 			}
-			mid, _ := res.LastInsertId()
 			if files, err = store.AddFiles(tx, home, c.Caller.Actor(), c.Caller.Actor() == human, paths); err != nil {
 				return nil, err
 			}
@@ -257,7 +254,7 @@ func memoEdit(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, er
 			if err := claimImages(tx, home, c.Caller.Actor(), body, was, "text"); err != nil {
 				return nil, err
 			}
-			if _, err := tx.Exec("UPDATE task_memos SET body = ?, edited_at = ? WHERE id = ?", body, time.Now().Unix(), mid); err != nil {
+			if err := db.EditMemo(tx, mid, c.Caller.Actor(), body); err != nil {
 				return nil, err
 			}
 			return accepted(fmt.Sprintf("memo %d on T%d edited", mid, tid), nil), nil
@@ -293,7 +290,7 @@ func memoDelete(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 			if err := guard(c.Caller.Actor(), author, mid); err != nil {
 				return nil, err
 			}
-			if _, err := tx.Exec("DELETE FROM task_memos WHERE id = ?", mid); err != nil {
+			if err := db.DeleteMemo(tx, mid, c.Caller.Actor()); err != nil {
 				return nil, err
 			}
 			if err := attachments.UnlinkMemo(tx, mid); err != nil {

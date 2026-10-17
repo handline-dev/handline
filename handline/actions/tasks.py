@@ -548,12 +548,10 @@ def reopen_task(con, tid: int, by: str, reason: str, effect=None) -> tuple[bool,
     if by not in (asker, HUMAN):
         return False, f"task T{tid} can only be reopened by {asker} - whoever asked for it - or the founder"
     said = textsafe.oneline(reason).strip()
-    if not said:
-        return False, "reopening needs a one-line reason"
     # T286: whether it still has a request out decides whether its timeout
     # clock resumes (reads_doing, not task_state - done_evidence is still set
     # on `row` here, and task_state would misread that as "done", never doing).
-    msg = f"task T{tid} reopened by {by}: {said}"
+    msg = f"task T{tid} reopened by {by}" + (f": {said}" if said else "")
     con.execute("BEGIN IMMEDIATE")
     try:
         db.refresh_sent(con, tid)       # done cleared it; a request still out on it sends it again
@@ -584,8 +582,6 @@ def release_task(con, tid: int, by: str, reason: str, effect=None) -> tuple[bool
     if row is None:
         return False, f"no task T{tid}"
     said = textsafe.oneline(reason).strip()
-    if not said:
-        return False, "releasing needs a one-line reason"
     guard = _task_edit_guard(row, tid, by)
     if guard:
         return False, guard
@@ -602,7 +598,7 @@ def release_task(con, tid: int, by: str, reason: str, effect=None) -> tuple[bool
     # Best-effort, not all-or-nothing: one request losing a race to some other close (an agent
     # resolving it at the same instant) must not throw away what the others already did - the
     # task and its clock still have to end up matching whatever did get retired.
-    why = f"T{tid} released by {by}: {said}"
+    why = f"T{tid} released by {by}" + (f": {said}" if said else "")
     con.execute("BEGIN IMMEDIATE")
     try:
         retired, told, failed = [], [], []
@@ -1191,9 +1187,6 @@ def task_new(me: str, owner: str, title: str, body: str | None = None,
     """
     # A task given to the founder is a decision unless it says otherwise.
     expects = expects or ("decision" if owner == HUMAN and me != HUMAN else "report")
-    if not (body or "").strip():
-        return False, ("a task needs a body: the work itself, what done looks like - "
-                       "the title alone is not a brief"), None
     if reporter is not None and reporter != HUMAN and reporter not in paths.list_agents():
         return False, f"no agent named {reporter}", None
     if reporter == me:
@@ -1329,8 +1322,6 @@ def _handoff_refusal(con, row, me: str, to: str, note: str) -> str | None:
     tid = row["id"]
     if db.task_ended(row):
         return f"task T{tid} is already finished - nothing to hand over"
-    if not note:
-        return "a handoff needs a note: what changed, and what the receiver should know"
     if to != HUMAN and to not in paths.list_agents():
         return f"no agent named {to}"
     if to == row["owner"]:
@@ -1630,8 +1621,6 @@ def edit_task(con, tid: int, by: str, owner: str | None = None,
     new_body, body_rid = None, None
     if body is not None:
         text = textsafe.text(body).strip()
-        if not text:
-            return False, "a task needs a body: the work itself, what done looks like"
         first = _brief_of(con, row)
         if first is None:
             return False, (f"task T{tid} has no brief its opener wrote to edit - a task begun from a "

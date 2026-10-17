@@ -132,13 +132,13 @@ def set_bg_seconds(key: str, seconds: int | None, agent: str | None = None) -> N
     _set_seconds(key, seconds, agent)
 
 
-# Results told to an agent that opened work are held this long after the first, then
-# typed once as a digest; any other message to it before then carries them.
-NOTICE_DIGEST_S = 900
+# Notices to an agent are held this long after the first, then typed once as a digest
+# at its prompt; any other message to it before then carries them.
+NOTICE_DIGEST_S = 300
 
 
 def notice_digest_s(agent: str) -> int:
-    """How long after its first waiting result notice `agent` is woken once with a digest."""
+    """How long after its first waiting notice `agent` is typed one digest, at its prompt."""
     return seconds_setting(agent, "notice_digest_s", NOTICE_DIGEST_S)
 
 

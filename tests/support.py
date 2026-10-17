@@ -1801,14 +1801,14 @@ def _ANSI_TEXT_OK(s: str) -> bool:
 # key was sent. The path is wrapped at terminal width with no separator,
 # split across two lines by "Accessing workspace:".
 LIVE_TRUST_PROMPT_CAPTURE = "\n".join([
-    " ron@Ron-MacBookAir  ~/orca/workspaces/orcapipe/keeper-2   buddyron/trust-screen  "
+    " you@You-MacBookAir  ~/orca/workspaces/orcapipe/keeper-2   yourname/trust-screen  "
     "cd '/private/tmp/claude-501/-Users",
-    "-ron-orca-workspaces-orcapipe-keeper-2/592b2fde-6685-4f79-b057-8931a4b64d3a/"
+    "-you-orca-workspaces-orcapipe-keeper-2/592b2fde-6685-4f79-b057-8931a4b64d3a/"
     "scratchpad/trust-probe' && CLAUDE_CONFIG_DIR",
     "=/Users/you/.orcapipe/accounts/gamma/.claude claude",
     "─" * 124,
     " Accessing workspace:",
-    " /private/tmp/claude-501/-Users-ron-orca-workspaces-orcapipe-keeper-2/"
+    " /private/tmp/claude-501/-Users-you-orca-workspaces-orcapipe-keeper-2/"
     "592b2fde-6685-4f79-b057-8931a4b64d3a/scratchpad/t",
     " rust-probe",
     " Quick safety check: Is this a project you created or one you trust? (Like your "
@@ -1822,7 +1822,7 @@ LIVE_TRUST_PROMPT_CAPTURE = "\n".join([
     " Enter to confirm · Esc to cancel",
 ])
 LIVE_TRUST_PROMPT_FOLDER = (
-    "/private/tmp/claude-501/-Users-ron-orca-workspaces-orcapipe-keeper-2/"
+    "/private/tmp/claude-501/-Users-you-orca-workspaces-orcapipe-keeper-2/"
     "592b2fde-6685-4f79-b057-8931a4b64d3a/scratchpad/trust-probe")
 
 
@@ -2027,7 +2027,7 @@ def _two_lanes(home: Path) -> None:
 teams:
   manager: [worker]
   boss: [reviewer]
-  halim: [lane.x]
+  lead: [lane.x]
 
 agents:
   manager:  {}
