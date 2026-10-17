@@ -87,12 +87,13 @@ type hostBackend struct {
 	sent    []string
 	respawn []string
 	closed  []string
+	waited  int
 }
 
 func (h *hostBackend) Name() string                                   { return "fake" }
 func (h *hostBackend) Available() bool                                { return true }
 func (h *hostBackend) ListTerminals() map[string]bool                 { return h.live }
-func (h *hostBackend) WaitIdle(string, int, func([]string) bool) bool { return true }
+func (h *hostBackend) WaitIdle(string, int, func([]string) bool) bool { h.waited++; return true }
 func (h *hostBackend) ReadScreen(string, int) *Screen {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -153,6 +154,17 @@ func TestARelaunchTypesTheLineThenItsEnterAndAsksWhetherAnythingStarted(t *testi
 	ok, why = hostTerm(h).Relaunch("%1", "hl launch alice", func() bool { return false })
 	if ok || !strings.Contains(why, "no session started") || !strings.Contains(why, "the terminal is alive (screen: ~/work $)") {
 		t.Fatalf("%v %q", ok, why)
+	}
+	// the launch is done once its session is drawn: a first turn that keeps the screen busy is not waited out
+	turn := append([]string{"✻ Working… (esc to interrupt)"}, composer...)
+	h = &hostBackend{live: map[string]bool{"%1": true}, screen: func(n int) []string {
+		if n < 2 {
+			return shell
+		}
+		return turn
+	}}
+	if ok, why := hostTerm(h).Relaunch("%1", "hl launch alice", func() bool { return true }); !ok || h.waited != 0 {
+		t.Fatalf("%v %q, waited for idle %d times", ok, why, h.waited)
 	}
 	// a session already drawn there is not typed at
 	h = &hostBackend{live: map[string]bool{"%1": true}, screen: func(int) []string { return composer }}

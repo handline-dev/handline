@@ -227,9 +227,28 @@ func (t *Term) Relaunch(handle, command string, started func() bool) (bool, stri
 	if started != nil && !started() {
 		return false, "the launch command was typed but no session started" + t.terminalNote(handle)
 	}
-	// Typing into a TUI that is still booting loses the opening characters.
-	t.WaitIdle(handle, IdleTimeoutMs)
+	// What reads the screen next (a startup dialog, the trust screen) must see the session drawn, not the shell it replaced.
+	t.WaitDrawn(handle, DrawnTimeoutMs)
 	return true, "relaunched"
+}
+
+// DrawnTimeoutMs is how long a launch waits for its session to be drawn.
+const DrawnTimeoutMs = 30_000
+
+// WaitDrawn is whether a session (its composer, a dialog, a running turn) or the trust screen is drawn at handle within timeoutMs. It
+// does not wait for the session's first turn: a launch hands its prompt in a file, so nothing is typed behind it, and that turn can
+// run for minutes.
+func (t *Term) WaitDrawn(handle string, timeoutMs int) bool {
+	deadline := t.now().Add(time.Duration(timeoutMs) * time.Millisecond)
+	for {
+		if session, _ := t.SessionOnScreen(handle); session || t.TrustPromptShowing(handle) {
+			return true
+		}
+		if !t.now().Before(deadline) {
+			return false
+		}
+		t.sleep(promptPoll)
+	}
 }
 
 // terminalNote is what a launch that started nothing says about the terminal it was typed into: that it is gone, or alive and what its
