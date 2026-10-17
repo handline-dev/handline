@@ -147,3 +147,42 @@ describe('images in the send box', () => {
     expect(revoked).toEqual([a, b]);
   });
 });
+
+describe('a folder or file dropped from Finder', () => {
+  const drop = (files: File[]) =>
+    act(async () => {
+      const e = new Event('drop', { bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'dataTransfer', { value: { files, types: ['Files'] } });
+      compose().dispatchEvent(e);
+    });
+  const folder = (name: string) => Object.assign(new File([], name), { fakePath: `/Users/me/${name}` });
+  const withShell = (on: boolean) => {
+    const w = window as unknown as { handline?: unknown };
+    if (on) w.handline = { api: 1, pathOf: (f: File & { fakePath?: string }) => f.fakePath ?? '', onNavigate: () => () => undefined };
+    else delete w.handline;
+  };
+  afterEach(() => withShell(false));
+
+  it('is a chip with its name; Send gives the agent the absolute path, and a removed chip is not sent', async () => {
+    withShell(true);
+    const s = await mount();
+    await drop([folder('proj'), folder('notes.md')]);
+    expect(chips().map(text).join()).toContain('proj');
+    expect(chips()).toHaveLength(2);
+    await click(chips()[1]!.querySelector('button')!);
+    expect(chips()).toHaveLength(1);
+    await typeInto(compose(), 'look at this');
+    await click(sendBtn());
+    await until(() => chips().length === 0, 'sent');
+    const mine = (await s.client.call('chat.messages', { agent: AUD, scope: 'mine' })).messages.map((m) => m.body);
+    expect(mine).toContain('look at this\n/Users/me/proj');
+    expect(mine.join()).not.toContain('notes.md');
+  });
+
+  it('is ignored where the shell cannot say the path', async () => {
+    withShell(false);
+    await mount();
+    await drop([folder('proj')]);
+    expect(chips()).toHaveLength(0);
+  });
+});
