@@ -351,9 +351,7 @@ export function Item({
             <RichText text={i.text ?? ''} />
           </div>
         </div>
-        <Stamp>
-          <span>{clockTime(i.at)}</span>
-        </Stamp>
+        <Stamp time={clockTime(i.at)} />
       </>
     );
   if (i.kind === 'tool') return <ToolLine i={i} />;
