@@ -1,16 +1,14 @@
-// The phone's Stats tab (docs/pc-app-gaps.md G10): the window's four counts and how long each agent worked from stats.get, then the usage
+// The Stats section of the Usage tab (docs/pc-app-gaps.md G10): the window's four counts and how long each agent worked from stats.get, then the usage
 // outlook (stats.outlook): the week left as recorded and guessed bars with each account's runway, or the cost per day, with ranges 12 h to 30 d.
-// Home settings are one tap away on the same tab. Every number is text too; a bar is never the only way to read it.
+// Every number is text too; a bar is never the only way to read it.
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { agentTime, span } from '@handline/app-core';
 import type { Outlook, Stats as StatsData } from '@handline/client';
 import { useOutlook, useServes, useStats } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { useSelector } from '@handline/app-react';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
-import { Settings } from './Settings.tsx';
 
 const WINDOWS = ['24h', '7d'] as const;
 type Window = (typeof WINDOWS)[number];
@@ -231,30 +229,14 @@ function Numbers() {
   );
 }
 
+/** The numbers and the outlook, for the Usage tab to show under the accounts. */
 export function Stats() {
   const c = usePalette();
-  const [page, setPage] = useState<'stats' | 'settings'>('stats');
-  const founder = useSelector((st) => st.client.hello?.role) === 'founder'; // the settings and standing answers are the founder's alone
   return (
-    <View style={{ flex: 1 }}>
-      <View style={{ padding: space.lg, gap: space.md }}>
-        <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>{page === 'stats' ? 'Stats' : 'Settings'}</Text>
-        {founder ? (
-          <Choice label="page" value={page} options={['stats', 'settings'] as const} onChange={setPage} />
-        ) : (
-          <Text testID="settings-founder-only" style={{ color: c.muted }}>
-            Only the founder changes settings.
-          </Text>
-        )}
-      </View>
-      {page === 'stats' || !founder ? (
-        <ScrollView testID="stats-page" contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.xl }}>
-          <Numbers />
-          <OutlookSection />
-        </ScrollView>
-      ) : (
-        <Settings />
-      )}
+    <View testID="stats-page" style={{ padding: space.lg, gap: space.xl }}>
+      <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>Stats</Text>
+      <Numbers />
+      <OutlookSection />
     </View>
   );
 }

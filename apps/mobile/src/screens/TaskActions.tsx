@@ -11,7 +11,7 @@ import { radius, space } from '@handline/tokens';
 import { useConnection } from '@handline/app-react';
 import { usePalette } from '../theme.ts';
 import { ImageBodyInput } from './ImageBodyInput.tsx';
-import { Button } from './parts.tsx';
+import { Button, PageHeader } from './parts.tsx';
 import { AskAbout } from './TaskAsk.tsx';
 import { ReportVerbs } from './TaskReport.tsx';
 import { MergeTasks, ReleaseTask } from './TaskReleaseMerge.tsx';
@@ -332,7 +332,7 @@ export function NewTask({ onClose }: { onClose: () => void }) {
   );
   return (
     <View testID="new-task" style={{ gap: space.md, padding: space.lg }}>
-      <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700' }}>New task</Text>
+      <PageHeader bare title="New task" />
       <Text style={{ color: c.muted, fontWeight: '600' }}>Owner</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
         {agents.map((a) => chip(owner === a, a, () => setOwner(a), `nt-owner-${a}`))}

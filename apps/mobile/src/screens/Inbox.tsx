@@ -8,8 +8,9 @@ import { useConnection } from '@handline/app-react';
 import { useInbox, usePending, useServes, useUnread, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
-import { Button } from './parts.tsx';
+import { Button, PageHeader } from './parts.tsx';
 import { Loadable } from './Loadable.tsx';
+import { PromptCard } from './PromptCard.tsx';
 
 const KIND: Record<string, string> = {
   decision: 'Decision',
@@ -82,7 +83,9 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
               {i.evidence}
             </Text>
           ) : null}
-          {i.prompt ? (
+          {i.prompt && i.agent && !i.answered ? (
+            <PromptCard agent={i.agent} prompt={i.prompt} />
+          ) : i.prompt ? (
             <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: 11 }}>{i.prompt.command ?? i.prompt.lines.join('\n')}</Text>
           ) : null}
           {props.pending && (
@@ -155,20 +158,22 @@ export function Inbox() {
   const items = (query.data?.items ?? []).filter((i) => waits(i, pendingRead.includes(i.id)));
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', padding: space.lg, gap: space.md }}>
-        <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700', flex: 1 }}>
-          Inbox{' '}
-          <Text testID="unread-count" style={{ color: c.muted, fontSize: 14 }}>
-            {unread.length}
-          </Text>
-        </Text>
-        <Button
-          testID="mark-all-read"
-          label="Mark all read"
-          disabled={!unread.length || !!offRead}
-          onPress={() => markAll.mutate({ ids: unread.map((i) => i.id) })}
-        />
-      </View>
+      <PageHeader
+        title="Inbox"
+        actions={
+          <>
+            <Text testID="unread-count" style={{ color: c.muted, fontSize: 14 }}>
+              {unread.length}
+            </Text>
+            <Button
+              testID="mark-all-read"
+              label="Mark all read"
+              disabled={!unread.length || !!offRead}
+              onPress={() => markAll.mutate({ ids: unread.map((i) => i.id) })}
+            />
+          </>
+        }
+      />
       <Loadable
         query={query}
         served={served}

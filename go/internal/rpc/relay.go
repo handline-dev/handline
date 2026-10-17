@@ -33,19 +33,16 @@ var contract = func() map[string]contractMethod {
 	return m
 }()
 
-// memberMay says whether the contract lets a paired device call name: it is a method, at member or below, and no
-// list of callers leaves members out.
+// memberMay says whether the contract lets a paired device call name: it is a method, and no list of callers leaves the founder out
+// (a paired device is the founder).
 func memberMay(name string) (known, allowed bool) {
 	m, known := contract[name]
 	if !known {
 		return false, false
 	}
-	if roleIndex("member") < roleIndex(m.Role) {
-		return true, false
-	}
 	if m.Callers != nil {
 		for _, r := range m.Callers {
-			if r == "member" {
+			if r == "founder" {
 				return true, true
 			}
 		}

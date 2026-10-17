@@ -56,7 +56,7 @@
   {
    "name": "devices.pair_and_redeem_once",
    "spec": "device.redeem",
-   "about": "A code from device.pair redeems once for a token; a second redeem of the same code is refused (pairing_code); the token's hello is a member device; devices.list shows it.",
+   "about": "A code from device.pair redeems once for a token; a second redeem of the same code is refused (pairing_code); the token's hello is the founder (a paired device is the founder); devices.list shows it.",
    "as": "unpaired",
    "with": {
     "admin": "founder"
@@ -164,7 +164,7 @@
       }
      },
      "result": {
-      "role": "member",
+      "role": "founder",
       "caller": {
        "kind": "device",
        "device": "{{device}}"
@@ -179,7 +179,7 @@
       "params": {}
      },
      "result": {
-      "role": "member"
+      "role": "founder"
      }
     },
     {
@@ -193,7 +193,7 @@
       "devices": {
        "$contains": {
         "name": "conformance phone",
-        "role": "member"
+        "role": "founder"
        }
       }
      },
@@ -331,9 +331,9 @@
    ]
   },
   {
-   "name": "devices.member_is_refused_above_member",
+   "name": "devices.a_paired_device_may_manage_devices",
    "spec": "device.revoke",
-   "about": "A paired device is a member: the founder's methods (devices.list, device.pair, device.revoke) are refused, gate role.",
+   "about": "A paired device is the founder: devices.list and device.pair succeed for it, and device.revoke passes the role gate (an unknown device is not_found, not refused).",
    "as": "unpaired",
    "with": {
     "admin": "founder"
@@ -416,7 +416,7 @@
       }
      },
      "result": {
-      "role": "member",
+      "role": "founder",
       "caller": {
        "kind": "device",
        "device": "{{device}}"
@@ -430,16 +430,11 @@
       "method": "devices.list",
       "params": {}
      },
-     "error": {
-      "code": -32002,
-      "message": {
-       "$regex": "."
-      },
-      "data": {
-       "code": "refused",
-       "gate": "role",
-       "reason": {
-        "$regex": "."
+     "result": {
+      "devices": {
+       "$contains": {
+        "name": "conformance phone",
+        "role": "founder"
        }
       }
      }
@@ -453,17 +448,18 @@
        "request_id": "conf-dev-m1"
       }
      },
-     "error": {
-      "code": -32002,
-      "message": {
-       "$regex": "."
+     "result": {
+      "code": {
+       "$type": "string"
       },
-      "data": {
-       "code": "refused",
-       "gate": "role",
-       "reason": {
-        "$regex": "."
-       }
+      "expires_at": {
+       "$type": "timestamp"
+      },
+      "fingerprint": {
+       "$type": "string"
+      },
+      "uri": {
+       "$type": "string"
       }
      }
     },
@@ -473,21 +469,14 @@
       "id": 13,
       "method": "device.revoke",
       "params": {
-       "device": "{{device}}",
+       "device": "no-such-device",
        "request_id": "conf-dev-m2"
       }
      },
      "error": {
-      "code": -32002,
-      "message": {
-       "$regex": "."
-      },
+      "code": -32001,
       "data": {
-       "code": "refused",
-       "gate": "role",
-       "reason": {
-        "$regex": "."
-       }
+       "code": "not_found"
       }
      }
     },
@@ -595,7 +584,7 @@
       }
      },
      "result": {
-      "role": "member",
+      "role": "founder",
       "caller": {
        "kind": "device",
        "device": "{{device}}"
@@ -610,7 +599,7 @@
       "params": {}
      },
      "result": {
-      "role": "member"
+      "role": "founder"
      }
     },
     {
@@ -742,7 +731,7 @@
       }
      },
      "result": {
-      "role": "member",
+      "role": "founder",
       "caller": {
        "kind": "device",
        "device": "{{device}}"
@@ -935,7 +924,7 @@
           "$type": "string"
          },
          "name": "conformance tablet",
-         "role": "member",
+         "role": "founder",
          "connected": false,
          "last_seen": null
         }
@@ -977,9 +966,9 @@
    ]
   },
   {
-   "name": "devices.topic_is_founder_only",
+   "name": "devices.topic_open_to_a_paired_device",
    "spec": "subscribe",
-   "about": "A member may subscribe to other topics but not to devices: refused, gate role.",
+   "about": "A paired device is the founder: it may subscribe to the devices topic as to any other.",
    "as": "unpaired",
    "with": {
     "admin": "founder"
@@ -1061,7 +1050,7 @@
       }
      },
      "result": {
-      "role": "member"
+      "role": "founder"
      }
     },
     {
@@ -1075,17 +1064,9 @@
        ]
       }
      },
-     "error": {
-      "code": -32002,
-      "message": {
-       "$regex": "."
-      },
-      "data": {
-       "code": "refused",
-       "gate": "role",
-       "reason": {
-        "$regex": "."
-       }
+     "result": {
+      "cursor": {
+       "$type": "integer"
       }
      }
     },

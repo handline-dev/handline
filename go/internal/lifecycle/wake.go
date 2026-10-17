@@ -636,7 +636,7 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 	handle := must(db.Terminal(m.Q, agent))
 	cleared, w := true, ""
 	if handle != "" {
-		cleared, w = m.clearTrustPrompt(agent, handle, true)
+		cleared, w = m.startupScreens(agent, handle)
 	}
 	if !cleared {
 		if waiting.ok {
@@ -741,7 +741,9 @@ func (m *Manager) ownLateSession(agent string) (bool, int) {
 // with it - in a new terminal in its worktree. started says whether a typed launch took.
 func (m *Manager) launchInPane(agent, handle, wt, cmd string, started func() bool) (bool, string) {
 	if handle != "" {
-		return m.Term.Relaunch(handle, cmd, started)
+		m.Spawn.Trust(agent, wt)
+		// Relaunch asks started right after the line is typed.
+		return m.Term.Relaunch(handle, cmd, func() bool { check(NoteLaunch(m.Q, m.OnLaunch, agent)); return started() })
 	}
 	ok, why, err := m.Spawn.StartIn(agent, wt, cmd)
 	check(err)

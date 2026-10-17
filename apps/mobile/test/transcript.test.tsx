@@ -174,19 +174,22 @@ describe('a structured agent’s prompt and its stored session', () => {
   });
 });
 
-const buttons = () => [...document.querySelectorAll<HTMLElement>('[role="button"]')].map((b) => b.textContent);
 const button = (label: string) =>
   [...document.querySelectorAll<HTMLElement>('[role="button"]')].find((b) => b.textContent === label) ?? null;
 
-describe('the header row of a structured agent', () => {
-  it('lists Close and Kill while idle, with no Exit and no Interrupt', async () => {
+// Session controls are in the ⋯ menu, not on the page.
+const openMenu = async () => press($('verbs-open'));
+const controls = () => [...document.querySelectorAll<HTMLElement>('[data-testid^="control-"]')].map((b) => b.textContent);
+
+describe('the session controls of a structured agent', () => {
+  it('lists Close and Kill in the menu while idle, with no Exit and no Interrupt, and none on the page itself', async () => {
     const m = await mount();
     await until(() => $(`agent-${AUD}`), 'the rows');
     await press($(`agent-${AUD}`));
-    await until(() => button('Close'), 'the header row');
-    expect(buttons()).toContain('Kill');
-    expect(buttons()).not.toContain('Exit');
-    expect(buttons()).not.toContain('Interrupt');
+    await until(() => $('verbs-open'), 'the menu button');
+    expect(controls()).toEqual([]);
+    await openMenu();
+    expect(controls()).toEqual(['Close', 'Kill']);
     m.store.stop();
   });
 
@@ -197,8 +200,10 @@ describe('the header row of a structured agent', () => {
     });
     await until(() => $(`agent-${AUD}`), 'the rows');
     await press($(`agent-${AUD}`));
-    await until(() => button('Interrupt'), 'Interrupt');
-    expect(buttons()).not.toContain('Exit');
+    await until(() => $('verbs-open'), 'the menu button');
+    await openMenu();
+    expect(controls()).toContain('Interrupt');
+    expect(controls()).not.toContain('Exit');
     m.store.stop();
   });
 
@@ -207,10 +212,12 @@ describe('the header row of a structured agent', () => {
     await until(() => $(`agent-${AUD}`), 'the rows');
     await act(async () => void (await m.store.client.stopSession(AUD, 'close')));
     await press($(`agent-${AUD}`));
-    await until(() => button('Start new'), 'Start new');
-    expect(button('Resume')).toBeFalsy();
+    await until(() => $('verbs-open'), 'the menu button');
+    await openMenu();
+    expect(controls()).toContain('Start new');
+    expect(controls()).not.toContain('Resume');
     const alert = vi.spyOn(Alert, 'alert');
-    await press(button('Start new'));
+    await press($('control-start-new'));
     expect(alert).toHaveBeenCalledWith(expect.stringContaining('over?'), expect.anything(), expect.anything());
     expect(m.daemon.sessions.get(AUD)!.open).toBe(false);
     alert.mockRestore();

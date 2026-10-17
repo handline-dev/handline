@@ -208,14 +208,14 @@ describe('X5 phone New agent', () => {
 
   it('has no entry for a member', async () => {
     const m = await mount(() => {}, undefined, undefined, { role: 'member' });
-    await until(() => $('worktrees-open'), 'the list');
+    await until(() => $('agents-menu'), 'the list');
     expect($('new-agent-open')).toBeNull();
     m.store.stop();
   });
 
   it('has no entry when the daemon does not list agent.create', async () => {
     const m = await mount((s) => s.daemon.knobs.unserve('agent.create'));
-    await until(() => $('worktrees-open'), 'the list');
+    await until(() => $('agents-menu'), 'the list');
     expect($('new-agent-open')).toBeNull();
     m.store.stop();
   });

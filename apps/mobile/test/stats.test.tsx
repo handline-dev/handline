@@ -16,20 +16,25 @@ async function mount(opts: { admin?: boolean; latency?: number; role?: 'member' 
   const m = await mountHome((s) => opts.latency && s.daemon.knobs.latency(opts.latency), { admin: opts.admin }, undefined, {
     role: opts.role,
   });
-  await press($('nav-stats'));
+  await press($('nav-usage'));
   return m;
 }
 
-const page = (name: 'stats' | 'settings') => press($(`page-${name}`));
+// Settings is a page behind the gear in the Agents header; the tests that change settings open it from the Agents tab.
+const settings = async () => {
+  await press($('nav-agents'));
+  await press($('agents-menu'));
+  await press($('settings-open'));
+};
 
 describe('the stats tab', () => {
-  it('shows a member the stats and says only the founder changes settings, with no settings page to open', async () => {
+  it('tells a member that only the founder changes settings, and still offers the devices', async () => {
     const m = await mount({ role: 'member' });
     await until(() => $('tile-tasks_done'), 'the tiles');
-    expect($('settings-founder-only')).not.toBeNull();
+    await settings();
     expect(text()).toContain('Only the founder changes settings.');
-    expect($('page-settings')).toBeNull();
     expect($('settings-page')).toBeNull();
+    expect($('unpair')).not.toBeNull();
     m.store.stop();
   });
 
@@ -79,7 +84,7 @@ describe('the stats tab', () => {
     await until(() => $('not-served'), 'the notice');
     expect(text()).toContain('This daemon does not serve stats.');
     expect(text()).toContain('This daemon does not serve the outlook.');
-    await page('settings');
+    await settings();
     expect(text()).toContain('This daemon does not serve settings.');
     expect(text()).toContain('This daemon does not serve standing answers.');
     m.store.stop();
@@ -89,7 +94,7 @@ describe('the stats tab', () => {
 describe('the settings', () => {
   it('shows the values and saves the cap and idle close in the daemon’s units', async () => {
     const m = await mount();
-    await page('settings');
+    await settings();
     await until(() => $('cap-input'), 'the settings');
     expect(($('cap-input') as HTMLInputElement).value).toBe('4');
     expect(($('idle-input') as HTMLInputElement).value).toBe('30');
@@ -106,7 +111,7 @@ describe('the settings', () => {
 
   it('refuses an entry that is not a number without sending it', async () => {
     const m = await mount();
-    await page('settings');
+    await settings();
     await until(() => $('cap-input'), 'the settings');
     await type('cap-input', 'many');
     await press($('cap-save'));
@@ -117,7 +122,7 @@ describe('the settings', () => {
 
   it('puts the field back with the daemon’s reason when a save is refused', async () => {
     const m = await mount();
-    await page('settings');
+    await settings();
     await until(() => $('cap-input'), 'the settings');
     m.daemon.knobs.refuse('settings.set', 'role', 'only the founder may change settings');
     await type('cap-input', '2');
@@ -129,7 +134,7 @@ describe('the settings', () => {
 
   it('flips a switch at once and shows saving while the daemon is slow', async () => {
     const m = await mount();
-    await page('settings');
+    await settings();
     await until(() => $('auto-switch'), 'the switch');
     m.daemon.knobs.latency(600);
     await press($('auto-switch'));
@@ -143,7 +148,7 @@ describe('the settings', () => {
 describe('the standing answers', () => {
   it('adds a folder and a dialog answer, and removes one', async () => {
     const m = await mount();
-    await page('settings');
+    await settings();
     await until(() => $('answer-trust'), 'the answers');
     expect(box.querySelectorAll('[data-testid="answer-trust"]').length).toBe(1);
     await press($('answer-new'));
@@ -164,7 +169,7 @@ describe('the standing answers', () => {
 
   it('says why when an add or a remove is refused, and the list stays as the daemon has it', async () => {
     const m = await mount();
-    await page('settings');
+    await settings();
     await until(() => $('answer-trust'), 'the answers');
     m.daemon.knobs.refuse('answer.add', 'role', 'only the founder may add an answer');
     await press($('answer-new'));
@@ -181,7 +186,7 @@ describe('the standing answers', () => {
 
   it('says none are set when the list is empty', async () => {
     const m = await mount();
-    await page('settings');
+    await settings();
     await until(() => $('answer-trust'), 'the answers');
     for (let n = 3; n > 0; n--) {
       const b = box.querySelector<HTMLElement>('[data-testid="answer-remove"]');
@@ -193,7 +198,7 @@ describe('the standing answers', () => {
 
   it('keeps a form’s text out of the daemon until it is complete', async () => {
     const m = await mount();
-    await page('settings');
+    await settings();
     await until(() => $('answer-trust'), 'the answers');
     await press($('answer-new'));
     await press($('answer-add'));

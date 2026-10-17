@@ -430,3 +430,16 @@ func TestAuthFailedIsALoginTheLastTurnWasRefusedOnByTheCLIsOwnErrorOnThatAccount
 		t.Error("a prompt after the failure means it works again")
 	}
 }
+
+func TestTheAskTypedIsTheHandoffPromptSettingWithItsPlaceholdersFilled(t *testing.T) {
+	w := newWorld(t)
+	w.agent("a", "IDLE", "alpha", "")
+	w.telling.accept = true
+	w.settings.text = map[string]string{"a/" + PromptKey: "Hand off to {path}, at most {max}: %s %d"}
+	if ok, err := w.Ask("a", "close"); !ok || err != nil {
+		t.Fatalf("%v %v", ok, err)
+	}
+	if want := "a: Hand off to " + w.NotePath("a") + ", at most 3000: %s %d"; len(w.telling.typed) != 1 || w.telling.typed[0] != want {
+		t.Fatalf("typed %q, want %q", w.telling.typed, want)
+	}
+}

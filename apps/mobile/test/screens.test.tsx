@@ -401,6 +401,7 @@ describe('the task verbs', () => {
     await tab('tasks');
     await until(() => $(`task-${MINE_DOING}`) && $('task-1690'), 'the rows');
     expect($('task-1650')).toBeNull(); // done is out of the way
+    await press($('filter-toggle'));
     await press($('state-queued'));
     await until(() => $('task-1690') === null, 'queued hidden');
     expect($(`task-${MINE_DOING}`)).not.toBeNull();

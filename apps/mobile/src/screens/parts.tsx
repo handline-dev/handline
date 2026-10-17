@@ -55,6 +55,44 @@ export function Button(props: {
   );
 }
 
+/** The top of a page: where I am (title), the way back (parent's name), and the page's actions. */
+export function PageHeader(props: {
+  title?: string;
+  back?: { label: string; onPress: () => void; testID?: string };
+  actions?: React.ReactNode;
+  children?: React.ReactNode;
+  /** Inside a container that already pads. */
+  bare?: boolean;
+}) {
+  const c = usePalette();
+  const { back } = props;
+  return (
+    <View style={{ padding: props.bare ? 0 : space.lg, gap: space.sm }}>
+      {back ? (
+        <Pressable
+          testID={back.testID}
+          onPress={back.onPress}
+          accessibilityRole="button"
+          accessibilityLabel={`Back to ${back.label}`}
+          hitSlop={12}
+          style={{ alignSelf: 'flex-start' }}
+        >
+          <Text style={{ color: c.accent, fontSize: 16 }}>‹ {back.label}</Text>
+        </Pressable>
+      ) : null}
+      {props.title || props.actions ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+          <Text accessibilityRole="header" style={{ color: c.ink, fontSize: 22, fontWeight: '700', flex: 1 }}>
+            {props.title}
+          </Text>
+          {props.actions}
+        </View>
+      ) : null}
+      {props.children}
+    </View>
+  );
+}
+
 export const Row = (props: { children: React.ReactNode; style?: ViewStyle }) => (
   <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, ...props.style }}>{props.children}</View>
 );

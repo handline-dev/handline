@@ -12,8 +12,6 @@ import (
 // Waits the lifecycle runs on (infra/waits.py and delivery's own).
 const (
 	WakeSessionTimeoutS = 15
-	// MaxStartupScreens: the folder-trust screen, with room for the dialogs before or after it.
-	MaxStartupScreens = 4
 )
 
 // TableRetryPauses are the pauses between reads of a process table that missed: a session just ended leaves the table while it is
@@ -78,11 +76,9 @@ type Terminal interface {
 	BackgroundWork(handle string) (running string, known bool)
 	TrustPromptShowing(handle string) bool
 	TrustPromptFolder(handle string) string
-	ConfirmTrust(handle string) (bool, string)
 	CloseSession(handle string) (bool, string)  // types /exit
 	CloseTerminal(handle string) (bool, string) // closes the pane
 	Relaunch(handle, cmd string, started func() bool) (bool, string)
-	WaitForTrustPrompt(handle string, showing bool)
 	// DriverScope holds one driver lookup for the calls made inside it; the returned func ends it.
 	DriverScope() func()
 }
@@ -122,6 +118,8 @@ type Spawner interface {
 	// WorktreePath is the worktree if it still exists, "" otherwise.
 	WorktreePath(worktree string) string
 	StartIn(agent, worktree, cmd string) (bool, string, error)
+	// Trust marks worktree trusted for agent's vendor before a launch there.
+	Trust(agent, worktree string)
 	Spawn(agent, repo string) (bool, string, error)
 }
 
@@ -131,7 +129,6 @@ type AgentsPort interface {
 	// ReadConfig fails for an agent.yaml that will not read.
 	ReadConfig(agent string) error
 	CurrentAccount(q db.Q, agent string) string
-	IsDeclared(folder string) bool
 	MeasureBegin(q db.Q, agent, account string)
 	RaiseDecision(q db.Q, agent, text, reason string) error
 	VendorName(agent string) string
@@ -178,6 +175,9 @@ type Manager struct {
 	Typing   Typing
 	// TermRun is the terminal agents' sessions as their session files report them; nil keeps a handoff from finding one.
 	TermRun TermSessions
+
+	// OnLaunch is told each time a wake's launch has begun (NoteLaunch); nil tells no one.
+	OnLaunch func(agent string)
 
 	Locks *AgentLocks // shared with Spawns, so a spawn and a wake take the same lock; made on first use when nil
 	once  sync.Once
