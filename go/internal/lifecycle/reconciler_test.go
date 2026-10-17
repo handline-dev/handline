@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -324,5 +325,33 @@ func TestASweepDropsNothingWhenTheAgentsCannotBeListedOrNoneAre(t *testing.T) {
 		if n := strings.Count(strings.Join(*logs, "\n"), "could not be listed"); (name == "unreadable") != (n == 1) {
 			t.Fatalf("%s: logged %d times", name, n)
 		}
+	}
+}
+
+// The stall that stayed: three starts failed and stalled the agent, a start that lost the race then reset the streak, and the session that
+// came up late never lifted the stall, since the lift asked for the streak.
+func TestASessionRunningLiftsAWakeStallWhateverTheStreak(t *testing.T) {
+	alive := map[string]session.Observed{"a": {TerminalAlive: ptr(true), SessionSeen: true, SessionPID: ptr(7)}}
+	r, _ := newRec(t, alive)
+	r.Ports.LiftLogin = func(db.Q, string, *db.AgentState, *[]string) {}
+	db.SetTerminal(r.Q, "a", "t1", "/wt")
+	for _, detail := range []string{"3 " + StartStall + ": a: started in /wt", "3 " + WakeStall + ": no session"} {
+		db.SetAgentState(r.Q, "a", states.Stalled, 0, detail)
+		var acts []string
+		if err := r.Sweep(&acts); err != nil {
+			t.Fatal(err)
+		}
+		if row, _ := db.GetAgentState(r.Q, "a"); row.State != states.Idle || !slices.ContainsFunc(acts, func(a string) bool { return strings.Contains(a, "STALLED -> IDLE") }) {
+			t.Fatalf("%q: %+v %v", detail, row, acts)
+		}
+	}
+	// A late session ends the streak of failed starts too.
+	db.BumpCounter(r.Q, "a", "wake_failures", 2)
+	var acts []string
+	if err := r.Sweep(&acts); err != nil {
+		t.Fatal(err)
+	}
+	if row, _ := db.GetAgentState(r.Q, "a"); row.WakeFailures != 0 {
+		t.Fatalf("%+v", row)
 	}
 }

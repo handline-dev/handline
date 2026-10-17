@@ -311,6 +311,11 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		detail = clip(textsafe.Oneline(wait), DetailCap)
 	}
 	state, detail := e.wire(agent, row, word, detail)
+	handoff := must(e.handoffView(agent, row, now))
+	// A restart parks the agent only until its next session begins: it waits for no time, so it is queued, and starting once launched.
+	if h, ok := handoff.(map[string]any); ok && state == "parked" && h["phase"] == "starting" && h["cause"] != "move" {
+		state, detail = "queued", ""
+	}
 	if (state == "no_terminal" || state == "idle" || state == "queued") && e.starting(agent) {
 		state, detail = "starting", ""
 	}
@@ -375,7 +380,7 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		"block": block, "wall_reason": wall, "background_since": bg,
 		"would_wake": row != nil && must(e.WouldWake(row)),
 		"blocker":    blocker, "account": account, "task": task, "cache_until": cache, "ctx_pct": ctx,
-		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(needs), "handoff": must(e.handoffView(agent, row, now)),
+		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(needs), "handoff": handoff,
 	}, nil
 }
 

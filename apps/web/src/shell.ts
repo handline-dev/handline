@@ -3,8 +3,9 @@
 import { useEffect, useRef } from 'react';
 import { routeOfTarget, type ShellApi } from '@handline/app-core';
 import { useBusy, useUnread } from '@handline/app-data';
+import { RpcError, type ClientOptions } from '@handline/client';
 
-type Call = 'screen' | 'unsent' | 'onNavigate' | 'openPath' | 'compose' | 'cancelCompose' | 'mode' | 'setMode' | 'pairRemote' | 'phone' | 'captureWindows' | 'captureWindow' | 'pathOf';
+type Call = 'screen' | 'unsent' | 'onNavigate' | 'openPath' | 'compose' | 'cancelCompose' | 'mode' | 'setMode' | 'pairRemote' | 'phone' | 'captureWindows' | 'captureWindow' | 'pathOf' | 'settingsGet' | 'settingsSet';
 
 /** True in the desktop shell; main.tsx marks <html data-shell=desktop> from it. */
 export const inShell = (): boolean => typeof window !== 'undefined' && 'handline' in window;
@@ -83,4 +84,21 @@ export function useShell(agent: string): void {
       }),
     [],
   );
+}
+
+/**
+ * settings.get and settings.set through the shell, when it has them: the window connects as a paired device, which the daemon refuses
+ * these two, so the shell's own connection answers. A refusal comes back as the error a daemon refusal is.
+ */
+export function settingsRelay(): ClientOptions['relay'] {
+  const api = shell('settingsGet') && shell('settingsSet');
+  if (!api) return undefined;
+  const open = <T>(r: { ok: true; result: T } | { ok: false; code: string; message: string }): T => {
+    if (r.ok) return r.result;
+    throw new RpcError(r.code === 'refused' || r.code === 'bad_request' ? r.code : 'internal', r.message);
+  };
+  return {
+    'settings.get': async (p) => open(await api.settingsGet!(p)),
+    'settings.set': async (p) => open(await api.settingsSet!({ changes: p.changes, agent: p.agent })),
+  };
 }

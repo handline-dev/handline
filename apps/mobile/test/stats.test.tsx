@@ -49,14 +49,14 @@ describe('the stats tab', () => {
     m.store.stop();
   });
 
-  it('draws the week left with each account’s runway, and the cost per day for ranges to 30 d', async () => {
+  it('draws the week left with each account’s runway, and the cost per day for the picked period', async () => {
     const m = await mount();
     await until(() => $('outlook-left'), 'the week left');
     expect(text($('runway-beta'))).toContain('runs out in 2 h');
     expect(text($('runway-alpha'))).toContain('lasts until the week resets');
     await press($('view-cost'));
-    await press($('range-30d'));
-    await until(() => $('outlook-cost')?.children.length === 30, 'thirty days of cost');
+    await press($('window-7d'));
+    await until(() => $('outlook-cost')?.children.length === 7, 'seven days of cost');
     expect(text($('cost-agent-handline.architect'))).toContain('$');
     m.store.stop();
   });

@@ -1,6 +1,6 @@
 // The fake daemon's tasks: the rows `tasks.list` and `task.get` answer and the writes that change them, on the tasks topic.
 // A task the founder asks for starts as `queued`; withdrawing or cancelling one that has not been delivered discards it.
-import type { HistoryRow, Memo, Task, TaskClock, TaskDetail } from '@handline/contract';
+import type { HistoryRow, Memo, MemoFile, Task, TaskClock, TaskDetail } from '@handline/contract';
 import { seedTasks } from './fixtures.ts';
 import { invalidParams, refused, storeFailure } from './errors.ts';
 import { changes } from './history.ts';
@@ -184,6 +184,14 @@ export class FakeTasks {
       memos.splice(i, 1);
     }
     return memos[i]?.id ?? 0;
+  }
+
+  /** A memo that carries files, as `hl task memo add --file` leaves it. */
+  memoWithFiles(task: number, author: string, text: string, files: MemoFile[]): number {
+    const id = this.memo({ task, text }, 'add', author);
+    const m = this.find(task).memos!.find((x) => x.id === id)!;
+    m.files = files;
+    return id;
   }
 
   /** Every change to a task, newest first (rows of one edit keep the order they were made in). */

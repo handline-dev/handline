@@ -45,6 +45,7 @@ function List(props: { onSelect: (id: number) => void }) {
   );
   const [creating, setCreating] = useState(false);
   const [graph, setGraph] = useState(false);
+  const [menu, setMenu] = useState(false);
   const [filtering, setFiltering] = useState(false);
   const narrowed = states.size !== defaultFilter().states.size;
   if (creating)
@@ -59,11 +60,23 @@ function List(props: { onSelect: (id: number) => void }) {
         title="Tasks"
         actions={
           <>
-            <Button testID="graph-toggle" label={graph ? 'List' : 'Graph'} onPress={() => setGraph(!graph)} />
             <Button testID="new-task-open" label="New task" onPress={() => setCreating(true)} />
+            <Button testID="tasks-menu" label="⋯" accessibilityLabel="More" onPress={() => setMenu(!menu)} />
           </>
         }
       />
+      {menu && (
+        <View style={{ paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+          <Button
+            testID="graph-toggle"
+            label={graph ? 'List' : 'Graph'}
+            onPress={() => {
+              setGraph(!graph);
+              setMenu(false);
+            }}
+          />
+        </View>
+      )}
       {graph ? (
         <Loadable query={query} served={served} isEmpty={false} skeleton="tasks" label="tasks" empty="No open tasks.">
           <TaskGraph tasks={query.data?.items ?? []} onSelect={props.onSelect} />
@@ -123,7 +136,7 @@ function List(props: { onSelect: (id: number) => void }) {
 function Row(props: { t: Task; onPress: () => void }) {
   const t = props.t;
   const now = Date.now();
-  const meta = [taskRef(t.id), t.state, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, idleText(t, now) || ago(t.created)];
+  const meta = [`→ ${t.to}`, t.state, idleText(t, now) || ago(t.created)];
   return <ListRow testID={`task-${t.id}`} title={t.title} meta={meta.filter(Boolean).join(' · ')} onPress={props.onPress} />;
 }
 
