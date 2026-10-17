@@ -76,3 +76,14 @@ test('a stroke of a billion pixels is drawn only where it is visible, and fast',
   const off = exportAnnotated(blankBitmap(30, 10), run({ type: 'strokeStart', x: -1e9, y: 500 }, { type: 'strokeEnd', x: 1e9, y: 500 }).shapes);
   assert.ok(off.data.every((v) => v === 0));
 });
+
+test('a circle is drawn as an outline inside its box: the rim is painted, the middle and the corner are not', () => {
+  const s = run({ type: 'color', color: '#ff0000' }, { type: 'width', width: 4 }, { type: 'tool', tool: 'ellipse' }, { type: 'strokeStart', x: 10, y: 10 }, { type: 'strokeEnd', x: 90, y: 90 });
+  const out = exportAnnotated(blankBitmap(100, 100), s.shapes);
+  assert.deepEqual(px(out, 10, 50), [255, 0, 0, 255]);
+  assert.deepEqual(px(out, 50, 10), [255, 0, 0, 255]);
+  assert.deepEqual(px(out, 50, 50), [0, 0, 0, 0]);
+  assert.deepEqual(px(out, 12, 12), [0, 0, 0, 0]);
+  const first = shapesToSvg(s.shapes, 100, 100).elements[0];
+  assert.equal(first?.type === 'path' && first.d.endsWith('Z'), true);
+});

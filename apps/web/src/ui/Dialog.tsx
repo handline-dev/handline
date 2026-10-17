@@ -10,11 +10,17 @@ export function Dialog({
   title,
   onClose,
   action,
+  full,
+  bar,
   children,
 }: {
   title: string;
   onClose: () => void;
   action?: { label: string; keys?: string; onClick?: () => void; form?: string; disabled?: boolean };
+  /** Nearly the whole window, for a body that is a picture: the title is only for screen readers. */
+  full?: boolean;
+  /** In the footer, left of the action. */
+  bar?: ReactNode;
   children: ReactNode;
 }) {
   const [host, setHost] = useState<HTMLElement | null>(null); // the dialog stays where it is mounted, not in <body>
@@ -39,18 +45,23 @@ export function Dialog({
       <Base.Root open modal onOpenChange={(open) => !open && onClose()}>
         {host ? (
           <Base.Portal container={host}>
-            <Backdrop>
+            <Backdrop style={full ? { paddingTop: 0, alignItems: 'center' } : undefined}>
               <Base.Popup
                 initialFocus={() => box.current?.querySelector<HTMLElement>('input, textarea, select, button') ?? true}
                 ref={box}
-                className="ui-dialog flex w-[min(var(--w-dialog),calc(100vw_-_2_*_var(--sp-6)))] flex-col gap-3 rounded-dialog bg-panel p-4 shadow-[var(--shadow-pop)]"
+                className={`ui-dialog flex flex-col gap-3 rounded-dialog bg-panel shadow-[var(--shadow-pop)] ${
+                  full
+                    ? 'h-[calc(100vh_-_var(--sp-4))] w-[calc(100vw_-_var(--sp-4))] p-2'
+                    : 'w-[min(var(--w-dialog),calc(100vw_-_2_*_var(--sp-6)))] p-4'
+                }`}
                 aria-label={title}
                 aria-modal="true"
               >
-                <Base.Title className="m-0 text-title font-semibold">{title}</Base.Title>
-                <div className="ui-dialog-body flex flex-col gap-3">{children}</div>
+                <Base.Title className={full ? 'sr-only' : 'm-0 text-title font-semibold'}>{title}</Base.Title>
+                <div className={`ui-dialog-body flex flex-col gap-3${full ? ' min-h-0 flex-1' : ''}`}>{children}</div>
                 {action ? (
-                  <footer className="flex justify-end">
+                  <footer className="flex items-center justify-end gap-2">
+                    {bar}
                     <Button
                       variant="solid"
                       label={action.label}
