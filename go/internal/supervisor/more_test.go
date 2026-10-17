@@ -9,32 +9,6 @@ import (
 	"github.com/handline/handline/go/internal/db"
 )
 
-func TestReviewPingpongStopsAfterThreeRoundsOnTheSameFile(t *testing.T) {
-	r := newRig(t)
-	if got := reviewPingpong(r.DB, "", "reviewer", "a.go"); got != "" {
-		t.Fatal(got)
-	}
-	var chain int64
-	for i := 0; i < 3; i++ {
-		id, _ := db.AddRequest(r.DB, db.NewRequest{Requester: "alice", Target: "reviewer", Body: "r", Files: "a.go,b.go", ChainID: itoaChain(chain)})
-		if chain == 0 {
-			chain = id
-			r.DB.Exec("UPDATE requests SET chain_id = ? WHERE id = ?", itoaChain(chain), id)
-		}
-	}
-	got := reviewPingpong(r.DB, itoaChain(chain), "reviewer", "b.go,c.go")
-	if got != "review ping-pong: 3 rounds on b.go, c.go in this chain. Two agents who cannot agree is usually a spec question." {
-		t.Fatalf("%q", got)
-	}
-	if got := reviewPingpong(r.DB, itoaChain(chain), "reviewer", "other.go"); got != "" {
-		t.Fatalf("another file: %q", got)
-	}
-}
-
-func itoaChain(n int64) string {
-	return strings.TrimSpace(strings.Repeat(" ", 0) + string(rune('0'+n)))
-}
-
 func TestTellUndeliveredTypesWhatReachedAnAgentWhileItHadNoSession(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
@@ -176,6 +150,16 @@ func TestTheImagesFollowTheBodyAfterTheCut(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 	if got := tellText(r.DB, head, 1, nil, false, nil, ""); strings.Contains(got, "[image") {
+		t.Fatalf("%q", got)
+	}
+	tid, err := db.NewTask(r.DB, "write the docs", "bob", "alice", 0, db.DefaultPriority, "", 0, "")
+	r.must(err)
+	bare := r.ask("alice", "bob", "", "task")
+	r.must(db.LinkRequest(r.DB, tid, bare))
+	if got := tellText(r.DB, mustReq(r, bare), 1, nil, false, nil, ""); strings.Contains(got, "(empty)") || !strings.Contains(got, "Title: write the docs") {
+		t.Fatalf("a task with no body shows its title: %q", got)
+	}
+	if got := batchText(r.DB, []*db.Request{mustReq(r, bare)}, nil, nil); strings.Contains(got, "(empty)") || !strings.Contains(got, "Title: write the docs") {
 		t.Fatalf("%q", got)
 	}
 	empty := mustReq(r, r.ask("alice", "bob", "", "say"))

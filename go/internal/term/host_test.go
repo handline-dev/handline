@@ -42,13 +42,13 @@ func calls(t *testing.T, log string) []string {
 
 func TestATerminalIsOpenedInTheWorktreeAndTheLaunchLineTypedAtItsShell(t *testing.T) {
 	log := fakeTmux(t)
-	handle, why := Tmux{}.CreateTerminal("hl launch alice", "/wt/alice", "alice.x")
+	handle, why := Tmux{"/h"}.CreateTerminal("hl launch alice", "/wt/alice", "alice.x")
 	if handle != "%7" || why != "" {
 		t.Fatalf("%q %q", handle, why)
 	}
 	got := calls(t, log)
 	// no server yet: a session is made with a size; the window name has no dots or colons; the home goes in the environment
-	want := "-L t new-session -d -s ocp -x 200 -y 50 -n alice_x -c /wt/alice -e OCP_HOME=/h -e HANDLINE_HOME=/h -P -F #{pane_id}"
+	want := "-L t new-session -d -s ocp -x 200 -y 50 -n alice_x -c /wt/alice -e OCP_HOME=/h -e HANDLINE_HOME=/h -e OCP_TMUX_SOCKET=t -e HANDLINE_TMUX_SOCKET=t -P -F #{pane_id}"
 	if got[1] != want {
 		t.Fatalf("%q", got)
 	}
@@ -56,7 +56,7 @@ func TestATerminalIsOpenedInTheWorktreeAndTheLaunchLineTypedAtItsShell(t *testin
 		t.Fatalf("%q", got)
 	}
 	// a second terminal is a window of the session that is up
-	Tmux{}.CreateTerminal("hl launch bob", "/wt/bob", "bob")
+	Tmux{"/h"}.CreateTerminal("hl launch bob", "/wt/bob", "bob")
 	got = calls(t, log)
 	if !strings.HasPrefix(got[len(got)-3], "-L t new-window -t ocp: -n bob -c /wt/bob") {
 		t.Fatalf("%q", got)
@@ -67,7 +67,7 @@ func TestAWindowWhoseLaunchLineCouldNotBeTypedIsClosedAgain(t *testing.T) {
 	log := fakeTmux(t)
 	dir := filepath.Dir(log)
 	os.WriteFile(filepath.Join(dir, "tmux"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+log+"\ncase \"$3\" in has-session) exit 1;; new-session) echo %7;; send-keys) echo no pane >&2; exit 1;; esac\n"), 0o755)
-	handle, why := Tmux{}.CreateTerminal("hl launch alice", "", "")
+	handle, why := Tmux{"/h"}.CreateTerminal("hl launch alice", "", "")
 	if handle != "" || !strings.Contains(why, "could not type the command") {
 		t.Fatalf("%q %q", handle, why)
 	}
@@ -87,12 +87,13 @@ type hostBackend struct {
 	sent    []string
 	respawn []string
 	closed  []string
+	waited  int
 }
 
 func (h *hostBackend) Name() string                                   { return "fake" }
 func (h *hostBackend) Available() bool                                { return true }
 func (h *hostBackend) ListTerminals() map[string]bool                 { return h.live }
-func (h *hostBackend) WaitIdle(string, int, func([]string) bool) bool { return true }
+func (h *hostBackend) WaitIdle(string, int, func([]string) bool) bool { h.waited++; return true }
 func (h *hostBackend) ReadScreen(string, int) *Screen {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -154,6 +155,17 @@ func TestARelaunchTypesTheLineThenItsEnterAndAsksWhetherAnythingStarted(t *testi
 	if ok || !strings.Contains(why, "no session started") || !strings.Contains(why, "the terminal is alive (screen: ~/work $)") {
 		t.Fatalf("%v %q", ok, why)
 	}
+	// the launch is done once its session is drawn: a first turn that keeps the screen busy is not waited out
+	turn := append([]string{"✻ Working… (esc to interrupt)"}, composer...)
+	h = &hostBackend{live: map[string]bool{"%1": true}, screen: func(n int) []string {
+		if n < 2 {
+			return shell
+		}
+		return turn
+	}}
+	if ok, why := hostTerm(h).Relaunch("%1", "hl launch alice", func() bool { return true }); !ok || h.waited != 0 {
+		t.Fatalf("%v %q, waited for idle %d times", ok, why, h.waited)
+	}
 	// a session already drawn there is not typed at
 	h = &hostBackend{live: map[string]bool{"%1": true}, screen: func(int) []string { return composer }}
 	if ok, why := hostTerm(h).Relaunch("%1", "hl launch alice", nil); ok || len(h.sent) != 0 || !strings.Contains(why, "a session is on the terminal's screen") {
@@ -188,5 +200,53 @@ func TestOnlyTmuxIsAHostAndAnyOtherNameIsNeverAvailable(t *testing.T) {
 	b := Current(home)
 	if ok, why := b.Send("h", "x", true); b.Name() != "orca" || b.Available() || b.ListTerminals() != nil || ok || !strings.Contains(why, "orca") {
 		t.Fatalf("a host the daemon does not drive: %q %v %q", b.Name(), b.Available(), why)
+	}
+}
+
+// A daemon on a scratch home never reaches the live tmux server (-L ocp), whether the socket setting is missing or names ocp: a
+// scratch daemon that did put a window among the live agents'.
+func TestAScratchDaemonNeverReachesTheLiveTmuxServer(t *testing.T) {
+	log := fakeTmux(t)
+	home := t.TempDir()
+	for _, sock := range []string{"", "ocp"} {
+		t.Setenv("HANDLINE_TMUX_SOCKET", sock)
+		t.Setenv("OCP_TMUX_SOCKET", sock)
+		tm := Current(home).(Tmux)
+		tm.ListTerminals()
+		tm.CreateTerminal("hl launch alice", home, "alice")
+		for _, argv := range [][]string{tm.ControlCommand(), tm.AttachCommand()} {
+			if argv[1] != "-L" || argv[2] == "ocp" {
+				t.Errorf("socket %q: %q", sock, argv)
+			}
+		}
+	}
+	for _, line := range calls(t, log) {
+		if !strings.HasPrefix(line, "-L ocp-") {
+			t.Errorf("not on the scratch home's own server: %q", line)
+		}
+	}
+}
+
+// A terminal names the daemon's own home and tmux server, not the live home a daemon's environment may still carry: what runs in a
+// scratch daemon's window must not reach the live daemon.
+func TestATerminalNamesTheDaemonsHomeNotTheEnvironments(t *testing.T) {
+	log := fakeTmux(t)
+	live, home := filepath.Join(t.TempDir(), ".handline"), t.TempDir()
+	t.Setenv("OCP_HOME", live)
+	t.Setenv("HANDLINE_HOME", live)
+	t.Setenv("OCP_TMUX_SOCKET", "")
+	t.Setenv("HANDLINE_TMUX_SOCKET", "")
+	if _, why := Current(home).(Tmux).CreateTerminal("hl launch alice", home, "alice"); why != "" {
+		t.Fatal(why)
+	}
+	made := calls(t, log)[1]
+	sock := strings.Fields(made)[1]
+	for _, want := range []string{"OCP_HOME=" + home, "HANDLINE_HOME=" + home, "OCP_TMUX_SOCKET=" + sock, "HANDLINE_TMUX_SOCKET=" + sock} {
+		if !strings.Contains(made, " -e "+want+" ") {
+			t.Errorf("no %s in %q", want, made)
+		}
+	}
+	if strings.Contains(made, live) {
+		t.Errorf("the environment's home reached the window: %q", made)
 	}
 }

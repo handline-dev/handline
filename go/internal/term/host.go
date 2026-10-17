@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/handline/handline/go/internal/paths"
 )
 
 // Host is what a backend adds to start and end the terminals the daemon runs agents in.
@@ -38,9 +40,11 @@ func (t Tmux) CreateTerminal(command, cwd, title string) (string, string) {
 	if cwd != "" {
 		args = append(args, "-c", cwd)
 	}
-	// The home the daemon runs on goes into the window's environment, so what runs there reads the same one under either spelling.
-	if home := getenv("HOME"); home != "" {
-		args = append(args, "-e", "OCP_HOME="+home, "-e", "HANDLINE_HOME="+home)
+	// The daemon's home and its tmux server go into the window's environment under both spellings, so what runs there reads
+	// them and not whatever the tmux server or the daemon's own environment was started with.
+	if t.Home != "" {
+		sock := paths.TmuxSocket(t.Home)
+		args = append(args, "-e", "OCP_HOME="+t.Home, "-e", "HANDLINE_HOME="+t.Home, "-e", "OCP_TMUX_SOCKET="+sock, "-e", "HANDLINE_TMUX_SOCKET="+sock)
 	}
 	args = append(args, "-P", "-F", "#{pane_id}")
 	var code int
@@ -223,9 +227,28 @@ func (t *Term) Relaunch(handle, command string, started func() bool) (bool, stri
 	if started != nil && !started() {
 		return false, "the launch command was typed but no session started" + t.terminalNote(handle)
 	}
-	// Typing into a TUI that is still booting loses the opening characters.
-	t.WaitIdle(handle, IdleTimeoutMs)
+	// What reads the screen next (a startup dialog, the trust screen) must see the session drawn, not the shell it replaced.
+	t.WaitDrawn(handle, DrawnTimeoutMs)
 	return true, "relaunched"
+}
+
+// DrawnTimeoutMs is how long a launch waits for its session to be drawn.
+const DrawnTimeoutMs = 30_000
+
+// WaitDrawn is whether a session (its composer, a dialog, a running turn) or the trust screen is drawn at handle within timeoutMs. It
+// does not wait for the session's first turn: a launch hands its prompt in a file, so nothing is typed behind it, and that turn can
+// run for minutes.
+func (t *Term) WaitDrawn(handle string, timeoutMs int) bool {
+	deadline := t.now().Add(time.Duration(timeoutMs) * time.Millisecond)
+	for {
+		if session, _ := t.SessionOnScreen(handle); session || t.TrustPromptShowing(handle) {
+			return true
+		}
+		if !t.now().Before(deadline) {
+			return false
+		}
+		t.sleep(promptPoll)
+	}
 }
 
 // terminalNote is what a launch that started nothing says about the terminal it was typed into: that it is gone, or alive and what its

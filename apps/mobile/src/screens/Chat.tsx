@@ -5,14 +5,14 @@
 // chat that shows it. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { clockTime, landingLabel, sideOf, takeBack as canTakeBack, timeline } from '@handline/app-core';
-import { classify, sentence, useAgents, useChat, useChatActions, useInbox, useWrite, type ChatScope } from '@handline/app-data';
+import { clockTime, decidedProposals, landingLabel, sideOf, takeBack as canTakeBack, timeline } from '@handline/app-core';
+import { classify, sentence, useAgents, useChat, useChatActions, useHr, useInbox, useWrite, type ChatScope } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, Landing, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
-import { Line } from './ChatLines.tsx';
+import { Decided, Line } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
 import { ChatFind } from './ChatFind.tsx';
 import { ChatRefs, type Ref } from './ChatRefs.tsx';
@@ -80,7 +80,8 @@ export function Chat(props: { detail: AgentDetail }) {
     setTextState(v);
   };
   const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
-  const entries = timeline(chat.messages, chat.items, 'mine', agent);
+  const hr = useHr({});
+  const entries = timeline(chat.messages, chat.items, 'mine', agent, '', decidedProposals(hr.data?.proposals, agent));
 
   // The agent's messages now in front of the person leave the FOR YOU list (chat.seen); once per newest number.
   const said = chat.messages.filter((m) => m.from === agent && m.id > 0).reduce((n, m) => Math.max(n, m.id), 0);
@@ -219,7 +220,9 @@ export function Chat(props: { detail: AgentDetail }) {
           </Text>
         )}
         {entries.map((e) =>
-          e.kind !== 'item' ? (
+          e.kind === 'proposal' ? (
+            <Decided key={`p${e.id}`} p={e.proposal} />
+          ) : e.kind !== 'item' ? (
             <Bubble
               key={`m${e.id}`}
               m={e.message}

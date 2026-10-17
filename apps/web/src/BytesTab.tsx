@@ -122,8 +122,7 @@ export function BytesTab({
       const repaint = () => {
         const v = live.current?.view;
         if (!v) return;
-        const fits = sizes() && gridToSend(pane.propose(), v) === null;
-        const px = fits ? DEFAULT_FONT : fontFor(el.clientWidth, v.cols);
+        const px = sizes() ? DEFAULT_FONT : fontFor(el.clientWidth, v.cols); // a font that tracked the host's grid would move the grid this pane proposes
         traceResize('host', `${v.cols}x${v.rows}, font ${px}, sizes ${sizes()} holders ${v.holders.map((h) => h.kind).join()}`);
         pane.setFontSize(px);
       };

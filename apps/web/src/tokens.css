@@ -2,18 +2,18 @@
    Dark is the default; light follows the OS and `data-theme` on <html> overrides both. */
 :root {
   /* surfaces: canvas, sidebar and bars, cards and inputs, hover and selected */
-  --bg-0: #0e0e10;
-  --bg-1: #151517;
-  --bg-2: #1c1c1f;
-  --bg-3: #26262a;
-  --line: #2b2b30;
-  --line-strong: #3d3d44;
+  --bg-0: #0a0a0a;
+  --bg-1: #141414;
+  --bg-2: #171717;
+  --bg-3: #262626;
+  --line: #ffffff12;
+  --line-strong: #ffffff26;
   /* text: names and values, second line and labels, hints (never for a state) */
-  --ink: #ececee;
-  --ink-2: #a3a3ab;
-  --ink-3: #6f6f78;
-  --primary: #ececee;
-  --on-primary: #0e0e10;
+  --ink: #fafafa;
+  --ink-2: #a1a1a1;
+  --ink-3: #6b6b6b;
+  --primary: #fafafa;
+  --on-primary: #0a0a0a;
   --focus: #7aa2ff;
   --link: #8fb0ff;
   /* state hues (Okabe-Ito): each sits beside a glyph and is never the only signal */

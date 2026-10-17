@@ -72,6 +72,7 @@ type HandoffPort interface {
 type Terminal interface {
 	Available() bool
 	WaitIdle(handle string) bool
+	WaitDrawn(handle string) bool
 	TypeableNow(handle string) bool
 	ScreenBlocker(handle string) *term.Blocker
 	BackgroundWork(handle string) (running string, known bool)

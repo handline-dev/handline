@@ -230,7 +230,12 @@ func TestSendUnderAQuestionIsOnlyASayUnderIt(t *testing.T) {
 	if r.count("SELECT COUNT(*) FROM requests WHERE parent_id = ? AND body = 'a reference'", asked) != 1 {
 		t.Fatal("the say carries the parent link")
 	}
-	r.refusedWith(r.one(s, "chat.send", fmt.Sprintf(`{"agent":"bob","body":"yes","parent":%d,"request_id":"u2"}`, asked)), "state")
+	// A row between the person and another agent can be quoted in this agent's chat: the message goes to the agent named, the quote is a link.
+	res = r.result(r.one(s, "chat.send", fmt.Sprintf(`{"agent":"bob","body":"yes","parent":%d,"request_id":"u2"}`, asked)))
+	req, _ := res["request"].(float64)
+	if r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND target = 'bob' AND parent_id = ?", int64(req), asked) != 1 {
+		t.Fatalf("it goes to bob with the parent link: %v", res)
+	}
 }
 
 func TestAnswerOnADecisionCardDecidesItsTask(t *testing.T) {

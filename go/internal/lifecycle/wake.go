@@ -59,7 +59,8 @@ func joinNonEmpty(parts ...string) string {
 	return strings.Join(out, "\n\n")
 }
 
-// WakePrompt is what an agent is told when it comes back. A resume is started for a message and is handed that message, nothing else.
+// WakePrompt is what an agent is told when it comes back. A resume is started for a message and is handed that message, nothing else; a
+// fresh start is handed it last, after where to find its context.
 // One a person asked for, with nothing waiting, is handed nothing: the prompt file is empty, which the launch still takes (that is how a
 // launch is known to be ours) and starts no turn from. A resumed session already holds everything it knew, so it is told where it is
 // rather than what it did. One that was parked is given its handoff here; one started fresh gets it in its system prompt, and is told
@@ -110,6 +111,9 @@ func (m *Manager) WakePrompt(agent string, resumed bool, in WakePromptIn) (text 
 		} else if in.MovedTo == "" {
 			parts = append(parts, "Your previous session's transcript could not be found; read your journal and your inbox to see where you were.")
 		}
+	}
+	if in.Waiting != "" {
+		parts = append(parts, "This is what woke you; take it first:\n\n"+in.Waiting)
 	}
 	return strings.Join(parts, "\n\n"), nil
 }
@@ -580,14 +584,11 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 			}
 			break
 		}
-		// Only a resume reads it: a fresh start has read nothing of what the queue held, and is told the ordinary way once it is up.
-		waiting.text, waiting.told, waiting.ok = "", nil, false
-		if resume {
-			t, told, got := must3(m.Delivery.WaitingPrompt(m.Q, agent))
-			waiting.text, waiting.told, waiting.ok = t, told, got
-			if !got && !c.force {
-				return false, "what was waiting for it is gone; nothing to resume it for"
-			}
+		// A fresh start is handed it too: told the ordinary way, it would wait behind a first turn spent on the handoff.
+		t, told, got := must3(m.Delivery.WaitingPrompt(m.Q, agent))
+		waiting.text, waiting.told, waiting.ok = t, told, got
+		if resume && !got && !c.force {
+			return false, "what was waiting for it is gone; nothing to resume it for"
 		}
 		restartNote := ""
 		if c.restartedBy != "" {
@@ -638,10 +639,10 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 		cleared, w = m.clearTrustPrompt(agent, handle, true)
 	}
 	if !cleared {
-		if resumed && waiting.ok {
+		if waiting.ok {
 			// The session took the message as its first prompt and reads it once past the screen. Recorded now, after the closed mark came
 			// off, so nothing later voids it and has it told twice.
-			check(waiting.told(session))
+			check(waiting.told(ifTrue(resumed, session)))
 		}
 		return false, w
 	}
@@ -649,9 +650,9 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 	if f := must(db.GetAgentState(m.Q, agent)); f != nil && isClosed(f) {
 		check(db.ClearClosed(m.Q, agent))
 	}
-	if resumed && waiting.ok {
-		// After clear_closed, which voids what a session was told.
-		check(waiting.told(session))
+	if waiting.ok {
+		// After clear_closed, which voids what a session was told. A fresh session's id is the live one's.
+		check(waiting.told(ifTrue(resumed, session)))
 	}
 	payload := []db.KV{{K: "resumed_session", V: nilIfEmpty(ifTrue(resumed, session))}}
 	if cold {
@@ -749,7 +750,7 @@ func (m *Manager) launchInPane(agent, handle, wt, cmd string, started func() boo
 	}
 	if ok {
 		if nh := must(db.Terminal(m.Q, agent)); nh != "" {
-			m.Term.WaitIdle(nh)
+			m.Term.WaitDrawn(nh)
 		}
 	}
 	return ok, why

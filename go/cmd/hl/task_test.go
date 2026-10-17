@@ -84,7 +84,11 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "reopen", "T3", "why"}, []string{`task.reopen {"note":"why","task":3}`}},
 		{"", []string{"task", "discard", "T3", "why"}, []string{`task.discard {"reason":"why","task":3}`}},
 		{"", []string{"task", "release", "T3", "why"}, []string{`task.release {"reason":"why","task":3}`}},
-		{"", []string{"task", "accept", "T3"}, []string{`task.accept {"task":3}`}},
+		{"", []string{"task", "release", "T3"}, []string{`task.release {"task":3}`}},
+		{"", []string{"task", "reopen", "T3"}, []string{`task.reopen {"task":3}`}},
+		{"", []string{"task", "handoff", "T3", "b.two"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
+		{"", []string{"task", "handoff", "T3", "b.two", "-"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
+		{"", []string{"task", "accept", "T3"},[]string{`task.accept {"task":3}`}},
 		{"", []string{"task", "reject", "T3", "no tests"}, []string{`task.reject {"note":"no tests","task":3}`}},
 	}
 	seen := 0
@@ -130,7 +134,6 @@ func TestTaskRefusalsBeforeAnyCall(t *testing.T) {
 			"a task needs --assign: who works it (--owner is who answers for it, you when not given). Try:\n  hl task new --assign <agent> -t 60m x\n"},
 		{asAgent, []string{"task", "new", "--assign", "b.two", "-t", "90s", " ", "y"},
 			"a task needs a title. Try:\n  hl task new --assign b.two -t 90s '<title>' y\n"},
-		{asAgent, []string{"task", "handoff", "T3", "b.two"}, "note is required (inline, --file PATH, or on stdin)\n"},
 		{asAgent, []string{"task", "done", "T3", "-"}, "evidence is required, and stdin (-) was empty\n"},
 		{asAgent, []string{"task", "handoff", "T3", "b.two", "n", "--file", "f"}, "give note inline or with --file, not both\n"},
 		{asAgent, []string{"task", "edit", "T3", "--owner", "b.two"}, "--owner is who answers for a task, not who works it, so it needs --assign too. To move the work:\n" +

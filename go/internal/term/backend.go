@@ -42,7 +42,6 @@ type Backend interface {
 
 const (
 	defaultBackend = "tmux"
-	tmuxSocket     = "ocp"
 	tmuxTimeout    = 15 * time.Second
 	// Between typing a line and its Enter: a shell or TUI that gets both at once can take the Enter as part of a paste.
 	enterDelay = 400 * time.Millisecond
@@ -75,7 +74,7 @@ func run(timeout time.Duration, stdin string, name string, args ...string) (int,
 	return 0, out.String(), textsafe.Oneline(strings.TrimSpace(errb.String()))
 }
 
-// ---- tmux: terminals are windows of one session on a server the daemon owns (tmux -L ocp)
+// ---- tmux: terminals are windows of one session on a server the daemon owns (paths.TmuxSocket)
 
 var paneRE = regexp.MustCompile(`^%\d+$`)
 
@@ -85,17 +84,13 @@ var tmuxKeys = map[string]string{"\x1b[A": "Up", "\x1b[B": "Down", "\x1b[C": "Ri
 // What tmux says when nothing listens: not "error connecting" alone, which a socket the caller may not use says too.
 var noServer = []string{"no server running", "no sessions", "can't find session", "(no such file or directory)", "(connection refused)"}
 
-// Tmux drives panes through the tmux CLI.
-type Tmux struct{}
+// Tmux drives panes through the tmux CLI, on the tmux server of Home (paths.TmuxSocket).
+type Tmux struct{ Home string }
 
 func (Tmux) Name() string { return "tmux" }
 
-func (Tmux) tmux(timeout time.Duration, stdin string, args ...string) (int, string, string) {
-	sock := getenv("TMUX_SOCKET")
-	if sock == "" {
-		sock = tmuxSocket
-	}
-	return run(timeout, stdin, "tmux", append([]string{"-L", sock}, args...)...)
+func (t Tmux) tmux(timeout time.Duration, stdin string, args ...string) (int, string, string) {
+	return run(timeout, stdin, "tmux", append([]string{"-L", paths.TmuxSocket(t.Home)}, args...)...)
 }
 
 func (Tmux) Available() bool { _, err := exec.LookPath("tmux"); return err == nil }
@@ -251,7 +246,7 @@ func ConfiguredName(home string) string {
 func Current(home string) Backend {
 	switch name := ConfiguredName(home); name {
 	case "tmux":
-		return Tmux{}
+		return Tmux{home}
 	default:
 		return unknown{name}
 	}

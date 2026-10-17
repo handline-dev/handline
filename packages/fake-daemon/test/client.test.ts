@@ -413,3 +413,24 @@ test('a daemon built without the admin surface lists neither repos nor worktrees
   );
   client.close();
 });
+
+test('hello carries the founder key when the client has one, read at each connect', async () => {
+  const { DaemonClient } = await import('@handline/client');
+  const sent: unknown[] = [];
+  const t = {
+    onmessage: null as ((m: string) => void) | null,
+    onclose: null as (() => void) | null,
+    close() {},
+    send(m: string) {
+      const msg = JSON.parse(m) as { id: number; method: string; params: unknown };
+      sent.push(msg.params);
+      queueMicrotask(() => t.onmessage?.(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocol: 1, min_client: 1, capabilities: {} } })));
+    },
+  };
+  let key: string | null = null;
+  const c = new DaemonClient({ client: 'electron', connect: async () => t, key: () => key, reconnect: false });
+  key = 'k-1';
+  await c.start().catch(() => {});
+  c.close();
+  assert.equal((sent[0] as { key?: string }).key, 'k-1');
+});

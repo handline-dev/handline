@@ -440,36 +440,39 @@ describe('the detail', () => {
       expect((button(label, verbs) as HTMLButtonElement).disabled).toBe(true);
       expect(button(label, verbs)!.title).toBe(`This daemon does not serve ${method} yet`);
     }
-    expect((button('Edit', verbs) as HTMLButtonElement).disabled).toBe(false);
+    expect(button('Edit', verbs)).toBeUndefined(); // fields change where they are
+    expect(button('Reply', verbs)).toBeUndefined(); // a comment replaces it
     expect((button('Cancel', verbs) as HTMLButtonElement).disabled).toBe(false);
     expect(button('Reopen', verbs)).toBeUndefined(); // not a done task
     expect(button('Queue', verbs)).toBeUndefined(); // not a draft
     expect(button('Withdraw', verbs)).toBeUndefined(); // already running, and not mine
   });
 
-  it('edits title, owner, time box and priority at once, and puts it back when the daemon refuses', async () => {
+  it('edits the title, priority and time box where they are, at once, and puts it back when the daemon refuses', async () => {
     const s = setup();
     await mount('#/tasks/1700', s);
     await until(() => $('.tverbs'), 'the verbs');
-    await click(button('Edit')!);
-    const form = sheet('Edit T1700')!; // local-ref-ok
-    const [title] = $$('input.tinput', form);
-    await typeInto(title as HTMLInputElement, 'Pair the web UI');
-    await choose($('select', form) as HTMLSelectElement, '1');
+    expect(button('Edit')).toBeUndefined();
+    const edit = async (label: string, value: string) => {
+      await click($(`[aria-label="Edit ${label}"]`)!);
+      await typeInto($(`input[aria-label="${label}"]`) as HTMLInputElement, value);
+      await press('Enter', {}, $(`input[aria-label="${label}"]`)!);
+    };
     const release = s.daemon.knobs.hold('task.edit');
-    await click(button('Save', form)!);
+    await edit('Title', 'Pair the web UI');
     await until(() => text($('.tdetail-head')).includes('Pair the web UI'), 'the new title at once');
     expect(s.daemon.tasks.get({ task: 1700 }).title).toContain('Draft'); // not yet at the daemon
     release();
     await until(() => s.daemon.tasks.get({ task: 1700 }).title === 'Pair the web UI', 'saved');
-    expect(s.daemon.tasks.get({ task: 1700 }).priority).toBe(1);
+    await click($('[aria-label="Edit Priority"]')!);
+    await choose($('select[aria-label="Priority"]') as HTMLSelectElement, '1');
+    await until(() => s.daemon.tasks.get({ task: 1700 }).priority === 1, 'the priority');
+    await edit('Time box', '3h');
+    await until(() => s.daemon.tasks.get({ task: 1700 }).time_box === '3h', 'the time box');
     s.daemon.knobs.refuse('task.edit', 'state', 'locked');
-    await click(button('Edit')!);
-    await typeInto($$('input.tinput', sheet('Edit T1700')!)[0] as HTMLInputElement, 'Nope'); // local-ref-ok
-    await click(button('Save', sheet('Edit T1700')!)!); // local-ref-ok
+    await edit('Title', 'Nope');
     await until(() => text($('.toast')).includes('locked'), 'the refusal');
     await until(() => text($('.tdetail-head')).includes('Pair the web UI'), 'the title back');
-    expect($('.tsheet')).not.toBeNull(); // the form stays with the person's text
   });
 
   it('withdraws a task I asked for after a confirmation, with "…" until the daemon answers; a started task can only be cancelled', async () => {
@@ -493,30 +496,11 @@ describe('the detail', () => {
     expect(button('Cancel', $('.tverbs')!)).toBeUndefined(); // closed: no verbs left that stop it
   });
 
-  it('messages someone the task names: the holder is preselected, pick another chip, type, send', async () => {
-    const s = withVerbs(setup());
-    await mount('#/tasks/1688', s);
-    const reply = () => $('section[aria-label="Message about this task"]')!;
-    await until(() => $('section[aria-label="Message about this task"]'), 'the reply box');
-    expect($('[aria-label="Add a memo"]')).toBeNull();
-    expect(reply().querySelectorAll('button[aria-pressed=true]').length).toBe(1); // the holder is preselected
-    await click(button('handline.architect', reply())!);
-    await typeInto($('textarea', reply()) as HTMLTextAreaElement, 'is the pane done?');
-    await click(button('Send to handline.architect', reply())!);
-    await until(
-      () =>
-        (s.daemon.chat as unknown as { messages: { to: string; body: string }[] }).messages.some(
-          (m) => m.to === 'handline.architect' && m.body.includes('is the pane done?'),
-        ),
-      'the message to the architect',
-    );
-  });
-
   it('assigns the task: the picker groups who worked on it, then the note goes with it', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    await until(() => button('Assign', $('.tverbs') ?? box), 'Assign');
-    await click(button('Assign', $('.tverbs')!)!);
+    await until(() => button('Change the owner'), 'the owner button');
+    await click(button('Change the owner')!);
     const ask = sheet('Assign T1688 to…')!; // local-ref-ok
     expect($('section[aria-label="Worked on this task"]', ask)).not.toBeNull();
     await click(button('handline.architect', ask)!);
@@ -530,6 +514,19 @@ describe('the detail', () => {
         ),
       'the note',
     );
+  });
+
+  it('keeps the assign sheet open and says why when the daemon refuses the new owner', async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks/1688', s);
+    await until(() => button('Change the owner'), 'the owner button');
+    await click(button('Change the owner')!);
+    const ask = sheet('Assign T1688 to…')!; // local-ref-ok
+    await click(button('handline.architect', ask)!);
+    s.daemon.knobs.refuse('task.edit', 'state', 'cannot move it now');
+    await click(button('Assign to handline.architect', ask)!);
+    await until(() => text($('.tsheet-err', ask)).includes('cannot move it now'), 'the reason in the sheet');
+    expect(s.daemon.tasks.get({ task: 1688 }).to).not.toBe('handline.architect');
   });
 
   it('shows every action and state as a word', async () => {
