@@ -3,6 +3,7 @@
 package fold
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/atomicfile"
-	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/gitrun"
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/paths"
@@ -24,7 +24,7 @@ const Timeout = 180 * time.Second
 // Env is what the two need; Fold also needs DB, Usage and Accounts.
 type Env struct {
 	Home     string
-	DB       db.Q
+	DB       *sql.DB
 	Usage    *usage.Env
 	Accounts team.Accounts
 	Timeout  time.Duration // zero is Timeout
