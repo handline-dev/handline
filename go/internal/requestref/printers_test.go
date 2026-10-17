@@ -19,7 +19,9 @@ var hashAllowed = []struct{ file, line, why string }{
 	{"internal/watcher/tasks.go", `"#" + extra[id]`, "the watcher's separator"},
 }
 
-var hashPrinter = regexp.MustCompile(`#%[dvs]|"#"\s*\+|\+\s*"#"`)
+// A # before a verb (with flags, a width or an argument index: #%-5d, #%[1]d), a "#" joined by + , or a "#" argument of a Sprint or Print
+// call, which prints it before the id that follows.
+var hashPrinter = regexp.MustCompile(`#%[-+ 0#]*(\d+|\[\d+\])?[dvs]|"#"\s*\+|\+\s*"#"|\b\w*[Pp]rint\w*\((.*,\s*)?"#"\s*,`)
 
 func TestNoSourcePrintsAMessageIdWithAHash(t *testing.T) {
 	root := filepath.Join("..", "..")
