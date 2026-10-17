@@ -11,7 +11,7 @@ import { Button, Icon } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
 import { AssignSheet } from './TaskPeople.tsx';
-import { CancelSheet, TaskLinks, TaskMeta, TaskTimeline, Verb } from './TaskDetailParts.tsx';
+import { CancelSheet, TaskLinks, TaskMeta, Verb } from './TaskDetailParts.tsx';
 import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from './TaskInline.tsx';
 import { TaskHistory } from './TaskHistory.tsx';
 import { Comments } from './TaskComments.tsx';
@@ -167,13 +167,13 @@ function Body({ t }: { t: Detail }) {
       {t.blockers.length ? <TaskLinks icon="waiting" label="Waits on" items={t.blockers} /> : null}
       {t.children.length ? <TaskLinks icon="tasks" label="Sub-tasks" items={t.children.map((c) => ({ task: c }))} /> : null}
 
-      {t.deliveries.length || t.events.length || history.data?.rows.length ? (
+      {history.data?.rows.length ? (
         <>
           <h3 className={H3}>
             <Icon name="history" label="History" aria-hidden="true" /> <span className="ml-1">History</span>
             {history.data ? <span className="ml-2 text-ink-3">{history.data.rows.length} changes</span> : null}
           </h3>
-          {history.data ? <TaskHistory rows={history.data.rows} /> : <TaskTimeline deliveries={t.deliveries} events={t.events} />}
+          {history.data ? <TaskHistory rows={history.data.rows} /> : null}
         </>
       ) : null}
 
