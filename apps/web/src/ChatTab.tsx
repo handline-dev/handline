@@ -93,6 +93,14 @@ function Typing({ line }: { line: string }) {
 const groupOf = (scope: ChatScope, prev: TimelineEntry | undefined, m: ChatMessage) =>
   scope === 'all' ? { name: prev?.kind === 'message' && prev.message.from === m.from ? null : m.from } : undefined;
 
+/** Scrolls `box` so the line `a` remembered is back where it was. Found again by its id: a page landing can re-create the element (separators, grouping). */
+function putBack(box: HTMLElement, a: { id: string; off: number }) {
+  const el = box.querySelector(`[data-id="${CSS.escape(a.id)}"]`);
+  if (!el) return;
+  const drift = el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
+  if (drift) box.scrollTop += drift;
+}
+
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const { storage } = useWorkspace();
   const canSend = useSelector((s) => s.can('chat.send'));
@@ -153,12 +161,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const box = stream.current;
     const a = anchor.current;
     if (!box || !a) return;
-    // Found again by its id: a page landing can re-create the element (separators, grouping), so the one held at load start may be gone.
-    const el = box.querySelector(`[data-id="${CSS.escape(a.id)}"]`);
-    if (el) {
-      const drift = el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
-      if (drift) box.scrollTop += drift;
-    }
+    putBack(box, a);
     if (!chat.loadingOlder) anchor.current = null; // the load is over; the next one remembers its own line
   }, [entries.length, chat.loadingOlder]);
   useEffect(() => {
