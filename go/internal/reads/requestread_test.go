@@ -264,3 +264,21 @@ func TestRequestReadLetsTheTargetOfTheFoundersQuoteReadWhatWasQuoted(t *testing.
 		t.Fatal("another agent's quote does not open a request")
 	}
 }
+
+func TestRequestReadTakesARefOrPrefixUnderTheSameRule(t *testing.T) {
+	e := testEnv(t)
+	os.WriteFile(filepath.Join(e.Home, "team.yaml"), []byte("agents:\n  amy: {}\n  bob: {}\n  cat: {}\n"), 0o644)
+	run(t, e, "INSERT INTO requests(id, ref, ts, requester, target, body, state, kind, edge_ok) VALUES(1, 'c0ffee000001', 10, 'amy', 'bob', 'private', 'landed', 'ask', 1)")
+	agent := func(name string) *rpc.Conn {
+		return &rpc.Conn{Caller: rpc.Caller{Role: "agent", Info: map[string]any{"kind": "agent", "name": name}}}
+	}
+	for _, ref := range []string{"c0ffee000001", "#c0ffee000001", "c0ffee"} {
+		if got, err := e.requestRead(agent("bob"), map[string]any{"id": ref}); err != nil || got.(map[string]any)["id"] != int64(1) {
+			t.Errorf("%s: %v %v", ref, got, err)
+		}
+		var nf *rpc.Error
+		if _, err := e.requestRead(agent("cat"), map[string]any{"id": ref}); !errors.As(err, &nf) || nf.Code != "not_found" {
+			t.Errorf("a stranger's %s: %v", ref, err)
+		}
+	}
+}

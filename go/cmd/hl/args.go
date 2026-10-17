@@ -125,6 +125,18 @@ func integer(text string) (int, bool) {
 	return n, err == nil
 }
 
+// requestArg takes 12 digits as a ref, not a number, since a ref may be all digits.
+func requestArg(text string) (any, bool) {
+	t := strings.ToLower(strings.TrimPrefix(text, "#"))
+	if digits(t) && len(t) < 12 {
+		return integer(t)
+	}
+	if len(t) >= 6 && len(t) <= 12 && strings.Trim(t, "0123456789abcdef") == "" {
+		return t, true
+	}
+	return nil, false
+}
+
 func digits(s string) bool { return s != "" && strings.Trim(s, "0123456789") == "" }
 
 // textArg is cli/ask._text_arg: inline or a --file, never both; "-" as either reads stdin, and so does neither when

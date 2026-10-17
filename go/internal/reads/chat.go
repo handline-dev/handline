@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/transcript"
 )
@@ -785,9 +786,9 @@ func (e *Env) locateMessage(mid int64, agent string, everyone bool) (located, er
 }
 
 func (e *Env) chatLocate(c *rpc.Conn, params map[string]any) (any, error) {
-	mid, ok := rpc.AsInt(params["request"])
-	if _, isBool := params["request"].(bool); !ok || isBool {
-		return nil, badParam("request is a message number", "request")
+	mid, err := requestref.Resolve(e.DB, e.Home, params["request"], requestref.Viewer(c), "request")
+	if err != nil {
+		return nil, err
 	}
 	limit, err := limitOr(params, maxLimit, defaultLimit)
 	if err != nil {

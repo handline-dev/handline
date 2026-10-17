@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/textsafe"
 )
@@ -32,7 +33,7 @@ func parsePriority(v any) (int64, error) {
 
 // begin is task.begin (actions.task_begin): the founder's own message to the caller is approval enough, so the caller opens a task for
 // itself and starts it. What stands in for the approval is the message linked to the task; why, when given, goes on the event.
-func begin(c *rpc.Conn, p map[string]any) (any, error) {
+func begin(c *rpc.Conn, p map[string]any, home string) (any, error) {
 	title, err := text(p, "title")
 	if err != nil {
 		return nil, err
@@ -44,9 +45,8 @@ func begin(c *rpc.Conn, p map[string]any) (any, error) {
 	if p["body"] != nil {
 		return nil, badParam("body is not served yet: a task's words are its title and the founder's message it links", "body")
 	}
-	chat, err := idParam(p, "message")
-	if err != nil {
-		return nil, err
+	if p["message"] == nil {
+		return nil, badParam("message is the founder's message it answers", "message")
 	}
 	prio := int64(db.DefaultPriority)
 	if p["priority"] != nil {
@@ -63,12 +63,16 @@ func begin(c *rpc.Conn, p map[string]any) (any, error) {
 		if me == human {
 			return nil, refusal("a task is begun by an agent, never in the founder's name")
 		}
-		req, err := db.GetRequest(tx, chat)
+		chat, err := requestref.Resolve(tx, home, p["message"], me, "message")
+		if name, missing := requestref.Missing(err); missing {
+			return nil, refusal("no request #" + name)
+		}
 		if err != nil {
 			return nil, err
 		}
-		if req == nil {
-			return nil, refusal(fmt.Sprintf("no request #%d", chat))
+		req, err := db.GetRequest(tx, chat)
+		if err != nil {
+			return nil, err
 		}
 		if req.Requester != human || req.Target != me {
 			return nil, refusal(fmt.Sprintf("request #%d is not a message from the founder to %s: only that lets you start a task without approval", chat, me))
