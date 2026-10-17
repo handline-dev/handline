@@ -574,6 +574,20 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
+  it('a reply quoting another agent’s message stays in this chat, with the quote as its link', async () => {
+    const m = await mount(() => {}, undefined, 'founder');
+    await openChat();
+    const quoted = 'Review is done, see the notes.'; // said by handline.auditor, shown under All
+    await press($('scope-all'));
+    await until(() => msgOf(quoted), 'the quoted message');
+    await press(msgOf(quoted)!);
+    await type('chat-input', 'thanks, merging');
+    await press($('chat-send'));
+    await until(() => msgOf('thanks, merging'), 'the reply in this chat');
+    expect(msgOf('thanks, merging')!.textContent).toContain('↩ #');
+    m.store.stop();
+  });
+
   it('a question from the agent is an ordinary message: no answer box, no Dismiss, no waiting mark', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
