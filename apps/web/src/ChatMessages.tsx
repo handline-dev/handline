@@ -165,8 +165,8 @@ export function Message(props: {
                 </div>
               ) : null
             ) : p.gone ? (
-              <span key={n} className="attachment gone muted text-[12px]" title="This image is no longer kept">
-                {p.caption || p.image.name || 'image'}
+              <span key={n} className="attachment gone muted text-[12px]">
+                {p.caption || p.image.name || 'image'} - no longer kept
               </span>
             ) : (
               <Pictures key={n} items={[{ id: p.image.id, name: p.image.name ?? p.caption }]} />

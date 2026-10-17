@@ -167,7 +167,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     return () => cancelAnimationFrame(id);
   }, [chat.loadingOlder, entries.length]);
   const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
-  const repin = () => void (pinned.current && stream.current && (stream.current.scrollTop = stream.current.scrollHeight));
+  const repin = () => {
+    const el = stream.current;
+    if (el && pinned.current) el.scrollTop = el.scrollHeight;
+  };
 
   useLayoutEffect(repin, [last, entries.length, chat.working.turn_running]);
 

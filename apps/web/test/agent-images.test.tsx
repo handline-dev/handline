@@ -110,4 +110,14 @@ describe('images an agent attaches to a message', () => {
     expect(box.querySelector('.msg .attachment.failed')!.textContent).toContain('could not be loaded');
     await until(() => box.querySelector('.msg .attachment.gone'), 'the gone line');
   });
+
+  it('names a dropped image in words beside its caption', async () => {
+    const s = setup();
+    const a = s.daemon.uploads.addMemoFile('first.png', 'image/png', PNG);
+    const image = { id: a.id, name: a.name, mime: 'image/png' as const, bytes: a.bytes };
+    s.daemon.chat.seed(ARCH, { from: ARCH, to: 'human', body: 'see', attachments: [image], parts: [{ text: 'see ' }, { image, caption: 'one', gone: true }] });
+    await mount(s);
+    await until(() => box.querySelector('.msg .attachment.gone'), 'the dropped image');
+    expect(box.querySelector('.msg .attachment.gone')!.textContent).toBe('one - no longer kept');
+  });
 });

@@ -163,8 +163,7 @@ export function useAttachmentUrl(id: string, thumb: boolean): { url: string | nu
   return state;
 }
 
-export type AttachmentRead =
-  { state: 'loading' } | { state: 'ready'; mime: ReadMime; bytes: Uint8Array } | { state: 'gone' } | { state: 'failed' };
+export type AttachmentRead = { state: 'loading' } | { state: 'ready'; mime: ReadMime; bytes: Uint8Array } | { state: 'gone' } | { state: 'failed' };
 
 /** The bytes of an attachment, read on each mount (no cache, for an app that has no object URLs); `gone` when the daemon dropped it. */
 export function useAttachmentBytes(id: string, thumb: boolean): AttachmentRead {
