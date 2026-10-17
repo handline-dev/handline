@@ -50,6 +50,10 @@ test('the dot follows the daemon state, with a dialog or block taking over', () 
   assert.equal(dotOf(agent('a', { state: 'no_terminal' })), 'none');
   assert.equal(dotOf(agent('a', { state: 'parked' })), 'parked');
   assert.equal(dotOf(agent('a', { state: 'something_new' })), 'idle');
+  const handoff = (phase: 'writing' | 'starting') => ({ handoff: { cause: 'context_full', phase, since: '' } });
+  assert.equal(dotOf(agent('a', { state: 'idle', ...handoff('starting') })), 'waking');
+  assert.equal(dotOf(agent('a', { state: 'idle', ...handoff('writing') })), 'idle');
+  assert.equal(dotOf(agent('a', { state: 'running', ...handoff('starting') })), 'waking');
 });
 
 test('the rail sorts waiting up, nests children, and filters by dot and search', () => {
