@@ -5,7 +5,7 @@
 [ -n "${HANDLINE_HEAVY_SLOT:-}" ] && exec "$@"
 top="$(cd "$(dirname "$0")/.." && pwd)" || exit 1
 command -v go >/dev/null || exec "$@"   # the Go checks say themselves that go is missing
-bin="${TMPDIR:-/tmp}/handline-heavyslot.$(printf %s "$top" | cksum | cut -d' ' -f1)"
+bin="$top/go/heavyslot"   # kept between runs beside go/hl, not in TMPDIR: a run under tools/leakcheck.py must leave nothing there
 if ! (cd "$top/go" && . "$top/tools/go-env.sh" && CGO_ENABLED=0 go build -o "$bin" ./cmd/heavyslot); then
     echo "tools/heavy-slot.sh: could not build the slot helper; runs without a slot" >&2
     exec "$@"
