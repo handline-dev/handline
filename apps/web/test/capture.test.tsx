@@ -73,11 +73,13 @@ afterEach(async () => {
   location.hash = '';
 });
 
+/** The shortcut: the Tasks screens have no Capture button, the palette and ⌘⇧C open the dialog. */
+const capture = () => act(async () => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', metaKey: true, shiftKey: true, bubbles: true })));
+
 describe('capture', () => {
   it('sends the picture as a new task whose body names it', async () => {
     const s = await mount('#/tasks');
-    await until(() => button('Capture'), 'the Capture button');
-    await click(button('Capture'));
+    await capture();
     await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
     await click($$('[aria-label="Windows"] button')[0]);
     await until(() => $('[data-testid="capture-preview"]'), 'the preview');
@@ -100,8 +102,7 @@ describe('capture', () => {
   it('takes the picture with the dialog out of the way, then shows it again', async () => {
     dialogAtCapture.length = 0;
     await mount('#/tasks');
-    await until(() => button('Capture'), 'the Capture button');
-    await click(button('Capture'));
+    await capture();
     await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
     await click($$('[aria-label="Windows"] button')[0]);
     await until(() => $('[data-testid="capture-preview"]'), 'the preview');
@@ -110,8 +111,7 @@ describe('capture', () => {
 
   it('brings the dialog back when the capture call throws', async () => {
     await mount('#/tasks');
-    await until(() => button('Capture'), 'the Capture button');
-    await click(button('Capture'));
+    await capture();
     await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
     await click($$('[aria-label="Windows"] button')[1]);
     await until(() => $('.ui-dialog'), 'the dialog back');
@@ -120,8 +120,7 @@ describe('capture', () => {
 
   it('adds the picture as a comment on the open task', async () => {
     const s = await mount('#/tasks/1684');
-    await until(() => button('Capture'), 'the Capture button');
-    await click(button('Capture'));
+    await capture();
     await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
     await click($$('[aria-label="Windows"] button')[0]);
     await until(() => $('[data-testid="capture-preview"]'), 'the preview');
@@ -135,8 +134,7 @@ describe('capture', () => {
 
   it('adds the picture as a comment on a task picked from the list, from a page that is not a task', async () => {
     const s = await mount('#/tasks');
-    await until(() => button('Capture'), 'the Capture button');
-    await click(button('Capture'));
+    await capture();
     await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
     await click($$('[aria-label="Windows"] button')[0]);
     await until(() => $('[data-testid="capture-preview"]'), 'the preview');

@@ -6,7 +6,7 @@ import { useStore } from '@handline/app-react';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { BodyEditor } from './BodyEditor.tsx';
 import { useCan } from './taskui.tsx';
-import { Button, Input, NativeSelect } from './ui/index.ts';
+import { Button, Input } from './ui/index.ts';
 
 export type Change = { title?: string; body?: string; owner?: string; time_box?: string; priority?: 1 | 2 | 3 };
 
@@ -87,23 +87,6 @@ export function TextInput({ value, label, onSave, onClose }: { value: string; la
         }
       }}
     />
-  );
-}
-
-export function PriorityInput({ value, onSave, onClose }: { value: 1 | 2 | 3; onSave: (v: 1 | 2 | 3) => void; onClose: () => void }) {
-  return (
-    <NativeSelect
-      autoFocus
-      value={value}
-      aria-label="Priority"
-      onChange={(e) => (onSave(Number(e.target.value) as 1 | 2 | 3), onClose())}
-      onBlur={onClose}
-      onKeyDown={(e) => e.key === 'Escape' && (e.stopPropagation(), onClose())}
-    >
-      <option value={1}>P1 high</option>
-      <option value={2}>P2</option>
-      <option value={3}>P3 low</option>
-    </NativeSelect>
   );
 }
 

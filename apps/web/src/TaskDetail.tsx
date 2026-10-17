@@ -1,20 +1,20 @@
-// One task: its title, state, people and timing, the body, the delivery history, evidence, what it waits on and what hangs under it, its
-// comments, and the verbs of the bridge's task detail along the bottom. The title, body, owner, priority and time box change where they are.
-// A verb that does not apply is hidden; one the daemon does not serve yet is shown disabled.
+// One task: title and status, why it waits, owner, priority and time box as chips, the brief (folded), what it waits on and what hangs under it,
+// one Activity list, and along the bottom the one main action, Cancel and More. The history opens from More. A verb that does not apply is
+// hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { taskRef } from '@handline/app-core';
+import { dateTime, taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
 import { canCapture, requestCapture } from './Capture.tsx';
-import { Button, Icon } from './ui/index.ts';
+import { Button, MenuButton, MenuItem, MenuSeparator } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
 import { AssignSheet } from './TaskPeople.tsx';
-import { CancelSheet, TaskLinks, TaskMeta, Verb } from './TaskDetailParts.tsx';
+import { CancelSheet, TaskChips, TaskLinks } from './TaskDetailParts.tsx';
 import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from './TaskInline.tsx';
 import { TaskHistory } from './TaskHistory.tsx';
-import { Comments } from './TaskComments.tsx';
+import { Activity } from './TaskActivity.tsx';
 import { RichText } from './RichText.tsx';
 import { View } from './View.tsx';
 
@@ -53,7 +53,6 @@ export function TaskDetail({
       aria-label={`Task ${taskRef(id)}`}
     >
       <div className="mb-4 flex items-center justify-end gap-2">
-        {canCapture() ? <Button icon="select" label="Capture" title="Capture a window (⌘⇧C)" onClick={requestCapture} /> : null}
         <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
           Back
         </Button>
@@ -78,7 +77,7 @@ function Body({ t }: { t: Detail }) {
   const [ask, setAsk] = useState<Ask>(null);
   const commentBox = useRef<HTMLDivElement>(null);
   const edit = useEditTask(t);
-  const history = useTaskHistory(t.id);
+  const [showHistory, setShowHistory] = useState(false);
   const done = useWrite('task.done');
   const queue = useWrite('task.queue');
   const draft = useWrite('task.draft');
@@ -140,6 +139,27 @@ function Body({ t }: { t: Detail }) {
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => root.current?.focus({ preventScroll: true }), [t.id]);
 
+  const why = t.waiting?.text ?? t.hold_reason ?? t.block_reason;
+  const yes = { ok: true, why: undefined };
+  const item = (label: string, run: () => void, can: { ok: boolean; why?: string }) => ({ label, run, can });
+  // What changes the status, in the dropdown on the state; the one that fits best is also the main button.
+  const status = [
+    ...(open && t.state === 'draft' ? [item('Queue', verbs.u, can.queue)] : []),
+    ...(open && t.state === 'queued' ? [item('Back to draft', verbs.u, can.draft)] : []),
+    ...(open ? [item('Done', verbs.x, can.done)] : []),
+    ...(t.state === 'done' && mine ? [item('Reopen', verbs.r, can.reopen)] : []),
+    ...(running ? [item('Release', verbs.l, can.release)] : []),
+  ];
+  const first = status.find((v) => v.label !== 'Release');
+  const main = first && { ...first, key: first.label === 'Done' ? 'x' : first.label === 'Reopen' ? 'r' : 'u', busy: queue.isPending || draft.isPending };
+  const more = [
+    ...status.filter((v) => v !== first),
+    ...(startable && mine ? [item('Withdraw', verbs.w, can.withdraw)] : []),
+    ...(open ? [item('Discard', verbs.d, can.discard), item('Assign', verbs.o, edit.can)] : []),
+    'sep' as const,
+    item(showHistory ? 'Hide history' : 'Show history', () => setShowHistory(!showHistory), yes),
+    ...(canCapture() ? [item('Capture a window', requestCapture, yes)] : []),
+  ];
   const reasonLabel = (verb: string) => (running ? `stop it and discard - why:` : `${verb} - why:`);
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
   return (
@@ -155,27 +175,39 @@ function Body({ t }: { t: Detail }) {
             {t.title}
           </Inline>
         </h2>
-        <StateChip state={t.state} mark={mark} word to={t.to} />
+        <MenuButton label="Status" variant="outline" size="sm" align="start" trigger={<StateChip state={t.state} mark={mark} word to={t.to} />}>
+          {status.map((v) => (
+            <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
+              {v.label}
+            </MenuItem>
+          ))}
+        </MenuButton>
       </header>
-      <TaskMeta t={t} now={now} onAssign={() => setAsk('assign')} />
-      <div className="tbody-text mt-3 whitespace-pre-wrap">
-        <Inline can={edit.can.ok && open} label="Description" input={(close) => <BodyInline t={t} onClose={close} />}>
-          {t.body ? <RichText text={t.body} /> : <span className="muted">Add a description</span>}
-        </Inline>
+      <p className="m-0 mt-1 text-hint text-ink-3">
+        Asked by <AgentLink name={t.from} /> · created {dateTime(t.created)}
+        {t.done ? ` · closed ${dateTime(t.done)}` : ''}
+        {t.parent ? (
+          <>
+            {' '}
+            · under{' '}
+            <a href={`#/tasks/${t.parent}`} className="mono">
+              {taskRef(t.parent)}
+            </a>
+          </>
+        ) : null}
+      </p>
+      {why ? (
+        <p className="twhy m-0 mt-3 rounded-card border border-wait px-3 py-2 text-wait" role="status">
+          <RichText text={why} />
+        </p>
+      ) : null}
+      <div className="mt-3">
+        <TaskChips t={t} now={now} onAssign={() => setAsk('assign')} />
       </div>
+      <Brief t={t} can={edit.can.ok && open} />
 
       {t.blockers.length ? <TaskLinks icon="waiting" label="Waits on" items={t.blockers} /> : null}
       {t.children.length ? <TaskLinks icon="tasks" label="Sub-tasks" items={t.children.map((c) => ({ task: c }))} /> : null}
-
-      {history.data?.rows.length ? (
-        <>
-          <h3 className={H3}>
-            <Icon name="history" label="History" aria-hidden="true" /> <span className="ml-1">History</span>
-            {history.data ? <span className="ml-2 text-ink-3">{history.data.rows.length} changes</span> : null}
-          </h3>
-          {history.data ? <TaskHistory rows={history.data.rows} /> : null}
-        </>
-      ) : null}
 
       {t.evidence ? (
         <>
@@ -185,25 +217,9 @@ function Body({ t }: { t: Detail }) {
           </p>
         </>
       ) : null}
-      {t.hold_reason || t.block_reason ? (
-        <p className="muted">
-          <RichText text={(t.hold_reason ?? t.block_reason)!} />
-        </p>
-      ) : null}
 
-      {t.handoffs.length ? (
-        <>
-          <h3 className={H3}>Handoffs</h3>
-          <ul className="thandoffs m-0 list-none p-0">
-            {t.handoffs.map((h) => (
-              <li key={h.at} className="whitespace-pre-wrap">
-                <AgentLink name={h.from} /> to <AgentLink name={h.to} />: <RichText text={h.note} />
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
-      <Comments t={t} box={commentBox} />
+      <Activity t={t} box={commentBox} />
+      {showHistory ? <HistorySection id={t.id} /> : null}
 
       <div className="sticky bottom-0 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-canvas px-4 py-2">
         {ask === 'done' ? (
@@ -258,21 +274,68 @@ function Body({ t }: { t: Detail }) {
         ) : null}
         {ask === 'assign' ? <AssignSheet t={t} me={me} onClose={() => setAsk(null)} /> : null}
 
-        <div className="tverbs flex flex-wrap gap-1.5" role="toolbar" aria-label="Task actions">
-          {open && t.state === 'draft' ? (
-            <Verb k="u" icon="taskQueued" label="Queue" can={can.queue} onClick={verbs.u} busy={queue.isPending} />
+        <div className="tverbs flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Task actions">
+          {main ? (
+            <Button variant="solid" label={main.label} title={main.can.why ?? `${main.label} (${main.key})`} disabled={!main.can.ok || main.busy} className="max-sm:min-h-[44px]" onClick={main.run}>
+              {main.busy ? '…' : main.label}
+            </Button>
           ) : null}
-          {open && t.state === 'queued' ? (
-            <Verb k="u" icon="taskDraft" label="Back to draft" can={can.draft} onClick={verbs.u} busy={draft.isPending} />
+          {open ? (
+            <Button variant="outline" label="Cancel task" title={can.cancel.why ?? 'Cancel task (c)'} disabled={!can.cancel.ok} className="max-sm:min-h-[44px]" onClick={verbs.c}>
+              Cancel task
+            </Button>
           ) : null}
-          {open ? <Verb k="x" icon="taskDone" label="Done" can={can.done} onClick={verbs.x} /> : null}
-          {t.state === 'done' && mine ? <Verb k="r" icon="retry" label="Reopen" can={can.reopen} onClick={verbs.r} /> : null}
-          {startable && mine ? <Verb k="w" icon="withdrawn" label="Withdraw" can={can.withdraw} onClick={verbs.w} /> : null}
-          {running ? <Verb k="l" icon="retry" label="Release" can={can.release} onClick={verbs.l} busy={release.isPending} /> : null}
-          {open ? <Verb k="c" icon="cancel" label="Cancel" can={can.cancel} onClick={verbs.c} /> : null}
-          {open ? <Verb k="d" icon="dismiss" label="Discard" can={can.discard} onClick={verbs.d} /> : null}
+          <MenuButton label="More" trigger="More ▾" variant="outline" className="max-sm:min-h-[44px]">
+            {more.map((v) =>
+              v === 'sep' ? (
+                <MenuSeparator key="sep" />
+              ) : (
+                <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
+                  {v.label}
+                </MenuItem>
+              ),
+            )}
+          </MenuButton>
         </div>
       </div>
     </div>
   );
+}
+
+/** The brief, folded to a few lines until "Show more"; a click on the text edits it. */
+function Brief({ t, can }: { t: Detail; can: boolean }) {
+  const [more, setMore] = useState(false);
+  const long = t.body.length > 280 || t.body.split('\n').length > 4;
+  return (
+    <div className="tbody-text mt-3 whitespace-pre-wrap">
+      <Inline can={can} label="Description" input={(close) => <BodyInline t={t} onClose={close} />}>
+        {t.body ? (
+          <>
+            <div className={long && !more ? 'line-clamp-4' : undefined}>
+              <RichText text={t.body} />
+            </div>
+            {long ? (
+              <button type="button" className="border-0 bg-transparent p-0 text-link" onClick={() => setMore(!more)}>
+                {more ? 'Show less' : 'Show more'}
+              </button>
+            ) : null}
+          </>
+        ) : (
+          <span className="muted">Add a description</span>
+        )}
+      </Inline>
+    </div>
+  );
+}
+
+/** Every field changed, from task.history; it is read only once opened from More. */
+function HistorySection({ id }: { id: number }) {
+  const history = useTaskHistory(id);
+  const rows = history.data?.rows ?? [];
+  return rows.length ? (
+    <section aria-label="History" className="mt-4">
+      <h3 className="m-0 mb-1 text-ink-3">History · {rows.length} changes</h3>
+      <TaskHistory rows={rows} />
+    </section>
+  ) : null;
 }

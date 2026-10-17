@@ -23,7 +23,7 @@ const memory = (): KV => {
 
 let root: Root | null = null;
 let box: HTMLElement;
-const section = () => box.querySelector<HTMLElement>('section[aria-label="Comments"]');
+const section = () => box.querySelector<HTMLElement>('section[aria-label="Activity"]');
 const send = () => [...section()!.querySelectorAll('button')].find((b) => b.textContent === 'Comment') as HTMLButtonElement;
 const typeInto = async (value: string) => {
   await act(async () => void [...section()!.querySelectorAll('button')].find((b) => b.textContent === 'Source')!.click());

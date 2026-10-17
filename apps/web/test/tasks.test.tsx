@@ -397,7 +397,8 @@ describe('the detail', () => {
     expect(text(d)).toContain('Asked by');
     expect(text(d)).toContain('handline.architect');
     expect(text(d)).toContain('T1684'); // under, local-ref-ok
-    await until(() => text(d).includes('History'), 'the history');
+    expect($('section[aria-label="Activity"]', d)).not.toBeNull();
+    expect($('section[aria-label="History"]', d)).toBeNull(); // opened from More
     await press('Escape', {}, $('.tbody')!);
     await until(() => location.hash === '#/tasks', 'the list again');
   });
@@ -424,16 +425,15 @@ describe('the detail', () => {
     await mount('#/tasks/1688');
     await until(() => $('.tverbs'), 'the verbs');
     const verbs = $('.tverbs')!;
-    for (const [label, method] of [
-      ['Done', 'task.done'],
-      ['Discard', 'task.discard'],
-    ] as const) {
-      expect((button(label, verbs) as HTMLButtonElement).disabled).toBe(true);
-      expect(button(label, verbs)!.title).toBe(`This daemon does not serve ${method} yet`);
-    }
+    const done = button('Done', verbs) as HTMLButtonElement; // the main action
+    expect(done.disabled).toBe(true);
+    expect(done.title).toBe('This daemon does not serve task.done yet');
+    await click(button('More', verbs));
+    const discard = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => text(i).startsWith('Discard'))!;
+    expect(discard.getAttribute('aria-disabled')).toBe('true');
+    expect(discard.getAttribute('title')).toBe('This daemon does not serve task.discard yet');
+    expect((button('Cancel task', verbs) as HTMLButtonElement).disabled).toBe(false);
     expect(button('Edit', verbs)).toBeUndefined(); // fields change where they are
-    expect(button('Reply', verbs)).toBeUndefined(); // a comment replaces it
-    expect((button('Cancel', verbs) as HTMLButtonElement).disabled).toBe(false);
     expect(button('Reopen', verbs)).toBeUndefined(); // not a done task
     expect(button('Queue', verbs)).toBeUndefined(); // not a draft
     expect(button('Withdraw', verbs)).toBeUndefined(); // already running, and not mine
@@ -455,8 +455,8 @@ describe('the detail', () => {
     expect(s.daemon.tasks.get({ task: 1700 }).title).toContain('Draft'); // not yet at the daemon
     release();
     await until(() => s.daemon.tasks.get({ task: 1700 }).title === 'Pair the web UI', 'saved');
-    await click($('[aria-label="Edit Priority"]')!);
-    await choose($('select[aria-label="Priority"]') as HTMLSelectElement, '1');
+    await click(button('Priority ·')!);
+    await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => text(i).startsWith('P1')));
     await until(() => s.daemon.tasks.get({ task: 1700 }).priority === 1, 'the priority');
     await edit('Time box', '3h');
     await until(() => s.daemon.tasks.get({ task: 1700 }).time_box === '3h', 'the time box');
@@ -477,21 +477,22 @@ describe('the detail', () => {
     await click(button('Ask')!);
     await until(() => $$('tr.trow').some((r) => text(r).includes('T2000')), 'its number'); // local-ref-ok
     await act(async () => void (location.hash = '#/tasks/2000'));
-    await until(() => button('Withdraw', $('.tverbs') ?? box), 'Withdraw');
-    await click(button('Withdraw', $('.tverbs')!)!);
+    await until(() => $('.tverbs'), 'the verbs');
+    await click(button('More', $('.tverbs')!)!);
+    await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => text(i).startsWith('Withdraw')));
     const ask = sheet('withdraw T2000?')!; // local-ref-ok
     s.daemon.knobs.latency(300);
     await click(button('Withdraw', ask)!);
     await until(() => text($('.tdetail-head')).includes('…'), 'the decided mark');
     await until(() => text($('.tdetail-head')).includes('discarded'), 'withdrawn', 600);
-    expect(button('Cancel', $('.tverbs')!)).toBeUndefined(); // closed: no verbs left that stop it
+    expect(button('Cancel task', $('.tverbs')!)).toBeUndefined(); // closed: no verbs left that stop it
   });
 
   it('assigns the task: the picker groups who worked on it, then the note goes with it', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    await until(() => button('Change the owner'), 'the owner button');
-    await click(button('Change the owner')!);
+    await until(() => button('Owner ·'), 'the owner button');
+    await click(button('Owner ·')!);
     const ask = sheet('Assign T1688 to…')!; // local-ref-ok
     expect($('section[aria-label="Worked on this task"]', ask)).not.toBeNull();
     await click(button('handline.architect', ask)!);
@@ -510,8 +511,8 @@ describe('the detail', () => {
   it('keeps the assign sheet open and says why when the daemon refuses the new owner', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    await until(() => button('Change the owner'), 'the owner button');
-    await click(button('Change the owner')!);
+    await until(() => button('Owner ·'), 'the owner button');
+    await click(button('Owner ·')!);
     const ask = sheet('Assign T1688 to…')!; // local-ref-ok
     await click(button('handline.architect', ask)!);
     s.daemon.knobs.refuse('task.edit', 'state', 'cannot move it now');
@@ -525,7 +526,7 @@ describe('the detail', () => {
     await until(() => $('.tverbs'), 'the verbs');
     for (const b of $$('button', $('.tverbs')!)) expect(text(b).trim()).not.toBe('');
     expect(text($('.tdetail-head'))).toContain('doing');
-    expect(text($('.tmeta'))).toContain('Owner');
+    expect(text($('.tchips'))).toContain('Owner');
   });
 
   it('serves the verbs of the daemon plan once it lists them: done needs a result, reopen only for a done task I asked for', async () => {
