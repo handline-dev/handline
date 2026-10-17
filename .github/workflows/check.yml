@@ -1,6 +1,5 @@
 # The check of a pull request: what tools/check.sh runs for the change, in two jobs that each plan for themselves, both on
-# GitHub's runners (docs/ci-runner.md). The Go job restores setup-go's module and build cache, so go test reruns only what a
-# change touched.
+# GitHub's runners (docs/ci-runner.md). The Go job restores setup-go's module and build cache, keyed by go/go.sum.
 name: check
 
 on:
