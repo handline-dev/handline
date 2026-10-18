@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ACTIVITY,
+  openActivity,
   CHAT,
   toggleView,
   TRANSCRIPT,
@@ -379,4 +380,10 @@ test('the view switch goes from the chat to Claude Code and back, opening the ta
   assert.equal(shown(toggleView(defaultWorkspace(), 'h2')), 'terminal:h2');
   assert.equal(shown(toggleView(defaultWorkspace())), CHAT, 'no terminal to switch to');
   assert.equal(shown(toggleView(defaultWorkspace(), undefined, true)), 'transcript');
+});
+
+test('openActivity opens the Activity tab on a row to highlight, and a plain open clears it', () => {
+  const ws = openActivity(defaultWorkspace(), 'm42');
+  assert.equal(ws.tabs[ACTIVITY]!.params.row, 'm42');
+  assert.deepEqual(openActivity(ws).tabs[ACTIVITY]!.params, {});
 });

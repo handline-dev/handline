@@ -402,6 +402,23 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     await until(() => msg('Draft the web chat tab plan.')?.hasAttribute('data-flash'), 'the message flashes');
   });
 
+  it('a link to an old message opens the stretch around it, not every page up to it; Back to latest returns to the tail', async () => {
+    const s = setup();
+    for (let i = 0; i < 120; i++)
+      s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: `filler ${i}`, at: new Date(Date.UTC(2031, 0, 1, 0, i)).toISOString() });
+    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'see #100 for the plan', at: '2032-01-01T00:00:00Z' }); // local-ref-ok
+    await mount(ARCH, s);
+    await until(() => $('.ref'), 'the reference on the newest page');
+    expect(msg('Draft the web chat tab plan.')).toBeUndefined();
+    await click($('.ref')!);
+    await until(() => $('.latest'), 'Back to latest');
+    await until(() => msg('Draft the web chat tab plan.')?.hasAttribute('data-flash'), 'the message flashes');
+    expect(msg('see #100')).toBeUndefined(); // the tail is not drawn while the window is open // local-ref-ok
+    await click($('.latest')!);
+    await until(() => msg('see #100'), 'the tail again'); // local-ref-ok
+    expect($('.latest')).toBeNull();
+  });
+
   it('new messages while scrolled up are counted in a pill that takes you down', async () => {
     const t = await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');

@@ -220,7 +220,7 @@ export function Pane({ group }: { group: Group }) {
         ) : tab.kind === 'tasks' ? (
           <TasksTab agent={agent} task={typeof tab.params.task === 'number' ? tab.params.task : null} />
         ) : tab.kind === 'activity' ? (
-          <ActivityTab agent={agent} />
+          <ActivityTab agent={agent} row={typeof tab.params.row === 'string' ? tab.params.row : null} />
         ) : tab.kind === 'timeline' ? (
           <TimelineTab agent={agent} />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (

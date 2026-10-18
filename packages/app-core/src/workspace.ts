@@ -175,6 +175,12 @@ export function openTask(ws: Workspace, task: number | null, into: string = ws.a
   return { ...opened, tabs: { ...opened.tabs, [TASKS]: { ...opened.tabs[TASKS]!, params: task === null ? {} : { task } } } };
 }
 
+/** Opens the Activity tab, on a row to highlight (`m<message>`) when one is named. */
+export function openActivity(ws: Workspace, row?: string, into: string = ws.active): Workspace {
+  const opened = openTab(ws, 'activity', {}, into);
+  return { ...opened, tabs: { ...opened.tabs, [ACTIVITY]: { ...opened.tabs[ACTIVITY]!, params: row ? { row } : {} } } };
+}
+
 /** Opens one task in a tab of its own, beside the Tasks tab; the same task twice finds the first. */
 export function openTaskTab(ws: Workspace, task: number, into: string = ws.active): Workspace {
   return openTab(ws, 'tasks', { task, pinned: 1 }, into);
