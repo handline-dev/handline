@@ -212,6 +212,9 @@ func (l *Launcher) keepWhatItStartsWith(agent string, extra []string, prompt, wh
 
 // ExecAgent builds the launch and becomes the agent. It returns only when the launch is refused or the exec fails.
 func (l *Launcher) ExecAgent(agent string, extra []string, force bool, promptFile, account, why, by string) error {
+	if err := l.refuseOthersPane(agent); err != nil {
+		return err
+	}
 	argv, env, err := l.Build(agent, append([]string(nil), extra...), force, account)
 	if err != nil {
 		return err
@@ -249,6 +252,21 @@ func (l *Launcher) ExecAgent(agent string, extra []string, force bool, promptFil
 		flat = append(flat, k+"="+env[k])
 	}
 	return l.Ports.Exec(argv[0], argv, flat)
+}
+
+// refuseOthersPane refuses a launch from a pane the daemon opened for another agent: the pane is that agent's terminal, not ours to take.
+func (l *Launcher) refuseOthersPane(agent string) error {
+	if l.Ports.TerminalHandle == nil || l.Ports.PaneAgent == nil {
+		return nil
+	}
+	handle := l.Ports.TerminalHandle()
+	if handle == "" {
+		return nil
+	}
+	if owner := l.Ports.PaneAgent(handle); owner != "" && owner != agent {
+		return fmt.Errorf("terminal %s was opened for %s; %s cannot be launched in it", handle, owner, agent)
+	}
+	return nil
 }
 
 // recordTerminal remembers where we are about to become the agent: the terminal, the account, and what Build produced this launch with.

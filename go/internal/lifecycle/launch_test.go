@@ -174,6 +174,21 @@ func TestBuildPutsTheModeAfterTheVendorsLineAndTheCallersArgsLast(t *testing.T) 
 	}
 }
 
+func TestALaunchFromAPaneStampedForAnotherAgentIsRefused(t *testing.T) {
+	r := newLaunchRig(t)
+	stamp := "bob"
+	r.l.Ports.PaneAgent = func(string) string { return stamp }
+	if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err == nil || !strings.Contains(err.Error(), "opened for bob") || r.execd != nil {
+		t.Fatalf("refused: %v, exec %v", err, r.execd)
+	}
+	for _, own := range []string{"ann", ""} { // her own pane, or one the daemon did not stamp
+		stamp = own
+		if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err != nil || r.execd == nil {
+			t.Fatalf("stamp %q: %v", own, err)
+		}
+	}
+}
+
 func TestExecAgentKeepsHowItStartedAndWhereItRunsThenExecs(t *testing.T) {
 	r := newLaunchRig(t)
 	if err := db.SetHandoff(r.l.Q, "ann", "left off here"); err != nil {

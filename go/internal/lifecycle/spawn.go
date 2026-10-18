@@ -37,7 +37,7 @@ type Host interface {
 	Missing() string
 	CreateWorktree(repo, name, baseRef string) (path, failed string)
 	// OpenTerminal runs cmd in a new terminal in cwd; handle "" with why "" is a terminal started whose handle could not be read.
-	OpenTerminal(cmd, cwd, title string) (handle, why string)
+	OpenTerminal(cmd, cwd, title, agent string) (handle, why string)
 	// Manual is the host's own commands for the steps, for a dry run.
 	Manual(wt, repo, name, baseRef, command string) string
 	WaitIdle(handle string, timeoutMs int) bool
@@ -383,7 +383,7 @@ func (s *Spawns) StartIn(agent, worktree, cmd string) (bool, string, error) {
 		}
 	}
 	s.Trust(agent, worktree)
-	handle, why := s.Host.OpenTerminal(cmd, worktree, agent)
+	handle, why := s.Host.OpenTerminal(cmd, worktree, agent, agent)
 	if handle == "" && why != "" {
 		return false, fmt.Sprintf("%s: could not start in %s: %s", agent, worktree, why), nil
 	}
@@ -472,7 +472,7 @@ func (s *Spawns) SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error
 		return false, "", err
 	}
 	s.Trust(agent, wt)
-	handle, failed := s.Host.OpenTerminal(cmd, wt, agent)
+	handle, failed := s.Host.OpenTerminal(cmd, wt, agent, agent)
 	if handle == "" && failed != "" {
 		return false, fmt.Sprintf("worktree %s is ready, but starting the agent failed: %s", wt, failed), nil
 	}

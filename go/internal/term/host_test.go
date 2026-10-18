@@ -43,7 +43,7 @@ func calls(t *testing.T, log string) []string {
 
 func TestATerminalIsOpenedInTheWorktreeAndTheLaunchLineTypedAtItsShell(t *testing.T) {
 	log := fakeTmux(t)
-	handle, why := Tmux{"/h"}.CreateTerminal("hl launch alice", "/wt/alice", "alice.x")
+	handle, why := Tmux{"/h"}.CreateTerminal("hl launch alice", "/wt/alice", "alice.x", "alice")
 	if handle != "%7" || why != "" {
 		t.Fatalf("%q %q", handle, why)
 	}
@@ -56,10 +56,13 @@ func TestATerminalIsOpenedInTheWorktreeAndTheLaunchLineTypedAtItsShell(t *testin
 	if got[len(got)-2] != "-L t send-keys -t %7 -l -- hl launch alice" || got[len(got)-1] != "-L t send-keys -t %7 Enter" {
 		t.Fatalf("%q", got)
 	}
+	if !strings.Contains(strings.Join(got, "\n"), "-L t set-option -p -t %7 @hl_agent alice") {
+		t.Fatalf("the pane is stamped with its agent: %q", got)
+	}
 	// a second terminal is a window of the session that is up
-	Tmux{"/h"}.CreateTerminal("hl launch bob", "/wt/bob", "bob")
+	Tmux{"/h"}.CreateTerminal("hl launch bob", "/wt/bob", "bob", "bob")
 	got = calls(t, log)
-	if !strings.HasPrefix(got[len(got)-3], "-L t new-window -t ocp: -n bob -c /wt/bob") {
+	if !strings.HasPrefix(got[len(got)-4], "-L t new-window -t ocp: -n bob -c /wt/bob") {
 		t.Fatalf("%q", got)
 	}
 }
@@ -68,7 +71,7 @@ func TestAWindowWhoseLaunchLineCouldNotBeTypedIsClosedAgain(t *testing.T) {
 	log := fakeTmux(t)
 	dir := filepath.Dir(log)
 	os.WriteFile(filepath.Join(dir, "tmux"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+log+"\ncase \"$3\" in has-session) exit 1;; new-session) echo %7;; send-keys) echo no pane >&2; exit 1;; esac\n"), 0o755)
-	handle, why := Tmux{"/h"}.CreateTerminal("hl launch alice", "", "")
+	handle, why := Tmux{"/h"}.CreateTerminal("hl launch alice", "", "", "")
 	if handle != "" || !strings.Contains(why, "could not type the command") {
 		t.Fatalf("%q %q", handle, why)
 	}
@@ -106,7 +109,9 @@ func (h *hostBackend) Send(_, text string, enter bool) (bool, string) {
 	h.sent = append(h.sent, fmt.Sprintf("%s/%v", text, enter))
 	return true, ""
 }
-func (h *hostBackend) CreateTerminal(string, string, string) (string, string) { return "%1", "" }
+func (h *hostBackend) CreateTerminal(string, string, string, string) (string, string) {
+	return "%1", ""
+}
 func (h *hostBackend) CloseTerminal(handle string, _ bool) (bool, string) {
 	h.closed = append(h.closed, handle)
 	return true, ""
@@ -214,7 +219,7 @@ func TestAScratchDaemonNeverReachesTheLiveTmuxServer(t *testing.T) {
 		t.Setenv("OCP_TMUX_SOCKET", sock)
 		tm := Current(home).(Tmux)
 		tm.ListTerminals()
-		tm.CreateTerminal("hl launch alice", home, "alice")
+		tm.CreateTerminal("hl launch alice", home, "alice", "alice")
 		for _, argv := range [][]string{tm.ControlCommand(), tm.AttachCommand()} {
 			if argv[1] != "-L" || argv[2] == "ocp" {
 				t.Errorf("socket %q: %q", sock, argv)
@@ -237,7 +242,7 @@ func TestATerminalNamesTheDaemonsHomeNotTheEnvironments(t *testing.T) {
 	t.Setenv("HANDLINE_HOME", live)
 	t.Setenv("OCP_TMUX_SOCKET", "")
 	t.Setenv("HANDLINE_TMUX_SOCKET", "")
-	if _, why := Current(home).(Tmux).CreateTerminal("hl launch alice", home, "alice"); why != "" {
+	if _, why := Current(home).(Tmux).CreateTerminal("hl launch alice", home, "alice", "alice"); why != "" {
 		t.Fatal(why)
 	}
 	made := calls(t, log)[1]
