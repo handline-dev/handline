@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { RpcError } from '@handline/client';
 import { $, mount, press, until } from './harness.tsx';
 
 const AUD = 'handline.auditor';
