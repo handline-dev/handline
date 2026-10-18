@@ -12,6 +12,7 @@
     },
     "plugins": [
       "./plugins/tailscale-cleartext.cjs",
+      "./plugins/ios-rn-from-source.cjs",
       [
         "expo-camera",
         {
