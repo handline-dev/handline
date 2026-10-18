@@ -126,3 +126,25 @@ export function takeTerminalWish(agent: string): boolean {
   wantsTerminal = null;
   return true;
 }
+
+const PUSHED = 'handline-history';
+const subscribeState = (cb: () => void) => {
+  addEventListener('popstate', cb);
+  addEventListener(PUSHED, cb);
+  return () => {
+    removeEventListener('popstate', cb);
+    removeEventListener(PUSHED, cb);
+  };
+};
+/** A choice made inside a page (a tab) that rides in the history entry: setting it adds an entry, Back and Forward bring the earlier value. */
+export function useHistoryValue(key: string): [string | undefined, (v: string) => void] {
+  const v = useSyncExternalStore(subscribeState, () => (history.state as Record<string, string> | null)?.[key]);
+  return [
+    v,
+    (next) => {
+      if (next === v) return;
+      history.pushState({ ...(history.state as object | null), [key]: next }, '');
+      dispatchEvent(new Event(PUSHED));
+    },
+  ];
+}

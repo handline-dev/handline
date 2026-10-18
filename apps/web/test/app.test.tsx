@@ -194,6 +194,26 @@ describe('the workspace', () => {
     expect(daemon.sessions.get(ARCH)!.state).not.toBe('closed');
   });
 
+  it('showing a tab is a history entry: Back shows the tab before, Forward the one after', async () => {
+    await mount(ARCH, textGrid(), setup(), true);
+    await until(() => $(termTab), 'the terminal tab');
+    const shown = () => $('[aria-selected="true"][data-tab]')?.getAttribute('data-tab');
+    await click($(termTab)!);
+    expect(shown()).toBe(`terminal:term:${ARCH}`);
+    await click($('[data-tab="chat"]')!);
+    expect(shown()).toBe('chat');
+    await act(async () => {
+      history.back();
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(shown()).toBe(`terminal:term:${ARCH}`);
+    await act(async () => {
+      history.forward();
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(shown()).toBe('chat');
+  });
+
   it('the sidebar is resized by dragging its edge, clamped, kept, and reset by a double click', async () => {
     const storage = textGrid();
     await mount(ARCH, storage);

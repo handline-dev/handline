@@ -95,8 +95,19 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
       else if (mod && e.key === ']') history.forward();
       else if (e.key === '?' && !mod && !own && !typing(e.target)) setKeys((k) => !k);
     };
+    // The mouse's back and forward buttons walk the history like the arrows do.
+    const onMouse = (e: MouseEvent) => {
+      if (e.button !== 3 && e.button !== 4) return;
+      e.preventDefault();
+      if (e.button === 3) history.back();
+      else history.forward();
+    };
     addEventListener('keydown', onKey);
-    return () => removeEventListener('keydown', onKey);
+    addEventListener('mouseup', onMouse);
+    return () => {
+      removeEventListener('keydown', onKey);
+      removeEventListener('mouseup', onMouse);
+    };
   }, [own]);
   const [railW, setRailW] = useState(() => clampRail(Number(setting(storage, 'railWidth', '').value) || RAIL_W));
   const sizeRail = (w: number) => {

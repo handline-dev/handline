@@ -7,7 +7,7 @@ import { classify, sentence, useAccountUsage, useAccounts, useAgents, useServes,
 import { AccountLogin } from './AccountLogin.tsx';
 import { AccountSettings } from './AccountSettings.tsx';
 import { Gauge, useNow } from './Gauge.tsx';
-import { goAgent } from './route.ts';
+import { goAgent, useHistoryValue } from './route.ts';
 import { Button, Card, Dialog, Field, Icon, NOTE, ScrollPage, PageHead, PageTitle, TabStrip, type IconName } from './ui/index.ts';
 import { View } from './View.tsx';
 
@@ -176,7 +176,8 @@ export function AccountsPage({ name }: { name: string | null }) {
 }
 
 function AccountPageOne({ account, now }: { account: Account; now: number }) {
-  const [tab, setTab] = useState<Tab>('Overview');
+  const [saved, setTab] = useHistoryValue('account-tab');
+  const tab = TABS.find((t) => t === saved) ?? 'Overview';
   const agents = useAgents().data?.agents ?? [];
   return (
     <div className="acct-one mx-auto flex max-w-[var(--w-form)] flex-col gap-3">
@@ -184,7 +185,7 @@ function AccountPageOne({ account, now }: { account: Account; now: number }) {
         <StateChip account={account} now={now} />
       </p>
       <UsageLine account={account} />
-      <TabStrip label="Account" value={tab} onChange={setTab} tabs={TABS.map((t) => ({ value: t, label: t }))} />
+      <TabStrip label="Account" value={tab} onChange={(t) => setTab(t)} tabs={TABS.map((t) => ({ value: t, label: t }))} />
       {tab === 'Overview' ? (
         <div className="acct-overview flex flex-col gap-3">
           <Gauge label="5 h" window={account.five_hour} now={now} detail />

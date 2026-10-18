@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useScreenKeys, type KeyRows } from './screenKeys.ts';
 import {
-  activate,
   badgesOf,
   needsAttention,
   closeTab,
@@ -58,7 +57,7 @@ const TAB_KEYS: KeyRows = [
 
 export function Pane({ group }: { group: Group }) {
   useScreenKeys('On the tabs', TAB_KEYS);
-  const { ws, detail, agent, storage, apply, canSplit, lead, dragging, setDragging } = useWorkspace();
+  const { ws, detail, agent, storage, apply, show, canSplit, lead, dragging, setDragging } = useWorkspace();
   const folded = useFoldedControls();
   const store = useStore();
   const strip = useRef<HTMLDivElement>(null);
@@ -133,12 +132,12 @@ export function Pane({ group }: { group: Group }) {
                 setDragging(id);
               }}
               onDragEnd={() => setDragging(null)}
-              onClick={() => apply((w) => activate(w, id))}
+              onClick={() => show(id)}
               onKeyDown={(e) => {
                 if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
                   e.preventDefault();
                   apply((w) => moveTabBy(w, id, e.key === 'ArrowLeft' ? -1 : 1));
-                } else if (e.key === 'Enter' || e.key === ' ') apply((w) => activate(w, id));
+                } else if (e.key === 'Enter' || e.key === ' ') show(id);
               }}
             >
               <Icon name={TAB_ICON[t.kind] ?? 'tasks'} size={14} label={label(t, structured)} aria-hidden />
@@ -148,7 +147,7 @@ export function Pane({ group }: { group: Group }) {
                   <Badges
                     badges={badges}
                     onClick={{
-                      dialog: () => apply((w) => activate(w, CHAT)),
+                      dialog: () => show(CHAT),
                       stalled: () => apply((w) => openTab(w, 'timeline', {}, group.id)),
                     }}
                   />
