@@ -419,6 +419,17 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     expect($('.latest')).toBeNull();
   });
 
+  it('the working indicator follows the agent being busy, also on a message from another agent', async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    expect($('.working')).toBeNull();
+    t.daemon.chat.seed(ARCH, { from: 'handline.auditor', to: ARCH, body: 'rebase the pane branch' });
+    t.daemon.chat.setWorking(ARCH, true, 'Finding large disk users');
+    await until(() => $('.working')?.getAttribute('title') === 'Finding large disk users', 'the indicator for a busy agent');
+    t.daemon.chat.setWorking(ARCH, false);
+    await until(() => $('.working') === null, 'the indicator gone');
+  });
+
   it('new messages while scrolled up are counted in a pill that takes you down', async () => {
     const t = await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');

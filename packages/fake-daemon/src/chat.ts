@@ -276,6 +276,12 @@ export class FakeChat {
     const m = this.live(id);
     if (m) this.change(m, { landing: 'delivered', state: 'delivered', landed_at: this.now(), delivered_at: this.now() });
   }
+  /** The agent's turn runs or ends without any message of the person to answer (another agent's message, a task's): only the working line moves. */
+  setWorking(agent: string, running: boolean, line: string | null = null) {
+    const t = this.thread(agent);
+    t.working = running ? { turn_running: true, line, since: this.now() } : { ...IDLE };
+    this.emit('chat.working', agent, t.working);
+  }
   /** The agent starts its turn: the working line shows and a tool runs. */
   private think(id: number) {
     const m = this.live(id);
