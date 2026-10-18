@@ -61,6 +61,8 @@ export const useWorkspace = (): WorkspaceCtx => {
 /** The workspace when the caller sits in one; a text on a page with no panes (the Tasks page) has none. */
 export const useWorkspaceIfAny = (): WorkspaceCtx | null => useContext(Ctx);
 
+const shownTab = (w: Workspace): string => (groupsOf(w.root).find((g) => g.id === w.active) ?? groupsOf(w.root)[0]!).activeTab;
+
 export function AgentWorkspace({ agent, daemon, storage }: { agent: string; daemon: string; storage: KV | null }) {
   const q = useAgentDetail(agent);
   const list = useAgents();
@@ -97,6 +99,10 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   useEffect(() => {
     if (entryTab) setWs((w) => activate(w, entryTab));
   }, [entryTab]);
+  // The entry that opened this agent holds the tab shown on opening, so Back onto it restores that tab.
+  useEffect(() => {
+    if (!entryTab) history.replaceState({ ...(history.state as object | null), tab: shownTab(ws) }, '');
+  }, []);
   const root = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: innerWidth, h: innerHeight });
 
@@ -123,8 +129,7 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   const flip = () => {
     const next = toggleView(ws, detail.terminal ?? undefined, detail.structured === true);
     setWs(next);
-    const shown = groupsOf(next.root).find((g) => g.id === next.active)?.activeTab;
-    if (shown) pushTab(shown);
+    pushTab(shownTab(next));
   };
   const flipRef = useRef(flip);
   flipRef.current = flip;

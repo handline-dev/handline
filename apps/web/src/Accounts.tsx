@@ -12,7 +12,6 @@ import { Button, Card, Dialog, Field, Icon, NOTE, ScrollPage, PageHead, PageTitl
 import { View } from './View.tsx';
 
 const TABS = ['Overview', 'Agents', 'Settings'] as const;
-type Tab = (typeof TABS)[number];
 
 // Out and login-needed read bad, in use reads ok; the chip's glyph and word say the same, so the hue is never the only sign.
 const STATE_TONE =

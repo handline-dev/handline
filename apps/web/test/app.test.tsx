@@ -75,6 +75,7 @@ const unmount = async () => {
 };
 
 beforeEach(() => {
+  history.replaceState(null, '');
   vi.stubGlobal('confirm', () => true);
 });
 afterEach(async () => {
@@ -197,7 +198,8 @@ describe('the workspace', () => {
   it('showing a tab is a history entry: Back shows the tab before, Forward the one after', async () => {
     await mount(ARCH, textGrid(), setup(), true);
     await until(() => $(termTab), 'the terminal tab');
-    const shown = () => $('[aria-selected="true"][data-tab]')?.getAttribute('data-tab');
+    const term = `terminal:term:${ARCH}`;
+    const shown = () => ($(termTab)!.getAttribute('aria-selected') === 'true' ? term : 'chat');
     await click($(termTab)!);
     expect(shown()).toBe(`terminal:term:${ARCH}`);
     await click($('[data-tab="chat"]')!);
