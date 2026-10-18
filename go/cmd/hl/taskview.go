@@ -143,7 +143,11 @@ func detailLines(t obj, now float64, home string) []string {
 		if reason == "" {
 			reason = "no reason given"
 		}
-		out = append(out, fmt.Sprintf("discarded by %s: %s", str(d, "by"), reason))
+		line := fmt.Sprintf("discarded by %s: %s", str(d, "by"), reason)
+		if w, _ := d["withdrew"].([]any); len(w) > 0 {
+			line += fmt.Sprintf(" (withdrew %d open request%s)", len(w), map[bool]string{true: "s"}[len(w) > 1])
+		}
+		out = append(out, line)
 	}
 	body := str(t, "body")
 	if body == "" {

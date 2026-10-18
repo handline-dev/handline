@@ -50,8 +50,11 @@ func (e *Env) TaskEventItem(id int64) (item map[string]any, owner string, ok boo
 	if !shown {
 		return nil, "", false, nil
 	}
+	if tid == 0 { // a batch: its author's chat
+		return item, ev.str("agent"), true, nil
+	}
 	t, err := queryOne(e.DB, "SELECT owner FROM tasks WHERE id = ?", tid)
-	if err != nil || t == nil {
+	if err != nil || t == nil || inBatchCard(ev, t.str("owner")) {
 		return nil, "", false, err
 	}
 	return item, t.str("owner"), true, nil
@@ -79,9 +82,9 @@ func (e *Env) SessionItem(id int64) (item map[string]any, agent string, ok bool,
 // WorkingOf is a stored agent view (the agent_view row's JSON) as the spec's Working.
 func WorkingOf(view string) map[string]any { return workingFrom(decodeObject(view)) }
 
-// ChatTaskKinds are the kinds of task event the chat shows, sorted.
+// ChatTaskKinds are the kinds of task event the chat shows, a batch discard's among them, sorted.
 func ChatTaskKinds() []string {
-	kinds := make([]string, 0, len(transcriptEvents))
+	kinds := []string{batchKind}
 	for k := range transcriptEvents {
 		kinds = append(kinds, k)
 	}

@@ -5276,7 +5276,7 @@
   },
   {
    "name": "task.reopen",
-   "summary": "Reopen a done task: anyone may, with a reason the opener and assignee are told.",
+   "summary": "Reopen a done task: anyone may, with a reason the opener and assignee are told. A discarded task comes back as a draft, to be queued again.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -6093,22 +6093,46 @@
   },
   {
    "name": "task.discard",
-   "summary": "Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told.",
+   "summary": "Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told. A request still open on it refuses, unless the caller leads a team whose tree holds the task (its owner or opener is the lead or reports to it): then each open request is withdrawn and its target told. tasks in place of task discards a batch in one call, all or none, with one discard_batch event: the one task_batch card in the caller's chat.",
    "paramStructure": "by-name",
    "params": [
     {
      "name": "task",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "integer"
-     }
+     },
+     "description": "One task. Give this or tasks."
+    },
+    {
+     "name": "tasks",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      }
+     },
+     "description": "A batch: these tasks, discarded together or not at all."
     },
     {
      "name": "reason",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string"
-     }
+     },
+     "description": "Required with task. With tasks, the reason of each task reasons does not name."
+    },
+    {
+     "name": "reasons",
+     "required": false,
+     "schema": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      }
+     },
+     "description": "With tasks: a reason of its own per task, keyed by task number (\"2\" or \"T2\")."
     },
     {
      "name": "request_id",
@@ -9984,6 +10008,24 @@
          },
          "at": {
           "$ref": "#/components/schemas/Timestamp"
+         },
+         "withdrew": {
+          "type": "array",
+          "items": {
+           "type": "integer"
+          },
+          "description": "The requests the discard withdrew with it (a lead's or the founder's), as request ids."
+         },
+         "batch": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "description": "The batch it was discarded in, null for a discard of its own."
          }
         },
         "required": [
@@ -12458,7 +12500,8 @@
        "tool",
        "prompt",
        "task_event",
-       "session"
+       "session",
+       "task_batch"
       ]
      },
      "text": {
@@ -12564,6 +12607,45 @@
        "id",
        "started",
        "handoff"
+      ]
+     },
+     "task_batch": {
+      "type": "object",
+      "description": "For kind task_batch: a batch discard, shown once in the chat of whoever made it.",
+      "properties": {
+       "batch": {
+        "type": "string"
+       },
+       "who": {
+        "type": "string"
+       },
+       "tasks": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "task": {
+           "type": "integer"
+          },
+          "title": {
+           "type": "string"
+          },
+          "reason": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "task",
+          "title",
+          "reason"
+         ]
+        }
+       }
+      },
+      "required": [
+       "batch",
+       "who",
+       "tasks"
       ]
      }
     },
@@ -14554,6 +14636,13 @@
      "memo": {
       "type": "integer",
       "description": "With a memo row: the memo's id."
+     },
+     "withdrew": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "description": "With a discarded state row: the requests withdrawn with it. Absent when none were."
      }
     },
     "required": [

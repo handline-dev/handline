@@ -45,6 +45,7 @@ One line each. `ocp <command> --help` has the options, and `hl guide <topic>` pr
 | `hl task handoff T<n> <agent> "<note>"` | Pass your task to someone else. |
 | `hl task reopen T<n> "<why>"` | The asker says a result is wrong. |
 | `hl task discard T<n> "<why>"` | Throw away a task that is not done. |
+| `hl task discard T1 T2 --why "<why>" [--why-each T2="<why>"]` | Throw several away in one call (all or none), shown as one card in your chat. A team lead may discard a task of its team that still has requests open: they are withdrawn and their targets told. |
 | `hl task memo T<n> add "..."` | Correct a task you gave. |
 | `hl progress "<note>"` | Record what is done and what is left on your task. |
 | `hl say <agent> "..."` | A message that needs no answer. |
