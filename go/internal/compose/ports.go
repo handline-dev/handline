@@ -163,8 +163,16 @@ func (stuck) DeliveryBlock(db.Q, string) (string, bool) { return "", false }
 // agentsPort is the supervisor's Agents: the peer inbox for the terminal agents whose agent.yaml does not turn peer_inbox off, and no
 // session port for the others. The peer's outcomes go to whatever Bind gave as the telling.
 func (p *Parts) agentsPort() supervisor.Agents {
-	peer := NewPeerPort(p.home, p.db, p.Peer, peerTell{p}, p.log)
+	peer := NewPeerPort(p.home, p.db, p.Peer, p.panePid, peerTell{p}, p.log)
 	return mixedAgents{none: noSessionPort{}, peer: peer, isPeer: p.Peer}
+}
+
+// panePid is the pid of the process the terminal runs; 0 before the terminal host is up or when it cannot say.
+func (p *Parts) panePid(handle string) int {
+	if p.LC == nil || p.LC.term == nil {
+		return 0
+	}
+	return p.LC.term.PanePid(handle)
 }
 
 // peerTell hands the peer port's outcomes to the telling that Bind set, when there is one.
