@@ -61,6 +61,7 @@ type Healer struct {
 
 	mu      sync.Mutex
 	running map[string]bool
+	steps   sync.WaitGroup // the steps still running on a goroutine of their own (Go nil)
 }
 
 func stepKey(agent string) string  { return "heal:" + agent }
@@ -206,8 +207,15 @@ func (h *Healer) start(agent string, step func()) {
 		h.Go(run)
 		return
 	}
-	go run()
+	h.steps.Add(1)
+	go func() {
+		defer h.steps.Done()
+		run()
+	}()
 }
+
+// Wait returns once every step started on its own goroutine has ended: the daemon closes the database, and a test its home, only after.
+func (h *Healer) Wait() { h.steps.Wait() }
 
 // try runs one step and records it. A retry interrupts a hung turn, or delivers the waiting message again.
 func (h *Healer) try(q db.Q, agent string, step int64, t *trouble) {

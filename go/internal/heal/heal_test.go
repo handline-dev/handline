@@ -157,6 +157,46 @@ func TestAStepRunsOffTheTickAndOneAtATime(t *testing.T) {
 	}
 }
 
+// heldPorts are fakePorts whose interrupt says it has begun and then waits to be let go.
+type heldPorts struct {
+	*fakePorts
+	begun, release chan struct{}
+}
+
+func (p *heldPorts) Interrupt(agent string) (bool, string) {
+	close(p.begun)
+	<-p.release
+	return p.fakePorts.Interrupt(agent)
+}
+
+// Wait holds the daemon's close (and a test's cleanup) until a step on its own goroutine has ended: the step still writes to the database.
+func TestWaitReturnsOnlyAfterARunningStepEnds(t *testing.T) {
+	q := openDB(t)
+	now := time.Now().Unix()
+	hung(t, q, now)
+	p := &heldPorts{fakePorts: &fakePorts{}, begun: make(chan struct{}), release: make(chan struct{})}
+	h := &Healer{Ports: p}
+	must(t, h.Sweep(q, now))
+	select {
+	case <-p.begun:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no step started")
+	}
+	waited := make(chan struct{})
+	go func() { h.Wait(); close(waited) }()
+	select {
+	case <-waited:
+		t.Fatal("Wait returned while a step was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(p.release)
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Wait did not return after the step ended")
+	}
+}
+
 func TestAgentThatStaysStuckRaisesOneCard(t *testing.T) {
 	q := openDB(t)
 	now := time.Now().Unix()

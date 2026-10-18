@@ -28,6 +28,7 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 	sched := &schedules.Runner{Q: p.db, Agents: func() []string { return paths.ListAgents(cfg.Home) }, Schedules: (&reads.Env{DB: p.db, Home: cfg.Home}).SchedulesOf,
 		Say: lc.Env.SystemSayThen, Log: func(s string) { cfg.Log("%s", s) }}
 	healer := &heal.Healer{Ports: healPorts{lc: lc, home: cfg.Home}, Log: func(s string) { cfg.Log("%s", s) }}
+	p.healer = healer
 	return []tick.NamedSweep{
 		{Name: "timebox", Run: func(q db.Q, now int64) error { return timebox.Sweep(tk, now) }},
 		{Name: "notice-digest", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepNotices(now) })},
