@@ -345,7 +345,7 @@ export class FakeDaemon {
       const s = agent();
       if (!s.open) this.script.startSession(s, false, actor);
     }
-    if (method.startsWith('chat.')) return chatMethod(this.chat, method, p, c.caller.name, agent, ok, this.inbox.dismiss, this.uploads);
+    if (method.startsWith('chat.')) return chatMethod(this.chat, method, p, c.caller.name, agent, ok, this.uploads);
     const owned = this.moduleCall(c, method, p, ok);
     if (owned) return owned.value;
     const handler = HANDLERS[method];

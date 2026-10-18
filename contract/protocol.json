@@ -50,7 +50,10 @@
   "limit": "attachment.put: the file or the unsent total is over its limit, or too many uploads are open (x-attachments).",
   "listing": "inbox.queue: the caller may not list that agent's messages. Only the agent itself, its supervisor and the founder may.",
   "duplicate_title": "task.new: an open task under the same parent, or the parent itself, has nearly the title (same first word, 80% of the shorter title's words, Story prefix, case, punctuation and commit shas ignored). data.task names it; duplicate_ok opens the task anyway.",
-  "open_children": "task.done: the task has open child tasks. The reason names each (number, state, assignee, title), the hint the commands that close one, and the refusal's `children` lists them, so a client can offer to discard them from the same prompt."
+  "open_children": "task.done: the task has open child tasks. The reason names each (number, state, assignee, title), the hint the commands that close one, and the refusal's `children` lists them, so a client can offer to discard them from the same prompt.",
+  "denied": "file.write: the path is one the daemon never writes: under .git, .claude, .github, .husky, .codex, .cursor, .vscode, .devcontainer or a hooks folder (at any depth); a settings.json, settings.local.json, .mcp.json, mcp.json, hooks.json, package.json, .claude.json, tsconfig.json, turbo.json, deno.json, composer.json or lefthook.json; or anything but a .md or .json file.",
+  "stale": "file.write: the file is not what the etag says (it changed, is gone, or exists when the etag is empty). Read it again; nothing was written.",
+  "too_big": "file.write: the file on disk is over 1 MiB, so file.read gave only its start; it is not written (a text read from it would cut it)."
  },
  "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
  "x-legacy": {
@@ -2367,7 +2370,7 @@
       },
       "version": {
        "type": "string",
-       "description": "Opaque: equal on two reads when nothing in the chat changed between them (a request made, answered, closed, changed, delivered or landed, a task event, a session start). Cheap to compare; a client that sees it change reads again."
+       "description": "Opaque: equal on two reads when nothing in the chat changed between them (a request made, closed, changed, delivered or landed, a task event, a session start). Cheap to compare; a client that sees it change reads again."
       },
       "cursor": {
        "type": "integer",
@@ -2393,7 +2396,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "items are oldest first, each with a `type`: `request` is a chat.messages ChatMessage plus `dismissal` and `task_state`; `task_event` is a change of a task delivered in the page, since the first request in it (the state it reached, a handoff, an edit), with `request` naming the delivery a handoff belongs to so a client can draw both as one card; `session` is the start of a new conversation of the agent since that request (one that resumed the old conversation is not listed). Requests that no chat draws (withdrawn, never reached their target) are left out. HR cards are hr.list's."
+   "description": "items are oldest first, each with a `type`: `request` is a chat.messages ChatMessage plus `task_state`; `task_event` is a change of a task delivered in the page, since the first request in it (the state it reached, a handoff, an edit), with `request` naming the delivery a handoff belongs to so a client can draw both as one card; `session` is the start of a new conversation of the agent since that request (one that resumed the old conversation is not listed). Requests that no chat draws (withdrawn, never reached their target) are left out. HR cards are hr.list's."
   },
   {
    "name": "chat.transcript",
@@ -3064,47 +3067,6 @@
     }
    ],
    "description": "For a message to a structured agent whose receipt is queued: written to the CLI with priority now, receipt sent. Any other receipt is refused (gate state), including a message written meanwhile. The daemon makes the release atomic with its queue, so a write that has started is never promoted twice. A terminal agent's message is as before."
-  },
-  {
-   "name": "chat.dismiss",
-   "summary": "Dismiss a message.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "request",
-     "required": true,
-     "schema": {
-      "type": "integer"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "member",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ]
   },
   {
    "name": "chat.cancel",
@@ -3930,7 +3892,7 @@
   {
    "name": "inbox.queue",
    "summary": "An inbox as hl inbox prints it.",
-   "description": "An agent's inbox is the one request at the head of its queue (the oldest queued one whose routing was checked; a say is never the head), and with `all` every request ever sent to it. The founder's is the mailbox folded to one line per agent, a decision or a request whose sender waits on the reply keeping its own line, and with `all` the 20 most recent requests to or from the founder that are no longer queued. An agent may list its own inbox and those of the agents it supervises; the founder any. Nothing is marked read: the caller sends inbox.mark_read for the head it showed.",
+   "description": "An agent's inbox is the one request at the head of its queue (the oldest queued one whose routing was checked; a say is never the head), and with `all` every request ever sent to it. The founder's is the mailbox folded to one line per agent, a decision keeping its own line, and with `all` the 20 most recent requests to or from the founder that are no longer queued. An agent may list its own inbox and those of the agents it supervises; the founder any. Nothing is marked read: the caller sends inbox.mark_read for the head it showed.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3978,7 +3940,7 @@
       },
       "newest": {
        "type": "integer",
-       "description": "The number of the newest thing waiting in this inbox, 0 for nothing: for an agent a request no state has settled, for the founder a mailbox row (an answer counts by its own number)."
+       "description": "The number of the newest thing waiting in this inbox, 0 for nothing: for an agent a request no state has settled, for the founder a mailbox row."
       },
       "head": {
        "oneOf": [
@@ -4066,7 +4028,7 @@
       },
       "lines": {
        "type": "array",
-       "description": "The founder's mailbox: decisions first, then requests whose sender waits on the reply, then the rest, oldest first in each.",
+       "description": "The founder's mailbox: decisions first, then the rest, oldest first in each.",
        "items": {
         "type": "object",
         "properties": {
@@ -4184,7 +4146,7 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 600,
-      "description": "Hold the call up to this many seconds until the request has been answered. Default 0, at most 600."
+      "description": "Hold the call up to this many seconds until the request settles. Default 0, at most 600."
      }
     }
    ],
@@ -4258,26 +4220,6 @@
       "created": {
        "$ref": "#/components/schemas/Timestamp"
       },
-      "relation": {
-       "oneOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ]
-      },
-      "response": {
-       "oneOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ]
-      },
       "chain_depth": {
        "type": "integer"
       },
@@ -4319,44 +4261,7 @@
          "type": "null"
         }
        ],
-       "description": "What came back, or for a request that never reached its target why it closed. Null while there is none and for a dismissal."
-      },
-      "dismissal": {
-       "oneOf": [
-        {
-         "type": "object",
-         "properties": {
-          "by": {
-           "oneOf": [
-            {
-             "type": "string"
-            },
-            {
-             "type": "null"
-            }
-           ]
-          },
-          "reason": {
-           "oneOf": [
-            {
-             "type": "string"
-            },
-            {
-             "type": "null"
-            }
-           ]
-          }
-         },
-         "required": [
-          "by",
-          "reason"
-         ]
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Set when the request was dismissed: who did it and why, each null when not recorded."
+       "description": "What came back, or for a request that never reached its target why it closed. Null while there is none."
       },
       "parts": {
        "type": "array",
@@ -4380,13 +4285,10 @@
       "kind",
       "state",
       "created",
-      "relation",
-      "response",
       "chain_depth",
       "parent",
       "body",
-      "answer",
-      "dismissal"
+      "answer"
      ]
     }
    },
@@ -4627,62 +4529,6 @@
    "description": "For the founder, every message of an agent up to the newest id named is read; a decision or a reply owed is never read away, so such an id, and what lies past it, stays unread (refused, gate state, when nothing could be read). For an agent only the head of its own queue can be read, as `hl inbox` does; another id of its own is refused, gate state."
   },
   {
-   "name": "inbox.answer",
-   "summary": "Answer a decision item with one of its options or free text.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "id",
-     "required": true,
-     "schema": {
-      "type": "integer"
-     }
-    },
-    {
-     "name": "option",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "text",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "member",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ],
-   "description": "The founder's answer to an item of the mailbox: a decision's, a question's, or a reply to an answer. No item carries options yet, so `option` is bad_request and `text` is the answer. An agent session is refused, gate role."
-  },
-  {
    "name": "inbox.reply",
    "summary": "Reply to an item.",
    "paramStructure": "by-name",
@@ -4730,7 +4576,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "A message to whoever sent the item, settling it (`hl say --parent`). An agent replies to its own incoming items; the founder to a mailbox item that is not a decision (a decision is answered, not replied to: refused, gate state)."
+   "description": "A message to whoever sent the item, with the item as its parent link (`hl say --parent`); it settles nothing. An agent replies to its own incoming items; the founder to a mailbox item that is not a decision (a decision is a task, closed with task.done: refused, gate state)."
   },
   {
    "name": "tasks.list",
@@ -5082,20 +4928,6 @@
      }
     },
     {
-     "name": "relation",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "response",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
      "name": "parent",
      "required": false,
      "schema": {
@@ -5147,27 +4979,6 @@
      "required": false,
      "schema": {
       "$ref": "#/components/schemas/Expects"
-     }
-    },
-    {
-     "name": "reply",
-     "required": false,
-     "schema": {
-      "type": "object",
-      "properties": {
-       "message": {
-        "type": "integer"
-       },
-       "text": {
-        "type": "string",
-        "description": "{task} is replaced by the new task's number."
-       }
-      },
-      "required": [
-       "message",
-       "text"
-      ],
-      "description": "Also answer the founder's message with text, where {task} is this task's real number."
      }
     },
     {
@@ -5788,7 +5599,7 @@
   },
   {
    "name": "task.memo.add",
-   "summary": "Add a memo; anyone may. It is told to the holder of a doing task, to whom the task answers (its reporter, else its opener) and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. memo.edit and memo.delete are told the same way.",
+   "summary": "Add a memo; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. memo.edit and memo.delete are told the same way.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -6500,14 +6311,6 @@
      "required": false,
      "schema": {
       "$ref": "#/components/schemas/Duration"
-     }
-    },
-    {
-     "name": "waits_on",
-     "required": false,
-     "schema": {
-      "type": "string",
-      "description": "Owner only: what the task waits on."
      }
     },
     {
@@ -7923,7 +7726,7 @@
   },
   {
    "name": "worktree.diff",
-   "summary": "Read-only git diff run by the daemon.",
+   "summary": "Read-only git diff run by the daemon. Without `file`: the changes to tracked files against HEAD, then a new-file diff of each untracked file that .gitignore does not ignore (at most 200; one too big for what is left of the size cap is listed as `(new file, N bytes: not shown)`, not diffed). With `file`: that file alone, untracked or not.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -7981,6 +7784,165 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "file.read",
+   "summary": "The founder reads a text file in an agent's worktree.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "path",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "text": {
+       "type": "string",
+       "description": "UTF-8 text; the first 1 MiB when the file is longer (truncated)."
+      },
+      "size": {
+       "type": "integer",
+       "minimum": 0,
+       "description": "The file's size in bytes."
+      },
+      "truncated": {
+       "type": "boolean",
+       "description": "The file is over 1 MiB and text is its first 1 MiB. Do not write it back."
+      },
+      "mtime": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "etag": {
+       "type": "string",
+       "description": "SHA-256 of the whole file, hex: file.write takes it back."
+      }
+     },
+     "required": [
+      "text",
+      "size",
+      "truncated",
+      "mtime",
+      "etag"
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ]
+  },
+  {
+   "name": "file.write",
+   "summary": "The founder replaces or creates a .md or .json file in an agent's worktree, if it is still what the etag says.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "path",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise."
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The whole new content: UTF-8 text without NUL, at most 1 MiB; for a .json file, valid JSON."
+     }
+    },
+    {
+     "name": "etag",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The etag file.read gave; empty to create a file that must not exist (its folder must)."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "size": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "mtime": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "etag": {
+       "type": "string",
+       "description": "The new file's etag."
+      }
+     },
+     "required": [
+      "size",
+      "mtime",
+      "etag"
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "x-gates": [
+    "denied",
+    "stale",
+    "too_big"
+   ],
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/refused"
     }
    ]
   },
@@ -8311,6 +8273,21 @@
      "$ref": "#/components/errors/bad_request"
     }
    ]
+  },
+  {
+   "name": "connection.get",
+   "summary": "How this process is reached: its listener, the heavy-run slots and dev mode. Read only.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/ConnectionInfo"
+    }
+   },
+   "x-role": "founder",
+   "x-write": false,
+   "x-since": 1
   },
   {
    "name": "settings.get",
@@ -9886,14 +9863,6 @@
       "type": "string",
       "description": "draft, queued, doing, reported (its owner's done waits on task.accept or task.reject), done or discarded."
      },
-     "relation": {
-      "type": "string",
-      "description": "e.g. manager."
-     },
-     "response": {
-      "type": "string",
-      "description": "e.g. async."
-     },
      "time_box": {
       "oneOf": [
        {
@@ -10157,8 +10126,6 @@
      "to",
      "title",
      "state",
-     "relation",
-     "response",
      "time_box",
      "parent",
      "created",
@@ -10612,21 +10579,6 @@
      }
     ]
    },
-   "DecisionOption": {
-    "type": "object",
-    "properties": {
-     "id": {
-      "type": "string"
-     },
-     "label": {
-      "type": "string"
-     }
-    },
-    "required": [
-     "id",
-     "label"
-    ]
-   },
    "InboxItem": {
     "type": "object",
     "properties": {
@@ -10681,15 +10633,6 @@
      "read": {
       "type": "boolean"
      },
-     "answered": {
-      "type": "boolean"
-     },
-     "options": {
-      "type": "array",
-      "items": {
-       "$ref": "#/components/schemas/DecisionOption"
-      }
-     },
      "prompt": {
       "oneOf": [
        {
@@ -10711,8 +10654,6 @@
      "task",
      "created",
      "read",
-     "answered",
-     "options",
      "prompt"
     ]
    },
@@ -12306,9 +12247,6 @@
      "queued",
      "typed",
      "delivered",
-     "delivered_unanswered",
-     "answered",
-     "dismissed",
      "withdrawn"
     ],
     "description": "Landing state of a message; open set."
@@ -12355,35 +12293,6 @@
      },
      "body": {
       "type": "string"
-     },
-     "answer": {
-      "oneOf": [
-       {
-        "type": "object",
-        "properties": {
-         "id": {
-          "type": "integer"
-         },
-         "text": {
-          "type": "string"
-         },
-         "at": {
-          "$ref": "#/components/schemas/Timestamp"
-         }
-        },
-        "required": [
-         "id",
-         "text",
-         "at"
-        ]
-       },
-       {
-        "type": "null"
-       }
-      ]
-     },
-     "dismissed": {
-      "type": "boolean"
      },
      "delivered_at": {
       "oneOf": [
@@ -12445,9 +12354,6 @@
         "title"
        ]
       }
-     },
-     "is_task_question": {
-      "type": "boolean"
      },
      "agent": {
       "type": "string",
@@ -12526,15 +12432,12 @@
      "landing",
      "sending_reason",
      "body",
-     "answer",
-     "dismissed",
      "delivered_at",
      "typed_at",
      "landed_at",
      "parent",
      "kind",
-     "tasks",
-     "is_task_question"
+     "tasks"
     ],
     "description": "One request between the person and an agent."
    },
@@ -12852,12 +12755,6 @@
       "type": "string",
       "description": "rename: the new name; link, unlink: the other end."
      },
-     "response": {
-      "type": "string"
-     },
-     "relation": {
-      "type": "string"
-     },
      "members": {
       "type": "array",
       "items": {
@@ -13080,6 +12977,26 @@
       "type": "string",
       "maxLength": 4000,
       "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent."
+     },
+     "push_prompt_asked": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
+     },
+     "push_task_done": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
+     },
+     "push_stall": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
+     },
+     "push_account_out": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
      }
     },
     "description": "Every global setting by its config.yaml name, with its default; every one is the founder's to set. Per-account keys (label, cap, usage recovery, cycle) are account.set; per-agent keys are agent.set and schedule.*; a key marked Per agent also takes `agent` in settings.set."
@@ -13254,6 +13171,50 @@
        }
       ],
       "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. An empty string is the built-in prompt; null removes the key (back to the default)."
+     },
+     "push_prompt_asked": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
+     },
+     "push_task_done": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
+     },
+     "push_stall": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
+     },
+     "push_account_out": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
      }
     },
     "description": "settings.set's changes: any of SettingsValues' keys; null removes one."
@@ -13604,43 +13565,6 @@
      "message": {
       "$ref": "#/components/schemas/ChatMessage",
       "description": "request only."
-     },
-     "dismissal": {
-      "oneOf": [
-       {
-        "type": "object",
-        "properties": {
-         "by": {
-          "oneOf": [
-           {
-            "type": "string"
-           },
-           {
-            "type": "null"
-           }
-          ]
-         },
-         "reason": {
-          "oneOf": [
-           {
-            "type": "string"
-           },
-           {
-            "type": "null"
-           }
-          ]
-         }
-        },
-        "required": [
-         "by",
-         "reason"
-        ],
-        "description": "request only: who dismissed it and why, when it was dismissed."
-       },
-       {
-        "type": "null"
-       }
-      ]
      },
      "task_state": {
       "oneOf": [
@@ -14643,6 +14567,111 @@
    "RequestRef": {
     "type": "string",
     "description": "The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else."
+   },
+   "ConnectionInfo": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "served_by": {
+      "type": "string",
+      "enum": [
+       "daemon",
+       "gateway"
+      ],
+      "description": "Which process answered. A daemon behind a gateway has no listener of its own; ask the gateway's local socket for the gateway's."
+     },
+     "listener": {
+      "oneOf": [
+       {
+        "type": "null"
+       },
+       {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+         "address": {
+          "type": "string",
+          "description": "The host:port a pairing names (-advertise, else where the listener binds)."
+         },
+         "encryption": {
+          "type": "string",
+          "enum": [
+           "tls",
+           "none"
+          ],
+          "description": "none is Tailscale mode: plain ws on a Tailscale or loopback address."
+         },
+         "fingerprint": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "description": "sha256 of the certificate presented; null in Tailscale mode."
+         },
+         "tailscale_host": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "description": "The address's host when it is a *.ts.net name, else null."
+         }
+        },
+        "required": [
+         "address",
+         "encryption",
+         "fingerprint",
+         "tailscale_host"
+        ]
+       }
+      ],
+      "description": "The network listener of this process; null when it has none."
+     },
+     "heavy_slots": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+       "slots": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "HANDLINE_HEAVY_SLOTS as this process sees it, default 1."
+       },
+       "dir": {
+        "oneOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "description": "Where the slot locks are kept: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots."
+       }
+      },
+      "required": [
+       "slots",
+       "dir"
+      ]
+     },
+     "dev_mode": {
+      "type": "boolean",
+      "description": "SettingsValues.dev_mode."
+     }
+    },
+    "required": [
+     "served_by",
+     "listener",
+     "heavy_slots",
+     "dev_mode"
+    ],
+    "description": "How this process is reached, read only."
    },
    "Tag": {
     "type": "string",

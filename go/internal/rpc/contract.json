@@ -78,9 +78,6 @@
  "chat.cancel": {
   "role": "member"
  },
- "chat.dismiss": {
-  "role": "member"
- },
  "chat.locate": {
   "role": "member"
  },
@@ -108,6 +105,9 @@
  "chat.transcript": {
   "role": "member"
  },
+ "connection.get": {
+  "role": "founder"
+ },
  "daemon.status": {
   "role": "agent"
  },
@@ -129,6 +129,12 @@
  "events.feed": {
   "role": "agent"
  },
+ "file.read": {
+  "role": "founder"
+ },
+ "file.write": {
+  "role": "founder"
+ },
  "hello": {
   "role": "anonymous"
  },
@@ -149,9 +155,6 @@
  },
  "hr.withdraw": {
   "role": "agent"
- },
- "inbox.answer": {
-  "role": "member"
  },
  "inbox.get": {
   "role": "agent"

@@ -51,9 +51,50 @@ func TestAdvanceDeliversTheNextQueuedTaskAndMakesItCurrent(t *testing.T) {
 	}
 }
 
-func TestAdvanceRecordsARefusedDeliveryOnceAndSkipsIt(t *testing.T) {
+// newUnroutableTask queues a task for bob that its opener carol may not ask of him; alice leads the team.
+func (r *rig) newUnroutableTask() int64 {
+	r.t.Helper()
+	r.must(os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "  eng: [alice, bob]\n",
+		"  eng: [alice, bob]\n  alice: [alice, bob]\n", 1)+"deny:\n  - { from: carol, to: bob, reason: no }\n"), 0o644))
+	r.register("carol")
+	return r.newTask("bob", "carol", "unroutable")
+}
+
+func TestAdvanceDeliversATaskHandedBackToItsOpenerAsItsOwnWork(t *testing.T) {
 	r := newRig(t)
-	tid := r.newTask("bob", "bob", "an agent cannot ask itself")
+	r.agentUp("bob")
+	tid := r.newTask("bob", "bob", "finish the doc")
+	changed, refused, err := r.AdvanceCurrentTask(r.DB, "bob")
+	r.must(err)
+	if !changed || len(refused) != 0 {
+		t.Fatalf("%v %v", changed, refused)
+	}
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != tid {
+		t.Fatal(cur)
+	}
+	reqs, _ := db.TaskRequests(r.DB, tid)
+	if len(reqs) != 1 || reqs[0].Target != "bob" || reqs[0].Kind.String != "task" || reqs[0].Body != "finish the doc" {
+		t.Fatalf("%+v", reqs)
+	}
+}
+
+func TestSelfDeliveryCarriesTheAnswersSoFar(t *testing.T) {
+	r := newRig(t)
+	tid := r.newTask("bob", "bob", "finish the doc")
+	asked := r.ask("bob", "alice", "which format?", "ask")
+	r.must(db.LinkRequest(r.DB, tid, asked))
+	_, err := db.AddAnswer(r.DB, asked, "pdf", 0, true)
+	r.must(err)
+	task, _ := db.GetTask(r.DB, tid)
+	row, _ := db.GetRequest(r.DB, r.selfDelivery(r.DB, "bob", task))
+	if row.Body != fmt.Sprintf("finish the doc\n\nanswer to #%d: pdf", asked) {
+		t.Fatal(row.Body)
+	}
+}
+
+func TestAdvanceRecordsARefusedDeliveryOnceAndTellsTheManager(t *testing.T) {
+	r := newRig(t)
+	tid := r.newUnroutableTask()
 	other := r.newTask("bob", "alice", "fine")
 	changed, refused, err := r.AdvanceCurrentTask(r.DB, "bob")
 	r.must(err)
@@ -73,6 +114,11 @@ func TestAdvanceRecordsARefusedDeliveryOnceAndSkipsIt(t *testing.T) {
 	r.DB.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'task_deliver_refused'").Scan(&m)
 	if n != 1 || m != 1 {
 		t.Fatalf("a permanent refusal fills the log: %d %d", n, m)
+	}
+	var told int
+	r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE requester = ? AND target = 'alice' AND body LIKE ?", db.NoticeRequester, fmt.Sprintf("T%d could not be delivered%%", tid)).Scan(&told)
+	if told != 1 {
+		t.Fatalf("the refusal was told %d times", told)
 	}
 }
 
@@ -255,23 +301,37 @@ func TestTheUnblockIsStillTypedWhenTheAdvanceSendsSomethingElseOrNothing(t *test
 	}
 }
 
-func TestMemoHolderIsToldOnlyForADoingTaskAndNotTheAuthor(t *testing.T) {
+func TestMemoAssigneeIsToldWhateverTheTaskStateAndNotTheAuthor(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	tid := r.newTask("bob", "alice", "job")
 	r.must(r.TellMemo(r.DB, tid, "alice", "added", "check the cache", "", false))
-	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 0 {
-		t.Fatal("told a holder whose task is not doing")
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 || left[0].Body != "T1 memo added by alice: check the cache" {
+		t.Fatalf("the assignee of a task not yet doing waits for the memo in its digest: %q %v", r.term.typed, left)
 	}
 	r.AdvanceCurrentTask(r.DB, "bob")
 	r.term.typed = nil
 	r.must(r.TellMemo(r.DB, tid, "alice", "added", "check the cache", "", false))
-	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 || left[0].Body != "T1 memo added by alice: check the cache" {
-		t.Fatalf("a memo with no @ waits in the holder's digest: %q %v", r.term.typed, left)
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 2 {
+		t.Fatalf("a memo with no @ waits in the doing assignee's digest: %q %v", r.term.typed, left)
 	}
 	r.must(r.TellMemo(r.DB, tid, "bob", "added", "mine", "", false))
-	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 {
-		t.Fatal("told the holder of its own memo")
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 2 {
+		t.Fatal("told the assignee of its own memo")
+	}
+}
+
+// The stall this guards against: the founder commented on a task it holds and nobody was told. Its reporter is; the founder, who reads the
+// board, gets no inbox row.
+func TestTheFoundersMemoOnATaskItHoldsReachesTheReporter(t *testing.T) {
+	r := newRig(t)
+	tid := r.newTask(db.Human, "alice", "decide")
+	r.must(r.TellMemo(r.DB, tid, db.Human, "added", "go with the reassign model", "", false))
+	if says := r.saysTo("alice"); len(says) != 1 || says[0] != "T1 memo added by human: go with the reassign model" {
+		t.Fatalf("the reporter was not told: %q", says)
+	}
+	if says := r.saysTo(db.Human); len(says) != 0 {
+		t.Fatalf("the founder was told: %q", says)
 	}
 }
 
@@ -288,7 +348,7 @@ func TestSweepTaskQueueDeliversAWaitingTaskToAFreeOwnerAndBacksOffWhenNothingLan
 	}
 	// a refusing task sets the retry clock
 	r2 := newRig(t)
-	r2.newTask("bob", "bob", "refused")
+	r2.newUnroutableTask()
 	r2.must(r2.SweepTaskQueue(r2.clock))
 	if n, _ := db.Cursor(r2.DB, "taskqueue:bob"); n != r2.clock {
 		t.Fatalf("retry clock %d", n)
@@ -357,7 +417,7 @@ func (r *rig) saysTo(agent string) []string {
 }
 
 // The stall this guards against: the holder of a task asked, in a memo on it, an agent with no part in the task to discard a duplicate, and
-// nobody was told. The opener and anyone named with @ are told; the writer is not.
+// nobody was told. The opener, the assignee and anyone named with @ are told; the writer is not.
 func TestAMemoReachesTheOpenerAndTheAgentsItNamesWhateverTheTaskState(t *testing.T) {
 	r := newRig(t)
 	r.register("carol", "dave")
@@ -376,8 +436,8 @@ func TestAMemoReachesTheOpenerAndTheAgentsItNamesWhateverTheTaskState(t *testing
 		}
 	}
 	r.must(r.TellMemo(r.DB, tid, "alice", "edited", "@alice @carol mind the cache", "", false))
-	if len(r.saysTo("alice")) != 1 || len(r.saysTo("carol")) != 2 || len(r.saysTo("bob")) != 0 {
-		t.Fatalf("the writer was told, the agent named was not, or the holder of a task not doing was: %q %q %q", r.saysTo("alice"), r.saysTo("carol"), r.saysTo("bob"))
+	if len(r.saysTo("alice")) != 1 || len(r.saysTo("carol")) != 2 || len(r.saysTo("bob")) != 1 {
+		t.Fatalf("the writer was told, or the agent named or the assignee of a task not doing was not: %q %q %q", r.saysTo("alice"), r.saysTo("carol"), r.saysTo("bob"))
 	}
 }
 
@@ -472,5 +532,73 @@ func TestAHeldMemoUnreadForAnHourIsToldToTheReadersLeadOnce(t *testing.T) {
 	}
 	if left, _ := db.PendingNotices(r.DB, "carol"); len(left) != 1 {
 		t.Fatal("the memo is no longer held for its reader")
+	}
+}
+
+// beginCurrent makes a new task of owner's current and begun, as `hl task start` leaves it.
+func (r *rig) beginCurrent(owner, opener, title string) int64 {
+	r.t.Helper()
+	tid := r.newTask(owner, opener, title)
+	_, _, err := r.AdvanceCurrentTask(r.DB, owner)
+	r.must(err)
+	_, err = db.AddEvent(r.DB, owner, "task_begin", db.KV{K: "task_id", V: tid})
+	r.must(err)
+	return tid
+}
+
+// The stall this guards against: a lead's one current task waits on another agent's task, the lead is idle, and its queued tasks never reached it.
+func TestSweepGivesAnIdleAgentItsNextTaskWhileItsBegunTaskWaits(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	held := r.beginCurrent("bob", "alice", "the review")
+	blocker := r.newTask("carol", "bob", "the list to review")
+	_, err := r.DB.Exec("INSERT INTO task_blocks(task_id, blocks_on, dormant, created_at) VALUES(?, ?, 0, 1)", held, blocker)
+	r.must(err)
+	next := r.newTask("bob", "alice", "the next one")
+	r.newTask("bob", "alice", "the one after")
+
+	r.must(db.SetAgentState(r.DB, "bob", states.Running, 0, ""))
+	r.must(r.SweepTaskQueue(r.clock))
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != held {
+		t.Fatalf("a running agent was moved off T%d to T%d", held, cur)
+	}
+
+	r.must(db.SetAgentState(r.DB, "bob", states.Idle, 0, ""))
+	r.must(r.SweepTaskQueue(r.clock))
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != next {
+		t.Fatalf("current is T%d, want the next queued T%d", cur, next)
+	}
+	want := fmt.Sprintf("T%d is blocked by T%d (carol), so T%d (the next one) is yours now: start it.", held, blocker, next)
+	if says := r.saysTo("bob"); len(says) != 1 || says[0] != want {
+		t.Fatalf("says to bob = %q, want %q", says, want)
+	}
+}
+
+// A begun task past its timeout that nobody answered pings its idle holder once per deadline when nothing else is queued for it.
+func TestSweepPingsTheIdleHolderOfAnOverdueTaskOncePerDeadline(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	tid := r.beginCurrent("bob", "alice", "the long one")
+	r.must(db.AdvanceTaskTimeout(r.DB, tid, r.clock, db.DefaultTaskTimeoutS))
+	row, err := db.GetTask(r.DB, tid)
+	r.must(err)
+	r.must(db.SetAgentState(r.DB, "bob", states.Idle, 0, ""))
+
+	r.must(r.SweepTaskQueue(r.clock))
+	if says := r.saysTo("bob"); len(says) != 0 {
+		t.Fatalf("a task within its timeout pinged its holder: %q", says)
+	}
+	_, err = db.AddEvent(r.DB, "alice", "task_timeout_exceeded", db.KV{K: "task_id", V: tid}, db.KV{K: "next", V: row.TimeoutAt.Int64})
+	r.must(err)
+	r.must(r.SweepTaskQueue(r.clock))
+	r.must(r.SweepTaskQueue(r.clock + 1))
+	if says := r.saysTo("bob"); len(says) != 1 || !strings.HasPrefix(says[0], fmt.Sprintf("T%d (the long one) is past its timeout, unanswered. Keep it going", tid)) {
+		t.Fatalf("says to bob = %q, want one overdue ping", says)
+	}
+
+	next := r.newTask("bob", "alice", "the next one")
+	r.must(r.SweepTaskQueue(r.clock + 2))
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != next {
+		t.Fatalf("current is T%d, want T%d once something is queued behind the overdue one", cur, next)
 	}
 }

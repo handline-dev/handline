@@ -222,46 +222,6 @@
    ]
   },
   {
-   "name": "task.edit.waits_on_is_not_served",
-   "spec": "task.edit",
-   "about": "A part with no action behind it is bad_request, not dropped.",
-   "as": "founder",
-   "steps": [
-    {
-     "send": {
-      "jsonrpc": "2.0",
-      "id": 1,
-      "method": "hello",
-      "params": {
-       "client": "conformance/1",
-       "protocol": 1,
-       "key": "{{founder_key}}"
-      }
-     },
-     "result": {}
-    },
-    {
-     "send": {
-      "jsonrpc": "2.0",
-      "id": 2,
-      "method": "task.edit",
-      "params": {
-       "task": 1,
-       "waits_on": "a review",
-       "request_id": "conf-1"
-      }
-     },
-     "error": {
-      "code": -32602,
-      "data": {
-       "code": "bad_request",
-       "field": "waits_on"
-      }
-     }
-    }
-   ]
-  },
-  {
    "name": "task.withdraw.no_such_task",
    "spec": "task.withdraw",
    "about": "Withdrawing a task that does not exist is not_found.",

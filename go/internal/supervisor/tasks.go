@@ -46,6 +46,32 @@ func (e *Env) noteRefusal(q db.Q, agent string, tid int64, msg string, refused m
 		}
 	}
 	must(db.AddEvent(q, agent, "task_deliver_refused", db.KV{K: "task_id", V: tid}, db.KV{K: "why", V: msg}))
+	e.tellRefusal(q, agent, tid, msg)
+}
+
+// tellRefusal tells the owner's manager (the founder when it has none) that tid sits queued because its delivery was refused.
+func (e *Env) tellRefusal(q db.Q, agent string, tid int64, msg string) {
+	to := db.Human
+	if t, err := team.LoadTeam(e.Home); err == nil && t.ManagerOf(agent) != "" {
+		to = t.ManagerOf(agent)
+	}
+	text := fmt.Sprintf("T%d could not be delivered to %s and is waiting: %s", tid, agent, msg)
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Response: "fire_and_forget", Kind: "say"}))
+	check(db.LinkRequest(q, tid, rid))
+	e.Push(q, to, rid)
+}
+
+// selfDelivery is a task handed back to the agent that queued it: not a request to itself but its own work, carrying the answers that came
+// back on the task so far.
+func (e *Env) selfDelivery(q db.Q, agent string, task *db.Task) int64 {
+	body := task.Title
+	for _, linked := range must(db.TaskRequests(q, task.ID)) {
+		r := must(db.GetRequest(q, linked.ID))
+		if r.Answer.Valid && r.Answer.String != "" {
+			body += fmt.Sprintf("\n\nanswer to #%d: %s", r.ID, r.Answer.String)
+		}
+	}
+	return must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: agent, Body: body, Response: "fire_and_forget", Kind: "task"}))
 }
 
 // AdvanceCurrentTask moves the agent on to its next open task, by priority then age, once the current one stops being worth holding. True if
@@ -82,6 +108,13 @@ func (e *Env) makeCurrent(q db.Q, agent string, w db.WaitingTask, refused map[in
 	if w.Req != nil {
 		check(db.SetCurrentTask(q, agent, w.Task.ID, true))
 		check(db.PromoteToFront(q, w.Req.ID))
+		return true
+	}
+	if w.Task.QueuedBy.String == agent {
+		rid := e.selfDelivery(q, agent, w.Task)
+		e.linkDelivery(q, w.Task.ID, agent, rid)
+		check(db.SetCurrentTask(q, agent, w.Task.ID, true))
+		e.Push(q, agent, rid)
 		return true
 	}
 	out, aerr := e.Ask(q, AskIn{Target: agent, Body: w.Task.Title, Requester: w.Task.QueuedBy.String, Kind: "task", OnBehalfOf: true, Notify: true})
@@ -398,13 +431,9 @@ func (e *Env) TellMemo(q db.Q, tid int64, by, what, text, to string, now bool) (
 	if row == nil {
 		return nil
 	}
-	holder := ""
-	if must(db.TaskState(q, row)) == "doing" {
-		holder = row.Owner
-	}
 	body := memoLine(tid, what, by, text)
 	named := e.mentioned(text)
-	for _, a := range e.memoReaders(row, holder, by, named) {
+	for _, a := range e.memoReaders(row, by, named) {
 		if delivery.ClassOf(delivery.Memo, now || a == to || slices.Contains(named, a), false) == delivery.ClassNow {
 			e.typeSay(q, a, body, "task memo")
 		} else {
@@ -416,11 +445,10 @@ func (e *Env) TellMemo(q db.Q, tid int64, by, what, text, to string, now bool) (
 	return nil
 }
 
-// memoReaders is whom a memo on row concerns, each once: its holder (empty unless the task is doing; one not yet doing reads its memos when it
-// is delivered), who the task answers to, and every registered agent the memo names with @. Never the writer, or the founder, who reads the
-// board.
-func (e *Env) memoReaders(row *db.Task, holder, by string, mentioned []string) []string {
-	named := append([]string{holder, row.AnswersTo()}, mentioned...)
+// memoReaders is whom a memo on row concerns, each once: who the task answers to (its reporter), its assignee whatever the task's state, and
+// every registered agent the memo names with @. Never the writer, or the founder, who reads the board.
+func (e *Env) memoReaders(row *db.Task, by string, mentioned []string) []string {
+	named := append([]string{row.AnswersTo(), row.Owner}, mentioned...)
 	skip := map[string]bool{"": true, by: true, db.Human: true}
 	var out []string
 	for _, a := range named {
