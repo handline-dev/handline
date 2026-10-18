@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Account } from '@handline/client';
-import { FIVE_HOURS_MS, gaugeOf, headroom, outUntil, stateOf, toneOf } from '../src/index.ts';
+import { FIVE_HOURS_MS, capacityOf, gaugeOf, headroom, outUntil, stateOf, toneOf } from '../src/index.ts';
 
 const NOW = Date.parse('2026-10-07T12:00:00Z');
 const at = (ms: number) => new Date(NOW + ms).toISOString();
@@ -58,4 +58,11 @@ test('headroom: amber from 90% or a stop before the reset, red from 95% or under
   assert.equal(headroom(w(40), 15 * 60, now).tone, 'warn');
   assert.equal(headroom(w(40), 2 * 3600, now).stopAt, now + 2 * 3600_000);
   assert.equal(headroom(null, null, now).tone, 'ok');
+});
+
+test('capacity averages the room left on accounts that can run, and is short with none', () => {
+  const w = (used_pct: number) => ({ used_pct, resets_at: null, source: 'measured' });
+  assert.deepEqual(capacityOf([acct({ five_hour: w(13) })]), { word: 'plenty', left: 87 });
+  assert.equal(capacityOf([acct({ five_hour: w(70) }), acct({ five_hour: w(60) })]).word, 'tight');
+  assert.equal(capacityOf([acct({ five_hour: w(100) }), acct({ login_state: 'needs_login' })]).word, 'short');
 });
