@@ -323,7 +323,7 @@ func (w *writes) inboxReply(c *rpc.Conn, p map[string]any) (any, error) {
 					return nil, nil, err
 				}
 				if tid != 0 {
-					return nil, nil, rpc.Refused("a decision is answered with inbox.answer, not replied to", "state", "")
+					return nil, nil, rpc.Refused("a decision is a task: close it with task.done, not a reply", "state", "")
 				}
 			}
 		}

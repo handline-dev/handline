@@ -25,11 +25,9 @@ func Register(s *rpc.Server, e *supervisor.Env, tell taskwrites.Teller) {
 	w := &writes{e, tell, attachments.New(e.Home)}
 	s.Register("chat.send", rpc.Method{Role: "member", Write: true, Handler: w.send, Refresh: w.refreshSend})
 	s.Register("chat.send_now", rpc.Method{Role: "member", Write: true, Handler: w.sendNow})
-	s.Register("chat.dismiss", rpc.Method{Role: "member", Write: true, Handler: w.dismiss})
 	s.Register("chat.cancel", rpc.Method{Role: "member", Write: true, Handler: w.cancel})
 	s.Register("chat.seen", rpc.Method{Role: "member", Write: true, Handler: w.seen})
 	s.Register("inbox.mark_read", rpc.Method{Role: "agent", Write: true, Handler: w.markRead})
-	s.Register("inbox.answer", rpc.Method{Role: "member", Write: true, Handler: w.inboxAnswer})
 	s.Register("inbox.reply", rpc.Method{Role: "agent", Write: true, Handler: w.inboxReply})
 	w.registerMessages(s)
 	w.registerAnswers(s)

@@ -2367,7 +2367,7 @@
       },
       "version": {
        "type": "string",
-       "description": "Opaque: equal on two reads when nothing in the chat changed between them (a request made, answered, closed, changed, delivered or landed, a task event, a session start). Cheap to compare; a client that sees it change reads again."
+       "description": "Opaque: equal on two reads when nothing in the chat changed between them (a request made, closed, changed, delivered or landed, a task event, a session start). Cheap to compare; a client that sees it change reads again."
       },
       "cursor": {
        "type": "integer",
@@ -2393,7 +2393,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "items are oldest first, each with a `type`: `request` is a chat.messages ChatMessage plus `dismissal` and `task_state`; `task_event` is a change of a task delivered in the page, since the first request in it (the state it reached, a handoff, an edit), with `request` naming the delivery a handoff belongs to so a client can draw both as one card; `session` is the start of a new conversation of the agent since that request (one that resumed the old conversation is not listed). Requests that no chat draws (withdrawn, never reached their target) are left out. HR cards are hr.list's."
+   "description": "items are oldest first, each with a `type`: `request` is a chat.messages ChatMessage plus `task_state`; `task_event` is a change of a task delivered in the page, since the first request in it (the state it reached, a handoff, an edit), with `request` naming the delivery a handoff belongs to so a client can draw both as one card; `session` is the start of a new conversation of the agent since that request (one that resumed the old conversation is not listed). Requests that no chat draws (withdrawn, never reached their target) are left out. HR cards are hr.list's."
   },
   {
    "name": "chat.transcript",
@@ -3064,47 +3064,6 @@
     }
    ],
    "description": "For a message to a structured agent whose receipt is queued: written to the CLI with priority now, receipt sent. Any other receipt is refused (gate state), including a message written meanwhile. The daemon makes the release atomic with its queue, so a write that has started is never promoted twice. A terminal agent's message is as before."
-  },
-  {
-   "name": "chat.dismiss",
-   "summary": "Dismiss a message.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "request",
-     "required": true,
-     "schema": {
-      "type": "integer"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "member",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ]
   },
   {
    "name": "chat.cancel",
@@ -3930,7 +3889,7 @@
   {
    "name": "inbox.queue",
    "summary": "An inbox as hl inbox prints it.",
-   "description": "An agent's inbox is the one request at the head of its queue (the oldest queued one whose routing was checked; a say is never the head), and with `all` every request ever sent to it. The founder's is the mailbox folded to one line per agent, a decision or a request whose sender waits on the reply keeping its own line, and with `all` the 20 most recent requests to or from the founder that are no longer queued. An agent may list its own inbox and those of the agents it supervises; the founder any. Nothing is marked read: the caller sends inbox.mark_read for the head it showed.",
+   "description": "An agent's inbox is the one request at the head of its queue (the oldest queued one whose routing was checked; a say is never the head), and with `all` every request ever sent to it. The founder's is the mailbox folded to one line per agent, a decision keeping its own line, and with `all` the 20 most recent requests to or from the founder that are no longer queued. An agent may list its own inbox and those of the agents it supervises; the founder any. Nothing is marked read: the caller sends inbox.mark_read for the head it showed.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3978,7 +3937,7 @@
       },
       "newest": {
        "type": "integer",
-       "description": "The number of the newest thing waiting in this inbox, 0 for nothing: for an agent a request no state has settled, for the founder a mailbox row (an answer counts by its own number)."
+       "description": "The number of the newest thing waiting in this inbox, 0 for nothing: for an agent a request no state has settled, for the founder a mailbox row."
       },
       "head": {
        "oneOf": [
@@ -4066,7 +4025,7 @@
       },
       "lines": {
        "type": "array",
-       "description": "The founder's mailbox: decisions first, then requests whose sender waits on the reply, then the rest, oldest first in each.",
+       "description": "The founder's mailbox: decisions first, then the rest, oldest first in each.",
        "items": {
         "type": "object",
         "properties": {
@@ -4184,7 +4143,7 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 600,
-      "description": "Hold the call up to this many seconds until the request has been answered. Default 0, at most 600."
+      "description": "Hold the call up to this many seconds until the request settles. Default 0, at most 600."
      }
     }
    ],
@@ -4258,26 +4217,6 @@
       "created": {
        "$ref": "#/components/schemas/Timestamp"
       },
-      "relation": {
-       "oneOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ]
-      },
-      "response": {
-       "oneOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ]
-      },
       "chain_depth": {
        "type": "integer"
       },
@@ -4319,44 +4258,7 @@
          "type": "null"
         }
        ],
-       "description": "What came back, or for a request that never reached its target why it closed. Null while there is none and for a dismissal."
-      },
-      "dismissal": {
-       "oneOf": [
-        {
-         "type": "object",
-         "properties": {
-          "by": {
-           "oneOf": [
-            {
-             "type": "string"
-            },
-            {
-             "type": "null"
-            }
-           ]
-          },
-          "reason": {
-           "oneOf": [
-            {
-             "type": "string"
-            },
-            {
-             "type": "null"
-            }
-           ]
-          }
-         },
-         "required": [
-          "by",
-          "reason"
-         ]
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Set when the request was dismissed: who did it and why, each null when not recorded."
+       "description": "What came back, or for a request that never reached its target why it closed. Null while there is none."
       },
       "parts": {
        "type": "array",
@@ -4380,13 +4282,10 @@
       "kind",
       "state",
       "created",
-      "relation",
-      "response",
       "chain_depth",
       "parent",
       "body",
-      "answer",
-      "dismissal"
+      "answer"
      ]
     }
    },
@@ -4627,62 +4526,6 @@
    "description": "For the founder, every message of an agent up to the newest id named is read; a decision or a reply owed is never read away, so such an id, and what lies past it, stays unread (refused, gate state, when nothing could be read). For an agent only the head of its own queue can be read, as `hl inbox` does; another id of its own is refused, gate state."
   },
   {
-   "name": "inbox.answer",
-   "summary": "Answer a decision item with one of its options or free text.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "id",
-     "required": true,
-     "schema": {
-      "type": "integer"
-     }
-    },
-    {
-     "name": "option",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "text",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "member",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ],
-   "description": "The founder's answer to an item of the mailbox: a decision's, a question's, or a reply to an answer. No item carries options yet, so `option` is bad_request and `text` is the answer. An agent session is refused, gate role."
-  },
-  {
    "name": "inbox.reply",
    "summary": "Reply to an item.",
    "paramStructure": "by-name",
@@ -4730,7 +4573,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "A message to whoever sent the item, settling it (`hl say --parent`). An agent replies to its own incoming items; the founder to a mailbox item that is not a decision (a decision is answered, not replied to: refused, gate state)."
+   "description": "A message to whoever sent the item, with the item as its parent link (`hl say --parent`); it settles nothing. An agent replies to its own incoming items; the founder to a mailbox item that is not a decision (a decision is a task, closed with task.done: refused, gate state)."
   },
   {
    "name": "tasks.list",
@@ -5082,20 +4925,6 @@
      }
     },
     {
-     "name": "relation",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "response",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
      "name": "parent",
      "required": false,
      "schema": {
@@ -5147,27 +4976,6 @@
      "required": false,
      "schema": {
       "$ref": "#/components/schemas/Expects"
-     }
-    },
-    {
-     "name": "reply",
-     "required": false,
-     "schema": {
-      "type": "object",
-      "properties": {
-       "message": {
-        "type": "integer"
-       },
-       "text": {
-        "type": "string",
-        "description": "{task} is replaced by the new task's number."
-       }
-      },
-      "required": [
-       "message",
-       "text"
-      ],
-      "description": "Also answer the founder's message with text, where {task} is this task's real number."
      }
     },
     {
@@ -6500,14 +6308,6 @@
      "required": false,
      "schema": {
       "$ref": "#/components/schemas/Duration"
-     }
-    },
-    {
-     "name": "waits_on",
-     "required": false,
-     "schema": {
-      "type": "string",
-      "description": "Owner only: what the task waits on."
      }
     },
     {
@@ -9886,14 +9686,6 @@
       "type": "string",
       "description": "draft, queued, doing, reported (its owner's done waits on task.accept or task.reject), done or discarded."
      },
-     "relation": {
-      "type": "string",
-      "description": "e.g. manager."
-     },
-     "response": {
-      "type": "string",
-      "description": "e.g. async."
-     },
      "time_box": {
       "oneOf": [
        {
@@ -10157,8 +9949,6 @@
      "to",
      "title",
      "state",
-     "relation",
-     "response",
      "time_box",
      "parent",
      "created",
@@ -10612,21 +10402,6 @@
      }
     ]
    },
-   "DecisionOption": {
-    "type": "object",
-    "properties": {
-     "id": {
-      "type": "string"
-     },
-     "label": {
-      "type": "string"
-     }
-    },
-    "required": [
-     "id",
-     "label"
-    ]
-   },
    "InboxItem": {
     "type": "object",
     "properties": {
@@ -10681,15 +10456,6 @@
      "read": {
       "type": "boolean"
      },
-     "answered": {
-      "type": "boolean"
-     },
-     "options": {
-      "type": "array",
-      "items": {
-       "$ref": "#/components/schemas/DecisionOption"
-      }
-     },
      "prompt": {
       "oneOf": [
        {
@@ -10711,8 +10477,6 @@
      "task",
      "created",
      "read",
-     "answered",
-     "options",
      "prompt"
     ]
    },
@@ -12306,9 +12070,6 @@
      "queued",
      "typed",
      "delivered",
-     "delivered_unanswered",
-     "answered",
-     "dismissed",
      "withdrawn"
     ],
     "description": "Landing state of a message; open set."
@@ -12355,35 +12116,6 @@
      },
      "body": {
       "type": "string"
-     },
-     "answer": {
-      "oneOf": [
-       {
-        "type": "object",
-        "properties": {
-         "id": {
-          "type": "integer"
-         },
-         "text": {
-          "type": "string"
-         },
-         "at": {
-          "$ref": "#/components/schemas/Timestamp"
-         }
-        },
-        "required": [
-         "id",
-         "text",
-         "at"
-        ]
-       },
-       {
-        "type": "null"
-       }
-      ]
-     },
-     "dismissed": {
-      "type": "boolean"
      },
      "delivered_at": {
       "oneOf": [
@@ -12445,9 +12177,6 @@
         "title"
        ]
       }
-     },
-     "is_task_question": {
-      "type": "boolean"
      },
      "agent": {
       "type": "string",
@@ -12526,15 +12255,12 @@
      "landing",
      "sending_reason",
      "body",
-     "answer",
-     "dismissed",
      "delivered_at",
      "typed_at",
      "landed_at",
      "parent",
      "kind",
-     "tasks",
-     "is_task_question"
+     "tasks"
     ],
     "description": "One request between the person and an agent."
    },
@@ -12851,12 +12577,6 @@
      "to": {
       "type": "string",
       "description": "rename: the new name; link, unlink: the other end."
-     },
-     "response": {
-      "type": "string"
-     },
-     "relation": {
-      "type": "string"
      },
      "members": {
       "type": "array",
@@ -13604,43 +13324,6 @@
      "message": {
       "$ref": "#/components/schemas/ChatMessage",
       "description": "request only."
-     },
-     "dismissal": {
-      "oneOf": [
-       {
-        "type": "object",
-        "properties": {
-         "by": {
-          "oneOf": [
-           {
-            "type": "string"
-           },
-           {
-            "type": "null"
-           }
-          ]
-         },
-         "reason": {
-          "oneOf": [
-           {
-            "type": "string"
-           },
-           {
-            "type": "null"
-           }
-          ]
-         }
-        },
-        "required": [
-         "by",
-         "reason"
-        ],
-        "description": "request only: who dismissed it and why, when it was dismissed."
-       },
-       {
-        "type": "null"
-       }
-      ]
      },
      "task_state": {
       "oneOf": [
