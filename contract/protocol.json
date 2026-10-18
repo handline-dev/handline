@@ -50,7 +50,10 @@
   "limit": "attachment.put: the file or the unsent total is over its limit, or too many uploads are open (x-attachments).",
   "listing": "inbox.queue: the caller may not list that agent's messages. Only the agent itself, its supervisor and the founder may.",
   "duplicate_title": "task.new: an open task under the same parent, or the parent itself, has nearly the title (same first word, 80% of the shorter title's words, Story prefix, case, punctuation and commit shas ignored). data.task names it; duplicate_ok opens the task anyway.",
-  "open_children": "task.done: the task has open child tasks. The reason names each (number, state, assignee, title), the hint the commands that close one, and the refusal's `children` lists them, so a client can offer to discard them from the same prompt."
+  "open_children": "task.done: the task has open child tasks. The reason names each (number, state, assignee, title), the hint the commands that close one, and the refusal's `children` lists them, so a client can offer to discard them from the same prompt.",
+  "denied": "file.write: the path is one the daemon never writes: under .git, .claude, .github, .husky, .codex, .cursor, .vscode, .devcontainer or a hooks folder (at any depth); a settings.json, settings.local.json, .mcp.json, mcp.json, hooks.json, package.json, .claude.json, tsconfig.json, turbo.json, deno.json, composer.json or lefthook.json; or anything but a .md or .json file.",
+  "stale": "file.write: the file is not what the etag says (it changed, is gone, or exists when the etag is empty). Read it again; nothing was written.",
+  "too_big": "file.write: the file on disk is over 1 MiB, so file.read gave only its start; it is not written (a text read from it would cut it)."
  },
  "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
  "x-legacy": {
@@ -7781,6 +7784,165 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "file.read",
+   "summary": "The founder reads a text file in an agent's worktree.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "path",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "text": {
+       "type": "string",
+       "description": "UTF-8 text; the first 1 MiB when the file is longer (truncated)."
+      },
+      "size": {
+       "type": "integer",
+       "minimum": 0,
+       "description": "The file's size in bytes."
+      },
+      "truncated": {
+       "type": "boolean",
+       "description": "The file is over 1 MiB and text is its first 1 MiB. Do not write it back."
+      },
+      "mtime": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "etag": {
+       "type": "string",
+       "description": "SHA-256 of the whole file, hex: file.write takes it back."
+      }
+     },
+     "required": [
+      "text",
+      "size",
+      "truncated",
+      "mtime",
+      "etag"
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ]
+  },
+  {
+   "name": "file.write",
+   "summary": "The founder replaces or creates a .md or .json file in an agent's worktree, if it is still what the etag says.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "path",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise."
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The whole new content: UTF-8 text without NUL, at most 1 MiB; for a .json file, valid JSON."
+     }
+    },
+    {
+     "name": "etag",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The etag file.read gave; empty to create a file that must not exist (its folder must)."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "size": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "mtime": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "etag": {
+       "type": "string",
+       "description": "The new file's etag."
+      }
+     },
+     "required": [
+      "size",
+      "mtime",
+      "etag"
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "x-gates": [
+    "denied",
+    "stale",
+    "too_big"
+   ],
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/refused"
     }
    ]
   },

@@ -47,6 +47,7 @@ export const reads = {
   'repos.list': { resource: 'repos' },
   'worktrees.list': { resource: 'worktrees' },
   'worktree.diff': { resource: 'worktree-diff' },
+  'file.read': { resource: 'file' },
   'schedules.list': { resource: 'schedules' },
   'stats.get': { resource: 'stats' },
   'stats.outlook': { resource: 'outlook' },
