@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The Go daemon's required check: `go test ./...` in go/, and a cgo-free build of the one binary.
 # Run by tools/test.sh with the whole suite; run it alone with `tools/test-go.sh [go test args]`. CI runs the suite in shards of
-# packages (tools/go-shard.sh) and `tools/test-go.sh --gates` for what is not a package's test: tidy, dupl, the build, the conformance fixtures.
+# packages (tools/go-shard.sh) and `tools/test-go.sh --gates` for what is not a package's test: tidy, dupl, the build, the
+# conformance fixtures.
 # -race only when HANDLINE_GO_RACE=1, as the auditor sets it for a sha: a race build doubles the build cache, and every worktree runs this.
 here="$(cd "$(dirname "$0")" && pwd)"
 [ -n "${HANDLINE_HEAVY_SLOT:-}" ] || exec "$here/heavy-slot.sh" "$here/test-go.sh" "$@"   # one heavy run at a time

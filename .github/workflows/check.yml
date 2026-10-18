@@ -104,7 +104,11 @@ jobs:
       - if: steps.plan.outputs.kind == 'go'
         # Fails a run that leaves a process, tmux server or temp file behind. Its TMPDIR is <dir>/tmp/: the same path each run,
         # as go test's cache needs, under the runner's temp directory.
-        run: tools/leakcheck.py run --dir "$RUNNER_TEMP/hlc" tools/test-go.sh $(tools/go-shard.sh ${{ matrix.shard }})
+        # An empty or failed package list is an error: test-go.sh with no packages would run the whole suite.
+        run: |
+          pkgs="$(tools/go-shard.sh ${{ matrix.shard }})" && [ -n "$pkgs" ] ||
+            { echo "no packages for shard ${{ matrix.shard }}" >&2; exit 1; }
+          tools/leakcheck.py run --dir "$RUNNER_TEMP/hlc" tools/test-go.sh $pkgs
 
   contract:
     runs-on: ubuntu-latest
