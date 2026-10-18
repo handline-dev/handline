@@ -16,7 +16,7 @@ import (
 )
 
 // hr raises a roster change for the founder to decide, lists proposals, or takes one back (cli/hr.cmd_hr). The founder approves and rejects from
-// the app: an approve is `hr.decide`, which a person makes from a card.
+// the app's card or with hl hr approve/reject; either is `hr.decide`.
 func hr(c *hlclient.Client, args []string) (int, bool) {
 	if len(args) == 0 {
 		return 0, false
@@ -43,8 +43,49 @@ func hr(c *hlclient.Client, args []string) (int, bool) {
 		return said(c.Write("hr.withdraw", map[string]any{"proposal": n})), true
 	case "list":
 		return hrList(c, rest)
+	case "approve", "reject":
+		return hrDecide(c, sub, rest)
 	}
 	return 0, false
+}
+
+// hrDecide is the founder's approve or reject of a proposal, as the app's card makes it (hr.decide): an approve names the subject hr.list
+// shows, so what is approved is what was listed. An agent's session is refused here; the daemon refuses any caller but the founder.
+func hrDecide(c *hlclient.Client, verb string, args []string) (int, bool) {
+	p, ok := parse(args, nil, nil, nil)
+	if !ok || len(p.pos) < 1 || verb == "approve" && len(p.pos) != 1 {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(p.pos[0], 16, 64)
+	if err != nil {
+		fmt.Printf("no proposal %s\n", p.pos[0])
+		return 1, true
+	}
+	if hlclient.Agent() != "" {
+		fmt.Printf("refused: proposal %s is the founder's to decide, in the app's HR tab or with `hl hr %s %s` at their own terminal\n", p.pos[0], verb, p.pos[0])
+		return 1, true
+	}
+	params := map[string]any{"proposal": n, "decision": verb}
+	if verb == "reject" && len(p.pos) > 1 {
+		params["note"] = strings.Join(p.pos[1:], " ")
+	}
+	if verb == "approve" {
+		got, err := c.Call("hr.list", nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "the proposals cannot be read: %v\n", err)
+			return 1, true
+		}
+		for _, r := range rows(got["proposals"]) {
+			if anum(r["id"]) == n {
+				params["subject"] = text(r["subject"])
+			}
+		}
+		if params["subject"] == nil {
+			fmt.Printf("no proposal %s waits on you\n", p.pos[0])
+			return 1, true
+		}
+	}
+	return said(c.Write("hr.decide", params)), true
 }
 
 func hrPropose(c *hlclient.Client, kind string, args []string) (int, bool) {

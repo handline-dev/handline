@@ -758,10 +758,22 @@ func TestProposeWritesTheProposalFileAndRefusesWhatHrPyRefused(t *testing.T) {
 	}
 }
 
+// gitDir is a fresh folder that reads as a git checkout.
+func gitDir(t *testing.T) string {
+	t.Helper()
+	d := t.TempDir()
+	if err := os.Mkdir(filepath.Join(d, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
 func TestProposeRenameTeamAndBundleAreDraftedAsHrPyDraftsThem(t *testing.T) {
 	r := newRig(t)
+	rr, ss := gitDir(t), gitDir(t)
+	paths := strings.NewReplacer(`"/r"`, fmt.Sprintf("%q", rr), `"/s"`, fmt.Sprintf("%q", ss))
 	call := func(rid, params string) map[string]any {
-		return r.callAs("alice", "hr.propose", fmt.Sprintf(`{%s,"request_id":%q}`, params, rid))
+		return r.callAs("alice", "hr.propose", fmt.Sprintf(`{%s,"request_id":%q}`, paths.Replace(params), rid))
 	}
 	loaded := func(res map[string]any) *Prop {
 		t.Helper()
@@ -781,7 +793,7 @@ func TestProposeRenameTeamAndBundleAreDraftedAsHrPyDraftsThem(t *testing.T) {
 		t.Fatalf("%+v", rn)
 	}
 	tm := loaded(call("t1", `"kind":"team","args":{"name":"zed","repo":"/r","members":["sea","zed.air"],"repos":{"zed.sea":"/s"}},"why":"w"`))
-	if tm.str("members") != "zed.sea,zed.air" || tm.str("repo.zed.sea") != "/s" || tm.str("repo.zed.air") != "/r" {
+	if tm.str("members") != "zed.sea,zed.air" || tm.str("repo.zed.sea") != ss || tm.str("repo.zed.air") != rr {
 		t.Fatalf("%+v", tm)
 	}
 	b := loaded(call("b1", `"kind":"bundle","args":{"name":"2 changes","changes":[{"kind":"rename","name":"carol","to":"cy"},{"kind":"add","name":"carol","repo":"/r"}]},"why":"w"`))
@@ -807,5 +819,105 @@ func TestProposeRenameTeamAndBundleAreDraftedAsHrPyDraftsThem(t *testing.T) {
 		if !strings.Contains(msg, c.want) {
 			t.Errorf("%s: %v", c.want, m)
 		}
+	}
+}
+
+// The founder's own hr add is applied at once, its approval on record as any other's, and hr.list shows it.
+func TestTheFoundersOwnAddIsAppliedAtOnce(t *testing.T) {
+	r := newRig(t)
+	repo := t.TempDir()
+	os.Mkdir(filepath.Join(repo, ".git"), 0o755)
+	m := r.call("hr.propose", fmt.Sprintf(`{"kind":"add","args":{"name":"carol","team":"eng","repo":%q},"why":"we need her","request_id":"f1"}`, repo))
+	res, ok := m["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("%v", m)
+	}
+	id := fmt.Sprintf("%08x", int64(res["proposal"].(float64)))
+	if said := res["said"].(string); !strings.HasPrefix(said, "proposal "+id+" applied: carol is an agent, team eng.") {
+		t.Fatalf("%q", said)
+	}
+	if st := r.state(id); st != "applied" {
+		t.Fatalf("state %s", st)
+	}
+	if got := r.e.decisionOf(id); got == nil || got["call"] != "approved" {
+		t.Fatalf("the approval is on record: %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(r.home, "agents", "carol", "agent.yaml")); err != nil {
+		t.Fatal("registered")
+	}
+	if v := r.e.reader().HRView(id); v == nil || v["state"] != "approved" || v["requested_by"] != "human" {
+		t.Fatalf("hr.list shows it: %v", v)
+	}
+}
+
+// A founder's proposal left waiting (raised before their own were applied at once) is listed and approved like any other.
+func TestAFoundersProposalLeftWaitingIsListedAndApprovable(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa0009", "kind", "retire", "agent", "bob")
+	p.set("requested_by", "human")
+	if err := r.e.save(p); err != nil {
+		t.Fatal(err)
+	}
+	if v := r.e.reader().HRView(p.id()); v == nil || v["state"] != "open" {
+		t.Fatalf("listed as waiting: %v", v)
+	}
+	if m := r.decide(id, "approve", p.subject(), "w1"); m["error"] != nil {
+		t.Fatalf("%v", m)
+	}
+	if st := r.state(p.id()); st != "applied" {
+		t.Fatalf("state %s", st)
+	}
+}
+
+// A relative --repo (and a member's SUFFIX=REPO) is taken from the proposer's own repo and kept absolute; a path that is not a git checkout,
+// or a relative one from a proposer with no repo (the founder), is refused before anything is written.
+func TestAProposedRepoIsKeptAbsoluteAndMustBeAGitCheckout(t *testing.T) {
+	r := newRig(t)
+	base := gitDir(t)
+	for _, sub := range []string{"app", "lib"} {
+		if err := os.MkdirAll(filepath.Join(base, sub, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	os.Mkdir(filepath.Join(base, "plain"), 0o755)
+	if _, err := team.NewRoster(r.home).Register("alice", team.RegisterOpts{Role: "r", Repo: base}); err != nil {
+		t.Fatal(err)
+	}
+	propose := func(as, rid, params string) map[string]any {
+		if as == "" {
+			return r.call("hr.propose", fmt.Sprintf(`{%s,"request_id":%q}`, params, rid))
+		}
+		return r.callAs(as, "hr.propose", fmt.Sprintf(`{%s,"request_id":%q}`, params, rid))
+	}
+	stored := func(res map[string]any) *Prop {
+		t.Helper()
+		out, ok := res["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("not raised: %v", res)
+		}
+		p, _ := r.e.load(fmt.Sprintf("%08x", int64(out["proposal"].(float64))))
+		return p
+	}
+	if p := stored(propose("alice", "a1", `"kind":"add","args":{"name":"carol","repo":"app"},"why":"w"`)); p.str("repo") != filepath.Join(base, "app") {
+		t.Fatalf("the relative repo is alice's own repo's app: %q", p.str("repo"))
+	}
+	tm := stored(propose("alice", "t1", `"kind":"team","args":{"name":"zed","repo":"app","members":["sea"],"repos":{"zed.sea":"lib"}},"why":"w"`))
+	if tm.str("repo") != filepath.Join(base, "app") || tm.str("repo.zed.sea") != filepath.Join(base, "lib") {
+		t.Fatalf("%q %q", tm.str("repo"), tm.str("repo.zed.sea"))
+	}
+	for _, c := range []struct{ as, params, want string }{
+		{"alice", `"kind":"add","args":{"name":"dan","repo":"plain"},"why":"w"`, "repo plain is not a git checkout (" + filepath.Join(base, "plain") + " has no .git)"},
+		{"alice", `"kind":"add","args":{"name":"dan","repo":"orcapipe/handline"},"why":"w"`, "repo orcapipe/handline is not a folder"},
+		{"alice", `"kind":"team","args":{"name":"zed","repo":"app","members":["sea"],"repos":{"zed.sea":"plain"}},"why":"w"`, "repo plain is not a git checkout"},
+		{"", `"kind":"add","args":{"name":"dan","repo":"app"},"why":"w"`, "repo app is a relative path and human has no repo to take it from"},
+	} {
+		m := propose(c.as, "e"+c.want[:12], c.params)
+		msg, _ := m["error"].(map[string]any)["message"].(string)
+		if !strings.HasPrefix(msg, c.want) {
+			t.Errorf("%s: %v", c.want, m)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(r.home, "agents", "dan")); err == nil {
+		t.Fatal("a refused add registers nothing")
 	}
 }

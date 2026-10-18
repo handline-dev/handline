@@ -68,7 +68,7 @@ func TestHrProposesThroughTheDaemonAndTakesOneBack(t *testing.T) {
 func TestAPortedVerbRefusesWhatItDoesNotParseInsteadOfRunningPython(t *testing.T) {
 	r := agentsRig(t)
 	r.daemon(nil)
-	for _, args := range [][]string{{"say", "--bogus"}, {"task"}, {"task", "new", "--bogus"}, {"read"}, {"hr", "approve", "x"}, {"team", "extra"}} {
+	for _, args := range [][]string{{"say", "--bogus"}, {"task"}, {"task", "new", "--bogus"}, {"read"}, {"hr", "approve"}, {"team", "extra"}} {
 		out, errs, code := r.run(asAgent, args...)
 		if code != 2 || strings.Contains(out+errs, "python") || !strings.Contains(errs, "arguments not understood") {
 			t.Errorf("%v: %d %q %q", args, code, out, errs)
@@ -107,5 +107,34 @@ func TestHrRenameTeamAndDiffGoThroughTheDaemon(t *testing.T) {
 		if _, errs, code := r.run(asAgent, args...); code != 2 || !strings.Contains(errs, "arguments not understood") {
 			t.Errorf("%v: %d %q", args, code, errs)
 		}
+	}
+}
+
+// The founder approves a proposal with the subject hr.list showed, and rejects one with a reason; an agent's session is refused and calls
+// nothing.
+func TestHrApproveAndRejectAreTheFoundersAndRefusedToAnAgent(t *testing.T) {
+	r := agentsRig(t)
+	calls := r.daemon(map[string]string{"hr.list": `{"proposals":[{"id":4085,"subject":"d1g3st","state":"open"}]}`,
+		"hr.decide": `{"accepted":true,"said":"proposal 00000ff5 applied"}`})
+	if out, errs, code := r.run(nil, "hr", "approve", "ff5"); code != 0 || errs != "" || out != "proposal 00000ff5 applied\n" {
+		t.Errorf("approve: %d %q %q", code, out, errs)
+	}
+	if _, errs, code := r.run(nil, "hr", "reject", "ff5", "not", "now"); code != 0 || errs != "" {
+		t.Errorf("reject: %d %q", code, errs)
+	}
+	if out, _, code := r.run(nil, "hr", "approve", "abc"); code != 1 || out != "no proposal abc waits on you\n" {
+		t.Errorf("unknown: %d %q", code, out)
+	}
+	want := []string{`hr.list {}`, `hr.decide {"decision":"approve","proposal":4085,"subject":"d1g3st"}`,
+		`hr.decide {"decision":"reject","note":"not now","proposal":4085}`, `hr.list {}`}
+	if got := sent(calls()); !reflect.DeepEqual(got, want) {
+		t.Errorf("calls\n got  %v\n want %v", got, want)
+	}
+	out, _, code := r.run(asAgent, "hr", "approve", "ff5")
+	if code != 1 || !strings.HasPrefix(out, "refused: proposal ff5 is the founder's to decide, in the app's HR tab or with `hl hr approve ff5`") {
+		t.Errorf("agent: %d %q", code, out)
+	}
+	if got := sent(calls()); len(got) != len(want) {
+		t.Errorf("an agent's approve calls nothing: %v", got)
 	}
 }
