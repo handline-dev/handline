@@ -1,5 +1,6 @@
-# The check of a pull request: what tools/check.sh runs for the change, in two jobs that each plan for themselves, both on
-# GitHub's runners (docs/ci-runner.md). The Go job restores setup-go's module and build cache, keyed by go/go.sum.
+# The check of a pull request: what tools/check.sh runs for the change, as parallel jobs that each plan for themselves, all on
+# GitHub's runners (docs/ci-runner.md): the apps, the Go suite in shards of packages (tools/go-shard.sh), and the gates that are
+# not a package's test. The Go jobs restore setup-go's module and build cache, keyed by go/go.sum.
 name: check
 
 on:
@@ -73,7 +74,12 @@ jobs:
             pnpm --dir packages/app-data test
           fi
 
-  go:
+  daemon:
+    name: daemon (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [compose, cli, daemon, terminal, other]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -98,7 +104,32 @@ jobs:
       - if: steps.plan.outputs.kind == 'go'
         # Fails a run that leaves a process, tmux server or temp file behind. Its TMPDIR is <dir>/tmp/: the same path each run,
         # as go test's cache needs, under the runner's temp directory.
-        run: tools/leakcheck.py run --dir "$RUNNER_TEMP/hlc" tools/test-go.sh
+        run: tools/leakcheck.py run --dir "$RUNNER_TEMP/hlc" tools/test-go.sh $(tools/go-shard.sh ${{ matrix.shard }})
+
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Plan
+        id: plan
+        run: |
+          if [ "${{ github.event_name }}" = push ]; then echo "kind=go" >> "$GITHUB_OUTPUT"; exit 0; fi
+          plan="$(CHECK_PLAN=1 tools/check.sh "$BASE")"
+          echo "$plan"
+          kind="${plan%% *}"; kind="${kind#kind=}"
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+      - if: steps.plan.outputs.kind == 'go'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - if: steps.plan.outputs.kind == 'go'
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends tmux # the terminal tests drive a real tmux; git and python3 are on the image
+      - if: steps.plan.outputs.kind == 'go'
+        run: tools/leakcheck.py run --dir "$RUNNER_TEMP/hlc" tools/test-go.sh --gates
       - name: Contract files current
         if: steps.plan.outputs.kind == 'go'
         run: |

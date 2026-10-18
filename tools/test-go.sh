@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The Go daemon's required check: `go test ./...` in go/, and a cgo-free build of the one binary.
-# Run by tools/test.sh with the whole suite; run it alone with `tools/test-go.sh [go test args]`.
+# Run by tools/test.sh with the whole suite; run it alone with `tools/test-go.sh [go test args]`. CI runs the suite in shards of
+# packages (tools/go-shard.sh) and `tools/test-go.sh --gates` for what is not a package's test: tidy, dupl, the build, the conformance fixtures.
 # -race only when HANDLINE_GO_RACE=1, as the auditor sets it for a sha: a race build doubles the build cache, and every worktree runs this.
 here="$(cd "$(dirname "$0")" && pwd)"
 [ -n "${HANDLINE_HEAVY_SLOT:-}" ] || exec "$here/heavy-slot.sh" "$here/test-go.sh" "$@"   # one heavy run at a time
@@ -27,15 +28,19 @@ protected_unchanged() {
     echo "FAIL  the Go tests wrote to the real $real_protected" >&2
     return 1
 }
+gates=
+[ "${1:-}" = --gates ] && { gates=1; shift; }
 # The whole run also checks go.mod and go.sum are tidy, and that no new copy of Go code came in (a run with go test args does not).
 [ $# -eq 0 ] && { "$here/check-go-tidy.sh" || exit 1; }
 [ $# -eq 0 ] && { "$here/check-go-dupl.sh" || exit 1; }
-race=()
-[ "${HANDLINE_GO_RACE:-}" = 1 ] && race=(-race)
-echo "tools/test-go.sh: go test ${race[*]} ${*:-./...}" >&2
-go test "${race[@]}" "${@:-./...}" || exit 1
-protected_unchanged || exit 1
-[ $# -gt 0 ] && exit 0
+if [ -z "$gates" ]; then
+    race=()
+    [ "${HANDLINE_GO_RACE:-}" = 1 ] && race=(-race)
+    echo "tools/test-go.sh: go test ${race[*]} ${*:-./...}" >&2
+    go test "${race[@]}" "${@:-./...}" || exit 1
+    protected_unchanged || exit 1
+    [ $# -gt 0 ] && exit 0
+fi
 CGO_ENABLED=0 go build -o /dev/null ./cmd/handlined
 
 # The conformance fixtures against the built binary. Until the harness is on main there is nothing to run.
