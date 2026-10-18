@@ -123,7 +123,7 @@ describe('the Chat tab', () => {
     const bash = () => $$('.activity [data-kind="tools"]').find((r) => text(r).includes('Bash ls'));
     await until(bash, 'the tool row');
     await click(bash()!.querySelector('button')!);
-    expect(text(bash())).toContain('5 more lines let go');
+    expect(text(bash())).toContain('5 more lines not shown');
   });
 
   it('the Activity tab shows what a tool line printed on request', async () => {
@@ -137,7 +137,7 @@ describe('the Chat tab', () => {
     expect(row.querySelector('.tool-output')).toBeNull();
     await click(row.querySelector('button')!);
     expect(row.querySelector('.tool-output')?.textContent).toBe('a\nb');
-    expect(text(row)).toContain('3 more lines let go');
+    expect(text(row)).toContain('3 more lines not shown');
   });
 
   it('a session boundary says why it began, and its handoff opens in a dialog', async () => {

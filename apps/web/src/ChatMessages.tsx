@@ -25,7 +25,7 @@ export function jumpTo(id: number): boolean {
   if (!el) return false;
   el.scrollIntoView?.({ block: 'center' });
   el.setAttribute('data-flash', '');
-  setTimeout(() => el.removeAttribute('data-flash'), 1200);
+  setTimeout(() => el.removeAttribute('data-flash'), 2000);
   return true;
 }
 
