@@ -210,15 +210,15 @@ func TestAnAgentAtItsPromptWithBackgroundWorkStillGetsItsDigest(t *testing.T) {
 func TestDigestTextCapsItsLines(t *testing.T) {
 	var rows []*db.Request
 	for i := 0; i < 23; i++ {
-		rows = append(rows, &db.Request{ID: int64(i + 1), Body: "T1 done by a: " + strings.Repeat("x", 100)})
+		rows = append(rows, &db.Request{ID: int64(i + 1), Ref: fmt.Sprintf("%012x", i+1), Body: "T1 done by a: " + strings.Repeat("x", 100)})
 		rows[i].LandedAt.Valid, rows[i].LandedAt.Int64 = true, 60
 	}
-	text := DigestText(rows)
+	text := DigestText(newRig(t).DB, rows)
 	lines := strings.Split(text, "\n")
 	if len(lines) != 1+20+1 || lines[21] != "(+3 more: `hl inbox --all`)" {
 		t.Fatalf("%d %q", len(lines), lines[21])
 	}
-	if !strings.HasSuffix(strings.Split(lines[1], " · ")[2], "… (#1)") {
+	if !strings.HasSuffix(strings.Split(lines[1], " · ")[2], "… (msg_0000000)") {
 		t.Fatalf("%q", lines[1])
 	}
 }
@@ -269,12 +269,13 @@ func TestLandingSweepConfirmsFindsAndRetypes(t *testing.T) {
 	if row.TypedAt.Valid || row.DeliveredAt.Valid {
 		t.Fatalf("not owed again: %+v", row)
 	}
-	if !r.logged("#1 never reached its transcript - typed again") {
+	if !r.logged("request 1 never reached its transcript - typed again") {
 		t.Fatal(r.logs)
 	}
 	// it lands
 	r.TellNow(r.DB, rid)
-	line := `{"type":"queue-operation","operation":"enqueue","content":"#1 from alice, waiting for you:\ntyped but unseen"}` + "\n"
+	row, _ = db.GetRequest(r.DB, rid)
+	line := `{"type":"queue-operation","operation":"enqueue","content":"` + row.Name(r.DB) + ` from alice, waiting for you:\ntyped but unseen"}` + "\n"
 	os.WriteFile(tr, []byte(line), 0o644)
 	r.must(r.LandingSweep(r.DB, "bob"))
 	if row, _ := db.GetRequest(r.DB, rid); row.State != "landed" || !row.LandedAt.Valid {

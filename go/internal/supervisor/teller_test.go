@@ -104,13 +104,13 @@ func TestTheTellerAfterAReleaseTypesTheStopAtAHolderAndRetiresAQueuedRequest(t *
 	queued := r.ask("alice", "bob", "y", "task")
 	r.term.typed = nil
 	said := r.Released(1, "T1 released by alice", []taskwrites.Retired{{RID: held, Requester: "alice", Target: "bob", Held: true}})
-	if len(said) != 1 || said[0] != "#"+fmt.Sprint(held)+" ended; bob told to stop" || !strings.Contains(strings.Join(r.term.typed, "\n"), "T1 released by alice - stop work on it") {
+	if len(said) != 1 || r.ids(said[0]) != "#"+fmt.Sprint(held)+" ended; bob told to stop" || !strings.Contains(strings.Join(r.term.typed, "\n"), "T1 released by alice - stop work on it") {
 		t.Fatalf("%q %q", said, r.term.typed)
 	}
 	db.MarkDelivered(r.DB, queued) // the target has it, so it is told to stop
 	db.CloseIfQueued(r.DB, queued, "rejected", "T1 released by alice", db.CloseOpts{NoSettle: true})
 	said = r.Released(1, "T1 released by alice", []taskwrites.Retired{{RID: queued, Requester: "alice", Target: "bob", Notify: true}})
-	if len(said) != 1 || said[0] != fmt.Sprintf("#%d to bob retired (bob was told to stop)", queued) {
+	if len(said) != 1 || r.ids(said[0]) != fmt.Sprintf("#%d to bob retired (bob was told to stop)", queued) {
 		t.Fatalf("%q", said)
 	}
 }
@@ -130,7 +130,7 @@ func TestTheTellerAfterADraftParksTheHolderAndMovesItOnToItsNextTask(t *testing.
 	r.must(db.RefreshSent(r.DB, first))
 	r.term.typed = nil
 	said := r.Released(first, fmt.Sprintf("T%d made draft by alice", first), []taskwrites.Retired{{RID: reqs[0].ID, Requester: "alice", Target: "bob", Held: true, Park: true}})
-	if len(said) != 1 || said[0] != fmt.Sprintf("#%d ended; bob told to stop and moved on", reqs[0].ID) {
+	if len(said) != 1 || r.ids(said[0]) != fmt.Sprintf("#%d ended; bob told to stop and moved on", reqs[0].ID) {
 		t.Fatalf("%q", said)
 	}
 	if typed := strings.Join(r.term.typed, "\n"); !strings.Contains(typed, "it is parked: stop work on it and move on to your next task") {

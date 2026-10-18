@@ -124,7 +124,7 @@ func writeAtomic(path, text string) error {
 func (e *Env) deliverAfter(after *After, rid int64, requester, target, body, files string, d team.Decision) {
 	after.Add(func() string {
 		if err := e.deliver(rid, requester, target, body, files, d); err != nil {
-			e.log("  #%d: the inbox file for %s was not written: %v", rid, target, err)
+			e.log("  request %d: the inbox file for %s was not written: %v", rid, target, err)
 		}
 		return ""
 	})
@@ -186,7 +186,7 @@ func cycleInChain(q db.Q, chainID, requester, target, kind string) string {
 	}
 	for _, r := range must(db.ChainMembers(q, chainID)) {
 		if r.Requester == target && r.Target == requester {
-			return fmt.Sprintf("cycle: %s already asked %s in this chain (request #%d), and this would send it straight back", target, requester, r.ID)
+			return fmt.Sprintf("cycle: %s already asked %s in this chain (request %s), and this would send it straight back", target, requester, db.MsgName(q, r.ID))
 		}
 	}
 	return ""
@@ -263,7 +263,7 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 	// A loop is stopped and raised to the founder, never silently dropped.
 	if detect := cycleInChain(q, chainID, requester, in.Target, in.Kind); detect != "" {
 		eid := e.stopRunaway(q, after, requester, in.Target, in.Body, in.Files, chainID, depth, in.ParentID, detect)
-		o := refuse(fmt.Sprintf("%s\nRaised to the founder as #%d.", detect, eid))
+		o := refuse(fmt.Sprintf("%s\nRaised to the founder as %s.", detect, db.MsgName(q, eid)))
 		o.After = after
 		return o, nil
 	}
@@ -281,7 +281,7 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 		// Hitting the depth limit is a runaway, not an ordinary refusal.
 		if strings.Contains(d.Reason, "chain depth") && in.Target != db.Human {
 			eid := e.stopRunaway(q, after, requester, in.Target, in.Body, in.Files, chainID, depth, in.ParentID, d.Reason)
-			o := refuse(fmt.Sprintf("%s\nRaised to the founder as #%d.", d.Reason, eid))
+			o := refuse(fmt.Sprintf("%s\nRaised to the founder as %s.", d.Reason, db.MsgName(q, eid)))
 			o.After = after
 			return o, nil
 		}
@@ -306,7 +306,7 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 	}
 	must(db.AddEvent(q, requester, "ask", db.KV{K: "request_id", V: rid}, db.KV{K: "target", V: in.Target}, db.KV{K: "relation", V: nullable(d.Relation)},
 		db.KV{K: "response", V: d.Response}, db.KV{K: "chain_depth", V: depth}))
-	msg := fmt.Sprintf("queued as #%d for %s (response=%s)", rid, in.Target, d.Response)
+	msg := fmt.Sprintf("queued as %s for %s (response=%s)", db.MsgName(q, rid), in.Target, d.Response)
 	if in.Within != nil {
 		if err := in.Within(q, rid, msg); err != nil {
 			return nil, err

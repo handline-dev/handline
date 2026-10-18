@@ -13,6 +13,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/lock"
+	"github.com/handline/handline/go/internal/msgtest"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/term"
@@ -42,7 +43,11 @@ type fakeTerm struct {
 	boxKnown   bool
 	sendFails  bool
 	ctrlC      int
+	db         db.Q // set: last reads each message name back as #<id> (msgtest.IDs)
 }
+
+// ids is text with each message name read back as #<id>.
+func (r *rig) ids(text string) string { return msgtest.IDs(r.DB, text) }
 
 func newFakeTerm() *fakeTerm { return &fakeTerm{typeable: true, boxKnown: true} }
 
@@ -58,10 +63,12 @@ func (f *fakeTerm) IsTextTyped(box, text string) bool {
 }
 func (f *fakeTerm) BackgroundWork(string) (string, bool) { return f.background, true }
 func (f *fakeTerm) LastTail(string) []string             { return []string{"tail"} }
+func (f *fakeTerm) record(text string)                   { f.typed = append(f.typed, text) }
+
 func (f *fakeTerm) Send(_, text string, _ bool) (bool, string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.typed = append(f.typed, text)
+	f.record(text)
 	return true, ""
 }
 func (f *fakeTerm) SendToSession(_, text string) (bool, string) {
@@ -70,7 +77,7 @@ func (f *fakeTerm) SendToSession(_, text string) (bool, string) {
 	if f.sendFails {
 		return false, "pane gone"
 	}
-	f.typed = append(f.typed, text)
+	f.record(text)
 	return true, ""
 }
 func (f *fakeTerm) SendCtrlC(string)                   { f.ctrlC++ }
@@ -81,6 +88,9 @@ func (f *fakeTerm) last() string {
 	defer f.mu.Unlock()
 	if len(f.typed) == 0 {
 		return ""
+	}
+	if f.db != nil {
+		return msgtest.IDs(f.db, f.typed[len(f.typed)-1])
 	}
 	return f.typed[len(f.typed)-1]
 }
@@ -195,6 +205,7 @@ func newRig(t *testing.T) *rig {
 	r := &rig{t: t, home: home, term: newFakeTerm(), sessions: &fakeSessions{live: "s1"}, life: &fakeLife{}, eval: &fakeEval{}, clock: 100000}
 	db.Now = func() int64 { return r.clock }
 	t.Cleanup(func() { db.Now = func() int64 { return time.Now().Unix() } })
+	r.term.db = d
 	r.Env = &Env{DB: d, Home: home, Now: func() time.Time { return time.Unix(r.clock, 0) }, Sleep: func(d time.Duration) { r.clock += int64(d / time.Second) }}
 	r.Env.Log = func(f string, a ...any) { r.logs = append(r.logs, fmt.Sprintf(f, a...)) }
 	r.Env.Ports = Ports{Agents: &sessionAgents{r: r, live: map[string]bool{}, noPeer: map[string]bool{}}, Terminal: r.term, Observer: fakeObserver{map[string]bool{"alice": true, "bob": true}}, Dialogs: fakeDialogs{}, Waits: fakeWaits{limit: map[string]bool{}},

@@ -290,7 +290,7 @@ func (w *writes) dismiss(c *rpc.Conn, p map[string]any) (any, error) {
 			return nil, nil, err
 		}
 		if row.Target != db.Human && row.Requester != db.Human {
-			return nil, nil, rpc.Refused(fmt.Sprintf("#%d is not between the person and an agent", rid), "state", "")
+			return nil, nil, rpc.Refused("that message is not between the person and an agent", "state", "")
 		}
 		res, err := DismissWrite(w.e, tx, rid, c.Caller.Actor(), "", nil, nil, nil)
 		return res, nil, err
@@ -323,7 +323,7 @@ func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {
 			return nil, nil, err
 		}
 		if row.Requester != db.Human {
-			return nil, nil, rpc.Refused(fmt.Sprintf("#%d is not a message the person sent", rid), "state", "")
+			return nil, nil, rpc.Refused("that message is not one the person sent", "state", "")
 		}
 		if _, err := w.e.ReopenConfirmed(tx, row); err != nil { // rolled back with the transaction when the confirm is missing
 			return nil, nil, err
@@ -362,7 +362,7 @@ func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {
 			if cp == nil { // never delivered: withdrawn, and nobody is told
 				return note
 			}
-			return guarded(w.e, fmt.Sprintf("telling after the cancel of #%d", rid), func() (string, error) { return w.e.CancelTell(w.e.DB, cp) })
+			return guarded(w.e, fmt.Sprintf("telling after the cancel of request %d", rid), func() (string, error) { return w.e.CancelTell(w.e.DB, cp) })
 		}}, nil, nil
 	})
 	if err == nil {
@@ -380,7 +380,7 @@ func (w *writes) seen(c *rpc.Conn, p map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	said := fmt.Sprintf("%s's messages up to #%d are seen", agent, upto)
+	said := fmt.Sprintf("%s's messages are marked seen", agent)
 	return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 		if err := ForYouSeen(tx, agent, upto); err != nil {
 			return nil, err

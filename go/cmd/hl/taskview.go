@@ -412,7 +412,7 @@ func printBoard(tasks []obj) {
 			fmt.Println("        " + str(t, "hold_reason"))
 		}
 		for _, r := range list(t, "requests") {
-			fmt.Printf("        request #%s %s → %s %s %s\n", str(r, "id"), str(r, "from"), str(r, "to"), str(r, "state"), stamp(r["at"]))
+			fmt.Printf("        request %s %s → %s %s %s\n", str(r, "name"), str(r, "from"), str(r, "to"), str(r, "state"), stamp(r["at"]))
 		}
 	}
 }

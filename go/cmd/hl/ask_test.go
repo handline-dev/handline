@@ -11,24 +11,36 @@ func TestWithdrawReadAndInboxAnswerWithoutPython(t *testing.T) {
 	r := agentsRig(t)
 	calls := r.daemon(map[string]string{
 		"request.withdraw": `{"accepted":true,"said":"#7 withdrawn"}`,
-		"request.read": `{"id":7,"requester":"a.one","target":"b.two","kind":"say","state":"landed","created":"2026-10-16T00:00:00Z","parent":null,
+		"request.read": `{"id":7,"name":"msg_0102030","requester":"a.one","target":"b.two","kind":"say","state":"landed","created":"2026-10-16T00:00:00Z","parent":null,
 			"relation":"peer","response":"fire_and_forget","chain_depth":0,"body":"hello","answer":"fine","dismissal":null,"parts":[]}`,
-		"inbox.queue": `{"newest":9,"head":{"id":9,"requester":"a.one","chain_depth":1,"body":"do it","more_waiting_line":"","how_to_close":"answer with hl say"},"history":[]}`,
+		"inbox.queue": `{"newest":9,"head":{"id":9,"name":"msg_0405060","requester":"a.one","chain_depth":1,"body":"do it","more_waiting_line":"","how_to_close":"answer with hl say"},"history":[]}`,
 	})
 	if out, _, code := r.run(asAgent, "withdraw", "7", "--reason", "oops"); code != 0 || out != "#7 withdrawn\n" {
 		t.Errorf("withdraw: %d %q", code, out)
 	}
 	out, _, code := r.run(asAgent, "read", "7")
-	if code != 0 || !strings.Contains(out, "#7  a.one → b.two  say  landed") || !strings.Contains(out, "hello") ||
+	if code != 0 || !strings.Contains(out, "msg_0102030  a.one → b.two  say  landed") || !strings.Contains(out, "hello") ||
 		!strings.Contains(out, "--- answered by b.two ---\nfine") {
 		t.Errorf("read: %d %q", code, out)
 	}
 	out, _, code = r.run(asAgent, "inbox")
-	if code != 0 || !strings.Contains(out, "#9 from a.one  depth=1\n\ndo it\n") {
+	if code != 0 || !strings.Contains(out, "msg_0405060 from a.one  depth=1\n\ndo it\n") {
 		t.Errorf("inbox: %d %q", code, out)
 	}
 	want := []string{`request.withdraw {"id":7,"reason":"oops"}`, `request.read {"id":7,"wait_s":0}`,
 		`inbox.queue {"all":false,"whose":"a.one"}`, `inbox.mark_read {"ids":[9]}`}
+	if got := sent(calls()); !reflect.DeepEqual(got, want) {
+		t.Errorf("calls\n got  %v\n want %v", got, want)
+	}
+}
+
+func TestReadTakesAMessageByNameOrHashAndPassesAHashMarkOnToBeRefused(t *testing.T) {
+	r := agentsRig(t)
+	calls := r.daemon(map[string]string{"request.read": "error:#7 is PR 7; a message is named msg_<hash>"})
+	for _, arg := range []string{"MSG_0102030", "0a1b2c3", "#7"} {
+		r.run(asAgent, "read", arg)
+	}
+	want := []string{`request.read {"id":"0102030","wait_s":0}`, `request.read {"id":"0a1b2c3","wait_s":0}`, `request.read {"id":"#7","wait_s":0}`}
 	if got := sent(calls()); !reflect.DeepEqual(got, want) {
 		t.Errorf("calls\n got  %v\n want %v", got, want)
 	}
@@ -69,15 +81,15 @@ func TestReadWithdrawAndSayParentSendARefAsTextAndANumberAsANumber(t *testing.T)
 	r := agentsRig(t)
 	calls := r.daemon(map[string]string{
 		"request.withdraw": `{"accepted":true,"said":"withdrawn"}`,
-		"request.read": `{"id":7,"requester":"a.one","target":"b.two","kind":"say","state":"landed","created":"2026-10-16T00:00:00Z","parent":null,
+		"request.read": `{"id":7,"name":"msg_0102030","requester":"a.one","target":"b.two","kind":"say","state":"landed","created":"2026-10-16T00:00:00Z","parent":null,
 			"relation":"peer","response":"fire_and_forget","chain_depth":0,"body":"hello","answer":null,"dismissal":null,"parts":[]}`,
 		"say": `{"accepted":true,"said":"sent"}`,
 	})
-	r.run(asAgent, "read", "#C0FFEE")
-	r.run(asAgent, "read", "#7")
+	r.run(asAgent, "read", "MSG_0100200")
+	r.run(asAgent, "read", "7")
 	r.run(asAgent, "withdraw", "123456789012")
 	r.run(asAgent, "say", "b.two", "hi", "--parent", "c0ffee000001", "--no-task", "chat")
-	want := []string{`request.read {"id":"c0ffee","wait_s":0}`, `request.read {"id":7,"wait_s":0}`, `request.withdraw {"id":"123456789012"}`}
+	want := []string{`request.read {"id":"0100200","wait_s":0}`, `request.read {"id":7,"wait_s":0}`, `request.withdraw {"id":"123456789012"}`}
 	got := sent(calls())
 	if len(got) < 4 || !reflect.DeepEqual(got[:3], want) || !strings.Contains(got[3], `"parent":"c0ffee000001"`) {
 		t.Errorf("calls\n got  %v\n want %v then a say with the parent ref", got, want)

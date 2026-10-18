@@ -728,7 +728,7 @@ func AddAnswer(q Q, rid int64, text string, at int64, told bool) (int64, error) 
 		return 0, err
 	}
 	if row == nil {
-		return 0, fmt.Errorf("no request #%d to answer", rid)
+		return 0, fmt.Errorf("no request %d to answer", rid)
 	}
 	when := at
 	if when == 0 {

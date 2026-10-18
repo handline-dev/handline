@@ -37,7 +37,10 @@ func TestResolveTakesAnIdOrARefOnlyForAViewerWhoMayReadIt(t *testing.T) {
 	}{
 		{"an old integer", json.Number("1"), "alice", 1, ""},
 		{"the full ref", "3f9a0c71be2d", "alice", 1, ""},
-		{"#ref, any case", "#3F9A0C00AA11", "alice", 2, ""},
+		{"msg_ and the hash, any case", "MSG_3F9A0C00AA11", "alice", 2, ""}, // local-ref-ok: names are the feature under test
+		{"msg_ and a unique prefix", "msg_3f9a0c7", "alice", 1, ""},         // local-ref-ok: names are the feature under test
+		{"a # names a PR", "#3", "alice", 0, "bad_request"},
+		{"so does # and a hash", "#3f9a0c00aa11", "alice", 0, "bad_request"},
 		{"a unique prefix", "3f9a0c7", "alice", 1, ""},
 		{"a prefix two readable requests share", "3f9a0c", "alice", 0, "bad_request"},
 		{"one readable among three is no longer ambiguous", "3f9a0c", "carol", 3, ""},
@@ -53,5 +56,14 @@ func TestResolveTakesAnIdOrARefOnlyForAViewerWhoMayReadIt(t *testing.T) {
 		if got != c.want || code(err) != c.code {
 			t.Errorf("%s: %d %v, want %d %q", c.name, got, err, c.want, c.code)
 		}
+	}
+}
+
+func TestAHashMarkWhereAMessageIsNamedSaysItIsAPR(t *testing.T) {
+	if got := PRRefusal("#42"); got != "#42 is PR 42; a message is named msg_<hash>" {
+		t.Fatal(got)
+	}
+	if got := PRRefusal("#abc"); got != "#abc: a # names a pull request; a message is named msg_<hash>" {
+		t.Fatal(got)
 	}
 }

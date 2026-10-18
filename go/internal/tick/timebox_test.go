@@ -2,6 +2,7 @@ package tick
 
 import (
 	"fmt"
+	"github.com/handline/handline/go/internal/msgtest"
 	"strings"
 	"testing"
 
@@ -443,10 +444,14 @@ func TestAHeadNobodyResolvedTellsItsTasksOpenerOnceItsNudgeScheduleIsUsedUp(t *t
 	tk, _, b, p := timebox(t)
 	p.boss = "lead"
 	tid := newTask(t, tk, "a", "asker", 0)
+	if _, err := tk.Q.Exec("INSERT INTO requests(id, ts, requester, target, body, state, edge_ok) VALUES(7, 1, 'asker', 'a', 'x', 'landed', 1), " +
+		"(8, 1, 'lead', 'a', 'y', 'landed', 1)"); err != nil {
+		t.Fatal(err)
+	}
 	p.forgotten = &Forgotten{HeadID: 7, IdleS: 3600, Behind: 2, Exhausted: true, Task: &db.Task{ID: tid}}
 	b.SweepForgottenResolveCapped(tk, 1000)
 	b.SweepForgottenResolveCapped(tk, 1100)
-	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "asker: ") || !strings.Contains(p.sent[0], fmt.Sprintf("T%d (#7)", tid)) || !strings.Contains(p.sent[0], "after 3 reminders") || !strings.Contains(p.sent[0], "2 more waiting") {
+	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "asker: ") || !strings.Contains(msgtest.IDs(tk.Q, p.sent[0]), fmt.Sprintf("T%d (#7)", tid)) || !strings.Contains(p.sent[0], "after 3 reminders") || !strings.Contains(p.sent[0], "2 more waiting") {
 		t.Fatalf("%v", p.sent)
 	}
 	// Blocked on record, or not yet exhausted: nothing, and the mark clears so a later head is told.
@@ -455,7 +460,7 @@ func TestAHeadNobodyResolvedTellsItsTasksOpenerOnceItsNudgeScheduleIsUsedUp(t *t
 	// A head that is no task goes to the supervisor.
 	p.forgotten = &Forgotten{HeadID: 8, IdleS: 100, Exhausted: true}
 	b.SweepForgottenResolveCapped(tk, 1300+NoticeRetryS)
-	if len(p.sent) != 2 || !strings.HasPrefix(p.sent[1], "lead: ") || !strings.Contains(p.sent[1], "#8") {
+	if len(p.sent) != 2 || !strings.HasPrefix(p.sent[1], "lead: ") || !strings.Contains(msgtest.IDs(tk.Q, p.sent[1]), "#8") {
 		t.Fatalf("%v", p.sent)
 	}
 }

@@ -204,14 +204,14 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		var state string
 		switch err := tx.QueryRow("SELECT state FROM requests WHERE id = ?", *request).Scan(&state); {
 		case err == sql.ErrNoRows:
-			return nil, refusal(fmt.Sprintf("no request #%d", *request))
+			return nil, refusal("no such message")
 		case err != nil:
 			return nil, err
 		}
 		if state == "queued" {
-			return nil, refusal(fmt.Sprintf("request #%d is still queued - not answered yet", *request))
+			return nil, refusal(fmt.Sprintf("request %s is still queued - not answered yet", db.MsgName(tx, *request)))
 		}
-		mark, via = fmt.Sprintf("request #%d", *request), "request"
+		mark, via = fmt.Sprintf("request %s", db.MsgName(tx, *request)), "request"
 	default:
 		mark, via = words, "reason"
 	}

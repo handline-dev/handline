@@ -410,9 +410,19 @@ func (b *Timebox) SweepForgottenResolveCapped(t *Tick, now int64) {
 			tid = found.Task.ID
 		}
 		who := b.answerer(t, agent, tid)
-		on := fmt.Sprintf("#%d", found.HeadID)
-		if found.Task != nil {
-			on = fmt.Sprintf("T%d (#%d)", found.Task.ID, found.HeadID)
+		// The founder's screens show no message id: told to them, the message is named by its task or not at all.
+		name, read := db.MsgName(t.Q, found.HeadID), ""
+		if who != db.Human {
+			read = fmt.Sprintf("`hl read %s`; ", name)
+		}
+		on := name
+		switch {
+		case found.Task != nil && who == db.Human:
+			on = fmt.Sprintf("T%d", found.Task.ID)
+		case found.Task != nil:
+			on = fmt.Sprintf("T%d (%s)", found.Task.ID, name)
+		case who == db.Human:
+			on = "a message"
 		}
 		after := fmt.Sprintf("after %d reminders", b.Ports.NudgeScheduleLen())
 		more := ""
@@ -421,16 +431,16 @@ func (b *Timebox) SweepForgottenResolveCapped(t *Tick, now int64) {
 		}
 		var look string
 		if found.Task != nil {
-			look = fmt.Sprintf("Look at it: `hl read %d`; take it back with `hl task release T%d \"<reason>\"`, or ask %s by message (`hl say %s \"...\"`).",
-				found.HeadID, found.Task.ID, agent, agent)
+			look = fmt.Sprintf("Look at it: %stake it back with `hl task release T%d \"<reason>\"`, or ask %s by message (`hl say %s \"...\"`).",
+				read, found.Task.ID, agent, agent)
 		} else {
-			look = fmt.Sprintf("Look at it: `hl read %d`, or message %s (`hl say %s \"...\"`).", found.HeadID, agent, agent)
+			look = fmt.Sprintf("Look at it: %smessage %s (`hl say %s \"...\"`).", read, agent, agent)
 		}
 		text := fmt.Sprintf("%s has been idle %s on %s %s%s. %s", agent, timefmt.Ago(found.IdleS), on, after, more, look)
 		if b.tell(t, who, text, now) {
 			check(db.SetCursor(t.Q, toldKey, found.HeadID))
 			must(db.AddEvent(t.Q, agent, "forgotten_resolve_capped", db.KV{K: "request_id", V: found.HeadID}, db.KV{K: "idle_s", V: found.IdleS}, db.KV{K: "told", V: who}))
-			t.logf("  %s: idle %s on #%d, nudge cap reached - %s told", agent, timefmt.Ago(found.IdleS), found.HeadID, who)
+			t.logf("  %s: idle %s on request %d, nudge cap reached - %s told", agent, timefmt.Ago(found.IdleS), found.HeadID, who)
 		}
 	}
 }

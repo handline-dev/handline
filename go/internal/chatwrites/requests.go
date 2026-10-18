@@ -58,10 +58,10 @@ func (w *writes) cancelRequest(c *rpc.Conn, p map[string]any) (any, error) {
 		}
 	}
 	rid, err := requestref.Resolve(w.e.DB, w.e.Home, p["id"], requestref.Viewer(c), "id")
-	if name, missing := requestref.Missing(err); missing && dry {
-		return map[string]any{"ok": false, "plan": "#" + name + " is gone"}, nil
+	if _, missing := requestref.Missing(err); missing && dry {
+		return map[string]any{"ok": false, "plan": "that message is gone"}, nil
 	} else if missing {
-		return map[string]any{"ok": false, "said": "not cancelled - #" + name + " is gone"}, nil
+		return map[string]any{"ok": false, "said": "not cancelled - that message is gone"}, nil
 	}
 	if err != nil {
 		return nil, err
@@ -107,7 +107,7 @@ func (w *writes) cancelRequest(c *rpc.Conn, p map[string]any) (any, error) {
 		}
 	}
 	if cp != nil { // nil is a request of the founder's never delivered: withdrawn, and nobody is told
-		said = guarded(w.e, fmt.Sprintf("telling after the cancel of #%d", rid), func() (string, error) { return w.e.CancelTell(w.e.DB, cp) })
+		said = guarded(w.e, fmt.Sprintf("telling after the cancel of request %d", rid), func() (string, error) { return w.e.CancelTell(w.e.DB, cp) })
 	}
 	return map[string]any{"ok": true, "said": said}, nil
 }

@@ -94,7 +94,7 @@ func (e *Env) requestRead(c *rpc.Conn, params map[string]any) (any, error) {
 		kind = "ask"
 	}
 	out := map[string]any{
-		"id": id, "ref": r.str("ref"), "requester": r.str("requester"), "target": r.str("target"), "kind": kind, "state": r.str("state"), "created": ts(r["ts"]),
+		"id": id, "ref": r.str("ref"), "name": db.MsgNameOf(e.DB, r.str("ref")), "requester": r.str("requester"), "target": r.str("target"), "kind": kind, "state": r.str("state"), "created": ts(r["ts"]),
 		"relation": r.strOrNil("relation"), "response": r.strOrNil("response"), "chain_depth": r.i("chain_depth"), "parent": nil,
 		"body": r.str("body"), "answer": nil, "dismissal": nil,
 	}
@@ -104,7 +104,8 @@ func (e *Env) requestRead(c *rpc.Conn, params map[string]any) (any, error) {
 			return nil, err
 		}
 		if parent != nil && e.mayRead(viewer, parent) { // the quoted line is the parent's body
-			out["parent"] = map[string]any{"id": parent.i("id"), "ref": parent.str("ref"), "line": parentLine(parent.str("body"))}
+			out["parent"] = map[string]any{"id": parent.i("id"), "ref": parent.str("ref"), "name": db.MsgNameOf(e.DB, parent.str("ref")),
+				"line": parentLine(parent.str("body"))}
 		}
 	}
 	if dismissed, by, reason := dismissal(r); dismissed {

@@ -23,7 +23,7 @@ func TestSayVerbQueuesAndTypesAtOnce(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	out := r.say(SayVerbIn{Requester: "alice", Target: "bob", Body: "psst"})
-	if !out.OK || !strings.HasPrefix(out.Msg, "queued as #1 for bob (response=async)") {
+	if !out.OK || !strings.HasPrefix(r.ids(out.Msg), "queued as #1 for bob (response=async)") {
 		t.Fatalf("%+v", out)
 	}
 	if !strings.Contains(r.term.last(), "#1 from alice, waiting for you:\npsst") {
@@ -80,7 +80,7 @@ func TestAReplyToTheFoundersRequestMustSayWhatItBecomes(t *testing.T) {
 	r.agentUp("alice")
 	ask := r.ask("human", "alice", "please build x", "")
 	out := r.say(SayVerbIn{Requester: "alice", Target: "human", Body: "on it", Parent: ask})
-	if out.OK || !strings.Contains(out.Msg, "#1 is the founder's: say whether work follows it. --task T<n> names the tasks it opened") || !strings.Contains(out.Msg, "Try:\n  hl say human 'on it' --parent 1 --no-task '<why>'") {
+	if out.OK || !strings.Contains(r.ids(out.Msg), "#1 is the founder's: say whether work follows it. --task T<n> names the tasks it opened") || !strings.Contains(r.ids(out.Msg), "Try:\n  hl say human 'on it' --parent #1 --no-task '<why>'") {
 		t.Fatalf("%q", out.Msg)
 	}
 	if row, _ := db.GetRequest(r.DB, ask); row.State != "queued" {
@@ -114,7 +114,7 @@ func TestAReplyWithATaskLandsInItsThreadNotAsAMemo(t *testing.T) {
 		t.Fatalf("%+v", said)
 	}
 	r.DB.Exec("UPDATE requests SET state = 'landed' WHERE id = 1") // read, as a chat message is
-	tid := r.newTask("human", "bob", "decide")                         // the founder's, opened by someone else
+	tid := r.newTask("human", "bob", "decide")                     // the founder's, opened by someone else
 	out := r.say(SayVerbIn{Requester: "alice", Target: "human", Body: "here is why", Parent: 1, Task: tid})
 	if !out.OK || strings.Contains(out.Msg, "memo") {
 		t.Fatalf("%+v", out)
@@ -211,10 +211,10 @@ func TestNotifyCancelledVerbOnlyForADeliveredRequestClosedUnderIt(t *testing.T) 
 	r := newRig(t)
 	r.agentUp("bob")
 	rid := r.ask("alice", "bob", "job", "ask")
-	if ok, msg, _ := r.NotifyCancelledVerb(r.DB, rid); ok || msg != "#1 was not cancelled after it was delivered" {
+	if ok, msg, _ := r.NotifyCancelledVerb(r.DB, rid); ok || r.ids(msg) != "#1 was not cancelled after it was delivered" {
 		t.Fatal(msg)
 	}
-	if ok, msg, _ := r.NotifyCancelledVerb(r.DB, 99); ok || msg != "no request #99" {
+	if ok, msg, _ := r.NotifyCancelledVerb(r.DB, 99); ok || msg != "no such message" {
 		t.Fatal(msg)
 	}
 	r.TellNow(r.DB, rid)
@@ -275,5 +275,24 @@ func TestMemoEditAndDeleteAreForTheAuthorOrTheFounder(t *testing.T) {
 	}
 	if m, _ := db.GetMemo(r.DB, mid); m != nil {
 		t.Fatal("memo kept")
+	}
+}
+
+func TestASayToTheFounderThatNamesAMessageIsRefusedAndAsksForWords(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.say(SayVerbIn{Requester: "alice", Target: "bob", Body: "first"})
+	var ref string
+	r.DB.QueryRow("SELECT ref FROM requests WHERE id = 1").Scan(&ref)
+	for _, body := range []string{"done, see msg_0123456", "as in " + ref[:8] + " earlier", "re " + strings.ToUpper(ref)} {
+		out := r.say(SayVerbIn{Requester: "alice", Target: db.Human, Body: body, NoTask: ptr("chat")})
+		if out.OK || !strings.Contains(out.Msg, "say in words what that message was about") {
+			t.Fatalf("%q: %+v", body, out)
+		}
+	}
+	for _, body := range []string{"merged as 0123456789abcdef0123456789abcdef01234567", "PR #3 is up", "all green"} {
+		if out := r.say(SayVerbIn{Requester: "alice", Target: db.Human, Body: body, NoTask: ptr("chat")}); strings.Contains(out.Msg, "names a message") {
+			t.Fatalf("%q is no message id: %+v", body, out)
+		}
 	}
 }

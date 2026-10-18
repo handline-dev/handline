@@ -315,7 +315,7 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 		if err := open(rid); err != nil {
 			return 0, nil, err
 		}
-		return tid, &Asked{OK: true, Msg: fmt.Sprintf("a todo of your own, #%d", rid), RID: rid}, nil
+		return tid, &Asked{OK: true, Msg: fmt.Sprintf("a todo of your own, %s", db.MsgName(tx, rid)), RID: rid}, nil
 	}
 	if tell == nil {
 		return 0, nil, fmt.Errorf("task.new needs the supervisor to route its ask")

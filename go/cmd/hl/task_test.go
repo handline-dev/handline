@@ -93,7 +93,7 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "reopen", "T3"}, []string{`task.reopen {"task":3}`}},
 		{"", []string{"task", "handoff", "T3", "b.two"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "handoff", "T3", "b.two", "-"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
-		{"", []string{"task", "accept", "T3"},[]string{`task.accept {"task":3}`}},
+		{"", []string{"task", "accept", "T3"}, []string{`task.accept {"task":3}`}},
 		{"", []string{"task", "reject", "T3", "no tests"}, []string{`task.reject {"note":"no tests","task":3}`}},
 	}
 	seen := 0
@@ -240,7 +240,7 @@ func TestTaskShowListAndBoardRead(t *testing.T) {
 			"assignments":[{"at":"2026-10-01T14:00:00Z","by":"c","what":"owner","from":"a.one","to":"c"}]}`,
 		"tasks.list": `{"items":[{"id":7,"title":"Fix it","to":"b.two","state":"doing","parent":null,"edited_by":null,"evidence":null,
 			"discarded":null,"block_reason":"waiting: x","last_activity":"2026-10-01T10:00:00Z","priority":2,"asker":"a.one","tags":["fe"],
-			"mismatch":"","hold_reason":"","requests":[{"id":11,"from":"a.one","to":"b.two","state":"queued","at":"2026-10-01T10:00:00Z"}]}],
+			"mismatch":"","hold_reason":"","requests":[{"id":11,"name":"msg_0000011","from":"a.one","to":"b.two","state":"queued","at":"2026-10-01T10:00:00Z"}]}],
 			"more":false,"reason_gaps":{"retirements_blank":1,"retirements":4,"closures_sha":2,"closures_request":0,"closures_reason":3}}`,
 		"task.board": `{"mine":[{"task":{"id":7,"title":"Fix it","to":"b.two","asker":"a.one","priority":2,"parent":3,"hold_reason":"","mismatch":""},
 			"now":{"kind":"held_as_sub_task","tasks":[8],"agents":["d"]}}],"reports":[]}`,
@@ -278,7 +278,7 @@ assignee and owner changes
 		t.Errorf("show: %d\n%s", code, out)
 	}
 	list := "T7    Fix it  [b.two] doing  P2  owner a.one  #fe  waiting: x  active 2026-10-01 10:00\n" +
-		"        request #11 a.one → b.two queued 2026-10-01 10:00\n" +
+		"        request msg_0000011 a.one → b.two queued 2026-10-01 10:00\n" +
 		"reason (last 30d): 1/4 retirements carry no reason, 2 closures by sha, 0 by request, 3 by reason\n"
 	if out, _, code := r.run(asAgent, "task", "list", "--assign", "b.two", "--owner", "a.one", "--tag", "fe", "--all"); code != 0 || out != list {
 		t.Errorf("list: %d\n%s", code, out)

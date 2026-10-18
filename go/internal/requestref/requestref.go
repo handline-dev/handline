@@ -44,8 +44,9 @@ func MayRead(q db.Q, home, viewer string, id int64, requester, target string) bo
 	return linked > 0
 }
 
-// Resolve is the id of the request value names in field: a JSON integer is an id; a string is a ref, #ref, or a prefix of at least
-// MinPrefix characters matched only among the requests viewer may read. One viewer may not read is not_found, like one that does not exist.
+// Resolve is the id of the request value names in field: a JSON integer is an id; a string is msg_<hash> or the bare hash, a prefix of its
+// ref of at least MinPrefix characters matched only among the requests viewer may read. A #<n> names a pull request and is refused. One
+// viewer may not read is not_found, like one that does not exist.
 func Resolve(q db.Q, home string, value any, viewer, field string) (int64, error) {
 	if id, ok := rpc.AsInt(value); ok {
 		var requester, target string
@@ -57,9 +58,13 @@ func Resolve(q db.Q, home string, value any, viewer, field string) (int64, error
 		return id, nil
 	}
 	s, ok := value.(string)
-	ref := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(s), "#"))
+	typed := strings.ToLower(strings.TrimSpace(s))
+	if ok && strings.HasPrefix(typed, "#") {
+		return 0, rpc.BadRequestError(PRRefusal(typed), field, rpc.InvalidParams)
+	}
+	ref := strings.TrimPrefix(typed, db.MsgPrefix)
 	if !ok || !refShape.MatchString(ref) {
-		return 0, rpc.BadRequestError(fmt.Sprintf("%s is a request number, or its ref (#ref, or %d to 12 of its hex characters)", field, MinPrefix),
+		return 0, rpc.BadRequestError(fmt.Sprintf("%s is a message: %s<hash>, or the hash alone (%d to 12 of its hex characters)", field, db.MsgPrefix, MinPrefix),
 			field, rpc.InvalidParams)
 	}
 	rows, err := q.Query("SELECT id, requester, target FROM requests WHERE ref >= ? AND ref < ? ORDER BY id", ref, ref+"g")
@@ -91,11 +96,20 @@ func Resolve(q db.Q, home string, value any, viewer, field string) (int64, error
 	}
 	switch len(found) {
 	case 0:
-		return 0, noRequest(ref, "#"+ref)
+		return 0, noRequest(ref, db.MsgPrefix+ref)
 	case 1:
 		return found[0], nil
 	}
-	return 0, rpc.BadRequestError(fmt.Sprintf("#%s is ambiguous: it begins %d requests you may read; give more of the ref", ref, len(found)), field, rpc.InvalidParams)
+	return 0, rpc.BadRequestError(fmt.Sprintf("%s%s is ambiguous: it begins %d messages you may read; give more of the hash", db.MsgPrefix, ref, len(found)),
+		field, rpc.InvalidParams)
+}
+
+// PRRefusal is the one line a #<n> where a message is named gets: # names a pull request.
+func PRRefusal(typed string) string {
+	if n := strings.TrimPrefix(typed, "#"); n != "" && strings.Trim(n, "0123456789") == "" {
+		return fmt.Sprintf("#%s is PR %s; a message is named %s<hash>", n, n, db.MsgPrefix)
+	}
+	return fmt.Sprintf("%s: a # names a pull request; a message is named %s<hash>", typed, db.MsgPrefix)
 }
 
 // Missing is the id or ref a caller gave that Resolve found no request of its for, so a method answers it as it answers a missing one.

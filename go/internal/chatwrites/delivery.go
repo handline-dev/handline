@@ -37,7 +37,7 @@ func (w *writes) sendAct(agent string, d delivery.Delivery, got *map[string]any)
 			}
 		}
 		if err != nil && w.e.Log != nil {
-			w.e.Log("  %s: sending #%d failed: %v", agent, rid, err)
+			w.e.Log("  %s: sending request %d failed: %v", agent, rid, err)
 		}
 		if w.e.Wired() && !w.e.Agents.Live(agent) {
 			w.e.PushAct(agent, rid)

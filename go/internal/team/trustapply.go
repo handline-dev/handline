@@ -89,7 +89,7 @@ func (p TrustProposals) Answered(q db.Q, pid string, card *db.Request, verdict s
 	if call == "approved" {
 		read, ok := RootRead(card.Body, card.Requester)
 		if !ok {
-			return fmt.Sprintf("proposal %s was not applied: #%d does not name the root it asked the founder to approve", pid, card.ID), "", nil
+			return fmt.Sprintf("proposal %s was not applied: %s does not name the root it asked the founder to approve", pid, db.MsgName(q, card.ID)), "", nil
 		}
 		subject = read
 		if r, ok := resolved(read); ok {
@@ -242,7 +242,7 @@ func (t *Trust) Apply(q db.Q, pid string) (ok bool, said string, err error) {
 		read, readOK = RootRead(card.Body, card.Requester)
 	}
 	if want, _ := resolved(root); !readOK || resolvedOr(read) != want {
-		return false, fmt.Sprintf("proposal %s's root does not match what #%d asked the founder to approve - raise it again", pid, cardID), nil
+		return false, fmt.Sprintf("proposal %s's root does not match what %s asked the founder to approve - raise it again", pid, db.MsgName(q, cardID)), nil
 	}
 	if t.IsDeclared(root) {
 		if _, err := t.SettleMoot(); err != nil {

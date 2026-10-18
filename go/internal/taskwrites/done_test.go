@@ -2,6 +2,7 @@ package taskwrites
 
 import (
 	"fmt"
+	"github.com/handline/handline/go/internal/msgtest"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
@@ -65,7 +66,7 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 	}
 	refused := func(why string, r map[string]any, want string) {
 		t.Helper()
-		if got := errText(r); got != want {
+		if got := msgtest.IDs(db, errText(r)); got != want {
 			t.Fatalf("%s: %q, want %q", why, got, want)
 		}
 	}
