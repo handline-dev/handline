@@ -93,8 +93,6 @@ func hrPropose(c *hlclient.Client, kind string, args []string) (int, bool) {
 	switch kind {
 	case "add":
 		valued = append(valued, "--team", "--repo", "--model", "--effort", "--vendor")
-	case "link":
-		valued = append(valued, "--response", "--relation")
 	case "context":
 		valued = append(valued, "--role-file", "--base-file")
 	case "rename":
@@ -134,7 +132,7 @@ func hrPropose(c *hlclient.Client, kind string, args []string) (int, bool) {
 	if want == 2 {
 		hargs["to"] = p.pos[1]
 	}
-	for _, o := range []string{"team", "repo", "model", "effort", "vendor", "response", "relation", "to"} {
+	for _, o := range []string{"team", "repo", "model", "effort", "vendor", "to"} {
 		if v, ok := p.opt("--" + o); ok {
 			hargs[o] = v
 		}
