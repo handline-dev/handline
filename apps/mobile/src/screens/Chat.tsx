@@ -4,15 +4,16 @@
 // lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { clockTime, sideOf, takeBack as canTakeBack, chatEntries, tickLevel } from '@handline/app-core';
-import { classify, sentence, useAgents, useChat, useChatActions, useInbox, useWrite } from '@handline/app-data';
+import { clockTime, decidedProposals, sideOf, takeBack as canTakeBack, chatEntries, tickLevel } from '@handline/app-core';
+import { classify, sentence, useAgents, useChat, useChatActions, useHr, useInbox, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
-import { Line } from './ChatLines.tsx';
+import { Decided, Line } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
+import { PrBody } from './PrBody.tsx';
 import { ChatFind } from './ChatFind.tsx';
 import { ChatRefs, type Ref } from './ChatRefs.tsx';
 import { HandoffLine } from './HandoffLine.tsx';
@@ -64,7 +65,8 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
     setTextState(v);
   };
   const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
-  const entries = chatEntries(chat.messages, chat.items, agent);
+  const hr = useHr({});
+  const entries = chatEntries(chat.messages, chat.items, agent, decidedProposals(hr.data?.proposals, agent));
   const takeable = Math.max(0, ...chat.messages.filter((m) => m.id > 0 && m.state !== 'failed' && canTakeBack(m)).map((m) => m.id)); // only the newest can be taken back
 
   // The agent's messages now in front of the person leave the FOR YOU list (chat.seen); once per newest number.
@@ -121,8 +123,8 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const send = (delivery?: 'now' | 'queue') => {
     if (empty) return;
     const attachments = img.ids;
-    // A picked message is a reference: a linked message to whoever said it, whatever it asked.
-    if (picked) act.send(text, { parent: picked.id, to: names.has(picked.from) ? picked.from : picked.to, delivery, attachments });
+    // A picked message is only a reference: the message goes to this chat's agent, whoever said the picked one.
+    if (picked) act.send(text, { parent: picked.id, delivery, attachments });
     else if (item) act.send(text, { parent_item: item.id, delivery, attachments });
     else act.send(text, { delivery, attachments });
     img.clear();
@@ -178,7 +180,9 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
           </Text>
         )}
         {entries.map((e) =>
-          e.kind !== 'item' ? (
+          e.kind === 'proposal' ? (
+            <Decided key={`p${e.id}`} p={e.proposal} />
+          ) : e.kind !== 'item' ? (
             <Bubble
               key={`m${e.id}`}
               m={e.message}
@@ -350,11 +354,7 @@ function Bubble(props: {
           ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
         </Text>
       )}
-      {m.body ? (
-        <Text testID={`body-${m.id}`} style={{ color: c.ink }}>
-          {m.body}
-        </Text>
-      ) : null}
+      {m.body ? <PrBody id={m.id} agent={agent} body={m.body} /> : null}
       {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
       <Text style={{ color: c.muted, fontSize: 11 }}>
         {clockTime(m.at)}

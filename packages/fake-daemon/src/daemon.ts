@@ -41,8 +41,10 @@ export class FakeDaemon {
   /** Test controls: `knobs.latency(ms)` and `knobs.refuse(method, gate, reason, hint)`. */
   readonly knobs = new Knobs();
   readonly chat: FakeChat;
-  /** The role a paired device gets: a phone is a member; a test or demo that wants the founder's verbs on one sets 'founder'. */
-  deviceRole: Role = 'member';
+  /** The role a paired device gets: the founder's, as the real daemon gives it; a test that wants a restricted device sets 'member'. */
+  deviceRole: Role = 'founder';
+  /** The numbers pr.exists reports as pull requests, for every agent. */
+  readonly pullRequests = new Set<number>();
   /** Puts a proposal in as an agent raised it (the hr topic announces it); a demo or test uses this instead of reaching into the script. */
   raiseProposal(p: Parameters<Script['hr']['raise']>[0]) {
     return this.script.hr.raise(p);
@@ -343,7 +345,7 @@ export class FakeDaemon {
       const s = agent();
       if (!s.open) this.script.startSession(s, false, actor);
     }
-    if (method.startsWith('chat.')) return chatMethod(this.chat, method, p, c.caller.name, agent, ok, this.inbox.dismiss, this.uploads);
+    if (method.startsWith('chat.')) return chatMethod(this.chat, method, p, c.caller.name, agent, ok, this.uploads);
     const owned = this.moduleCall(c, method, p, ok);
     if (owned) return owned.value;
     const handler = HANDLERS[method];
@@ -373,6 +375,12 @@ export class FakeDaemon {
         return { agents: [...this.sessions.values()].map((s) => view(s)) };
       case 'agent.get':
         return detail(agent());
+      case 'pr.exists': {
+        const repo = agent().fx.repo ?? null;
+        const nums = p.numbers;
+        if (!Array.isArray(nums) || nums.length > 20 || !nums.every((n) => Number.isInteger(n))) throw badRequest('numbers must be at most 20 integers', 'numbers');
+        return { repo, found: repo ? (nums as number[]).filter((n) => this.pullRequests.has(n)) : [] };
+      }
       case 'subscribe': {
         if (!Array.isArray(p.topics) || !p.topics.length) throw badRequest('topics must be a non-empty list', 'topics');
         for (const t of p.topics as Topic[]) if (this.unservedTopics.has(t)) throw badRequest(`no such topic: ${t}`, 'topics');

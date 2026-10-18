@@ -106,8 +106,26 @@ describe('the inbox tab', () => {
     await until(() => $('unread-count')?.textContent === '0', 'the count to drop');
     await press($(`inbox-open-${DECISION}`));
     await press(done(DECISION));
-    await until(() => $('empty'), 'the empty sentence');
+    await until(() => $('inbox-clear'), 'the empty sentence');
     expect(text()).toContain('Nothing waits on you');
+    expect(item(RESULT)).toBeNull(); // what is read waits in the Read group, shut
+    await press($('inbox-group-open-read'));
+    await until(() => item(RESULT), 'the read item in its group');
+    m.store.stop();
+  });
+
+  it('shows the task board\'s messages as one row that opens to them', async () => {
+    const m = await mount((s) => {
+      s.daemon.inbox.add({ kind: 'say', agent: 'task-board', title: 'T1 done by a', created: new Date().toISOString() });
+      s.daemon.inbox.add({ kind: 'say', agent: 'task-board', title: 'T2 done by b', created: new Date().toISOString() });
+    });
+    await tab('inbox');
+    await until(() => $('inbox-group-digest'), 'the digest row');
+    expect(text($('inbox-group-digest'))).toContain('task-board: 2 messages');
+    expect(text()).not.toContain('T1 done by a'); // shut, they are not listed one by one
+    await press($('inbox-group-open-digest'));
+    await until(() => text($('inbox-group-digest')).includes('T2 done by b'), 'the messages');
+    expect(text($('inbox-group-digest'))).toContain('T1 done by a');
     m.store.stop();
   });
 
@@ -401,6 +419,7 @@ describe('the task verbs', () => {
     await tab('tasks');
     await until(() => $(`task-${MINE_DOING}`) && $('task-1690'), 'the rows');
     expect($('task-1650')).toBeNull(); // done is out of the way
+    await press($('filter-toggle'));
     await press($('state-queued'));
     await until(() => $('task-1690') === null, 'queued hidden');
     expect($(`task-${MINE_DOING}`)).not.toBeNull();
@@ -414,6 +433,44 @@ describe('the task verbs', () => {
     await press($('scope-open'));
     await until(() => $(`task-${MINE_DOING}`) && $('task-1650') === null, 'the open list');
   }, 20000);
+
+  it('draws Markdown in a memo', async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DOING);
+    await fill('memo-text', '**bold** and `code`\n- one');
+    await press($('memo-send'));
+    await until(() => m.daemon.tasks.get({ task: MINE_DOING }).memos.length === 1, 'the daemon memo');
+    const id = m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.id;
+    await until(() => $(`memo-${id}`)?.textContent?.includes('•'), 'the drawn memo');
+    expect($(`memo-${id}`)?.textContent).not.toContain('**');
+  });
+
+  it('shows a memo\'s image inline (a tap opens it full size) and its Markdown rendered, and says so for a file no longer kept', async () => {
+    const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    let ids: { img: string; md: string; gone: string } | undefined;
+    const m = await mount((s) => {
+      s.daemon.tasks.verbs = true;
+      const up = s.daemon.uploads;
+      const img = up.addMemoFile('shot.png', 'image/png', Buffer.from(PNG, 'base64'));
+      const md = up.addMemoFile('plan.md', 'text/markdown', Buffer.from('# Plan\n\nA **bold** step and `code`.\n\n- first\n- second\n'));
+      const gone = up.addMemoFile('old.md', 'text/markdown', Buffer.from('# Old'));
+      up.expire(gone.id);
+      s.daemon.tasks.memoWithFiles(MINE_DOING, 'handline.mobile', 'the mock', [img, md, { ...gone, gone: true }]);
+      ids = { img: img.id, md: md.id, gone: gone.id };
+    }, undefined, 'founder');
+    await openTask(MINE_DOING);
+    await until(() => $('memo-files')?.querySelector('div[aria-label="shot.png"]'), 'the image');
+    await until(() => $(`memo-markdown-${ids!.md}`), 'the Markdown');
+    const md = $(`memo-markdown-${ids!.md}`)!.textContent!;
+    expect(md).toContain('A bold step and code.');
+    expect(md).toContain('first');
+    expect(md).not.toMatch(/#|\*\*|`/);
+    expect(text($('memo-files'))).toContain('old.md: no longer kept.');
+    await press($(`picture-${ids!.img}`));
+    await until(() => document.body.querySelector(`[data-testid="picture-full-${ids!.img}"]`), 'the full view');
+    await press(document.body.querySelector<HTMLElement>('[data-testid="picture-close"]'));
+    m.store.stop();
+  });
 
   it('edits and deletes a memo, asks before deleting, and puts it back with the reason on a refusal', async () => {
     const m = await mount(verbs, undefined, 'founder');

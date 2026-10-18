@@ -1,7 +1,9 @@
 // The My turn page: cards from the inbox, agents that need the person and reports to accept, most urgent first.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
@@ -97,7 +99,7 @@ describe('my turn', () => {
     await until(() => box.querySelector('[data-card="accept:9001"]'), 'the accept card');
     const c = box.querySelector('[data-card="accept:9001"]')!;
     await click(button(c, 'More'));
-    await click([...c.querySelectorAll('[role=menuitem]')].find((b) => b.textContent === 'Send back'));
+    await click([...document.body.querySelectorAll('[role=menuitem]')].find((b) => b.textContent === 'Send back')); // the menu is a portal
     const field = c.querySelector('input, textarea')!;
     await act(async () => {
       const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
@@ -106,6 +108,29 @@ describe('my turn', () => {
     });
     await click(button(c, 'Send back'));
     await until(() => s.daemon.tasks.get({ task: 9001 }).state === 'queued', 'the daemon');
+  });
+
+  it('a row opens its task in a detail beside the list on a wide window; Back closes it', async () => {
+    const media = (matches: boolean) => vi.stubGlobal('matchMedia', () => ({ matches, addEventListener() {}, removeEventListener() {} }));
+    media(true);
+    keep = () => void vi.unstubAllGlobals();
+    const s = setup();
+    report(s, 9002, ME);
+    await open(s);
+    await until(() => box.querySelector('[data-card="accept:9002"]'), 'the accept card');
+    const c = box.querySelector('[data-card="accept:9002"]')!;
+    await click(c.querySelector('[role=button]') ?? undefined);
+    await until(() => box.querySelector('.tdetail'), 'the task detail');
+    expect(box.querySelector('.my-turn-split .my-turn')).not.toBeNull(); // beside the list, not instead of it
+    expect(box.querySelector('[data-card="accept:9002"]')!.getAttribute('aria-current')).toBe('true');
+    await until(() => box.querySelector('.tdetail .tbody'), 'the task body');
+    // jsdom does not match :focus-visible, so the cascade is checked in the rules: a later, more specific one than the base ring.
+    const css = readFileSync(join(process.cwd(), 'src/styles/base.css'), 'utf8');
+    expect(css.indexOf('.tbody:focus-visible')).toBeGreaterThan(css.indexOf('\n:focus-visible'));
+    expect(/\.tbody:focus-visible\s*\{\s*outline:\s*none;/.test(css)).toBe(true);
+    expect(box.querySelector('.tdetail .tbody')).not.toBeNull();
+    await click(box.querySelector('.tdetail .back') ?? undefined);
+    expect(box.querySelector('.tdetail')).toBeNull();
   });
 
   it("shows the daemon's refusal on the card and keeps Accept usable", async () => {
@@ -124,10 +149,12 @@ describe('my turn', () => {
     const s = await open();
     await until(() => box.querySelector('[data-card="item:3"]'), 'the decision card');
     const c = box.querySelector('[data-card="item:3"]')!;
+    expect(c.querySelector('[role=button]')).toBeNull(); // no task to open, and no clamped text to unfold
+    expect(c.querySelector('.line-clamp-3')).toBeNull();
     await click(button(c, 'Reply'));
     await type(c.querySelector('input')!, 'Yes, relay it.');
     await click(button(c, 'Send reply'));
-    await until(() => s.daemon.inbox.get(3).read || s.daemon.inbox.get(3).answered, 'the daemon');
+    await until(() => s.daemon.inbox.get(3).read, 'the daemon');
   });
 
   it('a permission prompt without yes/no options is a card with only Open terminal', async () => {

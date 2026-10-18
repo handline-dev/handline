@@ -1,6 +1,6 @@
 // The Activity tab: what this agent does with the team, read-only, one dim line per item with chips to filter by kind. Steering happens in Chat.
 import { useEffect, useRef, useState } from 'react';
-import { ACTIVITY_KINDS, activityOf, clockTime, type ActivityKind } from '@handline/app-core';
+import { ACTIVITY_KINDS, teamActivityOf, clockTime, type ActivityKind } from '@handline/app-core';
 import { useChat } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Empty } from './ui/index.ts';
@@ -13,7 +13,7 @@ export function ActivityTab({ agent, row = null }: { agent: string; row?: string
   const chat = useChat(agent, 'all');
   const [only, setOnly] = useState<ActivityKind | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  const rows = activityOf(chat.messages, chat.items, me).filter((r) => !only || r.kind === only);
+  const rows = teamActivityOf(chat.messages, chat.items, me).filter((r) => !only || r.kind === only);
   // A row named by a message link: scrolled to and flashed once it is drawn.
   const shown = useRef<string | null>(null);
   const hit = row ? rows.some((r) => r.key === row) : false;
@@ -23,7 +23,7 @@ export function ActivityTab({ agent, row = null }: { agent: string; row?: string
     const el = document.querySelector<HTMLElement>(`.activity [data-row="${CSS.escape(row)}"]`);
     el?.scrollIntoView?.({ block: 'center' });
     el?.setAttribute('data-flash', '');
-    setTimeout(() => el?.removeAttribute('data-flash'), 1200);
+    setTimeout(() => el?.removeAttribute('data-flash'), 2000);
   }, [row, hit]);
   return (
     <section className="activity flex min-h-0 flex-col" aria-label={`Activity of ${agent}`}>
@@ -38,9 +38,9 @@ export function ActivityTab({ agent, row = null }: { agent: string; row?: string
         ))}
       </div>
       <ul className="m-0 flex min-h-0 flex-1 list-none flex-col gap-0.5 overflow-auto p-3">
-        {chat.status === 'ready' && !rows.length ? <Empty icon="team" name="Nothing here yet" hint={`What ${agent} does with the team shows here`} /> : null}
+        {chat.status === 'ready' && !rows.length ? <Empty icon="team" name="Nothing here yet" /> : null}
         {rows.map((r) => (
-          <li key={r.key} data-kind={r.kind} data-row={r.key} className="border-b border-line py-1.5 text-body data-[flash]:outline-2 data-[flash]:-outline-offset-2 data-[flash]:outline-dashed data-[flash]:outline-focus/60">
+          <li key={r.key} data-kind={r.kind} data-row={r.key} className="border-b border-line py-1.5 text-body data-[flash]:outline-2 data-[flash]:-outline-offset-2 data-[flash]:outline-solid data-[flash]:outline-focus">
             <button
               className="flex w-full cursor-pointer items-baseline gap-2 border-0 bg-transparent p-0 text-left text-inherit"
               aria-expanded={open === r.key}
@@ -53,17 +53,16 @@ export function ActivityTab({ agent, row = null }: { agent: string; row?: string
                 <strong className="flex-none font-medium">
                   {r.route.from} → {r.route.to}
                 </strong>
-              ) : (
+              ) : only === null ? (
                 <span className="flex-none rounded-ctl border border-line px-1.5 text-hint text-ink-2">{r.kind.slice(0, -1)}</span>
-              )}
+              ) : null}
               <span className={`min-w-0 flex-1 text-ink-2 ${open === r.key ? 'whitespace-pre-wrap' : 'truncate'}`}>{r.text}</span>
             </button>
             {open === r.key && r.output ? <pre className="tool-output mono m-0 mt-1 overflow-auto whitespace-pre-wrap text-hint text-ink-2">{r.output}</pre> : null}
-            {open === r.key && r.dropped ? <p className="m-0 text-hint text-wait">{r.dropped} more lines let go</p> : null}
+            {open === r.key && r.dropped ? <p className="m-0 text-hint text-wait">{r.dropped} more lines not shown</p> : null}
           </li>
         ))}
       </ul>
-      <p className="m-0 border-t border-line px-3 py-2 text-hint text-wait">No message box here: to steer the team, write in Chat.</p>
     </section>
   );
 }

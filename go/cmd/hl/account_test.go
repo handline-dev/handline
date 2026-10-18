@@ -2,7 +2,6 @@ package main
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -30,7 +29,7 @@ func TestAccountCapRefusedSaysWhyOnStderr(t *testing.T) {
 	}
 }
 
-func TestAccountCapIsPythonsForWhatTheDaemonDoesNotSettle(t *testing.T) {
+func TestAccountCapIsRefusedForWhatTheDaemonDoesNotSettle(t *testing.T) {
 	r := founderRig(t)
 	r.daemon(map[string]string{"accounts.list": accountsGot})
 	for name, c := range map[string]struct {
@@ -44,7 +43,7 @@ func TestAccountCapIsPythonsForWhatTheDaemonDoesNotSettle(t *testing.T) {
 		"not a number":                {nil, []string{"account", "cap", "alpha", "x"}},
 	} {
 		out, _, code := r.run(c.env, c.args...)
-		if code != 0 || !strings.HasPrefix(out, "python ") || !strings.HasSuffix(out, " "+strings.Join(c.args, " ")+"\n") {
+		if code != 2 || out != "" {
 			t.Errorf("%s: %q %d", name, out, code)
 		}
 	}

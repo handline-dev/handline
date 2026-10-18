@@ -13,10 +13,10 @@ import (
 // What the task writes (go/internal/taskwrites) leave to the telling layer once they have committed: Env satisfies taskwrites.Teller. Nothing
 // here is raised to the caller, whose write is done: a failure is logged and the tick is the net.
 
-// MemoChanged tells the holder of a doing task that a memo was added, edited or deleted (what), typed like a say.
-func (e *Env) MemoChanged(tid int64, by, what, text string) {
-	if err := e.TellMemoHolder(e.DB, tid, by, what, text); err != nil {
-		e.log("  telling the holder of T%d about the memo failed: %v", tid, err)
+// MemoChanged tells whom a memo concerns that it was added, edited or deleted (what), now or in each reader's digest (TellMemo).
+func (e *Env) MemoChanged(tid int64, by, what, text string, now bool) {
+	if err := e.TellMemo(e.DB, tid, by, what, text, "", now); err != nil {
+		e.log("  telling about the memo on T%d failed: %v", tid, err)
 	}
 }
 

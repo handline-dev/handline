@@ -7,12 +7,13 @@ import (
 	"github.com/handline/handline/go/internal/fold"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/sessionrpc"
+	"github.com/handline/handline/go/internal/team"
 )
 
 // SessionRPC is the env of the session methods over the lifecycle: session.start, wake, stop, restart, park and interrupt.
 func (p *Parts) SessionRPC(cfg Config) *sessionrpc.Env {
 	c := controls{p: p, lc: p.LC}
-	f := &fold.Env{Home: cfg.Home, Today: today(cfg)}
+	f := &fold.Env{Home: cfg.Home, DB: p.db, InTx: func(fn func(db.Q) error) error { return inTx(p.db, fn) }, Usage: p.LC.usage, Accounts: team.Accounts{Home: cfg.Home}, Today: today(cfg)}
 	return &sessionrpc.Env{DB: p.db, Home: cfg.Home, Controls: c, Move: c.Move, Now: cfg.Now, Fold: f.Fold, Roster: p.LC.roster}
 }
 

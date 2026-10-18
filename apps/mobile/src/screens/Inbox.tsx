@@ -2,14 +2,15 @@
 // the list at once. A decision ends its task with Done. Tap a card for its detail and verbs; a verb the daemon does not serve is disabled.
 import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
-import { ago } from '@handline/app-core';
+import { ago, NOTICE_SENDER } from '@handline/app-core';
 import type { InboxItem } from '@handline/client';
 import { useConnection } from '@handline/app-react';
 import { useInbox, usePending, useServes, useUnread, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
-import { Button } from './parts.tsx';
+import { Button, PageHeader } from './parts.tsx';
 import { Loadable } from './Loadable.tsx';
+import { PromptCard } from './PromptCard.tsx';
 
 const KIND: Record<string, string> = {
   decision: 'Decision',
@@ -82,7 +83,9 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
               {i.evidence}
             </Text>
           ) : null}
-          {i.prompt ? (
+          {i.prompt && i.agent ? (
+            <PromptCard agent={i.agent} prompt={i.prompt} />
+          ) : i.prompt ? (
             <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: 11 }}>{i.prompt.command ?? i.prompt.lines.join('\n')}</Text>
           ) : null}
           {props.pending && (
@@ -141,57 +144,113 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
   );
 }
 
+type Entry = { key: string; item: InboxItem } | { key: 'digest' | 'read'; items: InboxItem[] };
+
+/** The task board's messages are one row when there are several, and what is read is one row at the end: each opens to its cards. */
+function entries(waiting: InboxItem[], read: InboxItem[]): Entry[] {
+  const notices = waiting.filter((i) => i.agent === NOTICE_SENDER && i.kind === 'say');
+  const out: Entry[] = [];
+  for (const i of waiting) {
+    if (notices.length < 2 || !notices.includes(i)) out.push({ key: String(i.id), item: i });
+    else if (i === notices[0]) out.push({ key: 'digest', items: notices });
+  }
+  if (read.length) out.push({ key: 'read', items: read });
+  return out;
+}
+
+/** A row that stands for several items: a line to tap, and the items' cards under it when open. */
+function Group(props: { id: 'digest' | 'read'; label: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  const c = usePalette();
+  return (
+    <View testID={`inbox-group-${props.id}`} style={{ borderTopWidth: 1, borderTopColor: c.line }}>
+      <Pressable
+        testID={`inbox-group-open-${props.id}`}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: props.open }}
+        onPress={props.onToggle}
+        style={{ padding: space.lg, minHeight: 48, justifyContent: 'center' }}
+      >
+        <Text style={{ color: props.id === 'read' ? c.muted : c.ink, fontWeight: '600' }}>{`${props.open ? '▾' : '▸'} ${props.label}`}</Text>
+      </Pressable>
+      {props.open ? props.children : null}
+    </View>
+  );
+}
+
 export function Inbox() {
   const c = usePalette();
   const query = useInbox();
   const { served } = useServes('inbox.list');
   const unread = useUnread();
   const [ui, setUi] = useState<Record<number, Ui>>({});
+  const [opened, setOpened] = useState<Record<string, boolean>>({});
   const markAll = useWrite('inbox.mark_read');
   const offRead = useOff('inbox.mark_read');
   const pendingRead = usePending('inbox.mark_read').flatMap((p) => p.ids);
   const pendingDone = usePending('task.done').map((p) => ('task' in p ? p.task : 0));
   const pendingReply = usePending('inbox.reply').map((p) => p.id);
-  const items = (query.data?.items ?? []).filter((i) => waits(i, pendingRead.includes(i.id)));
+  const all = query.data?.items ?? [];
+  const items = all.filter((i) => waits(i, pendingRead.includes(i.id)));
+  const rows = entries(items, all.filter((i) => !items.includes(i)));
+  const card = (item: InboxItem) => (
+    <Card
+      key={item.id}
+      item={item}
+      pending={pendingRead.includes(item.id) || (item.task != null && pendingDone.includes(item.task)) || pendingReply.includes(item.id)}
+      ui={ui[item.id] ?? NO_UI}
+      setUi={(patch) => setUi((a) => ({ ...a, [item.id]: { ...(a[item.id] ?? NO_UI), ...patch } }))}
+      done={() => setUi(({ [item.id]: _gone, ...rest }) => rest)}
+    />
+  );
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', padding: space.lg, gap: space.md }}>
-        <Text style={{ color: c.ink, fontSize: 22, fontWeight: '700', flex: 1 }}>
-          Inbox{' '}
-          <Text testID="unread-count" style={{ color: c.muted, fontSize: 14 }}>
-            {unread.length}
-          </Text>
-        </Text>
-        <Button
-          testID="mark-all-read"
-          label="Mark all read"
-          disabled={!unread.length || !!offRead}
-          onPress={() => markAll.mutate({ ids: unread.map((i) => i.id) })}
-        />
-      </View>
+      <PageHeader
+        title="Inbox"
+        actions={
+          <>
+            <Text testID="unread-count" style={{ color: c.muted, fontSize: 14 }}>
+              {unread.length}
+            </Text>
+            <Button
+              testID="mark-all-read"
+              label="Mark all read"
+              disabled={!unread.length || !!offRead}
+              onPress={() => markAll.mutate({ ids: unread.map((i) => i.id) })}
+            />
+          </>
+        }
+      />
       <Loadable
         query={query}
         served={served}
-        isEmpty={items.length === 0}
+        isEmpty={all.length === 0}
         skeleton="inbox"
         label="the inbox"
         empty="Nothing waits on you."
       >
+        {items.length === 0 && (
+          <Text testID="inbox-clear" style={{ color: c.muted, padding: space.lg }}>
+            Nothing waits on you.
+          </Text>
+        )}
         <FlatList
           keyboardShouldPersistTaps="handled"
-          data={items}
-          keyExtractor={(i) => String(i.id)}
-          renderItem={({ item }) => (
-            <Card
-              item={item}
-              pending={
-                pendingRead.includes(item.id) || (item.task != null && pendingDone.includes(item.task)) || pendingReply.includes(item.id)
-              }
-              ui={ui[item.id] ?? NO_UI}
-              setUi={(patch) => setUi((all) => ({ ...all, [item.id]: { ...(all[item.id] ?? NO_UI), ...patch } }))}
-              done={() => setUi(({ [item.id]: _gone, ...rest }) => rest)}
-            />
-          )}
+          data={rows}
+          keyExtractor={(e) => e.key}
+          renderItem={({ item: e }) =>
+            'item' in e ? (
+              card(e.item)
+            ) : (
+              <Group
+                id={e.key}
+                label={e.key === 'digest' ? `${NOTICE_SENDER}: ${e.items.length} messages` : `Read (${e.items.length})`}
+                open={!!opened[e.key]}
+                onToggle={() => setOpened((o) => ({ ...o, [e.key]: !o[e.key] }))}
+              >
+                {e.items.map(card)}
+              </Group>
+            )
+          }
         />
       </Loadable>
     </View>

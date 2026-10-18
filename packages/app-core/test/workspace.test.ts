@@ -24,6 +24,7 @@ import {
   moveTabBy,
   openTab,
   openTask,
+  openTaskTab,
   parseWorkspace,
   saveWorkspace,
   serialize,
@@ -386,4 +387,16 @@ test('openActivity opens the Activity tab on a row to highlight, and a plain ope
   const ws = openActivity(defaultWorkspace(), 'm42');
   assert.equal(ws.tabs[ACTIVITY]!.params.row, 'm42');
   assert.deepEqual(openActivity(ws).tabs[ACTIVITY]!.params, {});
+});
+
+test('closing a task tab goes back to the tab it was opened from, not to the terminal beside it', () => {
+  const ws = defaultWorkspace({ terminal: 'term:a' });
+  assert.deepEqual(ids(ws), ['chat+activity+terminal:term:a']);
+  const opened = openTaskTab(activate(ws, CHAT), 12);
+  assert.equal(groupOf(opened, 'tasks:12')!.activeTab, 'tasks:12');
+  assert.equal(groupOf(closeTab(opened, 'tasks:12'), CHAT)!.activeTab, CHAT);
+  // From the terminal it goes back to the terminal; a tab that is not showing closes without moving the focus.
+  const fromTerminal = openTaskTab(activate(ws, 'terminal:term:a'), 12);
+  assert.equal(groupOf(closeTab(fromTerminal, 'tasks:12'), CHAT)!.activeTab, 'terminal:term:a');
+  assert.equal(groupOf(closeTab(activate(opened, CHAT), 'tasks:12'), CHAT)!.activeTab, CHAT);
 });

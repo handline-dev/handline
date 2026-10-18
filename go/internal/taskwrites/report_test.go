@@ -225,3 +225,31 @@ func TestADiscardedTasksReportCanBeNeitherAcceptedNorRejected(t *testing.T) {
 		t.Fatalf("the discarded task is left as it is: %s %v", st, f.rejected)
 	}
 }
+
+func TestAReportFreesTheQueueItsLandedDeliveryHeldSoTheNextRequestIsDelivered(t *testing.T) {
+	sdb, _, run := reportEnv(t,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at) VALUES(1, 'a', 'w', 'boss', 1, 'boss', 1), (2, 'next', 'w', 'boss', 2, 'boss', 2)",
+		"INSERT INTO requests(id, requester, target, kind, state, ts, body, queue_order, delivered_at, landed_at, edge_ok) VALUES"+
+			"(10, 'boss', 'w', 'task', 'landed', 1, 'a', 10, 1, 1, 1), (11, 'boss', 'w', 'task', 'queued', 2, 'next', 11, NULL, NULL, 1)",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10), (2, 11)",
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('w', 'IDLE', 1, 1)",
+	)
+	head := func() int64 {
+		t.Helper()
+		h, err := db.HeadOfQueue(sdb, "w", 0)
+		if err != nil || h == nil {
+			t.Fatalf("no head: %v", err)
+		}
+		return h.ID
+	}
+	if h := head(); h != 10 {
+		t.Fatalf("before the report the landed delivery holds the queue: head #%d", h)
+	}
+	said(t, run("w", "task.done", "d1", `,"task":1,"evidence":"built and tested"`))
+	if st := taskState(t, sdb, 1); st != "reported" {
+		t.Fatalf("state %q, want reported", st)
+	}
+	if h := head(); h != 11 {
+		t.Fatalf("after the report the next request is the head: #%d", h)
+	}
+}

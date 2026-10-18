@@ -16,7 +16,7 @@ import { Button, Row } from './parts.tsx';
 const FILTERS = ['All', 'Messages', 'Tasks', 'Sessions', 'Tools'] as const;
 type Filter = (typeof FILTERS)[number];
 
-const kindOf = (e: TimelineEntry): Filter =>
+const kindOf = (e: Exclude<TimelineEntry, { kind: 'proposal' }>): Filter =>
   e.kind === 'message' ? 'Messages' : e.kind === 'note' ? 'Tasks' : e.item.kind === 'tool' ? 'Tools' : e.item.kind === 'session' ? 'Sessions' : 'Tasks';
 
 const TEXT = { fontSize: 13 } as const; // one size for every row

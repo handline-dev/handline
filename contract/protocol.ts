@@ -10,7 +10,7 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only, subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. */
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. */
 export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr" | "transcript";
 
 export type Caller = {
@@ -52,6 +52,13 @@ export type RefusalData = {
   plan?: string;
   /** With gate duplicate_title: the open task the new one repeats. */
   task?: number;
+  /** With gate open_children: the task's open child tasks. */
+  children?: {
+    task: number;
+    state: string;
+    assignee: string;
+    title: string;
+  }[];
 };
 
 /** Like 2h, 30m, 1d. */
@@ -186,6 +193,8 @@ export type AgentDetail = AgentView & {
   worktree: {
     path: string;
     branch: string;
+    /** owner/repo of the worktree's origin when it is on GitHub (https or ssh), else null. */
+    repo: string | null;
   } | null;
   terminal: string | null;
   session_id: string | null;
@@ -268,10 +277,6 @@ export type Task = {
   title: string;
   /** draft, queued, doing, reported (its owner's done waits on task.accept or task.reject), done or discarded. */
   state: string;
-  /** e.g. manager. */
-  relation: string;
-  /** e.g. async. */
-  response: string;
   time_box: Duration | null;
   parent: number | null;
   created: Timestamp;
@@ -282,6 +287,8 @@ export type Task = {
   evidence: string | null;
   /** 1 high, 2 default, 3 low (written P1-P3). */
   priority?: 1 | 2 | 3;
+  /** Its tags, in order. */
+  tags?: Tag[];
   /** The newest of the task's creation, edit, done and discard and of any request linked to it: what a list sorts a person's tasks by. Absent from a daemon that does not send it. */
   last_activity?: Timestamp;
   /** Who last changed the task's owner, title, priority or brief; null when never. */
@@ -299,6 +306,7 @@ export type Task = {
   /** The requests linked to the task, oldest first. */
   requests?: {
     id: number;
+    ref?: RequestRef;
     from: string;
     to: string;
     state: string;
@@ -424,13 +432,9 @@ export type TaskDetail = Task & {
   };
 };
 
-export type DecisionOption = {
-  id: string;
-  label: string;
-};
-
 export type InboxItem = {
   id: number;
+  ref?: RequestRef;
   kind: string;
   agent: AgentName | null;
   title: string;
@@ -439,8 +443,6 @@ export type InboxItem = {
   task: number | null;
   created: Timestamp;
   read: boolean;
-  answered: boolean;
-  options: DecisionOption[];
   prompt: Prompt | null;
 };
 
@@ -736,7 +738,8 @@ export type Settings = {
 export type Device = {
   id: string;
   name: string;
-  role: "member";
+  /** A paired device is the founder. */
+  role: "founder";
   created: Timestamp;
   last_seen: Timestamp | null;
   connected: boolean;
@@ -792,6 +795,8 @@ export type Memo = {
   edited_at?: Timestamp | null;
   /** `text` cut at the images it names, as TaskDetail.body_parts; present only when it names one. */
   parts?: (TextPart | ImagePart)[];
+  /** The files the memo carries, in the order they were given; present only when it carries one. */
+  files?: MemoFile[];
 };
 
 export type TaskBoardRow = {
@@ -806,12 +811,13 @@ export type TaskBoardRow = {
 };
 
 /** Landing state of a message; open set. */
-export type Landing = "queued" | "typed" | "delivered" | "delivered_unanswered" | "answered" | "dismissed" | "withdrawn";
+export type Landing = "queued" | "typed" | "delivered" | "withdrawn";
 
 /** One request between the person and an agent. */
 export type ChatMessage = {
   /** Request id. */
   id: number;
+  ref?: RequestRef;
   at: Timestamp;
   /** When the request entered its current state (queued, typed, landed, withdrawn...). Never null; the creation time until it first changes. */
   state_at: Timestamp;
@@ -821,12 +827,6 @@ export type ChatMessage = {
   landing: Landing;
   sending_reason: string | null;
   body: string;
-  answer: {
-    id: number;
-    text: string;
-    at: Timestamp;
-  } | null;
-  dismissed: boolean;
   delivered_at: Timestamp | null;
   typed_at: Timestamp | null;
   landed_at: Timestamp | null;
@@ -836,7 +836,6 @@ export type ChatMessage = {
     id: number;
     title: string;
   }[];
-  is_task_question: boolean;
   /** Only in chat.search hits: the agent whose chat shows the message. */
   agent?: string;
   /** Only in chat.search hits: which of that agent's chats shows it (the jump is chat.locate). */
@@ -941,14 +940,14 @@ export type HrArgs = {
   vendor?: string;
   /** rename: the new name; link, unlink: the other end. */
   to?: string;
-  response?: string;
-  relation?: string;
   /** team: each a suffix (`sea` is `name.sea`) or a full name. */
   members?: string[];
   /** team: repo by member. */
   repos?: { [key: string]: string };
   /** settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` or `base.md`; empty text or control characters other than tab and newline is bad_request. */
   sets?: { [key: string]: string };
+  /** bundle: the steps, at most 40, each judged against the roster the earlier ones leave. name is then ignored (send the count, `3 changes`). */
+  changes?: { [key: string]: unknown }[];
 };
 
 export type StandingAnswer = {
@@ -1001,7 +1000,7 @@ export type SettingsValues = {
   bg_grace_s?: number;
   /** How often an agent with background work is asked which to stop. Per agent. */
   bg_check_s?: number;
-  /** Seconds after the first waiting result before the agent is woken once with a digest. Per agent. */
+  /** Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. */
   notice_digest_s?: number;
   /** Backstop for a stop-wait. */
   stop_wait_backstop_s?: number;
@@ -1009,6 +1008,16 @@ export type SettingsValues = {
   token_prices?: { [key: string]: number };
   /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). */
   input_hold_idle_s?: number;
+  /** The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. */
+  handoff_prompt?: string;
+  /** Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
+  push_prompt_asked?: boolean;
+  /** Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
+  push_task_done?: boolean;
+  /** Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
+  push_stall?: boolean;
+  /** Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
+  push_account_out?: boolean;
 };
 
 /** settings.set's changes: any of SettingsValues' keys; null removes one. */
@@ -1031,7 +1040,7 @@ export type SettingsChanges = {
   bg_grace_s?: number | null;
   /** How often an agent with background work is asked which to stop. Per agent. null removes the key (back to the default). */
   bg_check_s?: number | null;
-  /** Seconds after the first waiting result before the agent is woken once with a digest. Per agent. null removes the key (back to the default). */
+  /** Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. null removes the key (back to the default). */
   notice_digest_s?: number | null;
   /** Backstop for a stop-wait. null removes the key (back to the default). */
   stop_wait_backstop_s?: number | null;
@@ -1039,6 +1048,16 @@ export type SettingsChanges = {
   token_prices?: { [key: string]: number } | null;
   /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). null removes the key (back to the default). */
   input_hold_idle_s?: number | null;
+  /** The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. An empty string is the built-in prompt; null removes the key (back to the default). */
+  handoff_prompt?: string | null;
+  /** Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default). */
+  push_prompt_asked?: boolean | null;
+  /** Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default). */
+  push_task_done?: boolean | null;
+  /** Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default). */
+  push_stall?: boolean | null;
+  /** Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default). */
+  push_account_out?: boolean | null;
 };
 
 /** One method as a daemon lists it: its role and whether this caller may call it. */
@@ -1131,10 +1150,6 @@ export type ChatRequestItem = {
   at: Timestamp;
   /** request only. */
   message?: ChatMessage;
-  dismissal?: {
-    by: string | null;
-    reason: string | null;
-  } | null;
   task_state?: string | null;
   /** task_event only. */
   task?: number;
@@ -1147,6 +1162,8 @@ export type ChatRequestItem = {
   /** task_event only: the text typed with a handoff, else empty. Text from an agent. */
   note?: string;
   request?: number | null;
+  /** task_event only: the ref of the delivery in request. */
+  request_ref?: RequestRef | null;
   /** session only: why a new conversation started (restart, wake, fresh close, move, handoff, launch). An open set. */
   cause?: string;
   handoff?: string | null;
@@ -1369,6 +1386,90 @@ export type ImagePart = {
   path?: string;
 };
 
+/** A file a memo carries (task.memo.add files): an image or a Markdown text, kept on the daemon's machine like an attached image and read with attachment.get by its id. */
+export type MemoFile = {
+  id: AttachmentId;
+  kind: "image" | "markdown";
+  /** The file's name as its writer gave it, with no folder. Shown to the person; never used as a path. */
+  name: string;
+  mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/markdown";
+  bytes: number;
+  /** Where the daemon keeps it; only in an agent's reads, which read it with their own file tool. */
+  path?: string;
+  /** True when it is no longer kept: attachment.get then answers not_found. */
+  gone?: boolean;
+};
+
+/** One change to a task: who changed which field from what to what, and when. A field's change is one row; an edit of several fields is several rows with the same at. */
+export type HistoryRow = {
+  at: Timestamp;
+  /** Who made the change: an agent, or human. */
+  by: string;
+  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
+  field: "title" | "assignee" | "owner" | "body" | "priority" | "timeout" | "state" | "tag" | "blocked_by" | "merged_into" | "memo";
+  /** The value before; empty when there was none (a task just opened, a wait just added, a memo just added). */
+  was: string;
+  /** The value after; empty when it is gone (a wait removed, a memo deleted). */
+  now: string;
+  /** With a state row: the done evidence, the report, or the reason or note given. Absent when none was. */
+  note?: string;
+  /** With a memo row: the memo's id. */
+  memo?: number;
+};
+
+/** The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else. */
+export type RequestRef = string;
+
+/** How this process is reached, read only. */
+export type ConnectionInfo = {
+  /** Which process answered. A daemon behind a gateway has no listener of its own; ask the gateway's local socket for the gateway's. */
+  served_by: "daemon" | "gateway";
+  /** The network listener of this process; null when it has none. */
+  listener: null | {
+    /** The host:port a pairing names (-advertise, else where the listener binds). */
+    address: string;
+    /** none is Tailscale mode: plain ws on a Tailscale or loopback address. */
+    encryption: "tls" | "none";
+    /** sha256 of the certificate presented; null in Tailscale mode. */
+    fingerprint: string | null;
+    /** The address's host when it is a *.ts.net name, else null. */
+    tailscale_host: string | null;
+  };
+  heavy_slots: {
+    /** HANDLINE_HEAVY_SLOTS as this process sees it, default 1. */
+    slots: number;
+    /** Where the slot locks are kept: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots. */
+    dir: string | null;
+  };
+  /** SettingsValues.dev_mode. */
+  dev_mode: boolean;
+};
+
+/** A free label on a task, such as fe or be: lowercase letters, digits, '.', '_' or '-', up to 32. A writer lowercases what it is given; a task carries at most 20. */
+export type Tag = string;
+
+/** What tasks.list narrows to: every key given must hold (AND). It is tasks.list's own params, so a saved view's filter is passed to tasks.list as it is. */
+export type TaskFilter = {
+  /** Tasks that carry every one of these tags. */
+  tags?: Tag[];
+  state?: "draft" | "queued" | "doing" | "reported" | "done" | "discarded";
+  /** Who works the task (its assignee). */
+  owner?: string;
+  /** Who the task answers to (its asker: hl's --owner). */
+  reporter?: string;
+  /** Who opened it. */
+  from?: string;
+};
+
+/** A saved view: a filter kept under a name, so it is picked, not typed again. One set for the founder's devices. */
+export type TaskView = {
+  name: string;
+  filter: TaskFilter;
+  /** Who saved it last. */
+  by: string;
+  at: Timestamp;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -1436,6 +1537,13 @@ export interface Methods {
   "agent.get": { params: {
   agent: AgentName;
 }; result: AgentDetail };
+  "pr.exists": { params: {
+  agent: AgentName;
+  numbers: number[];
+}; result: {
+    repo: string | null;
+    found: number[];
+  } };
   "agent.timeline": { params: {
   agent: AgentName;
   /** Return rows older than this id. */
@@ -1586,7 +1694,7 @@ export interface Methods {
     items: ChatRequestItem[];
     /** Older requests remain (never true with `since`). */
     more: boolean;
-    /** Opaque: equal on two reads when nothing in the chat changed between them (a request made, answered, closed, changed, delivered or landed, a task event, a session start). Cheap to compare; a client that sees it change reads again. */
+    /** Opaque: equal on two reads when nothing in the chat changed between them (a request made, closed, changed, delivered or landed, a task event, a session start). Cheap to compare; a client that sees it change reads again. */
     version: string;
     /** The newest stream cursor when this was read: subscribe with since=cursor and topics [chat] to hear what changes after it. */
     cursor: number;
@@ -1675,7 +1783,7 @@ export interface Methods {
     title: string;
     time_box?: Duration;
   };
-  /** The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is the new message. */
+  /** The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found. The message goes to agent whoever the parent's requester or target is, so a row relayed from another agent can be quoted in this agent's chat. request in the result is the new message. */
   parent?: number;
   /** Images from attachment.put to send with this message, drawn after those the body names (x-attachments, flow); an id the body names too counts once, and the two together are at most 6 (bad_request, field attachments when the list goes over). Then body may be empty. An id may be sent again. A malformed id or an unfinished upload is bad_request, field attachments; an image never put or no longer kept is not_found, what attachment. Not with task (bad_request): a brief names its images in its text. */
   attachments?: AttachmentId[];
@@ -1695,10 +1803,6 @@ export interface Methods {
 }; result: Accepted & {
     receipt?: Receipt;
   } };
-  "chat.dismiss": { params: {
-  request: number;
-  request_id: RequestId;
-}; result: Accepted };
   "chat.cancel": { params: {
   request: number;
   /** Needed once the agent has been told the message. Without it the call is refused (gate confirm) and error data.plan holds what cancelling would do and who is told; send it again with confirm true to do it. */
@@ -1737,7 +1841,7 @@ export interface Methods {
   /** Where to read the original from. Default 0. Not with thumb. */
   offset?: number;
 }; result: {
-    mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+    mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/markdown";
     /** The size of the whole original, or of the thumbnail when thumb. */
     bytes: number;
     offset: number;
@@ -1816,7 +1920,7 @@ export interface Methods {
   wait_s?: number;
 }; result: {
     whose: string;
-    /** The number of the newest thing waiting in this inbox, 0 for nothing: for an agent a request no state has settled, for the founder a mailbox row (an answer counts by its own number). */
+    /** The number of the newest thing waiting in this inbox, 0 for nothing: for an agent a request no state has settled, for the founder a mailbox row. */
     newest: number;
     /** The head of an agent's queue; null when the queue is empty and for the founder's mailbox. */
     head: {
@@ -1842,7 +1946,7 @@ export interface Methods {
     }[];
     /** The founder's mailbox: how many requests and answers wait, before folding. */
     waiting?: number;
-    /** The founder's mailbox: decisions first, then requests whose sender waits on the reply, then the rest, oldest first in each. */
+    /** The founder's mailbox: decisions first, then the rest, oldest first in each. */
     lines?: {
       /** The newest request the line stands for. */
       id: number;
@@ -1870,7 +1974,7 @@ export interface Methods {
   } };
   "inbox.get": { params: {
   id: number;
-  /** Hold the call up to this many seconds until the request has been answered. Default 0, at most 600. */
+  /** Hold the call up to this many seconds until the request settles. Default 0, at most 600. */
   wait_s?: number;
 }; result: InboxItem };
   "request.read": { params: {
@@ -1879,6 +1983,7 @@ export interface Methods {
   wait_s?: number;
 }; result: {
     id: number;
+    ref?: RequestRef;
     requester: string;
     target: string;
     /** ask, task, say and the like; a request with none is an ask. */
@@ -1886,22 +1991,16 @@ export interface Methods {
     /** queued until it settles; then landed, or denied, withdrawn or replaced for one that never reached its target. */
     state: string;
     created: Timestamp;
-    relation: string | null;
-    response: string | null;
     chain_depth: number;
     parent: {
       id: number;
+      ref?: RequestRef;
       /** The start of the parent's first line, at most 40 characters and an ellipsis. */
       line: string;
     } | null;
     body: string;
-    /** What came back, or for a request that never reached its target why it closed. Null while there is none and for a dismissal. */
+    /** What came back, or for a request that never reached its target why it closed. Null while there is none. */
     answer: string | null;
-    /** Set when the request was dismissed: who did it and why, each null when not recorded. */
-    dismissal: {
-      by: string | null;
-      reason: string | null;
-    } | null;
     /** `body` cut at the images it names, in order, then one part per image sent with it in `attachments` that the body does not name (an empty caption); present only when the message has an image. The text parts joined give `body` with each reference left out. */
     parts?: (TextPart | ImagePart)[];
   } };
@@ -1929,14 +2028,20 @@ export interface Methods {
     /** Without dry_run: what was cancelled and who was told, or `not cancelled - ` and the reason. */
     said?: string;
   } };
+  "team.seal": { params: {
+  /** Change nothing: answer `plan`. */
+  dry_run?: boolean;
+  request_id: RequestId;
+}; result: {
+    /** Always true: a refusal is an error. */
+    ok: boolean;
+    /** Dry run only: one line per file that would be sealed (its label, why, its digest), or that nothing needs sealing. */
+    plan?: string;
+    /** Without dry_run: one line per file sealed, or that nothing needed sealing. */
+    said?: string;
+  } };
   "inbox.mark_read": { params: {
   ids: number[];
-  request_id: RequestId;
-}; result: Accepted };
-  "inbox.answer": { params: {
-  id: number;
-  option?: string;
-  text?: string;
   request_id: RequestId;
 }; result: Accepted };
   "inbox.reply": { params: {
@@ -1947,8 +2052,12 @@ export interface Methods {
 }; result: Accepted };
   "tasks.list": { params: {
   owner?: string;
+  /** Who the task answers to (Task.asker). */
+  reporter?: string;
   from?: string;
   state?: string;
+  /** Tasks that carry every one of these tags (lowercased first). With the other filters, every one given must hold. */
+  tags?: string[];
   parent?: number;
   /** That task and every task below it, at any depth, done and discarded included (all is implied); still within the caller's scope, newest first and paged as without it. */
   under?: number;
@@ -1977,6 +2086,12 @@ export interface Methods {
   "task.get": { params: {
   task: number;
 }; result: TaskDetail };
+  "task.history": { params: {
+  task: number;
+}; result: {
+    task: number;
+    rows: HistoryRow[];
+  } };
   "task.shot": { params: {
   task: number;
   /** The screenshot's number in the task's result, from 1. */
@@ -1999,8 +2114,6 @@ export interface Methods {
   /** The brief, Markdown. It may name images (x-attachments, texts). */
   body?: string;
   time_box?: Duration;
-  relation?: string;
-  response?: string;
   parent?: number;
   /** Open the task even when an open task under the same parent, or the parent itself, has nearly its title (gate duplicate_title). */
   duplicate_ok?: boolean;
@@ -2008,13 +2121,9 @@ export interface Methods {
   blocked_by?: number;
   /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
   priority?: 1 | 2 | 3;
+  /** Its tags; each is kept as a history row of the task. */
+  tags?: Tag[];
   expects?: Expects;
-  /** Also answer the founder's message with text, where {task} is this task's real number. */
-  reply?: {
-    message: number;
-    /** {task} is replaced by the new task's number. */
-    text: string;
-  };
   /** The task shows something on a screen. A label only: task.done takes a screenshot (shots) but never requires one. */
   ui?: boolean;
   request_id: RequestId;
@@ -2025,7 +2134,7 @@ export interface Methods {
   task: number;
   to: string;
   /** Markdown. It may name images (x-attachments, texts); they are the task's while it is open. */
-  note: string;
+  note?: string;
   request_id: RequestId;
 }; result: Accepted };
   "task.done": { params: {
@@ -2100,6 +2209,10 @@ export interface Methods {
   task: number;
   /** Markdown. It may name images (x-attachments, texts). */
   text: string;
+  /** Tell every reader at once, even mid-turn. */
+  now?: boolean;
+  /** Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files). */
+  files?: string[];
   request_id: RequestId;
 }; result: Accepted & {
     memo: number;
@@ -2114,6 +2227,19 @@ export interface Methods {
   "task.memo.delete": { params: {
   task: number;
   memo: number;
+  request_id: RequestId;
+}; result: Accepted };
+  "task.view.list": { params: { [key: string]: unknown }; result: {
+    views: TaskView[];
+  } };
+  "task.view.save": { params: {
+  /** One line, 1 to 60 characters. */
+  name: string;
+  filter: TaskFilter;
+  request_id: RequestId;
+}; result: Accepted };
+  "task.view.delete": { params: {
+  name: string;
   request_id: RequestId;
 }; result: Accepted };
   "task.queue": { params: {
@@ -2132,7 +2258,7 @@ export interface Methods {
   "task.release": { params: {
   task: number;
   to?: "queued" | "draft";
-  reason: string;
+  reason?: string;
   request_id: RequestId;
 }; result: Accepted };
   "task.discard": { params: {
@@ -2165,14 +2291,16 @@ export interface Methods {
   /** The new brief, Markdown. It may name images (x-attachments, texts). */
   body?: string;
   time_box?: Duration;
-  /** Owner only: what the task waits on. */
-  waits_on?: string;
   /** 1 high, 2 default, 3 low (written P1-P3). */
   priority?: 1 | 2 | 3;
   /** A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them. */
   blocked_by?: number;
   /** A task number this one no longer waits on; clearing the last one lets its owner's current task advance. */
   unblock?: number;
+  /** Tags to add; one it has already is left as it is. Each change is a history row. Nobody is told of a tag change. */
+  add_tags?: Tag[];
+  /** Tags to remove; one it has not got is left as it is. */
+  remove_tags?: Tag[];
   request_id: RequestId;
 }; result: Accepted };
   "task.ask": { params: {
@@ -2374,6 +2502,36 @@ export interface Methods {
     diff: string;
     truncated: boolean;
   } };
+  "file.read": { params: {
+  agent: AgentName;
+  /** Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise. */
+  path: string;
+}; result: {
+    /** UTF-8 text; the first 1 MiB when the file is longer (truncated). */
+    text: string;
+    /** The file's size in bytes. */
+    size: number;
+    /** The file is over 1 MiB and text is its first 1 MiB. Do not write it back. */
+    truncated: boolean;
+    mtime: Timestamp;
+    /** SHA-256 of the whole file, hex: file.write takes it back. */
+    etag: string;
+  } };
+  "file.write": { params: {
+  agent: AgentName;
+  /** Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise. */
+  path: string;
+  /** The whole new content: UTF-8 text without NUL, at most 1 MiB; for a .json file, valid JSON. */
+  text: string;
+  /** The etag file.read gave; empty to create a file that must not exist (its folder must). */
+  etag: string;
+  request_id: RequestId;
+}; result: {
+    size: number;
+    mtime: Timestamp;
+    /** The new file's etag. */
+    etag: string;
+  } };
   "worktree.set_status": { params: {
   path: string;
   status: string;
@@ -2412,13 +2570,14 @@ export interface Methods {
   /** Also give `overlay` for this pick: an agent's name, or `grp:<name>` for the group of agents whose dotted names start with `<name>.` (and the agent `<name>` itself), the key of a row of the agents table a client draws. It rides on this call and not on a method of its own because the curve is read against `past` and must be sampled at the same moment as it; one pick costs one array, not one per agent. */
   agent?: string;
 }; result: Outlook };
+  "connection.get": { params: { [key: string]: unknown }; result: ConnectionInfo };
   "settings.get": { params: {
   /** Return that agent's own overrides in `overrides`. */
   agent?: AgentName;
 }; result: Settings };
   "settings.set": { params: {
   changes: SettingsChanges;
-  /** Write the per-agent override of: park_timeout_s, ignore_cache_expiry, bg_notice_s, bg_grace_s, bg_check_s, notice_digest_s. Any other key with `agent` is bad_request. */
+  /** Write the per-agent override of: park_timeout_s, ignore_cache_expiry, bg_notice_s, bg_grace_s, bg_check_s, notice_digest_s, handoff_prompt. Any other key with `agent` is bad_request. */
   agent?: AgentName;
   request_id: RequestId;
 }; result: Accepted };
@@ -2482,6 +2641,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "operation.get": { role: "member", callers: null, write: false, since: 1 },
   "agents.list": { role: "agent", callers: null, write: false, since: 1 },
   "agent.get": { role: "agent", callers: null, write: false, since: 1 },
+  "pr.exists": { role: "member", callers: null, write: false, since: 1 },
   "agent.timeline": { role: "member", callers: null, write: false, since: 1 },
   "agent.options": { role: "member", callers: null, write: false, since: 1 },
   "agent.set": { role: "agent", callers: ["agent", "founder"], write: true, since: 1 },
@@ -2513,7 +2673,6 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "chat.search": { role: "member", callers: null, write: false, since: 1 },
   "chat.send": { role: "member", callers: null, write: true, since: 1 },
   "chat.send_now": { role: "member", callers: null, write: true, since: 1 },
-  "chat.dismiss": { role: "member", callers: null, write: true, since: 1 },
   "chat.cancel": { role: "member", callers: null, write: true, since: 1 },
   "chat.seen": { role: "member", callers: null, write: true, since: 1 },
   "attachment.put": { role: "member", callers: null, write: true, since: 1 },
@@ -2532,11 +2691,12 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "request.read": { role: "agent", callers: null, write: false, since: 1 },
   "request.withdraw": { role: "agent", callers: null, write: true, since: 1 },
   "request.cancel": { role: "founder", callers: null, write: true, since: 1 },
+  "team.seal": { role: "founder", callers: null, write: true, since: 1 },
   "inbox.mark_read": { role: "agent", callers: null, write: true, since: 1 },
-  "inbox.answer": { role: "member", callers: null, write: true, since: 1 },
   "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },
   "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.get": { role: "agent", callers: null, write: false, since: 1 },
+  "task.history": { role: "agent", callers: null, write: false, since: 1 },
   "task.shot": { role: "member", callers: null, write: false, since: 1 },
   "task.new": { role: "agent", callers: null, write: true, since: 1 },
   "task.handoff": { role: "agent", callers: null, write: true, since: 1 },
@@ -2552,6 +2712,9 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.memo.add": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.edit": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.delete": { role: "agent", callers: null, write: true, since: 1 },
+  "task.view.list": { role: "member", callers: null, write: false, since: 1 },
+  "task.view.save": { role: "member", callers: null, write: true, since: 1 },
+  "task.view.delete": { role: "member", callers: null, write: true, since: 1 },
   "task.queue": { role: "agent", callers: null, write: true, since: 1 },
   "task.draft": { role: "agent", callers: null, write: true, since: 1 },
   "task.merge": { role: "agent", callers: null, write: true, since: 1 },
@@ -2585,6 +2748,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "repos.list": { role: "member", callers: null, write: false, since: 1 },
   "worktrees.list": { role: "member", callers: null, write: false, since: 1 },
   "worktree.diff": { role: "member", callers: null, write: false, since: 1 },
+  "file.read": { role: "founder", callers: null, write: false, since: 1 },
+  "file.write": { role: "founder", callers: null, write: true, since: 1 },
   "worktree.set_status": { role: "member", callers: null, write: true, since: 1 },
   "schedules.list": { role: "agent", callers: null, write: false, since: 1 },
   "schedule.add": { role: "founder", callers: null, write: true, since: 1 },
@@ -2592,6 +2757,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "schedule.remove": { role: "founder", callers: null, write: true, since: 1 },
   "stats.get": { role: "member", callers: null, write: false, since: 1 },
   "stats.outlook": { role: "member", callers: null, write: false, since: 1 },
+  "connection.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.set": { role: "founder", callers: null, write: true, since: 1 },
   "answers.list": { role: "founder", callers: null, write: false, since: 1 },
@@ -2683,6 +2849,6 @@ export interface Notifications {
 }
 
 /** The state words the daemon sends; an open set, so a client keeps a fallback. */
-export const STATE_WORDS = ["running", "idle", "queued", "parked", "waiting", "stalled", "blocked", "no_terminal"] as const;
+export const STATE_WORDS = ["running", "idle", "queued", "starting", "parked", "waiting", "stalled", "blocked", "no_terminal"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];

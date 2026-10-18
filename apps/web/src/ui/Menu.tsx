@@ -84,8 +84,9 @@ export function MenuButton({
   align = 'end',
   open: shown,
   onOpenChange,
+  trigger,
   ...button
-}: { children: ReactNode; name?: string; align?: 'start' | 'end'; open?: boolean; onOpenChange?: (open: boolean) => void } & Omit<
+}: { children: ReactNode; trigger?: ReactNode; name?: string; align?: 'start' | 'end'; open?: boolean; onOpenChange?: (open: boolean) => void } & Omit<
   ComponentProps<typeof Button>,
   'onClick' | 'aria-haspopup' | 'aria-expanded'
 >) {
@@ -107,7 +108,9 @@ export function MenuButton({
               if (!wasOpen.current) setOpen(!open);
               wasOpen.current = false;
             }}
-          />
+          >
+            {trigger}
+          </Button>
         </span>
       </D.Anchor>
       <MenuContent side="bottom" align={align} sideOffset={4} aria-label={name}>
@@ -178,5 +181,7 @@ export function MenuSubContent({ children }: { children: ReactNode }) {
     </D.Portal>
   );
 }
+
+export const MenuLabel = ({ children }: { children: ReactNode }) => <D.Label className="px-2 py-1 text-hint text-ink-3">{children}</D.Label>;
 
 export const MenuSeparator = () => <D.Separator className="my-1 h-px bg-line" />;

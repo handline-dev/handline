@@ -8,11 +8,11 @@ export function Select({
   ...rest
 }: { options: { value: string; label: string }[]; label: string } & Omit<SelectHTMLAttributes<HTMLSelectElement>, 'children'>) {
   return (
-    <span className="ui-select relative inline-flex items-center">
+    <span className="ui-select relative inline-flex max-w-full items-center">
       <select
         aria-label={label}
         title={label}
-        className="h-8 appearance-none rounded-ctl border border-line-strong py-0 pl-2 pr-6 text-ink"
+        className="h-8 min-w-0 max-w-full appearance-none truncate rounded-ctl border border-line-strong py-0 pl-2 pr-6 text-ink"
         {...rest}
       >
         {options.map((o) => (

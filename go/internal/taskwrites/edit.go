@@ -83,6 +83,31 @@ func undeliverable(tx *sql.Tx, t *task, to, home string) (string, error) {
 	return "", nil
 }
 
+// waitIsOwnBookkeeping: a wait on a task held inside the waiting task's own team is the team's own bookkeeping and tells no one; a blocker the
+// founder, another team or nobody holds is news to the lead.
+func waitIsOwnBookkeeping(tx *sql.Tx, home string, tid, other int64) (bool, error) {
+	t, err := getTask(tx, tid)
+	if err != nil || t == nil {
+		return false, err
+	}
+	b, err := getTask(tx, other)
+	if err != nil || b == nil {
+		return false, err
+	}
+	if b.Owner == "" || b.Owner == human {
+		return false, nil
+	}
+	if b.Owner == t.Owner {
+		return true, nil
+	}
+	tm, err := team.LoadTeam(home)
+	if err != nil {
+		return false, nil // no team file: nothing says it is internal, so the lead is told
+	}
+	group := tm.TeamOf(t.Owner)
+	return group != "" && tm.TeamOf(b.Owner) == group, nil
+}
+
 // editTask is actions.edit_task: a task's owner, reporter, title, priority, timeout and/or body changed by anyone; every change is kept as
 // an edit_task event under who made it. It answers the refusal ("" when it edited) and the message.
 func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, title, body *string, priority, timeoutS *int64) (string, string, error) {
@@ -107,9 +132,6 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 	var bodyRID int64
 	if body != nil {
 		text := strings.TrimSpace(textsafe.Text(*body))
-		if text == "" {
-			return "a task needs a body: the work itself, what done looks like", "", nil
-		}
 		var rid int64
 		var requester, old string
 		err := tx.QueryRow("SELECT r.id, r.requester, COALESCE(r.body, '') FROM task_requests l JOIN requests r ON r.id = l.request_id "+
@@ -292,9 +314,18 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 		if err != nil {
 			return nil, err
 		}
+		addTags, err := TagList(p, "add_tags")
+		if err != nil {
+			return nil, err
+		}
+		removeTags, err := TagList(p, "remove_tags")
+		if err != nil {
+			return nil, err
+		}
+		hasTags := len(addTags) > 0 || len(removeTags) > 0
 		fields := owner != nil || reporter != nil || title != nil || body != nil || timeoutS != nil || priority != nil
-		if !fields && !hasBlocker && !hasUnblock {
-			return nil, badParam("edit needs an owner, a reporter, a title, a priority, a body, a time_box, blocked_by or unblock", "")
+		if !fields && !hasBlocker && !hasUnblock && !hasTags {
+			return nil, badParam("edit needs an owner, a reporter, a title, a priority, a body, a time_box, blocked_by, unblock, add_tags or remove_tags", "")
 		}
 		for _, who := range []*string{owner, reporter} {
 			if who != nil && *who != human && !contains(paths.ListAgents(home), *who) {
@@ -313,9 +344,20 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			} else if t != nil {
 				done.WasOwner = t.Owner
 			}
-			var msgs []string
+			var msgs, tellMsgs []string
 			if fields {
 				why, msg, err := editTask(tx, tid, me, home, owner, reporter, title, body, priority, timeoutS)
+				if err != nil {
+					return nil, err
+				}
+				if why != "" {
+					return nil, refusal(why)
+				}
+				msgs = append(msgs, msg)
+				tellMsgs = append(tellMsgs, msg)
+			}
+			if hasTags { // a tag is bookkeeping: it is in the reply and the history, and nobody is told
+				why, msg, err := retag(tx, tid, me, addTags, removeTags)
 				if err != nil {
 					return nil, err
 				}
@@ -332,7 +374,13 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 				if why != "" {
 					return nil, refusal(why)
 				}
-				msgs = append(msgs, fmt.Sprintf("task T%d now waits on T%d", tid, blocker))
+				msg := fmt.Sprintf("task T%d now waits on T%d", tid, blocker)
+				msgs = append(msgs, msg)
+				if own, err := waitIsOwnBookkeeping(tx, home, tid, blocker); err != nil {
+					return nil, err
+				} else if !own {
+					tellMsgs = append(tellMsgs, msg)
+				}
 			}
 			if hasUnblock {
 				why, err := unblock(tx, tid, unblockOn, me)
@@ -342,7 +390,13 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 				if why != "" {
 					return nil, refusal(why)
 				}
-				msgs = append(msgs, fmt.Sprintf("task T%d no longer waits on T%d", tid, unblockOn))
+				msg := fmt.Sprintf("task T%d no longer waits on T%d", tid, unblockOn)
+				msgs = append(msgs, msg)
+				if own, err := waitIsOwnBookkeeping(tx, home, tid, unblockOn); err != nil {
+					return nil, err
+				} else if !own {
+					tellMsgs = append(tellMsgs, msg)
+				}
 				left, err := taskBlockers(tx, tid)
 				if err != nil {
 					return nil, err
@@ -368,8 +422,10 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			if done.WasOwner == "" || done.WasOwner == t.Owner { // a new owner is asked the brief itself (Teller.Edited)
 				to = append(to, t.Owner)
 			}
-			if notes, err = tellTask(tx, home, me, said, to...); err != nil {
-				return nil, err
+			if len(tellMsgs) > 0 {
+				if notes, err = tellTask(tx, home, me, strings.Join(tellMsgs, "; "), to...); err != nil {
+					return nil, err
+				}
 			}
 			return accepted(said, nil), nil
 		})

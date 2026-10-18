@@ -129,3 +129,51 @@ test('an opener that refuses is unavailable with its message', async () => {
   const r = await call(o, 'refused.md', 'handline.x');
   assert.deepEqual(r, { ok: false, code: 'unavailable', message: 'no opener' });
 });
+
+function withGit(files: Record<string, Record<string, string>>, branches: string[], repo: string | null = 'acme/app') {
+  const log: string[] = [];
+  const o = new Opener(ORIGIN, {
+    home,
+    worktreeOf: async (a) => (a === 'handline.x' ? wt : null),
+    open: async (p) => (log.push(`open ${p}`), ''),
+    reveal: (p) => void log.push(`reveal ${p}`),
+    git: {
+      hasBranch: async (_c, n) => branches.includes(n),
+      show: async (_c, ref, file) => (files[ref]?.[file] !== undefined ? Buffer.from(files[ref]![file]!) : null),
+      repoOf: async () => repo,
+    },
+    openExternal: async (u) => void log.push(`web ${u}`),
+    scratch: async (name, bytes) => (log.push(`copy ${name} ${bytes}`), path.join(root, 'view', name)),
+  });
+  return { o, log };
+}
+const callB = (o: Opener, p: string, branches: string[]) => o.openPath(top, { path: p, agent: 'handline.x', branches });
+
+test('a repo path opens the version on a branch the message names, read-only, before the worktree file', async () => {
+  const { o, log } = withGit({ 'feat-x': { 'docs/a.md': 'on the branch' } }, ['feat-x']);
+  assert.deepEqual(await callB(o, 'docs/a.md', ['feat-x']), { ok: true, how: 'branch' });
+  assert.deepEqual(log, ['copy a.md on the branch', `open ${path.join(root, 'view', 'a.md')}`]);
+});
+
+test('a branch that does not exist, or lacks the file, falls to the worktree file', async () => {
+  const { o, log } = withGit({ 'feat-x': {} }, ['feat-x']);
+  assert.equal((await callB(o, 'docs/a.md', ['nope', 'feat-x'])).ok, true);
+  assert.equal(log.length, 1);
+  assert.match(log[0]!, new RegExp(`open ${path.join(wt, 'docs', 'a.md')}`));
+});
+
+test('a file the worktree lacks opens main\'s version, else the file on GitHub on the named branch', async () => {
+  const onMain = withGit({ main: { 'docs/gone.md': 'main has it' } }, []);
+  assert.deepEqual(await callB(onMain.o, 'docs/gone.md', []), { ok: true, how: 'main' });
+  const web = withGit({}, []);
+  assert.deepEqual(await callB(web.o, 'docs/gone.md', ['feat-y']), { ok: true, how: 'github' });
+  assert.deepEqual(web.log, ['web https://github.com/acme/app/blob/feat-y/docs/gone.md']);
+  const none = withGit({}, [], null);
+  assert.equal((await callB(none.o, 'docs/gone.md', [])).ok, false);
+});
+
+test('a path that climbs out is never given to git', async () => {
+  const { o, log } = withGit({ main: { '../x': 'no' } }, []);
+  assert.equal((await callB(o, '../x', [])).ok, false);
+  assert.deepEqual(log, []);
+});

@@ -203,6 +203,28 @@ func TestPanesTheDaemonDidNotOpenForAnAgentAreNeverTouched(t *testing.T) {
 	}
 }
 
+// An agent that runs `hl launch b.c` from its own pane records that pane for b.c; once b.c gets a pane of its own, the old record
+// must not close the first agent's live terminal.
+func TestAPaneThatIsAnotherAgentsCurrentTerminalIsNeverClosed(t *testing.T) {
+	r := newRig(t)
+	if err := db.SetTerminal(r.q, "x.y", "%1", "/wt2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RecordTerminal(r.q, "%1", "a.b"); err != nil {
+		t.Fatal(err)
+	}
+	r.h.session["%1"] = 37735
+	r.h.running[37735] = 1000
+	r.run(t, 3000)
+	r.run(t, 3000+AskWaitS+5)
+	if len(r.h.closed) != 0 || len(r.h.asked) != 0 || len(r.h.told) != 0 {
+		t.Fatalf("x.y's pane is left alone: closed %v asked %v told %v", r.h.closed, r.h.asked, r.h.told)
+	}
+	if !r.closedAt(t, "%1").Valid {
+		t.Fatal("a.b's stale record of it is closed")
+	}
+}
+
 func TestARecordedPaneThatIsGoneIsRecordedClosed(t *testing.T) {
 	r := newRig(t)
 	delete(r.h.live, "%1")

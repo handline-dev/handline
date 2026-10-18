@@ -48,8 +48,8 @@ export function AgentPage() {
   return (
     <AboveKeyboard>
       <Row style={{ padding: space.md }}>
-        <Pressable testID="back" onPress={back} accessibilityLabel="Back" hitSlop={12}>
-          <Text style={{ color: c.accent, fontSize: 28 }}>‹</Text>
+        <Pressable testID="back" onPress={back} accessibilityLabel="Back to Agents" hitSlop={12}>
+          <Text style={{ color: c.accent, fontSize: 16 }}>‹ Agents</Text>
         </Pressable>
         <StateMark agent={{ state, has_dialog: row?.has_dialog ?? false, block: row?.block }} />
         <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '700', fontSize: 16, flex: 1 }}>

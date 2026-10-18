@@ -216,7 +216,11 @@ func (e *Env) agentGet(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	out["worktree"] = nil
 	if path := st.str("worktree"); path != "" {
-		out["worktree"] = map[string]any{"path": path, "branch": branchOf(path)}
+		var repo any
+		if r := originRepo(path); r != "" {
+			repo = r
+		}
+		out["worktree"] = map[string]any{"path": path, "branch": branchOf(path), "repo": repo}
 	}
 	out["terminal"] = st.strOrNil("terminal")
 	out["session_id"] = st.strOrNil("resume_session")

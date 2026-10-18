@@ -4,16 +4,23 @@ import { CHANNELS } from './bridge.ts';
 
 export interface Ipc {
   invoke(channel: string, arg: unknown): Promise<unknown>;
-  on(channel: string, f: (event: unknown, arg: NavigateTo) => void): unknown;
+  on(channel: string, f: (event: unknown, arg: unknown) => void): unknown;
 }
 
-export function makeApi(ipc: Ipc): ShellApi {
+export function makeApi(ipc: Ipc, zoom: () => number = () => 1): ShellApi {
   // A click before the page registered is kept and delivered to the first listener.
   let waiting: NavigateTo | null = null;
   let listener: ((to: NavigateTo) => void) | null = null;
   ipc.on(CHANNELS.navigate, (_e, to) => {
-    if (listener) listener(to);
-    else waiting = to;
+    if (listener) listener(to as NavigateTo);
+    else waiting = to as NavigateTo;
+  });
+  // The shell sends the state on every load and change; the last one is kept for the first listener.
+  let full = false;
+  const fullListeners = new Set<(full: boolean) => void>();
+  ipc.on(CHANNELS.fullScreen, (_e, on) => {
+    full = on === true;
+    fullListeners.forEach((f) => f(full));
   });
   const call = async <R>(channel: string, arg?: unknown): Promise<R> => {
     try {
@@ -24,15 +31,25 @@ export function makeApi(ipc: Ipc): ShellApi {
   };
   return {
     api: 1,
+    zoom,
     screen: (s) => call(CHANNELS.screen, s),
     unsent: (on) => call(CHANNELS.unsent, on),
     openPath: (a) => call(CHANNELS.openPath, a),
     compose: (a) => call(CHANNELS.compose, a ?? {}),
     cancelCompose: () => call(CHANNELS.cancelCompose),
+    captureWindows: () => call(CHANNELS.captureWindows),
+    captureWindow: (a) => call(CHANNELS.captureWindow, a),
     mode: () => call(CHANNELS.mode),
     setMode: (m) => call(CHANNELS.setMode, m),
     phone: () => call(CHANNELS.phone),
     pairRemote: (a) => call(CHANNELS.pairRemote, a),
+    onFullScreen(cb) {
+      fullListeners.add(cb);
+      cb(full);
+      return () => void fullListeners.delete(cb);
+    },
+    settingsGet: (a) => call(CHANNELS.settingsGet, a ?? {}),
+    settingsSet: (a) => call(CHANNELS.settingsSet, a),
     onNavigate(cb) {
       listener = cb;
       if (waiting) {

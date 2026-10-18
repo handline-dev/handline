@@ -30,7 +30,7 @@
    "member",
    "founder"
   ],
-  "rule": "x-role on a method is the lowest role that may call it. Roles are proven, not assumed. founder: the connection said hello with the founder key and it matches (a Unix-socket peer being the same user proves nothing, because agents run as that user). agent: the peer pid verifies against a recorded session. member: a paired device's token. Anything else is anonymous: on the Unix socket it may call only hello and device.redeem; on the network listener it is unpaired and may call only device.redeem (see Framing, network). A call below its role is refused, gate `role`. session.type and session.keys act at a shell prompt as they do anywhere in the pane: only a paired device can connect to the network listener and an unpaired caller gets no data, so a shell is within what a paired device may reach."
+  "rule": "x-role on a method is the lowest role that may call it. Roles are proven, not assumed. founder: the connection said hello with the founder key and it matches (a Unix-socket peer being the same user proves nothing, because agents run as that user). agent: the peer pid verifies against a recorded session. member: no caller holds it today, since a paired device (its token proves it) is the founder; the role stays as the lowest a method can ask of a person. Anything else is anonymous: on the Unix socket it may call only hello and device.redeem; on the network listener it is unpaired and may call only device.redeem (see Framing, network). A call below its role is refused, gate `role`. session.type and session.keys act at a shell prompt as they do anywhere in the pane: only a paired device can connect to the network listener and an unpaired caller gets no data, so a shell is within what a paired device may reach."
  },
  "x-gates": {
   "role": "Caller's role is agent: a person-at-the-terminal method.",
@@ -49,7 +49,11 @@
   "confirm": "chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do.",
   "limit": "attachment.put: the file or the unsent total is over its limit, or too many uploads are open (x-attachments).",
   "listing": "inbox.queue: the caller may not list that agent's messages. Only the agent itself, its supervisor and the founder may.",
-  "duplicate_title": "task.new: an open task under the same parent, or the parent itself, has nearly the title (same first word, 80% of the shorter title's words, Story prefix, case, punctuation and commit shas ignored). data.task names it; duplicate_ok opens the task anyway."
+  "duplicate_title": "task.new: an open task under the same parent, or the parent itself, has nearly the title (same first word, 80% of the shorter title's words, Story prefix, case, punctuation and commit shas ignored). data.task names it; duplicate_ok opens the task anyway.",
+  "open_children": "task.done: the task has open child tasks. The reason names each (number, state, assignee, title), the hint the commands that close one, and the refusal's `children` lists them, so a client can offer to discard them from the same prompt.",
+  "denied": "file.write: the path is one the daemon never writes: under .git, .claude, .github, .husky, .codex, .cursor, .vscode, .devcontainer or a hooks folder (at any depth); a settings.json, settings.local.json, .mcp.json, mcp.json, hooks.json, package.json, .claude.json, tsconfig.json, turbo.json, deno.json, composer.json or lefthook.json; or anything but a .md or .json file.",
+  "stale": "file.write: the file is not what the etag says (it changed, is gone, or exists when the etag is empty). Read it again; nothing was written.",
+  "too_big": "file.write: the file on disk is over 1 MiB, so file.read gave only its start; it is not written (a text read from it would cut it)."
  },
  "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
  "x-legacy": {
@@ -245,7 +249,8 @@
   "words": {
    "running": "A turn is running (a hand-off in progress counts: moving is working).",
    "idle": "At its prompt with nothing to do, or nothing pending for it (a park with no work behind it, a finished one). state_detail may say what it waits on (a child task, background work).",
-   "queued": "Has work and will start at the daemon's next tick, with no time to wait for. state_detail may say why it is not running yet (a restart retry).",
+   "queued": "Has work and will start at the daemon's next tick, with no time to wait for: a restart between two sessions (`handoff.phase` starting) reads queued, not parked. state_detail may say why it is not running yet (a restart retry).",
+   "starting": "A terminal agent's launch in progress: hl launch kept the session start, no hook of that session, no session end and no failed wake has come since, and its pane runs something other than its shell. A launch that died is back at the shell, so it never reads as starting. Never hides a running turn, a dialog or a stall.",
    "parked": "Waits for a time: the usage window rolling over, a park a person asked for, a throttle or degraded retry, or an account move settling. state_detail is the clock (`due` once it has passed; `moving` for an account move, which has no clock).",
    "waiting": "A person must answer: a dialog or a prompt is open (has_dialog is true).",
    "stalled": "Stopped until a person unstalls it (the daemon will not wake it).",
@@ -256,6 +261,7 @@
    "RUNNING, HANDOFF": "running",
    "IDLE, DONE, PARKED with no work behind it": "idle",
    "QUEUED, a restart retry (PENDING with no clock)": "queued",
+   "a terminal launch in progress, before its session's first hook, with claude and not the shell in its pane (checked over idle, queued and no_terminal)": "starting",
    "PARKED, THROTTLED, DEGRADED with a wake time (PENDING with a clock); MOVING": "parked",
    "DIALOG (an open prompt or modal)": "waiting",
    "STALLED (FATAL)": "stalled",
@@ -1027,6 +1033,71 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "pr.exists",
+   "summary": "Which of the numbers are pull requests (open, merged or closed) in the repo of the agent's worktree.",
+   "description": "numbers holds at most 20 integers, else -32602 bad_request naming `numbers`. The daemon asks GitHub with its own gh login, so a private repo answers. repo is null, and found empty, when the agent has no worktree or its origin is not on GitHub. A number that is a PR is remembered for good, one that is not for about a minute. When gh fails, found is empty and nothing is remembered.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "numbers",
+     "required": true,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "maxItems": 20
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "repo": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "found": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       }
+      }
+     },
+     "required": [
+      "repo",
+      "found"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
     }
    ]
   },
@@ -2299,7 +2370,7 @@
       },
       "version": {
        "type": "string",
-       "description": "Opaque: equal on two reads when nothing in the chat changed between them (a request made, answered, closed, changed, delivered or landed, a task event, a session start). Cheap to compare; a client that sees it change reads again."
+       "description": "Opaque: equal on two reads when nothing in the chat changed between them (a request made, closed, changed, delivered or landed, a task event, a session start). Cheap to compare; a client that sees it change reads again."
       },
       "cursor": {
        "type": "integer",
@@ -2325,7 +2396,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "items are oldest first, each with a `type`: `request` is a chat.messages ChatMessage plus `dismissal` and `task_state`; `task_event` is a change of a task delivered in the page, since the first request in it (the state it reached, a handoff, an edit), with `request` naming the delivery a handoff belongs to so a client can draw both as one card; `session` is the start of a new conversation of the agent since that request (one that resumed the old conversation is not listed). Requests that no chat draws (withdrawn, never reached their target) are left out. HR cards are hr.list's."
+   "description": "items are oldest first, each with a `type`: `request` is a chat.messages ChatMessage plus `task_state`; `task_event` is a change of a task delivered in the page, since the first request in it (the state it reached, a handoff, an edit), with `request` naming the delivery a handoff belongs to so a client can draw both as one card; `session` is the start of a new conversation of the agent since that request (one that resumed the old conversation is not listed). Requests that no chat draws (withdrawn, never reached their target) are left out. HR cards are hr.list's."
   },
   {
    "name": "chat.transcript",
@@ -2858,7 +2929,7 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "description": "The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found; one that agent is not on, as its requester or its target, is refused (gate state); a message between two other agents is replied to by a say to the one named by agent. request in the result is the new message."
+      "description": "The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found. The message goes to agent whoever the parent's requester or target is, so a row relayed from another agent can be quoted in this agent's chat. request in the result is the new message."
      }
     },
     {
@@ -2996,47 +3067,6 @@
     }
    ],
    "description": "For a message to a structured agent whose receipt is queued: written to the CLI with priority now, receipt sent. Any other receipt is refused (gate state), including a message written meanwhile. The daemon makes the release atomic with its queue, so a write that has started is never promoted twice. A terminal agent's message is as before."
-  },
-  {
-   "name": "chat.dismiss",
-   "summary": "Dismiss a message.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "request",
-     "required": true,
-     "schema": {
-      "type": "integer"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "member",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ]
   },
   {
    "name": "chat.cancel",
@@ -3260,7 +3290,7 @@
   },
   {
    "name": "attachment.get",
-   "summary": "Read an attached image, or a small copy of it, for drawing.",
+   "summary": "Read an attached image or a memo's file, or a small copy of an image, for drawing.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3299,7 +3329,8 @@
         "image/png",
         "image/jpeg",
         "image/gif",
-        "image/webp"
+        "image/webp",
+        "text/markdown"
        ]
       },
       "bytes": {
@@ -3861,7 +3892,7 @@
   {
    "name": "inbox.queue",
    "summary": "An inbox as hl inbox prints it.",
-   "description": "An agent's inbox is the one request at the head of its queue (the oldest queued one whose routing was checked; a say is never the head), and with `all` every request ever sent to it. The founder's is the mailbox folded to one line per agent, a decision or a request whose sender waits on the reply keeping its own line, and with `all` the 20 most recent requests to or from the founder that are no longer queued. An agent may list its own inbox and those of the agents it supervises; the founder any. Nothing is marked read: the caller sends inbox.mark_read for the head it showed.",
+   "description": "An agent's inbox is the one request at the head of its queue (the oldest queued one whose routing was checked; a say is never the head), and with `all` every request ever sent to it. The founder's is the mailbox folded to one line per agent, a decision keeping its own line, and with `all` the 20 most recent requests to or from the founder that are no longer queued. An agent may list its own inbox and those of the agents it supervises; the founder any. Nothing is marked read: the caller sends inbox.mark_read for the head it showed.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3909,7 +3940,7 @@
       },
       "newest": {
        "type": "integer",
-       "description": "The number of the newest thing waiting in this inbox, 0 for nothing: for an agent a request no state has settled, for the founder a mailbox row (an answer counts by its own number)."
+       "description": "The number of the newest thing waiting in this inbox, 0 for nothing: for an agent a request no state has settled, for the founder a mailbox row."
       },
       "head": {
        "oneOf": [
@@ -3997,7 +4028,7 @@
       },
       "lines": {
        "type": "array",
-       "description": "The founder's mailbox: decisions first, then requests whose sender waits on the reply, then the rest, oldest first in each.",
+       "description": "The founder's mailbox: decisions first, then the rest, oldest first in each.",
        "items": {
         "type": "object",
         "properties": {
@@ -4115,7 +4146,7 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 600,
-      "description": "Hold the call up to this many seconds until the request has been answered. Default 0, at most 600."
+      "description": "Hold the call up to this many seconds until the request settles. Default 0, at most 600."
      }
     }
    ],
@@ -4169,6 +4200,9 @@
       "id": {
        "type": "integer"
       },
+      "ref": {
+       "$ref": "#/components/schemas/RequestRef"
+      },
       "requester": {
        "type": "string"
       },
@@ -4186,26 +4220,6 @@
       "created": {
        "$ref": "#/components/schemas/Timestamp"
       },
-      "relation": {
-       "oneOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ]
-      },
-      "response": {
-       "oneOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ]
-      },
       "chain_depth": {
        "type": "integer"
       },
@@ -4216,6 +4230,9 @@
          "properties": {
           "id": {
            "type": "integer"
+          },
+          "ref": {
+           "$ref": "#/components/schemas/RequestRef"
           },
           "line": {
            "type": "string",
@@ -4244,44 +4261,7 @@
          "type": "null"
         }
        ],
-       "description": "What came back, or for a request that never reached its target why it closed. Null while there is none and for a dismissal."
-      },
-      "dismissal": {
-       "oneOf": [
-        {
-         "type": "object",
-         "properties": {
-          "by": {
-           "oneOf": [
-            {
-             "type": "string"
-            },
-            {
-             "type": "null"
-            }
-           ]
-          },
-          "reason": {
-           "oneOf": [
-            {
-             "type": "string"
-            },
-            {
-             "type": "null"
-            }
-           ]
-          }
-         },
-         "required": [
-          "by",
-          "reason"
-         ]
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Set when the request was dismissed: who did it and why, each null when not recorded."
+       "description": "What came back, or for a request that never reached its target why it closed. Null while there is none."
       },
       "parts": {
        "type": "array",
@@ -4305,13 +4285,10 @@
       "kind",
       "state",
       "created",
-      "relation",
-      "response",
       "chain_depth",
       "parent",
       "body",
-      "answer",
-      "dismissal"
+      "answer"
      ]
     }
    },
@@ -4450,6 +4427,63 @@
    ]
   },
   {
+   "name": "team.seal",
+   "summary": "The founder seals team.yaml and every agent.yaml as they are now, as hl team seal does; dry_run names what would be sealed.",
+   "description": "Seals are what lets the daemon tell a file the founder approved from one changed behind their back. The call without `dry_run` is the go-ahead and seals every file that is not sealed as it is, and marks the seals as begun; a file already matching its seal is left. A dry run lists each file it would take on, `new` (no seal before) or `changed` (it did not match its seal), with the digest it would be sealed with, and writes nothing and records nothing. Nothing to seal is `ok` true with that said. An agent's session is refused by role.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "dry_run",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Change nothing: answer `plan`."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "required": [
+      "ok"
+     ],
+     "properties": {
+      "ok": {
+       "type": "boolean",
+       "description": "Always true: a refusal is an error."
+      },
+      "plan": {
+       "type": "string",
+       "description": "Dry run only: one line per file that would be sealed (its label, why, its digest), or that nothing needs sealing."
+      },
+      "said": {
+       "type": "string",
+       "description": "Without dry_run: one line per file sealed, or that nothing needed sealing."
+      }
+     }
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "inbox.mark_read",
    "summary": "Mark items read; an id that is not yours is not_found.",
    "paramStructure": "by-name",
@@ -4493,62 +4527,6 @@
     }
    ],
    "description": "For the founder, every message of an agent up to the newest id named is read; a decision or a reply owed is never read away, so such an id, and what lies past it, stays unread (refused, gate state, when nothing could be read). For an agent only the head of its own queue can be read, as `hl inbox` does; another id of its own is refused, gate state."
-  },
-  {
-   "name": "inbox.answer",
-   "summary": "Answer a decision item with one of its options or free text.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "id",
-     "required": true,
-     "schema": {
-      "type": "integer"
-     }
-    },
-    {
-     "name": "option",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "text",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "member",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ],
-   "description": "The founder's answer to an item of the mailbox: a decision's, a question's, or a reply to an answer. No item carries options yet, so `option` is bad_request and `text` is the answer. An agent session is refused, gate role."
   },
   {
    "name": "inbox.reply",
@@ -4598,7 +4576,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "A message to whoever sent the item, settling it (`hl say --parent`). An agent replies to its own incoming items; the founder to a mailbox item that is not a decision (a decision is answered, not replied to: refused, gate state)."
+   "description": "A message to whoever sent the item, with the item as its parent link (`hl say --parent`); it settles nothing. An agent replies to its own incoming items; the founder to a mailbox item that is not a decision (a decision is a task, closed with task.done: refused, gate state)."
   },
   {
    "name": "tasks.list",
@@ -4613,6 +4591,14 @@
      }
     },
     {
+     "name": "reporter",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Who the task answers to (Task.asker)."
+     }
+    },
+    {
      "name": "from",
      "required": false,
      "schema": {
@@ -4624,6 +4610,17 @@
      "required": false,
      "schema": {
       "type": "string"
+     }
+    },
+    {
+     "name": "tags",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "Tasks that carry every one of these tags (lowercased first). With the other filters, every one given must hold."
      }
     },
     {
@@ -4765,6 +4762,52 @@
    ]
   },
   {
+   "name": "task.history",
+   "summary": "Every change to a task, newest first: one row per field changed, with who made it, the value before and after, and when. It is read from the events each task write keeps in its own transaction, so it is never edited or deleted; a fix is a later row. A deleted memo's words stay in it. Anyone may edit a task (task.edit); this history is what makes that safe to undo by hand.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "task": {
+       "type": "integer"
+      },
+      "rows": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/HistoryRow"
+       }
+      }
+     },
+     "required": [
+      "task",
+      "rows"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "task.shot",
    "summary": "A screenshot kept with a finished task.",
    "paramStructure": "by-name",
@@ -4885,20 +4928,6 @@
      }
     },
     {
-     "name": "relation",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
-     "name": "response",
-     "required": false,
-     "schema": {
-      "type": "string"
-     }
-    },
-    {
      "name": "parent",
      "required": false,
      "schema": {
@@ -4935,31 +4964,21 @@
      }
     },
     {
+     "name": "tags",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Its tags; each is kept as a history row of the task."
+     }
+    },
+    {
      "name": "expects",
      "required": false,
      "schema": {
       "$ref": "#/components/schemas/Expects"
-     }
-    },
-    {
-     "name": "reply",
-     "required": false,
-     "schema": {
-      "type": "object",
-      "properties": {
-       "message": {
-        "type": "integer"
-       },
-       "text": {
-        "type": "string",
-        "description": "{task} is replaced by the new task's number."
-       }
-      },
-      "required": [
-       "message",
-       "text"
-      ],
-      "description": "Also answer the founder's message with text, where {task} is this task's real number."
      }
     },
     {
@@ -5033,7 +5052,7 @@
     },
     {
      "name": "note",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string",
       "description": "Markdown. It may name images (x-attachments, texts); they are the task's while it is open."
@@ -5147,6 +5166,9 @@
    "x-role": "agent",
    "x-write": true,
    "x-since": 1,
+   "x-gates": [
+    "open_children"
+   ],
    "errors": [
     {
      "$ref": "#/components/errors/refused"
@@ -5577,7 +5599,7 @@
   },
   {
    "name": "task.memo.add",
-   "summary": "Add a memo; anyone may. A memo on a doing task is told to its holder.",
+   "summary": "Add a memo; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. memo.edit and memo.delete are told the same way.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5593,6 +5615,26 @@
      "schema": {
       "type": "string",
       "description": "Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "now",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Tell every reader at once, even mid-turn."
+     }
+    },
+    {
+     "name": "files",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+       "type": "string"
+      },
+      "description": "Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files)."
      }
     },
     {
@@ -5735,6 +5777,114 @@
     {
      "$ref": "#/components/errors/refused"
     },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.view.list",
+   "summary": "The saved views of the task board, by name.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "views": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/TaskView"
+       }
+      }
+     },
+     "required": [
+      "views"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-since": 1,
+   "errors": [],
+   "x-write": false
+  },
+  {
+   "name": "task.view.save",
+   "summary": "Keep a filter of the task board under a name, replacing a view already kept under it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "name",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "One line, 1 to 60 characters."
+     }
+    },
+    {
+     "name": "filter",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/TaskFilter"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.view.delete",
+   "summary": "Delete a saved view.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "name",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
     {
      "$ref": "#/components/errors/not_found"
     },
@@ -5907,7 +6057,7 @@
     },
     {
      "name": "reason",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string"
      }
@@ -6164,14 +6314,6 @@
      }
     },
     {
-     "name": "waits_on",
-     "required": false,
-     "schema": {
-      "type": "string",
-      "description": "Owner only: what the task waits on."
-     }
-    },
-    {
      "name": "priority",
      "required": false,
      "schema": {
@@ -6198,6 +6340,28 @@
      "schema": {
       "type": "integer",
       "description": "A task number this one no longer waits on; clearing the last one lets its owner's current task advance."
+     }
+    },
+    {
+     "name": "add_tags",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Tags to add; one it has already is left as it is. Each change is a history row. Nobody is told of a tag change."
+     }
+    },
+    {
+     "name": "remove_tags",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Tags to remove; one it has not got is left as it is."
      }
     },
     {
@@ -7562,7 +7726,7 @@
   },
   {
    "name": "worktree.diff",
-   "summary": "Read-only git diff run by the daemon.",
+   "summary": "Read-only git diff run by the daemon. Without `file`: the changes to tracked files against HEAD, then a new-file diff of each untracked file that .gitignore does not ignore (at most 200; one too big for what is left of the size cap is listed as `(new file, N bytes: not shown)`, not diffed). With `file`: that file alone, untracked or not.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -7620,6 +7784,165 @@
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "file.read",
+   "summary": "The founder reads a text file in an agent's worktree.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "path",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "text": {
+       "type": "string",
+       "description": "UTF-8 text; the first 1 MiB when the file is longer (truncated)."
+      },
+      "size": {
+       "type": "integer",
+       "minimum": 0,
+       "description": "The file's size in bytes."
+      },
+      "truncated": {
+       "type": "boolean",
+       "description": "The file is over 1 MiB and text is its first 1 MiB. Do not write it back."
+      },
+      "mtime": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "etag": {
+       "type": "string",
+       "description": "SHA-256 of the whole file, hex: file.write takes it back."
+      }
+     },
+     "required": [
+      "text",
+      "size",
+      "truncated",
+      "mtime",
+      "etag"
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ]
+  },
+  {
+   "name": "file.write",
+   "summary": "The founder replaces or creates a .md or .json file in an agent's worktree, if it is still what the etag says.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "path",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise."
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The whole new content: UTF-8 text without NUL, at most 1 MiB; for a .json file, valid JSON."
+     }
+    },
+    {
+     "name": "etag",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The etag file.read gave; empty to create a file that must not exist (its folder must)."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "size": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "mtime": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "etag": {
+       "type": "string",
+       "description": "The new file's etag."
+      }
+     },
+     "required": [
+      "size",
+      "mtime",
+      "etag"
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "x-gates": [
+    "denied",
+    "stale",
+    "too_big"
+   ],
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/refused"
     }
    ]
   },
@@ -7952,6 +8275,21 @@
    ]
   },
   {
+   "name": "connection.get",
+   "summary": "How this process is reached: its listener, the heavy-run slots and dev mode. Read only.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/ConnectionInfo"
+    }
+   },
+   "x-role": "founder",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
    "name": "settings.get",
    "summary": "Timings, terminal host, trust folders, hooks installed.",
    "paramStructure": "by-name",
@@ -8000,7 +8338,7 @@
      "required": false,
      "schema": {
       "$ref": "#/components/schemas/AgentName",
-      "description": "Write the per-agent override of: park_timeout_s, ignore_cache_expiry, bg_notice_s, bg_grace_s, bg_check_s, notice_digest_s. Any other key with `agent` is bad_request."
+      "description": "Write the per-agent override of: park_timeout_s, ignore_cache_expiry, bg_notice_s, bg_grace_s, bg_check_s, notice_digest_s, handoff_prompt. Any other key with `agent` is bad_request."
      }
     },
     {
@@ -8421,7 +8759,7 @@
      "hr",
      "transcript"
     ],
-    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder only, subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section."
    },
    "Caller": {
     "type": "object",
@@ -8525,6 +8863,33 @@
      "task": {
       "type": "integer",
       "description": "With gate duplicate_title: the open task the new one repeats."
+     },
+     "children": {
+      "type": "array",
+      "description": "With gate open_children: the task's open child tasks.",
+      "items": {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        },
+        "state": {
+         "type": "string"
+        },
+        "assignee": {
+         "type": "string"
+        },
+        "title": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "task",
+        "state",
+        "assignee",
+        "title"
+       ]
+      }
      }
     },
     "required": [
@@ -9036,14 +9401,21 @@
          },
          "phase": {
           "type": "string",
-          "enum": ["writing", "starting"],
+          "enum": [
+           "writing",
+           "starting"
+          ],
           "description": "`writing`: the agent writes its handoff note and the daemon takes the record. `starting`: the old session is closed and the new one is launching."
          },
          "since": {
           "$ref": "#/components/schemas/Timestamp"
          }
         },
-        "required": ["cause", "phase", "since"]
+        "required": [
+         "cause",
+         "phase",
+         "since"
+        ]
        },
        {
         "type": "null"
@@ -9086,11 +9458,23 @@
            },
            "branch": {
             "type": "string"
+           },
+           "repo": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ],
+            "description": "owner/repo of the worktree's origin when it is on GitHub (https or ssh), else null."
            }
           },
           "required": [
            "path",
-           "branch"
+           "branch",
+           "repo"
           ]
          },
          {
@@ -9479,14 +9863,6 @@
       "type": "string",
       "description": "draft, queued, doing, reported (its owner's done waits on task.accept or task.reject), done or discarded."
      },
-     "relation": {
-      "type": "string",
-      "description": "e.g. manager."
-     },
-     "response": {
-      "type": "string",
-      "description": "e.g. async."
-     },
      "time_box": {
       "oneOf": [
        {
@@ -9569,6 +9945,13 @@
       ],
       "description": "1 high, 2 default, 3 low (written P1-P3)."
      },
+     "tags": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Its tags, in order."
+     },
      "last_activity": {
       "$ref": "#/components/schemas/Timestamp",
       "description": "The newest of the task's creation, edit, done and discard and of any request linked to it: what a list sorts a person's tasks by. Absent from a daemon that does not send it."
@@ -9635,6 +10018,9 @@
        "properties": {
         "id": {
          "type": "integer"
+        },
+        "ref": {
+         "$ref": "#/components/schemas/RequestRef"
         },
         "from": {
          "type": "string"
@@ -9740,8 +10126,6 @@
      "to",
      "title",
      "state",
-     "relation",
-     "response",
      "time_box",
      "parent",
      "created",
@@ -10195,26 +10579,14 @@
      }
     ]
    },
-   "DecisionOption": {
-    "type": "object",
-    "properties": {
-     "id": {
-      "type": "string"
-     },
-     "label": {
-      "type": "string"
-     }
-    },
-    "required": [
-     "id",
-     "label"
-    ]
-   },
    "InboxItem": {
     "type": "object",
     "properties": {
      "id": {
       "type": "integer"
+     },
+     "ref": {
+      "$ref": "#/components/schemas/RequestRef"
      },
      "kind": {
       "type": "string"
@@ -10261,15 +10633,6 @@
      "read": {
       "type": "boolean"
      },
-     "answered": {
-      "type": "boolean"
-     },
-     "options": {
-      "type": "array",
-      "items": {
-       "$ref": "#/components/schemas/DecisionOption"
-      }
-     },
      "prompt": {
       "oneOf": [
        {
@@ -10291,8 +10654,6 @@
      "task",
      "created",
      "read",
-     "answered",
-     "options",
      "prompt"
     ]
    },
@@ -11594,8 +11955,9 @@
      },
      "role": {
       "type": "string",
+      "description": "A paired device is the founder.",
       "enum": [
-       "member"
+       "founder"
       ]
      },
      "created": {
@@ -11806,6 +12168,13 @@
        ]
       },
       "description": "`text` cut at the images it names, as TaskDetail.body_parts; present only when it names one."
+     },
+     "files": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/MemoFile"
+      },
+      "description": "The files the memo carries, in the order they were given; present only when it carries one."
      }
     },
     "required": [
@@ -11878,9 +12247,6 @@
      "queued",
      "typed",
      "delivered",
-     "delivered_unanswered",
-     "answered",
-     "dismissed",
      "withdrawn"
     ],
     "description": "Landing state of a message; open set."
@@ -11891,6 +12257,9 @@
      "id": {
       "type": "integer",
       "description": "Request id."
+     },
+     "ref": {
+      "$ref": "#/components/schemas/RequestRef"
      },
      "at": {
       "$ref": "#/components/schemas/Timestamp"
@@ -11924,35 +12293,6 @@
      },
      "body": {
       "type": "string"
-     },
-     "answer": {
-      "oneOf": [
-       {
-        "type": "object",
-        "properties": {
-         "id": {
-          "type": "integer"
-         },
-         "text": {
-          "type": "string"
-         },
-         "at": {
-          "$ref": "#/components/schemas/Timestamp"
-         }
-        },
-        "required": [
-         "id",
-         "text",
-         "at"
-        ]
-       },
-       {
-        "type": "null"
-       }
-      ]
-     },
-     "dismissed": {
-      "type": "boolean"
      },
      "delivered_at": {
       "oneOf": [
@@ -12014,9 +12354,6 @@
         "title"
        ]
       }
-     },
-     "is_task_question": {
-      "type": "boolean"
      },
      "agent": {
       "type": "string",
@@ -12095,15 +12432,12 @@
      "landing",
      "sending_reason",
      "body",
-     "answer",
-     "dismissed",
      "delivered_at",
      "typed_at",
      "landed_at",
      "parent",
      "kind",
-     "tasks",
-     "is_task_question"
+     "tasks"
     ],
     "description": "One request between the person and an agent."
    },
@@ -12421,12 +12755,6 @@
       "type": "string",
       "description": "rename: the new name; link, unlink: the other end."
      },
-     "response": {
-      "type": "string"
-     },
-     "relation": {
-      "type": "string"
-     },
      "members": {
       "type": "array",
       "items": {
@@ -12447,6 +12775,14 @@
        "type": "string"
       },
       "description": "settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` or `base.md`; empty text or control characters other than tab and newline is bad_request."
+     },
+     "changes": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "description": "A step: kind (add, retire, rename, link, unlink, team, context) and the other fields of this type, name included."
+      },
+      "description": "bundle: the steps, at most 40, each judged against the roster the earlier ones leave. name is then ignored (send the count, `3 changes`)."
      }
     }
    },
@@ -12613,8 +12949,8 @@
      "notice_digest_s": {
       "type": "integer",
       "minimum": 1,
-      "default": 900,
-      "description": "Seconds after the first waiting result before the agent is woken once with a digest. Per agent."
+      "default": 300,
+      "description": "Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent."
      },
      "stop_wait_backstop_s": {
       "type": "integer",
@@ -12636,6 +12972,31 @@
       "minimum": 1,
       "default": 600,
       "description": "NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice)."
+     },
+     "handoff_prompt": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent."
+     },
+     "push_prompt_asked": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
+     },
+     "push_task_done": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
+     },
+     "push_stall": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
+     },
+     "push_account_out": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
      }
     },
     "description": "Every global setting by its config.yaml name, with its default; every one is the founder's to set. Per-account keys (label, cap, usage recovery, cycle) are account.set; per-agent keys are agent.set and schedule.*; a key marked Per agent also takes `agent` in settings.set."
@@ -12758,7 +13119,7 @@
         "type": "null"
        }
       ],
-      "description": "Seconds after the first waiting result before the agent is woken once with a digest. Per agent. null removes the key (back to the default)."
+      "description": "Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. null removes the key (back to the default)."
      },
      "stop_wait_backstop_s": {
       "oneOf": [
@@ -12798,6 +13159,62 @@
        }
       ],
       "description": "NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). null removes the key (back to the default)."
+     },
+     "handoff_prompt": {
+      "oneOf": [
+       {
+        "type": "string",
+        "maxLength": 4000
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. An empty string is the built-in prompt; null removes the key (back to the default)."
+     },
+     "push_prompt_asked": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
+     },
+     "push_task_done": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
+     },
+     "push_stall": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
+     },
+     "push_account_out": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
      }
     },
     "description": "settings.set's changes: any of SettingsValues' keys; null removes one."
@@ -13149,43 +13566,6 @@
       "$ref": "#/components/schemas/ChatMessage",
       "description": "request only."
      },
-     "dismissal": {
-      "oneOf": [
-       {
-        "type": "object",
-        "properties": {
-         "by": {
-          "oneOf": [
-           {
-            "type": "string"
-           },
-           {
-            "type": "null"
-           }
-          ]
-         },
-         "reason": {
-          "oneOf": [
-           {
-            "type": "string"
-           },
-           {
-            "type": "null"
-           }
-          ]
-         }
-        },
-        "required": [
-         "by",
-         "reason"
-        ],
-        "description": "request only: who dismissed it and why, when it was dismissed."
-       },
-       {
-        "type": "null"
-       }
-      ]
-     },
      "task_state": {
       "oneOf": [
        {
@@ -13227,6 +13607,17 @@
         "type": "null"
        }
       ]
+     },
+     "request_ref": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/RequestRef"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "task_event only: the ref of the delivery in request."
      },
      "cause": {
       "type": "string",
@@ -14070,6 +14461,284 @@
      "image",
      "caption"
     ]
+   },
+   "MemoFile": {
+    "type": "object",
+    "description": "A file a memo carries (task.memo.add files): an image or a Markdown text, kept on the daemon's machine like an attached image and read with attachment.get by its id.",
+    "properties": {
+     "id": {
+      "$ref": "#/components/schemas/AttachmentId"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "image",
+       "markdown"
+      ]
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "The file's name as its writer gave it, with no folder. Shown to the person; never used as a path."
+     },
+     "mime": {
+      "type": "string",
+      "enum": [
+       "image/png",
+       "image/jpeg",
+       "image/gif",
+       "image/webp",
+       "text/markdown"
+      ]
+     },
+     "bytes": {
+      "type": "integer"
+     },
+     "path": {
+      "type": "string",
+      "description": "Where the daemon keeps it; only in an agent's reads, which read it with their own file tool."
+     },
+     "gone": {
+      "type": "boolean",
+      "description": "True when it is no longer kept: attachment.get then answers not_found."
+     }
+    },
+    "required": [
+     "id",
+     "kind",
+     "name",
+     "mime",
+     "bytes"
+    ]
+   },
+   "HistoryRow": {
+    "type": "object",
+    "description": "One change to a task: who changed which field from what to what, and when. A field's change is one row; an edit of several fields is several rows with the same at.",
+    "properties": {
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "by": {
+      "type": "string",
+      "description": "Who made the change: an agent, or human."
+     },
+     "field": {
+      "type": "string",
+      "enum": [
+       "title",
+       "assignee",
+       "owner",
+       "body",
+       "priority",
+       "timeout",
+       "state",
+       "tag",
+       "blocked_by",
+       "merged_into",
+       "memo"
+      ],
+      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty)."
+     },
+     "was": {
+      "type": "string",
+      "description": "The value before; empty when there was none (a task just opened, a wait just added, a memo just added)."
+     },
+     "now": {
+      "type": "string",
+      "description": "The value after; empty when it is gone (a wait removed, a memo deleted)."
+     },
+     "note": {
+      "type": "string",
+      "description": "With a state row: the done evidence, the report, or the reason or note given. Absent when none was."
+     },
+     "memo": {
+      "type": "integer",
+      "description": "With a memo row: the memo's id."
+     }
+    },
+    "required": [
+     "at",
+     "by",
+     "field",
+     "was",
+     "now"
+    ]
+   },
+   "RequestRef": {
+    "type": "string",
+    "description": "The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else."
+   },
+   "ConnectionInfo": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "served_by": {
+      "type": "string",
+      "enum": [
+       "daemon",
+       "gateway"
+      ],
+      "description": "Which process answered. A daemon behind a gateway has no listener of its own; ask the gateway's local socket for the gateway's."
+     },
+     "listener": {
+      "oneOf": [
+       {
+        "type": "null"
+       },
+       {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+         "address": {
+          "type": "string",
+          "description": "The host:port a pairing names (-advertise, else where the listener binds)."
+         },
+         "encryption": {
+          "type": "string",
+          "enum": [
+           "tls",
+           "none"
+          ],
+          "description": "none is Tailscale mode: plain ws on a Tailscale or loopback address."
+         },
+         "fingerprint": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "description": "sha256 of the certificate presented; null in Tailscale mode."
+         },
+         "tailscale_host": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "description": "The address's host when it is a *.ts.net name, else null."
+         }
+        },
+        "required": [
+         "address",
+         "encryption",
+         "fingerprint",
+         "tailscale_host"
+        ]
+       }
+      ],
+      "description": "The network listener of this process; null when it has none."
+     },
+     "heavy_slots": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+       "slots": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "HANDLINE_HEAVY_SLOTS as this process sees it, default 1."
+       },
+       "dir": {
+        "oneOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "description": "Where the slot locks are kept: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots."
+       }
+      },
+      "required": [
+       "slots",
+       "dir"
+      ]
+     },
+     "dev_mode": {
+      "type": "boolean",
+      "description": "SettingsValues.dev_mode."
+     }
+    },
+    "required": [
+     "served_by",
+     "listener",
+     "heavy_slots",
+     "dev_mode"
+    ],
+    "description": "How this process is reached, read only."
+   },
+   "Tag": {
+    "type": "string",
+    "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$",
+    "description": "A free label on a task, such as fe or be: lowercase letters, digits, '.', '_' or '-', up to 32. A writer lowercases what it is given; a task carries at most 20."
+   },
+   "TaskFilter": {
+    "type": "object",
+    "description": "What tasks.list narrows to: every key given must hold (AND). It is tasks.list's own params, so a saved view's filter is passed to tasks.list as it is.",
+    "properties": {
+     "tags": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Tasks that carry every one of these tags."
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "draft",
+       "queued",
+       "doing",
+       "reported",
+       "done",
+       "discarded"
+      ]
+     },
+     "owner": {
+      "type": "string",
+      "description": "Who works the task (its assignee)."
+     },
+     "reporter": {
+      "type": "string",
+      "description": "Who the task answers to (its asker: hl's --owner)."
+     },
+     "from": {
+      "type": "string",
+      "description": "Who opened it."
+     }
+    },
+    "additionalProperties": false
+   },
+   "TaskView": {
+    "type": "object",
+    "description": "A saved view: a filter kept under a name, so it is picked, not typed again. One set for the founder's devices.",
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "filter": {
+      "$ref": "#/components/schemas/TaskFilter"
+     },
+     "by": {
+      "type": "string",
+      "description": "Who saved it last."
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     }
+    },
+    "required": [
+     "name",
+     "filter",
+     "by",
+     "at"
+    ]
    }
   },
   "errors": {
@@ -14145,6 +14814,7 @@
   "limits": "Types: PNG, JPEG, GIF, WebP, checked by the file's first bytes, not by the mime the client says (a mismatch is bad_request, field data). SVG and everything else is refused. At most 10 MiB per image and 6 per message; chunks of at most 512 KiB of file (a 700 KiB base64 string) so a frame stays under the 1 MiB line. More than 20 unsent uploads open at once, or more than 100 MiB unsent, is refused, gate limit.",
   "storage": "The daemon's attachments folder under its home (mode 0700; files 0600, owner the daemon's user), one file per image named by its id and the extension of its type: the name the client gave is never part of the path. An upload not finished within 1 hour is dropped with its partial file; a finished image no message names is dropped after 24 hours; one a message names is kept 30 days after the last message naming it, and one a task names as texts says; then it is removed: attachment.get for it is not_found and the client shows the name without the picture.",
   "reach": "The daemon makes the folder readable by the agent without a prompt (a session setting that allows reads of that folder), so an agent in any worktree can Read the path. A client never sees the path.",
-  "roles": "member and founder may put and get, and name any kept image in a text; an agent may not put or get (refused, gate role) in v1, and names only an image a task's text or a message already names or was sent with (else refused, gate role), so it can pass on a picture it was shown."
+  "roles": "member and founder may put and get, and name any kept image in a text; an agent may not put or get (refused, gate role) in v1, and names only an image a task's text or a message already names or was sent with (else refused, gate role), so it can pass on a picture it was shown.",
+  "memo-files": "task.memo.add may also carry files by path (files): images and Markdown, read by the daemon, kept in the same store and linked to the memo, never named in its text. task.get and task.memo.list list them in Memo.files, each read with attachment.get (a Markdown file is served whole, never as a thumbnail). A memo's files are kept like the images its task names: while the task is open, then 30 days after it ends; deleting the memo unlinks them, and they go 30 days after the memo was added. An agent told of the memo reads one line per file after its text: `[file N: /absolute/path.md (text/markdown, 2 KB)]`."
  }
 }

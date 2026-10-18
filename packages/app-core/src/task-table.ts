@@ -1,6 +1,7 @@
 // What the Tasks page draws, decided without a screen: which rows pass the filters, in what order, as a list or as a tree, and the
 // idle and timeout words of a row. The columns and the default states follow the bridge's tasks_view.py (`HEADS`, `LISTED`).
 import type { Task } from '@handline/client';
+import { isPerson } from './chat.ts';
 
 export const TASK_STATES = ['pending', 'draft', 'queued', 'doing', 'blocked', 'reported', 'done', 'discarded'] as const;
 /** What a list shows when it opens: done and discarded are out of the way until asked for. */
@@ -52,6 +53,19 @@ export function timeoutText(t: Task, now: number): string {
   if (t.state !== 'doing' || !t.delivered) return t.time_box ?? '';
   const left = box - (now - Date.parse(t.delivered));
   return left >= 0 ? `${span(left)} left` : `over by ${span(-left)}`;
+}
+
+/** The detail's time box as one meaning: time left ("2h10m left of 4h"), "over by 1h", "paused: <why>", or the box before it runs. */
+export function timeBoxText(t: Pick<Task, 'state' | 'time_box' | 'time' | 'waiting'>, now: number): string {
+  const clock = t.time;
+  const box = t.time_box || (clock?.length_s ? span(clock.length_s * 1000) : ''); // the box as last written: the clock's length lags an edit
+  if (CLOSED.includes(t.state)) return box;
+  if (clock?.end) {
+    const left = Date.parse(clock.end) - now;
+    return left >= 0 ? `${span(left)} left${box ? ` of ${box}` : ''}` : `over by ${span(-left)}`;
+  }
+  if (clock && clock.left_s != null) return `paused: ${t.waiting?.text ?? 'not running'}`;
+  return box;
 }
 
 export const isOver = (t: Task, now: number): boolean => timeoutText(t, now).startsWith('over');
@@ -129,3 +143,56 @@ export function taskTree(rows: readonly Task[], all: readonly Task[]): TreeRow[]
 
 /** The agents named on any task, for the agent filter. */
 export const taskAgents = (tasks: readonly Task[]): string[] => [...new Set(tasks.flatMap((t) => [t.to, t.from]))].sort();
+
+export type TaskGroupKey = 'needs' | 'running' | 'queued' | 'done';
+export const TASK_GROUPS: readonly { key: TaskGroupKey; label: string }[] = [
+  { key: 'needs', label: 'Needs you' },
+  { key: 'running', label: 'Running' },
+  { key: 'queued', label: 'Queued' },
+  { key: 'done', label: 'Done' },
+];
+
+/** The group a task sits in: what waits on the person, what runs, what waits its turn, what is closed. */
+export function taskGroup(t: Task, me: string): TaskGroupKey {
+  if (CLOSED.includes(t.state)) return 'done';
+  if (isPerson(t.to, me) || (t.state === 'reported' && isPerson(t.from, me))) return 'needs';
+  return t.state === 'doing' ? 'running' : 'queued';
+}
+
+/** The rows in their order, split into the groups that have any; each group keeps the order of `rows`. */
+export function groupTasks(rows: readonly Task[], me: string): { key: TaskGroupKey; label: string; rows: Task[] }[] {
+  return TASK_GROUPS.map((g) => ({ ...g, rows: rows.filter((t) => taskGroup(t, me) === g.key) })).filter((g) => g.rows.length);
+}
+
+export type TaskBand = 'done' | 'running' | 'queued';
+export const TASK_BANDS: readonly { key: TaskBand; label: string }[] = [
+  { key: 'done', label: 'Done' },
+  { key: 'running', label: 'Running' },
+  { key: 'queued', label: 'Queued' },
+];
+const DAY = 86_400_000;
+
+/** The band a task's box sits in on the graph: it moves down or up when the task's state changes. */
+export const taskBand = (t: Task): TaskBand => (CLOSED.includes(t.state) ? 'done' : t.state === 'doing' ? 'running' : 'queued');
+
+/**
+ * The graph's bands, top to bottom, the empty ones left out. Done holds what closed in the last 24 h (newest first), or every closed
+ * task when `recent` is false; the others keep the order of `tasks`.
+ */
+export function graphBands(tasks: readonly Task[], now: number, recent = true): { key: TaskBand; label: string; tasks: Task[] }[] {
+  const closedAt = (t: Task) => Date.parse(t.done ?? t.created);
+  return TASK_BANDS.map((b) => ({
+    ...b,
+    tasks:
+      b.key === 'done'
+        ? tasks.filter((t) => taskBand(t) === 'done' && (!recent || now - closedAt(t) <= DAY)).sort((x, y) => closedAt(y) - closedAt(x))
+        : tasks.filter((t) => taskBand(t) === b.key),
+  })).filter((b) => b.tasks.length);
+}
+
+/** When a closed task closed, in the words the Closed list groups by: today, yesterday, within a week, earlier. */
+export function doneBucket(t: Task, now: number): 'Today' | 'Yesterday' | 'This week' | 'Earlier' {
+  const day = (ms: number) => new Date(ms).setHours(0, 0, 0, 0);
+  const ago = Math.round((day(now) - day(Date.parse(t.done ?? t.created))) / DAY);
+  return ago <= 0 ? 'Today' : ago === 1 ? 'Yesterday' : ago < 7 ? 'This week' : 'Earlier';
+}

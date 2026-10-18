@@ -4,12 +4,12 @@ import { DAEMON_KEYS, NAMED_KEYS } from './keys.ts';
 
 export type Dot = 'running' | 'waking' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'none';
 
-/** The rail dot: the daemon's state word plus its block kinds. Unknown words read as idle. */
-export function dotOf(a: Pick<AgentView, 'state' | 'has_dialog' | 'block'>): Dot {
+/** The rail dot: the daemon's state word plus its block kinds and a handoff that is starting a new session. Unknown words read as idle. */
+export function dotOf(a: Pick<AgentView, 'state' | 'has_dialog' | 'block' | 'handoff'>): Dot {
   if (a.has_dialog || a.state === 'waiting') return 'waiting';
   if (a.block || a.state === 'stalled' || a.state === 'blocked') return 'blocked';
   if (a.state === 'no_terminal') return 'none';
-  if (a.state === 'queued') return 'waking';
+  if (a.state === 'queued' || a.handoff?.phase === 'starting') return 'waking'; // a restarting agent is coming back, whatever state word it carries
   if (a.state === 'parked') return 'parked';
   if (a.state === 'running') return 'running';
   return 'idle';
@@ -34,13 +34,14 @@ export function teamOf(name: string, names: readonly string[]): string {
 export const shortName = (name: string, team: string): string => (name.startsWith(`${team}.`) ? name.slice(team.length + 1) : name);
 
 /** What a row shows of the name in the tree: under a parent only the last segment (`handline.pc.auditor` is `auditor`), at the top the team-relative name. */
-export const rowName = (name: string, depth: number, team: string): string => (depth > 0 ? name.slice(name.lastIndexOf('.') + 1) : shortName(name, team));
+export const rowName = (name: string, depth: number, team: string): string =>
+  depth > 0 ? name.slice(name.lastIndexOf('.') + 1) : shortName(name, team);
 
-/** The agent list as one list: waiting ones sort up, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off (a hidden parent still shows while a child does). */
+/** The agent list as one list: waiting ones sort up, an agent that is restarting stays whatever the filter says, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off (a hidden parent still shows while a child does). */
 export function railRows(agents: AgentView[], opts: { hidden?: ReadonlySet<Dot>; search?: string } = {}): RailRow[] {
   const q = (opts.search ?? '').trim().toLowerCase();
   const found = (a: AgentView) => !q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q);
-  const match = agents.filter((a) => !opts.hidden?.has(dotOf(a)) && found(a));
+  const match = agents.filter((a) => (!opts.hidden?.has(dotOf(a)) || !!a.handoff) && found(a));
   // Keep the parents a dot filter hides while a child shows, so the children do not float to the top level.
   const byName = new Map(agents.map((a) => [a.name, a]));
   const names = new Set(match.map((a) => a.name));

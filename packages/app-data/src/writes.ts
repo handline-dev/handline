@@ -22,7 +22,7 @@ const listOf =
 
 const taskKeys = (d: string, p: never) => {
   const { task, tasks } = as<{ task?: number; tasks?: number[] }>(p);
-  return [qk.tasks(d), ...[...(task === undefined ? [] : [task]), ...(tasks ?? [])].map((t) => qk.task(d, t))];
+  return [qk.tasks(d), ...[...(task === undefined ? [] : [task]), ...(tasks ?? [])].flatMap((t) => [qk.task(d, t), qk.taskHistory(d, t)])];
 };
 const changeTasks = (c: Ctx, ids: number[], f: (t: Task) => Task | undefined) => {
   const one = (t: Task) => (ids.includes(t.id) ? (f(t) ?? t) : t);
@@ -50,15 +50,13 @@ function renumber<T extends { id: number }>(rows: T[], provisional: (r: T) => bo
 }
 
 const newTask = (c: Ctx, p: never): Task => {
-  const v = as<{ owner: string; title: string; time_box?: string; relation?: string; parent?: number }>(p);
+  const v = as<{ owner: string; title: string; time_box?: string; parent?: number }>(p);
   return {
     id: provisionalId(),
     from: c.me,
     to: v.owner,
     title: v.title,
     state: 'pending',
-    relation: v.relation ?? 'manager',
-    response: 'async', // still required by the contract; goes with it
     time_box: v.time_box ?? null,
     parent: v.parent ?? null,
     created: c.now,
@@ -70,10 +68,14 @@ const newTask = (c: Ctx, p: never): Task => {
   };
 };
 
-// A task's memos live in the memo list and in the task's detail; a memo write changes both.
-const memoKeys = (d: string, p: never) => [qk.memos(d, as<{ task: number }>(p).task), qk.task(d, as<{ task: number }>(p).task)];
+// A task's memos live in the memo list and in the task's detail; a memo write changes both, and adds a row to its history.
+const memoLists = (d: string, task: number) => [qk.memos(d, task), qk.task(d, task)];
+const memoKeys = (d: string, p: never) => {
+  const { task } = as<{ task: number }>(p);
+  return [...memoLists(d, task), qk.taskHistory(d, task)];
+};
 const changeMemos = (c: Ctx, task: number, f: (l: Memo[]) => Memo[]) => {
-  for (const key of memoKeys(c.d, { task } as never)) edit<List<'memos', Memo>>(c.qc, key, listOf('memos', f));
+  for (const key of memoLists(c.d, task)) edit<List<'memos', Memo>>(c.qc, key, listOf('memos', f));
 };
 
 const tasks: Record<string, WriteSpec> = {
@@ -155,6 +157,9 @@ const tasks: Record<string, WriteSpec> = {
       changeMemos(c, task, (l) => l.filter((m) => m.id !== memo));
     },
   },
+  'file.write': decided('save file'), // the page keeps the new etag from the reply
+  'task.view.save': { kind: 'decided', label: 'save view', touches: (d) => [qk.taskViews(d)] },
+  'task.view.delete': { kind: 'decided', label: 'delete view', touches: (d) => [qk.taskViews(d)] },
 };
 
 // ---- inbox, settings, accounts, schedules, standing answers ----
@@ -370,9 +375,6 @@ export const PAIRING = ['device.redeem'] as const;
 
 /** Agent commands: an agent sends these, the UI never does. Guard test 2 reads this list. */
 export const NOT_FROM_UI = [
-  // No screen sends these any more; they leave the contract with the answer model.
-  'chat.dismiss',
-  'inbox.answer',
   'session.wake', // a message to a closed agent starts it; no screen wakes one by hand
   'say',
   'hook.record',
@@ -385,4 +387,5 @@ export const NOT_FROM_UI = [
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',
+  'team.seal', // `hl team seal`; no screen yet
 ] as const;

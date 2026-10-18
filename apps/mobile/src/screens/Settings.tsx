@@ -6,9 +6,11 @@ import { INVALID, minutesOf, parseCap, parseMinutes } from '@handline/app-core';
 import type { CallParams, SettingsChanges } from '@handline/client';
 import { classify, sentence, useAnswers, useServes, useSettings, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
+import { useSelector } from '@handline/app-react';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
-import { Button } from './parts.tsx';
+import { AppUpdate } from './AppUpdate.tsx';
+import { Button, PageHeader } from './parts.tsx';
 import { useWhyNot } from './TaskActions.tsx';
 
 function Note(props: { error: unknown; pending: boolean; bad?: string | null; testID: string }) {
@@ -244,13 +246,47 @@ function Answers() {
   );
 }
 
-export function Settings() {
+/** Where this phone and, later, other devices (a cluster, remote access) are paired. */
+function Devices(props: { onUnpair: () => void }) {
+  const c = usePalette();
+  return (
+    <View testID="devices" style={{ gap: space.sm }}>
+      <Text style={{ color: c.ink, fontWeight: '700' }}>Devices</Text>
+      <Text style={{ color: c.muted }}>This phone</Text>
+      <Button testID="unpair" label="Unpair this phone" onPress={props.onUnpair} style={{ alignSelf: 'flex-start' }} />
+    </View>
+  );
+}
+
+/** The Agents header's menu opens this: the founder's defaults, then the devices. */
+export function SettingsPage(props: { onClose: () => void; onUnpair: () => void }) {
+  const c = usePalette();
+  const founder = useSelector((st) => st.client.hello?.role) === 'founder'; // the settings and standing answers are the founder's alone
+  return (
+    <View style={{ flex: 1 }}>
+      <PageHeader title="Settings" back={{ label: 'Agents', onPress: props.onClose, testID: 'settings-close' }} />
+      {founder ? (
+        <Settings footer={<Devices onUnpair={props.onUnpair} />} />
+      ) : (
+        <ScrollView contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.xl }}>
+          <Text testID="settings-founder-only" style={{ color: c.muted }}>
+            Only the founder changes settings.
+          </Text>
+          <Devices onUnpair={props.onUnpair} />
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+function Settings(props: { footer: React.ReactNode }) {
   const c = usePalette();
   const query = useSettings();
   const { served } = useServes('settings.get');
   const v = query.data?.values;
   return (
     <ScrollView testID="settings-page" contentContainerStyle={{ padding: space.lg, paddingTop: 0, gap: space.xl }}>
+      <AppUpdate />
       <Text style={{ color: c.muted }}>Defaults for every agent. Each change saves as you make it.</Text>
       <Loadable query={query} served={served} skeleton="settings" label="settings" empty="No settings to show.">
         {v ? (
@@ -300,6 +336,7 @@ export function Settings() {
         ) : null}
       </Loadable>
       <Answers />
+      {props.footer}
     </ScrollView>
   );
 }

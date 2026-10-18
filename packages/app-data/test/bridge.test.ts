@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Event as WireEvent } from '@handline/client';
-import { applyEvent, createBridge, qk, resync, type Ctx } from '../src/index.ts';
+import { applyEvent, createBridge, qk, resync, writes, type Ctx } from '../src/index.ts';
 
 const D = 'd1';
 let qc: QueryClient;
@@ -75,6 +75,26 @@ describe('tasks and inbox', () => {
     expect(ids(open)).toEqual([12, 9]);
     for (const k of [open, all, doing]) expect(stale(k)).toBe(false);
   });
+  it("task.changed reads that task's history again, and only that task's", () => {
+    qc.setQueryData(qk.taskHistory(D, 7), { task: 7, rows: [] });
+    qc.setQueryData(qk.taskHistory(D, 8), { task: 8, rows: [] });
+    applyEvent(c, ev('task.changed', task(7, 'doing'), { topic: 'tasks' }));
+    expect(stale(qk.taskHistory(D, 7))).toBe(true);
+    expect(stale(qk.taskHistory(D, 8))).toBe(false);
+  });
+  it("a task or memo write reads the task's history again once it settles", () => {
+    const touched = (method: string, p: object) => writes[method]!.touches!(D, p as never).map((k) => JSON.stringify(k));
+    const history = JSON.stringify(qk.taskHistory(D, 7));
+    for (const [method, p] of [
+      ['task.edit', { task: 7, title: 'x' }],
+      ['task.done', { task: 7 }],
+      ['task.queue', { tasks: [7] }],
+      ['task.memo.add', { task: 7, text: 'x' }],
+      ['task.memo.edit', { task: 7, memo: 1, text: 'x' }],
+      ['task.memo.delete', { task: 7, memo: 1 }],
+    ] as const)
+      expect(touched(method, p), method).toContain(history);
+  });
   it('task.changed leaves a full page alone for a task that belongs on the next one, and reads a list it cannot judge', () => {
     const page = [...qk.tasks(D), { limit: 2 }];
     const under = [...qk.tasks(D), { under: 4 }];
@@ -92,6 +112,11 @@ describe('tasks and inbox', () => {
     expect(qc.getQueryData<{ items: { id: number }[] }>(qk.inbox(D))!.items.map((i) => i.id)).toEqual([2, 1]);
     expect(stale(qk.inbox(D, { unread: true }))).toBe(true);
     expect(stale(qk.inbox(D))).toBe(false);
+  });
+  it('an inbox event reads the agent list again, for founder_unread', () => {
+    qc.setQueryData(qk.agents(D), { agents: [] });
+    applyEvent(c, ev('inbox.changed', item(1), { topic: 'inbox' }));
+    expect(stale(qk.agents(D))).toBe(true);
   });
   it('inbox.changed replaces the item in place', () => {
     qc.setQueryData(qk.inbox(D), { items: [item(1), item(2)], more: false });

@@ -6,10 +6,12 @@ async function open(prepare: Parameters<typeof mount>[0] = () => {}) {
   const m = await mount(prepare, undefined, 'founder');
   await until(() => $(`agent-${ARCH}`), 'the rows');
   await press($(`agent-${ARCH}`));
+  await until(() => $('verbs-open'), 'the page');
+  await press($('verbs-open')); // the strip is in the ⋯ menu
   return m;
 }
 
-describe('the strip under the agent header', () => {
+describe('the strip in the agent page menu', () => {
   it('shows model, account, context percent and the cache time left', async () => {
     const m = await open();
     await until(() => $('agent-strip'), 'the strip');

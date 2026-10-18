@@ -23,8 +23,8 @@ func TestHandoffMovesTheTaskToItsNewOwnerWithOneRequestAndRetiresTheOldOnes(t *t
 		t.Fatalf("only the owner hands it on: %v", r[0])
 	}
 	r = call(t, mk("worker", f),
-		line(2, 1, "nobody", "x", "w1"), line(3, 1, "worker", "x", "w2"), line(4, 1, "other", "  ", "w3"), line(5, 9, "other", "x", "w4"))
-	if code(r[0]) != "not_found" || code(r[1]) != "refused" || code(r[2]) != "bad_request" || code(r[3]) != "not_found" {
+		line(2, 1, "nobody", "x", "w1"), line(3, 1, "worker", "x", "w2"), line(4, 9, "other", "x", "w4"))
+	if code(r[0]) != "not_found" || code(r[1]) != "refused" || code(r[2]) != "not_found" {
 		t.Fatalf("%v", r)
 	}
 	if len(f.handed) != 0 || count(t, db, "SELECT COUNT(*) FROM requests") != 1 {
@@ -63,5 +63,22 @@ func TestHandoffMovesTheTaskToItsNewOwnerWithOneRequestAndRetiresTheOldOnes(t *t
 	r = call(t, mk("other", f), line(2, 1, "worker", "back", "d1"))
 	if code(r[0]) != "refused" || count(t, db, "SELECT COUNT(*) FROM requests WHERE state = 'denied'") != 1 || count(t, db, "SELECT COUNT(*) FROM tasks WHERE id = 1 AND owner = 'other'") != 1 {
 		t.Fatalf("a denied ask leaves its denial row and the task where it was: %v", r[0])
+	}
+
+	f = &fakeTeller{}
+	r = call(t, mk("other", f), line(2, 1, "worker", "", "e1"))
+	if _, ok := r[0]["result"]; !ok || len(f.handed) != 1 || count(t, db, "SELECT COUNT(*) FROM events WHERE kind = 'task_handoff' AND json_extract(payload, '$.note') = ''") != 1 {
+		t.Fatalf("a handoff needs no note: %v", r[0])
+	}
+}
+
+func TestHandoffRefusesANoteThatIsNotText(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, sent_at) VALUES(1, 'build', 'worker', 'manager', 1, 1)",
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('worker', 'IDLE', 1, 1)")
+	r := call(t, mk("worker", &fakeTeller{}), `{"jsonrpc":"2.0","id":2,"method":"task.handoff","params":{"task":1,"to":"manager","note":7,"request_id":"h1"}}`)
+	if e := errText(r[0]); e != "note is text" {
+		t.Fatalf("%v", r[0])
 	}
 }

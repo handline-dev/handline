@@ -34,15 +34,12 @@ const msg = (id: number, over: object = {}) => ({
   landing: 'queued',
   sending_reason: null,
   body: `m${id}`,
-  answer: null,
-  dismissed: false,
   delivered_at: null,
   typed_at: null,
   landed_at: null,
   parent: null,
   kind: 'message',
   tasks: [],
-  is_task_question: false,
   ...over,
 });
 const chatSeed: [Key, unknown][] = [
@@ -55,8 +52,6 @@ const task = (id: number, state: string) => ({
   to: 'a',
   title: `t${id}`,
   state,
-  relation: 'manager',
-  response: 'async',
   time_box: null,
   parent: null,
   created: 't',
@@ -384,7 +379,7 @@ describe('chat send, against the fake daemon', () => {
     act(() => v.get().act.send('race'));
     await until(() => mine(v.get().chat, 'race').length === 1 && mine(v.get().chat, 'race')[0]!.id > 0, 'one real row');
     daemon.settle();
-    await until(() => mine(v.get().chat, 'race')[0]!.state === 'answered', 'the later events');
+    await until(() => mine(v.get().chat, 'race')[0]!.state === 'delivered', 'the later events');
     expect(mine(v.get().chat, 'race')).toHaveLength(1);
   });
 });

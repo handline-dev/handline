@@ -19,6 +19,7 @@ type fakeDelivery struct {
 	gone       bool
 	waitingMsg string
 	tookPrompt bool
+	told       []string // the session each waiting message was recorded as told to
 }
 
 func (f *fakeDelivery) BgHolds(db.Q, string, int64) (bool, error)       { return false, nil }
@@ -39,7 +40,7 @@ func (f *fakeDelivery) SessionStillDrawn(string, bool) bool          { return fa
 func (f *fakeDelivery) PastDialog(db.Q, string) (string, error)      { return "", nil }
 func (f *fakeDelivery) EnforceEdges(db.Q, string) (bool, error)      { return true, nil }
 func (f *fakeDelivery) WaitingPrompt(db.Q, string) (string, func(string) error, bool, error) {
-	return f.waitingMsg, func(string) error { return nil }, f.waitingMsg != "", nil
+	return f.waitingMsg, func(s string) error { f.told = append(f.told, s); return nil }, f.waitingMsg != "", nil
 }
 func (f *fakeDelivery) WaitForSession(string, int, string) bool { return f.tookPrompt }
 
@@ -72,6 +73,7 @@ func (f *fakeTerm) ResumeWith(_, p string) (bool, string) {
 }
 func (*fakeTerm) Available() bool                       { return true }
 func (*fakeTerm) WaitIdle(string) bool                  { return true }
+func (*fakeTerm) WaitDrawn(string) bool                 { return true }
 func (*fakeTerm) ScreenBlocker(string) *term.Blocker    { return nil }
 func (*fakeTerm) BackgroundWork(string) (string, bool)  { return "", true }
 func (*fakeTerm) CloseSession(string) (bool, string)    { return true, "" }
@@ -104,11 +106,13 @@ func (fakeLaunch) CommandFor(agent, _, why, _ string) (string, error) {
 type fakeSpawn struct {
 	Spawner
 	startedIn, spawned []string
+	trusted            []string
 	ok                 bool
 	err                error
 }
 
 func (*fakeSpawn) WorktreePath(w string) string { return w }
+func (f *fakeSpawn) Trust(agent, wt string)     { f.trusted = append(f.trusted, agent+"@"+wt) }
 func (f *fakeSpawn) StartIn(agent, wt, _ string) (bool, string, error) {
 	f.startedIn = append(f.startedIn, agent+"@"+wt)
 	return f.ok, "start-in said", f.err
@@ -283,6 +287,10 @@ func TestWakePromptByCase(t *testing.T) {
 	got, _ = m.WakePrompt("a", false, WakePromptIn{WasClosed: true})
 	if !strings.Contains(got, "There is no handoff") || !strings.Contains(got, "recorded at /t/s0.jsonl") {
 		t.Fatalf("%q", got)
+	}
+	got, _ = m.WakePrompt("a", false, WakePromptIn{WasClosed: true, Cold: true, Waiting: "msg"})
+	if !strings.HasPrefix(got, "Your session was closed while idle") || !strings.HasSuffix(got, "take it first:\n\nmsg") {
+		t.Fatalf("a fresh start is handed what woke it, last: %q", got)
 	}
 }
 

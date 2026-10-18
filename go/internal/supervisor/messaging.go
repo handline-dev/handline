@@ -82,19 +82,15 @@ func (e *Env) TellNow(q db.Q, rid int64) (what string, err error) {
 	if row.State != "queued" {
 		return "refused at delivery", nil
 	}
-	if e.structuredAgent(agent) {
-		if !e.Agents.Live(agent) {
-			e.Lifecycle.StartForWork(q, agent) // a structured agent has no terminal to look for: starting it opens its session
-		}
-	} else {
-		state := stateOf(q, agent)
-		if !(state != nil && state.Terminal.String != "") {
-			e.Lifecycle.StartForWork(q, agent)
-			state = stateOf(q, agent)
-		}
-		if state != nil && state.ClosedAt.Valid && state.ClosedAt.Int64 != 0 {
-			e.Lifecycle.WakeAgent(q, agent)
-		}
+	// A structured agent has no terminal to look for: starting it opens its session. A closed one of either kind is woken here, not left
+	// to the next tick.
+	state := stateOf(q, agent)
+	if !e.openSession(agent, state) {
+		e.Lifecycle.StartForWork(q, agent)
+		state = stateOf(q, agent)
+	}
+	if state != nil && state.ClosedAt.Valid && state.ClosedAt.Int64 != 0 {
+		e.Lifecycle.WakeAgent(q, agent)
 	}
 	// A resume's first prompt may already have told it (WaitingPrompt); a fresh start does not.
 	row = must(db.GetRequest(q, rid))

@@ -2,18 +2,20 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell, type WebContents } from 'electron';
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Notification, session, shell, type WebContents } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
 import { isDebugWindow } from './debug-window.ts';
 import { Desk } from './desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from './editor.ts';
+import { serveCapture } from './capture.ts';
+import { gitView, scratch } from './git-view.ts';
 import { Opener } from './open.ts';
 import { followMain, takeRoute } from './follow-app.ts';
 import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from './mode.ts';
-import { ownDaemon, type Own } from './own.ts';
+import { ownDaemon, readFounderKey, type Own } from './own.ts';
 import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from './tailnet.ts';
-import { Connection, Page, CHANNELS } from './bridge.ts';
+import { Connection, Page, Settings, CHANNELS } from './bridge.ts';
 import { serveDir } from './serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from './update.ts';
 
@@ -24,6 +26,11 @@ const home =
   (fs.existsSync(path.join(os.homedir(), '.handline')) ? path.join(os.homedir(), '.handline') : path.join(os.homedir(), '.orcapipe'));
 /** The daemon's socket for this shell's own connection (badge, notices); the web app reaches the daemon by its WebSocket. */
 const socket = env('SOCKET') ?? path.join(home, 'daemon.sock');
+// The founder key goes only to a daemon socket inside the daemon's home: HANDLINE_SOCKET can name another process's socket.
+const founderKey = () => {
+  const rel = path.relative(home, socket);
+  return rel === '..' || rel.startsWith(`..${path.sep}`) ? null : readFounderKey(home);
+};
 /** The Go gateway (host:port): the web app reaches it at /rpc with a device token the app got for itself. An explicit WS address with no gateway is the old plain mode. */
 let gateway = env('WS') && !env('GATEWAY') ? undefined : gatewayAddress(env('GATEWAY'), os.networkInterfaces());
 const gatewaySocket = path.join(home, 'gateway.sock');
@@ -90,6 +97,17 @@ function trustFingerprint(remote: Remote): void {
   });
 }
 
+/** The window connects as a paired device, which may not read or write settings; the shell's founder connection does it for the page. */
+function handleSettings(origin: string, client: DaemonClient, remote: Remote | null): void {
+  const otherDevice = new Error('This app is paired with another device; change its settings there.');
+  const s = new Settings(origin, {
+    get: (agent) => (remote ? Promise.reject(otherDevice) : client.call('settings.get', { agent })),
+    set: (changes, agent) => (remote ? Promise.reject(otherDevice) : client.call('settings.set', { changes, agent })),
+  });
+  ipcMain.handle(CHANNELS.settingsGet, (e, arg) => s.get(e, arg));
+  ipcMain.handle(CHANNELS.settingsSet, (e, arg) => s.set(e, arg));
+}
+
 function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote | null): void {
   const c = new Connection(origin, {
     mode: () => ({ mode, remote: remote?.host ?? null }),
@@ -101,6 +119,7 @@ function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote |
   ipcMain.handle(CHANNELS.setMode, (e, arg) => c.setMode(e, arg));
   ipcMain.handle(CHANNELS.phone, (e) => c.phone(e));
   ipcMain.handle(CHANNELS.pairRemote, (e, arg) => c.pairRemote(e, arg));
+  serveCapture(ipcMain, origin, { sources: (thumbnailSize) => desktopCapturer.getSources({ types: ['window'], thumbnailSize }) });
 }
 
 /** Runs `f` until it stops throwing, two seconds apart. */
@@ -131,6 +150,11 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
       preload: path.join(import.meta.dirname, 'preload.cjs'),
     },
   });
+  // The traffic lights are gone in full screen: the page drops the room it keeps for them (shell.ts).
+  const tellFull = () => w.webContents.send(CHANNELS.fullScreen, w.isFullScreen());
+  w.on('enter-full-screen', tellFull);
+  w.on('leave-full-screen', tellFull);
+  w.webContents.on('did-finish-load', tellFull);
   w.once('ready-to-show', onReady);
   confine(w.webContents, origin);
   return w;
@@ -143,7 +167,8 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
  */
 function confine(contents: WebContents, origin: string): void {
   contents.setWindowOpenHandler(({ url }) => {
-    if (isDebugWindow(url, origin)) return { action: 'allow', overrideBrowserWindowOptions: { width: 1280, height: 820, title: 'Terminals (debug)' } };
+    if (isDebugWindow(url, origin))
+      return { action: 'allow', overrideBrowserWindowOptions: { width: 1280, height: 820, title: 'Terminals (debug)' } };
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
@@ -181,7 +206,8 @@ if (!app.requestSingleInstanceLock()) {
     const web = await pageServer();
     const origin = new URL(web.url).origin;
     const page = new Page(origin);
-    const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket) });
+    // The shell's own calls (an agent's worktree, the badge) are the founder's: hello carries the key from the protected store, as pairing does.
+    const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: founderKey });
     // Follow-main mode (pnpm app:main): the app runs from its own checkout of main and offers to restart when main moves.
     const following = env('FOLLOW') ? followMain({ dir: root, window: () => win, changed: () => own.redraw() }) : null;
     const f = following?.follower;
@@ -212,11 +238,15 @@ if (!app.requestSingleInstanceLock()) {
     handleConnection(origin, own, current.mode, remote);
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
+    handleSettings(origin, client, remote);
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
     const opener = new Opener(origin, {
       worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,
       open: (p) => shell.openPath(p),
       reveal: (p) => shell.showItemInFolder(p),
+      git: gitView,
+      openExternal: (url) => shell.openExternal(url),
+      scratch: (name, bytes) => scratch(app.getPath('temp'), name, bytes),
     });
     const composer = new Composer(origin, { env: editorEnv, tmp: app.getPath('temp') });
     ipcMain.handle(CHANNELS.openPath, (e, arg) => opener.openPath(e, arg));

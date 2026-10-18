@@ -183,6 +183,22 @@ func TestALiveTurnShowsRunningWhateverTheRowSays(t *testing.T) {
 	}
 }
 
+func TestAParkedAgentWhoseTurnRunsShowsRunning(t *testing.T) {
+	r := newRig(t, "a", "b")
+	r.state(t, "a", states.Parked, "")
+	r.state(t, "b", states.Parked, "")
+	r.sess.alive["a"], r.sess.busy["a"] = true, true
+	r.sess.alive["b"] = true
+	r.env.RefreshOne("a")
+	r.env.RefreshOne("b")
+	if got := r.stored(t, "a")["state"]; got != "running" {
+		t.Errorf("busy: state %v, want running", got)
+	}
+	if got := r.stored(t, "b")["state"]; got == "running" {
+		t.Errorf("not busy: state %v, want not running", got)
+	}
+}
+
 func TestAQueuedMoveIsParkedMoving(t *testing.T) {
 	r := newRig(t, "a")
 	r.state(t, "a", states.Queued, states.MovingMark+" to b")
@@ -252,5 +268,157 @@ func TestARowForAnAgentThatIsGoneGoesAndAFailingAgentKeepsItsLast(t *testing.T) 
 	var n int
 	if err := r.env.Q.QueryRow("SELECT count(*) FROM agent_view WHERE agent = 'old'").Scan(&n); err != nil || n != 0 {
 		t.Errorf("gone agent's row kept (%d, %v)", n, err)
+	}
+}
+
+func TestAHandoffShowsFromTheNoteWaitThroughTheLaunchUntilTheNewSessionBegins(t *testing.T) {
+	r := newRig(t, "a")
+	r.state(t, "a", states.Idle, "")
+	handoff := func() any {
+		t.Helper()
+		r.env.RefreshOne("a")
+		return r.stored(t, "a")["handoff"]
+	}
+	if h := handoff(); h != nil {
+		t.Fatalf("no handoff, got %v", h)
+	}
+
+	if err := db.MarkNoteWait(r.env.Q, "a", "context", 4990); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.MarkNoteWait(r.env.Q, "a", "context", 4995); err != nil { // the wait keeps its start
+		t.Fatal(err)
+	}
+	h, _ := handoff().(map[string]any)
+	if h["cause"] != "context_full" || h["phase"] != "writing" || h["since"] != stamp(4990) {
+		t.Fatalf("note wait: %v", h)
+	}
+
+	db.ClearNoteWait(r.env.Q, "a")
+	if err := db.StartHandoff(r.env.Q, "h1", "a", "", "context", 5060); err != nil {
+		t.Fatal(err)
+	}
+	h, _ = handoff().(map[string]any)
+	if h["cause"] != "context_full" || h["phase"] != "writing" || h["since"] != stamp(5060-states.HandoffDeadlineS) {
+		t.Fatalf("in flight: %v", h)
+	}
+
+	if err := db.AdvanceHandoff(r.env.Q, "h1", "released", "done", ""); err != nil {
+		t.Fatal(err)
+	}
+	r.state(t, "a", states.Parked, "")
+	h, _ = handoff().(map[string]any)
+	if h["cause"] != "context_full" || h["phase"] != "starting" {
+		t.Fatalf("released: %v", h)
+	}
+	// Parked until a time already past, as a restart parks it, with work waiting: it waits for its next session, not a clock, so the
+	// agent list keeps it among the waking, not the sleeping.
+	db.AddPending(r.env.Q, "a", "x", 1)
+	if err := db.SetAgentState(r.env.Q, "a", states.Parked, 5000, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.env.RefreshOne("a")
+	if v := r.stored(t, "a"); v["state"] != "queued" || v["state_detail"] != "" {
+		t.Fatalf("a restart reads %v %q", v["state"], v["state_detail"])
+	}
+
+	if _, err := db.NoteSessionStart(r.env.Q, "a", "context_full", false, "", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if h := handoff(); h != nil {
+		t.Fatalf("the new session began, got %v", h)
+	}
+}
+
+func TestAHandoffForAUsageWindowDoesNotShowAsStartingAndAStaleNoteWaitShowsNothing(t *testing.T) {
+	r := newRig(t, "a")
+	r.state(t, "a", states.Parked, "")
+	db.StartHandoff(r.env.Q, "h1", "a", "", "usage", 5060)
+	db.AdvanceHandoff(r.env.Q, "h1", "released", "done", "")
+	r.env.RefreshOne("a")
+	if h := r.stored(t, "a")["handoff"]; h != nil {
+		t.Fatalf("usage: %v", h)
+	}
+	db.MarkNoteWait(r.env.Q, "a", "context", 5000-db.NoteWaitStaleS-1)
+	r.env.RefreshOne("a")
+	if h := r.stored(t, "a")["handoff"]; h != nil {
+		t.Fatalf("stale: %v", h)
+	}
+}
+
+func TestANoteWaitThatEndedWithItsSessionDoesNotHoldTheNextOneToItsTimeOrKind(t *testing.T) {
+	r := newRig(t, "a")
+	r.state(t, "a", states.Idle, "")
+	db.MarkNoteWait(r.env.Q, "a", "context", 1000)
+	db.MarkNoteWait(r.env.Q, "a", "usage", 4990)
+	r.env.RefreshOne("a")
+	h, _ := r.stored(t, "a")["handoff"].(map[string]any)
+	if h["cause"] != "usage" || h["phase"] != "writing" || h["since"] != stamp(4990) {
+		t.Fatalf("got %v", h)
+	}
+}
+
+func TestALaunchReadsStartingFromWhatIsRecordedUntilItsSessionsFirstHook(t *testing.T) {
+	r := newRig(t, "new", "busy")
+	r.state(t, "new", states.Idle, "")
+	r.state(t, "busy", states.Running, "")
+	r.sess.alive["busy"], r.sess.busy["busy"] = true, true
+	pane := map[string]bool{"new": true, "busy": true} // whether claude, not the shell, is in front of the pane
+	r.env.PaneRuns = func(a string) bool { return pane[a] }
+	for _, a := range []string{"new", "busy"} { // hl launch kept the start just before it became claude
+		r.env.Q.Exec("INSERT INTO session_starts(agent, ts, cause, resumed, text, prompt) VALUES(?, 4990, 'wake', 0, '', '')", a)
+	}
+	word := func(a string) any { r.env.RefreshOne(a); return r.stored(t, a)["state"] }
+	if w := word("new"); w != "starting" {
+		t.Fatalf("a launch whose session has sent nothing yet: %v", w)
+	}
+	if w := word("busy"); w != "running" {
+		t.Fatalf("starting never hides a turn that runs: %v", w)
+	}
+	db.AddEventAt(r.env.Q, 4980, "new", "Stop") // the session before this launch
+	if w := word("new"); w != "starting" {
+		t.Fatalf("an older session's hook does not end this launch: %v", w)
+	}
+	pane["new"] = false
+	if w := word("new"); w == "starting" {
+		t.Fatal("a launch whose claude died is back at the shell, or its pane is gone: not starting, however long ago it began")
+	}
+	pane["new"] = true
+	for _, over := range []string{"wake_failed", "SessionEnd", "UserPromptSubmit"} {
+		r.env.Q.Exec("DELETE FROM events WHERE ts > 4990")
+		db.AddEventAt(r.env.Q, 4995, "new", over)
+		if w := word("new"); w == "starting" {
+			t.Fatalf("%s after the start ends starting", over)
+		}
+	}
+}
+
+func TestALaunchTheDaemonBeganReadsStartingBeforeHlLaunchKeepsItsStart(t *testing.T) {
+	r := newRig(t, "new")
+	r.state(t, "new", states.Idle, "")
+	shell := true // the launch line is typed at the pane's shell and runs there through hl's bash wrapper
+	r.env.PaneRuns = func(string) bool { return !shell }
+	db.AddEventAt(r.env.Q, 4980, "new", "SessionEnd") // the session before this launch
+	db.AddEventAt(r.env.Q, 4990, "new", "launching")
+	r.env.RefreshOne("new")
+	if w := r.stored(t, "new")["state"]; w != "starting" {
+		t.Fatalf("no session_starts row yet, the pane still at its shell: %v", w)
+	}
+	now := r.env.Now
+	r.env.Now = func() int64 { return 4990 + LaunchShellGraceS }
+	r.env.RefreshOne("new")
+	if w := r.stored(t, "new")["state"]; w == "starting" {
+		t.Fatal("a launch still at the shell after the grace died there")
+	}
+	shell = false
+	r.env.RefreshOne("new")
+	if w := r.stored(t, "new")["state"]; w != "starting" {
+		t.Fatalf("a launch whose pane runs claude is starting however long it takes: %v", w)
+	}
+	r.env.Now = now
+	db.AddEventAt(r.env.Q, 4995, "new", "SessionStart")
+	r.env.RefreshOne("new")
+	if w := r.stored(t, "new")["state"]; w == "starting" {
+		t.Fatal("its first hook ends starting")
 	}
 }

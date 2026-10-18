@@ -130,15 +130,15 @@ func (e *Env) taskReason(q db.Q, t *db.Task, now int64) (why, cause string, able
 			break
 		}
 	}
-	if agent == db.Human || (!(t.QueuedBy.Valid && t.QueuedBy.String != "") && req == nil) {
+	// A reported task waits on its reporter's accept, not on a delivery.
+	if agent == db.Human || t.Ended() || t.Reported() || (!(t.QueuedBy.Valid && t.QueuedBy.String != "") && req == nil) {
 		return "", "", false, false
 	}
 	if blockers := must(db.TaskBlockers(q, tid)); len(blockers) > 0 {
-		parts := make([]string, len(blockers))
-		for i, b := range blockers {
-			parts[i] = fmt.Sprintf("T%d (%s)", b.ID, b.Owner)
-		}
-		return "blocked by " + strings.Join(parts, ", "), "task", false, true
+		return "blocked by " + taskNames(blockers), "task", false, true
+	}
+	if kids := must(db.OpenChildTasks(q, tid)); len(kids) > 0 {
+		return "waits on its child " + taskNames(kids), "task", false, true
 	}
 	if !e.registered(agent) {
 		return agent + " is not registered - nothing will take it", "owner", false, true
@@ -191,6 +191,14 @@ func (e *Env) ownerCause(q db.Q, agent string) string {
 	return "owner"
 }
 
+func taskNames(ts []*db.Task) string {
+	parts := make([]string, len(ts))
+	for i, t := range ts {
+		parts[i] = fmt.Sprintf("T%d (%s)", t.ID, t.Owner)
+	}
+	return strings.Join(parts, ", ")
+}
+
 func pyStr(v any) string {
 	if v == nil {
 		return "None"
@@ -205,9 +213,6 @@ func (e *Env) SweepHolds(now int64) (err error) {
 	q := db.Q(e.DB)
 	seen := map[int64]bool{}
 	for _, t := range must(db.OpenTasks(q)) {
-		if t.Owner == db.Human || t.DoneEvidence.String != "" {
-			continue
-		}
 		why, cause, able, found := e.taskReason(q, t, now)
 		if !found {
 			continue

@@ -14,7 +14,7 @@ import { Button, Row } from './parts.tsx';
 
 const code = (e: unknown) => (e as { code?: string } | null)?.code;
 
-export function PromptCard(props: { agent: string; prompt: Prompt; onStale: () => void }) {
+export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () => void }) {
   const c = usePalette();
   const { agent, prompt: p } = props;
   const answer = useWrite('prompt.answer', agent);
@@ -46,7 +46,7 @@ export function PromptCard(props: { agent: string; prompt: Prompt; onStale: () =
       setClicked(null);
       if (code(e) !== 'stale_prompt') return;
       setChanged(true);
-      props.onStale();
+      props.onStale?.();
     });
   };
   const toggle = (key: string) => setPicked((l) => (l.includes(key) ? l.filter((k) => k !== key) : [...l, key]));

@@ -24,7 +24,6 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	r := call(t, mk("manager", f),
 		line(2, base+`"priority":"p1","expects":"sha","parent":1,"blocked_by":2,`, "n1"),
 		line(3, base+`"priority":"p1","expects":"sha","parent":1,"blocked_by":2,`, "n1"),
-		line(4, `"owner":"worker","title":"t","time_box":"2h",`, "n2"),
 		line(5, `"owner":"worker","title":"t","body":"b","time_box":"soon",`, "n3"),
 		line(6, `"owner":"worker","title":"t","body":"b","time_box":"9h",`, "n4"),
 		line(7, `"owner":"nobody","title":"t","body":"b","time_box":"1h",`, "n5"),
@@ -38,10 +37,10 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	if r[1]["result"].(map[string]any)["replayed"] != true || count(t, db, "SELECT COUNT(*) FROM tasks WHERE opened_by = 'manager' AND title LIKE 'build%'") != 1 {
 		t.Fatalf("a retry replays and opens nothing twice: %v", r[1])
 	}
-	wants := []string{"refused", "bad_request", "bad_request", "not_found", "refused", "not_found", "bad_request"}
+	wants := []string{"bad_request", "bad_request", "not_found", "refused", "not_found", "bad_request"}
 	for i, w := range wants {
 		if got := code(r[2+i]); got != w {
-			t.Errorf("call %d: %v, want %s: %v", 4+i, got, w, r[2+i])
+			t.Errorf("call %d: %v, want %s: %v", 5+i, got, w, r[2+i])
 		}
 	}
 	for q, want := range map[string]int{
@@ -78,6 +77,10 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	r = call(t, mk("manager", &fakeTeller{}), line(2, `"owner":"worker","title":"no box","body":"b",`, "t1"))
 	if r[0]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM tasks WHERE title = 'no box' AND timeout_s IS NULL") != 1 {
 		t.Fatalf("a task needs no time box: its clock takes the default when it starts: %v", r[0])
+	}
+	r = call(t, mk("manager", &fakeTeller{}), line(2, `"owner":"worker","title":"no brief",`, "t2"), line(3, `"owner":"worker","title":"blank brief","body":"  ",`, "t3"))
+	if r[0]["error"] != nil || r[1]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM tasks WHERE title IN ('no brief', 'blank brief')") != 2 {
+		t.Fatalf("a task needs no body: %v %v", r[0], r[1])
 	}
 }
 
@@ -159,5 +162,44 @@ func TestNewRefusesAWaitThatWouldLoopThroughTheParent(t *testing.T) {
 	}
 	if r := open("sibling", 2); r["error"] != nil || count(t, db, "SELECT COUNT(*) FROM task_blocks WHERE task_id = 4 AND blocks_on = 2") != 1 {
 		t.Fatalf("a sibling's wait is kept: %v", r)
+	}
+}
+
+// A child that repeats its parent or an open sibling is refused with that task named; a duplicate child once held its parent, and every task
+// blocked on the parent, for a day.
+func TestNewRefusesATitleThatRepeatsAnOpenTaskUnderTheSameParent(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'Story 1-0: research similar tools + overall UX frame', 'worker', 'manager', 1), "+
+			"(2, 'review T9 step 1 @d1751ebd', 'worker', 'manager', 1), (3, 'Turn on the dev instance for pc', 'worker', 'manager', 1)",
+		"UPDATE tasks SET parent_task = 1 WHERE id IN (2, 3)",
+		"UPDATE tasks SET discarded_by = 'manager', discarded_at = 2 WHERE id = 3")
+	line := func(id int, title, extra, rid string) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.new","params":{"owner":"worker","title":%q,"body":"b","parent":1,%s"request_id":%q}}`,
+			id, title, extra, rid)
+	}
+	data := func(r map[string]any) map[string]any {
+		e, _ := r["error"].(map[string]any)
+		d, _ := e["data"].(map[string]any)
+		return d
+	}
+	r := call(t, mk("manager", &fakeTeller{}),
+		line(2, "Story 1-0: research similar tools + propose one UX frame (doc only)", "", "d1"), // the case it is for: the child repeats its parent
+		line(3, "Review T9 step 1 @5fc0bcef", "", "d2"),                                          // an open sibling, a new sha
+		line(4, "merge T9 step 1 @d1751ebd", "", "d3"),                                           // another kind of work
+		line(5, "Turn on the dev instance for pc", "", "d4"),                                     // its twin is discarded
+		line(6, "Story 1-0: research similar tools + propose one UX frame (doc only)", `"duplicate_ok":true,`, "d5"))
+	for i, want := range []float64{1, 2} {
+		if d := data(r[i]); d["gate"] != DuplicateGate || d["task"] != want || !strings.Contains(d["reason"].(string), fmt.Sprintf("T%d", int(want))) {
+			t.Errorf("call %d: %v", i+2, r[i])
+		}
+	}
+	for i := 2; i < 5; i++ {
+		if r[i]["error"] != nil {
+			t.Errorf("call %d: %v", i+2, r[i])
+		}
+	}
+	if n := count(t, db, "SELECT COUNT(*) FROM tasks WHERE parent_task = 1 AND title LIKE 'Story 1-0%'"); n != 1 {
+		t.Fatalf("only the insisted one opens: %d", n)
 	}
 }

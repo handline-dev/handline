@@ -22,6 +22,8 @@ const (
 	TrustDecision  = "[trust stall]"
 	DialogStall    = "start-up dialog"
 	DialogDecision = "[dialog stall]"
+	StartStall     = "starts for waiting work failed"
+	WakeStall      = "wakes started no session"
 )
 
 // TrustStallPrefixes are what the decisions a trust stall raised start with.
@@ -397,6 +399,23 @@ func (r *Reconciler) Sweep(actions *[]string) error {
 			}
 		}
 
+		// A session running is a start that took, however late: the streak of failed ones ends, and a stall they raised is lifted.
+		if alive && row.WakeFailures != 0 {
+			if err := db.ResetCounter(r.Q, agent, "wake_failures"); err != nil {
+				return err
+			}
+		}
+		if alive && row.State == states.Stalled && (strings.Contains(row.Detail.String, StartStall) || strings.Contains(row.Detail.String, WakeStall)) {
+			if err := db.SetAgentState(r.Q, agent, states.Idle, 0, "a session is running; the wake stall is lifted"); err != nil {
+				return err
+			}
+			*actions = append(*actions, agent+": STALLED -> IDLE (it is running after all)")
+			r.logf("  %s: a session is running; STALLED lifted", agent)
+			if row, err = db.GetAgentState(r.Q, agent); err != nil {
+				return err
+			}
+		}
+
 		switch {
 		case alive && closed:
 			// It came back without us - a human relaunched it, or a resume landed that we never recorded. Believing our own note would
@@ -409,22 +428,6 @@ func (r *Reconciler) Sweep(actions *[]string) error {
 			}
 			*actions = append(*actions, agent+": a session is running; the closed mark was wrong")
 			r.logf("  %s: running again (pid %d); cleared the closed mark", agent, *o.SessionPID)
-			// Judged before the streak is reset: the reset is what refutes it. Not a trust or dialog stall: a session sitting at the
-			// prompt is running too, and only the screen refutes those.
-			wakeStall := row.State == states.Stalled && row.WakeFailures >= states.MaxFailedAttempts &&
-				!strings.Contains(row.Detail.String, TrustStall) && !strings.Contains(row.Detail.String, DialogStall)
-			if row.WakeFailures != 0 {
-				if err := db.ResetCounter(r.Q, agent, "wake_failures"); err != nil {
-					return err
-				}
-			}
-			if wakeStall {
-				// Our launches started nothing and a session is running now; leaving the stall would hide a live agent from delivery.
-				if err := db.SetAgentState(r.Q, agent, states.Idle, 0, "a session is running; the wake stall is lifted"); err != nil {
-					return err
-				}
-				*actions = append(*actions, agent+": STALLED -> IDLE (it is running after all)")
-			}
 		case !alive && !closed && handle != "" && r.Ports.StillDrawn(handle):
 			// The table lists no session but the screen draws one: the table missed a live session, and recording it closed would have a
 			// wake type a launch line at it. Left as it is; the next reading either lists it or the screen clears.

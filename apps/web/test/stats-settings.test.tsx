@@ -61,10 +61,11 @@ afterEach(async () => {
 describe('stats', () => {
   it('shows a skeleton, then the four counts, the span and both charts', async () => {
     const s = setup();
-    s.daemon.knobs.latency(300);
+    const release = s.daemon.knobs.hold('stats.get'); // held until the skeleton is seen: no wall-clock race between the read and the skeleton's delay
     await mount('#/stats', s);
     await until(() => $('.stats .skeleton'), 'the skeleton');
-    await until(() => $('[data-tile]'), 'the tiles', 500);
+    release();
+    await until(() => $('[data-tile]'), 'the tiles');
     expect(['tasks done', 'moves', 'handoffs', 'blocks'].map(tile)).toEqual(['3', '1', '2', '0']);
     expect(text($('[data-span]'))).toContain(' to ');
     expect($('[data-tile="blocks"]')!.hasAttribute('data-warn')).toBe(false);
@@ -74,11 +75,15 @@ describe('stats', () => {
     expect(text($('.chart[aria-label="Agent time"]'))).toContain('1 idle agent');
   });
 
-  it('account use is a link to the Accounts page, not a second set of bars', async () => {
-    await mount('#/stats');
+  it('Stats is a section of the Usage page, under the accounts: #/accounts and #/stats are the same page', async () => {
+    await mount('#/accounts');
     await until(() => $('[data-tile]'), 'the tiles');
-    expect($('.stat-link')!.getAttribute('href')).toBe('#/accounts');
+    expect(text($('.accounts-head'))).toContain('Usage');
+    expect($('.acct-list')).not.toBeNull();
+    expect($('.acct-list')!.compareDocumentPosition($('[data-tile]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect($('[data-use]')).toBeNull();
+    await act(async () => void (location.hash = '#/stats'));
+    await until(() => $('.acct-list') && $('[data-tile]'), 'the same page');
   });
 
   it('every tile has an icon', async () => {
@@ -90,10 +95,11 @@ describe('stats', () => {
   it('the 7 d window shows its own figures, and the old ones stay until they arrive', async () => {
     const s = await mount('#/stats');
     await until(() => tile('tasks done') === '3', 'the 24 h tiles');
-    s.daemon.knobs.latency(300);
+    const release = s.daemon.knobs.hold('stats.get');
     await click(button('7 d'));
     expect(tile('tasks done')).toBe('3');
-    await until(() => tile('tasks done') === '19', 'the 7 d tiles', 500);
+    release();
+    await until(() => tile('tasks done') === '19', 'the 7 d tiles');
     expect($('[data-tile="blocks"]')!.hasAttribute('data-warn')).toBe(true);
     expect(tile('blocks')).toBe('4');
   });
@@ -253,7 +259,7 @@ describe('settings', () => {
     }
     vi.stubGlobal('IntersectionObserver', Watch);
     await mount('#/settings');
-    await until(() => Watch.last?.els.length === 5, 'the sections watched');
+    await until(() => Watch.last?.els.length === 8, 'the sections watched');
     expect(Watch.last!.opts.root).toBe($('.settings'));
     const see = (id: string, isIntersecting: boolean) => ({ target: $(`#set-${id}`)!, isIntersecting });
     await act(async () => Watch.last!.cb([see('closing', true)]));

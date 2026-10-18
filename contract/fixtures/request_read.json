@@ -3,7 +3,7 @@
   {
    "name": "request.read.a_reply_names_both_ends_and_its_parent",
    "spec": "request.read",
-   "about": "A reply is read whole: both ends, its state, and the first line of what it answers (needs --var ask_agent: an agent with one open question to the person, `which one?`).",
+   "about": "A reply is read whole: its ref, both ends, its state, and the first line of what it answers (needs --var ask_agent: an agent with one open question to the person, `which one?`).",
    "as": "founder",
    "steps": [
     {
@@ -33,10 +33,13 @@
       "messages": {
        "$contains": {
         "to": "human",
-        "answer": null,
         "id": {
          "$type": "integer",
          "$save": "ask"
+        },
+        "ref": {
+         "$regex": "^[0-9a-f]{12}$",
+         "$save": "ask_ref"
         }
        }
       }
@@ -73,6 +76,9 @@
      },
      "result": {
       "id": "{{reply}}",
+      "ref": {
+       "$regex": "^[0-9a-f]{12}$"
+      },
       "requester": "human",
       "target": "{{ask_agent}}",
       "kind": {
@@ -84,32 +90,16 @@
       "created": {
        "$type": "timestamp"
       },
-      "relation": {
-       "$oneOf": [
-        {
-         "$type": "string"
-        },
-        null
-       ]
-      },
-      "response": {
-       "$oneOf": [
-        {
-         "$type": "string"
-        },
-        null
-       ]
-      },
       "chain_depth": {
        "$type": "integer"
       },
       "parent": {
        "id": "{{ask}}",
+       "ref": "{{ask_ref}}",
        "line": "which one?"
       },
       "body": "the second\nplease",
-      "answer": null,
-      "dismissal": null
+      "answer": null
      }
     },
     {
@@ -123,6 +113,7 @@
      },
      "result": {
       "id": "{{ask}}",
+      "ref": "{{ask_ref}}",
       "requester": "{{ask_agent}}",
       "target": "human",
       "parent": null,

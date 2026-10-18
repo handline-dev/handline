@@ -59,7 +59,8 @@ func joinNonEmpty(parts ...string) string {
 	return strings.Join(out, "\n\n")
 }
 
-// WakePrompt is what an agent is told when it comes back. A resume is started for a message and is handed that message, nothing else.
+// WakePrompt is what an agent is told when it comes back. A resume is started for a message and is handed that message, nothing else; a
+// fresh start is handed it last, after where to find its context.
 // One a person asked for, with nothing waiting, is handed nothing: the prompt file is empty, which the launch still takes (that is how a
 // launch is known to be ours) and starts no turn from. A resumed session already holds everything it knew, so it is told where it is
 // rather than what it did. One that was parked is given its handoff here; one started fresh gets it in its system prompt, and is told
@@ -111,6 +112,9 @@ func (m *Manager) WakePrompt(agent string, resumed bool, in WakePromptIn) (text 
 			parts = append(parts, "Your previous session's transcript could not be found; read your journal and your inbox to see where you were.")
 		}
 	}
+	if in.Waiting != "" {
+		parts = append(parts, "This is what woke you; take it first:\n\n"+in.Waiting)
+	}
 	return strings.Join(parts, "\n\n"), nil
 }
 
@@ -144,6 +148,16 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	// that are full.
 	if !m.Launch.ChooseAccount(m.Q, agent) {
 		return fmt.Sprintf("%s: not started - %s", agent, m.Launch.NoRoom(agent)), nil
+	}
+	// Each waiting message can ask for a start while the last one's session is still coming up: one start at a time, and a start that
+	// lost the race finds the terminal the winner opened.
+	release, mine := m.Typing.TakeTerminal(agent)
+	if !mine {
+		return agent + ": a start or wake is under way - not starting twice", nil
+	}
+	defer release()
+	if row = must(db.GetAgentState(m.Q, agent)); m.hasSession(agent, row) || m.ResumableWithoutTerminal(row) {
+		return agent + ": started already - not starting twice", nil
 	}
 	if row != nil && row.WakeFailures >= states.MaxFailedAttempts {
 		if row.State == states.Stalled {
@@ -179,7 +193,7 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	check(db.BumpCounter(m.Q, agent, "wake_failures", 1))
 	m.Log("  %s: could not start for waiting work: %s", agent, first)
 	if fresh := must(db.GetAgentState(m.Q, agent)); fresh != nil && fresh.WakeFailures >= states.MaxFailedAttempts {
-		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d starts for waiting work failed: %s", fresh.WakeFailures, first)))
+		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d %s: %s", fresh.WakeFailures, StartStall, first)))
 		m.Log("  %s: STALLED after %d failed starts", agent, fresh.WakeFailures)
 	}
 	return fmt.Sprintf("%s: could not be started - %s", agent, first), nil
@@ -580,14 +594,11 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 			}
 			break
 		}
-		// Only a resume reads it: a fresh start has read nothing of what the queue held, and is told the ordinary way once it is up.
-		waiting.text, waiting.told, waiting.ok = "", nil, false
-		if resume {
-			t, told, got := must3(m.Delivery.WaitingPrompt(m.Q, agent))
-			waiting.text, waiting.told, waiting.ok = t, told, got
-			if !got && !c.force {
-				return false, "what was waiting for it is gone; nothing to resume it for"
-			}
+		// A fresh start is handed it too: told the ordinary way, it would wait behind a first turn spent on the handoff.
+		t, told, got := must3(m.Delivery.WaitingPrompt(m.Q, agent))
+		waiting.text, waiting.told, waiting.ok = t, told, got
+		if resume && !got && !c.force {
+			return false, "what was waiting for it is gone; nothing to resume it for"
 		}
 		restartNote := ""
 		if c.restartedBy != "" {
@@ -635,13 +646,13 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 	handle := must(db.Terminal(m.Q, agent))
 	cleared, w := true, ""
 	if handle != "" {
-		cleared, w = m.clearTrustPrompt(agent, handle, true)
+		cleared, w = m.startupScreens(agent, handle)
 	}
 	if !cleared {
-		if resumed && waiting.ok {
+		if waiting.ok {
 			// The session took the message as its first prompt and reads it once past the screen. Recorded now, after the closed mark came
 			// off, so nothing later voids it and has it told twice.
-			check(waiting.told(session))
+			check(waiting.told(ifTrue(resumed, session)))
 		}
 		return false, w
 	}
@@ -649,9 +660,9 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 	if f := must(db.GetAgentState(m.Q, agent)); f != nil && isClosed(f) {
 		check(db.ClearClosed(m.Q, agent))
 	}
-	if resumed && waiting.ok {
-		// After clear_closed, which voids what a session was told.
-		check(waiting.told(session))
+	if waiting.ok {
+		// After clear_closed, which voids what a session was told. A fresh session's id is the live one's.
+		check(waiting.told(ifTrue(resumed, session)))
 	}
 	payload := []db.KV{{K: "resumed_session", V: nilIfEmpty(ifTrue(resumed, session))}}
 	if cold {
@@ -691,7 +702,7 @@ func (m *Manager) wakeFailed(agent, session, why string, took, foreign bool) str
 		// Work arriving retries the wake every tick, so a launch that will never work is a loop that never ends and never says so.
 		// Three launches that started nothing is not the wall - that was turned away above - and not a resume that can be dropped,
 		// which the fallback above already did. It waits for a human, or for the sweep to see a session after all.
-		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d wakes started no session: %s", f.WakeFailures, why)))
+		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d %s: %s", f.WakeFailures, WakeStall, why)))
 		m.Log("  %s: STALLED after %d failed wakes", agent, f.WakeFailures)
 	}
 	return why
@@ -740,7 +751,9 @@ func (m *Manager) ownLateSession(agent string) (bool, int) {
 // with it - in a new terminal in its worktree. started says whether a typed launch took.
 func (m *Manager) launchInPane(agent, handle, wt, cmd string, started func() bool) (bool, string) {
 	if handle != "" {
-		return m.Term.Relaunch(handle, cmd, started)
+		m.Spawn.Trust(agent, wt)
+		// Relaunch asks started right after the line is typed.
+		return m.Term.Relaunch(handle, cmd, func() bool { check(NoteLaunch(m.Q, m.OnLaunch, agent)); return started() })
 	}
 	ok, why, err := m.Spawn.StartIn(agent, wt, cmd)
 	check(err)
@@ -749,7 +762,7 @@ func (m *Manager) launchInPane(agent, handle, wt, cmd string, started func() boo
 	}
 	if ok {
 		if nh := must(db.Terminal(m.Q, agent)); nh != "" {
-			m.Term.WaitIdle(nh)
+			m.Term.WaitDrawn(nh)
 		}
 	}
 	return ok, why

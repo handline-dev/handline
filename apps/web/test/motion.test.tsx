@@ -56,6 +56,25 @@ describe('AnimatedList', () => {
     expect(ids()).toEqual(['1', '3']);
   });
 
+  it('a list given a new key drops its old rows at once, with no exit animation', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const ids = () => [...host.querySelectorAll('[data-id]')].map((e) => e.getAttribute('data-id'));
+    const keyed = (k: string, rows: number[]) => (
+      <AnimatedList key={k}>
+        {rows.map((i) => (
+          <AnimatedItem key={i} data-id={String(i)}>
+            row {i}
+          </AnimatedItem>
+        ))}
+      </AnimatedList>
+    );
+    await act(async () => root.render(keyed('live', [185, 186])));
+    await act(async () => root.render(keyed('window', [20, 21])));
+    expect(ids()).toEqual(['20', '21']);
+  });
+
   it('calls onFrame while an item grows, and an instant item does not start at height 0', async () => {
     const host = document.createElement('div');
     document.body.append(host);

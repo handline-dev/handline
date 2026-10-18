@@ -25,11 +25,9 @@ func Register(s *rpc.Server, e *supervisor.Env, tell taskwrites.Teller) {
 	w := &writes{e, tell, attachments.New(e.Home)}
 	s.Register("chat.send", rpc.Method{Role: "member", Write: true, Handler: w.send, Refresh: w.refreshSend})
 	s.Register("chat.send_now", rpc.Method{Role: "member", Write: true, Handler: w.sendNow})
-	s.Register("chat.dismiss", rpc.Method{Role: "member", Write: true, Handler: w.dismiss})
 	s.Register("chat.cancel", rpc.Method{Role: "member", Write: true, Handler: w.cancel})
 	s.Register("chat.seen", rpc.Method{Role: "member", Write: true, Handler: w.seen})
 	s.Register("inbox.mark_read", rpc.Method{Role: "agent", Write: true, Handler: w.markRead})
-	s.Register("inbox.answer", rpc.Method{Role: "member", Write: true, Handler: w.inboxAnswer})
 	s.Register("inbox.reply", rpc.Method{Role: "agent", Write: true, Handler: w.inboxReply})
 	w.registerMessages(s)
 	w.registerAnswers(s)
@@ -260,14 +258,10 @@ func checkTask(task any) error {
 	return nil
 }
 
-// sendUnder is a message that replies to parent: a say to the agent with the parent link, whatever the parent asked. It answers and settles nothing.
+// sendUnder is a message that replies to parent: a say to the agent with the parent link, whatever the parent asked and whoever it is between. It answers and settles nothing.
 func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, act func(rid int64)) (*Result, error) {
-	row, err := message(tx, parent)
-	if err != nil {
+	if _, err := message(tx, parent); err != nil {
 		return nil, err
-	}
-	if agent != row.Target && agent != row.Requester {
-		return nil, rpc.Refused(fmt.Sprintf("%s is not on #%d", agent, parent), "state", "")
 	}
 	return sayWriteLinked(w.e, tx, db.Human, agent, body, parent, true, nil, act)
 }

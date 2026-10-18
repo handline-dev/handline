@@ -100,8 +100,8 @@ func oneTask(args []string) (int, bool) {
 }
 
 func taskNew(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--file", "--assign", "--owner", "--parent", "--blocked-by", "--priority", "--expects", "--timeout"},
-		nil, map[string]string{"-t": "--timeout"})
+	p, ok := parse(args, []string{"--file", "--assign", "--owner", "--parent", "--blocked-by", "--priority", "--expects", "--timeout", "--tag"},
+		[]string{"--duplicate-ok"}, map[string]string{"-t": "--timeout"})
 	if !ok || len(p.pos) < 1 || len(p.pos) > 2 {
 		return 0, false
 	}
@@ -152,6 +152,9 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 		if hasPrio {
 			parts = append(parts, fmt.Sprintf("--priority P%d", prio))
 		}
+		for _, tag := range p.each["--tag"] {
+			parts = append(parts, "--tag", shQuote(tag))
+		}
 		return strings.Join(parts, " ")
 	}
 	if !hasAssign {
@@ -196,6 +199,9 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	if hasParent {
 		params["parent"] = parent
 	}
+	if p.flags["--duplicate-ok"] {
+		params["duplicate_ok"] = true
+	}
 	if hasBlocked {
 		params["blocked_by"] = blocked
 	}
@@ -204,6 +210,9 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if hasOwner {
 		params["reporter"] = accountable
+	}
+	if tags := p.tags("--tag"); len(tags) > 0 {
+		params["tags"] = tags
 	}
 	done, msg, got := c.Written("task.new", params)
 	fmt.Println(msg)
@@ -269,10 +278,22 @@ func taskHandoff(c *hlclient.Client, args []string) (int, bool) {
 		inline = &p.pos[2]
 	}
 	file, _ := p.opt("--file")
-	note, why := textArg(inline, file, "note")
-	if why != "" {
+	note := ""
+	if inline == nil && file == "" { // a note is optional: none given is none sent
+		if !hlclient.StdinIsTerminal() {
+			note = readStdin()
+		}
+	} else if file == "-" || inline != nil && *inline == "-" { // an empty stdin is an empty note
+		if file != "" && inline != nil {
+			fmt.Println("give note inline or with --file, not both")
+			return 1, true
+		}
+		note = readStdin()
+	} else if text, why := textArg(inline, file, "note"); why != "" {
 		fmt.Println(why)
 		return 1, true
+	} else {
+		note = text
 	}
 	return said(c.Write("task.handoff", map[string]any{"task": tid, "to": p.pos[1], "note": note})), true
 }
@@ -306,12 +327,13 @@ func taskNote(c *hlclient.Client, args []string) (int, bool) {
 }
 
 func taskMemo(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--file"}, nil, nil)
+	p, ok := parse(args, []string{"--file", "--attach"}, []string{"--now"}, nil)
 	if !ok || len(p.pos) < 2 {
 		return 0, false
 	}
 	tid, ok := taskRef(p.pos[0])
 	verb, rest := p.pos[1], slices.Clone(p.pos[2:])
+	now := p.flags["--now"]
 	shape, known := map[string]int{"list": 0, "add": 1, "edit": 2, "delete": 1}[verb]
 	if !ok || !known {
 		return 0, false
@@ -326,6 +348,15 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 	}
 	mutating(c, "memo")
 	if !asking(c, "write a memo") {
+		return 1, true
+	}
+	if now && verb != "add" {
+		fmt.Println("--now goes with add")
+		return 1, true
+	}
+	attach := p.each["--attach"]
+	if len(attach) > 0 && verb != "add" {
+		fmt.Println("--attach goes with add")
 		return 1, true
 	}
 	file, _ := p.opt("--file")
@@ -352,7 +383,18 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 	case "list":
 		return memoList(c, tid), true
 	case "add":
-		return said(c.Write("task.memo.add", map[string]any{"task": tid, "text": rest[0]})), true
+		params := map[string]any{"task": tid, "text": rest[0]}
+		if now {
+			params["now"] = true
+		}
+		if len(attach) > 0 {
+			files := make([]string, len(attach))
+			for i, a := range attach {
+				files[i], _ = filepath.Abs(a) // the daemon reads it from its own cwd
+			}
+			params["files"] = files
+		}
+		return said(c.Write("task.memo.add", params)), true
 	}
 	if verb == "edit" {
 		return said(c.Write("task.memo.edit", map[string]any{"task": tid, "memo": mid, "text": rest[1]})), true
@@ -393,7 +435,7 @@ func taskQueue(queued bool) taskCmd {
 
 func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	p, ok := parse(args, []string{"--assign", "--owner", "--title", "--body", "--body-file", "--priority", "--blocked-by", "--unblock",
-		"--timeout"}, nil, nil)
+		"--timeout", "--tag", "--untag"}, nil, nil)
 	if !ok || len(p.pos) != 1 {
 		return 0, false
 	}
@@ -453,8 +495,14 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	if hasUnblock {
 		params["unblock"] = unblock
 	}
+	if tags := p.tags("--tag"); len(tags) > 0 {
+		params["add_tags"] = tags
+	}
+	if tags := p.tags("--untag"); len(tags) > 0 {
+		params["remove_tags"] = tags
+	}
 	if len(params) == 1 {
-		fmt.Println("edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, or --timeout")
+		fmt.Println("edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, --timeout, --tag or --untag")
 		return 1, true
 	}
 	return said(c.Write("task.edit", params)), true
@@ -546,17 +594,17 @@ func taskDone(c *hlclient.Client, args []string) (int, bool) {
 }
 
 func taskReopen(c *hlclient.Client, args []string) (int, bool) {
-	return taskWithReason(c, args, "reopen", "reopen a task", "task.reopen", "note")
+	return taskWithReason(c, args, "reopen", "reopen a task", "task.reopen", "note", true)
 }
 
 func taskDiscard(c *hlclient.Client, args []string) (int, bool) {
-	return taskWithReason(c, args, "discard", "discard a task", "task.discard", "reason")
+	return taskWithReason(c, args, "discard", "discard a task", "task.discard", "reason", false)
 }
 
-// taskWithReason is a subcommand taking T<n> and a reason, sent as key.
-func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key string) (int, bool) {
+// taskWithReason is a subcommand taking T<n> and a reason, sent as key; with optional the reason may be left out.
+func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key string, optional bool) (int, bool) {
 	p, ok := parse(args, nil, nil, nil)
-	if !ok || len(p.pos) != 2 {
+	if !ok || len(p.pos) > 2 || len(p.pos) < 2 && !(optional && len(p.pos) == 1) {
 		return 0, false
 	}
 	tid, ok := taskRef(p.pos[0])
@@ -567,7 +615,11 @@ func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key st
 	if !asking(c, verb) {
 		return 1, true
 	}
-	return said(c.Write(method, map[string]any{"task": tid, key: p.pos[1]})), true
+	params := map[string]any{"task": tid}
+	if len(p.pos) == 2 {
+		params[key] = p.pos[1]
+	}
+	return said(c.Write(method, params)), true
 }
 
 func taskAccept(c *hlclient.Client, args []string) (int, bool) {
@@ -583,9 +635,9 @@ func taskAccept(c *hlclient.Client, args []string) (int, bool) {
 }
 
 func taskReject(c *hlclient.Client, args []string) (int, bool) {
-	return taskWithReason(c, args, "reject", "reject a task", "task.reject", "note")
+	return taskWithReason(c, args, "reject", "reject a task", "task.reject", "note", false)
 }
 
 func taskRelease(c *hlclient.Client, args []string) (int, bool) {
-	return taskWithReason(c, args, "release", "release a task", "task.release", "reason")
+	return taskWithReason(c, args, "release", "release a task", "task.release", "reason", true)
 }

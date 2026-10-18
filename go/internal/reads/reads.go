@@ -5,6 +5,7 @@
 package reads
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -42,18 +43,25 @@ type Env struct {
 	// LoginState is whether an account has credentials, known false when this process cannot tell; nil asks the machine
 	// (team.Accounts).
 	LoginState func(account string) (loggedIn, known bool)
+	// PullRequests answers which of the numbers are pull requests of a GitHub repo; nil asks gh.
+	PullRequests func(ctx context.Context, repo string, numbers []int) ([]int, error)
+	prs          *prCache
 }
 
 // Register adds the read methods to the server's table.
 func Register(s *rpc.Server, env Env) {
 	e := &env
+	e.prs = newPRCache()
 	s.Register("daemon.status", rpc.Method{Role: "agent", Handler: e.status})
 	s.Register("agents.list", rpc.Method{Role: "agent", Handler: e.agentsList})
 	s.Register("agent.get", rpc.Method{Role: "agent", Handler: e.agentGet})
+	s.Register("pr.exists", rpc.Method{Role: "member", Handler: e.prExists})
 	s.Register("agent.strip", rpc.Method{Role: "member", Handler: e.agentStrip})
 	s.Register("agent.timeline", rpc.Method{Role: "member", Handler: e.agentTimeline})
 	s.Register("tasks.list", rpc.Method{Role: "agent", Handler: e.tasksList})
 	s.Register("task.get", rpc.Method{Role: "agent", Handler: e.taskGet})
+	s.Register("task.view.list", rpc.Method{Role: "member", Handler: e.taskViews})
+	s.Register("task.history", rpc.Method{Role: "agent", Handler: e.taskHistory})
 	s.Register("task.memo.list", rpc.Method{Role: "agent", Handler: e.taskMemoList})
 	s.Register("events.feed", rpc.Method{Role: "agent", Handler: e.eventsFeed})
 	s.Register("prompt.list", rpc.Method{Role: "member", Handler: e.promptList})
@@ -202,6 +210,27 @@ func optStr(params map[string]any, key string) (*string, error) {
 		return nil, badParam(key+" is a string", key)
 	}
 	return &s, nil
+}
+
+// optTags is a list of tags under key, lowercased as a task's are; nil when absent.
+func optTags(params map[string]any, key string) ([]string, error) {
+	v, has := params[key]
+	if !has || v == nil {
+		return nil, nil
+	}
+	items, ok := v.([]any)
+	if !ok {
+		return nil, badParam(key+" is a list of tags", key)
+	}
+	out := make([]string, len(items))
+	for i, it := range items {
+		s, ok := it.(string)
+		if !ok {
+			return nil, badParam(key+" is a list of tags", key)
+		}
+		out[i] = strings.ToLower(strings.TrimSpace(s))
+	}
+	return out, nil
 }
 
 func optBool(params map[string]any, key string) (bool, error) {

@@ -22,6 +22,8 @@ export interface Card {
   title: string;
   detail: string;
   agent: string | null;
+  /** Who is asking, never the person themselves. */
+  from: string | null;
   task: number | null;
   /** 1 is the most urgent; 4 for a card with no task. */
   priority: number;
@@ -58,14 +60,20 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
   const cards: Card[] = [];
   const prompted = new Set<string>();
 
+  const other = (name: string | null | undefined) => (name && !isPerson(name, me) ? name : null);
+
   for (const i of items) {
     if (i.read) continue;
+    const t = i.task == null ? undefined : byTask.get(i.task);
+    // The daemon titles an item with the first line of its body; a card about a task is titled with the task, and the body is its text.
+    const title = t?.title ?? i.title;
     const base = {
       agent: i.agent,
+      from: other(t?.from) ?? other(i.agent),
       task: i.task,
       since: at(i.created),
       ...when(i.task),
-      detail: i.body && i.body !== i.title ? i.body : '',
+      detail: i.body && i.body !== title ? i.body : '',
     };
     const open: CardAction[] = [
       ...(i.task != null
@@ -84,7 +92,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
         ...base,
         key: `item:${i.id}`,
         kind: 'approval',
-        title: i.title,
+        title,
         detail: i.prompt.command ?? i.prompt.reason ?? base.detail,
         primary: yes && no && i.agent ? 2 : 1,
         actions: [
@@ -100,8 +108,8 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
         ...base,
         key: `item:${i.id}`,
         kind: 'decision',
-        title: i.title,
-        primary: 1,
+        title,
+        primary: 1 + decide.length,
         actions: [{ type: 'answer', id: i.id }, ...decide, ...open],
       });
     }
@@ -115,6 +123,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
       title: t.title,
       detail: t.report.evidence,
       agent: t.to,
+      from: other(t.to),
       task: t.id,
       ...when(t.id),
       since: at(t.report.at),
@@ -146,6 +155,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
             : 'Hit the session limit',
       detail: n.text ?? '',
       agent: a.name,
+      from: a.name,
       task: a.task?.id ?? null,
       ...w,
       since: at(n.since),

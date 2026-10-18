@@ -60,7 +60,7 @@ type Env struct {
 	SessionPresent func(agent string) (bool, error)
 	// InterruptTerminal interrupts a terminal agent's turn (Env.PressEsc of the typing Env); nil serves no session.interrupt.
 	InterruptTerminal func(c *rpc.Conn, agent string) error
-	// Fold is control.fold: fold the day's events into the agent's digest, the one model call, run as `hl fold`. nil serves no agent.fold.
+	// Fold is control.fold: fold the day's events into the agent's digest, the one model call. nil serves no agent.fold.
 	Fold func(agent string) (ok bool, said string)
 	// Marker tells whoever watches the agent's terminal that a control call happened (termchan.Env.Marker); nil tells no one.
 	Marker func(agent, kind string, actor map[string]any, text string)

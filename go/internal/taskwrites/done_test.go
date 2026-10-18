@@ -75,7 +75,8 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 	refused("neither", done("w", "a4", 1, ``), "done takes exactly one of evidence or request")
 	refused("a queued request", done("w", "a5", 1, `,"request":10`), "request #10 is still queued - not answered yet")
 	refused("a missing request", done("w", "a6", 1, `,"request":77`), "no request #77")
-	refused("an open child", done("w", "a7", 2, `,"evidence":"x"`), "task T2 still has open child tasks (T3) - it is done once they are")
+	refused("an open child", done("w", "a7", 2, `,"evidence":"x"`), "task T2 still has open child tasks - it is done once they are closed:\n  T3  draft  w  kid\n"+
+		"close each: `hl task discard T3 \"<reason>\"` for one not needed (a duplicate of T2, say), or its assignee's `hl task done T3` for one finished")
 	refused("an open blocker", done("w", "a8", 4, `,"evidence":"x"`), "task T4 is waiting on T5 - it is done only once they are")
 	refused("a sha off main", done("w", "a9", 1, fmt.Sprintf(`,"evidence":%q,"repo":%q`, offMain, repo)), offMain+" is not an ancestor of main")
 	refused("a sha needs a repo", done("w", "b1", 1, `,"evidence":"abcd1234"`), "a sha is checked against a repo: name one")
@@ -107,5 +108,30 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 	r = done("w", "c4", 8, `,"evidence":"again"`)
 	if r["error"] != nil || r["result"].(map[string]any)["said"] != "task T8 is already done (earlier); its leftover request is settled" || f.done[len(f.done)-1] != "T8 w w 1 false" {
 		t.Fatalf("a leftover request is settled: %v %v", r, f.done)
+	}
+}
+
+// The stall this guards against: a parent's holder reported done while a duplicate of the parent, opened under it and handed to another agent, was
+// still open. The refusal names the child with its state, assignee and title and the command that clears it, and the holder clears it
+// from there.
+func TestDoneWithAnOpenDuplicateChildNamesItAndTheDiscardThatClearsIt(t *testing.T) {
+	sdb, mk := discardEnv(t)
+	exec(t, sdb, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'Story 1-0', 'worker', 'manager', 1), (2, 'Story 1-0', 'other', 'worker', 1)",
+		"UPDATE tasks SET parent_task = 1 WHERE id = 2")
+	r := call(t, mk("worker"), `{"jsonrpc":"2.0","id":1,"method":"task.done","params":{"task":1,"evidence":"shipped","request_id":"d1"}}`)[0]
+	e, _ := r["error"].(map[string]any)
+	data, _ := e["data"].(map[string]any)
+	if !strings.Contains(errText(r), "\n  T2  draft  other  Story 1-0\n") || !strings.Contains(errText(r), "`hl task discard T2 \"<reason>\"`") || data["gate"] != "open_children" {
+		t.Fatalf("the refusal does not name the child and how to clear it: %v", r)
+	}
+	kids, _ := data["children"].([]any)
+	if len(kids) != 1 || fmt.Sprint(kids[0]) != "map[assignee:other state:draft task:2 title:Story 1-0]" {
+		t.Fatalf("data.children: %v", data["children"])
+	}
+	if r := call(t, mk("worker"), `{"jsonrpc":"2.0","id":2,"method":"task.discard","params":{"task":2,"reason":"duplicate of T1","request_id":"d2"}}`)[0]; r["error"] != nil {
+		t.Fatalf("the parent's holder could not discard the duplicate: %v", r)
+	}
+	if r := call(t, mk("worker"), `{"jsonrpc":"2.0","id":3,"method":"task.done","params":{"task":1,"evidence":"shipped","request_id":"d3"}}`)[0]; r["error"] != nil {
+		t.Fatalf("done after the duplicate went: %v", r)
 	}
 }

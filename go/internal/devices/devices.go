@@ -83,6 +83,17 @@ func (m *Manager) Listening(addr string, fingerprint func() string) {
 	m.mu.Unlock()
 }
 
+// Listener is what Listening recorded: the address a pairing names and the certificate's fingerprint ("" in plain Tailscale mode). addr is
+// "" until the listener is up.
+func (m *Manager) Listener() (addr, fingerprint string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.print != nil {
+		fingerprint = m.print()
+	}
+	return m.addr, fingerprint
+}
+
 func hashOf(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
@@ -232,7 +243,7 @@ func (m *Manager) row(d Device) map[string]any {
 	if d.LastSeen != nil {
 		seen = time.Unix(*d.LastSeen, 0).UTC().Format("2006-01-02T15:04:05Z")
 	}
-	return map[string]any{"id": d.ID, "name": d.Name, "role": "member",
+	return map[string]any{"id": d.ID, "name": d.Name, "role": "founder",
 		"created": time.Unix(d.Created, 0).UTC().Format("2006-01-02T15:04:05Z"), "last_seen": seen, "connected": len(m.conns[d.ID]) > 0}
 }
 

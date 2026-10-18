@@ -222,6 +222,7 @@ export class Script {
     this.edit(s, () => {
       s.lines.push(...BANNER.map((l) => l.replace('{worktree}', s.fx.worktree)));
     });
+    this.setState(s, 'starting', actor); // the launch, then its session ready at once
     this.setState(s, 'idle', actor);
     return this.accepted('Session started.');
   }

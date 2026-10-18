@@ -3,6 +3,7 @@
 # Run by tools/test.sh with the whole suite; run it alone with `tools/test-go.sh [go test args]`.
 # -race only when HANDLINE_GO_RACE=1, as the auditor sets it for a sha: a race build doubles the build cache, and every worktree runs this.
 here="$(cd "$(dirname "$0")" && pwd)"
+[ -n "${HANDLINE_HEAVY_SLOT:-}" ] || exec "$here/heavy-slot.sh" "$here/test-go.sh" "$@"   # one heavy run at a time
 cd "$here/../go" || exit 1
 if ! command -v go >/dev/null; then
     echo "tools/test-go.sh: no go on PATH; go test ./... is a required check" >&2

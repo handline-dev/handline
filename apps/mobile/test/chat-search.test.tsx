@@ -82,6 +82,7 @@ describe('chat search on the phone', () => {
   it('a daemon that does not list chat.search shows no box', async () => {
     const m = await open((s) => s.daemon.knobs.unserve('chat.search'));
     expect($('chat-search')).toBeNull();
+    expect($('chat-search-open')).toBeNull();
     m.store.stop();
   });
 });

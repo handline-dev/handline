@@ -20,6 +20,31 @@ func (r *rig) ask(from, to, body, kind string) int64 {
 	return out.RID
 }
 
+func TestASayIsTypedWithItsLines(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	out, _, err := r.Say(r.DB, SayIn{Target: "bob", Body: "Done:\n\n- one\x07\n- two\n", Requester: "alice"})
+	r.must(err)
+	head := mustReq(r, out.RID)
+	if got := tellText(r.DB, head, 1, nil, false, nil, ""); !strings.HasPrefix(got, "#1 from alice, waiting for you:\nDone:\n\n- one\n- two\n`hl read 1`") {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestAHandoffNoteIsTypedWithItsLinesAndTheTitleOnItsOwn(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	for note, want := range map[string]string{
+		"Step 1:\n- a\x07\n- b": "T1 handed to you. Note: Step 1:\n- a\n- b\nTitle: write the docs\n",
+		"check it":              "T1 handed to you. Note: check it Title: write the docs\n",
+	} {
+		head := mustReq(r, r.ask("alice", "bob", "T1 handed to you by alice: write the docs\n\n"+note, "task"))
+		if got := tellText(r.DB, head, 1, nil, false, nil, ""); !strings.Contains(got, "waiting for you:\n"+want) {
+			t.Errorf("%q", got)
+		}
+	}
+}
+
 func TestDeliverQueuedTellsTheHeadTaskThenBatchesWhatArrivesBehindIt(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
@@ -199,6 +224,13 @@ func TestWaitingPromptIsTheTellTheNextTickWouldType(t *testing.T) {
 		t.Fatal(s)
 	}
 	r.must(db.MarkLanded(r.DB, rid)) // the resumed session read it: it leaves the line
+	rid = r.ask("alice", "bob", "start fresh", "ask")
+	_, told, _, _ = r.WaitingPrompt(r.DB, "bob")
+	told("") // a fresh start: recorded as told to the session now live, so it is not told again
+	if s, _ := db.NotifiedSession(r.DB, "bob"); s != "s1" {
+		t.Fatal(s)
+	}
+	r.must(db.MarkLanded(r.DB, rid))
 	db.AddPending(r.DB, "bob", "a bare line", 5)
 	text, told, ok, _ = r.WaitingPrompt(r.DB, "bob")
 	if !ok || text != "a bare line" {

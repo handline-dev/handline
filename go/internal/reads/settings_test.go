@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/handline/handline/go/internal/handoff"
+	"github.com/handline/handline/go/internal/paths"
 )
 
 func TestIsOurHookRecognisesTheCommandWhateverPathItWasWrittenWith(t *testing.T) {
@@ -57,5 +60,59 @@ func TestHooksInstalledNeedsOneOfOursForEveryWantedEvent(t *testing.T) {
 	os.WriteFile(filepath.Join(home, "shared", ".claude", "settings.json"), []byte("{not json"), 0o644)
 	if e.hooksInstalled() {
 		t.Fatal("a file that cannot be read is not installed")
+	}
+}
+
+func TestSettingsShowTheHandoffPromptAsSetOrTheBuiltInAndAnAgentsOwn(t *testing.T) {
+	e := testEnv(t)
+	os.MkdirAll(filepath.Join(e.Home, "agents", "ann"), 0o755)
+	writeAgentYAML(t, e, "ann", "role: r\nhandoff_prompt: \"ann: {path}\"\n")
+	get := func(agent string) map[string]any {
+		t.Helper()
+		params := map[string]any{}
+		if agent != "" {
+			params["agent"] = agent
+		}
+		out, err := e.settingsGet(nil, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out.(map[string]any)
+	}
+	if got := get("")["values"].(map[string]any)[handoff.PromptKey]; got != handoff.AskTemplate {
+		t.Fatalf("unset: %q", got)
+	}
+	os.WriteFile(paths.ConfigFile(e.Home), []byte("handoff_prompt: \"Mine: {path}\"\n"), 0o644)
+	if got := get("")["values"].(map[string]any)[handoff.PromptKey]; got != "Mine: {path}" {
+		t.Fatalf("set: %q", got)
+	}
+	if got := get("ann")["overrides"].(map[string]any)[handoff.PromptKey]; got != "ann: {path}" {
+		t.Fatalf("ann's own: %q", got)
+	}
+}
+
+func TestEveryNotificationKindPushesUntilTheFounderTurnsItOff(t *testing.T) {
+	e := testEnv(t)
+	kinds := []string{"push_prompt_asked", "push_task_done", "push_stall", "push_account_out"}
+	values := func() map[string]any {
+		t.Helper()
+		out, err := e.settingsGet(nil, map[string]any{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out.(map[string]any)["values"].(map[string]any)
+	}
+	for _, k := range kinds {
+		if values()[k] != true {
+			t.Fatalf("%s is off by default", k)
+		}
+	}
+	for _, off := range kinds {
+		os.WriteFile(paths.ConfigFile(e.Home), []byte(off+": false\n"), 0o644)
+		for _, k := range kinds {
+			if v := values(); v[k] != (k != off) {
+				t.Fatalf("%s turned off: %s is %v", off, k, v[k])
+			}
+		}
 	}
 }

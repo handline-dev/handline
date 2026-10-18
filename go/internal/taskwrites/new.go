@@ -42,6 +42,18 @@ func timeBox(p map[string]any, key string) (int64, error) {
 	return secs, nil
 }
 
+// optionalBool is a true or false param, false when absent.
+func optionalBool(p map[string]any, key string) (bool, error) {
+	if p[key] == nil {
+		return false, nil
+	}
+	b, ok := p[key].(bool)
+	if !ok {
+		return false, badParam(key+" is true or false", key)
+	}
+	return b, nil
+}
+
 // optionalTask is rpc_tasks._task_number: a task number, or none.
 func optionalTask(p map[string]any, key string) (int64, bool, error) {
 	if p[key] == nil {
@@ -81,9 +93,6 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			if !ok {
 				return nil, badParam("body is text", "body")
 			}
-			if strings.TrimSpace(b) == "" {
-				return nil, badParam("body is text and not empty", "body")
-			}
 			body = strings.TrimSpace(textsafe.Text(b))
 		}
 		secs, err := timeBox(p, "time_box")
@@ -108,17 +117,28 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 				return nil, err
 			}
 		}
-		ui := false
-		if v := p["ui"]; v != nil {
+		ui, err := optionalBool(p, "ui")
+		if err != nil {
+			return nil, err
+		}
+		duplicateOK := false
+		if v := p["duplicate_ok"]; v != nil {
 			b, isBool := v.(bool)
 			if !isBool {
-				return nil, badParam("ui is true or false", "ui")
+				return nil, badParam("duplicate_ok is true or false", "duplicate_ok")
 			}
-			ui = b
+			duplicateOK = b
 		}
 		parent, hasParent, err := optionalTask(p, "parent")
 		if err != nil {
 			return nil, err
+		}
+		tags, err := TagList(p, "tags")
+		if err != nil {
+			return nil, err
+		}
+		if len(tags) > maxTags {
+			return nil, badParam(fmt.Sprintf("a task carries at most %d tags", maxTags), "tags")
 		}
 		blocker, hasBlocker, err := optionalTask(p, "blocked_by")
 		if err != nil {
@@ -140,7 +160,7 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			}
 			var err error
 			tid, asked, err = OpenTask(tx, tell, me, NewIn{Owner: owner, Title: clean, Body: body, Secs: secs, Prio: prio, Expects: expects,
-				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter, UI: ui})
+				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter, UI: ui, DuplicateOK: duplicateOK, Tags: tags})
 			if err != nil {
 				return nil, err
 			}
@@ -177,12 +197,14 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 type NewIn struct {
 	Owner, Title, Body string
 	Reporter           string // who the task answers to; "" is the opener
+	Tags               []string
 	Secs, Prio         int64
 	Expects            string
 	Parent, Blocker    int64
 	HasParent          bool
 	HasBlocker         bool
 	UI                 bool // the task shows something on a screen (a label; done never requires a screenshot)
+	DuplicateOK        bool // open it even when an open task under the parent has nearly its title
 }
 
 // OpenTask is actions.task_new in the caller's transaction: the owner is asked through the routing table and the task row, its link and
@@ -213,14 +235,16 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 			}
 		}
 	}
-	if body == "" {
-		return 0, nil, refusal("a task needs a body: the work itself, what done looks like - the title alone is not a brief")
-	}
 	if hasParent {
 		if ok, err := hasTask(tx, parent); err != nil {
 			return 0, nil, err
 		} else if !ok {
 			return 0, nil, refusal(fmt.Sprintf("no task T%d", parent))
+		}
+		if !in.DuplicateOK {
+			if err := duplicateRefusal(tx, parent, clean); err != nil {
+				return 0, nil, err
+			}
 		}
 	}
 	open := func(rid int64) error {
@@ -252,7 +276,16 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 				return err
 			}
 		}
-		if err := addEvent(tx, me, "task_new", kv{"task_id", tid}, kv{"request_id", rid}, kv{"owner", owner}, kv{"expects", expects}); err != nil {
+		payload := []kv{{"task_id", tid}, {"request_id", rid}, {"owner", owner}, {"expects", expects}}
+		if len(in.Tags) > 0 {
+			payload = append(payload, kv{"tags", in.Tags})
+		}
+		for _, tag := range in.Tags {
+			if _, err := tx.Exec("INSERT INTO task_tags(task_id, tag) VALUES(?, ?)", tid, tag); err != nil {
+				return err
+			}
+		}
+		if err := addEvent(tx, me, "task_new", payload...); err != nil {
 			return err
 		}
 		if hasParent { // a child task always blocks its parent

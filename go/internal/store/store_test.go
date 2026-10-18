@@ -344,6 +344,45 @@ func TestADatabaseAtStepNineGetsTheExtraWorktreesColumn(t *testing.T) {
 	}
 }
 
+func TestEveryRequestHasItsOwnRef(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "db.sqlite")
+	db, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insert := func(n int) {
+		for i := 0; i < n; i++ {
+			if _, err := db.Exec("INSERT INTO requests(ts, requester, target, body) VALUES(1, 'a', 'b', 'x')"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	insert(3)
+	// Back to step 18 with rows that have no ref: the step gives them one.
+	for _, q := range []string{"DROP TRIGGER requests_ref", "DROP INDEX requests_ref", "ALTER TABLE requests DROP COLUMN ref",
+		"DELETE FROM schema_version WHERE version > 18"} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(50)
+	db.Close()
+	if db, err = Open(p); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	insert(50) // and a row written after the step gets one from the trigger
+	var rows, refs, good int
+	db.QueryRow("SELECT COUNT(*), COUNT(DISTINCT ref), COALESCE(SUM(length(ref) = 12 AND ref NOT GLOB '*[^0-9a-f]*'), 0) FROM requests").
+		Scan(&rows, &refs, &good)
+	if rows != 103 || refs != rows || good != rows {
+		t.Fatalf("%d rows, %d distinct refs, %d of 12 lowercase hex", rows, refs, good)
+	}
+	if _, err := db.Exec("INSERT INTO requests(ts, requester, target, body, ref) SELECT 1, 'a', 'b', 'x', ref FROM requests LIMIT 1"); err == nil {
+		t.Fatal("a second request took a ref already in use")
+	}
+}
+
 func TestADatabaseAtStepFourteenLosesTheLandTables(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "db.sqlite")
 	db, err := Open(p)
@@ -368,15 +407,16 @@ func TestADatabaseAtStepFourteenLosesTheLandTables(t *testing.T) {
 	}
 }
 
-// A step tools/go_schema.py cannot dump is generated as a comment only and ported into byHand under its number, so
-// each comment-only step has a byHand step and each byHand step names one.
-func TestEachByHandStepIsTheStepGeneratedAsAComment(t *testing.T) {
+// A step tools/go_schema.py cannot dump in whole is ported into byHand under its number, so each comment-only step has
+// a byHand step and each byHand step names a step.
+func TestEachByHandStepNamesAStep(t *testing.T) {
 	ms, err := migrations()
 	if err != nil {
 		t.Fatal(err)
 	}
 	named := map[int]bool{}
 	for _, m := range ms {
+		named[m.version] = true
 		var body []string
 		for _, line := range strings.Split(m.sql, "\n") {
 			if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "--") {
@@ -384,7 +424,6 @@ func TestEachByHandStepIsTheStepGeneratedAsAComment(t *testing.T) {
 			}
 		}
 		if len(body) == 0 {
-			named[m.version] = true
 			if byHand[m.version] == nil {
 				t.Errorf("step %d (%s) is a comment only and has no byHand step", m.version, m.name)
 			}
@@ -392,7 +431,7 @@ func TestEachByHandStepIsTheStepGeneratedAsAComment(t *testing.T) {
 	}
 	for v := range byHand {
 		if !named[v] {
-			t.Errorf("byHand step %d is not a step generated as a comment only", v)
+			t.Errorf("byHand step %d is not a step", v)
 		}
 	}
 }

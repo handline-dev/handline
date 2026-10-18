@@ -170,6 +170,19 @@ func TestATerminalAgentWithNoInboxIsQueuedNotTold(t *testing.T) {
 	}
 }
 
+func TestAClosedTerminalAgentIsWokenForAMessageAtOnce(t *testing.T) {
+	r, in := peerRig(t, peerinbox.Result{Kind: peerinbox.Delivered})
+	r.Agents.(*peerport.Port).Find = func(string) (peerinbox.Session, error) { return peerinbox.Session{}, peerinbox.ErrNoSession }
+	r.must(db.SetClosed(r.DB, "bob", ""))
+	rid := r.ask("alice", "bob", "psst", "say")
+	if _, err := r.TellNow(r.DB, rid); err != nil || in.count() != 0 {
+		t.Fatalf("%v %d", err, in.count())
+	}
+	if len(r.life.woke) != 1 || r.life.woke[0] != "bob" {
+		t.Fatalf("not left for the next tick: %q", r.life.woke)
+	}
+}
+
 func TestAMessageNeverWrittenSaysSoAndOneWrittenAndUnseenSaysItMayHaveBeenRead(t *testing.T) {
 	for _, written := range []bool{false, true} {
 		r, in := peerRigHeld(t, peerinbox.Result{Kind: peerinbox.Delivered})
@@ -188,6 +201,9 @@ func TestAMessageNeverWrittenSaysSoAndOneWrittenAndUnseenSaysItMayHaveBeenRead(t
 		r.must(r.DB.QueryRow("SELECT count(*) FROM requests WHERE target = 'alice' AND body LIKE ?", pattern).Scan(&n))
 		if n != 1 {
 			t.Fatalf("written=%v: the sender was told %d times", written, n)
+		}
+		if left, _ := db.PendingNotices(r.DB, "alice"); len(left) != 1 || left[0].SendNow.Valid {
+			t.Fatalf("written=%v: the sender's note waits in its digest, not typed at once: %+v", written, left)
 		}
 		r.must(r.SessionNotDelivered("bob", op, "no inbox", written)) // settled once
 		r.must(r.DB.QueryRow("SELECT count(*) FROM events WHERE agent = 'bob' AND kind = 'needs_you'").Scan(&n))

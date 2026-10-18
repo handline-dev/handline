@@ -243,7 +243,7 @@ func under(parent map[int]int, pid, root int) bool {
 }
 
 func (t termRun) Tell(agent, _, text string) error {
-	sess, err := findSession(t.p.home, t.p.db, agent)
+	sess, err := findSession(t.p.home, t.p.db, agent, t.p.panePid)
 	if err != nil {
 		return err
 	}

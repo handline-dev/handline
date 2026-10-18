@@ -31,11 +31,11 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   A story reaches main as one PR, which the founder checks by eye and merges.
   Only a fix for a red main, a daemon bug or a security fix goes straight to main,
   as its own PR. Main is merged into every `story/<n>` at least once a day.
+- New work goes in Go. The Python package `handline/` is gone; Python stays only in `tools/` and `contract/` (dev and test harnesses).
 - Every PR to main shows, in its body, a screenshot of each screen it adds or
   changes, before and after, PC and phone where both change, so the founder can
   judge it from the PR alone. A PR with no UI change says so in one line.
-- An agent merges a PR with `hl land <PR>`, never `gh pr merge`: it merges only
-  when every CI check on the PR's head is green, and names each one that is not.
+- Main requires the go and apps checks (branch protection): a PR merges once they are green.
 - Before you ask for a review, merge the current target (`story/<n>`, or main)
   into the branch and run `tools/check.sh <target>`; the review request carries
   its result line. The auditor sends a request without it back, unreviewed.
@@ -53,18 +53,19 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 ## Hard rules
 
 1. Never read, write or copy a credential: `.credentials.json`, the Keychain.
-   Never write or copy `.claude.json`. Adding an account is one
-   `CLAUDE_CONFIG_DIR=<dir> claude /login` run by a person; a refresh token rotates
+   Adding an account is one `CLAUDE_CONFIG_DIR=<dir> claude /login` run by a person; a refresh token rotates
    once, so copies invalidate each other. Two exceptions: a driver's meter
    path may read an opencode `auth.json` in memory, once, for the usage question
-   only; `Driver.profile` and `Driver.login_id` in the claude driver are the only readers of
+   only; `Driver.profile` and `Driver.login_id` in the claude driver are the only readers of account values in
    `.claude.json`: the first returns only the subscription start and the two rate-limit
    tier strings, the second only a one-way fingerprint of the account id, which keys the
    stored email, so it is asked of claude only when the login is new. The founder:
    "Go with A. Reading is fine. Just do not expose a token or the like that you read."
    Read is allowed; exposing a token, key or other secret from it is not. No key,
    token, email or other value from either file reaches an agent's env, prompt,
-   terminal, log, db or any file ocp writes. One more, temporary, by the founder's word: a claude
+   terminal, log, db or any file ocp writes. The daemon writes one key there: the worktree
+   it launches an agent in is marked trusted (`projects[<path>].hasTrustDialogAccepted`), under
+   claude's own lock, every other byte left as it was. One more, temporary, by the founder's word: a claude
    account's coding-plan key goes into the env of the agent launched on it, nowhere else.
 2. Do not code on an assumption nobody verified. Probe it first.
 3. No logic in `SKILL.md`: it is a stub of at most 20 lines, and detail loads on
@@ -110,23 +111,19 @@ agent (ROLE.md, base.md); this file does not repeat them.
 
 - Tests: when you change code, write unit tests for the change in the same
   commit. Work is not done until they pass. While iterating, run only the
-  tests you touched (`tools/test.sh -k <name>`, or `tools/test.sh tests/<group>/test_<area>.py`); do not run the
+  tests you touched (`cd go && go test ./internal/<pkg> -run <name>`); do not run the
   whole suite before you hand the task to the auditor. The auditor runs the tests once at the
   exact sha (`HANDLINE_GO_RACE=1 tools/check.sh <target>`: the variable adds `-race` to the Go tests, and only this run sets it; in the foreground with a 600000 ms Bash timeout, never in the
   background); a count you quote is not a verdict. `tools/check.sh` runs nothing for documentation; for anything else
   it runs, in order: the app checks (`pnpm turbo test typecheck lint` when an app or JS workspace file changed, else
-  `pnpm --dir packages/app-data test`), then the Go suite and the Python files that test only Go (its GO_FILES) for
-  a change to go/ or the apps only, the whole suite (`tools/suite.sh`) otherwise.
+  `pnpm --dir packages/app-data test`), the contract's generated files being current, then the Go suite (`tools/test-go.sh`).
 - Lighter review: a docs-only change, or a re-merge of main or the story branch onto an already
   PASSed sha with no conflict, lands without a new review round. The auditor records the PASS on the
   new sha at once and the merger lands it on its target.
 - Live checks: run them yourself, one short run each, and put the output in the task. They are opt-in:
   `HANDLINE_LIVE=1 tools/live-e2e.sh`, or `HANDLINE_LIVE=1 go test -run TestLive... ./internal/...`. Each spends
   the account with the most headroom now (`tools/live_account.py` says which and why) and runs a test daemon on a
-  scratch home, never the live one. Never from suite.sh, check.sh or CI. Do not send a live run to the founder.
-- Run tests only through `tools/test.sh`, never `python3 tests/...` by hand: it brings the
-  venv python, an unset `OCP_AGENT`, unbuffered output and a temp `OCP_HOME` (bridge tests
-  print nothing without them, and a hang looks like a stall).
+  scratch home, never the live one. Never from check.sh or CI. Do not send a live run to the founder.
 - TypeScript: run `pnpm turbo test typecheck lint` before you hand a task over. Aim for files under 250 lines and
   functions under 60; lint fails at 400 and 120 (tests 600, components 250), counted without blank or comment lines.
   A `max-lines` error means split the file by responsibility, not raise the limit or add a disable. The numbers are in
@@ -146,3 +143,6 @@ agent (ROLE.md, base.md); this file does not repeat them.
   and they vanish from the message. Text with backticks or `$(`, or with a literal `'`
   in it, goes in a quoted heredoc on stdin as `-`, or in a file as `--file PATH`
   (`hl say`, `hl task new`, `hl task handoff`, `hl task memo add`).
+- A message of more than a sentence goes in lines, in Markdown, through a
+  quoted heredoc: `hl say <target> --file - <<'EOF'`, the body, then `EOF`.
+  The receiver and the app see its lines.

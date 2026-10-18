@@ -15,6 +15,8 @@ export interface AgentFixture {
   parent: string | null;
   worktree: string;
   branch: string;
+  /** owner/repo of the worktree's GitHub origin, or null. */
+  repo?: string | null;
   session: string | null;
   wall?: boolean;
   /** AgentView fields the agent_view_fields and agent_view_attention conformance fixtures pin, served as they are. */
@@ -32,7 +34,8 @@ export const AGENTS: AgentFixture[] = [
     task: null,
     parent: 'handline.architect',
     worktree: '/work/handline.term-build',
-    branch: 'buddyron/handline.term-build',
+    branch: 'yourname/handline.term-build',
+    repo: 'handline-dev/handline',
     session: null,
   },
   {
@@ -45,7 +48,8 @@ export const AGENTS: AgentFixture[] = [
     task: { id: 1684, title: 'Web UI design' },
     parent: null,
     worktree: '/work/handline.architect',
-    branch: 'buddyron/handline.architect',
+    branch: 'yourname/handline.architect',
+    repo: 'handline-dev/handline',
     session: 's-arch-1',
   },
   {
@@ -58,7 +62,8 @@ export const AGENTS: AgentFixture[] = [
     task: null,
     parent: 'handline.architect',
     worktree: '/work/handline.auditor',
-    branch: 'buddyron/handline.auditor',
+    branch: 'yourname/handline.auditor',
+    repo: 'handline-dev/handline',
     session: 's-aud-1',
     wall: true,
   },
@@ -73,8 +78,8 @@ export function seedChat(chat: FakeChat, at: string): void {
   const A = 'handline.architect',
     me = 'human';
   const ago = (min: number) => new Date(Date.parse(at) - min * 60_000).toISOString();
-  chat.seed(A, { from: me, to: A, body: 'Draft the web chat tab plan.', at: ago(50), landing: 'answered' });
-  chat.seed(A, { from: me, to: A, body: 'Use the contract fixtures.', at: ago(30), landing: 'delivered_unanswered' });
+  chat.seed(A, { from: me, to: A, body: 'Draft the web chat tab plan.', at: ago(50), landing: 'delivered' });
+  chat.seed(A, { from: me, to: A, body: 'Use the contract fixtures.', at: ago(30), landing: 'delivered' });
   chat.seed(A, { from: me, to: A, body: 'Hold that, scope changed.', at: ago(20), landing: 'withdrawn' });
   chat.seed(A, { from: me, to: A, body: 'Also add the list of gaps.', at: ago(5), landing: 'typed', landed_at: null, delivered_at: null });
   chat.seed(A, {
@@ -83,8 +88,7 @@ export function seedChat(chat: FakeChat, at: string): void {
     body: 'Which gap list should come first?',
     at: ago(10),
     kind: 'question',
-    is_task_question: true,
-    landing: 'delivered_unanswered',
+    landing: 'delivered',
   });
   chat.seed(A, { from: 'handline.auditor', to: A, body: 'Review is done, see the notes.', at: ago(40), landing: 'delivered' });
   chat.seedItem(A, { at: ago(49), kind: 'reply', text: 'Here is the plan: three units, chat first.' });
@@ -136,10 +140,6 @@ export function seedInbox(inbox: FakeInbox, at: string): void {
     agent: 'handline.architect',
     title: 'Should the daemon relay through the Go front door?',
     body: 'Both work; relaying means one socket for every client.',
-    options: [
-      { id: 'yes', label: 'Yes' },
-      { id: 'no', label: 'No' },
-    ],
     created: ago(12),
   });
   inbox.add({
@@ -186,6 +186,19 @@ export function seedTasks(tasks: FakeTasks, at: string): void {
     delivered: ago(240),
     time_box: '8h',
     body: 'Plan the web UI.\n\nThree units, chat first.',
+    history: [
+      { at: ago(300), by: me, field: 'state', was: '', now: 'queued' },
+      { at: ago(300), by: me, field: 'assignee', was: '', now: 'handline.architect' },
+      { at: ago(290), by: 'handline.architect', field: 'state', was: 'queued', now: 'doing' },
+      { at: ago(280), by: me, field: 'title', was: 'Web UI plan', now: 'Web UI design' },
+      { at: ago(270), by: 'handline.architect', field: 'body', was: 'Plan the web UI.', now: 'Plan the web UI.\n\nThree units, chat first.' },
+      { at: ago(262), by: 'handline.pc', field: 'memo', was: '', now: 'Chat first, then tasks.', memo: 1 },
+      { at: ago(250), by: 'handline.auditor', field: 'state', was: 'doing', now: 'done', note: 'auditor PASS on 3f2a9c1; screenshot attached' },
+      { at: ago(246), by: 'handline.pc', field: 'memo', was: 'Chat first, then tasks.', now: 'Chat first, then tasks, then the timeline.', memo: 1 },
+      { at: ago(244), by: me, field: 'memo', was: 'Skip the gap list for now.', now: '', memo: 2 },
+      { at: ago(240), by: me, field: 'assignee', was: 'handline.term-build', now: 'handline.architect' },
+      { at: ago(236), by: me, field: 'priority', was: 'P2', now: 'P1' },
+    ],
   });
   tasks.seed({
     id: 1688,
