@@ -71,15 +71,18 @@ func (f *fakeTerm) ResumeWith(_, p string) (bool, string) {
 	f.resumedWith = append(f.resumedWith, p)
 	return true, "typed the pointer"
 }
-func (*fakeTerm) Available() bool                       { return true }
-func (*fakeTerm) WaitIdle(string) bool                  { return true }
-func (*fakeTerm) WaitDrawn(string) bool                 { return true }
-func (*fakeTerm) ScreenBlocker(string) *term.Blocker    { return nil }
-func (*fakeTerm) BackgroundWork(string) (string, bool)  { return "", true }
-func (*fakeTerm) CloseSession(string) (bool, string)    { return true, "" }
-func (*fakeTerm) TrustPromptShowing(string) bool        { return false }
-func (*fakeTerm) DriverScope() func()                   { return func() {} }
-func (f *fakeTerm) CloseTerminal(string) (bool, string) { f.closedPane = true; return true, "" }
+func (*fakeTerm) Available() bool                      { return true }
+func (f *fakeTerm) WaitIdle(string) bool               { return !f.busy }
+func (*fakeTerm) WaitDrawn(string) bool                { return true }
+func (*fakeTerm) ScreenBlocker(string) *term.Blocker   { return nil }
+func (*fakeTerm) BackgroundWork(string) (string, bool) { return "", true }
+func (*fakeTerm) CloseSession(string) (bool, string)   { return true, "" }
+func (*fakeTerm) TrustPromptShowing(string) bool       { return false }
+func (*fakeTerm) DriverScope() func()                  { return func() {} }
+func (f *fakeTerm) CloseTerminal(string) (bool, string) {
+	f.closedPane, f.busy = true, false
+	return true, ""
+}
 func (f *fakeTerm) Relaunch(_, cmd string, started func() bool) (bool, string) {
 	f.relaunched = append(f.relaunched, cmd)
 	if f.launchOK && started() {

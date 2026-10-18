@@ -16,8 +16,8 @@ import (
 )
 
 // passes are the guarded passes the tick makes after its per-agent turns, in daemon/evaluate.py's order: the timebox, the notices, the stuck waits,
-// the settings a launch read, and last the healing of stuck agents. A structured session records no launch parts yet, so applying changed settings finds nothing recorded and
-// restarts nobody until it does.
+// the settings a launch read, and last the healing of stuck agents. A structured session records no launch parts yet, so applying changed
+// settings finds nothing recorded and restarts nobody until it does.
 func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSweep {
 	lc := p.LC
 	timebox := &tick.Timebox{Ports: timeboxPorts{p: p, env: lc.Env, set: lc.Manager.Settings, home: cfg.Home}, Cutover: cutover}

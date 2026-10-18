@@ -6,6 +6,7 @@ import (
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/term"
 )
@@ -45,10 +46,18 @@ func (h healPorts) Interrupt(agent string) (bool, string) {
 
 func (h healPorts) Push(q db.Q, agent string, rid int64) string { return h.lc.Env.Push(q, agent, rid) }
 
+// Restart takes a RUNNING agent out of its turn without waiting for it (RestartHung); one between turns is restarted as a person's
+// restart is.
 func (h healPorts) Restart(agent string, fresh bool) (bool, string, error) {
 	m := h.lc.Manager
 	st := m.Status.ReadForAgent(agent, m.Agents.CurrentAccount(m.Q, agent))
-	return m.RestartAgent(agent, st, lifecycle.RestartOpts{Fresh: fresh, Force: true, By: "the daemon, as it was stuck", Cause: "heal"})
+	const by, cause = "the daemon, as it was stuck", "heal"
+	if row, err := db.GetAgentState(m.Q, agent); err != nil {
+		return false, "", err
+	} else if row != nil && row.State == states.Running {
+		return m.RestartHung(agent, st, fresh, by, cause)
+	}
+	return m.RestartAgent(agent, st, lifecycle.RestartOpts{Fresh: fresh, By: by, Cause: cause})
 }
 
 func (h healPorts) RaiseCard(q db.Q, agent, text, fix string) error {

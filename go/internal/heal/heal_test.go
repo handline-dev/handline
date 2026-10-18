@@ -72,6 +72,9 @@ func must(t *testing.T, err error) {
 	}
 }
 
+// inline is a healer that runs each step before the sweep returns.
+func inline(f *fakePorts) *Healer { return &Healer{Ports: f, Go: func(run func()) { run() }} }
+
 // sweepFor sweeps every tick for d seconds from now.
 func sweepFor(t *testing.T, h *Healer, q db.Q, now, d int64) {
 	t.Helper()
@@ -88,7 +91,7 @@ func TestHungAgentRecoversByRestart(t *testing.T) {
 	f.onRestart = func() {
 		must(t, db.SetAgentState(q, "a", states.Idle, 0, "restarted"))
 	}
-	h := &Healer{Ports: f}
+	h := inline(f)
 
 	must(t, h.Sweep(q, now))
 	must(t, h.Sweep(q, now+30))
@@ -102,11 +105,55 @@ func TestHungAgentRecoversByRestart(t *testing.T) {
 	if len(f.cards) != 0 {
 		t.Fatalf("a healed agent raises no card: %v", f.cards)
 	}
-	if step, _ := db.Cursor(q, stepKey("a")); step != 0 {
-		t.Fatalf("the ladder is forgotten once healed, at step %d", step)
-	}
 	if id, ok, _ := db.LastActivityID(q, "a", []string{"healed"}); !ok || id == 0 {
 		t.Fatal("no healed event")
+	}
+	if step, _ := db.Cursor(q, stepKey("a")); step != restartStep {
+		t.Fatalf("the ladder is kept while the agent is newly well, at step %d", step)
+	}
+	sweepFor(t, h, q, now+11*StepWaitS+QuietS, 60)
+	if step, _ := db.Cursor(q, stepKey("a")); step != 0 {
+		t.Fatalf("the ladder is forgotten after QuietS without trouble, at step %d", step)
+	}
+}
+
+// An agent a restart got going that hangs again soon after goes on up the ladder instead of starting over, so a hang that keeps coming
+// back reaches the card.
+func TestAHangThatKeepsComingBackReachesTheCard(t *testing.T) {
+	q := openDB(t)
+	now := time.Now().Unix()
+	f := &fakePorts{}
+	f.onRestart = func() { must(t, db.SetAgentState(q, "a", states.Idle, 0, "restarted")) }
+	h := inline(f)
+	for i, want := range []string{"interrupt,restart", "interrupt,restart,relaunch", "interrupt,restart,relaunch"} {
+		at := now + int64(i)*10*StepWaitS
+		hung(t, q, at)
+		sweepFor(t, h, q, at, 5*StepWaitS)
+		if strings.Join(f.did, ",") != want {
+			t.Fatalf("hang %d: %v", i+1, f.did)
+		}
+	}
+	if len(f.cards) != 1 {
+		t.Fatalf("the third hang within QuietS raises the card: %v", f.cards)
+	}
+}
+
+// A step runs off the tick: while it is still running no sweep starts another for the same agent.
+func TestAStepRunsOffTheTickAndOneAtATime(t *testing.T) {
+	q := openDB(t)
+	now := time.Now().Unix()
+	hung(t, q, now)
+	f := &fakePorts{}
+	var held []func()
+	h := &Healer{Ports: f, Go: func(run func()) { held = append(held, run) }}
+	sweepFor(t, h, q, now, 10*StepWaitS)
+	if len(held) != 1 || len(f.did) != 0 {
+		t.Fatalf("one step started and none run on the tick: %d held, %v", len(held), f.did)
+	}
+	held[0]()
+	sweepFor(t, h, q, now+11*StepWaitS, 0)
+	if len(held) != 2 || strings.Join(f.did, ",") != "interrupt" {
+		t.Fatalf("the next step starts once the first is over: %d held, %v", len(held), f.did)
 	}
 }
 
@@ -118,7 +165,7 @@ func TestAgentThatStaysStuckRaisesOneCard(t *testing.T) {
 	must(t, err)
 	must(t, db.SetCurrentTask(q, "a", tid, true))
 	f := &fakePorts{}
-	h := &Healer{Ports: f}
+	h := inline(f)
 
 	sweepFor(t, h, q, now, 20*StepWaitS)
 	if strings.Join(f.did, ",") != "interrupt,restart,relaunch" {
@@ -127,7 +174,7 @@ func TestAgentThatStaysStuckRaisesOneCard(t *testing.T) {
 	if len(f.cards) != 1 {
 		t.Fatalf("exactly one card while it stays stuck, got %d", len(f.cards))
 	}
-	if !strings.Contains(f.cards[0], fmt.Sprintf("a is stuck on T%d: its turn is hung", tid)) || f.fixes[0] != FixRestartTerminal {
+	if !strings.Contains(f.cards[0], fmt.Sprintf("a is stuck on T%d: its turn is hung", tid)) || f.fixes[0] != FixOpenTerminal {
 		t.Fatalf("the card names the agent, task and trouble, with the fix: %q %q", f.cards[0], f.fixes[0])
 	}
 }
@@ -141,7 +188,7 @@ func TestUndeliveredMessageIsPushed(t *testing.T) {
 	_, err = q.Exec("UPDATE requests SET ts = ? WHERE id = ?", now-3600, task)
 	must(t, err)
 	f := &fakePorts{}
-	h := &Healer{Ports: f}
+	h := inline(f)
 	must(t, h.Sweep(q, now))
 	if len(f.did) != 0 {
 		t.Fatalf("a task queued for an idle agent is the task queue's, not a stuck delivery: %v", f.did)
@@ -166,7 +213,7 @@ func TestPromptOnScreenIsLeftToThePerson(t *testing.T) {
 	now := time.Now().Unix()
 	hung(t, q, now)
 	f := &fakePorts{person: true}
-	sweepFor(t, &Healer{Ports: f}, q, now, 20*StepWaitS)
+	sweepFor(t, inline(f), q, now, 20*StepWaitS)
 	if len(f.did) != 0 || len(f.cards) != 0 {
 		t.Fatalf("an agent at a prompt has its own card; nothing is done to it: %v %v", f.did, f.cards)
 	}
