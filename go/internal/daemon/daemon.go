@@ -33,6 +33,7 @@ import (
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/stream"
 	"github.com/handline/handline/go/internal/supervisor"
+	"github.com/handline/handline/go/internal/sysres"
 	"github.com/handline/handline/go/internal/taskresult"
 	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/term"
@@ -116,6 +117,7 @@ type Daemon struct {
 	acctSeq map[string]uint64 // the number of the last move published for each account
 	prompts *prompts.Env      // nil on a gateway: the Python daemon alone presses keys
 	tchan   *termchan.Env     // the terminal channel and the input hold; nil on a gateway
+	res     *sysres.Sampler   // what the machine and each agent use; nil when the daemon does not watch
 	holds   *inputhold.Store  // who holds each terminal's input; nil on a gateway
 	single  *lock.Hold        // the daemon singleton, held while this daemon runs; nil on a gateway
 	stop    chan struct{}     // closed by Close: the spool loop ends
@@ -275,6 +277,14 @@ func Start(cfg Config) (*Daemon, error) {
 			w.Run(d.stop)
 		}()
 	}
+	if cfg.Watch && !cfg.Gateway {
+		d.res = &sysres.Sampler{Home: cfg.Home, Panes: d.agentPanes, Log: func(s string) { cfg.Log("%s", s) }}
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			d.res.Run(d.stop)
+		}()
+	}
 	if cfg.OwnPrompts && d.prompts != nil {
 		d.wg.Add(1)
 		go func() {
@@ -284,6 +294,39 @@ func Start(cfg Config) (*Daemon, error) {
 	}
 	cfg.Log("handlined %s serving %q", version.Sha, cfg.SocketFile)
 	return d, nil
+}
+
+// agentPanes is each agent's terminal pane process, from one listing of the host's panes; none when the host cannot list them.
+func (d *Daemon) agentPanes() map[string]int {
+	host := d.cfg.Terminal
+	if host == nil {
+		host = term.Current(d.cfg.Home)
+	}
+	lister, ok := host.(term.PaneLister)
+	if !ok {
+		return nil
+	}
+	panes, ok := lister.ListPanes()
+	if !ok {
+		return nil
+	}
+	pid := map[string]int{}
+	for _, p := range panes {
+		pid[p.Handle] = p.PID
+	}
+	rows, err := d.db.Query("SELECT agent, terminal FROM agent_state WHERE COALESCE(terminal, '') != ''")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var agent, handle string
+		if rows.Scan(&agent, &handle) == nil && pid[handle] != 0 {
+			out[agent] = pid[handle]
+		}
+	}
+	return out
 }
 
 // env is the telling layer the writes run on.
@@ -443,6 +486,9 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 		s.DeclareCapabilities(func() map[string]any { return map[string]any{"transcript": true} })
 	}
 	renv.Context = d.cfg.Context
+	if d.res != nil {
+		renv.Resources = d.res.Latest
+	}
 	if d.logins != nil {
 		renv.Login = d.logins.Of
 	}

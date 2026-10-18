@@ -151,7 +151,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
 		{Name: "attachment sweep", Run: func(q db.Q, _ int64) error { return attachments.New(home).Sweep(q) }},
-		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Tell: tellFounder, Free: cfg.DiskFree}).Check},
+		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Raise: raiseFromTaskBoard(env), Free: cfg.DiskFree}).Check},
 	}, Signalled: func() bool {
 		select {
 		case <-tc.Stop:
@@ -167,10 +167,16 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	return &Tick{Tick: t, Loop: loop, dev: dev, Startup: startup}
 }
 
-// tellFounder writes a message from the task board to the founder's inbox, as a delivery that cannot be confirmed is told.
-func tellFounder(q db.Q, text string) error {
-	_, err := db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: db.Human, Body: text, Response: "fire_and_forget", Kind: "say"})
-	return err
+// raiseFromTaskBoard puts a decision from the task board in front of the founder: a My turn card.
+func raiseFromTaskBoard(env *supervisor.Env) func(q db.Q, text string) error {
+	return func(q db.Q, text string) error {
+		var after supervisor.After
+		if _, err := env.RaiseDecision(q, &after, db.NoticeRequester, text, "disk", "", "", 0, 0); err != nil {
+			return err
+		}
+		after.Run()
+		return nil
+	}
 }
 
 // startPorts are the steps of the daemon's start.

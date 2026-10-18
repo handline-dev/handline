@@ -11226,6 +11226,17 @@
       "required": [
        "unread"
       ]
+     },
+     "resources": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Resources"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Null until the first measure, and on a daemon that does not measure."
      }
     },
     "required": [
@@ -14738,6 +14749,80 @@
      "filter",
      "by",
      "at"
+    ]
+   },
+   "Resources": {
+    "type": "object",
+    "description": "What the machine and each agent use, measured every 15 s: one ps read for every agent. A figure the daemon could not read is 0.",
+    "properties": {
+     "at": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "When it was measured."
+     },
+     "agents": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "object",
+       "properties": {
+        "cpu_pct": {
+         "type": "number",
+         "description": "CPU in percent of one core, summed over the tree (ps %cpu): over 100 on several cores."
+        },
+        "rss_bytes": {
+         "type": "integer",
+         "description": "Resident memory summed over the tree."
+        }
+       },
+       "required": [
+        "cpu_pct",
+        "rss_bytes"
+       ]
+      },
+      "description": "Per agent with a terminal pane: its pane process and every process under it."
+     },
+     "machine": {
+      "type": "object",
+      "properties": {
+       "ram_total_bytes": {
+        "type": "integer"
+       },
+       "ram_used_bytes": {
+        "type": "integer"
+       },
+       "ram_free_bytes": {
+        "type": "integer",
+        "description": "Free for use: macOS free, inactive and speculative pages; Linux MemAvailable."
+       },
+       "load_1m": {
+        "type": "number",
+        "description": "The 1-minute load average; compare with cores."
+       },
+       "cores": {
+        "type": "integer"
+       },
+       "disk_free_bytes": {
+        "type": "integer",
+        "description": "Free space of the volume the daemon home is on."
+       },
+       "disk_total_bytes": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "ram_total_bytes",
+       "ram_used_bytes",
+       "ram_free_bytes",
+       "load_1m",
+       "cores",
+       "disk_free_bytes",
+       "disk_total_bytes"
+      ]
+     }
+    },
+    "required": [
+     "at",
+     "agents",
+     "machine"
     ]
    }
   },
