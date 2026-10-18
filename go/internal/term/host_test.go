@@ -83,6 +83,21 @@ func TestAWindowWhoseLaunchLineCouldNotBeTypedIsClosedAgain(t *testing.T) {
 	}
 }
 
+// An unstamped pane is not the daemon's to close later, so a window whose stamp failed is closed now and nothing is typed in it.
+func TestAWindowWhoseAgentStampFailedIsClosedAgain(t *testing.T) {
+	log := fakeTmux(t)
+	dir := filepath.Dir(log)
+	os.WriteFile(filepath.Join(dir, "tmux"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+log+"\ncase \"$3\" in has-session) exit 1;; new-session) echo %7;; set-option) echo no pane >&2; exit 1;; esac\n"), 0o755)
+	handle, why := Tmux{"/h"}.CreateTerminal("hl launch alice", "", "", "alice")
+	if handle != "" || !strings.Contains(why, "could not stamp the new window with its agent") {
+		t.Fatalf("%q %q", handle, why)
+	}
+	got := calls(t, log)
+	if !strings.HasSuffix(got[len(got)-1], "kill-window -t %7") || strings.Contains(strings.Join(got, "\n"), "send-keys") {
+		t.Fatalf("the window is closed and nothing typed in it: %q", got)
+	}
+}
+
 // hostBackend is a backend with a host: it shows a screen, lists its terminals and records what is typed and respawned.
 type hostBackend struct {
 	mu      sync.Mutex
