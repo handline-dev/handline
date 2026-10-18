@@ -181,3 +181,13 @@ export function AboveKeyboard(props: { children: React.ReactNode }) {
     </View>
   );
 }
+
+/** A small text link. */
+export function Link(props: { label: string; onPress: () => void; testID: string; disabled?: boolean }) {
+  const c = usePalette();
+  return (
+    <Pressable testID={props.testID} accessibilityRole="button" disabled={props.disabled} hitSlop={10} onPress={props.onPress} style={{ opacity: props.disabled ? 0.4 : 1 }}>
+      <Text style={{ color: c.accent, fontSize: 12 }}>{props.label}</Text>
+    </Pressable>
+  );
+}
