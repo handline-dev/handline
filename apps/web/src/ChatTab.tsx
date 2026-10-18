@@ -26,8 +26,7 @@ import { Compose } from './ChatCompose.tsx';
 import { Item, Message, TaskNote, jumpTo } from './ChatMessages.tsx';
 import { ChatBanner, ChatStrip, HandoffCard, HrCards, NeedsYouCard } from './ChatCards.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
-import { Button, Empty, Icon, Segmented, Textarea, ComposeRow } from './ui/index.ts';
-import { setting } from './daemon.ts';
+import { Button, Empty, Icon, Textarea, ComposeRow } from './ui/index.ts';
 import { useWantedMessage } from './route.ts';
 import { useWorkspace } from './Workspace.tsx';
 
@@ -94,9 +93,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const canSend = useSelector((s) => s.can('chat.send'));
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
-  // The scope comes back next visit, as the bridge kept it.
-  const keptScope = setting(storage, 'handline.chatScope', 'mine');
-  const [scope, setScope] = useState<ChatScope>(keptScope.value === 'all' ? 'all' : 'mine');
+  // Chat is the person and this agent only; the team's traffic is the Activity tab.
+  const scope: ChatScope = 'mine';
   const chat = useChat(agent, scope);
   const [picked, setPicked] = useState<number | null>(null);
   const [newer, setNewer] = useState(0); // entries that arrived while the person was reading further up
@@ -224,7 +222,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const where = locate.data?.scope;
   useEffect(() => {
     if (going === null || !where) return;
-    if (where !== scope) return setScope(where);
+    if (where !== scope) return setGoing(null); // said between agents: it is on the Activity tab
     if (jumpTo(going)) return setGoing(null);
     if (chat.hasOlder && !chat.loadingOlder) chat.loadOlder();
     else if (!chat.hasOlder && !chat.loadingOlder) setGoing(null);
@@ -236,19 +234,6 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     <section className={CHAT}>
       <div className="chat-head flex h-[var(--h-tabs)] items-center justify-end gap-2 border-b border-line px-2">
         <ChatSearch agent={agent} scope={scope} onGo={jump} />
-        <Segmented
-          label="Which messages"
-          value={scope}
-          onChange={(v) => {
-            setScope(v);
-            keptScope.save(v);
-            setPicked(null);
-          }}
-          options={[
-            { value: 'mine', label: 'Mine: just you and this agent', icon: 'chat' },
-            { value: 'all', label: 'All: also what other agents say to each other', icon: 'team' },
-          ]}
-        />
       </div>
       <ChatBanner detail={detail} />
       <div

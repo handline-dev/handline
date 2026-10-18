@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, handoffLine, sideOf, taskRow, changeParts, timeline } from '../src/index.ts';
+import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, handoffLine, sideOf, taskRow, changeParts, timeline, activityOf } from '../src/index.ts';
 
 const A = 'handline.architect';
 const msg = (over: Partial<ChatMessage>): ChatMessage => ({
@@ -185,4 +185,18 @@ test('handoffLine says why and what for each phase', () => {
   assert.deepEqual(handoffLine({ cause: 'context_full', phase: 'writing' }), { why: 'Context full', what: 'Writing the handoff' });
   assert.equal(handoffLine({ cause: 'context_full', phase: 'starting' }).what, 'Starting a new session');
   assert.equal(handoffLine({ cause: 'odd', phase: 'writing' }).why, 'odd');
+});
+
+test('activityOf lists what the agent does with the team: tools, other agents messages, not the founder chat', () => {
+  const rows = activityOf(
+    [msg({ id: 1, from: 'human', to: A }), msg({ id: 2, from: 'handline.auditor', to: A, body: 'Review is done', at: '2026-01-01T00:00:02Z' })],
+    [
+      item({ id: 5, kind: 'reply', text: 'ok' }),
+      item({ id: 6, kind: 'tool', tool: 'Bash', text: 'ls', output: 'a', dropped_lines: 2, at: '2026-01-01T00:00:01Z' }),
+    ],
+    'human',
+  );
+  assert.deepEqual(rows.map((r) => [r.kind, r.text]), [['tools', 'Bash ls'], ['messages', 'Review is done']]);
+  assert.deepEqual([rows[0]!.output, rows[0]!.dropped], ['a', 2]);
+  assert.deepEqual(rows[1]!.route, { from: 'handline.auditor', to: A });
 });

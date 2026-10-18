@@ -48,6 +48,10 @@ async function pageBackTo(found: () => unknown, what: string) {
     await until(() => found() || $$('.msg').length !== before, `a page toward ${what}`);
   }
 }
+const tabEl = async (id: string) => {
+  await until(() => $(`[data-tab="${id}"]`), `the ${id} tab`);
+  return $(`[data-tab="${id}"]`)!;
+};
 const msg = (body: string) => $$('.msg').find((m) => text(m).includes(body));
 const landing = (body: string) => msg(body)?.getAttribute('data-landing');
 const link = (label: string, within: Element) =>
@@ -66,6 +70,7 @@ const sent = (s: ReturnType<typeof setup>, body: string) =>
 
 async function mount(agent: string, s = setup(), storage: KV = memory()) {
   const store = new Store(s.client);
+  history.replaceState(null, '', location.pathname); // a tab shown by an earlier test is not this test's
   location.hash = `#/agents/${agent}`;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
@@ -104,29 +109,33 @@ describe('the Chat tab', () => {
     expect(landing('Also add the list of gaps.')).toBe('typed');
     expect(link('Withdraw', msg('Also add the list of gaps.')!)).toBeUndefined(); // the chat has no Withdraw button
     expect($$('[data-kind="reply"]')).toHaveLength(1); // the agent's message is not drawn a second time as a reply
-    expect($$('[data-kind="tool"]')).toHaveLength(1);
+    expect($$('[data-kind="tool"]')).toHaveLength(0); // tool lines are on the Activity tab
     expect(icon($$('[data-kind="task_event"]')[1], 'Task done')).not.toBeNull();
-    expect(msg('Review is done')).toBeUndefined(); // agent to agent: the All tab
-    await click($$('.chat-head [role="radio"]')[1]!);
-    await until(() => msg('Review is done'), 'the all tab');
+    expect(msg('Review is done')).toBeUndefined(); // agent to agent: the Activity tab
+    expect($$('.chat-head [role="radio"]')).toHaveLength(0);
   });
 
-  it('a tool line cut to nothing still says how many lines were let go', async () => {
+  it('the Activity tab lists a tool line cut to nothing with how many lines were let go', async () => {
     const t = setup();
     t.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'ls', output: '', dropped_lines: 5 });
     await mount(ARCH, t);
-    await until(() => $$('[data-kind="tool"]').some((c) => /5 more lines let go/.test(text(c))), 'the cut note');
-    expect($$('[data-kind="tool"]')[0]!.querySelector('button')).toBeNull();
+    await click(await tabEl('activity'));
+    const bash = () => $$('.activity [data-kind="tools"]').find((r) => text(r).includes('Bash ls'));
+    await until(bash, 'the tool row');
+    await click(bash()!.querySelector('button')!);
+    expect(text(bash())).toContain('5 more lines let go');
   });
 
-  it('a tool line shows what it printed on request, and how many lines were cut', async () => {
+  it('the Activity tab shows what a tool line printed on request', async () => {
     const t = setup();
     t.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'ls', output: 'a\nb', dropped_lines: 3 });
     await mount(ARCH, t);
-    await until(() => $$('[data-kind="tool"]').some((c) => /Show all/.test(text(c))), 'the tool line');
-    const row = $$('[data-kind="tool"]').find((c) => /Show all/.test(text(c)))!;
+    await click(await tabEl('activity'));
+    const bash = () => $$('.activity [data-kind="tools"]').find((r) => text(r).includes('Bash ls'));
+    await until(bash, 'the tool row');
+    const row = bash()!;
     expect(row.querySelector('.tool-output')).toBeNull();
-    await click([...row.querySelectorAll('button')].find((b) => /Show all/.test(text(b)))!);
+    await click(row.querySelector('button')!);
     expect(row.querySelector('.tool-output')?.textContent).toBe('a\nb');
     expect(text(row)).toContain('3 more lines let go');
   });
