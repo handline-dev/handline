@@ -78,3 +78,15 @@ export function outUntil(a: Account): string | null {
       .at(-1) ?? null
   );
 }
+
+export type Capacity = 'plenty' | 'tight' | 'short';
+/** The status bar's one word for all accounts together: the 5 h room left across those that can still run agents. */
+export function capacityOf(accounts: Account[]): { word: Capacity; left: number } {
+  const usable = accounts.filter((a) => {
+    const s = stateOf(a);
+    return s !== 'needs_login' && s !== 'out';
+  });
+  if (!usable.length) return { word: 'short', left: 0 };
+  const left = Math.round(usable.reduce((n, a) => n + 100 - Math.min(100, a.five_hour?.used_pct ?? 0), 0) / usable.length);
+  return { word: left < 15 ? 'short' : left < 40 ? 'tight' : 'plenty', left };
+}
