@@ -384,12 +384,12 @@ func teamCmd(c *hlclient.Client, args []string) (int, bool) {
 		if other == me {
 			continue
 		}
-		if d := t.Route(me, other, 0, false); d.Allowed {
-			outs = append(outs, mine{other, inYourWords(d.Relation, true), doing(other, lines[other])})
+		if t.Route(me, other, 0).Allowed {
+			outs = append(outs, mine{other, inYourWords(t, me, other), doing(other, lines[other])})
 			names = append(names, other)
 		}
-		if d := t.Route(other, me, 0, false); d.Allowed {
-			ins = append(ins, theirs{other, inYourWords(d.Relation, false)})
+		if t.Route(other, me, 0).Allowed {
+			ins = append(ins, theirs{other, inYourWords(t, me, other)})
 			names = append(names, other)
 		}
 	}
@@ -415,18 +415,13 @@ func teamCmd(c *hlclient.Client, args []string) (int, bool) {
 	return 0, true
 }
 
-func inYourWords(relation *string, sending bool) string {
+// inYourWords is what other is to me, read from the names: my report, my manager, or a peer.
+func inYourWords(t *team.Team, me, other string) string {
 	switch {
-	case relation != nil && *relation == "supervisor":
-		if sending {
-			return "your report"
-		}
-		return "your manager"
-	case relation != nil && *relation == "subordinate":
-		if sending {
-			return "your manager"
-		}
+	case t.SupervisorOf(other) == me:
 		return "your report"
+	case t.SupervisorOf(me) == other:
+		return "your manager"
 	}
 	return "peer"
 }

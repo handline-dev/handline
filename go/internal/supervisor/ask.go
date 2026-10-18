@@ -69,7 +69,7 @@ func (e *Env) ForgetInbox(target string, rid int64) {
 
 // deliver drops the request into the target's inbox: the durable record an agent reads on wake. The database row is what the daemon
 // schedules from; both carry the same id so a crash between them is recoverable in either direction.
-func (e *Env) deliver(rid int64, requester, target, body, files string, d team.Decision) error {
+func (e *Env) deliver(rid int64, requester, target, body, files, kind string, depth int) error {
 	dir := e.inboxDir(target)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -88,15 +88,12 @@ func (e *Env) deliver(rid int64, requester, target, body, files string, d team.D
 		}
 		fl = "[\n" + strings.Join(items, ",\n") + "\n  ]"
 	}
-	opt := func(p *string) string {
-		if p == nil {
-			return "null"
-		}
-		return rpc.PyJSON(*p, false, false)
+	k := "null"
+	if kind != "" {
+		k = rpc.PyJSON(kind, false, false)
 	}
-	text := fmt.Sprintf("{\n  \"id\": %d,\n  \"ts\": %d,\n  \"from\": %s,\n  \"to\": %s,\n  \"relation\": %s,\n  \"kind\": %s,\n  \"response\": %s,\n  \"chain_depth\": %d,\n  \"files\": %s,\n  \"body\": %s\n}\n",
-		rid, e.now(), rpc.PyJSON(requester, false, false), rpc.PyJSON(target, false, false), opt(d.Relation), opt(d.Kind),
-		rpc.PyJSON(d.Response, false, false), d.ChainDepth, fl, rpc.PyJSON(body, false, false))
+	text := fmt.Sprintf("{\n  \"id\": %d,\n  \"ts\": %d,\n  \"from\": %s,\n  \"to\": %s,\n  \"kind\": %s,\n  \"chain_depth\": %d,\n  \"files\": %s,\n  \"body\": %s\n}\n",
+		rid, e.now(), rpc.PyJSON(requester, false, false), rpc.PyJSON(target, false, false), k, depth, fl, rpc.PyJSON(body, false, false))
 	return writeAtomic(filepath.Join(dir, inboxName(rid)), text)
 }
 
@@ -121,9 +118,9 @@ func writeAtomic(path, text string) error {
 	return nil
 }
 
-func (e *Env) deliverAfter(after *After, rid int64, requester, target, body, files string, d team.Decision) {
+func (e *Env) deliverAfter(after *After, rid int64, requester, target, body, files, kind string, depth int) {
 	after.Add(func() string {
-		if err := e.deliver(rid, requester, target, body, files, d); err != nil {
+		if err := e.deliver(rid, requester, target, body, files, kind, depth); err != nil {
 			e.log("  #%d: the inbox file for %s was not written: %v", rid, target, err)
 		}
 		return ""
@@ -155,12 +152,12 @@ func (e *Env) raiseDecision(q db.Q, after *After, agent, text, reason, files str
 	if same := must(db.OpenDecisionCardIDs(q, agent, "", &body)); len(same) > 0 {
 		return same[0]
 	}
-	rid := must(db.AddRequest(q, db.NewRequest{Requester: agent, Target: db.Human, Body: text, Files: files, Response: "fire_and_forget", Kind: "task",
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: agent, Target: db.Human, Body: text, Files: files, Kind: "task",
 		ChainDepth: depth, ParentID: parentID, ChainID: chainID}))
 	tid := must(db.NewTask(q, title, db.Human, agent, 0, db.DefaultPriority, "decision", 0, ""))
 	must(db.SetTaskQueued(q, tid, db.Human))
 	check(db.LinkRequest(q, tid, rid))
-	e.deliverAfter(after, rid, agent, db.Human, text, files, team.Decision{Allowed: true, Reason: reason, Kind: ptr("task"), Response: "fire_and_forget", ChainDepth: int(depth)})
+	e.deliverAfter(after, rid, agent, db.Human, text, files, "task", int(depth))
 	payload := append([]db.KV{{K: "request_id", V: rid}, {K: "task_id", V: tid}, {K: "reason", V: reason}}, extra...)
 	must(db.AddEvent(q, agent, "raise_decision", payload...))
 	return rid
@@ -168,8 +165,8 @@ func (e *Env) raiseDecision(q db.Q, after *After, agent, text, reason, files str
 
 // Report tells the human something that asks nothing: a say, so nothing is typed back at agent and nothing waits on the human.
 func (e *Env) report(q db.Q, after *After, agent, text, reason string) int64 {
-	rid := must(db.AddRequest(q, db.NewRequest{Requester: agent, Target: db.Human, Body: text, Response: "fire_and_forget", Kind: "say"}))
-	e.deliverAfter(after, rid, agent, db.Human, text, "", team.Decision{Allowed: true, Reason: reason, Kind: ptr("say"), Response: "fire_and_forget"})
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: agent, Target: db.Human, Body: text, Kind: "say"}))
+	e.deliverAfter(after, rid, agent, db.Human, text, "", "say", 0)
 	must(db.AddEvent(q, agent, "report", db.KV{K: "request_id", V: rid}, db.KV{K: "reason", V: reason}))
 	return rid
 }
@@ -247,7 +244,7 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 	}
 	after := &After{}
 	var depth int64
-	chainID, isReply := "", false
+	chainID := ""
 	if in.ParentID != 0 {
 		parent := must(db.GetRequest(q, in.ParentID))
 		if parent == nil {
@@ -255,7 +252,6 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 		}
 		depth = parent.ChainDepth + 1
 		chainID = parent.ChainID.String
-		isReply = RepliesTo(parent, requester, in.Target)
 		if requester == db.Human { // the human's turn starts the count again, and keeps the thread
 			depth = 0
 		}
@@ -267,7 +263,7 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 		o.After = after
 		return o, nil
 	}
-	d := t.Route(requester, in.Target, int(depth), isReply)
+	d := t.Route(requester, in.Target, int(depth))
 	now := e.now()
 	if !d.Allowed {
 		if must(db.StandingDenial(q, requester, in.Target, in.Body, in.Files, now-team.AskWindowS)) == 0 {
@@ -293,8 +289,7 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 	if kind == "" && in.Target == db.Human {
 		kind = "task" // what is asked of the founder is a task of theirs, whatever the edge says
 	}
-	rid := must(db.AddRequest(q, db.NewRequest{Requester: requester, Target: in.Target, Body: in.Body, Files: in.Files, Relation: strOf(d.Relation),
-		Response: d.Response, Kind: kind, ChainDepth: depth, ParentID: in.ParentID, ChainID: chainID}))
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: requester, Target: in.Target, Body: in.Body, Files: in.Files, Kind: kind, ChainDepth: depth, ParentID: in.ParentID, ChainID: chainID}))
 	if in.SendNow {
 		must(db.MarkSendNow(q, rid))
 	}
@@ -304,28 +299,19 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 		must(db.SetTaskQueued(q, tid, db.Human))
 		check(db.LinkRequest(q, tid, rid))
 	}
-	must(db.AddEvent(q, requester, "ask", db.KV{K: "request_id", V: rid}, db.KV{K: "target", V: in.Target}, db.KV{K: "relation", V: nullable(d.Relation)},
-		db.KV{K: "response", V: d.Response}, db.KV{K: "chain_depth", V: depth}))
-	msg := fmt.Sprintf("queued as #%d for %s (response=%s)", rid, in.Target, d.Response)
+	must(db.AddEvent(q, requester, "ask", db.KV{K: "request_id", V: rid}, db.KV{K: "target", V: in.Target}, db.KV{K: "chain_depth", V: depth}))
+	msg := fmt.Sprintf("queued as #%d for %s", rid, in.Target)
 	if in.Within != nil {
 		if err := in.Within(q, rid, msg); err != nil {
 			return nil, err
 		}
 	}
-	d.ChainDepth = int(depth)
-	e.deliverAfter(after, rid, requester, in.Target, in.Body, in.Files, d)
+	e.deliverAfter(after, rid, requester, in.Target, in.Body, in.Files, kind, int(depth))
 	if in.Notify {
 		target := in.Target
 		after.Add(func() string { return e.Push(e.DB, target, rid) })
 	}
 	return &AskOut{OK: true, Message: msg, RID: rid, After: after, notify: in.Notify, target: in.Target}, nil
-}
-
-func nullable(p *string) any {
-	if p == nil {
-		return nil
-	}
-	return *p
 }
 
 // SayIn is say's arguments.
