@@ -2,8 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, handoffLine, sideOf, taskRow, changeParts, timeline, chatEntries, activity } from '../src/index.ts';
-import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, handoffLine, sideOf, taskRow, changeParts, timeline, activityOf } from '../src/index.ts';
+import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, handoffLine, sideOf, taskRow, changeParts, timeline, chatEntries, activity, activityOf } from '../src/index.ts';
 
 const A = 'handline.architect';
 const msg = (over: Partial<ChatMessage>): ChatMessage => ({
