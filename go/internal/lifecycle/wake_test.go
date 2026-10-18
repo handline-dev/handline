@@ -28,8 +28,8 @@ func TestStartForWorkNeedsARepoARoomAndCountsFailuresUntilItStalls(t *testing.T)
 	if said, err := m.StartForWork("a"); err != nil || !strings.HasPrefix(said, "a: could not be started - spawn said") || strings.Contains(said, "more") {
 		t.Fatalf("%q %v", said, err)
 	}
-	if len(sp.spawned) != 1 || sp.spawned[0] != "a@/repo" {
-		t.Fatalf("%v", sp.spawned)
+	if len(sp.spawned) != 1 || sp.spawned[0] != "a@/repo" || sp.cmds[0] != "why "+StartCause {
+		t.Fatalf("a start for waiting work is recorded as a start, not a launch: %v %v", sp.spawned, sp.cmds)
 	}
 	m.StartForWork("a")
 	m.StartForWork("a")
@@ -43,12 +43,17 @@ func TestStartForWorkNeedsARepoARoomAndCountsFailuresUntilItStalls(t *testing.T)
 	// A start that works clears the streak, and an agent with a worktree starts there, not in a second one.
 	db.SetAgentState(m.Q, "b", states.Idle, 0, "")
 	db.SetTerminal(m.Q, "b", "", "/wt-b")
+	rid, _ := db.AddRequest(m.Q, db.NewRequest{Requester: "a", Target: "b", Body: "job", Kind: "task"})
 	sp.ok = true
 	if said, _ := m.StartForWork("b"); said != "b: started for work waiting - start-in said" || len(sp.startedIn) != 1 || sp.startedIn[0] != "b@/wt-b" {
 		t.Fatalf("%q %v", said, sp.startedIn)
 	}
-	if _, ok, _ := db.LastEventID(m.Q, "b", "started_for_work"); !ok {
-		t.Fatal("no event")
+	if last := sp.cmds[len(sp.cmds)-1]; last != "hl launch b --why 'start'" {
+		t.Fatalf("the start in its own worktree records its cause: %q", last)
+	}
+	var got int64
+	if err := m.Q.QueryRow("SELECT json_extract(payload, '$.request_id') FROM events WHERE agent = 'b' AND kind = 'started_for_work'").Scan(&got); err != nil || got != rid {
+		t.Fatalf("the event names the work that was waiting: %d %v", got, err)
 	}
 }
 
