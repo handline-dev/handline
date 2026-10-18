@@ -31,7 +31,7 @@ export const VERBS: Record<VerbId, Verb> = Object.fromEntries([
     "Its session ends and starts again; the session's context is dropped.",
   ),
   V('park', 'Park', 'session.park', 'parking…', 'Its session ends; it wakes on the next task.'),
-  V('fold', 'Fold into handoff', 'agent.fold', 'folding…', 'Its session is folded into the handoff it will start the next one from.'),
+  V('fold', 'Fold into handoff', 'agent.fold', 'folding…'),
   V('move', 'Move account', 'agent.move', 'moving…'),
   V('clear_stall', 'Clear stall', 'agent.unstall', 'waking…', 'The stall is cleared and the agent is woken.'),
 ] as [VerbId, Verb][]) as Record<VerbId, Verb>;

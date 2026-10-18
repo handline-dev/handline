@@ -75,20 +75,10 @@ describe('chat search', () => {
     expect($$('.chat-search .hit')).toHaveLength(0);
   });
 
-  it('searches the scope the tab shows: a message between two agents is not in Mine', async () => {
+  it('searches the person and this agent only: a message between two agents is not found', async () => {
     await mount();
     await search('Review is done');
     await until(() => $('.chat-search .results'), 'the result box');
     await until(() => text($('.chat-search .results')).includes('No messages found'), 'no hit in Mine');
-    await act(
-      async () =>
-        void $$('button')
-          .find((b) => b.getAttribute('aria-label')?.startsWith('All'))
-          ?.click(),
-    );
-    await search('');
-    await search('Review is done');
-    await until(() => $$('.chat-search .hit').length, 'the hit in All');
-    expect(text($('.chat-search .hit'))).toContain('handline.auditor');
   });
 });

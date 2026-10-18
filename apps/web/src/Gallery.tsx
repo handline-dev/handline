@@ -241,7 +241,7 @@ export function Gallery() {
         ) : null}
       </Section>
       <Section name="Empty">
-        <Empty icon="inbox" name="Nothing waits on you" hint="Results and questions land here" />
+        <Empty icon="inbox" name="Nothing waits on you" />
       </Section>
     </Page>
   );

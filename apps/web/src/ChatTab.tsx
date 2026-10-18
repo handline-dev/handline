@@ -5,7 +5,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { timeline } from '@handline/app-core';
+import { openActivity, timeline } from '@handline/app-core';
 import { useNearEnd, useSelector } from '@handline/app-react';
 import {
   Skeleton,
@@ -14,10 +14,12 @@ import {
   useChat,
   useChatActions,
   useChatLocate,
+  useChatWindow,
   useInbox,
   useServes,
   useTasks,
   useWrite,
+  type Chat,
   type ChatScope,
 } from '@handline/app-data';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
@@ -26,8 +28,7 @@ import { Compose } from './ChatCompose.tsx';
 import { Item, Message, TaskNote, jumpTo } from './ChatMessages.tsx';
 import { ChatBanner, ChatStrip, HandoffCard, HrCards, NeedsYouCard } from './ChatCards.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
-import { Button, Empty, Icon, Segmented, Textarea, ComposeRow } from './ui/index.ts';
-import { setting } from './daemon.ts';
+import { Button, Empty, Icon, Textarea, ComposeRow } from './ui/index.ts';
 import { useWantedMessage } from './route.ts';
 import { useWorkspace } from './Workspace.tsx';
 
@@ -89,15 +90,39 @@ function Typing({ line }: { line: string }) {
   );
 }
 
+/** Shown while a window around an old message is open: it takes the person back to the live tail. */
+function LatestPill({ onClick }: { onClick: () => void }) {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-[96px] flex justify-center">
+      <button className="latest pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-pop)]" onClick={onClick}>
+        Back to latest
+        <Icon name="newer" size={14} aria-hidden />
+      </button>
+    </div>
+  );
+}
+
+/** The live chat, or while a window around an old message is open the stretch the daemon returned; the live transcript lines are kept only within its time span. */
+function useWindowedChat(agent: string, scope: ChatScope) {
+  const live = useChat(agent, scope);
+  const win = useChatWindow(agent, scope);
+  const windowed = win.target !== null;
+  const first = win.messages[0]?.at ?? '';
+  const last = win.messages.at(-1)?.at ?? '';
+  const chat: Chat = windowed
+    ? { ...live, messages: win.messages, items: live.items.filter((i) => i.at >= first && i.at <= last), hasOlder: win.hasOlder, loadingOlder: win.loading, loadOlder: win.loadOlder }
+    : live;
+  return { chat, win, windowed };
+}
+
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
-  const { storage } = useWorkspace();
+  const { storage, apply } = useWorkspace();
   const canSend = useSelector((s) => s.can('chat.send'));
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
-  // The scope comes back next visit, as the bridge kept it.
-  const keptScope = setting(storage, 'handline.chatScope', 'mine');
-  const [scope, setScope] = useState<ChatScope>(keptScope.value === 'all' ? 'all' : 'mine');
-  const chat = useChat(agent, scope);
+  // Chat is the person and this agent only; the team's traffic is the Activity tab.
+  const scope: ChatScope = 'mine';
+  const { chat, win, windowed } = useWindowedChat(agent, scope);
   const [picked, setPicked] = useState<number | null>(null);
   const [newer, setNewer] = useState(0); // entries that arrived while the person was reading further up
   const [going, setGoing] = useState<number | null>(null); // a message number being found
@@ -162,6 +187,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     return () => cancelAnimationFrame(id);
   }, [chat.loadingOlder, entries.length]);
   const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
+  // Around an old message, the way down is read as the bottom comes near, until the live tail is reached.
+  const lower = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, win.loadNewer, windowed && win.hasNewer && !win.loading);
   const repin = () => {
     const el = stream.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
@@ -174,8 +201,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   useEffect(() => {
     const grew = entries.length - count.current;
     count.current = entries.length;
-    if (grew > 0 && !pinned.current && tail >= 0) setNewer((n) => n + grew);
-  }, [entries.length, tail]);
+    if (grew > 0 && !pinned.current && tail >= 0 && !windowed) setNewer((n) => n + grew);
+  }, [entries.length, tail, windowed]);
   const bottom = () => {
     const el = stream.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -224,31 +251,27 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const where = locate.data?.scope;
   useEffect(() => {
     if (going === null || !where) return;
-    if (where !== scope) return setScope(where);
+    if (where !== scope) {
+      // Said between agents: it is a row of the Activity tab.
+      apply((w) => openActivity(w, `m${going}`));
+      return setGoing(null);
+    }
     if (jumpTo(going)) return setGoing(null);
-    if (chat.hasOlder && !chat.loadingOlder) chat.loadOlder();
-    else if (!chat.hasOlder && !chat.loadingOlder) setGoing(null);
+    const found = locate.data;
+    if (!found) return;
+    if (win.target !== going) {
+      // Not drawn: the stretch around it is read at once, not paged up to.
+      pinned.current = false;
+      win.open(going, found.messages, found.more_older, found.more_newer);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [going, where, scope, chat.hasOlder, chat.loadingOlder, entries.length]);
+  }, [going, where, scope, locate.data, windowed, entries.length]);
 
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
     <section className={CHAT}>
       <div className="chat-head flex h-[var(--h-tabs)] items-center justify-end gap-2 border-b border-line px-2">
         <ChatSearch agent={agent} scope={scope} onGo={jump} />
-        <Segmented
-          label="Which messages"
-          value={scope}
-          onChange={(v) => {
-            setScope(v);
-            keptScope.save(v);
-            setPicked(null);
-          }}
-          options={[
-            { value: 'mine', label: 'Mine: just you and this agent', icon: 'chat' },
-            { value: 'all', label: 'All: also what other agents say to each other', icon: 'team' },
-          ]}
-        />
       </div>
       <ChatBanner detail={detail} />
       <div
@@ -319,6 +342,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
               : [body];
           })}
         </AnimatedList>
+        {windowed && win.hasNewer ? <div ref={lower} aria-hidden className="h-px" /> : null}
         <HrCards agent={agent} />
         <HandoffCard detail={detail} />
         {detail.prompt ? null : <NeedsYouCard detail={detail} />}
@@ -327,7 +351,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           {chat.working.turn_running ? <Typing line={chat.working.line ?? 'Working'} /> : null}
         </div>
       </div>
-      {newer ? (
+      {windowed ? (
+        <LatestPill onClick={() => (win.close(), bottom())} />
+      ) : newer ? (
         // CHAT stretches every direct child to full width, so the row spans it and only the pill takes clicks.
         <div className="pointer-events-none absolute inset-x-0 bottom-[96px] flex justify-center">
           <button

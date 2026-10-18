@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Store, activate, applyPreset, defaultWorkspace, openTab, saveWorkspace, splitTab, storageKey, type KV } from '@handline/app-core';
+import { Store, activate, applyPreset, closeTab, defaultWorkspace, openTab, saveWorkspace, splitTab, storageKey, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
 
@@ -75,6 +75,7 @@ const unmount = async () => {
 };
 
 beforeEach(() => {
+  history.replaceState(null, '');
   vi.stubGlobal('confirm', () => true);
 });
 afterEach(async () => {
@@ -182,7 +183,7 @@ describe('the workspace', () => {
   it('opens with Chat alone in view and the Claude Code tab second, behind it; closing a running one asks first', async () => {
     const { daemon } = await mount(ARCH, textGrid(), setup(), true);
     await until(() => $$('.pane').length === 1 && $(termTab), 'one pane with the terminal tab');
-    expect($$('.pane [data-tab]').map((t) => t.getAttribute('data-tab'))).toEqual(['chat', `terminal:term:${ARCH}`]);
+    expect($$('.pane [data-tab]').map((t) => t.getAttribute('data-tab'))).toEqual(['chat', 'activity', `terminal:term:${ARCH}`]);
     expect($('[data-tab="chat"]')!.getAttribute('aria-selected')).toBe('true');
     expect($('.terminal-tab')).toBeNull(); // not shown
     vi.stubGlobal('confirm', () => false);
@@ -192,6 +193,28 @@ describe('the workspace', () => {
     await click($(`${termTab} .x`)!);
     expect($(termTab)).toBeNull();
     expect(daemon.sessions.get(ARCH)!.state).not.toBe('closed');
+  });
+
+  it('showing a tab is a history entry, and an entry coming back puts its tab back', async () => {
+    await mount(ARCH, textGrid(), setup(), true);
+    await until(() => $(termTab), 'the terminal tab');
+    const term = `terminal:term:${ARCH}`;
+    const shown = () => ($(termTab)!.getAttribute('aria-selected') === 'true' ? term : 'chat');
+    const length = history.length;
+    await click($(termTab)!);
+    expect(shown()).toBe(term);
+    await click($('[data-tab="chat"]')!);
+    expect(shown()).toBe('chat');
+    expect(history.length).toBe(length + 2); // one entry per move
+    // jsdom does not walk the history, so the walk is played: an entry's state comes back and popstate fires.
+    const walk = async (state: object) => {
+      history.replaceState(state, '');
+      await act(async () => void dispatchEvent(new PopStateEvent('popstate')));
+    };
+    await walk({ tab: term });
+    expect(shown()).toBe(term);
+    await walk({ tab: 'chat' });
+    expect(shown()).toBe('chat');
   });
 
   it('the sidebar is resized by dragging its edge, clamped, kept, and reset by a double click', async () => {
@@ -243,7 +266,7 @@ describe('the workspace', () => {
 
   it('allows four panes, and a lone tab dragged to another pane edge frees its own pane so the count holds', async () => {
     const storage = memory();
-    let ws = defaultWorkspace({ terminal: `term:${ARCH}` });
+    let ws = closeTab(defaultWorkspace({ terminal: `term:${ARCH}` }), 'activity');
     ws = applyPreset(openTab(openTab(ws, 'markdown', { path: 'a.md' }), 'web', { port: 3000 }), 'grid'); // 2 x 2: four columns would be under the minimum pane width
     saveWorkspace(storage, storageKey('test', ARCH), ws);
     await mount(ARCH, storage);

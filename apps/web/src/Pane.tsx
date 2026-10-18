@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useScreenKeys, type KeyRows } from './screenKeys.ts';
 import {
-  activate,
   badgesOf,
   needsAttention,
   closeTab,
@@ -23,6 +22,7 @@ import { ChatTab } from './ChatTab.tsx';
 import { Button, Icon, MenuButton, MenuItem, type IconName } from './ui/index.ts';
 import { TasksTab } from './TasksTab.tsx';
 import { TimelineTab } from './TimelineTab.tsx';
+import { ActivityTab } from './ActivityTab.tsx';
 import { Badges } from './Badges.tsx';
 import { DropZones } from './DropZones.tsx';
 import { BytesTab } from './BytesTab.tsx';
@@ -42,6 +42,8 @@ const label = (t: Tab, structured = false): string =>
       ? t.params.pinned
         ? taskRef(Number(t.params.task))
         : 'Tasks'
+      : t.kind === 'activity'
+        ? 'Activity'
       : t.kind === 'timeline'
         ? 'Timeline'
         : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
@@ -49,7 +51,7 @@ const label = (t: Tab, structured = false): string =>
           : t.kind === 'terminal'
             ? 'Claude Code'
             : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
-const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history', new: 'plus' };
+const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history', activity: 'team', new: 'plus' };
 
 const TAB_KEYS: KeyRows = [
   ['Alt+Left Alt+Right', 'move the focused tab along the strip'],
@@ -58,7 +60,7 @@ const TAB_KEYS: KeyRows = [
 
 export function Pane({ group }: { group: Group }) {
   useScreenKeys('On the tabs', TAB_KEYS);
-  const { ws, detail, agent, storage, apply, canSplit, lead, dragging, setDragging } = useWorkspace();
+  const { ws, detail, agent, storage, apply, show, canSplit, lead, dragging, setDragging } = useWorkspace();
   const folded = useFoldedControls();
   const store = useStore();
   const strip = useRef<HTMLDivElement>(null);
@@ -67,6 +69,7 @@ export function Pane({ group }: { group: Group }) {
   // What a new tab can show: the same list for the + menu and for the picker in a freshly split pane.
   const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; disabled?: boolean }[] = [
     { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
+    { kind: 'activity', params: {}, label: 'Activity', icon: 'team' },
     { kind: 'timeline', params: {}, label: 'Timeline', icon: 'history' },
     detail.structured === true
       ? { kind: 'transcript', params: {}, label: 'Transcript', icon: 'terminal' }
@@ -133,12 +136,12 @@ export function Pane({ group }: { group: Group }) {
                 setDragging(id);
               }}
               onDragEnd={() => setDragging(null)}
-              onClick={() => apply((w) => activate(w, id))}
+              onClick={() => show(id)}
               onKeyDown={(e) => {
                 if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
                   e.preventDefault();
                   apply((w) => moveTabBy(w, id, e.key === 'ArrowLeft' ? -1 : 1));
-                } else if (e.key === 'Enter' || e.key === ' ') apply((w) => activate(w, id));
+                } else if (e.key === 'Enter' || e.key === ' ') show(id);
               }}
             >
               <Icon name={TAB_ICON[t.kind] ?? 'tasks'} size={14} label={label(t, structured)} aria-hidden />
@@ -148,7 +151,7 @@ export function Pane({ group }: { group: Group }) {
                   <Badges
                     badges={badges}
                     onClick={{
-                      dialog: () => apply((w) => activate(w, CHAT)),
+                      dialog: () => show(CHAT),
                       stalled: () => apply((w) => openTab(w, 'timeline', {}, group.id)),
                     }}
                   />
@@ -216,6 +219,8 @@ export function Pane({ group }: { group: Group }) {
           </div>
         ) : tab.kind === 'tasks' ? (
           <TasksTab agent={agent} task={typeof tab.params.task === 'number' ? tab.params.task : null} />
+        ) : tab.kind === 'activity' ? (
+          <ActivityTab agent={agent} row={typeof tab.params.row === 'string' ? tab.params.row : null} />
         ) : tab.kind === 'timeline' ? (
           <TimelineTab agent={agent} />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (

@@ -5,7 +5,7 @@ import { useState } from 'react';
 import type { Account } from '@handline/client';
 import { useConnection } from '@handline/app-react';
 import { classify, sentence, useServes, useWrite } from '@handline/app-data';
-import { Button, Field } from './ui/index.ts';
+import { Button, Field, Icon } from './ui/index.ts';
 
 /** A login the daemon has not ended: the URL (when this app started it) and the code box belong to it. */
 const running = (account: Account) => account.login?.state === 'waiting' || account.login?.state === 'code_sent';
@@ -62,7 +62,7 @@ export function AccountLogin({ account }: { account: Account }) {
         ) : run ? (
           // A login another client started (or one a reload took the URL away from) still runs: cancel it, then Log in again.
           <p className="muted m-0 flex items-center gap-2" role="status">
-            {account.login?.state === 'code_sent' ? 'Code sent; the daemon is finishing the login.' : 'Login in progress.'}
+            <Icon name="working" size={14} label="Logging in" className="animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none" />
             <Button variant="ghost" size="sm" label="Cancel" disabled={cancelLogin.isPending} onClick={() => cancelLogin.mutate({ login_id: loginId })} />
           </p>
         ) : (
