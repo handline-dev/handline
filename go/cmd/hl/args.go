@@ -139,14 +139,15 @@ func integer(text string) (int, bool) {
 	return n, err == nil
 }
 
-// requestArg reads a message as typed: msg_<hash> or the bare hash is its ref, digits its id (12 digits are a ref, since a ref may be all
-// digits). A #<n> names a pull request: it goes to the daemon as typed, which refuses it and says so.
+// requestArg reads a message as typed: msg_<hash> or the bare hash is its ref. A hash may be all digits, so only digits shorter than a
+// printed name (an id from an old notice) are an id. A #<n> names a pull request: it goes to the daemon as typed, which refuses it and
+// says so.
 func requestArg(text string) (any, bool) {
 	if strings.HasPrefix(text, "#") {
 		return text, true
 	}
 	t := strings.TrimPrefix(strings.ToLower(text), db.MsgPrefix)
-	if digits(t) && len(t) < 12 && !strings.HasPrefix(strings.ToLower(text), db.MsgPrefix) {
+	if digits(t) && len(t) < db.MsgMinPrefix && !strings.HasPrefix(strings.ToLower(text), db.MsgPrefix) {
 		return integer(t)
 	}
 	if len(t) >= 6 && len(t) <= 12 && strings.Trim(t, "0123456789abcdef") == "" {

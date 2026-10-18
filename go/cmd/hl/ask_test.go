@@ -37,10 +37,12 @@ func TestWithdrawReadAndInboxAnswerWithoutPython(t *testing.T) {
 func TestReadTakesAMessageByNameOrHashAndPassesAHashMarkOnToBeRefused(t *testing.T) {
 	r := agentsRig(t)
 	calls := r.daemon(map[string]string{"request.read": "error:#7 is PR 7; a message is named msg_<hash>"})
-	for _, arg := range []string{"MSG_0102030", "0a1b2c3", "#7"} {
+	// a hash may be all digits: only digits shorter than a printed name are an id
+	for _, arg := range []string{"MSG_0102030", "0a1b2c3", "3412789", "39568", "#7"} {
 		r.run(asAgent, "read", arg)
 	}
-	want := []string{`request.read {"id":"0102030","wait_s":0}`, `request.read {"id":"0a1b2c3","wait_s":0}`, `request.read {"id":"#7","wait_s":0}`}
+	want := []string{`request.read {"id":"0102030","wait_s":0}`, `request.read {"id":"0a1b2c3","wait_s":0}`,
+		`request.read {"id":"3412789","wait_s":0}`, `request.read {"id":39568,"wait_s":0}`, `request.read {"id":"#7","wait_s":0}`}
 	if got := sent(calls()); !reflect.DeepEqual(got, want) {
 		t.Errorf("calls\n got  %v\n want %v", got, want)
 	}
