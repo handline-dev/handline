@@ -7726,7 +7726,7 @@
   },
   {
    "name": "worktree.diff",
-   "summary": "Read-only git diff run by the daemon.",
+   "summary": "Read-only git diff run by the daemon. Without `file`: the changes to tracked files against HEAD, then a new-file diff of each untracked file that .gitignore does not ignore (at most 200; one too big for what is left of the size cap is listed as `(new file, N bytes: not shown)`, not diffed). With `file`: that file alone, untracked or not.",
    "paramStructure": "by-name",
    "params": [
     {
