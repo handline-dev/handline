@@ -2116,7 +2116,7 @@
     "terminal_lock",
     "input_holder"
    ],
-   "description": "For a structured agent's permission prompt the choice is one of its option keys, allow or deny; yes, no or esc is bad_request (field choice). No terminal lock or input hold applies."
+   "description": "For a structured agent's permission prompt the choice is one of its option keys, allow or deny; yes, no or esc is bad_request (field choice). No terminal lock or input hold applies. On a terminal agent's permission prompt for a plain Bash command the options also carry `always`: it allows this once and keeps a permissions.allow rule (the command's first words, e.g. `Bash(gh pr create:*)`) in the shared settings file (<home>/shared/.claude/settings.json, which every account's settings.json links to), so the same ask is not made again; a command with a shell operator or one that runs other programs (bash, env, sudo...) gets no `always`."
   },
   {
    "name": "input.take",
@@ -5197,6 +5197,14 @@
      "schema": {
       "$ref": "#/components/schemas/RequestId"
      }
+    },
+    {
+     "name": "by_founder",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "A chat message id: the founder's OK on this task, kept with the accept as its proof. Refused unless the founder wrote the message, it is tied to the task and it came after the report."
+     }
     }
    ],
    "result": {
@@ -5219,7 +5227,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "The task must be reported (an owner it does not answer to ran task.done). Only whoever it answers to, its opener or the founder may accept. It closes with the report as its evidence; the owner is told."
+   "description": "The task must be reported (an owner it does not answer to ran task.done). Only whoever it answers to, its opener or the founder may accept. It closes with the report as its evidence; the owner is told. With by_founder a lead records the founder's chat OK instead of asking for a second tap (`hl task accept T<n> --by-founder <message id>`); the message id is kept in the task's accept_task event."
   },
   {
    "name": "task.reject",
@@ -12243,6 +12251,13 @@
      "proposal": {
       "type": "integer",
       "description": "Only on the message that tells an agent how the founder decided its HR proposal: that proposal's id, as hr.list gives it. A client that draws the decided proposal as a card can leave this line out."
+     },
+     "actions": {
+      "type": "array",
+      "description": "One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task's state asks for one: reported and answering to the founder (Accept, Send back), or owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb.",
+      "items": {
+       "$ref": "#/components/schemas/ChatAction"
+      }
      }
     },
     "required": [
@@ -14392,6 +14407,50 @@
      "filter",
      "by",
      "at"
+    ]
+   },
+   "ChatAction": {
+    "type": "object",
+    "properties": {
+     "key": {
+      "type": "string",
+      "enum": [
+       "accept",
+       "send_back",
+       "ok",
+       "no"
+      ]
+     },
+     "label": {
+      "type": "string"
+     },
+     "verb": {
+      "type": "string",
+      "enum": [
+       "task.accept",
+       "task.reject",
+       "task.done",
+       "task.handoff"
+      ]
+     },
+     "task": {
+      "type": "integer"
+     },
+     "params": {
+      "type": "object",
+      "description": "The verb's params but request_id."
+     },
+     "needs": {
+      "type": "string",
+      "description": "A param the person must write before the tap sends (`note` for Send back)."
+     }
+    },
+    "required": [
+     "key",
+     "label",
+     "verb",
+     "task",
+     "params"
     ]
    }
   },

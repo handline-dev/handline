@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/claude"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/rpc"
@@ -288,9 +289,13 @@ func optionsOf(kind string, answerable bool, detail map[string]any) []any {
 				map[string]any{"key": "allow", "label": "Allow", "answer": "yes", "highlighted": false},
 				map[string]any{"key": "deny", "label": "Deny", "answer": "no", "highlighted": false}}
 		}
-		return []any{
-			map[string]any{"key": "yes", "label": "Yes", "answer": "yes", "highlighted": false},
-			map[string]any{"key": "no", "label": "No", "answer": "no", "highlighted": false}, cancelOption()}
+		out := []any{map[string]any{"key": "yes", "label": "Yes", "answer": "yes", "highlighted": false}}
+		tool, _ := detail["tool"].(string)
+		command, _ := detail["command"].(string)
+		if claude.AllowRule(tool, command) != "" {
+			out = append(out, map[string]any{"key": "always", "label": "Allow always", "answer": "yes", "highlighted": false})
+		}
+		return append(out, map[string]any{"key": "no", "label": "No", "answer": "no", "highlighted": false}, cancelOption())
 	case "question":
 		out := []any{}
 		opts, _ := detail["options"].([]any)
