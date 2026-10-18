@@ -114,7 +114,8 @@ describe('the workspace', () => {
     const bar = $('.statusbar')!;
     expect($('#app')!.parentElement).toBe($('.frame'));
     expect(bar.querySelector('[aria-label="daemon open"]')).not.toBeNull();
-    expect(bar.querySelector('[data-icon="agent"]')).not.toBeNull();
+    expect(text(bar)).toContain('daemon ok'); // the cell says its state in a word; the agent counts are the sidebar's
+    expect(text(bar)).toMatch(/\d+ waiting on you.*\d+ blocked/);
     expect($('.rail input[type=search]')).not.toBeNull();
   });
 
