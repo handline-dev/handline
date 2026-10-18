@@ -194,6 +194,12 @@ export function handoffLine(h: { cause: string; phase: 'writing' | 'starting' })
   };
 }
 
+/** Whether the restart is over because its New session line is already in the chat: one restart shows one of the two lines, never both. */
+export function restartShown(h: { since: string }, items: TranscriptItem[]): boolean {
+  const since = Date.parse(h.since);
+  return !items.some((i) => i.kind === 'session' && Date.parse(i.at) >= since);
+}
+
 /** The live restart line: `Restarting: context full. Writing the handoff…`. */
 export function restartingLine(h: { cause: string; phase: 'writing' | 'starting' }): string {
   const { why, what } = handoffLine(h);

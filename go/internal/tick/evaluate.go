@@ -424,6 +424,11 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 			check(db.SetAgentState(q, agent, states.Stalled, 0, fmt.Sprintf("%d failed attempts", fresh.FailedAttempts)))
 			*actions = append(*actions, fmt.Sprintf("%s: STALLED after %d failed attempts", agent, fresh.FailedAttempts))
 		}
+		// A handoff parks the agent with its wake already due: start the new session now, not at the next poll.
+		if fresh = must(db.GetAgentState(q, agent)); fresh != nil && fresh.State == states.Parked && fresh.WakeAt.Valid &&
+			fresh.WakeAt.Int64 != 0 && fresh.WakeAt.Int64 <= t.Now() {
+			t.Supervise(agent, t.Now(), samples, actions)
+		}
 	}
 }
 
