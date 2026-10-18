@@ -2,7 +2,6 @@ package prompts
 
 import (
 	"fmt"
-	"github.com/handline/handline/go/internal/claude"
 	"github.com/handline/handline/go/internal/inputhold"
 	"sort"
 	"strconv"
@@ -44,7 +43,7 @@ func (e *Env) agentNamed(params map[string]any) (string, error) {
 	return "", err
 }
 
-// offered is the option keys prompt.list shows for a block: yes, no, Esc and, for a plain Bash command, always for a permission prompt that a hook record pins (the
+// offered is the option keys prompt.list shows for a block: yes, no and Esc for a permission prompt that a hook record pins (the
 // others are answered in the terminal), the numbered options of a question or a dialog, and Esc.
 func offered(b *Block) map[string]bool {
 	keys := map[string]bool{}
@@ -54,9 +53,6 @@ func offered(b *Block) map[string]bool {
 			return keys
 		}
 		keys["yes"], keys["no"] = true, true
-		if claude.AllowRule(str(b.Detail, "tool"), str(b.Detail, "command")) != "" {
-			keys["always"] = true
-		}
 	case term.PromptQuestion:
 		opts, _ := b.Detail["options"].([]any)
 		for i := range opts {
@@ -125,7 +121,7 @@ func answerFor(b *Block, choice any) (Choice, error) {
 		case c == "esc":
 			return Choice{Cancel: true}, nil
 		case b.Kind == term.PromptPermission:
-			return Choice{Yes: c != "no", Always: c == "always"}, nil
+			return Choice{Yes: c == "yes"}, nil
 		case b.Kind == term.PromptQuestion:
 			n, _ := strconv.Atoi(c)
 			return Choice{Choices: []int{n - 1}}, nil

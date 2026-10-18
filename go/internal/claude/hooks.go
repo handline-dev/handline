@@ -432,45 +432,6 @@ func SafeCommands() []string {
 	return out
 }
 
-// shellMeta marks a command that is more than one simple command, or that the shell rewrites before it runs.
-const shellMeta = ";&|<>()$`\\\"'*{}\n"
-
-// runsOthers are programs whose arguments are another program: a rule for them would allow whatever follows.
-var runsOthers = []string{"bash", "sh", "zsh", "env", "sudo", "xargs", "eval", "exec", "python", "python3", "node", "ssh", "time", "nohup", "watch"}
-
-// AllowRule is the permissions.allow rule that stops the same Bash ask from returning: the program and up to two words after it that are not
-// options (`gh pr create:*`), or the whole command when it has fewer. "" for any other tool, and for a command that is not one plain
-// command or that runs other programs.
-func AllowRule(tool, command string) string {
-	words := strings.Fields(command)
-	if tool != "Bash" || len(words) == 0 || strings.ContainsAny(command, shellMeta) || slices.Contains(runsOthers, filepath.Base(words[0])) {
-		return ""
-	}
-	n := 1
-	for n < len(words) && n < 3 && !strings.HasPrefix(words[n], "-") {
-		n++
-	}
-	if n == 1 || n == len(words) && n < 3 {
-		return "Bash(" + strings.Join(words, " ") + ")"
-	}
-	return "Bash(" + strings.Join(words[:n], " ") + ":*)"
-}
-
-// AllowAlways adds rule to permissions.allow of the shared settings file, which every account's settings.json links to: true if it was new.
-func (h Hooks) AllowAlways(rule string) (bool, error) {
-	data, err := h.readObject()
-	if err != nil {
-		return false, err
-	}
-	perms := data.block("permissions")
-	allow, _ := perms.vals["allow"].([]any)
-	if slices.Contains(allow, any(rule)) {
-		return false, nil
-	}
-	perms.Set("allow", append(allow, rule))
-	return true, h.write(data)
-}
-
 // AllowSafeCommands adds SafeCommands to permissions.allow, keeping what is there (claude_hooks.allow_safe_commands): true if it changed.
 func (h Hooks) AllowSafeCommands() (bool, error) {
 	data, err := h.readObject()

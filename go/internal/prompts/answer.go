@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/handline/handline/go/internal/claude"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/term"
@@ -65,13 +64,6 @@ func (e *Env) Answer(blockID int64, c Choice) (bool, string) {
 	case c.Cancel:
 		ok, said = e.cancel(agent, handle, row)
 	case row.Kind == term.PromptPermission:
-		if c.Always {
-			if rule := claude.AllowRule(str(now.Detail, "tool"), str(now.Detail, "command")); rule == "" {
-				return e.record(row, false, agent+": nothing safe to allow always for this prompt - nothing sent")
-			} else if _, err := (claude.Hooks{Home: e.Home}).AllowAlways(rule); err != nil {
-				return e.record(row, false, agent+": the allow rule could not be kept: "+err.Error())
-			}
-		}
 		ok, said = e.permission(agent, handle, row, now, c.Yes)
 	case row.Kind == term.PromptQuestion:
 		ok, said = e.question(agent, handle, now, c.Choices, c.Text)

@@ -315,7 +315,7 @@ The open permission prompts and dialogs.
 
 ### `prompt.answer`
 
-Answer the prompt the caller saw; if it changed nothing is sent. For a structured agent's permission prompt the choice is one of its option keys, allow or deny; yes, no or esc is bad_request (field choice). No terminal lock or input hold applies. On a terminal agent's permission prompt for a plain Bash command the options also carry `always`: it allows this once and keeps a permissions.allow rule (the command's first words, e.g. `Bash(gh pr create:*)`) in the shared settings file (<home>/shared/.claude/settings.json, which every account's settings.json links to), so the same ask is not made again; a command with a shell operator or one that runs other programs (bash, env, sudo...) gets no `always`.
+Answer the prompt the caller saw; if it changed nothing is sent. For a structured agent's permission prompt the choice is one of its option keys, allow or deny; yes, no or esc is bad_request (field choice). No terminal lock or input hold applies.
 
 ### `input.take`
 

@@ -331,21 +331,3 @@ func TestAHeldTerminalRefusesAnotherCallersAnswer(t *testing.T) {
 		t.Fatalf("%v %v", re.Data, h.sent)
 	}
 }
-
-func TestAllowAlwaysKeepsARuleSoTheSameAskDoesNotReturn(t *testing.T) {
-	e, h := testEnv(t)
-	noteWait(t, e, "backend", "rm -rf build", 7)
-	id := shown(t, e, h, boxless(t).Screen)
-	clearsOnAnyKey(h)
-	if b, _ := e.OpenBlockOf("backend"); b == nil || b.Detail["tool"] != "Bash" {
-		t.Fatalf("%+v", b)
-	}
-	got, err := answers(e, id, "always")
-	if err != nil || got.(map[string]any)["said"] != "backend: answered Yes" || h.sent[0] != `"1"/false` {
-		t.Fatalf("%v %v %v", got, err, h.sent)
-	}
-	kept, _ := os.ReadFile(filepath.Join(e.Home, "shared", ".claude", "settings.json"))
-	if !strings.Contains(string(kept), `"Bash(rm -rf build)"`) {
-		t.Fatalf("the rule is kept in the shared settings: %s", kept)
-	}
-}
