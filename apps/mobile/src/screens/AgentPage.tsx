@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
-import { badgesOf, controlsOf, needsConfirm, type StopMode } from '@handline/app-core';
+import { badgesOf, controlsOf, needsConfirm, shortName, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView, TerminalView } from '@handline/client';
@@ -13,6 +13,7 @@ import { StateMark } from './StateMark.tsx';
 import { AgentSettings } from './AgentSettings.tsx';
 import { AgentStrip } from './AgentStrip.tsx';
 import { AgentTasks } from './AgentTasks.tsx';
+import { Icon } from './Icon.tsx';
 import { Activity } from './Activity.tsx';
 import { AgentTimeline } from './AgentTimeline.tsx';
 import { AgentVerbs } from './AgentVerbs.tsx';
@@ -43,7 +44,6 @@ export function AgentPage() {
   if (!page) return null;
   const detail = detailQuery.data;
   const state = detail?.state ?? row?.state ?? 'unknown';
-  const sub = detail ?? row;
   const back = () => void store.closeAgent();
   return (
     <AboveKeyboard>
@@ -52,12 +52,9 @@ export function AgentPage() {
           <Text style={{ color: c.accent, fontSize: 28 }}>‹</Text>
         </Pressable>
         <StateMark agent={{ state, has_dialog: row?.has_dialog ?? false, block: row?.block }} />
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: c.ink, fontWeight: '700', fontSize: 16 }}>{name}</Text>
-          <Text style={{ color: c.muted, fontSize: 12 }}>
-            {[state, sub?.account && `acct ${sub.account}`, sub?.model].filter(Boolean).join(' · ')}
-          </Text>
-        </View>
+        <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '700', fontSize: 16, flex: 1 }}>
+          {shortName(name, name.split('.')[0]!)}
+        </Text>
       </Row>
       <AgentStrip agent={name} />
       <Loadable query={detailQuery} served={served} skeleton="agentDetail" label="the agent" empty={`${name} is gone`}>
@@ -86,6 +83,8 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const showTimeline = extra === 'timeline' && hasTimeline;
   const hasChat = useServes('chat.messages').served;
   const showActivity = extra === 'activity' && hasChat;
+  const [searching, setSearching] = useHistoryValue(`chat.search:${name}`, false);
+  const onChat = !showTasks && !showTimeline && !showActivity && current === 'chat';
   const stalled = badgesOf(detail, me).find((b) => b.kind === 'stalled');
   const verbMark = useVerbMark(name, ['close']);
   const mark = useAgentMark(name) ?? verbMark;
@@ -116,12 +115,12 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       style={{
         flex: 1,
         alignItems: 'center',
-        padding: space.md,
+        paddingVertical: space.md,
         borderBottomWidth: 2,
         borderBottomColor: on ? c.accent : 'transparent',
       }}
     >
-      <Text numberOfLines={1} adjustsFontSizeToFit style={{ color: on ? c.accent : c.muted, fontWeight: '600' }}>
+      <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: '600', fontSize: 13 }}>
         {label}
       </Text>
     </Pressable>
@@ -137,21 +136,39 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const structured = detail.structured === true;
   return (
     <View style={{ flex: 1 }}>
-      <Row style={{ paddingHorizontal: space.md, flexWrap: 'wrap' }}>
-        {ctl.start && <Button label="Start" disabled={busy} onPress={() => start.mutate({ agent: name })} />}
-        {ctl.resume && <Button label="Start new" disabled={busy} onPress={startNew} />}
-        {(structured ? ctl.interrupt : ctl.stop) && <Button label="Interrupt" disabled={busy} onPress={() => stop('interrupt')} />}
-        {ctl.stop && !structured && <Button label="Exit" disabled={busy} onPress={() => stop('exit')} />}
-        {ctl.stop && <Button label="Close" disabled={busy} onPress={() => stop('close')} />}
-        {ctl.stop && <Button label="Kill" disabled={busy} onPress={() => stop('kill')} kind="no" />}
-        {mark && (
-          <Text testID="pending-mark" style={{ color: c.muted, alignSelf: 'center' }}>
-            {mark}
-          </Text>
-        )}
-      </Row>
       <View style={{ paddingHorizontal: space.md }}>
-        <AgentVerbs detail={detail} row={row} onSettings={props.onSettings} />
+        <AgentVerbs
+          detail={detail}
+          row={row}
+          onSettings={props.onSettings}
+          lead={
+            <>
+              {ctl.start && <Button label="Start" disabled={busy} onPress={() => start.mutate({ agent: name })} />}
+              {ctl.resume && <Button label="Start new" disabled={busy} onPress={startNew} />}
+              {(structured ? ctl.interrupt : ctl.stop) && <Button label="Interrupt" disabled={busy} onPress={() => stop('interrupt')} />}
+            </>
+          }
+          stops={[
+            ...(ctl.stop && !structured ? [{ id: 'exit', label: 'Exit', danger: false }] : []),
+            ...(ctl.stop ? [{ id: 'close', label: 'Close', danger: false }, { id: 'kill', label: 'Kill', danger: true }] : []),
+          ]}
+          onStop={(mode) => stop(mode as StopMode)}
+          disabled={busy}
+          trail={
+            <>
+              {mark && (
+                <Text testID="pending-mark" style={{ color: c.muted }}>
+                  {mark}
+                </Text>
+              )}
+              {onChat && (
+                <Pressable testID="search-open" accessibilityRole="button" accessibilityLabel="Search this chat" accessibilityState={{ selected: searching }} hitSlop={12} onPress={() => setSearching(!searching)}>
+                  <Icon name="search" size={20} color={searching ? c.accent : c.muted} />
+                </Pressable>
+              )}
+            </>
+          }
+        />
         {stalled && hasTimeline && !showTimeline && (
           <Button
             testID="badge-stalled"
@@ -177,7 +194,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       ) : (
         <>
           {!(structured && current === 'terminal') && current !== 'chat' && <PromptSlot agent={name} prompt={detail.prompt ?? null} />}
-          {current === 'chat' ? <Chat detail={detail} /> : structured ? <TranscriptTab detail={detail} /> : <Terminal detail={detail} />}
+          {current === 'chat' ? <Chat detail={detail} searching={searching} /> : structured ? <TranscriptTab detail={detail} /> : <Terminal detail={detail} />}
         </>
       )}
     </View>

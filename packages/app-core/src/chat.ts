@@ -43,9 +43,9 @@ export function timeline(
   );
 }
 
-/** The agent's Chat: the person's words and the agent's, its replies and prompts, its own task cards and session marks. Tool lines are Activity's. */
+/** The agent's Chat: the person's words and the agent's, its replies and prompts, and its session marks. Task and tool lines are Activity's. */
 export const chatEntries = (messages: ChatMessage[], items: TranscriptItem[], agent: string): TimelineEntry[] =>
-  timeline(messages, items, 'mine', agent).filter((e) => !(e.kind === 'item' && e.item.kind === 'tool'));
+  timeline(messages, items, 'mine', agent).filter((e) => !(e.kind === 'item' && (e.item.kind === 'tool' || e.item.kind === 'task_event')));
 
 /** The agent's Activity, read-only: what the Chat leaves out (other people's messages, task notices) and every task, session and tool line. `all` is the daemon's all-scope messages, `mine` its mine-scope ones: what the Chat draws from the second is left out of the first. */
 export function activity(all: ChatMessage[], mine: ChatMessage[], items: TranscriptItem[], agent: string): TimelineEntry[] {

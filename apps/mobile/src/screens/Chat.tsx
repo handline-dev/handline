@@ -4,10 +4,10 @@
 // lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { clockTime, landingLabel, sideOf, takeBack as canTakeBack, chatEntries } from '@handline/app-core';
+import { clockTime, sideOf, takeBack as canTakeBack, chatEntries, tickLevel } from '@handline/app-core';
 import { classify, sentence, useAgents, useChat, useChatActions, useInbox, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
-import type { AgentDetail, ChatMessage, Landing, TranscriptItem } from '@handline/client';
+import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
@@ -21,22 +21,8 @@ import { ChatSearch } from './ChatSearch.tsx';
 import { useChatImages } from './ChatImages.tsx';
 import { Button, Row } from './parts.tsx';
 
-/** A shape for each stage, so the stage does not rest on colour. */
-const GLYPH: Record<string, string> = {
-  queued: '…',
-  typed: '⌨',
-  delivered: '✓',
-  withdrawn: '✕',
-};
-const glyph = (l: Landing) => GLYPH[l] ?? '✓';
-
-/** The receipt of a message to a structured agent, in words; unknown says what is not known. */
-const RECEIPT: Record<string, string> = {
-  queued: '… Queued',
-  sent: '→ Sent',
-  confirmed: '✓ Confirmed',
-  unknown: '? May or may not have run',
-};
+/** How far the person's message got, as ticks: not sent yet, sent, read. */
+const TICKS = ['…', '✓', '✓✓'] as const;
 
 /** Unsent text per agent, kept while the person goes to another tab or agent (not across a restart). */
 const drafts = new Map<string, string>();
@@ -55,7 +41,7 @@ export function ChatEmpty() {
   );
 }
 
-export function Chat(props: { detail: AgentDetail }) {
+export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const c = usePalette();
   const agent = props.detail.name;
   const canSend = useSelector((s) => s.can('chat.send'));
@@ -79,6 +65,7 @@ export function Chat(props: { detail: AgentDetail }) {
   };
   const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
   const entries = chatEntries(chat.messages, chat.items, agent);
+  const takeable = Math.max(0, ...chat.messages.filter((m) => m.id > 0 && m.state !== 'failed' && canTakeBack(m)).map((m) => m.id)); // only the newest can be taken back
 
   // The agent's messages now in front of the person leave the FOR YOU list (chat.seen); once per newest number.
   const said = chat.messages.filter((m) => m.from === agent && m.id > 0).reduce((n, m) => Math.max(n, m.id), 0);
@@ -148,16 +135,15 @@ export function Chat(props: { detail: AgentDetail }) {
   const working = chat.working.turn_running;
   return (
     <View style={{ flex: 1 }}>
-      <Row style={{ paddingHorizontal: space.md, paddingVertical: space.sm }}>
-        <Text style={{ color: c.muted, fontSize: 11, flex: 1 }}>You and this agent</Text>
-      </Row>
-      <ChatSearch
-        agent={agent}
-        onGo={(id) => {
-          setMissing(false);
-          setGoing(id);
-        }}
-      />
+      {props.searching && (
+        <ChatSearch
+          agent={agent}
+          onGo={(id) => {
+            setMissing(false);
+            setGoing(id);
+          }}
+        />
+      )}
       {going !== null && <ChatFind id={going} chat={chat} drawn={drawn} onFound={found} onLost={lost} />}
       {missing && (
         <Text testID="search-lost" style={{ color: c.muted, paddingHorizontal: space.md }}>
@@ -198,6 +184,7 @@ export function Chat(props: { detail: AgentDetail }) {
               m={e.message}
               agent={agent}
               picked={picked?.id === e.id}
+              takeable={takeable === e.id}
               flashed={flash === e.id}
               onRow={(y) => {
                 rowY.current.set(e.id, y);
@@ -288,10 +275,21 @@ export function Chat(props: { detail: AgentDetail }) {
   );
 }
 
+/** A small text link inside a bubble. */
+function Link(props: { label: string; onPress: () => void; testID: string }) {
+  const c = usePalette();
+  return (
+    <Pressable testID={props.testID} accessibilityRole="button" hitSlop={10} onPress={props.onPress}>
+      <Text style={{ color: c.accent, fontSize: 12 }}>{props.label}</Text>
+    </Pressable>
+  );
+}
+
 function Bubble(props: {
   m: ChatMessage;
   agent: string;
   picked: boolean;
+  takeable: boolean;
   flashed: boolean;
   onRow: (y: number) => void;
   working: boolean;
@@ -305,7 +303,7 @@ function Bubble(props: {
   const unnumbered = m.id < 0; // shown before the daemon numbered it, or refused
   const failed = m.state === 'failed';
   const mine = side === 'person' && !unnumbered && !failed;
-  const back = mine ? canTakeBack(m) : null;
+  const back = mine && props.takeable ? canTakeBack(m) : null;
   // The words come back to the box only once the daemon has taken the message back; a refusal leaves everything as it was.
   const takeBack = (confirm = false) =>
     act
@@ -346,7 +344,7 @@ function Bubble(props: {
           {m.from} → {m.to}
         </Text>
       )}
-      {m.parent != null && <Text style={{ color: c.muted, fontSize: 11 }}>↩ #{m.parent}</Text>}
+      {m.parent != null && <Text style={{ color: c.muted, fontSize: 11 }}>↩ reply</Text>}
       {m.parent_item && (
         <Text testID={`quote-${m.id}`} numberOfLines={2} style={{ color: c.muted, fontSize: 11 }}>
           ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
@@ -359,15 +357,13 @@ function Bubble(props: {
       ) : null}
       {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
       <Text style={{ color: c.muted, fontSize: 11 }}>
-        {!unnumbered && `#${m.id} `}
         {clockTime(m.at)}
         {side === 'person' && !failed && (
           <Text testID={`landing-${m.id}`}>
             {'  '}
-            {m.receipt ? (RECEIPT[m.receipt.state] ?? RECEIPT.sent) : `${glyph(m.landing)} ${landingLabel(m.landing)}`}
+            {m.landing === 'withdrawn' ? '✕ Withdrawn' : m.receipt?.state === 'unknown' ? '?' : TICKS[tickLevel(m)]}
           </Text>
         )}
-        {m.tasks.map((t) => `  T${t.id}`).join('')}
       </Text>
       {failed && (
         <View accessibilityRole="alert" style={{ gap: space.xs }}>
@@ -384,11 +380,11 @@ function Bubble(props: {
         </Text>
       )}
       {back && (
-        <Row>
+        <Row style={{ gap: space.lg }}>
           {(m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued' && props.working) && (
-            <Button testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />
+            <Link testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />
           )}
-          <Button testID={`takeback-${m.id}`} label="Take back" onPress={() => (back.confirm ? ask() : void takeBack())} />
+          <Link testID={`takeback-${m.id}`} label="Take back" onPress={() => (back.confirm ? ask() : void takeBack())} />
         </Row>
       )}
     </Pressable>

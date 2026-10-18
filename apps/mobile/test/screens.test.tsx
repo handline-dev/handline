@@ -509,14 +509,17 @@ describe('the chat tab', () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await until(() => msgOf('Use the contract fixtures.'), 'the messages');
-    expect(msgOf('Use the contract fixtures.')!.textContent).toContain('Delivered');
-    expect(msgOf('Draft the web chat tab plan.')!.textContent).toContain('Delivered');
+    expect(msgOf('Use the contract fixtures.')!.textContent).toContain('✓✓');
+    expect(msgOf('Draft the web chat tab plan.')!.textContent).toContain('✓✓');
+    expect(text()).not.toContain('Delivered'); // ticks, no word
+    expect(msgOf('Use the contract fixtures.')!.textContent).not.toContain('#'); // no message numbers on screen
     expect(text()).toContain('Here is the plan: three units, chat first.'); // the agent's reply
     expect(msgOf('Review is done, see the notes.')).toBeUndefined();
     expect($('scope-all')).toBeNull(); // no Mine/All menu
     await press($('tab-activity'));
     await until(() => text().includes('Review is done, see the notes.'), 'the agents’ messages');
-    expect(text()).toContain('handline.auditor → handline.architect');
+    expect(text()).toContain('auditor → architect'); // the team prefix is left off
+    expect(text()).not.toContain('handline.');
     expect(text()).not.toContain('Not a reply');
     m.store.stop();
   });
@@ -531,7 +534,7 @@ describe('the chat tab', () => {
     await act(async () => void [1, 2, 3].forEach(() => m.daemon.tick())); // typed, delivered, thinking
     await until(() => $('working'), 'the working line');
     expect($('working')!.textContent).toContain('Reading the code');
-    expect(msgOf('run the tests')!.textContent).toContain('Delivered');
+    expect(msgOf('run the tests')!.textContent).toContain('✓');
     m.store.stop();
   });
 
@@ -543,7 +546,7 @@ describe('the chat tab', () => {
     await until(() => msgOf('please retry me')?.textContent?.includes('the daemon is resting'), 'the failed row');
     const row = msgOf('please retry me')!;
     await press(row.querySelector<HTMLElement>('[data-testid^="retry-"]'));
-    await until(() => msgOf('please retry me')?.textContent?.includes('Sending'), 'the retried message');
+    await until(() => msgOf('please retry me')?.textContent?.includes('…'), 'the retried message');
     expect(msgOf('please retry me')!.textContent).not.toContain('the daemon is resting');
     m.store.stop();
   });
@@ -557,7 +560,7 @@ describe('the chat tab', () => {
     await type('chat-input', 'about that');
     await press($('chat-send'));
     await until(() => msgOf('about that'), 'the reply');
-    expect(msgOf('about that')!.textContent).toContain('↩ #');
+    expect(msgOf('about that')!.textContent).toContain('↩ reply');
     expect($('replying')).toBeNull();
     const id = Number(msgOf('about that')!.getAttribute('data-testid')!.slice(4));
     await press($(`takeback-${id}`));
@@ -575,7 +578,7 @@ describe('the chat tab', () => {
     await type('chat-input', 'web first');
     await press($('chat-send'));
     await until(() => msgOf('web first'), 'the reply');
-    expect(msgOf('web first')!.textContent).toContain('↩ #');
+    expect(msgOf('web first')!.textContent).toContain('↩ reply');
     m.store.stop();
   });
 

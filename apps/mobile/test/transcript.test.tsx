@@ -179,11 +179,14 @@ const button = (label: string) =>
   [...document.querySelectorAll<HTMLElement>('[role="button"]')].find((b) => b.textContent === label) ?? null;
 
 describe('the header row of a structured agent', () => {
-  it('lists Close and Kill while idle, with no Exit and no Interrupt', async () => {
+  it('keeps Close and Kill under the ⋯ menu while idle, with no Exit and no Interrupt', async () => {
     const m = await mount();
     await until(() => $(`agent-${AUD}`), 'the rows');
     await press($(`agent-${AUD}`));
-    await until(() => button('Close'), 'the header row');
+    await until(() => $('verbs-open'), 'the header row');
+    expect(buttons()).not.toContain('Kill');
+    await press($('verbs-open'));
+    await until(() => button('Close'), 'the menu');
     expect(buttons()).toContain('Kill');
     expect(buttons()).not.toContain('Exit');
     expect(buttons()).not.toContain('Interrupt');
@@ -253,8 +256,9 @@ describe('tool output in the activity', () => {
     await press(opener());
     expect($('tool-output')!.textContent).toBe('1\n2\n');
     expect($('tool-cut')!.textContent).toBe('8 more lines let go');
-    await press($('sheet-cancel'));
-    expect($('sheet')).toBeNull();
+    expect($('sheet')).toBeNull(); // in place, no sheet and no Close button
+    await press(opener());
+    expect($('tool-output')).toBeNull(); // a second tap folds it
     m.store.stop();
   });
 

@@ -10,6 +10,7 @@ async function open(prepare?: Parameters<typeof mount>[0]) {
   await until(() => $('tab-chat'), 'the page');
   await press($('tab-chat'));
   await until(() => $('chat-input'), 'the chat');
+  await press($('search-open'));
   return m;
 }
 const search = async (value: string) => {
