@@ -44,15 +44,10 @@ describe('chat search on the phone', () => {
     m.store.stop();
   });
 
-  it('searches the scope the tab shows: a message between two agents is not in Mine', async () => {
+  it('searches only the Chat: a message between two agents is not a hit', async () => {
     const m = await open();
     await search('Review is done');
-    await until(() => $('search-empty'), 'no hit in Mine');
-    await press($('scope-all'));
-    await search('');
-    await search('Review is done');
-    await until(() => hits().length, 'the hit in All');
-    expect(hits()[0]!.textContent).toContain('handline.auditor');
+    await until(() => $('search-empty'), 'no hit');
     m.store.stop();
   });
 

@@ -505,7 +505,7 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
-  it('shows the conversation with how far each message got, and Mine hides what agents tell each other', async () => {
+  it('shows the conversation with how far each message got, and what agents tell each other is in Activity', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await until(() => msgOf('Use the contract fixtures.'), 'the messages');
@@ -513,9 +513,11 @@ describe('the chat tab', () => {
     expect(msgOf('Draft the web chat tab plan.')!.textContent).toContain('Delivered');
     expect(text()).toContain('Here is the plan: three units, chat first.'); // the agent's reply
     expect(msgOf('Review is done, see the notes.')).toBeUndefined();
-    await press($('scope-all'));
-    await until(() => msgOf('Review is done, see the notes.'), 'the agents’ messages');
-    expect(msgOf('Review is done, see the notes.')!.textContent).toContain('handline.auditor → handline.architect');
+    expect($('scope-all')).toBeNull(); // no Mine/All menu
+    await press($('tab-activity'));
+    await until(() => text().includes('Review is done, see the notes.'), 'the agents’ messages');
+    expect(text()).toContain('handline.auditor → handline.architect');
+    expect(text()).not.toContain('Not a reply');
     m.store.stop();
   });
 

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, handoffLine, sideOf, taskRow, changeParts, timeline } from '../src/index.ts';
+import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, handoffLine, sideOf, taskRow, changeParts, timeline, chatEntries, activity } from '../src/index.ts';
 
 const A = 'handline.architect';
 const msg = (over: Partial<ChatMessage>): ChatMessage => ({
@@ -185,4 +185,14 @@ test('handoffLine says why and what for each phase', () => {
   assert.deepEqual(handoffLine({ cause: 'context_full', phase: 'writing' }), { why: 'Context full', what: 'Writing the handoff' });
   assert.equal(handoffLine({ cause: 'context_full', phase: 'starting' }).what, 'Starting a new session');
   assert.equal(handoffLine({ cause: 'odd', phase: 'writing' }).why, 'odd');
+});
+
+test('the Chat holds the person and the agent; Activity holds the rest, and no line is in both but sessions and task cards', () => {
+  const talk = msg({ id: 1 });
+  const peers = msg({ id: 2, from: 'handline.auditor', to: A, body: 'Review is done' });
+  const news = msg({ id: 3, from: 'task-board', to: A, body: 'T9 done by x: ok' });
+  const items = [item({ id: 10, kind: 'reply' }), item({ id: 11, kind: 'tool', tool: 'Bash' }), item({ id: 12, kind: 'session' })];
+  const key = (es: { kind: string; id: number }[]) => es.map((e) => `${e.kind}${e.id}`);
+  assert.deepEqual(key(chatEntries([talk], items, A)), ['message1', 'item10', 'item12']);
+  assert.deepEqual(key(activity([talk, peers, news], [talk], items, A)), ['message2', 'note3', 'item11', 'item12']);
 });

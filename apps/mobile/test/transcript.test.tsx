@@ -232,7 +232,7 @@ describe('a refused transcript read of a structured agent', () => {
   });
 });
 
-describe('tool output in the chat', () => {
+describe('tool output in the activity', () => {
   const tool = (extra: object) => (s: ReturnType<typeof setup>) =>
     s.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'seq 1 10', ...extra });
   const chat = async (extra: object) => {
@@ -240,6 +240,8 @@ describe('tool output in the chat', () => {
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
     await until(() => $('chat-input'), 'the chat');
+    expect(document.body.querySelector('[data-testid^="tool-"]')).toBeNull(); // tools are not in the chat
+    await press($('tab-activity'));
     return m;
   };
   const opener = () => document.body.querySelector<HTMLElement>('[data-testid^="tool-open-"]');

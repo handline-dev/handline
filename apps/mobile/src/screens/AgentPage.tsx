@@ -13,6 +13,7 @@ import { StateMark } from './StateMark.tsx';
 import { AgentSettings } from './AgentSettings.tsx';
 import { AgentStrip } from './AgentStrip.tsx';
 import { AgentTasks } from './AgentTasks.tsx';
+import { Activity } from './Activity.tsx';
 import { AgentTimeline } from './AgentTimeline.tsx';
 import { AgentVerbs } from './AgentVerbs.tsx';
 import { Chat } from './Chat.tsx';
@@ -78,11 +79,13 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const { detail, agent: row, tab: current } = props;
   const name = detail.name;
   const ctl = controlsOf(detail, me);
-  const [extra, setExtra] = useHistoryValue<'tasks' | 'timeline' | null>(`agent.extra:${name}`, null); // the Tasks and Timeline tabs sit beside the store's two tabs
+  const [extra, setExtra] = useHistoryValue<'tasks' | 'timeline' | 'activity' | null>(`agent.extra:${name}`, null); // the Tasks and Timeline tabs sit beside the store's two tabs
   const hasTasks = useServes('tasks.list').served;
   const hasTimeline = useServes('agent.timeline').served;
   const showTasks = extra === 'tasks' && hasTasks;
   const showTimeline = extra === 'timeline' && hasTimeline;
+  const hasChat = useServes('chat.messages').served;
+  const showActivity = extra === 'activity' && hasChat;
   const stalled = badgesOf(detail, me).find((b) => b.kind === 'stalled');
   const verbMark = useVerbMark(name, ['close']);
   const mark = useAgentMark(name) ?? verbMark;
@@ -122,7 +125,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
     </Pressable>
   );
   const pageTab = (t: 'chat' | 'terminal', label: string) =>
-    tab(t, label, !showTasks && !showTimeline && current === t, () => {
+    tab(t, label, !showTasks && !showTimeline && !showActivity && current === t, () => {
       setExtra(null);
       store.setTab(t);
     });
@@ -159,10 +162,13 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }}>
         {pageTab('chat', 'Chat')}
         {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
+        {hasChat && tab('activity', 'Activity', showActivity, () => setExtra('activity'))}
         {hasTasks && tab('tasks', 'Tasks', showTasks, () => setExtra('tasks'))}
         {hasTimeline && tab('timeline', 'Timeline', showTimeline, () => setExtra('timeline'))}
       </Row>
-      {showTimeline ? (
+      {showActivity ? (
+        <Activity agent={name} />
+      ) : showTimeline ? (
         <AgentTimeline agent={name} />
       ) : showTasks ? (
         <AgentTasks agent={name} />

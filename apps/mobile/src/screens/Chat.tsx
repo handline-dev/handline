@@ -4,10 +4,9 @@
 // lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message, in the
 // chat that shows it. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
-import { useHistoryValue } from '../history.tsx';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { clockTime, landingLabel, sideOf, takeBack as canTakeBack, timeline } from '@handline/app-core';
-import { classify, sentence, useAgents, useChat, useChatActions, useInbox, useWrite, type ChatScope } from '@handline/app-data';
+import { clockTime, landingLabel, sideOf, takeBack as canTakeBack, chatEntries } from '@handline/app-core';
+import { classify, sentence, useAgents, useChat, useChatActions, useInbox, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, Landing, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
@@ -61,8 +60,7 @@ export function Chat(props: { detail: AgentDetail }) {
   const c = usePalette();
   const agent = props.detail.name;
   const canSend = useSelector((s) => s.can('chat.send'));
-  const [scope, setScope] = useHistoryValue<ChatScope>(`chat.scope:${agent}`, 'mine');
-  const chat = useChat(agent, scope);
+  const chat = useChat(agent, 'mine');
   const act = useChatActions(agent);
   const [picked, setPicked] = useState<Ref | null>(null); // a message, or a request a # chose
   const img = useChatImages(canSend);
@@ -81,7 +79,7 @@ export function Chat(props: { detail: AgentDetail }) {
     setTextState(v);
   };
   const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
-  const entries = timeline(chat.messages, chat.items, 'mine', agent);
+  const entries = chatEntries(chat.messages, chat.items, agent);
 
   // The agent's messages now in front of the person leave the FOR YOU list (chat.seen); once per newest number.
   const said = chat.messages.filter((m) => m.from === agent && m.id > 0).reduce((n, m) => Math.max(n, m.id), 0);
@@ -152,41 +150,16 @@ export function Chat(props: { detail: AgentDetail }) {
   return (
     <View style={{ flex: 1 }}>
       <Row style={{ paddingHorizontal: space.md, paddingVertical: space.sm }}>
-        {(['mine', 'all'] as const).map((s) => (
-          <Pressable
-            key={s}
-            testID={`scope-${s}`}
-            accessibilityRole="button"
-            accessibilityState={{ selected: scope === s }}
-            onPress={() => {
-              setScope(s);
-              setPicked(null);
-              setItem(null);
-            }}
-            style={{
-              paddingVertical: space.xs,
-              paddingHorizontal: space.md,
-              borderRadius: radius.md,
-              borderWidth: 1,
-              borderColor: scope === s ? c.accent : c.line,
-            }}
-          >
-            <Text style={{ color: scope === s ? c.accent : c.muted, fontWeight: '600' }}>{s === 'mine' ? 'Mine' : 'All'}</Text>
-          </Pressable>
-        ))}
-        <Text style={{ color: c.muted, fontSize: 11, flex: 1 }}>
-          {scope === 'mine' ? 'You and this agent' : 'Also what agents tell each other'}
-        </Text>
+        <Text style={{ color: c.muted, fontSize: 11, flex: 1 }}>You and this agent</Text>
       </Row>
       <ChatSearch
         agent={agent}
-        scope={scope}
         onGo={(id) => {
           setMissing(false);
           setGoing(id);
         }}
       />
-      {going !== null && <ChatFind id={going} scope={scope} setScope={setScope} chat={chat} drawn={drawn} onFound={found} onLost={lost} />}
+      {going !== null && <ChatFind id={going} chat={chat} drawn={drawn} onFound={found} onLost={lost} />}
       {missing && (
         <Text testID="search-lost" style={{ color: c.muted, paddingHorizontal: space.md }}>
           That message is no longer in this chat.

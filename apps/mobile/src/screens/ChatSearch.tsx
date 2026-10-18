@@ -2,7 +2,7 @@
 // A daemon that does not list chat.search shows no box.
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { classify, sentence, useChatSearch, useServes, type ChatScope } from '@handline/app-data';
+import { classify, sentence, useChatSearch, useServes, } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { dateTime } from '@handline/app-core';
@@ -16,7 +16,7 @@ function snippet(body: string, query: string): string {
   return `${from > 0 ? '…' : ''}${flat.slice(from, from + SNIPPET)}${from + SNIPPET < flat.length ? '…' : ''}`;
 }
 
-export function ChatSearch(props: { agent: string; scope: ChatScope; onGo: (id: number) => void }) {
+export function ChatSearch(props: { agent: string; onGo: (id: number) => void }) {
   const c = usePalette();
   const { served } = useServes('chat.search');
   const [text, setText] = useState('');
@@ -25,7 +25,7 @@ export function ChatSearch(props: { agent: string; scope: ChatScope; onGo: (id: 
     const t = setTimeout(() => setQuery(text.trim()), 250);
     return () => clearTimeout(t);
   }, [text]);
-  const found = useChatSearch({ agent: props.agent, query, scope: props.scope }, served && query !== '');
+  const found = useChatSearch({ agent: props.agent, query, scope: 'mine' }, served && query !== '');
   if (!served) return null;
   const hits = found.data?.messages ?? [];
   // Results show for the text as it stands, not for the query of a moment ago.

@@ -43,6 +43,19 @@ export function timeline(
   );
 }
 
+/** The agent's Chat: the person's words and the agent's, its replies and prompts, its own task cards and session marks. Tool lines are Activity's. */
+export const chatEntries = (messages: ChatMessage[], items: TranscriptItem[], agent: string): TimelineEntry[] =>
+  timeline(messages, items, 'mine', agent).filter((e) => !(e.kind === 'item' && e.item.kind === 'tool'));
+
+/** The agent's Activity, read-only: what the Chat leaves out (other people's messages, task notices) and the task, session and tool lines. */
+/** `all` is the daemon's all-scope messages, `mine` its mine-scope ones: what the Chat draws from the second is left out of the first. */
+export function activity(all: ChatMessage[], mine: ChatMessage[], items: TranscriptItem[], agent: string): TimelineEntry[] {
+  const inChat = new Set(timeline(mine, [], 'mine', agent).map((e) => e.id));
+  return timeline(all, items, 'all', agent).filter((e) =>
+    e.kind === 'item' ? ['tool', 'session', 'task_event'].includes(e.item.kind) : !inChat.has(e.id),
+  );
+}
+
 /** The name the daemon records for the person's own words: the CLI's `human`, or the device they typed on (`me`, e.g. "Handline desktop"). */
 export const isPerson = (name: string, me: string) => name === 'human' || (!!me && name === me);
 /** Who a message is from, for the agent whose chat this is: the person, the agent, or someone else (another agent, the task board: the *all* tab, notices). Only the person's own words sit on the person's side. */
