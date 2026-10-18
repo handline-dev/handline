@@ -24,7 +24,7 @@ import {
 import type { AgentDetail } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { classify, useAgentDetail, useAgents, useServes } from '@handline/app-data';
-import { takeTerminalWish, useHistoryValue } from './route.ts';
+import { recordHistoryValue, takeTerminalWish, useHistoryValue } from './route.ts';
 import { View } from './View.tsx';
 import { DropZones } from './DropZones.tsx';
 import { Pane } from './Pane.tsx';
@@ -100,9 +100,12 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     if (entryTab) setWs((w) => activate(w, entryTab));
   }, [entryTab]);
   // The entry that opened this agent holds the tab shown on opening, so Back onto it restores that tab.
+  const opened = useRef(false);
   useEffect(() => {
-    if (!entryTab) history.replaceState({ ...(history.state as object | null), tab: shownTab(ws) }, '');
-  }, []);
+    if (opened.current) return;
+    opened.current = true;
+    if (!entryTab) recordHistoryValue('tab', shownTab(ws));
+  }, [entryTab, ws]);
   const root = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: innerWidth, h: innerHeight });
 

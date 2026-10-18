@@ -195,24 +195,25 @@ describe('the workspace', () => {
     expect(daemon.sessions.get(ARCH)!.state).not.toBe('closed');
   });
 
-  it('showing a tab is a history entry: Back shows the tab before, Forward the one after', async () => {
+  it('showing a tab is a history entry, and an entry coming back puts its tab back', async () => {
     await mount(ARCH, textGrid(), setup(), true);
     await until(() => $(termTab), 'the terminal tab');
     const term = `terminal:term:${ARCH}`;
     const shown = () => ($(termTab)!.getAttribute('aria-selected') === 'true' ? term : 'chat');
+    const length = history.length;
     await click($(termTab)!);
-    expect(shown()).toBe(`terminal:term:${ARCH}`);
+    expect(shown()).toBe(term);
     await click($('[data-tab="chat"]')!);
     expect(shown()).toBe('chat');
-    await act(async () => {
-      history.back();
-      await new Promise((r) => setTimeout(r, 50));
-    });
-    expect(shown()).toBe(`terminal:term:${ARCH}`);
-    await act(async () => {
-      history.forward();
-      await new Promise((r) => setTimeout(r, 50));
-    });
+    expect(history.length).toBe(length + 2); // one entry per move
+    // jsdom does not walk the history, so the walk is played: an entry's state comes back and popstate fires.
+    const walk = async (state: object) => {
+      history.replaceState(state, '');
+      await act(async () => void dispatchEvent(new PopStateEvent('popstate')));
+    };
+    await walk({ tab: term });
+    expect(shown()).toBe(term);
+    await walk({ tab: 'chat' });
     expect(shown()).toBe('chat');
   });
 

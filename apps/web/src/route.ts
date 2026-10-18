@@ -137,6 +137,11 @@ const subscribeState = (cb: () => void) => {
   };
 };
 /** A choice made inside a page (a tab) that rides in the history entry: setting it adds an entry, Back and Forward bring the earlier value. */
+/** Puts a value into the current entry without adding one (the entry a page opened with). */
+export function recordHistoryValue(key: string, v: string): void {
+  history.replaceState({ ...(history.state as object | null), [key]: v }, '');
+  dispatchEvent(new Event(PUSHED));
+}
 export function useHistoryValue(key: string): [string | undefined, (v: string) => void] {
   const v = useSyncExternalStore(subscribeState, () => (history.state as Record<string, string> | null)?.[key]);
   return [
