@@ -50,7 +50,8 @@ export function useHistoryValue<T>(key: string, initial: T): [T, (v: T) => void]
   const [own, setOwn] = useState(initial);
   useSyncExternalStore(h?.subscribe ?? noSubscribe, () => h?.version ?? 0);
   if (!h) return [own, setOwn];
-  return [h.get(key, initial), (v) => h.push(key, v)];
+  const now = h.get(key, initial);
+  return [now, (v) => void (!Object.is(v, now) && h.push(key, v))];
 }
 
 const noSubscribe = () => () => {};
