@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
@@ -260,6 +261,18 @@ func newProp(kind, agent, actor, why string) (*Prop, error) {
 func (e *Env) raised(c *rpc.Conn, prop *Prop, said string) (any, error) {
 	if err := e.save(prop); err != nil {
 		return refuse("could not write the proposal down, so nothing was raised: %v", err)
+	}
+	if c.Caller.Actor() == db.Human {
+		// The founder's own change is applied at once: the gate stops an agent changing the roster on its own, and asking the founder to approve
+		// what they just typed is ceremony. It goes through decide, so the approval is on record as any other's; a failed apply stays listed.
+		done, applied, err := e.decide(prop.id(), "approved", db.Human, "enacted by the founder", prop.subject(), false)
+		if err != nil {
+			return nil, err
+		}
+		if !done {
+			return refuse("proposal %s was written down but not applied: %s", prop.id(), applied)
+		}
+		said = fmt.Sprintf("proposal %s applied: %s", prop.id(), applied)
 	}
 	return c.Effect(func(*sql.Tx) (map[string]any, error) {
 		return map[string]any{"accepted": true, "proposal": proposalNumber(prop.id()), "said": said}, nil
