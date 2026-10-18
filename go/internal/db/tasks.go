@@ -532,6 +532,21 @@ func TaskWaits(q Q, tid int64) (bool, error) {
 	return len(kids) > 0, err
 }
 
+// Overdue is whether a task's opener was told it ran past its timeout and nobody has answered since: the deadline in force is the one that
+// notice set (an edit or a release replaces it).
+func Overdue(q Q, t *Task) (bool, error) {
+	if !t.TimeoutAt.Valid {
+		return false, nil
+	}
+	var one int
+	err := q.QueryRow("SELECT 1 FROM events WHERE kind = 'task_timeout_exceeded' AND "+eventTask+" = ? AND json_extract(payload, '$.next') = ? LIMIT 1",
+		t.ID, t.TimeoutAt.Int64).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // AllTasks is db.all_tasks.
 func AllTasks(q Q) ([]*Task, error) {
 	return taskRows(q, "SELECT "+taskCols+" FROM tasks ORDER BY priority, id")

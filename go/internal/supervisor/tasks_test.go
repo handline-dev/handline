@@ -534,3 +534,71 @@ func TestAHeldMemoUnreadForAnHourIsToldToTheReadersLeadOnce(t *testing.T) {
 		t.Fatal("the memo is no longer held for its reader")
 	}
 }
+
+// beginCurrent makes a new task of owner's current and begun, as `hl task start` leaves it.
+func (r *rig) beginCurrent(owner, opener, title string) int64 {
+	r.t.Helper()
+	tid := r.newTask(owner, opener, title)
+	_, _, err := r.AdvanceCurrentTask(r.DB, owner)
+	r.must(err)
+	_, err = db.AddEvent(r.DB, owner, "task_begin", db.KV{K: "task_id", V: tid})
+	r.must(err)
+	return tid
+}
+
+// The stall this guards against: a lead's one current task waits on another agent's task, the lead is idle, and its queued tasks never reached it.
+func TestSweepGivesAnIdleAgentItsNextTaskWhileItsBegunTaskWaits(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	held := r.beginCurrent("bob", "alice", "the review")
+	blocker := r.newTask("carol", "bob", "the list to review")
+	_, err := r.DB.Exec("INSERT INTO task_blocks(task_id, blocks_on, dormant, created_at) VALUES(?, ?, 0, 1)", held, blocker)
+	r.must(err)
+	next := r.newTask("bob", "alice", "the next one")
+	r.newTask("bob", "alice", "the one after")
+
+	r.must(db.SetAgentState(r.DB, "bob", states.Running, 0, ""))
+	r.must(r.SweepTaskQueue(r.clock))
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != held {
+		t.Fatalf("a running agent was moved off T%d to T%d", held, cur)
+	}
+
+	r.must(db.SetAgentState(r.DB, "bob", states.Idle, 0, ""))
+	r.must(r.SweepTaskQueue(r.clock))
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != next {
+		t.Fatalf("current is T%d, want the next queued T%d", cur, next)
+	}
+	want := fmt.Sprintf("T%d is blocked by T%d (carol), so T%d (the next one) is yours now: start it.", held, blocker, next)
+	if says := r.saysTo("bob"); len(says) != 1 || says[0] != want {
+		t.Fatalf("says to bob = %q, want %q", says, want)
+	}
+}
+
+// A begun task past its timeout that nobody answered pings its idle holder once per deadline when nothing else is queued for it.
+func TestSweepPingsTheIdleHolderOfAnOverdueTaskOncePerDeadline(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	tid := r.beginCurrent("bob", "alice", "the long one")
+	r.must(db.AdvanceTaskTimeout(r.DB, tid, r.clock, db.DefaultTaskTimeoutS))
+	row, err := db.GetTask(r.DB, tid)
+	r.must(err)
+	r.must(db.SetAgentState(r.DB, "bob", states.Idle, 0, ""))
+
+	r.must(r.SweepTaskQueue(r.clock))
+	if says := r.saysTo("bob"); len(says) != 0 {
+		t.Fatalf("a task within its timeout pinged its holder: %q", says)
+	}
+	_, err = db.AddEvent(r.DB, "alice", "task_timeout_exceeded", db.KV{K: "task_id", V: tid}, db.KV{K: "next", V: row.TimeoutAt.Int64})
+	r.must(err)
+	r.must(r.SweepTaskQueue(r.clock))
+	r.must(r.SweepTaskQueue(r.clock + 1))
+	if says := r.saysTo("bob"); len(says) != 1 || !strings.HasPrefix(says[0], fmt.Sprintf("T%d (the long one) is past its timeout, unanswered. Keep it going", tid)) {
+		t.Fatalf("says to bob = %q, want one overdue ping", says)
+	}
+
+	next := r.newTask("bob", "alice", "the next one")
+	r.must(r.SweepTaskQueue(r.clock + 2))
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != next {
+		t.Fatalf("current is T%d, want T%d once something is queued behind the overdue one", cur, next)
+	}
+}
