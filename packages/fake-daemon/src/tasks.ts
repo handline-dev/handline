@@ -3,7 +3,7 @@
 import type { HistoryRow, Memo, MemoFile, Task, TaskClock, TaskDetail } from '@handline/contract';
 import { seedTasks } from './fixtures.ts';
 import { invalidParams, refused, storeFailure } from './errors.ts';
-import { changes } from './history.ts';
+import { changes, timeOf } from './history.ts';
 import { refs, type FakeAttachments } from './attachments.ts';
 
 export class TaskFailure extends Error {
@@ -34,7 +34,7 @@ export class FakeTasks {
   private held: Row[] | null = null;
   private nextId = 2000;
   private host: Host;
-  private now: () => string;
+  readonly now: () => string;
   /** Serve the verbs of the daemon's plan (D3: done, reopen, queue, draft, discard, merge) too; off, as the real daemon is today. */
   verbs = false;
   /** Who the write now being answered is from, so the history can say who changed what. */
@@ -356,7 +356,7 @@ export class FakeTasks {
 }
 
 // The task methods the fake serves; the rest (handoff) are refused as `unsupported`.
-const BASIC = new Set(['tasks.list', 'task.get', 'task.history', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel', 'task.ask']);
+const BASIC = new Set(['tasks.list', 'task.get', 'task.history', 'task.time', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel', 'task.ask']);
 const VERBS = new Set([
   'task.done',
   'task.accept',
@@ -390,6 +390,8 @@ export function taskCall(
     switch (method) {
       case 'task.history':
         return tasks.history(p);
+      case 'task.time':
+        return timeOf(p.task, tasks);
       case 'tasks.list':
         return tasks.list(p);
       case 'task.get':
