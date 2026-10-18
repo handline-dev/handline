@@ -230,7 +230,7 @@ func taskBegin(c *hlclient.Client, args []string) (int, bool) {
 	}
 	chatText, hasChat := p.opt("--chat")
 	why, hasWhy := p.opt("--why")
-	chat, ok1 := integer(chatText)
+	chat, ok1 := requestArg(chatText)
 	prio, hasPrio, ok2 := optPriority(p, "--priority")
 	exp := "report"
 	if v, given := p.opt("--expects"); given {
@@ -534,7 +534,7 @@ func taskDone(c *hlclient.Client, args []string) (int, bool) {
 		return 0, false
 	}
 	req, hasReq := p.opt("--request")
-	request, ok := integer(req)
+	request, ok := requestArg(req)
 	if hasReq && !ok {
 		return 0, false
 	}
