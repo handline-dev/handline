@@ -18,6 +18,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/handline/handline/go/internal/heavyslots"
 )
 
 var poll = 2 * time.Second
@@ -42,24 +44,9 @@ func main() {
 	os.Exit(run(args))
 }
 
-func dir() (string, error) {
-	if d := os.Getenv("HANDLINE_HEAVY_DIR"); d != "" {
-		return d, nil
-	}
-	home, err := os.UserHomeDir()
-	return filepath.Join(home, ".handline", "heavy-slots"), err
-}
-
-func slots() int {
-	if n, err := strconv.Atoi(os.Getenv("HANDLINE_HEAVY_SLOTS")); err == nil && n > 0 {
-		return n
-	}
-	return 1
-}
-
 // acquire waits for a free slot and returns its locked file, which holds the slot until it is closed or the process ends.
 func acquire() (*os.File, int, error) {
-	d, err := dir()
+	d, err := heavyslots.Dir()
 	if err != nil {
 		return nil, 0, err
 	}
@@ -69,7 +56,7 @@ func acquire() (*os.File, int, error) {
 	me, last := holder(), ""
 	for {
 		var held, said []string
-		for n := 1; n <= slots(); n++ {
+		for n := 1; n <= heavyslots.Slots(); n++ {
 			f, err := os.OpenFile(filepath.Join(d, fmt.Sprintf("slot-%d.lock", n)), os.O_RDWR|os.O_CREATE, 0o644)
 			if err != nil {
 				return nil, 0, err
@@ -89,7 +76,7 @@ func acquire() (*os.File, int, error) {
 			said = append(said, describe(strings.TrimSpace(string(who))))
 		}
 		if now := strings.Join(held, "\x00"); now != last {
-			fmt.Fprintf(os.Stderr, "heavyslot: waiting for a heavy-run slot (HANDLINE_HEAVY_SLOTS=%d): %s\n", slots(), strings.Join(said, "; "))
+			fmt.Fprintf(os.Stderr, "heavyslot: waiting for a heavy-run slot (HANDLINE_HEAVY_SLOTS=%d): %s\n", heavyslots.Slots(), strings.Join(said, "; "))
 			last = now
 		}
 		time.Sleep(poll)

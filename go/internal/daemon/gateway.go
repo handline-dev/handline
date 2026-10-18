@@ -18,7 +18,7 @@ import (
 // alwaysNative are the methods a gateway serves itself whatever Native says: the handshake, and the devices, which
 // are its own. subscribe and unsubscribe are served here for every topic.
 var alwaysNative = map[string]bool{"hello": true, "whoami": true, "device.pair": true, "device.redeem": true,
-	"device.revoke": true, "devices.list": true, "subscribe": true, "unsubscribe": true}
+	"device.revoke": true, "devices.list": true, "subscribe": true, "unsubscribe": true, "connection.get": true}
 
 func checkGateway(cfg Config) error {
 	switch {
@@ -37,7 +37,7 @@ func checkGateway(cfg Config) error {
 }
 
 // gatewayMethods leaves a gateway server with the methods it serves natively. The local server of a gateway
-// is only for the founder's device commands.
+// is only for the founder's device commands and connection.get.
 func (d *Daemon) gatewayMethods(s *rpc.Server, transport string) {
 	keep := alwaysNative
 	if transport == "network" {
