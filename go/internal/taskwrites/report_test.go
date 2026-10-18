@@ -253,3 +253,29 @@ func TestAReportFreesTheQueueItsLandedDeliveryHeldSoTheNextRequestIsDelivered(t 
 		t.Fatalf("after the report the next request is the head: #%d", h)
 	}
 }
+
+func TestAcceptByFounderKeepsTheirChatMessageAndRefusesOneThatIsNotTheirs(t *testing.T) {
+	sdb, _, run := reportEnv(t,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, reporter) VALUES(1, 'a', 'w', 'boss', 1, 'mgr')",
+		"INSERT INTO requests(id, ts, requester, target, kind, state, body) VALUES(50, 1, 'human', 'mgr', 'say', 'queued', 'ok'), (51, 9999999999, 'mgr', 'human', 'say', 'queued', 'ok?'), "+
+			"(52, 9999999999, 'human', 'mgr', 'say', 'queued', 'unrelated'), (53, 9999999999, 'human', 'mgr', 'say', 'queued', 'approve')",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 50), (1, 51), (1, 53)",
+	)
+	said(t, run("w", "task.done", "d1", `,"task":1,"evidence":"shipped"`))
+	for mid, why := range map[int]string{
+		51: "message #51 is from mgr, not the founder",
+		52: "message #52 is not tied to task T1",
+		50: "message #50 was sent before T1 was reported",
+	} {
+		if r := run("mgr", "task.accept", fmt.Sprint("a", mid), fmt.Sprintf(`,"task":1,"by_founder":%d`, mid)); errText(r) != why {
+			t.Fatalf("#%d: %v", mid, r)
+		}
+	}
+	if taskState(t, sdb, 1) != "reported" {
+		t.Fatal("a refused proof closed the task")
+	}
+	said(t, run("mgr", "task.accept", "a53", `,"task":1,"by_founder":53`))
+	if count(t, sdb, "SELECT COUNT(*) FROM events WHERE kind = 'accept_task' AND json_extract(payload, '$.by_founder') = 53") != 1 {
+		t.Fatal("the message is kept as the proof")
+	}
+}

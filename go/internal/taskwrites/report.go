@@ -74,7 +74,29 @@ func reportFor(tx *sql.Tx, tid int64, by, verb string) (*task, error) {
 	return t, nil
 }
 
-// acceptMethod is task.accept: the task closes done, with its report as the evidence, as a done by its owner would have.
+// founderProof is the founder's chat message mid kept as the proof of an accept: refused unless the founder wrote it, to this task's
+// report or later, tied to the task.
+func founderProof(tx *sql.Tx, t *task, mid int64) error {
+	var from string
+	var at int64
+	err := tx.QueryRow("SELECT r.requester, r.ts FROM requests r JOIN task_requests l ON l.request_id = r.id WHERE r.id = ? AND l.task_id = ?", mid, t.ID).Scan(&from, &at)
+	if err == sql.ErrNoRows {
+		return refusal(fmt.Sprintf("message #%d is not tied to task T%d", mid, t.ID))
+	}
+	if err != nil {
+		return err
+	}
+	if from != human {
+		return refusal(fmt.Sprintf("message #%d is from %s, not the founder", mid, from))
+	}
+	if at < t.ReportedAt.Int64 {
+		return refusal(fmt.Sprintf("message #%d was sent before T%d was reported", mid, t.ID))
+	}
+	return nil
+}
+
+// acceptMethod is task.accept: the task closes done, with its report as the evidence, as a done by its owner would have. by_founder names
+// the founder's chat message that approved it, kept in the accept_task event.
 func acceptMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		tid, err := taskID(p)
@@ -88,12 +110,25 @@ func acceptMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any
 			if err != nil {
 				return nil, err
 			}
+			mid, byFounder := rpc.AsInt(p["by_founder"])
+			if p["by_founder"] != nil && !byFounder {
+				return nil, badParam("by_founder is a message id", "by_founder")
+			}
+			if byFounder {
+				if err := founderProof(tx, t, mid); err != nil {
+					return nil, err
+				}
+			}
 			if won, err := db.MarkTaskDone(tx, tid, t.Report.String, t.ReportVia.String); err != nil {
 				return nil, err
 			} else if !won {
 				return nil, refusal(fmt.Sprintf("task T%d was closed by someone else just now", tid))
 			}
-			if err := addEvent(tx, by, "accept_task", kv{"task_id", tid}, kv{"done", t.Report.String}); err != nil {
+			ev := []kv{{"task_id", tid}, {"done", t.Report.String}}
+			if byFounder {
+				ev = append(ev, kv{"by_founder", mid})
+			}
+			if err := addEvent(tx, by, "accept_task", ev...); err != nil {
 				return nil, err
 			}
 			text := fmt.Sprintf("%s (accepted by %s)", doneText(tid, t.Owner, t.Report.String), by)
