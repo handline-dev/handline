@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Alert, BackHandler, Pressable, ScrollView, Text, View } from 'react-native';
+import { useRef } from 'react';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { badgesOf, controlsOf, needsConfirm, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
@@ -8,6 +8,7 @@ import { space } from '@handline/tokens';
 import { drawRows } from './termspans.tsx';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
+import { useHistory, useHistoryValue } from '../history.tsx';
 import { StateMark } from './StateMark.tsx';
 import { AgentSettings } from './AgentSettings.tsx';
 import { AgentStrip } from './AgentStrip.tsx';
@@ -37,22 +38,13 @@ export function AgentPage() {
   const detailQuery = useRead('agent.get', { agent: name }, { enabled: name !== '' });
   const { served } = useServes('agent.get');
   const row = useAgents().data?.agents.find((a) => a.name === name);
-  const [settings, setSettings] = useState(false);
-  const goBack = useRef<() => void>(() => void store.closeAgent());
-  // The Android back button goes from the agent page to the list; the list leaves the app.
-  useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      goBack.current();
-      return true;
-    });
-    return () => sub.remove();
-  }, []);
+  const [settings, setSettings] = useHistoryValue(`agent.settings:${name}`, false);
+  const history = useHistory();
   if (!page) return null;
   const detail = detailQuery.data;
   const state = detail?.state ?? row?.state ?? 'unknown';
   const sub = detail ?? row;
-  const back = () => void store.closeAgent();
-  goBack.current = back;
+  const back = () => void (history?.back() || store.closeAgent());
   return (
     <AboveKeyboard>
       <Row style={{ padding: space.md }}>
@@ -87,7 +79,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const { detail, agent: row, tab: current } = props;
   const name = detail.name;
   const ctl = controlsOf(detail, me);
-  const [extra, setExtra] = useState<'tasks' | 'timeline' | null>(null); // the Tasks and Timeline tabs sit beside the store's two tabs
+  const [extra, setExtra] = useHistoryValue<'tasks' | 'timeline' | null>(`agent.extra:${name}`, null); // the Tasks and Timeline tabs sit beside the store's two tabs
   const hasTasks = useServes('tasks.list').served;
   const hasTimeline = useServes('agent.timeline').served;
   const showTasks = extra === 'tasks' && hasTasks;

@@ -4,6 +4,7 @@
 // lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message, in the
 // chat that shows it. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
+import { useHistoryValue } from '../history.tsx';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { clockTime, landingLabel, sideOf, takeBack as canTakeBack, timeline } from '@handline/app-core';
 import { classify, sentence, useAgents, useChat, useChatActions, useInbox, useWrite, type ChatScope } from '@handline/app-data';
@@ -60,7 +61,7 @@ export function Chat(props: { detail: AgentDetail }) {
   const c = usePalette();
   const agent = props.detail.name;
   const canSend = useSelector((s) => s.can('chat.send'));
-  const [scope, setScope] = useState<ChatScope>('mine');
+  const [scope, setScope] = useHistoryValue<ChatScope>(`chat.scope:${agent}`, 'mine');
   const chat = useChat(agent, scope);
   const act = useChatActions(agent);
   const [picked, setPicked] = useState<Ref | null>(null); // a message, or a request a # chose

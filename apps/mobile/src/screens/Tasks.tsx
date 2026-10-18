@@ -2,6 +2,7 @@
 // of TaskActions: new task, done, reopen, queue, draft, discard, edit, memo, withdraw, cancel. The pills Open / Mine / Closed and the state
 // chips narrow the list as on the web.
 import { useState } from 'react';
+import { useHistoryValue } from '../history.tsx';
 import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 import { ago, CLOSED, defaultFilter, idleText, shown, sortTasks, TASK_STATES, timeoutText, taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
@@ -54,7 +55,7 @@ function List(props: { onSelect: (id: number) => void }) {
   const c = usePalette();
   const { served } = useServes('tasks.list');
   const me = useStore().me;
-  const [scope, setScope] = useState<Scope>('open');
+  const [scope, setScope] = useHistoryValue<Scope>('tasks.scope', 'open');
   const [states, setStates] = useState<ReadonlySet<string>>(() => defaultFilter().states);
   const query = useTasks(scope === 'closed' ? { all: true } : {});
   const rows = sortTasks(
@@ -66,7 +67,7 @@ function List(props: { onSelect: (id: number) => void }) {
     Date.now(),
   );
   const [creating, setCreating] = useState(false);
-  const [graph, setGraph] = useState(false);
+  const [graph, setGraph] = useHistoryValue('tasks.graph', false);
   if (creating)
     return (
       <ScrollView keyboardShouldPersistTaps="handled">
