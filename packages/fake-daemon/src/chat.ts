@@ -194,8 +194,10 @@ export class FakeChat {
     );
     if (typeof p.before === 'number') list = list.filter((m) => m.id < (p.before as number));
     if (typeof p.since === 'number') list = list.filter((m) => m.id > (p.since as number));
-    list = list.sort((a, b) => b.id - a.id);
-    return { messages: list.slice(0, limit).map((m) => this.view(m)), more: list.length > limit };
+    // since pages forward from the id (the oldest after it first), before pages back from the newest.
+    list = list.sort((a, b) => (typeof p.since === 'number' ? a.id - b.id : b.id - a.id));
+    const page = list.slice(0, limit).sort((a, b) => b.id - a.id);
+    return { messages: page.map((m) => this.view(m)), more: list.length > limit };
   }
 
   transcriptOf(p: Record<string, unknown>) {

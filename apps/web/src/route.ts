@@ -51,7 +51,7 @@ export function useWantedMessage(agent: string): { id: number | null; done: () =
   return {
     id: m?.[3] && decodeURIComponent(m[1]!) === agent ? Number(m[3]) : null,
     done: () => {
-      history.replaceState(null, '', location.hash.replace(/\?m=\d+$/, ''));
+      history.replaceState(history.state as object | null, '', location.hash.replace(/\?m=\d+$/, ''));
       dispatchEvent(new Event('hashchange'));
     },
   };

@@ -176,14 +176,12 @@ export function useChatWindow(agent: string, scope: ChatScope): ChatWindow {
   const [loading, setLoading] = useState(false);
   const read = (h: Held, params: { before: number } | { since: number }, edge: 'older' | 'newer') => {
     setLoading(true);
-    store.client
+    void store.client
       .call('chat.messages', { agent, scope, ...params, limit: PAGE })
       .then((r) =>
         setHeld((cur) => {
           if (!cur || cur.target !== h.target) return cur;
-          // A since read answers with the newest messages: if more are left between, the page is not next to the window, so the live tail is what shows.
-          if (edge === 'newer' && r.more) return null;
-          return { ...cur, messages: byId([cur.messages, r.messages]).sort((a, b) => a.id - b.id), [edge]: edge === 'older' ? r.more : false };
+          return { ...cur, messages: byId([cur.messages, r.messages]).sort((a, b) => a.id - b.id), [edge]: r.more };
         }),
       )
       .finally(() => setLoading(false));
