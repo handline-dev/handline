@@ -18,7 +18,7 @@ describe('the history', () => {
 });
 
 describe('back across the moves in the app', () => {
-  it('goes from the agent page to the list, and forward to the page again', async () => {
+  it('the Back button on the agent page is a step back in the history, to the list', async () => {
     const m = await mount();
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($('nav-tasks'));
