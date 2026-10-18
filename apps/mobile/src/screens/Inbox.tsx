@@ -175,7 +175,7 @@ export function Inbox() {
         isEmpty={items.length === 0}
         skeleton="inbox"
         label="the inbox"
-        empty="Nothing waits on you. Results, questions and blocks from your agents land here."
+        empty="Nothing waits on you."
       >
         <FlatList
           keyboardShouldPersistTaps="handled"
