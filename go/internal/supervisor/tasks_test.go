@@ -51,6 +51,15 @@ func TestAdvanceDeliversTheNextQueuedTaskAndMakesItCurrent(t *testing.T) {
 	}
 }
 
+// newUnroutableTask queues a task for bob that its opener carol may not ask of him; alice leads the team.
+func (r *rig) newUnroutableTask() int64 {
+	r.t.Helper()
+	r.must(os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "  eng: [alice, bob]\n",
+		"  eng: [alice, bob]\n  alice: [alice, bob]\n", 1)+"deny:\n  - { from: carol, to: bob, reason: no }\n"), 0o644))
+	r.register("carol")
+	return r.newTask("bob", "carol", "unroutable")
+}
+
 func TestAdvanceDeliversATaskHandedBackToItsOpenerAsItsOwnWork(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
@@ -85,10 +94,7 @@ func TestSelfDeliveryCarriesTheAnswersSoFar(t *testing.T) {
 
 func TestAdvanceRecordsARefusedDeliveryOnceAndTellsTheManager(t *testing.T) {
 	r := newRig(t)
-	r.must(os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "  eng: [alice, bob]\n",
-		"  eng: [alice, bob]\n  alice: [alice, bob]\n", 1)+"deny:\n  - { from: carol, to: bob, reason: no }\n"), 0o644))
-	r.register("carol")
-	tid := r.newTask("bob", "carol", "unroutable")
+	tid := r.newUnroutableTask()
 	other := r.newTask("bob", "alice", "fine")
 	changed, refused, err := r.AdvanceCurrentTask(r.DB, "bob")
 	r.must(err)
@@ -328,7 +334,7 @@ func TestSweepTaskQueueDeliversAWaitingTaskToAFreeOwnerAndBacksOffWhenNothingLan
 	}
 	// a refusing task sets the retry clock
 	r2 := newRig(t)
-	r2.newTask("bob", "bob", "refused")
+	r2.newUnroutableTask()
 	r2.must(r2.SweepTaskQueue(r2.clock))
 	if n, _ := db.Cursor(r2.DB, "taskqueue:bob"); n != r2.clock {
 		t.Fatalf("retry clock %d", n)
