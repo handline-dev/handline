@@ -194,7 +194,7 @@ export function handoffLine(h: { cause: string; phase: 'writing' | 'starting' })
   };
 }
 
-/** Whether the restart is over because its New session line is already in the chat: one restart shows one of the two lines, never both. */
+/** Whether the restart line still shows: false once its New session line is in the chat, so one restart never shows both. */
 export function restartShown(h: { since: string }, items: TranscriptItem[]): boolean {
   const since = Date.parse(h.since);
   return !items.some((i) => i.kind === 'session' && Date.parse(i.at) >= since);

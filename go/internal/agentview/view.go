@@ -456,8 +456,8 @@ func (e *Env) Refresh() error {
 }
 
 // handoffView is the handoff the agent is in the middle of, nil for none: its note is awaited or its record taken (writing), or the
-// session is closed for it and the next not yet shown as a New session line, which needs its session id (starting). A handoff that parks the agent until a usage window resets is
-// not starting. The cause is session.cause's word.
+// session is closed for it and the next not yet shown as a New session line, which needs its session id (starting). A handoff that
+// parks the agent until a usage window resets is not starting. The cause is session.cause's word.
 func (e *Env) handoffView(agent string, row *db.AgentState, now int64) (any, error) {
 	h, err := db.LatestHandoff(e.Q, agent)
 	if err != nil {
