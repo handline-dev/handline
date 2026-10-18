@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/db"
@@ -277,5 +278,32 @@ func TestAcceptByFounderKeepsTheirChatMessageAndRefusesOneThatIsNotTheirs(t *tes
 	said(t, run("mgr", "task.accept", "a53", `,"task":1,"by_founder":53`))
 	if count(t, sdb, "SELECT COUNT(*) FROM events WHERE kind = 'accept_task' AND json_extract(payload, '$.by_founder') = 53") != 1 {
 		t.Fatal("the message is kept as the proof")
+	}
+}
+
+// The case --by-founder is for: a report that answers to the founder (a task the founder opened), accepted by the owner's lead, with the
+// founder's OK as a reply under the task's message rather than tied to the task itself.
+func TestALeadAcceptsAReportForTheFounderWithTheirReplyAsProof(t *testing.T) {
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, "team.yaml"), []byte("teams:\n  mgr: [mgr, w]\nagents:\n  mgr: {}\n  w: {}\n  boss: {}\n"), 0o644)
+	sdb, _, run := reportEnvIn(t, home,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'a', 'w', 'human', 1)",
+		"INSERT INTO requests(id, ts, requester, target, kind, state, body) VALUES(61, 9999999999, 'mgr', 'human', 'say', 'queued', 'T1 is reported: ok?')",
+		"INSERT INTO requests(id, ts, requester, target, kind, state, body, parent_id) VALUES(60, 9999999999, 'human', 'mgr', 'say', 'queued', 'OK', 61)",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 61)",
+	)
+	said(t, run("w", "task.done", "d1", `,"task":1,"evidence":"shipped"`))
+	for _, c := range []struct{ who, rid, params, why string }{
+		{"mgr", "a1", `,"task":1`, "task T1's report can only be accepted by human - whoever it answers to - or the founder"},
+		{"boss", "a2", `,"task":1,"by_founder":60`, "task T1's report can only be accepted by human - whoever it answers to - or the founder"},
+		{"mgr", "a3", `,"task":1,"by_founder":0`, "by_founder is a message id"},
+	} {
+		if r := run(c.who, "task.accept", c.rid, c.params); !strings.Contains(errText(r), c.why) {
+			t.Fatalf("%s %s: %v", c.who, c.params, r)
+		}
+	}
+	said(t, run("mgr", "task.accept", "a4", `,"task":1,"by_founder":60`))
+	if taskState(t, sdb, 1) != "done" || count(t, sdb, "SELECT COUNT(*) FROM events WHERE kind = 'accept_task' AND json_extract(payload, '$.by_founder') = 60") != 1 {
+		t.Fatal("the lead's accept closes the task and keeps the founder's reply as the proof")
 	}
 }

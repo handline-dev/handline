@@ -2,7 +2,9 @@ package taskwrites
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/taskresult"
+	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
 )
 
@@ -56,8 +59,9 @@ func fileReport(tx *sql.Tx, by string, t *task, mark, via, from string, result t
 }
 
 // reportFor reads task tid for an accept or a reject by `by`: refused unless a report waits on it and `by` is whoever it answers to, its
-// opener or the founder.
-func reportFor(tx *sql.Tx, tid int64, by, verb string) (*task, error) {
+// opener or the founder. proof, when not 0, is the founder's chat message that approved it (founderProof): with it, a report that
+// answers to the founder may also be accepted by the lead of its owner or its opener.
+func reportFor(tx *sql.Tx, home string, tid int64, by, verb string, proof int64) (*task, error) {
 	t, err := getTask(tx, tid)
 	if err != nil {
 		return nil, err
@@ -68,18 +72,48 @@ func reportFor(tx *sql.Tx, tid int64, by, verb string) (*task, error) {
 	if !t.reported() {
 		return nil, refusal(fmt.Sprintf("task T%d has no report waiting - nothing to %s", tid, verb))
 	}
-	if by != t.reporter() && by != t.OpenedBy && by != human {
-		return nil, refusal(fmt.Sprintf("task T%d's report can only be %sed by %s - whoever it answers to - or the founder", tid, verb, t.reporter()))
+	if proof != 0 {
+		if err := founderProof(tx, t, proof); err != nil {
+			return nil, err
+		}
 	}
-	return t, nil
+	if by == t.reporter() || by == t.OpenedBy || by == human {
+		return t, nil
+	}
+	if proof != 0 && t.reporter() == human {
+		for _, a := range []string{t.Owner, t.OpenedBy} {
+			if lead, err := leadOf(home, a); err != nil {
+				return nil, err
+			} else if lead != "" && lead == by {
+				return t, nil
+			}
+		}
+	}
+	return nil, refusal(fmt.Sprintf("task T%d's report can only be %sed by %s - whoever it answers to - or the founder", tid, verb, t.reporter()))
+}
+
+// leadOf is who agent answers to: its team's manager, else the agent its name hangs under; "" for none, or with no team.yaml.
+func leadOf(home, agent string) (string, error) {
+	tm, err := team.LoadTeam(home)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if m := tm.ManagerOf(agent); m != "" {
+		return m, nil
+	}
+	return tm.SupervisorOf(agent), nil
 }
 
 // founderProof is the founder's chat message mid kept as the proof of an accept: refused unless the founder wrote it, to this task's
-// report or later, tied to the task.
+// report or later, tied to the task itself or as a reply to a message that is.
 func founderProof(tx *sql.Tx, t *task, mid int64) error {
 	var from string
 	var at int64
-	err := tx.QueryRow("SELECT r.requester, r.ts FROM requests r JOIN task_requests l ON l.request_id = r.id WHERE r.id = ? AND l.task_id = ?", mid, t.ID).Scan(&from, &at)
+	err := tx.QueryRow("SELECT r.requester, r.ts FROM requests r WHERE r.id = ? AND EXISTS (SELECT 1 FROM task_requests l "+
+		"WHERE l.task_id = ? AND l.request_id IN (r.id, r.parent_id))", mid, t.ID).Scan(&from, &at)
 	if err == sql.ErrNoRows {
 		return refusal(fmt.Sprintf("message #%d is not tied to task T%d", mid, t.ID))
 	}
@@ -106,18 +140,13 @@ func acceptMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any
 		by := c.Caller.Actor()
 		var done *DoneResult
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-			t, err := reportFor(tx, tid, by, "accept")
-			if err != nil {
-				return nil, err
-			}
 			mid, byFounder := rpc.AsInt(p["by_founder"])
-			if p["by_founder"] != nil && !byFounder {
+			if p["by_founder"] != nil && (!byFounder || mid <= 0) {
 				return nil, badParam("by_founder is a message id", "by_founder")
 			}
-			if byFounder {
-				if err := founderProof(tx, t, mid); err != nil {
-					return nil, err
-				}
+			t, err := reportFor(tx, home, tid, by, "accept", mid)
+			if err != nil {
+				return nil, err
 			}
 			if won, err := db.MarkTaskDone(tx, tid, t.Report.String, t.ReportVia.String); err != nil {
 				return nil, err
@@ -185,7 +214,7 @@ func rejectMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any
 		var notes []told
 		sent := false
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-			t, err := reportFor(tx, tid, by, "reject")
+			t, err := reportFor(tx, home, tid, by, "reject", 0)
 			if err != nil {
 				return nil, err
 			}
