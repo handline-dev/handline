@@ -407,6 +407,16 @@ func (t *Team) Managers() map[string]string {
 	return out
 }
 
+// ManagerOf is the manager of the team agent belongs to, or "" when it is in none or is that manager itself.
+func (t *Team) ManagerOf(agent string) string {
+	for name := range t.Managers() {
+		if name != agent && contains(t.Teams[name], agent) {
+			return name
+		}
+	}
+	return ""
+}
+
 func sp(s string) *string { return &s }
 
 // DefaultLink is the link the default links give this pair, or nil.
