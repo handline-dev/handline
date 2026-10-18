@@ -19,12 +19,15 @@ func (f fakeSessions) Structured(a string) bool { return f.structured[a] }
 func (f fakeSessions) Alive(a string) bool      { return f.alive[a] }
 func (f fakeSessions) Busy(a string) bool       { return f.busy[a] }
 
-type fakeBackground struct{ wallErr map[string]error }
+type fakeBackground struct {
+	wallErr map[string]error
+	work    map[string]bool
+}
 
-func (fakeBackground) HasBackgroundWork(db.Q, string) (bool, error) { return false, nil }
-func (fakeBackground) BgSince(db.Q, string) (int64, bool, error)    { return 0, false, nil }
-func (fakeBackground) BgStale(db.Q, string, int64) (bool, error)    { return false, nil }
-func (fakeBackground) BgPromptedAt(db.Q, string) (int64, error)     { return 0, nil }
+func (f fakeBackground) HasBackgroundWork(_ db.Q, a string) (bool, error) { return f.work[a], nil }
+func (fakeBackground) BgSince(db.Q, string) (int64, bool, error)          { return 0, false, nil }
+func (fakeBackground) BgStale(db.Q, string, int64) (bool, error)          { return false, nil }
+func (fakeBackground) BgPromptedAt(db.Q, string) (int64, error)           { return 0, nil }
 func (f fakeBackground) WallReason(_ db.Q, a string, _ *db.AgentState) (string, error) {
 	return "", f.wallErr[a]
 }
@@ -54,7 +57,7 @@ func newRig(t *testing.T, structured ...string) *rig {
 	t.Cleanup(func() { d.Close() })
 	r := &rig{
 		sess: fakeSessions{map[string]bool{}, map[string]bool{}, map[string]bool{}},
-		bg:   fakeBackground{wallErr: map[string]error{}},
+		bg:   fakeBackground{wallErr: map[string]error{}, work: map[string]bool{}},
 		pr:   fakePrompts{open: map[string]*prompts.Block{}},
 	}
 	names := []string{}

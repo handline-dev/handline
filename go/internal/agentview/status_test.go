@@ -11,7 +11,7 @@ import (
 )
 
 func TestEachAgentIsServedWithItsStateAndReason(t *testing.T) {
-	r := newRig(t, "run", "ask", "crash", "idle", "gone", "work", "nap", "move", "walled", "full", "held")
+	r := newRig(t, "run", "ask", "crash", "idle", "gone", "work", "nap", "move", "walled", "full", "held", "bg")
 	r.state(t, "run", states.Running, "")
 	r.sess.alive["run"], r.sess.busy["run"] = true, true
 	r.state(t, "ask", states.Idle, "")
@@ -29,6 +29,8 @@ func TestEachAgentIsServedWithItsStateAndReason(t *testing.T) {
 	r.state(t, "full", states.Queued, "")
 	r.state(t, "held", states.Idle, "")
 	r.sess.alive["held"] = true
+	r.state(t, "bg", states.Idle, "")
+	r.sess.alive["bg"], r.bg.work["bg"] = true, true
 	for _, s := range []string{
 		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'mine', 'held', 'm', 1), (2, 'theirs', 'other', 'm', 1)",
 		"INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(1, 2, 1)",
@@ -64,6 +66,7 @@ func TestEachAgentIsServedWithItsStateAndReason(t *testing.T) {
 		{"walled", "stopped", "wall", "waiting for a's 5h window (100%, rolls over 04:00)", "1970-01-01T02:00:00Z", nil},
 		{"full", "stopped", "cap", "waiting for a slot on a (2 of 2 mid-turn)", nil, nil},
 		{"held", "waiting", "task", "blocked by T2 (other)", nil, []any{float64(2)}},
+		{"bg", "running", "background", "background work", nil, nil},
 	} {
 		r.env.RefreshOne(c.agent)
 		s, _ := r.stored(t, c.agent)["status"].(map[string]any)
