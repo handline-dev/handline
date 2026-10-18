@@ -7,6 +7,7 @@ export const CHANNELS = {
   screen: 'handline:screen',
   unsent: 'handline:unsent',
   navigate: 'handline:navigate',
+  fullScreen: 'handline:full-screen',
   openPath: 'handline:openPath',
   compose: 'handline:compose',
   cancelCompose: 'handline:cancelCompose',

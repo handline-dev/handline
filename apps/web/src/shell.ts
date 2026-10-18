@@ -4,26 +4,49 @@ import { useEffect, useRef } from 'react';
 import { routeOfTarget, type ShellApi } from '@handline/app-core';
 import { useBusy, useUnread } from '@handline/app-data';
 
-type Call = 'screen' | 'unsent' | 'onNavigate' | 'openPath' | 'compose' | 'cancelCompose' | 'mode' | 'setMode' | 'pairRemote' | 'phone';
+type Call =
+  | 'zoom'
+  | 'onFullScreen'
+  | 'screen'
+  | 'unsent'
+  | 'onNavigate'
+  | 'openPath'
+  | 'compose'
+  | 'cancelCompose'
+  | 'mode'
+  | 'setMode'
+  | 'pairRemote'
+  | 'phone';
 
 /** True in the desktop shell; main.tsx marks <html data-shell=desktop> from it. */
 export const inShell = (): boolean => typeof window !== 'undefined' && 'handline' in window;
 
 /**
  * The traffic lights are drawn by the OS at fixed pixels, so the rows beside them must not follow the page zoom, and in full screen
- * they are gone. Sets --h-tabs (the row the lights are centred on, 32 screen px) and --lights-w (the room they take, none in full screen).
- * The zoom is the window's outer width over the page's inner width.
+ * they are gone (the shell says when: onFullScreen). Sets --h-tabs (the row the lights are centred on, 32 screen px) and --lights-w
+ * (the room they take, little in full screen). The zoom is the shell's own (a plain window: its outer width over the page's inner width).
  */
 export function trackShellInsets(): void {
   const root = document.documentElement.style;
+  let full = false;
   const set = () => {
-    const zoom = innerWidth ? outerWidth / innerWidth : 1;
-    const full = outerHeight >= screen.height && outerWidth >= screen.width;
+    const zoom = shell('zoom')?.zoom?.() || (innerWidth ? outerWidth / innerWidth : 1);
     root.setProperty('--h-tabs', `${32 / zoom}px`);
     root.setProperty('--lights-w', `${(full ? 4 : 86) / zoom}px`);
   };
-  set();
-  addEventListener('resize', set);
+  // The shell's zoom can still be the old one while the resize it causes is delivered, so it is read again once that has passed.
+  let later = 0;
+  const settle = () => {
+    set();
+    clearTimeout(later);
+    later = window.setTimeout(set, 150);
+  };
+  settle();
+  addEventListener('resize', settle);
+  shell('onFullScreen')?.onFullScreen?.((on) => {
+    full = on;
+    settle();
+  });
 }
 
 /** The shell's API if this shell has `call` (a call is checked before it is used, never a version). */

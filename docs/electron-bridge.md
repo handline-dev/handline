@@ -29,6 +29,7 @@ One object, `window.handline`, made by a preload with `contextBridge`. No other 
 | `screen` | page → shell | E1 | no call, nothing to do |
 | `unsent` | page → shell | E4 | no call; a reload asks nothing |
 | `onNavigate` | shell → page | E2 | none; a deep link is the URL itself |
+| `onFullScreen`, `zoom` | shell → page | window insets | none; the insets are the desktop shell's only |
 | `openPath`, `cancelCompose`, `compose` | page → shell | E3 | §4 |
 | `mode`, `setMode`, `pairRemote`, `phone` | page → shell | modes | the pairing screen shows no mode section |
 
