@@ -2,7 +2,7 @@
 // A daemon that does not list chat.search shows no box.
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { classify, sentence, useChatSearch, useServes, } from '@handline/app-data';
+import { classify, sentence, useChatSearch, useServes } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { dateTime } from '@handline/app-core';

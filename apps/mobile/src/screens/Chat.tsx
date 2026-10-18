@@ -1,8 +1,7 @@
 // Chat tab of the agent page: the conversation with the agent on `useChat`, like the web's Chat. The person's messages show how far they
 // got (a glyph and a word), a tap picks one to reply to, an undelivered one can be taken back,
 // and a refused send stays as a failed row with Retry. A message to a structured agent shows its receipt (queued, sent, confirmed, or unknown:
-// lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message, in the
-// chat that shows it. A daemon that does not serve chat gets an empty state.
+// lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { clockTime, landingLabel, sideOf, takeBack as canTakeBack, chatEntries } from '@handline/app-core';

@@ -47,8 +47,7 @@ export function timeline(
 export const chatEntries = (messages: ChatMessage[], items: TranscriptItem[], agent: string): TimelineEntry[] =>
   timeline(messages, items, 'mine', agent).filter((e) => !(e.kind === 'item' && e.item.kind === 'tool'));
 
-/** The agent's Activity, read-only: what the Chat leaves out (other people's messages, task notices) and the task, session and tool lines. */
-/** `all` is the daemon's all-scope messages, `mine` its mine-scope ones: what the Chat draws from the second is left out of the first. */
+/** The agent's Activity, read-only: what the Chat leaves out (other people's messages, task notices) and every task, session and tool line. `all` is the daemon's all-scope messages, `mine` its mine-scope ones: what the Chat draws from the second is left out of the first. */
 export function activity(all: ChatMessage[], mine: ChatMessage[], items: TranscriptItem[], agent: string): TimelineEntry[] {
   const inChat = new Set(timeline(mine, [], 'mine', agent).map((e) => e.id));
   return timeline(all, items, 'all', agent).filter((e) =>

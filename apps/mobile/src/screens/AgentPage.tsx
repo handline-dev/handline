@@ -121,7 +121,9 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         borderBottomColor: on ? c.accent : 'transparent',
       }}
     >
-      <Text style={{ color: on ? c.accent : c.muted, fontWeight: '600' }}>{label}</Text>
+      <Text numberOfLines={1} adjustsFontSizeToFit style={{ color: on ? c.accent : c.muted, fontWeight: '600' }}>
+        {label}
+      </Text>
     </Pressable>
   );
   const pageTab = (t: 'chat' | 'terminal', label: string) =>
