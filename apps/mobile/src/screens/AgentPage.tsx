@@ -178,7 +178,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
           />
         )}
       </View>
-      <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }}>
+      <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm, paddingHorizontal: space.sm }}>
         {pageTab('chat', 'Chat')}
         {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
         {hasChat && tab('activity', 'Activity', showActivity, () => setExtra('activity'))}
