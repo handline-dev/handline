@@ -9,7 +9,7 @@ export function dotOf(a: Pick<AgentView, 'state' | 'has_dialog' | 'block' | 'han
   if (a.has_dialog || a.state === 'waiting') return 'waiting';
   if (a.block || a.state === 'stalled' || a.state === 'blocked') return 'blocked';
   if (a.state === 'no_terminal') return 'none';
-  if (a.state === 'queued' || a.handoff?.phase === 'starting') return 'waking'; // a restarting agent is coming back, whatever state word it carries
+  if (a.state === 'queued' || a.state === 'starting' || a.handoff?.phase === 'starting') return 'waking'; // a restarting agent is coming back, whatever state word it carries
   if (a.state === 'parked') return 'parked';
   if (a.state === 'running') return 'running';
   return 'idle';

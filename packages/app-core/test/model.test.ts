@@ -89,6 +89,7 @@ test('the rail sorts waiting up, nests children, and filters by dot and search',
   assert.equal(rowName('handline', 0, 'handline'), 'handline');
   assert.equal(shortName('t', 't'), 't');
   assert.equal(dotOf(agent('x', { state: 'queued' })), 'waking');
+  assert.equal(dotOf(agent('x', { state: 'starting' })), 'waking');
 });
 
 test('a child whose parent is filtered out still shows', () => {
