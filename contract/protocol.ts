@@ -187,6 +187,8 @@ export type AgentView = {
     phase: "writing" | "starting";
     since: Timestamp;
   } | null;
+  /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
+  status?: Status;
 };
 
 export type AgentDetail = AgentView & {
@@ -329,6 +331,8 @@ export type Task = {
     evidence: string;
     at: Timestamp;
   } | null;
+  /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
+  status?: Status;
 };
 
 /** Why a task waits (Task.waiting). */
@@ -340,6 +344,22 @@ export type TaskWaiting = {
   /** The tasks it waits on, for on task (by id, also one outside the caller's scope); empty otherwise. */
   tasks: number[];
   since: Timestamp;
+};
+
+/** What an agent or task is doing and why (x-status). */
+export type Status = {
+  /** One of x-status states. */
+  state: string;
+  /** One of x-status reasons. */
+  reason: string;
+  /** The line every view shows for it, as it is. */
+  text: string;
+  /** When it ends by itself (a clock, a wall's reset); null when nothing says. */
+  until: Timestamp | null;
+  /** Since when it has been so; null when not known. */
+  since: Timestamp | null;
+  /** The tasks it waits on, for reason task; empty otherwise. */
+  tasks: number[];
 };
 
 export type TaskDetail = Task & {
@@ -2850,5 +2870,9 @@ export interface Notifications {
 
 /** The state words the daemon sends; an open set, so a client keeps a fallback. */
 export const STATE_WORDS = ["running", "idle", "queued", "starting", "parked", "waiting", "stalled", "blocked", "no_terminal"] as const;
+
+/** x-status: the state and reason every agent and task carries; open sets for a client, which shows `text` for a word it does not know. */
+export const STATUS_STATES = ["preparing", "starting", "running", "waiting", "stopped", "idle", "off", "done"] as const;
+export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "handoff", "background", "you", "review", "opener", "task", "owner", "clock", "move", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];

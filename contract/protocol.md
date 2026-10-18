@@ -865,6 +865,44 @@ What the daemon sends for each of its own states:
 
 PENDING is two words, by what it waits for: `queued` when nothing but the next tick stands between it and a start, `parked` when it waits for a time. A client draws both as waiting its turn, and the clock in state_detail tells them apart. MOVING is `parked` with state_detail `moving`.
 
+## Status
+
+Every agent (AgentView.status) and every task (Task.status) carries one status: a state, the reason for it, and the line a client shows as it is. Both lists are closed for the daemon and open for a client: a word it does not know is drawn from `text`. The daemon fills it from the facts it acts on (the state row, the wake gate, the account it would wake on, the board), never from free text, and never sends a bare queued or an unknown where it knows the cause. state, state_detail, hold_reason, block_reason and waiting stay until the apps read status.
+
+| State | Meaning |
+|---|---|
+| `preparing` | Has work and the daemon starts or sends it at its next tick; nothing stands in the way. Reasons: work, restart, retry. |
+| `starting` | A launch is in progress (agents). Reason: launch. |
+| `running` | Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, handoff, background. |
+| `waiting` | Held by something the daemon names: a person, another task, the owner, a clock, an account move. Reasons: you, review, opener, task, owner, clock, move. |
+| `stopped` | Will not go on by itself: no account has room (until the reset when it is known) or a person must unstall it. Reasons: wall, cap, stalled. |
+| `idle` | At its prompt with nothing to do (agents). Reason: none. |
+| `off` | Registered with no terminal and nothing waiting for it (agents). Reason: none. |
+| `done` | Closed (tasks). Reasons: done (its owner finished it), discarded. |
+
+| Reason | Meaning |
+|---|---|
+| `work` | Work waits for it and nothing is in the way: the next tick types or starts it. |
+| `restart` | Between two sessions of a restart; the next one begins at the next tick. |
+| `retry` | A failed start is retried; text says which attempt. |
+| `launch` | Its terminal is starting. |
+| `turn` | A turn is running (agents); the owner has the task (tasks). |
+| `handoff` | A hand-off to a new session is moving. |
+| `background` | Background work runs while the agent sits at its prompt. |
+| `you` | A person must answer: a dialog or prompt on the agent, an open request to the founder on the task, or a task the founder owns. |
+| `review` | Reported: waits on its asker's accept or reject. |
+| `opener` | A draft: waits on its opener to queue it. |
+| `task` | Waits on other tasks; tasks lists them. |
+| `owner` | Waits on its owner, busy with something text names. |
+| `clock` | Waits for a time: until says when. |
+| `move` | An account move is settling. |
+| `wall` | The account it would run on is at a usage limit; until is when the window rolls over, null when not known. |
+| `cap` | No account has a free slot; it starts when a running turn ends. |
+| `stalled` | Stopped until a person unstalls it; text says why it stopped. |
+| `none` | Nothing to say beyond the state. |
+| `done` | Its owner finished it. |
+| `discarded` | Thrown away; text says why. |
+
 ## Notifications
 
 - `event`: Sent after subscribe, for the subscribed topics, in cursor order. Params: `Event`
