@@ -186,9 +186,12 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const id = requestAnimationFrame(() => setArmed(true));
     return () => cancelAnimationFrame(id);
   }, [chat.loadingOlder, entries.length]);
-  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
+  // After a jump the target stays where it was put: the sentinels wait until the person scrolls the window themselves.
+  const [moved, setMoved] = useState<number | null>(null);
+  const reading = !windowed || moved === win.target;
+  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && reading && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
   // Around an old message, the way down is read as the bottom comes near, until the live tail is reached.
-  const lower = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, win.loadNewer, windowed && win.hasNewer && !win.loading);
+  const lower = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, win.loadNewer, windowed && reading && win.hasNewer && !win.loading);
   const repin = () => {
     const el = stream.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
@@ -277,6 +280,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
       <div
         className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>.skeleton]:self-stretch"
         ref={stream}
+        onWheel={() => setMoved(win.target)}
+        onTouchMove={() => setMoved(win.target)}
+        onKeyDown={() => setMoved(win.target)}
         onScroll={(e) => {
           const el = e.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
@@ -302,7 +308,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           </button>
         ) : null}
         {chat.status === 'ready' && !entries.length ? <Empty icon="chat" name="No messages yet" hint={agent} /> : null}
-        <AnimatedList>
+        {/* Keyed by the window: the rows of the live tail leave at once when a window opens, not after an exit animation above the target. */}
+        <AnimatedList key={win.target ?? 'live'}>
           {entries.flatMap((e, i): ReactNode[] => {
             const day = dayHeading(e.at, i === 0 ? null : entries[i - 1]!.at);
             const body = (
