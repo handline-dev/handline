@@ -61,3 +61,32 @@ func TestAnOpenTasksTimeRunsToNowAndAReportWaitsOnItsAccepter(t *testing.T) {
 		t.Fatalf("segments:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+// Where a founder ask and a blocker overlap, the stretch shows the founder: the wait the founder can end first.
+func TestAFounderAskOverABlockerShowsAsTheFounderWait(t *testing.T) {
+	e := testEnv(t)
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'a', 'bob', 'amy', 100), (2, 'b', 'cy', 'bob', 100)")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, state_at, kind) VALUES(1, 160, 'bob', 'human', 'which one?', 'answered', 200, 'ask')")
+	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 1)")
+	run(t, e, `INSERT INTO events(ts, agent, kind, payload) VALUES(100, 'bob', 'task_start', '{"task_id": 1}'), (150, 'bob', 'block_task', '{"task_id": 1, "blocks_on": 2}')`)
+	got := segmentsOf(t, e, 1, 300)
+	want := "working  100-150\nwaiting blocked by T2 150-160\nwaiting waiting on you 160-200\nwaiting blocked by T2 200-300"
+	if strings.Join(got, "\n") != want {
+		t.Fatalf("segments:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
+// Two stretches that touch and read the same are one segment, not two blocks side by side.
+func TestTouchingStretchesThatReadTheSameAreOneSegment(t *testing.T) {
+	e := testEnv(t)
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'a', 'bob', 'amy', 100)")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, state_at, kind) VALUES(1, 110, 'bob', 'human', 'one?', 'answered', 150, 'ask'), "+
+		"(2, 150, 'bob', 'human', 'two?', 'answered', 200, 'ask')")
+	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 1), (1, 2)")
+	run(t, e, `INSERT INTO events(ts, agent, kind, payload) VALUES(100, 'bob', 'task_start', '{"task_id": 1}')`)
+	got := segmentsOf(t, e, 1, 250)
+	want := "working  100-110\nwaiting waiting on you 110-200\nworking  200-250"
+	if strings.Join(got, "\n") != want {
+		t.Fatalf("segments:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
