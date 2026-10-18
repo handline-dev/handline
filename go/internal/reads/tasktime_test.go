@@ -90,3 +90,31 @@ func TestTouchingStretchesThatReadTheSameAreOneSegment(t *testing.T) {
 		t.Fatalf("segments:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+// Blocked twice on the same task with no unblock between: one wait, not a first span left open to the end.
+func TestASecondBlockOnTheSameTaskDoesNotLeaveTheFirstOpen(t *testing.T) {
+	e := testEnv(t)
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, done_at) VALUES(1, 'a', 'bob', 'amy', 100, 400), (2, 'b', 'cy', 'bob', 100, 300)")
+	run(t, e, `INSERT INTO events(ts, agent, kind, payload) VALUES(100, 'bob', 'task_start', '{"task_id": 1}'), `+
+		`(150, 'bob', 'block_task', '{"task_id": 1, "blocks_on": 2}'), (200, 'bob', 'block_task', '{"task_id": 1, "blocks_on": 2}'), `+
+		`(250, 'bob', 'unblock_task', '{"task_id": 1, "blocks_on": 2}')`)
+	got := segmentsOf(t, e, 1, 1000)
+	want := "working  100-150\nwaiting blocked by T2 150-250\nworking  250-400"
+	if strings.Join(got, "\n") != want {
+		t.Fatalf("segments:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
+// A founder ask closed with no time on record ends by the task's next event, not at the task's end.
+func TestAClosedFounderAskWithNoTimeEndsByTheNextEvent(t *testing.T) {
+	e := testEnv(t)
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, done_at) VALUES(1, 'a', 'bob', 'amy', 100, 400)")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(1, 120, 'bob', 'human', 'which one?', 'answered', 'ask')")
+	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 1)")
+	run(t, e, `INSERT INTO events(ts, agent, kind, payload) VALUES(100, 'bob', 'task_start', '{"task_id": 1}'), (180, 'bob', 'edit_task', '{"task_id": 1}')`)
+	got := segmentsOf(t, e, 1, 1000)
+	want := "working  100-120\nwaiting waiting on you 120-180\nworking  180-400"
+	if strings.Join(got, "\n") != want {
+		t.Fatalf("segments:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}

@@ -146,6 +146,9 @@ func (e *Env) taskSpans(t row, start, end int64) ([]stretch, error) {
 			}
 		case "block_task":
 			on, _ := recInt(p["blocks_on"])
+			if i, ok := blocks[on]; ok {
+				spans[i].to = at // blocked again on the same task: the new span carries on from here
+			}
 			blocks[on] = open(at, segTask, fmt.Sprintf(waitTask, on), on)
 		case "unblock_task":
 			on, _ := recInt(p["blocks_on"])
@@ -175,8 +178,17 @@ func (e *Env) taskSpans(t row, start, end int64) ([]stretch, error) {
 	}
 	for _, a := range asks {
 		i := open(a.i("ts"), segFounder, waitFounder, 0)
-		if a.str("state") != "queued" && a.set("state_at") {
+		switch {
+		case a.str("state") == "queued":
+		case a.set("state_at"):
 			spans[i].to = a.i("state_at")
+		default: // closed with no time on record: it ended by the task's next event at the latest
+			for _, ev := range events {
+				if ev.i("ts") > a.i("ts") {
+					spans[i].to = ev.i("ts")
+					break
+				}
+			}
 		}
 	}
 	// The holder's parks and starts count only while it held the task and was doing it.
