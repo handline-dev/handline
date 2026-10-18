@@ -8,7 +8,7 @@ import { useCan } from './taskui.tsx';
 import { Icon, type IconName } from './ui/Icon.tsx';
 import { Sheet } from './taskui.tsx';
 import { CHIP, chipLook } from './TaskPeople.tsx';
-import { Button, Input, MetaField, MetaGrid, NativeSelect, Textarea } from './ui/index.ts';
+import { Button, Input, MetaField, MetaGrid, NativeSelect, Textarea, sendKey } from './ui/index.ts';
 
 export const TIMELINE = 'ttimeline m-0 list-none p-0 [&_svg]:shrink-0 [&_svg]:self-center [&_svg]:text-ink-3';
 
@@ -219,9 +219,7 @@ export function MessageBox({ t, me, box }: { t: Detail; me: string; box: React.R
           aria-label="Message"
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey)) return;
-            e.preventDefault();
-            send();
+            sendKey(e, send);
           }}
         />
         <Button type="submit" variant="solid" icon="send" label={`Send to ${to}`} disabled={!can.ok || !body || ask.isPending} title={can.why}>

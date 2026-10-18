@@ -115,7 +115,6 @@ function AddAccount() {
             value={name}
             autoComplete="off"
             onChange={(e) => setName(e.target.value)}
-            note="Log it in from its page once it is added."
           />
           {add.error ? (
             <p className={`${NOTE} text-bad`} role="alert">

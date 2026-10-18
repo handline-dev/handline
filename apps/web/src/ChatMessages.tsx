@@ -39,12 +39,11 @@ const full = (at: string) => {
 
 // A message to a structured agent says how far into the CLI it is; `unknown` is never resent, so the person is told it may have run.
 const RECEIPT: Record<string, string> = {
-  queued: 'Queued: sent when the running turn ends',
-  sent: 'Sent to the agent, not confirmed yet',
   confirmed: 'Confirmed by the agent',
   unknown: 'May or may not have run',
 };
-const receiptLabel = (state: string) => RECEIPT[state] ?? RECEIPT.sent!;
+// Queued and sent are the normal course: the tick alone shows them.
+const receiptLabel = (state: string) => RECEIPT[state] ?? '';
 
 /** A click on a control inside a bubble is that control's, not a pick of the bubble. */
 const onControl = (e: MouseEvent) => !!(e.target as HTMLElement).closest('button, a, input, textarea, form');
@@ -78,9 +77,10 @@ function Ticks({ level, label, receipt }: { level: 0 | 1 | 2; label: string; rec
       className="landing receipt inline-flex items-center"
       data-ticks={level}
       data-receipt={receipt}
-      title={label}
-      role="img"
-      aria-label={label}
+      title={label || undefined}
+      role={label ? 'img' : undefined}
+      aria-label={label || undefined}
+      aria-hidden={label ? undefined : true}
     >
       <Icon name="delivered" size={13} strokeWidth={3} className={level >= 1 ? 'text-ok' : 'text-ink-3'} aria-hidden />
       {/* The front tick has a ring in the chat background, so it reads as lying on the back one. */}

@@ -300,7 +300,7 @@ describe('one account', () => {
       const host = second(s.daemon, s.net);
       await host.start();
       await host.call('account.login', { account: 'gamma', request_id: 'l0' });
-      await until(() => text($('.acct-login')).includes('Login in progress'), 'the running login');
+      await until(() => text($('.acct-login')).includes('Logging in'), 'the running login');
       expect($('.acct-login-url')).toBeNull();
       expect(button('Log in')).toBeUndefined();
       await click(button('Cancel'));
