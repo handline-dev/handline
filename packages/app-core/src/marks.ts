@@ -136,9 +136,12 @@ export function markText(note: string, marks: readonly Mark[]): string {
 
 export const MARK_COLOR = '#e5322d';
 
-/** The drawn shapes of the kept marks, for `exportAnnotated` and `shapesToSvg`: a ring, a box or the loop, each with its number at the top left. */
-export function marksToShapes(marks: readonly Mark[], width: number): Shape[] {
-  return keptMarks(marks).flatMap((m, i): Shape[] => {
+/**
+ * The drawn shapes of the kept marks (all of them with `all`, for the screen while a memo is still empty), for `exportAnnotated` and `shapesToSvg`:
+ * a ring, a box or the loop, each with its number at the top left.
+ */
+export function marksToShapes(marks: readonly Mark[], width: number, all = false): Shape[] {
+  return (all ? marks : keptMarks(marks)).flatMap((m, i): Shape[] => {
     const base = { color: MARK_COLOR, width };
     const id = i * 2 + 1;
     const from = { x: m.rect.x, y: m.rect.y },
