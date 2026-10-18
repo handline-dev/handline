@@ -51,9 +51,44 @@ func TestAdvanceDeliversTheNextQueuedTaskAndMakesItCurrent(t *testing.T) {
 	}
 }
 
-func TestAdvanceRecordsARefusedDeliveryOnceAndSkipsIt(t *testing.T) {
+func TestAdvanceDeliversATaskHandedBackToItsOpenerAsItsOwnWork(t *testing.T) {
 	r := newRig(t)
-	tid := r.newTask("bob", "bob", "an agent cannot ask itself")
+	r.agentUp("bob")
+	tid := r.newTask("bob", "bob", "finish the doc")
+	changed, refused, err := r.AdvanceCurrentTask(r.DB, "bob")
+	r.must(err)
+	if !changed || len(refused) != 0 {
+		t.Fatalf("%v %v", changed, refused)
+	}
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != tid {
+		t.Fatal(cur)
+	}
+	reqs, _ := db.TaskRequests(r.DB, tid)
+	if len(reqs) != 1 || reqs[0].Target != "bob" || reqs[0].Kind.String != "task" || reqs[0].Body != "finish the doc" {
+		t.Fatalf("%+v", reqs)
+	}
+}
+
+func TestSelfDeliveryCarriesTheAnswersSoFar(t *testing.T) {
+	r := newRig(t)
+	tid := r.newTask("bob", "bob", "finish the doc")
+	asked := r.ask("bob", "alice", "which format?", "ask")
+	r.must(db.LinkRequest(r.DB, tid, asked))
+	_, err := db.AddAnswer(r.DB, asked, "pdf", 0, true)
+	r.must(err)
+	task, _ := db.GetTask(r.DB, tid)
+	row, _ := db.GetRequest(r.DB, r.selfDelivery(r.DB, "bob", task))
+	if row.Body != fmt.Sprintf("finish the doc\n\nanswer to #%d: pdf", asked) {
+		t.Fatal(row.Body)
+	}
+}
+
+func TestAdvanceRecordsARefusedDeliveryOnceAndTellsTheManager(t *testing.T) {
+	r := newRig(t)
+	r.must(os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "  eng: [alice, bob]\n",
+		"  eng: [alice, bob]\n  alice: [alice, bob]\n", 1)+"deny:\n  - { from: carol, to: bob, reason: no }\n"), 0o644))
+	r.register("carol")
+	tid := r.newTask("bob", "carol", "unroutable")
 	other := r.newTask("bob", "alice", "fine")
 	changed, refused, err := r.AdvanceCurrentTask(r.DB, "bob")
 	r.must(err)
@@ -73,6 +108,11 @@ func TestAdvanceRecordsARefusedDeliveryOnceAndSkipsIt(t *testing.T) {
 	r.DB.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'task_deliver_refused'").Scan(&m)
 	if n != 1 || m != 1 {
 		t.Fatalf("a permanent refusal fills the log: %d %d", n, m)
+	}
+	var told int
+	r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE requester = ? AND target = 'alice' AND body LIKE ?", db.NoticeRequester, fmt.Sprintf("T%d could not be delivered%%", tid)).Scan(&told)
+	if told != 1 {
+		t.Fatalf("the refusal was told %d times", told)
 	}
 }
 
