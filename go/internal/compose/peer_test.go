@@ -56,7 +56,7 @@ func peerHome(t *testing.T, worktree, cwd string) (home string, d *sql.DB) {
 	rec := fmt.Sprintf(`{"pid":%d,"sessionId":"s1","cwd":%q,"version":"2.1.296","peerProtocol":1,"messagingSocketPath":"/tmp/x.sock","status":"idle","updatedAt":1}`, pid, cwd)
 	os.WriteFile(filepath.Join(dir, fmt.Sprintf("%d.json", pid)), []byte(rec), 0o644)
 	os.WriteFile(filepath.Join(dir, fmt.Sprintf("%d.k.key", pid)), []byte("secret\n"), 0o600)
-	if _, err := d.Exec("INSERT INTO agent_state(agent, state, updated, worktree, account) VALUES('term', 'running', 1, ?, 'acct')", worktree); err != nil {
+	if _, err := d.Exec("INSERT INTO agent_state(agent, state, updated, worktree, account, terminal) VALUES('term', 'running', 1, ?, 'acct', '%7')", worktree); err != nil {
 		t.Fatal(err)
 	}
 	return home, d
@@ -66,13 +66,40 @@ func TestASessionIsFoundForAWorktreeRecordedAsRepoAndPath(t *testing.T) {
 	work := t.TempDir()
 	for _, recorded := range []string{work, "/some/repo::" + work} {
 		home, d := peerHome(t, recorded, work)
-		s, err := findSession(home, d, "term")
+		s, err := findSession(home, d, "term", noPane)
 		if err != nil || s.Cwd != work {
 			t.Fatalf("%q: %v %v", recorded, s, err)
 		}
 	}
 	home, d := peerHome(t, "/some/repo::/gone/away", work)
-	if _, err := findSession(home, d, "term"); err == nil {
+	if _, err := findSession(home, d, "term", noPane); err == nil {
 		t.Fatal("a worktree that is gone has no session")
+	}
+}
+
+func noPane(string) int { return 0 }
+
+// Agents that share a worktree and an account each find only the session in their own pane, and a closed one finds none.
+func TestASessionInTheSameWorktreeIsAnotherAgentsUnlessItRunsInThisAgentsPane(t *testing.T) {
+	work := t.TempDir()
+	home, d := peerHome(t, work, work)
+	own := func(handle string) int {
+		if handle == "%7" {
+			return os.Getpid() // the session record's process
+		}
+		return 0
+	}
+	if s, err := findSession(home, d, "term", own); err != nil || s.PID != os.Getpid() {
+		t.Fatalf("its own pane: %v %v", s, err)
+	}
+	other := func(string) int { return 1 << 30 } // a pane whose process the session does not run under
+	if _, err := findSession(home, d, "term", other); err == nil {
+		t.Fatal("a session outside the agent's pane is another agent's")
+	}
+	if _, err := d.Exec("UPDATE agent_state SET terminal = NULL WHERE agent = 'term'"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := findSession(home, d, "term", own); err == nil {
+		t.Fatal("an agent with no terminal has no session")
 	}
 }

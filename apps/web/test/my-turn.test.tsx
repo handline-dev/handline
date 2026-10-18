@@ -154,7 +154,7 @@ describe('my turn', () => {
     await click(button(c, 'Reply'));
     await type(c.querySelector('input')!, 'Yes, relay it.');
     await click(button(c, 'Send reply'));
-    await until(() => s.daemon.inbox.get(3).read || s.daemon.inbox.get(3).answered, 'the daemon');
+    await until(() => s.daemon.inbox.get(3).read, 'the daemon');
   });
 
   it('a permission prompt without yes/no options is a card with only Open terminal', async () => {

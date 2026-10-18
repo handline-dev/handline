@@ -78,8 +78,10 @@ export function sideOf(m: ChatMessage, agent: string, me: string): 'person' | 'a
 }
 /** A message of the person's can be taken back while it is not written or delivered; `confirm` when the agent already has it (it is told to stop). Null when it cannot. */
 export function takeBack(m: ChatMessage): { confirm: boolean } | null {
-  if (!['queued', 'typed', 'delivered', 'delivered_unanswered'].includes(m.landing)) return null;
-  return { confirm: m.receipt ? !waiting(m) : m.landing === 'delivered' || m.landing === 'delivered_unanswered' };
+  // delivered_unanswered left the contract, but a daemon still sends it until it drops the answer model: it is delivered.
+  const delivered = m.landing === 'delivered' || (m.landing as string) === 'delivered_unanswered';
+  if (!delivered && !['queued', 'typed'].includes(m.landing)) return null;
+  return { confirm: m.receipt ? !waiting(m) : delivered };
 }
 
 /** Queued behind a running turn: the agent has not been given it. */
@@ -96,7 +98,7 @@ const LABELS: Record<string, string> = {
   queued: 'Sending',
   typed: 'Typed',
   delivered: 'Delivered',
-  // The daemon still sends these three until the answer model leaves the contract; a message in them is delivered.
+  // Gone from the contract, but a daemon still sends these three until it drops the answer model; a message in them is delivered.
   delivered_unanswered: 'Delivered',
   answered: 'Delivered',
   dismissed: 'Delivered',

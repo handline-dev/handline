@@ -8,7 +8,7 @@
 // event and told to the agent's manager.
 //
 // A terminal opened with no agent, or never recorded (the founder's own tmux), is never touched; nor is a pane whose process started after
-// its row was written, which is another pane under a reused handle.
+// its row was written, which is another pane under a reused handle, nor one that another agent names as its current terminal.
 package dangling
 
 import (
@@ -105,6 +105,12 @@ func (s *Sweep) one(r db.OpenTerminal, standing bool, now int64) error {
 	current, err := db.Terminal(s.Q, r.Agent)
 	if err != nil || current == r.Handle {
 		return err
+	}
+	if other, err := db.AgentOfTerminal(s.Q, r.Handle); err != nil {
+		return err
+	} else if other != "" && other != r.Agent {
+		s.log("  %s: terminal %s is %s's current terminal; its record is closed, the pane left alone", r.Agent, r.Handle, other)
+		return s.settle(r.Handle)
 	}
 	started := s.Ports.PaneStarted(r.Handle)
 	if started == 0 {
