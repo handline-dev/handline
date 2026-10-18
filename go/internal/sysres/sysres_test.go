@@ -3,7 +3,10 @@ package sysres
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -84,7 +87,35 @@ func TestThisMachineReadsItsRAM(t *testing.T) {
 	if err != nil || m.RAMTotal <= 0 || m.RAMFree <= 0 || m.RAMUsed <= 0 || m.Load1 < 0 {
 		t.Fatalf("%+v %v", m, err)
 	}
-	t.Logf("%+v", m)
+	// The load is the system's own 1-minute average as its tools print it, read a moment apart: close, not equal.
+	want := systemLoad1(t)
+	if diff := m.Load1 - want; diff > 0.5+want/10 || diff < -(0.5+want/10) {
+		t.Fatalf("load %.2f, the system says %.2f", m.Load1, want)
+	}
+}
+
+// systemLoad1 is the 1-minute load as `sysctl -n vm.loadavg` ("{ 1.23 1.10 1.00 }") or /proc/loadavg print it.
+func systemLoad1(t *testing.T) float64 {
+	t.Helper()
+	var out []byte
+	var err error
+	if runtime.GOOS == "darwin" {
+		out, err = exec.Command("sysctl", "-n", "vm.loadavg").Output()
+	} else {
+		out, err = os.ReadFile("/proc/loadavg")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := strings.Fields(strings.Trim(strings.TrimSpace(string(out)), "{}"))
+	if len(f) == 0 {
+		t.Fatalf("%q", out)
+	}
+	load, err := strconv.ParseFloat(f[0], 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return load
 }
 
 func TestSampleReadsTheRealProcessTable(t *testing.T) {
