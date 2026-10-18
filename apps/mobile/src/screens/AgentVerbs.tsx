@@ -1,82 +1,72 @@
 // The ⋯ menu of the agent page: the verbs beyond start and stop (wake, restart, park, fold, move account) and the way to the agent's settings and schedules. Each is a decided
 // write that shows its gerund until the daemon answers; the ones the bridge asks about ask first in a sheet that checks the row again on
 // Confirm. Close is the page's own button; clear stall waits for the founder's decision (N4).
-import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { Text, View } from 'react-native';
 import { askOf, needsAsk, verbsOf, type Verb, type VerbId } from '@handline/app-core';
 import { useAccounts, useAgents, useVerbRun } from '@handline/app-data';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Sheet, useWhyNot } from './TaskActions.tsx';
-import { AgentStrip } from './AgentStrip.tsx';
 import { Button, Row } from './parts.tsx';
 
 const HIDDEN: VerbId[] = ['interrupt', 'close', 'clear_stall'];
-
-/** One of the page's own session controls, listed first in the menu. */
-export type Control = { id: string; label: string; onPress: () => void; disabled?: boolean; kind?: 'no' };
 
 export function AgentVerbs(props: {
   detail: AgentDetail;
   row: AgentView | undefined;
   onSettings: () => void;
-  controls: Control[];
-  /** What a control in flight says while the daemon decides. */
-  note: string | null;
-  /** The page's tab row; the ⋯ sits at its end. */
-  tabs: React.ReactNode;
+  /** The buttons beside the ⋯, and what sits at the far end of the row. */
+  lead?: ReactNode;
+  trail?: ReactNode;
+  /** Stops the page offers (Exit, Close, Kill): in the menu, where a mis-tap costs less. */
+  stops?: { id: string; label: string; danger: boolean }[];
+  onStop?: (mode: string) => void;
+  disabled?: boolean;
 }) {
   const { detail, row } = props;
   const [open, setOpen] = useState(false);
   const [verb, setVerb] = useState<Verb | null>(null);
-  const c = usePalette();
   const run = useVerbRun(detail.name);
   const verbs = row ? verbsOf(row, detail).filter((v) => !HIDDEN.includes(v.id)) : [];
-  if (!row) return null;
+  if (!row)
+    return (
+      <Row style={{ flexWrap: 'wrap' }}>
+        {props.lead}
+        {props.trail}
+      </Row>
+    );
   const pick = (v: Verb) => {
     if (needsAsk(v.id) || v.id === 'move') setVerb(v);
     else run(v);
     setOpen(false);
   };
   return (
-    <View>
-      <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line }}>
-        {props.tabs}
-        <Pressable
-          testID="verbs-open"
-          onPress={() => setOpen(!open)}
-          accessibilityRole="button"
-          accessibilityLabel="More verbs"
-          hitSlop={8}
-          style={{ paddingVertical: space.md, paddingHorizontal: space.sm }}
-        >
-          <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>⋯</Text>
-        </Pressable>
+    <View style={{ gap: space.sm }}>
+      <Row style={{ flexWrap: 'wrap' }}>
+        {props.lead}
+        <Button testID="verbs-open" label="⋯" onPress={() => setOpen(!open)} accessibilityLabel="More" />
+        <View style={{ flex: 1 }} />
+        {props.trail}
       </Row>
-      {props.note && (
-        <Text testID="pending-mark" style={{ color: c.muted, padding: space.sm }}>
-          {props.note}
-        </Text>
-      )}
       {open && (
-        <View testID="verbs" style={{ gap: space.xs, padding: space.md }}>
-          <AgentStrip agent={detail.name} />
-          {props.controls.map((x) => (
-            <Button
-              key={x.id}
-              testID={`control-${x.id}`}
-              label={x.label}
-              kind={x.kind}
-              disabled={x.disabled}
-              onPress={() => {
-                setOpen(false);
-                x.onPress();
-              }}
-            />
-          ))}
+        <View testID="verbs" style={{ gap: space.xs }}>
           {verbs.map((v) => (
             <VerbButton key={v.id} v={v} onPress={() => pick(v)} />
+          ))}
+          {props.stops?.map((s) => (
+            <Button
+              key={s.id}
+              testID={`stop-${s.id}`}
+              label={s.label}
+              kind={s.danger ? 'no' : 'plain'}
+              disabled={props.disabled}
+              onPress={() => {
+                setOpen(false);
+                props.onStop?.(s.id);
+              }}
+            />
           ))}
           <Button
             testID="verb-settings"

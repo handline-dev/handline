@@ -137,7 +137,6 @@ function Add() {
         >
           <Text style={{ color: c.ink, fontWeight: '600' }}>Add an account</Text>
           <Input testID="sheet-name" label="Name" value={name} onChange={setName} />
-          <Text style={{ color: c.muted, fontSize: 12 }}>Log it in from its page once it is added.</Text>
           {add.error ? (
             <Text testID="sheet-error" accessibilityRole="alert" style={{ color: c.block }}>
               {sentence(classify(add.error))}

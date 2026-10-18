@@ -1,15 +1,13 @@
 // Chat tab of the agent page: the conversation with the agent on `useChat`, like the web's Chat. The person's messages show how far they
 // got (a glyph and a word), a tap picks one to reply to, an undelivered one can be taken back,
 // and a refused send stays as a failed row with Retry. A message to a structured agent shows its receipt (queued, sent, confirmed, or unknown:
-// lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message, in the
-// chat that shows it. A daemon that does not serve chat gets an empty state.
+// lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
-import { useHistoryValue } from '../history.tsx';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { clockTime, decidedProposals, landingLabel, sideOf, timeline } from '@handline/app-core';
-import { classify, sentence, useChat, useChatActions, useHr, useInbox, useWrite, type ChatScope } from '@handline/app-data';
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { clockTime, decidedProposals, sideOf, takeBack as canTakeBack, chatEntries, tickLevel } from '@handline/app-core';
+import { classify, sentence, useAgents, useChat, useChatActions, useHr, useInbox, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
-import type { AgentDetail, ChatMessage, Landing, TranscriptItem } from '@handline/client';
+import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
@@ -20,27 +18,12 @@ import { ChatFind } from './ChatFind.tsx';
 import { ChatRefs, type Ref } from './ChatRefs.tsx';
 import { HandoffLine } from './HandoffLine.tsx';
 import { NeedsYouCard } from './NeedsYouCard.tsx';
-import { ScopeRow } from './ScopeRow.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { useChatImages } from './ChatImages.tsx';
 import { Button, Row } from './parts.tsx';
 
-/** A shape for each stage, so the stage does not rest on colour. */
-const GLYPH: Record<string, string> = {
-  queued: '…',
-  typed: '⌨',
-  delivered: '✓',
-  withdrawn: '✕',
-};
-const glyph = (l: Landing) => GLYPH[l] ?? '✓';
-
-/** The receipt of a message to a structured agent, in words; unknown says what is not known. */
-const RECEIPT: Record<string, string> = {
-  queued: '… Queued',
-  sent: '→ Sent',
-  confirmed: '✓ Confirmed',
-  unknown: '? May or may not have run',
-};
+/** How far the person's message got, as ticks: not sent yet, sent, read. */
+const TICKS = ['…', '✓', '✓✓'] as const;
 
 /** Unsent text per agent, kept while the person goes to another tab or agent (not across a restart). */
 const drafts = new Map<string, string>();
@@ -59,13 +42,11 @@ export function ChatEmpty() {
   );
 }
 
-export function Chat(props: { detail: AgentDetail }) {
+export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const c = usePalette();
   const agent = props.detail.name;
   const canSend = useSelector((s) => s.can('chat.send'));
-  const [scope, setScope] = useHistoryValue<ChatScope>(`chat.scope:${agent}`, 'mine');
-  const [searching, setSearching] = useState(false);
-  const chat = useChat(agent, scope);
+  const chat = useChat(agent, 'mine');
   const act = useChatActions(agent);
   const [picked, setPicked] = useState<Ref | null>(null); // a message, or a request a # chose
   const img = useChatImages(canSend);
@@ -83,8 +64,10 @@ export function Chat(props: { detail: AgentDetail }) {
     drafts.set(agent, v);
     setTextState(v);
   };
+  const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
   const hr = useHr({});
-  const entries = timeline(chat.messages, chat.items, 'mine', agent, '', decidedProposals(hr.data?.proposals, agent));
+  const entries = chatEntries(chat.messages, chat.items, agent, decidedProposals(hr.data?.proposals, agent));
+  const takeable = Math.max(0, ...chat.messages.filter((m) => m.id > 0 && m.state !== 'failed' && canTakeBack(m)).map((m) => m.id)); // only the newest can be taken back
 
   // The agent's messages now in front of the person leave the FOR YOU list (chat.seen); once per newest number.
   const said = chat.messages.filter((m) => m.from === agent && m.id > 0).reduce((n, m) => Math.max(n, m.id), 0);
@@ -154,26 +137,16 @@ export function Chat(props: { detail: AgentDetail }) {
   const working = chat.working.turn_running;
   return (
     <View style={{ flex: 1 }}>
-      <ScopeRow
-        scope={scope}
-        searching={searching}
-        onScope={(s) => {
-          setScope(s);
-          setPicked(null);
-          setItem(null);
-        }}
-        onSearching={setSearching}
-      />
-      <ChatSearch
-        agent={agent}
-        scope={scope}
-        open={searching}
-        onGo={(id) => {
-          setMissing(false);
-          setGoing(id);
-        }}
-      />
-      {going !== null && <ChatFind id={going} scope={scope} setScope={setScope} chat={chat} drawn={drawn} onFound={found} onLost={lost} />}
+      {props.searching && (
+        <ChatSearch
+          agent={agent}
+          onGo={(id) => {
+            setMissing(false);
+            setGoing(id);
+          }}
+        />
+      )}
+      {going !== null && <ChatFind id={going} chat={chat} drawn={drawn} onFound={found} onLost={lost} />}
       {missing && (
         <Text testID="search-lost" style={{ color: c.muted, paddingHorizontal: space.md }}>
           That message is no longer in this chat.
@@ -215,6 +188,7 @@ export function Chat(props: { detail: AgentDetail }) {
               m={e.message}
               agent={agent}
               picked={picked?.id === e.id}
+              takeable={takeable === e.id}
               flashed={flash === e.id}
               onRow={(y) => {
                 rowY.current.set(e.id, y);
@@ -225,6 +199,7 @@ export function Chat(props: { detail: AgentDetail }) {
                 setItem(null);
                 setPicked((p) => (p?.id === m.id ? null : m));
               }}
+              onRestore={(t) => setText(text.trim() ? `${t}\n${text}` : t)}
             />
           ) : (
             <Line
@@ -304,14 +279,26 @@ export function Chat(props: { detail: AgentDetail }) {
   );
 }
 
+/** A small text link inside a bubble. */
+function Link(props: { label: string; onPress: () => void; testID: string }) {
+  const c = usePalette();
+  return (
+    <Pressable testID={props.testID} accessibilityRole="button" hitSlop={10} onPress={props.onPress}>
+      <Text style={{ color: c.accent, fontSize: 12 }}>{props.label}</Text>
+    </Pressable>
+  );
+}
+
 function Bubble(props: {
   m: ChatMessage;
   agent: string;
   picked: boolean;
+  takeable: boolean;
   flashed: boolean;
   onRow: (y: number) => void;
   working: boolean;
   onPick: (m: ChatMessage) => void;
+  onRestore: (text: string) => void;
 }) {
   const c = usePalette();
   const { m, agent } = props;
@@ -320,6 +307,18 @@ function Bubble(props: {
   const unnumbered = m.id < 0; // shown before the daemon numbered it, or refused
   const failed = m.state === 'failed';
   const mine = side === 'person' && !unnumbered && !failed;
+  const back = mine && props.takeable ? canTakeBack(m) : null;
+  // The words come back to the box only once the daemon has taken the message back; a refusal leaves everything as it was.
+  const takeBack = (confirm = false) =>
+    act
+      .cancel(m.id, confirm)
+      .then(() => props.onRestore(m.body))
+      .catch(() => undefined);
+  const ask = () =>
+    Alert.alert('Take it back?', `${agent} already has this message. It is told to stop, and what waits behind it moves up.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Take back', style: 'destructive', onPress: () => void takeBack(true) },
+    ]);
   const bg = side === 'person' ? c.panel : 'transparent';
   return (
     <Pressable
@@ -349,7 +348,7 @@ function Bubble(props: {
           {m.from} → {m.to}
         </Text>
       )}
-      {m.parent != null && <Text style={{ color: c.muted, fontSize: 11 }}>↩ #{m.parent}</Text>}
+      {m.parent != null && <Text style={{ color: c.muted, fontSize: 11 }}>↩ reply</Text>}
       {m.parent_item && (
         <Text testID={`quote-${m.id}`} numberOfLines={2} style={{ color: c.muted, fontSize: 11 }}>
           ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
@@ -358,15 +357,13 @@ function Bubble(props: {
       {m.body ? <PrBody id={m.id} agent={agent} body={m.body} /> : null}
       {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
       <Text style={{ color: c.muted, fontSize: 11 }}>
-        {!unnumbered && `#${m.id} `}
         {clockTime(m.at)}
         {side === 'person' && !failed && (
           <Text testID={`landing-${m.id}`}>
             {'  '}
-            {m.receipt ? (RECEIPT[m.receipt.state] ?? RECEIPT.sent) : `${glyph(m.landing)} ${landingLabel(m.landing)}`}
+            {m.landing === 'withdrawn' ? '✕ Withdrawn' : m.receipt?.state === 'unknown' ? '?' : TICKS[tickLevel(m)]}
           </Text>
         )}
-        {m.tasks.map((t) => `  T${t.id}`).join('')}
       </Text>
       {failed && (
         <View accessibilityRole="alert" style={{ gap: space.xs }}>
@@ -382,9 +379,12 @@ function Bubble(props: {
           Lost after it was written. It may or may not have run, and it is not sent again. Send it as a new message if you want it repeated.
         </Text>
       )}
-      {mine && (m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued' && props.working) && (
-        <Row>
-          <Button testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />
+      {back && (
+        <Row style={{ gap: space.lg }}>
+          {(m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued' && props.working) && (
+            <Link testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />
+          )}
+          <Link testID={`takeback-${m.id}`} label="Take back" onPress={() => (back.confirm ? ask() : void takeBack())} />
         </Row>
       )}
     </Pressable>

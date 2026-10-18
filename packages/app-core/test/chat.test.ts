@@ -2,22 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import {
-  Store,
-  noticeOf,
-  takeBack,
-  landingLabel,
-  tickLevel,
-  sessionLine,
-  handoffLine,
-  restartCause,
-  restartingLine,
-  sideOf,
-  taskRow,
-  changeParts,
-  timeline,
-  teamActivityOf,
-} from '../src/index.ts';
+import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, handoffLine, sideOf, taskRow, changeParts, timeline, chatEntries, activity, restartCause, restartingLine, teamActivityOf } from '../src/index.ts';
 
 const A = 'handline.architect';
 const msg = (over: Partial<ChatMessage>): ChatMessage => ({
@@ -213,7 +198,18 @@ test('handoffLine says why and what for each phase', () => {
   assert.equal(handoffLine({ cause: 'odd', phase: 'writing' }).why, 'odd');
 });
 
-test('teamActivityOf lists what the agent does with the team: tools, other agents messages, not the founder chat', () => {
+test('the Chat holds the person and the agent; Activity holds the rest, and only session marks are in both', () => {
+  const talk = msg({ id: 1 });
+  const peers = msg({ id: 2, from: 'handline.auditor', to: A, body: 'Review is done' });
+  const news = msg({ id: 3, from: 'task-board', to: A, body: 'T9 done by x: ok' });
+  const items = [item({ id: 10, kind: 'reply' }), item({ id: 11, kind: 'tool', tool: 'Bash' }), item({ id: 12, kind: 'session' })];
+  const key = (es: { kind: string; id: number }[]) => es.map((e) => `${e.kind}${e.id}`);
+  const task = item({ id: 13, kind: 'task_event' });
+  assert.deepEqual(key(chatEntries([talk], [...items, task], A)), ['message1', 'item10', 'item12']);
+  assert.deepEqual(key(activity([talk, peers, news], [talk], [...items, task], A)), ['message2', 'note3', 'item11', 'item12', 'item13']);
+});
+
+test('activityOf lists what the agent does with the team: tools, other agents messages, not the founder chat', () => {
   const rows = teamActivityOf(
     [msg({ id: 1, from: 'human', to: A }), msg({ id: 2, from: 'handline.auditor', to: A, body: 'Review is done', at: '2026-01-01T00:00:02Z' })],
     [

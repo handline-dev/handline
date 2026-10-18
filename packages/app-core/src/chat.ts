@@ -69,6 +69,19 @@ function mergeSessions(a: Extract<TimelineEntry, { kind: 'item' }>, b: Extract<T
   return { ...b, item: { ...b.item, session } };
 }
 
+/** The agent's Chat: the person's words and the agent's, its replies and prompts, and its session marks. Task and tool lines are Activity's. */
+export const chatEntries = (messages: ChatMessage[], items: TranscriptItem[], agent: string, decided: Proposal[] = []): TimelineEntry[] =>
+  timeline(messages, items, 'mine', agent, '', decided).filter((e) => !(e.kind === 'item' && (e.item.kind === 'tool' || e.item.kind === 'task_event')));
+
+/** The agent's Activity, read-only: what the Chat leaves out (other people's messages, task notices) and every task, session and tool line. `all` is the daemon's all-scope messages, `mine` its mine-scope ones: what the Chat draws from the second is left out of the first. */
+export function activity(all: ChatMessage[], mine: ChatMessage[], items: TranscriptItem[], agent: string): Exclude<TimelineEntry, { kind: 'proposal' }>[] {
+  const inChat = new Set(timeline(mine, [], 'mine', agent).map((e) => e.id));
+  return timeline(all, items, 'all', agent).filter(
+    (e): e is Exclude<TimelineEntry, { kind: 'proposal' }> =>
+      e.kind === 'proposal' ? false : e.kind === 'item' ? ['tool', 'session', 'task_event'].includes(e.item.kind) : !inChat.has(e.id),
+  );
+}
+
 export type ActivityKind = 'messages' | 'tasks' | 'sessions' | 'tools';
 export const ACTIVITY_KINDS: readonly ActivityKind[] = ['messages', 'tasks', 'sessions', 'tools'];
 export interface ActivityRow {
