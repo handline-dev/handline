@@ -444,6 +444,8 @@ export type InboxItem = {
   created: Timestamp;
   read: boolean;
   prompt: Prompt | null;
+  /** Only on a card the daemon raised after its own recovery failed: the action to offer as a button. restart_terminal is session.restart with force for the item's agent. */
+  fix?: "restart_terminal";
 };
 
 export type Event = {
