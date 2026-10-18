@@ -51,6 +51,7 @@ export const reads = {
   'stats.get': { resource: 'stats' },
   'stats.outlook': { resource: 'outlook' },
   'settings.get': { resource: 'settings' },
+  'connection.get': { resource: 'connection' },
   'answers.list': { resource: 'answers' },
   'devices.list': { resource: 'devices', feed: 'devices' },
   'debug.terminals': { resource: 'debug-terminals' },

@@ -28,7 +28,8 @@ const LineMax = 4000
 
 var settingKinds = map[string]string{"active_cap": int1, "park_timeout_s": int0, "handoff_note": flag_, "auto_accept_dialogs": flag_,
 	"ignore_cache_expiry": flag_, "dev_mode": flag_, "bg_notice_s": int1, "bg_grace_s": int1, "bg_check_s": int1, "notice_digest_s": int1,
-	"stop_wait_backstop_s": int1, "input_hold_idle_s": int1, handoff.PromptKey: line}
+	"stop_wait_backstop_s": int1, "input_hold_idle_s": int1, handoff.PromptKey: line,
+	"push_prompt_asked": flag_, "push_task_done": flag_, "push_stall": flag_, "push_account_out": flag_}
 
 var perAgent = map[string]bool{"park_timeout_s": true, "ignore_cache_expiry": true, "bg_notice_s": true, "bg_grace_s": true, "bg_check_s": true,
 	"notice_digest_s": true, handoff.PromptKey: true}

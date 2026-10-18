@@ -1010,6 +1010,14 @@ export type SettingsValues = {
   input_hold_idle_s?: number;
   /** The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. */
   handoff_prompt?: string;
+  /** Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
+  push_prompt_asked?: boolean;
+  /** Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
+  push_task_done?: boolean;
+  /** Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
+  push_stall?: boolean;
+  /** Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
+  push_account_out?: boolean;
 };
 
 /** settings.set's changes: any of SettingsValues' keys; null removes one. */
@@ -1042,6 +1050,14 @@ export type SettingsChanges = {
   input_hold_idle_s?: number | null;
   /** The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. An empty string is the built-in prompt; null removes the key (back to the default). */
   handoff_prompt?: string | null;
+  /** Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default). */
+  push_prompt_asked?: boolean | null;
+  /** Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default). */
+  push_task_done?: boolean | null;
+  /** Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default). */
+  push_stall?: boolean | null;
+  /** Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default). */
+  push_account_out?: boolean | null;
 };
 
 /** One method as a daemon lists it: its role and whether this caller may call it. */
@@ -1403,6 +1419,31 @@ export type HistoryRow = {
 
 /** The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else. */
 export type RequestRef = string;
+
+/** How this process is reached, read only. */
+export type ConnectionInfo = {
+  /** Which process answered. A daemon behind a gateway has no listener of its own; ask the gateway's local socket for the gateway's. */
+  served_by: "daemon" | "gateway";
+  /** The network listener of this process; null when it has none. */
+  listener: null | {
+    /** The host:port a pairing names (-advertise, else where the listener binds). */
+    address: string;
+    /** none is Tailscale mode: plain ws on a Tailscale or loopback address. */
+    encryption: "tls" | "none";
+    /** sha256 of the certificate presented; null in Tailscale mode. */
+    fingerprint: string | null;
+    /** The address's host when it is a *.ts.net name, else null. */
+    tailscale_host: string | null;
+  };
+  heavy_slots: {
+    /** HANDLINE_HEAVY_SLOTS as this process sees it, default 1. */
+    slots: number;
+    /** Where the slot locks are kept: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots. */
+    dir: string | null;
+  };
+  /** SettingsValues.dev_mode. */
+  dev_mode: boolean;
+};
 
 /** A free label on a task, such as fe or be: lowercase letters, digits, '.', '_' or '-', up to 32. A writer lowercases what it is given; a task carries at most 20. */
 export type Tag = string;
@@ -2499,6 +2540,7 @@ export interface Methods {
   /** Also give `overlay` for this pick: an agent's name, or `grp:<name>` for the group of agents whose dotted names start with `<name>.` (and the agent `<name>` itself), the key of a row of the agents table a client draws. It rides on this call and not on a method of its own because the curve is read against `past` and must be sampled at the same moment as it; one pick costs one array, not one per agent. */
   agent?: string;
 }; result: Outlook };
+  "connection.get": { params: { [key: string]: unknown }; result: ConnectionInfo };
   "settings.get": { params: {
   /** Return that agent's own overrides in `overrides`. */
   agent?: AgentName;
@@ -2683,6 +2725,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "schedule.remove": { role: "founder", callers: null, write: true, since: 1 },
   "stats.get": { role: "member", callers: null, write: false, since: 1 },
   "stats.outlook": { role: "member", callers: null, write: false, since: 1 },
+  "connection.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.set": { role: "founder", callers: null, write: true, since: 1 },
   "answers.list": { role: "founder", callers: null, write: false, since: 1 },
