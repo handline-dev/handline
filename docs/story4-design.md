@@ -135,6 +135,19 @@ and snapshots are SQLite snapshots. Raft's own term plays the epoch's part.
   switch to manual first. A node that is merely lost is not removed, so the group keeps its size and
   waits for a majority.
 
+**Two nodes: manual or a witness.** Manual (above) is the design for two nodes. The alternative is a
+**witness**: a tiny always-on process that only votes (a Raft non-data voter; no agents, no SQLite copy),
+making three votes. Compared:
+- *Manual:* no extra process. Loses time: a dead leader means nothing is scheduled until the founder
+  taps promote, and a wrong tap during a cut network splits the cluster (the epoch repairs it, but the
+  losing side's entries become an import source).
+- *Witness:* automatic failover in seconds, and no split from a cut network (the side without the
+  witness cannot lead). Loses simplicity: a third always-on machine or container to run and keep
+  reachable from both nodes, and if the witness dies the cluster is back to two votes with no election
+  until it returns.
+Start with manual. The witness joins later as one more voter on the same Raft group, so nothing built
+for manual is thrown away.
+
 **Switching.**
 - *Manual to automatic:* the leader checks the rule above, takes a snapshot at index N, and bootstraps
   the Raft group with every node as a voter and itself as the first leader, starting from N. It then
