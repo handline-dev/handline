@@ -17,6 +17,16 @@ describe('the history', () => {
   });
 });
 
+describe('the first entry', () => {
+  it('holds what the app was already on, so back leaves it', () => {
+    const h = new History();
+    h.seed('agent', 'a|chat');
+    h.push('agent', null);
+    expect(h.back()).toBe(true);
+    expect(h.get('agent', null)).toBe('a|chat');
+  });
+});
+
 describe('back across the moves in the app', () => {
   it('the Back button on the agent page is a step back in the history, to the list', async () => {
     const m = await mount();

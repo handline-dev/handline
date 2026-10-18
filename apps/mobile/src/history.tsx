@@ -16,6 +16,8 @@ export class History {
     this.at++;
     this.emit();
   };
+  /** Sets what the first entry holds, for state the app was already in before the history began. */
+  seed = (key: string, value: unknown) => void (this.entries[0] = { ...this.entries[0], [key]: value });
   back = () => this.go(-1);
   forward = () => this.go(1);
   /** True when there was an entry to walk to. */

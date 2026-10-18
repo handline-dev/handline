@@ -8,7 +8,7 @@ import { space } from '@handline/tokens';
 import { drawRows } from './termspans.tsx';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
-import { useHistory, useHistoryValue } from '../history.tsx';
+import { useHistoryValue } from '../history.tsx';
 import { StateMark } from './StateMark.tsx';
 import { AgentSettings } from './AgentSettings.tsx';
 import { AgentStrip } from './AgentStrip.tsx';
@@ -39,12 +39,11 @@ export function AgentPage() {
   const { served } = useServes('agent.get');
   const row = useAgents().data?.agents.find((a) => a.name === name);
   const [settings, setSettings] = useHistoryValue(`agent.settings:${name}`, false);
-  const history = useHistory();
   if (!page) return null;
   const detail = detailQuery.data;
   const state = detail?.state ?? row?.state ?? 'unknown';
   const sub = detail ?? row;
-  const back = () => void (history?.back() || store.closeAgent());
+  const back = () => void store.closeAgent();
   return (
     <AboveKeyboard>
       <Row style={{ padding: space.md }}>

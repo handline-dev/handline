@@ -23,7 +23,12 @@ type Page = 'worktrees' | 'new' | null;
 
 /** `pending` is where New agent was left: with an operation in it, the app starts on that page. */
 export function Home(props: { store: Store; onUnpair: () => void; pending?: Pending }) {
-  const history = useMemo(() => new History(), []);
+  const history = useMemo(() => {
+    const h = new History();
+    const p = props.store.page;
+    h.seed('agent', p ? `${p.agent}|${p.tab}` : null);
+    return h;
+  }, [props.store]);
   return (
     <HistoryProvider history={history}>
       <HomeScreen {...props} history={history} />
@@ -57,7 +62,11 @@ function useAgentEntry(store: Store) {
   const open = useSelector((s) => (s.page ? `${s.page.agent}|${s.page.tab}` : null));
   const [entry, setEntry] = useHistoryValue<string | null>('agent', null);
   const seen = useRef({ store: open, entry });
+  const now = useRef(open); // the store's key now, for when a history-driven open ends
+  now.current = open;
+  const driving = useRef(false); // a history-driven open is in flight: the store passes through other pages on the way
   useEffect(() => {
+    if (driving.current) return;
     if (open !== seen.current.store) {
       seen.current = { store: open, entry: open };
       setEntry(open);
@@ -65,8 +74,13 @@ function useAgentEntry(store: Store) {
       seen.current = { store: entry, entry };
       const [agent, tab] = entry?.split('|') ?? [];
       if (!agent) void store.closeAgent();
-      else if (agent !== open?.split('|')[0]) void store.openAgent(agent).then(() => store.setTab(tab as 'chat' | 'terminal'));
-      else store.setTab(tab as 'chat' | 'terminal');
+      else if (agent !== open?.split('|')[0]) {
+        driving.current = true;
+        void store
+          .openAgent(agent)
+          .then(() => store.setTab(tab as 'chat' | 'terminal'))
+          .finally(() => ((driving.current = false), (seen.current.store = now.current)));
+      } else store.setTab(tab as 'chat' | 'terminal');
     }
   });
 }
