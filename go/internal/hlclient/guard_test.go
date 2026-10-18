@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/handline/handline/go/internal/paths"
 )
 
 // liveEnv is a real-user home holding .handline, with no test root, no ALLOW_LIVE and the homes unset.
@@ -17,9 +19,9 @@ func liveEnv(t *testing.T) (live string) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", t.TempDir()) // never where the guard looks: that is the user database's
-	old := realUserHome
-	realUserHome = func() string { return user }
-	t.Cleanup(func() { realUserHome = old })
+	old := paths.RealUserHome
+	paths.RealUserHome = func() string { return user }
+	t.Cleanup(func() { paths.RealUserHome = old })
 	for _, k := range []string{"HANDLINE_TEST_ROOT", "OCP_TEST_ROOT", "HANDLINE_ALLOW_LIVE", "OCP_ALLOW_LIVE", "HANDLINE_HOME", "OCP_HOME",
 		"HANDLINE_BIN", "OCP_BIN"} {
 		t.Setenv(k, "")
@@ -88,7 +90,7 @@ func TestTheRealHomeComesFromTheUserDatabaseNotHOME(t *testing.T) {
 		t.Skip("no user database here:", err)
 	}
 	t.Setenv("HOME", t.TempDir())
-	if got := realUserHome(); got != u.HomeDir {
+	if got := paths.RealUserHome(); got != u.HomeDir {
 		t.Fatalf("with HOME moved: %q, want %q", got, u.HomeDir)
 	}
 	t.Setenv("HANDLINE_TEST_ROOT", t.TempDir())

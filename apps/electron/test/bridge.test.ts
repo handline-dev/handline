@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { NavigateTo } from '@handline/app-core';
 import { makeApi, type Ipc } from '../src/api.ts';
-import { CHANNELS, Connection, fromWindow, Page, type Sender } from '../src/bridge.ts';
+import { CHANNELS, Connection, fromWindow, Page, Settings, type Sender } from '../src/bridge.ts';
 import { noticeFor } from '../src/notices.ts';
 import type { Event } from '@handline/client';
 
@@ -164,4 +164,49 @@ test('the page switches the mode and pairs another device only from the window a
   assert.deepEqual(await c.phone(top), { ok: false, code: 'cannot_pair', message: 'paired with another device' });
   assert.equal((await c.phone(evil)).ok, false);
   assert.deepEqual(seen, ['own', { address: 'a.ts.net', code: 'c' }]);
+});
+
+test('settings: only get and set with checked arguments reach the daemon, and only from the window', async () => {
+  const calls: unknown[][] = [];
+  const s = new Settings(ORIGIN, {
+    get: async (agent) => (calls.push(['get', agent]), { values: {} } as never),
+    set: async (changes, agent) => (calls.push(['set', changes, agent]), { accepted: true } as never),
+  });
+  const evil: Sender = { senderFrame: { url: 'https://evil.example/', parent: null } };
+  assert.equal((await s.get(evil, {})).ok, false);
+  assert.equal((await s.set(evil, { changes: { active_cap: 3 } })).ok, false);
+  const badSet = [
+    undefined,
+    null,
+    {},
+    { changes: {} },
+    { changes: [] },
+    { changes: { 'Bad Key': 1 } },
+    { changes: { dev_mode: true } }, // a daemon setting the page does not edit
+    { changes: { active_cap: 3, handoff_prompt: 'x' } },
+    { changes: { active_cap: {} } },
+    { changes: { active_cap: Infinity } },
+    { changes: { active_cap: 3 }, method: 'agent.remove' },
+    { changes: { active_cap: 3 }, agent: '' },
+    { changes: { active_cap: 3 }, agent: 7 },
+  ];
+  for (const a of badSet) assert.deepEqual({ ...(await s.set(top, a)), message: '' }, { ok: false, code: 'bad_request', message: '' });
+  for (const a of [[], 'x', { agent: 7 }, { extra: 1 }])
+    assert.deepEqual({ ...(await s.get(top, a)), message: '' }, { ok: false, code: 'bad_request', message: '' });
+  assert.deepEqual(calls, []);
+  assert.equal((await s.get(top, undefined)).ok, true);
+  assert.equal((await s.get(top, { agent: 'a.b' })).ok, true);
+  assert.equal((await s.set(top, { changes: { active_cap: 3, handoff_note: null }, agent: 'a.b' })).ok, true);
+  assert.deepEqual(calls, [
+    ['get', undefined],
+    ['get', 'a.b'],
+    ['set', { active_cap: 3, handoff_note: null }, 'a.b'],
+  ]);
+});
+
+test('settings: a daemon refusal comes back as a result, never a throw', async () => {
+  const refuse = Object.assign(new Error('not allowed'), { code: 'refused' });
+  const s = new Settings(ORIGIN, { get: () => Promise.reject(refuse), set: () => Promise.reject(new Error('down')) });
+  assert.deepEqual(await s.get(top, {}), { ok: false, code: 'refused', message: 'not allowed' });
+  assert.deepEqual(await s.set(top, { changes: { active_cap: 1 } }), { ok: false, code: 'unavailable', message: 'down' });
 });

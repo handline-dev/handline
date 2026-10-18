@@ -5,7 +5,7 @@ const BUBBLE =
 const SIDE = {
   // The person's message is the primary itself — ink in this design — so it flips black/white with the theme and everything inside reads on-primary.
   person:
-    'person self-end bg-primary text-on-primary [&_a]:text-inherit [&_.msg-meta]:text-on-primary/60 [&_.msg-ref]:text-on-primary/80 [&_.ui-btn]:border-on-primary/30 [&_.ui-btn]:text-on-primary [&_.ui-btn:hover:enabled]:bg-on-primary/10',
+    'person self-end bg-primary text-on-primary [&_a]:text-inherit [&_a]:underline [&_.path]:text-inherit [&_.agent-link]:text-inherit [&_.ref]:text-inherit [&_.path]:underline [&_.agent-link]:underline [&_.msg-meta]:text-on-primary/60 [&_.msg-ref]:text-on-primary/80 [&_.ui-btn]:border-on-primary/30 [&_.ui-btn]:text-on-primary [&_.ui-btn:hover:enabled]:bg-on-primary/10',
   agent: 'agent self-start bg-surface',
   other: 'other self-start bg-surface opacity-80',
 } as const;
@@ -32,7 +32,7 @@ export const bubbleClass = (side: keyof typeof SIDE, s: BubbleState = {}): strin
     .filter(Boolean)
     .join(' ');
 
-export const MSG_BODY = 'msg-body whitespace-pre-wrap group-data-[landing=withdrawn]:line-through';
+export const MSG_BODY = 'msg-body group-data-[landing=withdrawn]:line-through';
 export const MSG_META = 'msg-meta mt-0.5 text-[12px] [&_svg]:align-middle';
 export const MSG_FAILED = `${MSG_META} failed-line text-bad`;
 export const MSG_FROM = 'msg-from mb-0.5 text-[12px]';

@@ -107,7 +107,7 @@ at handoff, not a verdict.
 
 Result: 13 files become 9 entries (orcapipe 5, ui 2, auditor 1, AGENTS.md 1);
 3 duplicates merge away and 1 is deleted. core, daemon and merger start empty. `AGENTS.md` currently says to run the whole suite with
-`tools/suite.sh` while the ui entries say "full suite only at the auditor gate";
+`tools/check.sh` while the ui entries say "full suite only at the auditor gate";
 reconcile the wording when promoting. `hl memory migrate` runs as a dry run
 first, writes each owner's dir and index, and leaves `shared/memory` untouched
 until each agent has confirmed its own entries once; then the links are removed.

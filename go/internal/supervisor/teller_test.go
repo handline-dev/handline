@@ -21,7 +21,7 @@ func TestTheTellerTypesTheMemoSayAndSendsAQueuedTaskToAFreeOwner(t *testing.T) {
 		t.Fatal(msg)
 	}
 	r.term.typed = nil
-	r.MemoChanged(tid, "alice", "added", "mind the cache")
+	r.MemoChanged(tid, "alice", "added", "mind the cache", true)
 	if !strings.Contains(r.term.last(), "T1 memo added by alice: mind the cache") {
 		t.Fatalf("%q", r.term.last())
 	}
@@ -91,8 +91,8 @@ func TestAFailedStatementAfterTheCommitIsLoggedByTheTeller(t *testing.T) {
 	if msg := r.QueueDelivered(1, "human", true); msg != "task T1 is queued (human)" || !r.logged("delivering T1 after it was queued failed") {
 		t.Fatalf("%q %v", msg, r.logs)
 	}
-	r.MemoChanged(1, "alice", "added", "x")
-	if !r.logged("telling the holder of T1 about the memo failed") {
+	r.MemoChanged(1, "alice", "added", "x", false)
+	if !r.logged("telling about the memo on T1 failed") {
 		t.Fatalf("%v", r.logs)
 	}
 }

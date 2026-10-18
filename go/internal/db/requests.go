@@ -50,7 +50,7 @@ const heldDelivery = "(requests.state = 'landed' AND requests.kind = 'task' AND 
 // Request is one requests row, with the columns GetRequest adds (Answer, AnsweredAt, Dismisser, DismissReason).
 type Request struct {
 	ID, TS, ChainDepth                                  int64
-	Requester, Target, Body, State                      string
+	Requester, Target, Body, State, Ref                 string
 	Files, Relation, Response, Kind, ChainID, TypedSess sql.NullString
 	ParentID, DeliveredAt, TypedAt, LandedAt, SendNow   sql.NullInt64
 	Notice, ReadAt, StateAt, MootBy, EdgeOK, Settles    sql.NullInt64
@@ -61,12 +61,12 @@ type Request struct {
 }
 
 const requestCols = "id, ts, requester, target, body, files, relation, response, kind, chain_depth, parent_id, chain_id, state, queue_order, " +
-	"delivered_at, typed_at, typed_session, landed_at, send_now, notice, read_at, state_at, moot_by, edge_ok, settles"
+	"delivered_at, typed_at, typed_session, landed_at, send_now, notice, read_at, state_at, moot_by, edge_ok, settles, ref"
 
 func (r *Request) dest() []any {
 	return []any{&r.ID, &r.TS, &r.Requester, &r.Target, &r.Body, &r.Files, &r.Relation, &r.Response, &r.Kind, &r.ChainDepth, &r.ParentID,
 		&r.ChainID, &r.State, &r.QueueOrder, &r.DeliveredAt, &r.TypedAt, &r.TypedSess, &r.LandedAt, &r.SendNow, &r.Notice, &r.ReadAt,
-		&r.StateAt, &r.MootBy, &r.EdgeOK, &r.Settles}
+		&r.StateAt, &r.MootBy, &r.EdgeOK, &r.Settles, &r.Ref}
 }
 
 func requestRows(q Q, query string, args ...any) ([]*Request, error) {
@@ -121,6 +121,8 @@ type NewRequest struct {
 	State                                    string // "": queued
 	Verdict                                  string
 	Notice                                   bool
+	// Memo makes it a notice that is a memo's tell (notice 2): its reader's lead is told when it goes unread an hour (UnreadMemosBefore).
+	Memo bool
 }
 
 // AddRequest is db.add_request. A notice, or a say to the founder, is born landed. The edge of a request written here is
@@ -132,16 +134,19 @@ func AddRequest(q Q, n NewRequest) (int64, error) {
 		state = "queued"
 	}
 	now := Now()
-	landed := (n.Notice || n.Target == Human && n.Kind == "say") && state == "queued"
+	var landedAt, notice, parent any
+	switch {
+	case n.Memo:
+		notice = 2
+	case n.Notice:
+		notice = 1
+	}
+	landed := (notice != nil || n.Target == Human && n.Kind == "say") && state == "queued"
 	if landed || state == "done" {
 		state = Landed
 	}
-	var landedAt, notice, parent any
 	if landed {
 		landedAt = now
-	}
-	if n.Notice {
-		notice = 1
 	}
 	if n.ParentID != 0 {
 		parent = n.ParentID
@@ -398,7 +403,7 @@ func MarkAnnounced(q Q, rids []int64) error {
 
 // PendingNotices is db.pending_notices: the notices the target has not been shown, oldest first.
 func PendingNotices(q Q, target string) ([]*Request, error) {
-	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE target = ? AND notice = 1 AND state = 'landed' AND delivered_at IS NULL ORDER BY id", target)
+	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE target = ? AND notice >= 1 AND state = 'landed' AND delivered_at IS NULL ORDER BY id", target)
 }
 
 // NoticeWaiting is one agent with a notice waiting and when its oldest unshown notice landed.
@@ -409,7 +414,7 @@ type NoticeWaiting struct {
 
 // AgentsWithNotices is db.agents_with_notices.
 func AgentsWithNotices(q Q) ([]NoticeWaiting, error) {
-	rows, err := q.Query("SELECT target, MIN(landed_at) FROM requests WHERE notice = 1 AND state = 'landed' AND delivered_at IS NULL AND target != ? GROUP BY target ORDER BY target", Human)
+	rows, err := q.Query("SELECT target, MIN(landed_at) FROM requests WHERE notice >= 1 AND state = 'landed' AND delivered_at IS NULL AND target != ? GROUP BY target ORDER BY target", Human)
 	if err != nil {
 		return nil, err
 	}
@@ -427,10 +432,15 @@ func AgentsWithNotices(q Q) ([]NoticeWaiting, error) {
 	return out, rows.Err()
 }
 
+// UnreadMemosBefore is every memo's tell that landed at or before `before` and has been neither shown nor read, oldest first.
+func UnreadMemosBefore(q Q, before int64) ([]*Request, error) {
+	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE notice = 2 AND state = 'landed' AND delivered_at IS NULL AND read_at IS NULL AND landed_at <= ? ORDER BY id", before)
+}
+
 // MarkNoticesDigested is db.mark_notices_digested.
 func MarkNoticesDigested(q Q, rids []int64) error {
 	for _, id := range rids {
-		if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) WHERE id = ? AND notice = 1 AND state = 'landed'", Now(), id); err != nil {
+		if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) WHERE id = ? AND notice >= 1 AND state = 'landed'", Now(), id); err != nil {
 			return err
 		}
 	}
@@ -440,7 +450,7 @@ func MarkNoticesDigested(q Q, rids []int64) error {
 // MarkNoticesShown is db.mark_notices_shown: these notices went out inside a typed delivery to session.
 func MarkNoticesShown(q Q, rids []int64, session string) error {
 	for _, id := range rids {
-		if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?), typed_at = ?, typed_session = ? WHERE id = ? AND notice = 1 AND state = 'landed'",
+		if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?), typed_at = ?, typed_session = ? WHERE id = ? AND notice >= 1 AND state = 'landed'",
 			Now(), Now(), nullStr(session), id); err != nil {
 			return err
 		}
@@ -795,8 +805,9 @@ func StandingDenial(q Q, requester, target, body, files string, since int64) (in
 
 // Notice is a say the board wrote for its target in a transaction, to be told after the commit.
 type Notice struct {
-	RID      int64
-	To, Text string
+	RID       int64
+	To, Text  string
+	Unblocked int64 // the task an "unblocked" say is about
 }
 
 // InboxFile names the inbox file a request wrote for its target, which goes when the request leaves the queue.

@@ -1,6 +1,6 @@
 // The Activity tab: what this agent does with the team, read-only, one dim line per item with chips to filter by kind. Steering happens in Chat.
 import { useEffect, useRef, useState } from 'react';
-import { ACTIVITY_KINDS, activityOf, clockTime, type ActivityKind } from '@handline/app-core';
+import { ACTIVITY_KINDS, teamActivityOf, clockTime, type ActivityKind } from '@handline/app-core';
 import { useChat } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Empty } from './ui/index.ts';
@@ -13,7 +13,7 @@ export function ActivityTab({ agent, row = null }: { agent: string; row?: string
   const chat = useChat(agent, 'all');
   const [only, setOnly] = useState<ActivityKind | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  const rows = activityOf(chat.messages, chat.items, me).filter((r) => !only || r.kind === only);
+  const rows = teamActivityOf(chat.messages, chat.items, me).filter((r) => !only || r.kind === only);
   // A row named by a message link: scrolled to and flashed once it is drawn.
   const shown = useRef<string | null>(null);
   const hit = row ? rows.some((r) => r.key === row) : false;

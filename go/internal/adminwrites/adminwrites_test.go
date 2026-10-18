@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -148,6 +149,43 @@ func TestSettingsSetWritesEveryKeyOrNoneAndClearsOnNull(t *testing.T) {
 	r.result(r.one("settings.set", `{"changes":{"park_timeout_s":60},"agent":"alice","request_id":"t4"}`))
 	if !strings.Contains(r.file("agents", "alice", "agent.yaml"), "park_timeout_s: 60") {
 		t.Fatal("the agent's own file")
+	}
+}
+
+func TestEveryPushSwitchIsAFounderFlagForTheWholeTeam(t *testing.T) {
+	for _, key := range []string{"push_prompt_asked", "push_task_done", "push_stall", "push_account_out"} {
+		r := newRig(t)
+		r.result(r.one("settings.set", `{"changes":{"`+key+`":false},"request_id":"p1"}`))
+		if !strings.Contains(r.file("config.yaml"), key+": false") {
+			t.Fatalf("%s: %q", key, r.file("config.yaml"))
+		}
+		if r.code(r.one("settings.set", `{"changes":{"`+key+`":"no"},"request_id":"p2"}`)) != "bad_request" {
+			t.Fatalf("%s: a push switch is true or false", key)
+		}
+		if r.code(r.one("settings.set", `{"changes":{"`+key+`":false},"agent":"alice","request_id":"p3"}`)) != "bad_request" {
+			t.Fatalf("%s: a push switch has no per-agent value", key)
+		}
+		r.result(r.one("settings.set", `{"changes":{"`+key+`":null},"request_id":"p4"}`))
+		if strings.Contains(r.file("config.yaml"), key) {
+			t.Fatalf("%s: null clears it back to the default", key)
+		}
+	}
+}
+
+func TestTheHandoffPromptIsOneLineOfTextGloballyOrForOneAgent(t *testing.T) {
+	r := newRig(t)
+	r.result(r.one("settings.set", `{"changes":{"handoff_prompt":"Write {path}: what is next, 100%."},"request_id":"h1"}`))
+	if got := r.file("config.yaml"); !strings.Contains(got, `handoff_prompt: "Write {path}: what is next, 100%."`) {
+		t.Fatalf("%q", got)
+	}
+	r.result(r.one("settings.set", `{"changes":{"handoff_prompt":"alice: {path}"},"agent":"alice","request_id":"h2"}`))
+	if !strings.Contains(r.file("agents", "alice", "agent.yaml"), "handoff_prompt:") {
+		t.Fatal("the agent's own file")
+	}
+	for i, bad := range []string{`"two\nlines"`, `"` + strings.Repeat("x", LineMax+1) + `"`, `7`} {
+		if r.code(r.one("settings.set", `{"changes":{"handoff_prompt":`+bad+`},"request_id":"hb`+strconv.Itoa(i)+`"}`)) != "bad_request" {
+			t.Fatalf("accepted %.20s", bad)
+		}
 	}
 }
 

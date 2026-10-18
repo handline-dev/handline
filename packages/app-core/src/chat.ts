@@ -1,12 +1,18 @@
 // The pure side of chat: how messages and transcript items are ordered, who a message is from, and what can still be done to it.
 // Fetching and keeping the conversation current is the apps' shared query layer (@handline/app-data).
-import type { ChatMessage, Landing, TranscriptItem } from '@handline/client';
+import type { ChatMessage, Landing, Proposal, TranscriptItem } from '@handline/client';
 
 export type TimelineEntry =
   | { kind: 'message'; at: string; id: number; message: ChatMessage }
   /** The task board's word about a task (`T<N> done by x: ...`), drawn as a task card, not a bubble. */
   | { kind: 'note'; at: string; id: number; message: ChatMessage; task: number }
-  | { kind: 'item'; at: string; id: number; item: TranscriptItem };
+  | { kind: 'item'; at: string; id: number; item: TranscriptItem }
+  /** An HR proposal that was decided: it keeps its place at the time it was settled. */
+  | { kind: 'proposal'; at: string; id: number; proposal: Proposal };
+
+/** The proposals about this agent that were decided: they sit in the timeline where they were settled. */
+export const decidedProposals = (all: readonly Proposal[] | undefined, agent: string): Proposal[] =>
+  (all ?? []).filter((p) => (p.agent === agent || p.requested_by === agent) && (p.state === 'approved' || p.state === 'rejected'));
 
 /** The sender of the daemon's own notices; its words are never the person's. */
 export const NOTICE_SENDER = 'task-board';
@@ -24,11 +30,15 @@ export function timeline(
   items: TranscriptItem[],
   scope: 'mine' | 'all' = 'mine',
   agent?: string,
+  me = '',
+  decided: readonly Proposal[] = [],
 ): TimelineEntry[] {
   const out: TimelineEntry[] = [
     ...messages.flatMap((m): TimelineEntry[] => {
       if (scope === 'mine' && m.from === NOTICE_SENDER) return [];
       if (scope === 'mine' && m.proposal != null) return []; // the outcome of an HR proposal is drawn as its card, not as this line
+      // What this agent says to another agent is that agent's room's, not this one's: the all tab shows what reaches the agent and what it says to the person.
+      if (scope === 'all' && agent && m.from === agent && m.to !== agent && !isPerson(m.to, me)) return [];
       const n = noticeOf(m);
       if (n?.kind === 'task') return [{ kind: 'note', at: m.at, id: m.id, message: m, task: n.task }];
       return [{ kind: 'message', at: m.at, id: m.id, message: m }];
@@ -37,10 +47,26 @@ export function timeline(
     ...items
       .filter((i) => !(scope === 'mine' && (i.kind === 'tool' || (agent && i.task_event && i.task_event.who !== agent && i.task_event.who !== 'human'))))
       .map((i): TimelineEntry => ({ kind: 'item', at: i.at, id: i.id, item: i })),
+    ...decided.flatMap((p): TimelineEntry[] => (p.settled ? [{ kind: 'proposal', at: p.settled, id: p.id, proposal: p }] : [])),
   ];
-  return out.sort((a, b) =>
-    a.at < b.at ? -1 : a.at > b.at ? 1 : (a.kind === 'item') === (b.kind === 'item') ? a.id - b.id : a.kind === 'item' ? 1 : -1,
-  );
+  const rank = (e: TimelineEntry) => (e.kind === 'item' ? 1 : e.kind === 'proposal' ? 2 : 0); // at one instant: messages, then the transcript, then a decision
+  out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : rank(a) - rank(b) || a.id - b.id));
+  return out.reduce<TimelineEntry[]>((all, e) => {
+    const prev = all.at(-1);
+    if (prev?.kind === 'item' && e.kind === 'item' && prev.item.kind === 'session' && e.item.kind === 'session')
+      all[all.length - 1] = mergeSessions(prev, e);
+    else all.push(e);
+    return all;
+  }, []);
+}
+
+const PLAIN_START = new Set(['launch', 'start']);
+/** One restart is one line: back-to-back session starts collapse into the last, which keeps the handoff and the cause the run was told (a plain launch is the least telling cause). */
+function mergeSessions(a: Extract<TimelineEntry, { kind: 'item' }>, b: Extract<TimelineEntry, { kind: 'item' }>): TimelineEntry {
+  const [x, y] = [a.item.session, b.item.session];
+  const cause = [y?.cause, x?.cause].find((c) => c && !PLAIN_START.has(c)) ?? y?.cause ?? x?.cause;
+  const session = { ...y!, handoff: y?.handoff || x?.handoff || null, ...(cause ? { cause } : {}) };
+  return { ...b, item: { ...b.item, session } };
 }
 
 export type ActivityKind = 'messages' | 'tasks' | 'sessions' | 'tools';
@@ -58,7 +84,7 @@ export interface ActivityRow {
 }
 
 /** What the Activity tab lists for one agent, oldest first: what it does with the team, not what it says to the person. Messages and notices of the *all* scope that the person is not part of, task, session and tool lines of the transcript; the agent's own replies and prompts stay in Chat. */
-export function activityOf(messages: ChatMessage[], items: TranscriptItem[], me: string): ActivityRow[] {
+export function teamActivityOf(messages: ChatMessage[], items: TranscriptItem[], me: string): ActivityRow[] {
   const rows: ActivityRow[] = [];
   for (const m of messages) {
     if (isPerson(m.from, me) || isPerson(m.to, me) || m.proposal != null) continue;
@@ -86,8 +112,10 @@ export function sideOf(m: ChatMessage, agent: string, me: string): 'person' | 'a
 }
 /** A message of the person's can be taken back while it is not written or delivered; `confirm` when the agent already has it (it is told to stop). Null when it cannot. */
 export function takeBack(m: ChatMessage): { confirm: boolean } | null {
-  if (!['queued', 'typed', 'delivered', 'delivered_unanswered'].includes(m.landing)) return null;
-  return { confirm: m.receipt ? !waiting(m) : m.landing === 'delivered' || m.landing === 'delivered_unanswered' };
+  // delivered_unanswered left the contract, but a daemon still sends it until it drops the answer model: it is delivered.
+  const delivered = m.landing === 'delivered' || (m.landing as string) === 'delivered_unanswered';
+  if (!delivered && !['queued', 'typed'].includes(m.landing)) return null;
+  return { confirm: m.receipt ? !waiting(m) : delivered };
 }
 
 /** Queued behind a running turn: the agent has not been given it. */
@@ -104,7 +132,7 @@ const LABELS: Record<string, string> = {
   queued: 'Sending',
   typed: 'Typed',
   delivered: 'Delivered',
-  // The daemon still sends these three until the answer model leaves the contract; a message in them is delivered.
+  // Gone from the contract, but a daemon still sends these three until it drops the answer model; a message in them is delivered.
   delivered_unanswered: 'Delivered',
   answered: 'Delivered',
   dismissed: 'Delivered',
@@ -130,6 +158,25 @@ export function sessionLine(i: TranscriptItem): { reason: string; handoff: strin
   const cause = i.session?.cause?.trim();
   const reason = !cause ? 'New session' : (SESSION_WHY[cause] ?? `New session (${cause})`);
   return { reason, handoff: i.session?.handoff || null };
+}
+
+const RESTART_WHY: Record<string, string> = {
+  handoff: 'from a handoff',
+  restart: 'restarted',
+  'fresh close': 'fresh conversation',
+  wake: 'woke from a close',
+  move: 'moved to another account',
+  context_full: 'context was full',
+  settings_applied: 'settings applied',
+  crash_recovery: 'resumed after a crash',
+  idle_close: 'woke after idle close',
+  launch: 'launched',
+  start: 'started',
+};
+/** The short cause after `New session at <time>`: the daemon's word in plain words, an unknown one as it came, null when the daemon sent none. */
+export function restartCause(i: TranscriptItem): string | null {
+  const cause = i.session?.cause?.trim();
+  return cause ? (RESTART_WHY[cause] ?? cause) : null;
 }
 
 const TASK_LABEL: Record<string, string> = { opened: 'Task added', changed: 'Task changed', done: 'Task done', withdrawn: 'Task deleted' };
@@ -181,4 +228,10 @@ export function handoffLine(h: { cause: string; phase: 'writing' | 'starting' })
     why: HANDOFF_WHY[h.cause] ?? h.cause,
     what: h.phase === 'writing' ? 'Writing the handoff' : 'Starting a new session',
   };
+}
+
+/** The live restart line: `Restarting: context full. Writing the handoff…`. */
+export function restartingLine(h: { cause: string; phase: 'writing' | 'starting' }): string {
+  const { why, what } = handoffLine(h);
+  return `Restarting: ${why.charAt(0).toLowerCase()}${why.slice(1)}. ${what}…`;
 }

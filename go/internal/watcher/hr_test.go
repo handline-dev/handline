@@ -122,7 +122,6 @@ func TestGoAndPythonWriteTheSameHrEvents(t *testing.T) {
 			putProposal(t, home, "0000000b", "proposed", now-10, 0, "")
 			decided("0000000a", "rejected", now-100, now-5, "")
 			decided("0000000c", "approved", now-90, now-4, "error: no room\n")
-			putProposal(t, home, "0000000d", "proposed", now-3, 0, "requested_by: human\n") // the founder's own: never listed
 			// one of each kind, raised: the diff and what is asked are the same words as Python's
 			for i, f := range []string{
 				"kind: add\nagent: new\nteam: eng\nmodel: opus\nvendor: codex\n",

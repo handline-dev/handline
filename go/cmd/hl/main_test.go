@@ -16,12 +16,12 @@ import (
 	"github.com/handline/handline/go/internal/pairsock"
 )
 
-// rig is a built hl at <root>/go/hl beside <root>/bin, a fake python that prints what it was run with, and a home.
+// rig is a built hl at <root>/go/hl beside <root>/bin, and a home.
 // ctl, once daemon serves, is the socket each run inherits to reach it.
 type rig struct {
-	t                  *testing.T
-	root, home, hl, py string
-	ctl                *os.File
+	t              *testing.T
+	root, home, hl string
+	ctl            *os.File
 }
 
 var built struct {
@@ -60,7 +60,7 @@ func newRig(t *testing.T) *rig {
 	if built.err != nil {
 		t.Fatal(built.err)
 	}
-	r := &rig{t: t, root: root, home: filepath.Join(root, "h"), hl: filepath.Join(root, "go", "hl"), py: filepath.Join(root, "py")}
+	r := &rig{t: t, root: root, home: filepath.Join(root, "h"), hl: filepath.Join(root, "go", "hl")}
 	for _, d := range []string{r.home, filepath.Join(root, "go"), filepath.Join(root, "bin")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
@@ -71,9 +71,6 @@ func newRig(t *testing.T) *rig {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(r.hl, b, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(r.py, []byte("#!/bin/sh\necho \"python $*\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return r
@@ -90,7 +87,7 @@ func (r *rig) runIn(stdin string, env []string, args ...string) (string, string,
 	cmd.Dir = r.root
 	cmd.Stdin = strings.NewReader(stdin)
 	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HANDLINE_TEST_ROOT=" + r.root, "HANDLINE_HOME=" + r.home,
-		"HANDLINE_HL_PYTHON=" + r.py, "TZ=UTC"}, env...)
+		"TZ=UTC"}, env...)
 	if r.ctl != nil {
 		cmd.ExtraFiles = []*os.File{r.ctl}
 		cmd.Env = append(cmd.Env, "HANDLINE_DAEMON_FD=3")
@@ -107,18 +104,32 @@ func (r *rig) runIn(stdin string, env []string, args ...string) (string, string,
 	return out.String(), errb.String(), code
 }
 
-func TestWhatIsNotPortedRunsPythonWithTheSameArgv(t *testing.T) {
+func TestAnUnknownCommandIsRefused(t *testing.T) {
 	r := newRig(t)
-	real, err := filepath.EvalSymlinks(r.root)
-	if err != nil {
-		t.Fatal(err)
+	for _, args := range [][]string{{}, {"agent", "list"}, {"doctor"}} {
+		_, errs, code := r.run(nil, args...)
+		if code != 2 || !strings.Contains(errs, "commands:") {
+			t.Errorf("%v: %q (exit %d)", args, errs, code)
+		}
 	}
-	entry := filepath.Join(real, "bin", "_ocp_entry.py")
-	for _, args := range [][]string{{}, {"inbox", "--all"}, {"progress", "--help"}, {"progress", "a", "b"}} {
-		out, _, code := r.run(nil, args...)
-		want := strings.TrimSpace("python " + entry + " " + strings.Join(args, " "))
-		if code != 0 || strings.TrimSpace(out) != want {
-			t.Errorf("%v: %q (exit %d), want %q", args, out, code, want)
+}
+
+func TestNoVerbTakesAnArgumentItDoesNotParse(t *testing.T) {
+	r := newRig(t)
+	for _, verb := range []string{"say", "task", "progress", "read", "inbox", "withdraw", "team", "hr", "account", "device", "cancel", "service"} {
+		out, errs, code := r.run(nil, verb, "--no-such-flag")
+		if code != 2 || out != "" || !strings.Contains(errs, "arguments not understood") {
+			t.Errorf("%s: %q %q %d", verb, out, errs, code)
+		}
+	}
+}
+
+func TestProgressRefusesWhatItDoesNotParse(t *testing.T) {
+	r := newRig(t)
+	for _, args := range [][]string{{"progress", "--help"}, {"progress", "a", "b"}} {
+		out, errs, code := r.run(nil, args...)
+		if code != 2 || !strings.Contains(errs, "arguments not understood") {
+			t.Errorf("%v: %q %q %d", args, out, errs, code)
 		}
 	}
 }

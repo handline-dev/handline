@@ -32,8 +32,8 @@ type fakeTeller struct {
 	notified  []db.Notice
 }
 
-func (f *fakeTeller) MemoChanged(tid int64, by, what, text string) {
-	f.memos = append(f.memos, fmt.Sprintf("T%d %s %s %q", tid, by, what, text))
+func (f *fakeTeller) MemoChanged(tid int64, by, what, text string, now bool) {
+	f.memos = append(f.memos, fmt.Sprintf("T%d %s %s %q%s", tid, by, what, text, map[bool]string{true: " now"}[now]))
 }
 func (f *fakeTeller) QueueDelivered(tid int64, by string, queued bool) string {
 	f.queued = append(f.queued, fmt.Sprintf("T%d %s %v", tid, by, queued))
@@ -121,7 +121,8 @@ func TestMemoWritesTellTheHolderThroughTheTeller(t *testing.T) {
 	call(t, s, `{"jsonrpc":"2.0","id":1,"method":"task.memo.add","params":{"task":1,"text":"check the cache","request_id":"m1"}}`)
 	call(t, s, `{"jsonrpc":"2.0","id":2,"method":"task.memo.edit","params":{"task":1,"memo":1,"text":"check the disk","request_id":"m2"}}`)
 	call(t, s, `{"jsonrpc":"2.0","id":3,"method":"task.memo.delete","params":{"task":1,"memo":1,"request_id":"m3"}}`)
-	want := []string{`T1 manager added "check the cache"`, `T1 manager edited "check the disk"`, `T1 manager deleted ""`}
+	call(t, s, `{"jsonrpc":"2.0","id":5,"method":"task.memo.add","params":{"task":1,"text":"stop","now":true,"request_id":"m5"}}`)
+	want := []string{`T1 manager added "check the cache"`, `T1 manager edited "check the disk"`, `T1 manager deleted ""`, `T1 manager added "stop" now`}
 	if !reflect.DeepEqual(f.memos, want) {
 		t.Fatalf("%q", f.memos)
 	}
@@ -130,6 +131,9 @@ func TestMemoWritesTellTheHolderThroughTheTeller(t *testing.T) {
 	call(t, s, `{"jsonrpc":"2.0","id":4,"method":"task.memo.add","params":{"task":99,"text":"x","request_id":"m4"}}`)
 	if len(f.memos) != 0 {
 		t.Fatalf("%q", f.memos)
+	}
+	if r := call(t, s, `{"jsonrpc":"2.0","id":6,"method":"task.memo.add","params":{"task":1,"text":"x","now":"yes","request_id":"m6"}}`); r[0]["error"] == nil || len(f.memos) != 0 {
+		t.Fatalf("a now that is not true or false was taken: %v %q", r[0], f.memos)
 	}
 }
 

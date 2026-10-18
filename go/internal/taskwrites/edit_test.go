@@ -68,3 +68,49 @@ func TestEditChangesATaskInOneTransactionAndLeavesTheTellingToTheTeller(t *testi
 		t.Fatalf("keys go out in the order Python wrote them: %s", ev)
 	}
 }
+
+func TestAWaitChangeIsToldToTheLeadOnlyWhenTheBlockerIsHeldOutsideTheTeam(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'one', 'worker', 'manager', 1), (2, 'mate', 'other', 'manager', 1), "+
+			"(3, 'outside', 'gp', 'manager', 1), (4, 'founder', 'human', 'manager', 1)")
+	f := &fakeTeller{}
+	line := func(id int, params string) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.edit","params":{"task":1,%s,"request_id":"r%d"}}`, id, params, id)
+	}
+	r := call(t, mk("worker", f),
+		line(2, `"blocked_by":2`), line(3, `"unblock":2`),
+		line(4, `"blocked_by":3`), line(5, `"unblock":3`),
+		line(6, `"blocked_by":4`))
+	for i, x := range r {
+		if x["result"] == nil {
+			t.Fatalf("%d: %v", i, x)
+		}
+	}
+	got := func(text string) int {
+		return count(t, db, fmt.Sprintf("SELECT COUNT(*) FROM requests WHERE requester = 'task-board' AND target = 'manager' AND body = %q", text))
+	}
+	for text, want := range map[string]int{
+		"task T1 now waits on T2":       0,
+		"task T1 no longer waits on T2": 0,
+		"task T1 now waits on T3":       1,
+		"task T1 no longer waits on T3": 1,
+		"task T1 now waits on T4":       1,
+	} {
+		if n := got(text); n != want {
+			t.Errorf("%q told to the lead %d times, want %d", text, n, want)
+		}
+	}
+}
+
+func TestEditAllowsAnEmptyBody(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, priority) VALUES(1, 'old title', 'worker', 'manager', 1, 2)",
+		"INSERT INTO requests(id, requester, target, body, state, kind, queue_order, ts) VALUES(10, 'manager', 'worker', 'the brief', 'queued', 'task', 10, 1)",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10)")
+	r := call(t, mk("manager", &fakeTeller{}), `{"jsonrpc":"2.0","id":2,"method":"task.edit","params":{"task":1,"body":"  ","request_id":"e1"}}`)
+	if r[0]["result"] == nil || count(t, db, "SELECT COUNT(*) FROM requests WHERE id = 10 AND body = ''") != 1 {
+		t.Fatalf("%v", r[0])
+	}
+}

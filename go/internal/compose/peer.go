@@ -50,11 +50,12 @@ type peerDelivery interface {
 }
 
 // NewPeerPort is the Agents port of the terminal agents that peer reports through: the session is the live one in the agent's worktree under
-// its account, a message is delivered once its transcript shows it, and the outcome goes to tell.
-func NewPeerPort(home string, d *sql.DB, peer func(agent string) bool, tell peerDelivery, log func(string, ...any)) *peerport.Port {
+// its account and in its own pane (panePid), a message is delivered once its transcript shows it, and the outcome goes to tell.
+func NewPeerPort(home string, d *sql.DB, peer func(agent string) bool, panePid func(handle string) int, tell peerDelivery,
+	log func(string, ...any)) *peerport.Port {
 	return &peerport.Port{
 		Peer:   peer,
-		Find:   func(agent string) (peerinbox.Session, error) { return findSession(home, d, agent) },
+		Find:   func(agent string) (peerinbox.Session, error) { return findSession(home, d, agent, panePid) },
 		Sender: peerinbox.New(),
 		From:   peerFrom(d),
 		Ctx:    context.Background(),
@@ -87,15 +88,17 @@ func inTx(d *sql.DB, fn func(q db.Q) error) error {
 	return tx.Commit()
 }
 
-func findSession(home string, d *sql.DB, agent string) (peerinbox.Session, error) {
+func findSession(home string, d *sql.DB, agent string, panePid func(handle string) int) (peerinbox.Session, error) {
 	if d == nil { // the daemon's database is not open yet
 		return peerinbox.Session{}, peerinbox.ErrNoSession
 	}
-	return agentSession(home, d, agent)
+	return agentSession(home, d, agent, panePid)
 }
 
-// agentSession is the live session of an agent, found through its row's account and worktree.
-func agentSession(home string, q db.Q, agent string) (peerinbox.Session, error) {
+// agentSession is the live session of an agent, found through its row's account and worktree. Agents can share a worktree and an
+// account, so a session counts only when its process runs in the agent's own pane, and an agent with no terminal has none. When the
+// host cannot name the pane's process, or the process table cannot be read, the worktree alone decides.
+func agentSession(home string, q db.Q, agent string, panePid func(handle string) int) (peerinbox.Session, error) {
 	st, err := db.GetAgentState(q, agent)
 	if err != nil {
 		return peerinbox.Session{}, err
@@ -104,14 +107,20 @@ func agentSession(home string, q db.Q, agent string) (peerinbox.Session, error) 
 	if st != nil {
 		cwd = lifecycle.WorktreePath(st.Worktree.String) // the column may hold `<repo>::<path>`
 	}
-	if cwd == "" || st.Account.String == "" {
+	if cwd == "" || st.Account.String == "" || st.Terminal.String == "" {
 		return peerinbox.Session{}, peerinbox.ErrNoSession
 	}
 	config, err := team.AccountConfigDir(home, st.Account.String)
 	if err != nil {
 		return peerinbox.Session{}, errors.New("no config directory for the agent's account")
 	}
-	return peerinbox.ByCwd(config, cwd, func(pid int) bool { return syscall.Kill(pid, 0) == nil })
+	alive := func(pid int) bool { return syscall.Kill(pid, 0) == nil }
+	if root := panePid(st.Terminal.String); root > 0 {
+		if parent := parents(); parent != nil {
+			return peerinbox.ByCwd(config, cwd, func(pid int) bool { return alive(pid) && under(parent, pid, root) })
+		}
+	}
+	return peerinbox.ByCwd(config, cwd, alive)
 }
 
 // mixedAgents is supervisor.Agents for peer-inbox agents and the others: each call goes to the one the agent is delivered through.

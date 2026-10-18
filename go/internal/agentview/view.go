@@ -75,8 +75,11 @@ type Env struct {
 	Parent    func(agent string) string
 	CacheLeft func(agent string, now float64) (left float64, ok bool, err error)
 	CtxPct    func(agent, account string) *int // nil: no trusted reading
-	Now       func() int64
-	Log       func(string)
+	// PaneRuns is whether the terminal pane agent's row names is up with something other than its shell in front: the launch typed into a
+	// pane's shell, so a claude that died leaves the pane up with the shell. Nil is never, so nothing reads as starting.
+	PaneRuns func(agent string) bool
+	Now      func() int64
+	Log      func(string)
 	// Registered is every registered agent, structured or not: an agent is gone when it is not in it. Nil is Agents.
 	Registered func() []string
 	// DropGone has Refresh delete the row of any agent that is gone. Off while the Python daemon still keeps the rows of terminal
@@ -260,6 +263,31 @@ func (e *Env) wire(agent string, row *db.AgentState, word, detail string) (strin
 	return "idle", detail
 }
 
+// launchOver are the events that say a launch is no longer starting: a hook of its session (it is up), its end, or the wake that failed.
+var launchOver = []string{"SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "PostCompact", "SessionEnd", "wake_failed"}
+
+// LaunchShellGraceS is how long a launch the daemon began reads as starting while its pane still shows a shell: the launch line runs at
+// that shell, through hl's bash wrapper, and under load it can take many seconds to become claude.
+const LaunchShellGraceS = 60
+
+// starting is whether a launch of agent is in progress, from what is recorded: the daemon began it (a launching event) or hl launch kept
+// the start (session_starts) just before it became claude, and nothing of launchOver has come since. The pane must still run something
+// other than its shell, as a launch that died is back at the shell, except within LaunchShellGraceS of the daemon's own launching event.
+func (e *Env) starting(agent string) bool {
+	if e.PaneRuns == nil {
+		return false
+	}
+	kept, ok := must2(db.LastSessionStartTS(e.Q, agent))
+	begun, began := must2(db.LastEventTS(e.Q, agent, "launching"))
+	if !ok && !began {
+		return false
+	}
+	if last, over := must2(db.LastEventOfTS(e.Q, agent, launchOver)); over && last >= max(kept, begun) {
+		return false
+	}
+	return (began && begun >= kept && e.now()-begun < LaunchShellGraceS) || e.PaneRuns(agent)
+}
+
 // Compute is the view of one agent.
 func (e *Env) Compute(agent string) (view map[string]any, err error) {
 	defer func() {
@@ -286,6 +314,14 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		detail = clip(textsafe.Oneline(wait), DetailCap)
 	}
 	state, detail := e.wire(agent, row, word, detail)
+	handoff := must(e.handoffView(agent, row, now))
+	// A restart parks the agent only until its next session begins: it waits for no time, so it is queued, and starting once launched.
+	if h, ok := handoff.(map[string]any); ok && state == "parked" && h["phase"] == "starting" && h["cause"] != "move" {
+		state, detail = "queued", ""
+	}
+	if (state == "no_terminal" || state == "idle" || state == "queued") && e.starting(agent) {
+		state, detail = "starting", ""
+	}
 
 	var model, effort any
 	if e.Config != nil {
@@ -347,7 +383,7 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		"block": block, "wall_reason": wall, "background_since": bg,
 		"would_wake": row != nil && must(e.WouldWake(row)),
 		"blocker":    blocker, "account": account, "task": task, "cache_until": cache, "ctx_pct": ctx,
-		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(needs),
+		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(needs), "handoff": handoff,
 	}, nil
 }
 
@@ -420,4 +456,46 @@ func (e *Env) Refresh() error {
 		}
 	}
 	return nil
+}
+
+// handoffView is the handoff the agent is in the middle of, nil for none: its note is awaited or its record taken (writing), or the
+// session is closed for it and the next not yet begun (starting). A handoff that parks the agent until a usage window resets is
+// not starting. The cause is session.cause's word.
+func (e *Env) handoffView(agent string, row *db.AgentState, now int64) (any, error) {
+	h, err := db.LatestHandoff(e.Q, agent)
+	if err != nil {
+		return nil, err
+	}
+	view := func(kind, phase string, since int64) any {
+		switch kind {
+		case "context":
+			kind = "context_full"
+		case "forced":
+			kind = "move"
+		}
+		return map[string]any{"cause": kind, "phase": phase, "since": stamp(since)}
+	}
+	if h != nil && h.State == "in_flight" {
+		since := h.Updated
+		if h.Deadline.Valid {
+			since = h.Deadline.Int64 - states.HandoffDeadlineS
+		}
+		return view(h.TriggerKind.String, "writing", since), nil
+	}
+	if kind, since, ok, err := db.NoteWait(e.Q, agent); err != nil {
+		return nil, err
+	} else if ok && now-since <= db.NoteWaitStaleS {
+		return view(kind, "writing", since), nil
+	}
+	if h == nil || row == nil || (row.State != states.Parked && row.ClosedAt.Int64 == 0) || now-h.Updated > db.NoteWaitStaleS {
+		return nil, nil
+	}
+	if k := h.TriggerKind.String; k == "usage" || k == "usage_7d" || k == states.ByHandMark {
+		return nil, nil
+	}
+	last, err := db.LastSessionStart(e.Q, agent)
+	if err != nil || last >= h.Updated {
+		return nil, err
+	}
+	return view(h.TriggerKind.String, "starting", h.Updated), nil
 }

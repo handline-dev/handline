@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"github.com/handline/handline/go/internal/ansi"
+	"github.com/handline/handline/go/internal/paths"
 )
 
 // What the terminal channel asks of a host beyond Backend (handline/session/backends/tmux.py). A host that lacks one of these is
@@ -56,16 +57,9 @@ type ControlSpawner interface {
 func (Tmux) ServesBytes() bool  { return true }
 func (Tmux) ServesStyled() bool { return true }
 
-func tmuxSocketName() string {
-	if sock := getenv("TMUX_SOCKET"); sock != "" {
-		return sock
-	}
-	return tmuxSocket
-}
-
 // ControlCommand is the program, with its arguments, that gives the daemon a control-mode window onto the tmux server.
-func (Tmux) ControlCommand() []string {
-	return []string{"tmux", "-L", tmuxSocketName(), "-C", "attach-session", "-t", tmuxSession}
+func (t Tmux) ControlCommand() []string {
+	return []string{"tmux", "-L", paths.TmuxSocket(t.Home), "-C", "attach-session", "-t", tmuxSession}
 }
 
 // Attacher is a host that has a command a person runs on the daemon's machine to see and answer its terminals.
@@ -75,8 +69,8 @@ type Attacher interface{ AttachCommand() []string }
 type Focuser interface{ Focus(handle string) bool }
 
 // AttachCommand is the program a person runs to be in the tmux session the agents' windows are in.
-func (Tmux) AttachCommand() []string {
-	return []string{"tmux", "-L", tmuxSocketName(), "attach-session", "-t", tmuxSession}
+func (t Tmux) AttachCommand() []string {
+	return []string{"tmux", "-L", paths.TmuxSocket(t.Home), "attach-session", "-t", tmuxSession}
 }
 
 // Focus selects the pane's window, which is what a client attached to the session then shows (handline/session/backends/tmux.py focus).

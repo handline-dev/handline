@@ -1,91 +1,79 @@
-// Command hl is the hl CLI in Go. A command not ported yet, or given in a form this port does not parse, runs the Python
-// entry with the same argv, so each command moves on its own and hl means the same thing either way.
+// Command hl is the hl CLI. A command it does not have, or a form it does not parse, is refused with exit 2.
 package main
 
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"syscall"
+	"sort"
+	"strings"
 
 	"github.com/handline/handline/go/internal/hlclient"
-	"github.com/handline/handline/go/internal/paths"
 )
 
-// command runs a ported command on its arguments; ok false hands the argv to Python unchanged.
+// command runs a command on its arguments; ok false is a form it does not take.
 type command func(c *hlclient.Client, args []string) (code int, ok bool)
 
 var commands = map[string]command{
 	"account":             account,
+	"cancel":              cancel,
+	"device":              device,
 	"auto-accept":         autoAccept,
 	"close":               closeCmd,
 	"dev":                 dev,
 	"dev-mode":            devMode,
 	"hook":                hook,
 	"idle-background":     idleBackground,
+	"hr":                  hr,
 	"idle-timeout":        idleTimeout,
 	"init":                initCmd,
+	"inbox":               inbox,
 	"ignore-cache-expiry": ignoreCacheExpiry,
-	"land":                land,
 	"launch":              launch,
 	"notice-digest":       noticeDigest,
 	"progress":            progress,
+	"read":                read,
 	"restart":             restart,
 	"sandbox-repo":        sandboxRepo,
 	"say":                 say,
+	"service":             service,
 	"task":                task,
+	"team":                teamCmd,
+	"withdraw":            withdraw,
 }
 
 func main() {
 	argv := os.Args[1:]
-	if len(argv) > 0 {
-		if run := commands[argv[0]]; run != nil {
-			c := hlclient.New()
-			if why := hlclient.LiveRefusal(c.Home); why != "" {
-				fmt.Fprintln(os.Stderr, why)
-				os.Exit(1)
-			}
-			if code, ok := run(c, argv[1:]); ok {
-				os.Exit(code)
-			}
-		}
+	if len(argv) == 0 || argv[0] == "-h" || argv[0] == "--help" {
+		fmt.Fprintf(os.Stderr, "usage: hl <command> ...\ncommands: %s\n", strings.Join(names(), ", "))
+		os.Exit(2)
 	}
-	fmt.Fprintln(os.Stderr, "hl: "+python(argv).Error())
-	os.Exit(1)
+	run := commands[argv[0]]
+	if run == nil {
+		fmt.Fprintf(os.Stderr, "hl: unknown command %q\ncommands: %s\n", argv[0], strings.Join(names(), ", "))
+		os.Exit(2)
+	}
+	c := hlclient.New()
+	if why := hlclient.LiveRefusal(c.Home); why != "" {
+		fmt.Fprintln(os.Stderr, why)
+		os.Exit(1)
+	}
+	if code, ok := run(c, argv[1:]); ok {
+		os.Exit(code)
+	}
+	fmt.Fprintf(os.Stderr, "hl %s: arguments not understood: %s\nSee the skill for the form each verb takes.\n", argv[0], strings.Join(argv[1:], " "))
+	os.Exit(2)
 }
 
-// python execs the Python entry with argv and returns only when it cannot.
-func python(argv []string) error {
-	cmd, err := pythonArgv(argv)
-	if err != nil {
-		return err
+func names() []string {
+	var out []string
+	for n := range commands {
+		out = append(out, n)
 	}
-	return syscall.Exec(cmd[0], cmd, os.Environ())
+	sort.Strings(out)
+	return out
 }
 
-// pythonArgv is the command line that runs the Python entry with argv. The interpreter is the one bin/hl chose
-// ($HANDLINE_HL_PYTHON), else PATH's python3; the entry is bin/_ocp_entry.py beside this binary's go/ folder.
-func pythonArgv(argv []string) ([]string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
-	if real, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = real
-	}
-	entry := filepath.Join(filepath.Dir(exe), "..", "bin", "_ocp_entry.py")
-	py, _ := paths.Getenv("HL_PYTHON")
-	if py == "" {
-		py = "python3"
-	}
-	if py, err = exec.LookPath(py); err != nil {
-		return nil, err
-	}
-	return append([]string{py, entry}, argv...), nil
-}
-
-// plain is the arguments when none is an option: an option, or --help, is Python's to parse.
+// plain is the arguments when none is an option.
 func plain(args []string) bool {
 	for _, a := range args {
 		if len(a) > 1 && a[0] == '-' {

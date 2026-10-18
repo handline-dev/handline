@@ -3,7 +3,7 @@
 
   HANDLINE_LIVE=1 tools/live-e2e.sh [--daemon BINARY] [--json] [--terminal]
 
-Spends real tokens: run it only on purpose, never from tools/suite.sh, check.sh or CI. Any agent may run it. It spends the
+Spends real tokens: run it only on purpose, never from check.sh or CI. Any agent may run it. It spends the
 account tools/live_account.py picks (the most usage headroom now). It never touches the live daemon: it starts its own
 on a scratch home under a temp test root, with one haiku agent in permission mode `default` (the permission step needs a
 real prompt), the real shared settings, and the picked account's real config dir (HANDLINE_LIVE_ACCOUNTS: the keychain
@@ -376,7 +376,13 @@ def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, home: Path, g
     """Working and idle from hooks, timed: a normal turn, a permission prompt, an Esc mid-turn, and a CLI killed hard mid-turn."""
     d, a = r.d, r.agent
     t = time.time()
-    d.write("session.start", {"agent": a})
+    try:
+        d.write("session.start", {"agent": a})
+    except Refused as e:
+        # Under load hl launch can take longer to become claude than session.start waits to see it; the session still comes up.
+        if "no session is running in it after" not in str(e):
+            raise
+        print(f"live-e2e: session.start stopped waiting before claude was up; the steps below wait on", flush=True)
     r.step("starting shown until ready", t, agent_changed(a, "starting"))
     if not r.step("ready (idle)", t, agent_changed(a, "idle"), model=True):
         return r.fail("terminal turns", "the terminal agent never came up idle; nothing after it can be timed")
@@ -386,7 +392,12 @@ def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, home: Path, g
     r.step("message landed", t, landed(req))
     r.step("working after the message was sent", t, agent_changed(a, "running"))
     idle = r.s.wait(t, agent_changed(a, "idle"), time.time() + MODEL_S)
-    replied = turn_end_at(config_dir, root)
+    replied = None
+    for _ in range(25):  # Claude Code writes the hook's summary line after the hook ran, so it can land after the idle it caused
+        replied = turn_end_at(config_dir, root)
+        if replied:
+            break
+        time.sleep(0.2)
     if idle and replied:
         took = round(idle[0] - replied, 2)
         r.record({"step": "idle after the Stop hook (transcript time to agent.changed)", "paced_by": "daemon",

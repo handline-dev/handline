@@ -1,6 +1,21 @@
 // The surface between the web app and the desktop shell (docs/electron-bridge.md): types and the one table from an event's target to a route.
 // Pure, no DOM: the shell's preload and the web app both import it.
 
+import type { Methods, SettingsChanges } from '@handline/client';
+
+/** The settings the Settings page edits, the only keys the shell sets on its behalf (the other daemon settings are not the page's to change). */
+export const PAGE_SETTINGS = [
+  'active_cap',
+  'park_timeout_s',
+  'handoff_note',
+  'auto_accept_dialogs',
+  'notice_digest_s',
+  'bg_notice_s',
+  'bg_grace_s',
+  'bg_check_s',
+] as const;
+export type PageSettings = Pick<SettingsChanges, (typeof PAGE_SETTINGS)[number]>;
+
 /** What every call returns when it does not succeed: calls never throw across the window's edge. */
 export type Fail<C extends string> = { ok: false; code: C; message: string };
 
@@ -22,7 +37,9 @@ export interface ShellApi {
   openPath?(a: {
     path: string;
     agent?: string;
-  }): Promise<{ ok: true; how: 'opened' | 'revealed' } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
+    /** Branch names the message holds: a repo path opens the version on one of them (read-only), else the worktree's file, else main, else GitHub. */
+    branches?: string[];
+  }): Promise<{ ok: true; how: 'opened' | 'revealed' | 'branch' | 'main' | 'github' } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
   /** Edit text in the person's editor and read it back. Absent in a shell that lacks it. */
   compose?(a: {
     text?: string;
@@ -43,6 +60,16 @@ export interface ShellApi {
       >
   >;
   cancelCompose?(): Promise<{ ok: true } | Fail<'bad_request'>>;
+  /** The windows open on this machine, each with a small picture (a data URL). Absent in a shell that cannot capture. */
+  captureWindows?(): Promise<
+    { ok: true; windows: { id: string; name: string; thumb: string }[] } | Fail<'bad_request' | 'unavailable' | 'no_permission'>
+  >;
+  /** One window of that list as a PNG (base64). */
+  captureWindow?(a: {
+    id: string;
+  }): Promise<
+    { ok: true; name: string; png: string } | Fail<'bad_request' | 'unavailable' | 'no_permission' | 'not_found' | 'too_large'>
+  >;
   /** Which daemon the app talks to: its mode and, in connect mode, the paired device's address. Absent in a shell with one mode. */
   mode?(): Promise<{ ok: true; mode: 'connect' | 'own'; remote: string | null; phone: boolean } | Fail<'bad_request'>>;
   /** Switches the mode; the app relaunches. */
@@ -55,6 +82,17 @@ export interface ShellApi {
   zoom?(): number;
   /** The window entered or left full screen (the traffic lights are gone in it); called once with the current state on registering. Returns the way to stop listening. */
   onFullScreen?(cb: (full: boolean) => void): () => void;
+  /** settings.get through the shell's own daemon connection, for a window that is a paired device and may not read settings. Absent in a shell that lacks it. */
+  settingsGet?(a?: {
+    agent?: string;
+  }): Promise<{ ok: true; result: Methods['settings.get']['result'] } | Fail<'bad_request' | 'refused' | 'unavailable'>>;
+  /** settings.set the same way. */
+  settingsSet?(a: {
+    changes: PageSettings;
+    agent?: string;
+  }): Promise<{ ok: true; result: Methods['settings.set']['result'] } | Fail<'bad_request' | 'refused' | 'unavailable'>>;
+  /** The absolute path of a file or folder dropped from Finder, or '' when it has none. Synchronous: it reads the File, not the disk. Absent in a shell that lacks it. */
+  pathOf?(file: File): string;
   /** A notice was clicked. Returns the way to stop listening. */
   onNavigate(cb: (to: NavigateTo) => void): () => void;
 }

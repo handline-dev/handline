@@ -8,6 +8,7 @@ import (
 
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/taskresult"
 	"github.com/handline/handline/go/internal/textsafe"
@@ -34,6 +35,10 @@ func fileReport(tx *sql.Tx, by string, t *task, mark, via, from string, result t
 	}
 	_, forget, err := closeDeliveries(tx, t.ID)
 	if err != nil {
+		return nil, err
+	}
+	// The delivery it landed on no longer holds its queue, or every later request would wait for the accept.
+	if err := db.EndHeld(tx, t.ID, by); err != nil {
 		return nil, err
 	}
 	to := t.reporter()
@@ -92,7 +97,7 @@ func acceptMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any
 				return nil, err
 			}
 			text := fmt.Sprintf("%s (accepted by %s)", doneText(tid, t.Owner, t.Report.String), by)
-			notes, forget, err := endTask(tx, home, tid, by, t, text, urgent(t.Report.String), []string{t.Owner})
+			notes, forget, err := endTask(tx, home, tid, by, t, text, delivery.Failed(t.Report.String), []string{t.Owner})
 			if err != nil {
 				return nil, err
 			}

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/team"
 )
@@ -76,5 +77,33 @@ func TestSetFlagKeepsTheOtherSettingsAndRefusesToOverwriteWhatIsNotAMapping(t *t
 	}
 	if fresh := settingsWith(t, "", ""); fresh.SetFlag("x", true) != nil || !fresh.Flag("x", false) {
 		t.Fatal("no config.yaml yet")
+	}
+}
+
+func TestTheHandoffAskIsTheAgentsOwnPromptThenTheGlobalThenTheBuiltIn(t *testing.T) {
+	ask := func(s *Settings, agent string) string {
+		return handoff.AskText(s.TextSetting(agent, handoff.PromptKey), "/n/"+agent+".md")
+	}
+	s := settingsWith(t, `handoff_prompt: "Note to {path}, under {max} chars, 100% honest."`+"\n", `vendor: claude`+"\n"+`handoff_prompt: "ann: write {path}"`+"\n")
+	if got := ask(s, "ann"); got != "ann: write /n/ann.md" {
+		t.Fatalf("the agent's own: %q", got)
+	}
+	if got := ask(s, "bob"); got != "Note to /n/bob.md, under 3000 chars, 100% honest." {
+		t.Fatalf("the global one, a %% left as it is: %q", got)
+	}
+	s = settingsWith(t, `handoff_prompt: ""`+"\n", `vendor: claude`+"\n"+`handoff_prompt: ""`+"\n")
+	if got := ask(s, "ann"); !strings.HasPrefix(got, "Write your handoff to /n/ann.md now,") || !strings.Contains(got, "At most 3000 characters") {
+		t.Fatalf("both empty, the built-in: %q", got)
+	}
+	s = settingsWith(t, "handoff_prompt: Write your handoff note now.\n", "")
+	if got := ask(s, "bob"); got != "Write your handoff note now.\nWrite it to /n/bob.md" {
+		t.Fatalf("no {path}: %q", got)
+	}
+}
+
+func TestTheNoticeDigestWindowIsFiveMinutesUnlessAnAgentSetsItsOwn(t *testing.T) {
+	s := settingsWith(t, "", "vendor: claude\nnotice_digest_s: 60\n")
+	if s.NoticeDigestS("bob") != 300 || s.NoticeDigestS("ann") != 60 {
+		t.Fatalf("bob %d, ann %d", s.NoticeDigestS("bob"), s.NoticeDigestS("ann"))
 	}
 }

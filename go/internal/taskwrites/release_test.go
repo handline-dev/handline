@@ -45,7 +45,6 @@ func TestReleaseTakesADoingTaskBackAndRetiresTheRequestsOutOnIt(t *testing.T) {
 		}
 	}
 	const why = `,"reason":"stuck"`
-	refused("no reason", release("else", "a1", 1, ""), "releasing needs a one-line reason")
 	if e := errText(release("boss", "a1b", 1, `,"reason":7`)); e != "reason is text" {
 		t.Fatalf("a reason that is not text: %q", e)
 	}
@@ -76,8 +75,8 @@ func TestReleaseTakesADoingTaskBackAndRetiresTheRequestsOutOnIt(t *testing.T) {
 		t.Fatalf("the teller is handed the closed request: %+v", f.released)
 	}
 
-	r = release("boss", "held", 2, why)
-	if r["error"] != nil || r["result"].(map[string]any)["said"] != "task T2 released by boss: stuck - 1 stopped, back to draft, its timeout paused" {
+	r = release("boss", "held", 2, "") // a reason is optional
+	if r["error"] != nil || r["result"].(map[string]any)["said"] != "task T2 released by boss - 1 stopped, back to draft, its timeout paused" {
 		t.Fatalf("a held request: %v", r)
 	}
 	if count("SELECT COUNT(*) FROM requests WHERE id = 11 AND state = 'landed' AND queue_order IS NULL") != 1 || !f.released[0].Held {

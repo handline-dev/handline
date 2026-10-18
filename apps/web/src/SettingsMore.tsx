@@ -1,0 +1,146 @@
+// The Home settings sections that are not just a number or a switch: notices, background work, this window's appearance, and the connection.
+import { useEffect, useState } from 'react';
+import { parseSeconds, type KV } from '@handline/app-core';
+import { useSelector } from '@handline/app-react';
+import { SectionHead, Segmented, SettingsCard } from './ui/index.ts';
+import { applyTheme, themeOf, type Theme } from './appearance.ts';
+import { setting } from './daemon.ts';
+import { NumberRow, Row } from './SettingsRows.tsx';
+import { shell } from './shell.ts';
+
+const SECONDS = 'whole seconds, or empty for the default';
+const secondsOf = (v: number | undefined) => (v === undefined ? '' : String(v));
+
+export function Notifications({ digest }: { digest: number | undefined }) {
+  return (
+    <>
+      <SectionHead>Notifications</SectionHead>
+      <SettingsCard>
+        <NumberRow
+          label="Notice batch"
+          hint="Wait this long after the first notice, then tell the agent all of them at once"
+          more="Never in the middle of a turn; a message from a person comes sooner"
+          unit="s"
+          current={secondsOf(digest)}
+          parse={parseSeconds}
+          change={(n) => ({ notice_digest_s: n })}
+          allowed={SECONDS}
+        />
+      </SettingsCard>
+    </>
+  );
+}
+
+/** The idle-background rows join the Closing windows card: when an idle agent with background work is told to finish it, and when it is stopped. */
+export function BackgroundRows(props: { notice?: number; grace?: number; check?: number }) {
+  return (
+    <>
+      <NumberRow
+        label="Background notice"
+        hint="Idle time before an agent with background work is told to finish or stop it"
+        more="Empty follows Idle close"
+        unit="s"
+        current={secondsOf(props.notice)}
+        parse={parseSeconds}
+        change={(n) => ({ bg_notice_s: n })}
+        allowed={SECONDS}
+      />
+      <NumberRow
+        label="Background grace"
+        hint="Time after that notice before the work is stopped"
+        unit="s"
+        current={secondsOf(props.grace)}
+        parse={parseSeconds}
+        change={(n) => ({ bg_grace_s: n })}
+        allowed={SECONDS}
+      />
+      <NumberRow
+        label="Background check"
+        hint="How often an agent with background work is asked which to stop"
+        unit="s"
+        current={secondsOf(props.check)}
+        parse={parseSeconds}
+        change={(n) => ({ bg_check_s: n })}
+        allowed={SECONDS}
+      />
+    </>
+  );
+}
+
+/** This window's own choices, kept in the browser: the daemon has nothing to say about them. */
+export function Appearance({ storage }: { storage: KV | null }) {
+  const [theme, setTheme] = useState<Theme>(() => themeOf(storage));
+  const [terminal, setTerminal] = useState(() => (setting(storage, 'terminal', 'auto').value === 'text' ? 'text' : 'auto'));
+  return (
+    <>
+      <SectionHead>Appearance</SectionHead>
+      <SettingsCard>
+        <Row label="Theme" hint="This window only">
+          <Segmented
+            label="Theme"
+            value={theme}
+            options={[
+              { value: 'system', label: 'System' },
+              { value: 'dark', label: 'Dark' },
+              { value: 'light', label: 'Light' },
+            ]}
+            onChange={(v) => {
+              setTheme(v);
+              setting(storage, 'theme', 'system').save(v);
+              applyTheme(v);
+            }}
+          />
+        </Row>
+        <Row
+          label="Terminal view"
+          hint="Auto draws the live terminal; Text shows the text grid. This window only"
+          more="A phone held upright always uses the text view"
+        >
+          <Segmented
+            label="Terminal view"
+            value={terminal}
+            options={[
+              { value: 'auto', label: 'Auto' },
+              { value: 'text', label: 'Text' },
+            ]}
+            onChange={(v) => {
+              setTerminal(v);
+              setting(storage, 'terminal', 'auto').save(v);
+            }}
+          />
+        </Row>
+      </SettingsCard>
+    </>
+  );
+}
+
+/** What this window is connected to, to read only: changing it is the desktop app's connection screen, not a setting. */
+export function Connection() {
+  const hello = useSelector((s) => s.client.hello);
+  const [mode, setMode] = useState<string | null>(null);
+  useEffect(() => {
+    void shell('mode')
+      ?.mode?.()
+      .then((r) => r.ok && setMode(r.mode === 'own' ? 'This computer runs its own daemon' : (r.remote ?? 'Another computer')));
+  }, []);
+  const rows: [string, string | undefined][] = [
+    ['Daemon', mode ?? undefined],
+    ['Version', hello?.daemon.slice(0, 9)],
+    ['Role', hello?.role],
+    ['Transport', hello ? (hello.transport === 'tls' ? 'Encrypted network connection' : 'Local socket') : undefined],
+  ];
+  return (
+    <>
+      <SectionHead>Connection</SectionHead>
+      <SettingsCard>
+        {rows
+          .filter((r): r is [string, string] => !!r[1])
+          .map(([label, value]) => (
+            <Row key={label} label={label} hint="">
+              <span className="text-ink-2">{value}</span>
+            </Row>
+          ))}
+      </SettingsCard>
+    </>
+  );
+}

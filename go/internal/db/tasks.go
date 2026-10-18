@@ -93,9 +93,8 @@ func TasksForRequest(q Q, rid int64) ([]*Task, error) {
 
 // TaskRequests is db.task_requests: the requests linked to a task, as they are now.
 func TaskRequests(q Q, tid int64) ([]*Request, error) {
-	return requestRows(q, "SELECT r.id, r.ts, r.requester, r.target, r.body, r.files, r.relation, r.response, r.kind, r.chain_depth, r.parent_id, r.chain_id, r.state, r.queue_order, "+
-		"r.delivered_at, r.typed_at, r.typed_session, r.landed_at, r.send_now, r.notice, r.read_at, r.state_at, r.moot_by, r.edge_ok, r.settles "+
-		"FROM requests r JOIN task_requests l ON l.request_id = r.id WHERE l.task_id = ? ORDER BY r.id", tid)
+	return requestRows(q, "SELECT r."+strings.ReplaceAll(requestCols, ", ", ", r.")+
+		" FROM requests r JOIN task_requests l ON l.request_id = r.id WHERE l.task_id = ? ORDER BY r.id", tid)
 }
 
 // LiveDelivery is db.live_delivery: the request that asks owner to do the task (the latest task delivery to that owner, queued or
@@ -531,6 +530,21 @@ func TaskWaits(q Q, tid int64) (bool, error) {
 	}
 	kids, err := OpenChildTasks(q, tid)
 	return len(kids) > 0, err
+}
+
+// Overdue is whether a task's opener was told it ran past its timeout and nobody has answered since: the deadline in force is the one that
+// notice set (an edit or a release replaces it).
+func Overdue(q Q, t *Task) (bool, error) {
+	if !t.TimeoutAt.Valid {
+		return false, nil
+	}
+	var one int
+	err := q.QueryRow("SELECT 1 FROM events WHERE kind = 'task_timeout_exceeded' AND "+eventTask+" = ? AND json_extract(payload, '$.next') = ? LIMIT 1",
+		t.ID, t.TimeoutAt.Int64).Scan(&one)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // AllTasks is db.all_tasks.

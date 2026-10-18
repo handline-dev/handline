@@ -7,8 +7,8 @@ import (
 	"github.com/handline/handline/go/internal/db"
 )
 
-// MemoAdd adds by's memo to a task (actions.memo_add): (ok, message, memo id). The holder is told by the caller, once its transaction has
-// committed (TellMemoHolder).
+// MemoAdd adds by's memo to a task (actions.memo_add): (ok, message, memo id). Whom it concerns is told by the caller, once its transaction has
+// committed (TellMemo).
 func (e *Env) MemoAdd(q db.Q, tid int64, by, body string) (ok bool, msg string, mid int64, err error) {
 	defer Catch(&err)
 	if must(db.GetTask(q, tid)) == nil {
@@ -45,7 +45,7 @@ func (e *Env) MemoEdit(q db.Q, mid int64, by, body string) (ok bool, msg string,
 	if body == m.Body {
 		return false, fmt.Sprintf("memo %d already reads that way - nothing to edit", mid), 0, nil
 	}
-	check(db.EditMemo(q, mid, body))
+	check(db.EditMemo(q, mid, by, body))
 	return true, fmt.Sprintf("memo %d on T%d edited", mid, m.TaskID), m.TaskID, nil
 }
 
@@ -59,6 +59,6 @@ func (e *Env) MemoDelete(q db.Q, mid int64, by string) (ok bool, msg string, tid
 	if why := memoGuard(m, by); why != "" {
 		return false, why, 0, nil
 	}
-	check(db.DeleteMemo(q, mid))
+	check(db.DeleteMemo(q, mid, by))
 	return true, fmt.Sprintf("memo %d deleted from T%d", mid, m.TaskID), m.TaskID, nil
 }

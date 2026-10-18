@@ -1,12 +1,26 @@
 // The paired devices: one row each with when it was last seen, and Revoke behind a confirm (the person loses that device's access at once).
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ago } from '@handline/app-core';
 import { useDevices, useServes, useWrite } from '@handline/app-data';
-import { Button, Dialog, Icon, RowTitle, SectionHead, SettingsCard, SettingsRow } from './ui/index.ts';
+import { shell } from './shell.ts';
+import { Button, Dialog, Icon, NOTE, RowTitle, SectionHead, SettingsCard, SettingsRow } from './ui/index.ts';
 import { useOff } from './useOff.ts';
 import { View } from './View.tsx';
 
+/** Desktop app only, and only when it has its own gateway: `run` opens the one-time QR window a phone scans; `error` is why it did not. */
+function usePairPhone() {
+  const [can, setCan] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    void shell('mode')
+      ?.mode?.()
+      .then((r) => setCan(r.ok && r.phone && !!shell('phone')));
+  }, []);
+  return { can, error, run: () => void shell('phone')!.phone!().then((r) => setError(r.ok ? '' : r.message)) };
+}
+
 export function Devices() {
+  const pair = usePairPhone();
   const q = useDevices();
   const { served } = useServes('devices.list');
   const revoke = useWrite('device.revoke');
@@ -16,6 +30,18 @@ export function Devices() {
   return (
     <>
       <SectionHead>Paired devices</SectionHead>
+      {pair.can ? (
+        <p className="m-0 mb-2">
+          <Button icon="open" label="Pair a phone" onClick={pair.run}>
+            Pair a phone
+          </Button>
+        </p>
+      ) : null}
+      {pair.error ? (
+        <p className={`${NOTE} text-bad`} role="alert">
+          {pair.error}
+        </p>
+      ) : null}
       <View q={q} served={served} shape="settings" what="paired devices" empty={!rows.length && 'No device is paired.'}>
         <SettingsCard as="ul" className="devices">
           {rows.map((d) => (

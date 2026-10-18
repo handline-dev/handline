@@ -1,5 +1,5 @@
-// Search box above the agent's Chat: chat.search in the scope the tab shows; a hit goes to its message through the tab's jump (chat.locate).
-// A daemon that does not list chat.search shows no box.
+// Search box above the agent's Chat, opened from the icon in the scope row: chat.search in the scope the tab shows; a hit goes to its message
+// through the tab's jump (chat.locate). A daemon that does not list chat.search shows no icon and no box.
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { classify, sentence, useChatSearch, useServes, type ChatScope } from '@handline/app-data';
@@ -16,7 +16,7 @@ function snippet(body: string, query: string): string {
   return `${from > 0 ? '…' : ''}${flat.slice(from, from + SNIPPET)}${from + SNIPPET < flat.length ? '…' : ''}`;
 }
 
-export function ChatSearch(props: { agent: string; scope: ChatScope; onGo: (id: number) => void }) {
+export function ChatSearch(props: { agent: string; scope: ChatScope; open: boolean; onGo: (id: number) => void }) {
   const c = usePalette();
   const { served } = useServes('chat.search');
   const [text, setText] = useState('');
@@ -26,7 +26,7 @@ export function ChatSearch(props: { agent: string; scope: ChatScope; onGo: (id: 
     return () => clearTimeout(t);
   }, [text]);
   const found = useChatSearch({ agent: props.agent, query, scope: props.scope }, served && query !== '');
-  if (!served) return null;
+  if (!served || !props.open) return null;
   const hits = found.data?.messages ?? [];
   // Results show for the text as it stands, not for the query of a moment ago.
   const showing = text.trim() !== '' && query === text.trim();

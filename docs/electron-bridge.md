@@ -32,6 +32,7 @@ One object, `window.handline`, made by a preload with `contextBridge`. No other 
 | `onFullScreen`, `zoom` | shell → page | window insets | none; the insets are the desktop shell's only |
 | `openPath`, `cancelCompose`, `compose` | page → shell | E3 | §4 |
 | `mode`, `setMode`, `pairRemote`, `phone` | page → shell | modes | the pairing screen shows no mode section |
+| `settingsGet`, `settingsSet` | page → shell | the window is a paired device, which the daemon refuses `settings.get` and `settings.set`; the shell's founder connection makes just these two calls, with the same sender and argument checks (only the keys the Settings page edits, plain values, no other method) | the page calls the daemon itself |
 
 ## 3. Badge, notices, update, and the notice's click
 
@@ -115,6 +116,8 @@ openPath(a: { path: string; agent?: string }): Promise<
 
 **Plain browser:** a path stays plain, selectable text (code style). No link, no click. A path the page cannot open is not a loss; the person can copy it.
 
+**Repo paths and `#N`.** `openPath` also takes `branches?: string[]` (words of the message that may be branch names, up to 20). A relative path is tried as the version on the first named branch that exists locally or on origin and has the file (`git show`, run in the agent's worktree with no shell, copied to a read-only file in a fresh temp folder and opened from there; `how: 'branch'`), then the worktree's own file as above, then `main` the same way (`how: 'main'`), then `https://github.com/<owner>/<repo>/blob/<branch or main>/<path>` in the browser (`how: 'github'`). `openPr({ number, agent? })` opens `https://github.com/<owner>/<repo>/pull/<number>`; the repo is the agent's worktree's `origin`, `not_found` when it has none on GitHub. Git is reached through injected deps (`git-view.ts`), so `open.ts` still holds no `child_process`.
+
 ### 4.2 `compose` and `cancelCompose`
 
 ```ts
@@ -144,6 +147,10 @@ cancelCompose(): Promise<{ ok: true } | Fail<'bad_request'>>
 ### 4.3 `mode`, `setMode`, `pairRemote`
 
 The pairing screen's part in the app's two modes (Connect to a daemon, Run its own). `mode()` gives `{ mode, remote, phone }` (`remote` the paired device's address in connect mode, else null; `phone` true when this app has a gateway of its own to pair a phone with, i.e. `remote` is null). `phone()` opens the one-time pairing QR window, the same as the tray's “Pair a phone…”; `cannot_pair` carries the reason (no network listener, no key). The sidebar's “Pair a phone” row calls it. `setMode('connect' | 'own')` saves the choice and relaunches. `pairRemote({ link })` or `pairRemote({ address, code })` pairs with another device's gateway, saves it and relaunches in connect mode; `cannot_pair` carries the sentence the person reads (nothing answered, not a Handline gateway, an untrusted address). Same sender and argument checks as the rest.
+
+### 4.4 `pathOf`
+
+`pathOf(file: File): string` is synchronous (`webUtils.getPathForFile`, called in the preload; the page cannot get a path from a `File` otherwise). It returns the absolute path of a file or folder dropped from Finder, or `''`. The composer uses it for a dropped non-image: a chip with the name, and the path on its own line after the words.
 
 ## 5. Tests
 

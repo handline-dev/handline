@@ -9,6 +9,7 @@ const text = (el: Element | null) => el?.textContent ?? '';
 const AUDITOR = '/work/handline.auditor'; // todo
 const OTHER = '/work/docs-site.writer'; // blocked
 const open = async (m: Awaited<ReturnType<typeof mount>>) => {
+  await press($('agents-menu'));
   await press($('worktrees-open'));
   await until(() => $(`wt-${AUDITOR}`), 'the cards');
   return m;
@@ -27,7 +28,8 @@ describe('X5 phone Worktrees', () => {
     expect(status('/work/spare')).toBe('done');
     expect(status(OTHER)).toBe('blocked');
     expect(text($('wt-/work/handline.term-build'))).toContain('3 files +126 −31');
-    expect(text($('wt-/work/spare'))).toContain('no owner');
+    expect(text($('wt-/work/spare'))).not.toContain('no owner'); // a card says an owner or nothing
+    expect(text($('wt-/work/handline.term-build'))).not.toContain('0 files');
   });
 
   it('searches by branch or path', async () => {
@@ -45,15 +47,18 @@ describe('X5 phone Worktrees', () => {
     const m = await open(await mount());
     const spy = calls(m);
     const release = m.daemon.knobs.hold('worktree.set_status');
-    await press($(`wt-move-${AUDITOR}`));
+    expect($(`wt-move-${AUDITOR}`)).toBeNull(); // the cards carry no Move to…; the worktree's page does
+    await press($(`wt-open-${AUDITOR}`));
+    await until(() => $('wt-detail'), 'the page');
+    await press($('wt-move'));
     expect([...box.querySelectorAll('[data-testid^="wt-to-"]')].map((e) => text(e))).toEqual(['in progress', 'in review', 'done']);
     await press($('wt-to-in review'));
-    await until(() => text($(`wt-${AUDITOR}`)).includes('moving to in review…'), 'the pending mark');
-    expect(status(AUDITOR)).toBe('todo');
-    expect($(`wt-move-${AUDITOR}`)).toBeNull(); // nothing to tap while it moves
+    await until(() => text($('wt-detail')).includes('moving to in review…'), 'the pending mark');
+    expect(text($('wt-detail').querySelector('[data-testid="wt-status"]'))).toBe('todo');
+    expect($('wt-move')).toBeNull(); // nothing to tap while it moves
     release();
-    await until(() => status(AUDITOR) === 'in review', 'the new status');
-    expect(text($(`wt-${AUDITOR}`))).not.toContain('moving');
+    await until(() => text($('wt-detail').querySelector('[data-testid="wt-status"]')) === 'in review', 'the new status');
+    expect(text($('wt-detail'))).not.toContain('moving');
     expect(sets(spy)).toEqual([{ path: AUDITOR, status: 'in review', request_id: expect.any(String) }]);
     m.store.stop();
   });
@@ -61,12 +66,14 @@ describe('X5 phone Worktrees', () => {
   it('rolls back with the daemon’s reason when a move is refused', async () => {
     const m = await mount((s) => s.daemon.knobs.refuse('worktree.set_status', 'state', 'the label is locked'));
     await open(m);
-    await press($(`wt-move-${AUDITOR}`));
+    await press($(`wt-open-${AUDITOR}`));
+    await until(() => $('wt-detail'), 'the page');
+    await press($('wt-move'));
     await press($('wt-to-done'));
     await until(() => $('wt-error'), 'the reason');
-    expect(text($(`wt-${AUDITOR}`))).toContain('the label is locked');
-    expect(status(AUDITOR)).toBe('todo');
-    expect(text($(`wt-${AUDITOR}`))).not.toContain('moving');
+    expect(text($('wt-detail'))).toContain('the label is locked');
+    expect(text($('wt-detail').querySelector('[data-testid="wt-status"]'))).toBe('todo');
+    expect(text($('wt-detail'))).not.toContain('moving');
     m.store.stop();
   });
 
@@ -98,15 +105,19 @@ describe('X5 phone Worktrees', () => {
 
   it('lets a member move a status', async () => {
     const m = await open(await mount(() => {}, undefined, undefined, { role: 'member' }));
-    await press($(`wt-move-${AUDITOR}`));
+    await press($(`wt-open-${AUDITOR}`));
+    await until(() => $('wt-detail'), 'the page');
+    await press($('wt-move'));
     await press($('wt-to-in progress'));
-    await until(() => status(AUDITOR) === 'in progress', 'the new status');
+    await until(() => text($('wt-detail').querySelector('[data-testid="wt-status"]')) === 'in progress', 'the new status');
     m.store.stop();
   });
 
   it('draws no Move to… when set_status is not listed', async () => {
     const m = await open(await mount((s) => s.daemon.knobs.unserve('worktree.set_status')));
-    expect($(`wt-move-${AUDITOR}`)).toBeNull();
+    await press($(`wt-open-${AUDITOR}`));
+    await until(() => $('wt-detail'), 'the page');
+    expect($('wt-move')).toBeNull();
     m.store.stop();
   });
 });

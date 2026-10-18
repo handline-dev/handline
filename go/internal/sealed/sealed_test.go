@@ -60,12 +60,12 @@ func TestObservingSealsNothing(t *testing.T) {
 func TestSealEverythingNamesWhatItAdopts(t *testing.T) {
 	s := setup(t)
 	got, err := s.SealEverything()
-	if err != nil || len(got) != 2 || got[0] != (Adopted{"team.yaml", "new"}) {
+	if err != nil || len(got) != 2 || got[0].Label != "team.yaml" || got[0].Kind != "new" || got[0].Digest == "" {
 		t.Fatalf("%v %v", got, err)
 	}
 	os.WriteFile(filepath.Join(s.Home, "team.yaml"), []byte("agents: {a: 1}\n"), 0o644)
 	got, _ = s.SealEverything()
-	if len(got) != 1 || got[0] != (Adopted{"team.yaml", "changed"}) {
+	if len(got) != 1 || got[0].Label != "team.yaml" || got[0].Kind != "changed" {
 		t.Fatalf("%v", got)
 	}
 }
@@ -95,5 +95,19 @@ func TestFollowKeepsTheSealOnlyWhileItHeldBefore(t *testing.T) {
 	s.Follow("team", "something else\n", "agents: {c: 1}\n")
 	if s.State("team", "agents: {c: 1}\n") == "ok" {
 		t.Fatal("a seal followed a file it was not holding")
+	}
+}
+
+func TestPlanNamesWhatSealEverythingWouldAdoptAndWritesNothing(t *testing.T) {
+	s := setup(t)
+	got, err := s.Plan()
+	if err != nil || len(got) != 2 || got[0].Label != "team.yaml" || got[0].Kind != "new" {
+		t.Fatalf("%v %v", got, err)
+	}
+	if s.isMigrated() {
+		t.Fatal("a plan began the seals")
+	}
+	if _, ok := s.Store.Get(NS, Team); ok {
+		t.Fatal("a plan sealed team.yaml")
 	}
 }

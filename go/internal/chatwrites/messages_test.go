@@ -46,7 +46,7 @@ func TestInboxMarkReadReadsAReportButNeverADecision(t *testing.T) {
 	if d := r.errData(r.one(s, "inbox.mark_read", fmt.Sprintf(`{"ids":[%d],"request_id":"i2"}`, report))); d["gate"] != "state" {
 		t.Fatalf("nothing behind a reply owed is read away: %v", d)
 	}
-	r.result(r.one(s, "inbox.answer", fmt.Sprintf(`{"id":%d,"text":"yes","request_id":"i4"}`, ask)))
+	r.result(r.one(s, "inbox.reply", fmt.Sprintf(`{"id":%d,"text":"yes","request_id":"i4"}`, ask)))
 	res := r.result(r.one(s, "inbox.mark_read", fmt.Sprintf(`{"ids":[%d],"request_id":"i5"}`, report)))
 	if res["said"] != "1 read" || r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND read_at IS NOT NULL", report) != 1 {
 		t.Fatalf("%v", res)
@@ -56,19 +56,8 @@ func TestInboxMarkReadReadsAReportButNeverADecision(t *testing.T) {
 	}
 }
 
-func TestInboxAnswerAndReply(t *testing.T) {
+func TestAnAgentRepliesToItsOwnIncomingItemOnly(t *testing.T) {
 	r := newRig(t)
-	s := r.server("")
-	ask := r.request("alice", "human", "may I?")
-	if d := r.errData(r.one(s, "inbox.answer", fmt.Sprintf(`{"id":%d,"option":"a","request_id":"n1"}`, ask))); d["field"] != "option" {
-		t.Fatal(d)
-	}
-	if res := r.result(r.one(s, "inbox.answer", fmt.Sprintf(`{"id":%d,"text":"yes","request_id":"n2"}`, ask))); res["accepted"] != true {
-		t.Fatal(res)
-	}
-	if r.count("SELECT COUNT(*) FROM requests WHERE settles = ? AND body = 'yes'", ask) != 1 {
-		t.Fatal("answered")
-	}
 	// an agent replies to its own incoming item
 	mine := r.request("bob", "alice", "question")
 	if res := r.result(r.one(r.server("alice"), "inbox.reply", fmt.Sprintf(`{"id":%d,"text":"answer","request_id":"n3"}`, mine))); res["accepted"] != true {

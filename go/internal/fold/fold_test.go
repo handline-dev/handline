@@ -5,10 +5,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/usage"
 )
 
 func journal(t *testing.T, home, agent, day, text string) string {
@@ -31,7 +34,7 @@ func yesterday() *handoff.Digest {
 	d.Sections["in_progress"] = []string{"the parser", "the port"}
 	d.Sections["blocked"] = []string{"waiting on a review"}
 	d.Sections["next"] = []string{"the tests"}
-	d.Facts = "branch buddyron/x"
+	d.Facts = "branch yourname/x"
 	return d
 }
 
@@ -51,7 +54,7 @@ func TestRolloverCarriesWhatIsOpenAndStartsDoneEmpty(t *testing.T) {
 	if d.Date != "2026-10-10" || len(d.Items("done")) != 0 || len(d.Items("in_progress")) != 2 || len(d.Items("next")) != 1 {
 		t.Fatalf("today's digest = %+v", d)
 	}
-	if !strings.Contains(string(raw), "branch buddyron/x") {
+	if !strings.Contains(string(raw), "branch yourname/x") {
 		t.Fatalf("the machine record was not carried:\n%s", raw)
 	}
 }
@@ -84,41 +87,49 @@ func TestRolloverRollsFromTheLatestEarlierDay(t *testing.T) {
 	}
 }
 
-// fake is a script standing in for hl: it prints what it was asked and the home it was given, and exits as the first line of its stdin file says.
-func fake(t *testing.T, body string) []string {
-	t.Helper()
-	f := filepath.Join(t.TempDir(), "hl")
-	if err := os.WriteFile(f, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+func foldEnv(t *testing.T) *Env {
+	home := t.TempDir()
+	d, err := store.Open(filepath.Join(home, "db.sqlite"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	return []string{f}
+	t.Cleanup(func() { d.Close() })
+	return &Env{Home: home, DB: d, Usage: &usage.Env{Home: home}, Accounts: team.Accounts{Home: home},
+		Today: func() string { return "2026-10-10" }}
 }
 
-func TestFoldRunsHlFoldForTheAgentOnTheHome(t *testing.T) {
-	home := t.TempDir()
-	e := &Env{Home: home, Cmd: fake(t, `echo "$1 $2 $HANDLINE_HOME $OCP_HOME"`)}
+func TestAFoldWithNoAccountToPayKeepsTheCursorAndPublishesTheFacts(t *testing.T) {
+	e := foldEnv(t)
+	journal(t, e.Home, "bob", "2026-10-09", yesterday().Render())
+	db.AddEvent(e.DB, "bob", "PostToolUse", db.KV{K: "tool", V: "Edit"})
 	ok, said := e.Fold("bob")
-	if want := "fold bob " + home + " " + home; !ok || said != want {
-		t.Fatalf("fold = %v %q, want %q", ok, said, want)
-	}
-}
-
-func TestAFoldThatFailsIsRejectedWithWhatItSaid(t *testing.T) {
-	e := &Env{Home: t.TempDir(), Cmd: fake(t, `echo "no events to fold"; exit 1`)}
-	if ok, said := e.Fold("bob"); ok || said != "bob: fold rejected - no events to fold" {
+	if ok || !strings.Contains(said, "fold rejected, kept the previous digest and left the cursor at 0") || !strings.Contains(said, "no accounts registered") {
 		t.Fatalf("fold = %v %q", ok, said)
 	}
-	e.Cmd = []string{"/no/such/hl"}
-	if ok, said := e.Fold("bob"); ok || !strings.HasPrefix(said, "bob: fold rejected - ") {
-		t.Fatalf("missing hl = %v %q", ok, said)
+	raw, err := os.ReadFile(filepath.Join(paths.AgentDir(e.Home, "bob"), "journal", "2026-10-10.md"))
+	if err != nil || !strings.Contains(string(raw), "shipped the thing") || !strings.Contains(string(raw), "events folded: 1") {
+		t.Fatalf("degraded digest = %q %v", raw, err)
+	}
+	if c, _ := db.Cursor(e.DB, "fold:bob"); c != 0 {
+		t.Fatalf("cursor moved to %d", c)
+	}
+	if _, p, ok, _ := db.LastEvent(e.DB, "bob", "fold_failed"); !ok || p == nil {
+		t.Fatal("no fold_failed event")
 	}
 }
 
-func TestAFoldPastItsTimeoutIsRejectedAndStopped(t *testing.T) {
-	e := &Env{Home: t.TempDir(), Cmd: fake(t, `exec sleep 30`), Timeout: 200 * time.Millisecond}
-	start := time.Now()
+func TestAFoldWithNothingNewLeavesALineWhoseRequestIsUnknown(t *testing.T) {
+	e := foldEnv(t)
+	d := yesterday()
+	d.Date = "2026-10-10"
+	d.Sections["in_progress"] = []string{"waiting on #999", "step 2 of 7"}
+	journal(t, e.Home, "bob", "2026-10-10", d.Render())
 	ok, said := e.Fold("bob")
-	if ok || !strings.Contains(said, "timed out") || time.Since(start) > 5*time.Second {
-		t.Fatalf("fold = %v %q after %s", ok, said, time.Since(start))
+	if !ok || said != "bob: nothing new to fold (cursor at 0)" {
+		t.Fatalf("fold = %v %q", ok, said)
+	}
+	raw, _ := os.ReadFile(filepath.Join(paths.AgentDir(e.Home, "bob"), "journal", "2026-10-10.md"))
+	if got := handoff.ParseDigest(string(raw)); len(got.Items("in_progress")) != 2 {
+		t.Fatalf("a line naming an unknown request moved: %+v", got.Sections)
 	}
 }

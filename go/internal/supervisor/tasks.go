@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
 )
@@ -44,6 +46,32 @@ func (e *Env) noteRefusal(q db.Q, agent string, tid int64, msg string, refused m
 		}
 	}
 	must(db.AddEvent(q, agent, "task_deliver_refused", db.KV{K: "task_id", V: tid}, db.KV{K: "why", V: msg}))
+	e.tellRefusal(q, agent, tid, msg)
+}
+
+// tellRefusal tells the owner's manager (the founder when it has none) that tid sits queued because its delivery was refused.
+func (e *Env) tellRefusal(q db.Q, agent string, tid int64, msg string) {
+	to := db.Human
+	if t, err := team.LoadTeam(e.Home); err == nil && t.ManagerOf(agent) != "" {
+		to = t.ManagerOf(agent)
+	}
+	text := fmt.Sprintf("T%d could not be delivered to %s and is waiting: %s", tid, agent, msg)
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Response: "fire_and_forget", Kind: "say"}))
+	check(db.LinkRequest(q, tid, rid))
+	e.Push(q, to, rid)
+}
+
+// selfDelivery is a task handed back to the agent that queued it: not a request to itself but its own work, carrying the answers that came
+// back on the task so far.
+func (e *Env) selfDelivery(q db.Q, agent string, task *db.Task) int64 {
+	body := task.Title
+	for _, linked := range must(db.TaskRequests(q, task.ID)) {
+		r := must(db.GetRequest(q, linked.ID))
+		if r.Answer.Valid && r.Answer.String != "" {
+			body += fmt.Sprintf("\n\nanswer to #%d: %s", r.ID, r.Answer.String)
+		}
+	}
+	return must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: agent, Body: body, Response: "fire_and_forget", Kind: "task"}))
 }
 
 // AdvanceCurrentTask moves the agent on to its next open task, by priority then age, once the current one stops being worth holding. True if
@@ -80,6 +108,13 @@ func (e *Env) makeCurrent(q db.Q, agent string, w db.WaitingTask, refused map[in
 	if w.Req != nil {
 		check(db.SetCurrentTask(q, agent, w.Task.ID, true))
 		check(db.PromoteToFront(q, w.Req.ID))
+		return true
+	}
+	if w.Task.QueuedBy.String == agent {
+		rid := e.selfDelivery(q, agent, w.Task)
+		e.linkDelivery(q, w.Task.ID, agent, rid)
+		check(db.SetCurrentTask(q, agent, w.Task.ID, true))
+		e.Push(q, agent, rid)
 		return true
 	}
 	out, aerr := e.Ask(q, AskIn{Target: agent, Body: w.Task.Title, Requester: w.Task.QueuedBy.String, Kind: "task", OnBehalfOf: true, Notify: true})
@@ -158,11 +193,6 @@ func (e *Env) QueueDeliver(q db.Q, tid int64, by string, queued bool, row *db.Ta
 
 // ---------------------------------------------------------------- unblocked and result notices
 
-var urgentResult = regexp.MustCompile(`(?i)^(fail(ed|ure)?|blocked|fatal)\b`)
-
-// UrgentResult is whether a task's closing words say it failed or is blocked: it needs whoever waits on it now, not in a digest.
-func UrgentResult(result string) bool { return urgentResult.MatchString(strings.TrimSpace(result)) }
-
 // notifyUnblocked is told once, as a durable request linked to the task. Never called when the closer is the owner.
 func (e *Env) notifyUnblocked(q db.Q, depTID int64, owner, closer string, closedTID int64, how string) db.Notice {
 	text := fmt.Sprintf("task T%d is unblocked - T%d, its last open blocker, %s", depTID, closedTID, how)
@@ -174,7 +204,7 @@ func (e *Env) notifyUnblocked(q db.Q, depTID int64, owner, closer string, closed
 	check(db.LinkRequest(q, depTID, rid))
 	must(db.AddEvent(q, closer, "task_unblocked", db.KV{K: "task_id", V: depTID}, db.KV{K: "request_id", V: rid}, db.KV{K: "closed_task", V: closedTID},
 		db.KV{K: "after_request", V: must(db.NewestRequest(q))}))
-	return db.Notice{RID: rid, To: owner, Text: text}
+	return db.Notice{RID: rid, To: owner, Text: text, Unblocked: depTID}
 }
 
 func oneSpace(s string) string { return strings.Join(strings.Fields(s), " ") }
@@ -208,7 +238,7 @@ func (e *Env) childResultNotice(q db.Q, dep *db.Task, by string, tid int64) *db.
 	}
 	text = strings.TrimRight(text, ": ")
 	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: dep.Owner, Body: text, Response: "fire_and_forget", Kind: "say",
-		Notice: !UrgentResult(child.DoneEvidence.String)}))
+		Notice: delivery.ClassOf(delivery.Result, false, delivery.Failed(child.DoneEvidence.String)) == delivery.ClassBatch}))
 	check(db.LinkRequest(q, dep.ID, rid))
 	must(db.AddEvent(q, by, "child_result_told", db.KV{K: "task_id", V: dep.ID}, db.KV{K: "child", V: tid}, db.KV{K: "request_id", V: rid}))
 	return &db.Notice{RID: rid, To: dep.Owner, Text: text}
@@ -289,9 +319,24 @@ func (e *Env) freeBlockedBy(q db.Q, tid int64, by string) ([]db.Notice, []string
 }
 
 // deliverUnblocked is the half of a release that happens after the write: tell the owners, and give each freed owner its next task now. An
-// "unblocked" notice is typed (it tells a waiting owner to go on); a result notice is not - it rides on the owner's next delivery.
+// "unblocked" notice is typed (it tells a waiting owner to go on), unless that task goes out to its owner in this step; a result notice is
+// not - it rides on the owner's next delivery.
 func (e *Env) deliverUnblocked(q db.Q, notices []db.Notice, freed []string) {
+	moved := map[string]bool{}
+	for _, owner := range freed {
+		changed, _, err := e.AdvanceCurrentTask(q, owner)
+		if err != nil {
+			panic(dbFailure{err})
+		}
+		moved[owner] = changed
+	}
 	for _, n := range notices {
+		if n.Unblocked != 0 && moved[n.To] {
+			if cur, ok := ok2(db.CurrentTask(q, n.To)); ok && cur == n.Unblocked {
+				must(db.RetireIfUndelivered(q, n.RID, "withdrawn", "the task itself went out to its owner in the same step", false))
+				continue
+			}
+		}
 		queued := must(db.GetRequest(q, n.RID)).State == "queued" // a notice is born landed
 		if queued {
 			must(db.MarkSendNow(q, n.RID))
@@ -304,9 +349,7 @@ func (e *Env) deliverUnblocked(q db.Q, notices []db.Notice, freed []string) {
 		}
 	}
 	for _, owner := range freed {
-		if changed, _, err := e.AdvanceCurrentTask(q, owner); err != nil {
-			panic(dbFailure{err})
-		} else if changed {
+		if moved[owner] {
 			e.Push(q, owner, 0)
 		}
 	}
@@ -379,22 +422,95 @@ func (e *Env) queueSay(q db.Q, owner, body, why string) int64 {
 	return rid
 }
 
-// TellMemoHolder: a memo changing on a task that is doing is told to its holder at once, typed like a say; on any other task, or when the
-// holder made the change, nothing is sent.
-func (e *Env) TellMemoHolder(q db.Q, tid int64, by, what, text string) (err error) {
+// TellMemo tells a memo's change to each of its readers (memoReaders). The reader it was said to (to, "" for none), a reader the memo names
+// with @, and every reader when now are typed it at once like a say; any other reader gets it in its next digest (SweepDigests), and its
+// lead hears of it if it waits an hour (SweepHeldMemos).
+func (e *Env) TellMemo(q db.Q, tid int64, by, what, text, to string, now bool) (err error) {
 	defer Catch(&err)
 	row := must(db.GetTask(q, tid))
-	if row == nil || row.Owner == db.Human || row.Owner == by || must(db.TaskState(q, row)) != "doing" {
+	if row == nil {
 		return nil
 	}
-	body := fmt.Sprintf("T%d memo %s by %s", tid, what, by)
-	if text != "" {
-		t := textsafe.Oneline(text)
-		if r := []rune(t); len(r) > 400 {
-			t = attachments.KeepRefs(string(r[:400]), t)
+	body := memoLine(tid, what, by, text)
+	named := e.mentioned(text)
+	for _, a := range e.memoReaders(row, by, named) {
+		if delivery.ClassOf(delivery.Memo, now || a == to || slices.Contains(named, a), false) == delivery.ClassNow {
+			e.typeSay(q, a, body, "task memo")
+		} else {
+			rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: a, Body: body, Response: "fire_and_forget", Kind: "say", Memo: true}))
+			check(db.LinkRequest(q, tid, rid))
+			e.log("  %s: T%d memo held for its next digest (#%d)", a, tid, rid)
 		}
-		body += ": " + t
 	}
-	e.typeSay(q, row.Owner, body, "task memo")
 	return nil
 }
+
+// memoReaders is whom a memo on row concerns, each once: who the task answers to (its reporter), its assignee whatever the task's state, and
+// every registered agent the memo names with @. Never the writer, or the founder, who reads the board.
+func (e *Env) memoReaders(row *db.Task, by string, mentioned []string) []string {
+	named := append([]string{row.AnswersTo(), row.Owner}, mentioned...)
+	skip := map[string]bool{"": true, by: true, db.Human: true}
+	var out []string
+	for _, a := range named {
+		if !skip[a] {
+			skip[a] = true
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// mentioned is every registered agent text names with @.
+func (e *Env) mentioned(text string) []string {
+	var out []string
+	for _, m := range mentionRe.FindAllStringSubmatch(text, -1) {
+		if name := strings.TrimRight(m[1], ".-"); e.registered(name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// memoLine is the line a memo's reader is told: `T<n> memo <what> by <who>: <text>`, the text on one line and cut at 400 runes, then its file
+// lines whole.
+func memoLine(tid int64, what, by, text string) string {
+	line := fmt.Sprintf("T%d memo %s by %s", tid, what, by)
+	if text == "" {
+		return line
+	}
+	text, files := attachments.SplitFileLines(text)
+	t := textsafe.Oneline(text)
+	if r := []rune(t); len(r) > 400 {
+		t = attachments.KeepRefs(string(r[:400]), t)
+	}
+	return strings.Join(append([]string{line + ": " + t}, files...), "\n")
+}
+
+// MemoLeadS is how long a memo held for its reader's digest may go unread before the reader's lead is told.
+const MemoLeadS = 3600
+
+// SweepHeldMemos tells the reader's lead once, in its digest, of each memo held for the reader's digest that has gone MemoLeadS unread. The
+// memo stays held for the reader.
+func (e *Env) SweepHeldMemos(now int64) (err error) {
+	defer Catch(&err)
+	q := db.Q(e.DB)
+	rows := must(db.UnreadMemosBefore(q, now-MemoLeadS))
+	if len(rows) == 0 {
+		return nil
+	}
+	t := must(team.LoadTeam(e.Home))
+	for _, r := range rows {
+		key := fmt.Sprintf("memo_lead:%d", r.ID)
+		if must(db.Cursor(q, key)) != 0 {
+			continue
+		}
+		check(db.SetCursor(q, key, 1))
+		if lead := t.SupervisorOf(r.Target); lead != "" && lead != db.Human && e.registered(lead) {
+			must(e.Notice(q, lead, fmt.Sprintf("%s has not read this memo in an hour, held for its next digest (#%d): %s", r.Target, r.ID, r.Body), "memo unread 1h"))
+		}
+	}
+	return nil
+}
+
+// mentionRe is an @name in a memo: at the start or after a character that is not part of a name, so an email address names nobody.
+var mentionRe = regexp.MustCompile(`(?:^|[^A-Za-z0-9._@-])@([A-Za-z0-9][A-Za-z0-9._-]*)`)

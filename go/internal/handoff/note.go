@@ -3,6 +3,7 @@ package handoff
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -51,15 +52,33 @@ const (
 	ResumeWarmS  = PromptCacheS - 300
 )
 
-const askText = "Write your handoff to %s now, while your prompt cache is warm, with one Write " +
+// PromptKey is the setting that replaces AskTemplate, globally (config.yaml) or for one agent (its agent.yaml).
+const PromptKey = "handoff_prompt"
+
+// AskTemplate is the built-in ask, and what an empty or unset handoff_prompt falls back to. {path} is the note's file and {max} its limit
+// in characters.
+const AskTemplate = "Write your handoff to {path} now, while your prompt cache is warm, with one Write " +
 	"(replace what is there), then stop and run nothing else. The next session of you, if " +
-	"it starts fresh, reads it first: copy yourself into it. At most %d characters, about " +
+	"it starts fresh, reads it first: copy yourself into it. At most {max} characters, about " +
 	"30 lines, only what `hl` and your memory cannot tell it: (1) what you were deciding " +
 	"and why; (2) what you meant to do next; (3) promises or doubts not yet on any task; " +
 	"(4) the founder's preferences and the pitfalls you learned this session; (5) who you " +
 	"wait on, as T<n>/#<n> numbers only. Do not restate what a task or message holds; cite " +
 	"its T or # number. A lasting lesson or preference goes to your memory first, not here. " +
 	"If there is nothing, write the single word: nothing."
+
+// AskText is the ask typed for a note at path, from template (AskTemplate when it is ""). The placeholders are replaced as plain text, so
+// nothing in a founder's text is read as a format verb. A template without {path} still names the file, on a line of its own.
+func AskText(template, path string) string {
+	if template == "" {
+		template = AskTemplate
+	}
+	text := strings.NewReplacer("{path}", path, "{max}", strconv.Itoa(NoteMax)).Replace(template)
+	if !strings.Contains(template, "{path}") {
+		text += "\nWrite it to " + path
+	}
+	return text
+}
 
 // Telling is what the ask needs of the delivery layer (*supervisor.Env).
 type Telling interface {
@@ -74,6 +93,8 @@ type Settings interface {
 	SetFlag(key string, on bool) error
 	// AgentFlag is the agent's own boolean under key; ok is false when it sets none.
 	AgentFlag(agent, key string) (value, ok bool)
+	// TextSetting is the agent's own text under key, else config.yaml's, else "".
+	TextSetting(agent, key string) string
 }
 
 // NoteEnv is what the note asks and reads; it sits on the record's Env.
@@ -249,7 +270,7 @@ func (e *Env) Ask(agent, kind string) (bool, error) {
 	if err := db.SetMeta(e.DB, noteKindKey(agent), kind); err != nil {
 		return false, err
 	}
-	typed, err := e.Note.TypeNotice(e.DB, agent, fmt.Sprintf(askText, path, NoteMax))
+	typed, err := e.Note.TypeNotice(e.DB, agent, AskText(e.Note.TextSetting(agent, PromptKey), path))
 	if err != nil {
 		return false, err
 	}

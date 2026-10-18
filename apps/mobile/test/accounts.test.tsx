@@ -46,7 +46,7 @@ async function mount(role?: 'founder' | 'agent') {
       </DaemonProvider>,
     );
   });
-  await press($('nav-accounts'));
+  await press($('nav-usage'));
   return { ...s, store };
 }
 const openOne = async (name: string) => {
@@ -87,6 +87,21 @@ describe('the accounts tab', () => {
     await type('account-alias', 'other');
     await press($('account-save'));
     await until(() => text().includes('only the founder'), 'the refusal');
+    m.store.stop();
+  });
+
+  it('turns usage recovery and the month end on, and saves the last day', async () => {
+    const m = await mount();
+    await openOne('alpha');
+    await press($('account-recover'));
+    await until(() => m.daemon.accounts.list().accounts[0]!.recover === true, 'recovery on');
+    await press($('account-cycle'));
+    await until(() => m.daemon.accounts.list().accounts[0]!.cycle.on === true, 'cycle on');
+    await type('account-cycle-end', 'tomorrow');
+    expect($('account-save')?.getAttribute('aria-disabled')).toBe('true');
+    await type('account-cycle-end', '2026-10-31');
+    await press($('account-save'));
+    await until(() => m.daemon.accounts.list().accounts[0]!.cycle.end === '2026-10-31', 'the last day');
     m.store.stop();
   });
 

@@ -29,8 +29,11 @@ export interface ClientOptions {
   connect: () => Promise<Transport>;
   client: string; // who is calling; the daemon names this actor on what it does
   token?: string; // the device token from pairing; the network listener admits no one without it
+  key?: () => string | null; // the founder key, read at each hello: the person's own app proves itself on the Unix socket with it
   reconnect?: { minMs: number; maxMs: number } | false;
   newRequestId?: () => string;
+  /** Methods answered by something other than the daemon connection (the desktop shell, for calls this caller may not make itself); each throws what a failed call throws. */
+  relay?: { [M in MethodName]?: (params: CallParams<M>) => Promise<Methods[M]['result']> };
 }
 
 type Handler<T> = (value: T) => void;
@@ -44,6 +47,10 @@ interface Pending {
 
 export class DaemonClient {
   state: ConnectionState = 'connecting';
+  /** The methods a relay answers. */
+  get relayed(): string[] {
+    return Object.keys(this.opts.relay ?? {});
+  }
   hello: HelloResult | null = null;
 
   private transport: Transport | null = null;
@@ -127,7 +134,7 @@ export class DaemonClient {
   }
 
   private async handshake(t: Transport): Promise<void> {
-    const hello = await this.callNow('hello', { client: this.opts.client, protocol: PROTOCOL, token: this.opts.token });
+    const hello = await this.callNow('hello', { client: this.opts.client, protocol: PROTOCOL, token: this.opts.token, key: this.opts.key?.() ?? undefined });
     if (hello.min_client > PROTOCOL || hello.protocol < PROTOCOL) {
       t.onclose = null;
       t.close();
@@ -190,6 +197,8 @@ export class DaemonClient {
 
   /** Calls a method. Writes get a request_id here unless the caller gave one. */
   async call<M extends MethodName>(method: M, params: CallParams<M>): Promise<Methods[M]['result']> {
+    const relayed = this.opts.relay?.[method] as ((p: CallParams<M>) => Promise<Methods[M]['result']>) | undefined;
+    if (relayed) return relayed(params);
     if (this.closing) throw new RpcError('transport', 'client closed');
     if (this.state !== 'open') await new Promise<void>((ok, fail) => this.waitingForOpen.push({ ok, fail }));
     let p: Record<string, unknown> = params as Record<string, unknown>;

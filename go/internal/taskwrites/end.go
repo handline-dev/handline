@@ -3,13 +3,12 @@ package taskwrites
 import (
 	"database/sql"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/paths"
 )
 
@@ -214,19 +213,6 @@ func closeQueuedQuietly(tx *sql.Tx, r linked) (closed bool, err error) {
 	return true, nil
 }
 
-var urgentWord = regexp.MustCompile(`(?i)^(fail(?:ed|ure)?|blocked|fatal)`)
-
-// urgent is whether a task's closing words say it failed or is blocked (urgent_result).
-func urgent(result string) bool {
-	s := strings.TrimSpace(result)
-	m := urgentWord.FindString(s)
-	if m == "" {
-		return false
-	}
-	rest := []rune(s[len(m):])
-	return len(rest) == 0 || !(unicode.IsLetter(rest[0]) || unicode.IsDigit(rest[0]) || rest[0] == '_')
-}
-
 // endTask is _end_task: the task's queued deliveries close quietly, and whoever opened it and `also` are told `text` in one say each,
 // written in this transaction. The opener's say is typed at once; also's are notices for the digest unless the result is urgent (a done
 // task that says it failed). Whoever only passed the task along (a linked delivery's asker) hears only an urgent result.
@@ -271,7 +257,7 @@ func endTask(tx *sql.Tx, home string, tid int64, by string, t *task, text string
 		if skip[to] || !known[to] || (to != reporter && !isAlso[to] && !urgentResult) {
 			continue
 		}
-		rid, err := addSay(tx, noticeFrom, to, text, to != reporter && !urgentResult)
+		rid, err := addSay(tx, noticeFrom, to, text, delivery.ClassOf(delivery.Result, to == reporter, urgentResult) == delivery.ClassBatch)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -384,7 +370,7 @@ func notifyUnblocked(tx *sql.Tx, dep int64, owner, closer string, closed int64, 
 	if err := addEvent(tx, closer, "task_unblocked", kv{"task_id", dep}, kv{"request_id", rid}, kv{"closed_task", closed}, kv{"after_request", after}); err != nil {
 		return told{}, err
 	}
-	return told{RID: rid, To: owner, Text: text}, nil
+	return told{RID: rid, To: owner, Text: text, Unblocked: dep}, nil
 }
 
 // childResultNotice tells the owner of the parent how a child ended, once per finish (a reopen voids it).
@@ -424,7 +410,7 @@ func childResultNotice(tx *sql.Tx, dep *task, by string, child int64) (*told, er
 		return nil, nil
 	}
 	text = strings.TrimRight(text, ": ")
-	rid, err := addSay(tx, noticeFrom, dep.Owner, text, !urgent(evidence.String))
+	rid, err := addSay(tx, noticeFrom, dep.Owner, text, delivery.ClassOf(delivery.Result, false, delivery.Failed(evidence.String)) == delivery.ClassBatch)
 	if err != nil {
 		return nil, err
 	}

@@ -5,8 +5,8 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { openActivity, timeline } from '@handline/app-core';
-import { useNearEnd, useSelector } from '@handline/app-react';
+import { openActivity, timeline, type TimelineEntry } from '@handline/app-core';
+import { useNearEnd, useSelector, useStore } from '@handline/app-react';
 import {
   Skeleton,
   classify,
@@ -26,7 +26,7 @@ import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { PromptSlot } from './PromptCard.tsx';
 import { Compose } from './ChatCompose.tsx';
 import { Item, Message, TaskNote, jumpTo } from './ChatMessages.tsx';
-import { ChatBanner, ChatStrip, HandoffCard, HrCards, NeedsYouCard } from './ChatCards.tsx';
+import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, RoomTitle, useDecided } from './ChatCards.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { Button, Empty, Icon, Textarea, ComposeRow } from './ui/index.ts';
 import { useWantedMessage } from './route.ts';
@@ -115,9 +115,22 @@ function useWindowedChat(agent: string, scope: ChatScope) {
   return { chat, win, windowed };
 }
 
+/** In the all room, the sender's name over a message, left out when the entry before is a message from the same sender. */
+const groupOf = (scope: ChatScope, prev: TimelineEntry | undefined, m: ChatMessage) =>
+  scope === 'all' ? { name: prev?.kind === 'message' && prev.message.from === m.from ? null : m.from } : undefined;
+
+/** Scrolls `box` so the line `a` remembered is back where it was. Found again by its id: a page landing can re-create the element (separators, grouping). */
+function putBack(box: HTMLElement, a: { id: string; off: number }) {
+  const el = box.querySelector(`[data-id="${CSS.escape(a.id)}"]`);
+  if (!el) return;
+  const drift = el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
+  if (drift) box.scrollTop += drift;
+}
+
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const { storage, apply } = useWorkspace();
   const canSend = useSelector((s) => s.can('chat.send'));
+  const me = useStore().me;
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
   // Chat is the person and this agent only; the team's traffic is the Activity tab.
@@ -130,7 +143,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const locate = useChatLocate({ request: going ?? 0 }, going !== null);
   const stream = useRef<HTMLDivElement>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
-  const entries = timeline(chat.messages, chat.items, scope, agent);
+  const entries = timeline(chat.messages, chat.items, scope, agent, me, useDecided(agent));
   // Task titles for the transcript's task lines, so a card can say what it is about without opening the task.
   const { served } = useServes('tasks.list');
   const tasks = useTasks({ all: true, limit: 200 }); // done tasks too: a card of a closed task keeps its title
@@ -146,7 +159,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const [pickedItem, setPickedItem] = useState<TranscriptItem | null>(null);
   const pick = (m: ChatMessage) => (setPickedItem(null), setPicked((p) => (p === m.id ? null : m.id)));
   const pickItem = (i: TranscriptItem) => (setPicked(null), setPickedItem((p) => (p?.id === i.id ? null : i)));
-  const keyOf = (e: (typeof entries)[number]) => (e.kind === 'item' ? `i${e.id}` : `m${e.id}`);
+  const keyOf = (e: (typeof entries)[number]) => (e.kind === 'item' ? `i${e.id}` : e.kind === 'proposal' ? `p${e.id}` : `m${e.id}`);
   // Only an entry that arrives after the one that was last grows; older pages and a switch of scope appear at once.
   const seen = useRef<{ scope: ChatScope; last: string | null }>({ scope, last: null });
   const tail = seen.current.scope === scope && seen.current.last !== null ? entries.findIndex((e) => keyOf(e) === seen.current.last) : -1;
@@ -173,12 +186,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const box = stream.current;
     const a = anchor.current;
     if (!box || !a) return;
-    // Found again by its id: a page landing can re-create the element (separators, grouping), so the one held at load start may be gone.
-    const el = box.querySelector(`[data-id="${CSS.escape(a.id)}"]`);
-    if (el) {
-      const drift = el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
-      if (drift) box.scrollTop += drift;
-    }
+    putBack(box, a);
     if (!chat.loadingOlder) anchor.current = null; // the load is over; the next one remembers its own line
   }, [entries.length, chat.loadingOlder]);
   useEffect(() => {
@@ -273,7 +281,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
     <section className={CHAT}>
-      <div className="chat-head flex h-[var(--h-tabs)] items-center justify-end gap-2 border-b border-line px-2">
+      <div className="chat-head flex h-[var(--h-tabs)] items-center gap-2 border-b border-line px-2">
+        <RoomTitle agent={agent} detail={detail} />
         <ChatSearch agent={agent} scope={scope} onGo={jump} />
       </div>
       <ChatBanner detail={detail} />
@@ -283,6 +292,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         onWheel={() => setMoved(win.target)}
         onTouchMove={() => setMoved(win.target)}
         onKeyDown={() => setMoved(win.target)}
+        onLoadCapture={(e) => e.target instanceof HTMLImageElement && repin()} // a picture arriving late grows the stream
         onScroll={(e) => {
           const el = e.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
@@ -320,7 +330,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-start"
               >
                 {e.kind === 'message' ? (
-                  <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} onRef={jump} />
+                  <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} onRef={jump} group={groupOf(scope, entries[i - 1], e.message)} />
+                ) : e.kind === 'proposal' ? (
+                  <DecidedCard p={e.proposal} />
                 ) : e.kind === 'note' ? (
                   <TaskNote m={e.message} task={e.task} titles={titles} />
                 ) : (

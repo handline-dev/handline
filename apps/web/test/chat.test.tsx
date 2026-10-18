@@ -103,8 +103,8 @@ describe('the Chat tab', () => {
   it('draws every message state and transcript kind from the daemon', async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
-    expect(landing('Draft the web chat tab plan.')).toBe('answered');
-    expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
+    expect(landing('Draft the web chat tab plan.')).toBe('delivered');
+    expect(landing('Use the contract fixtures.')).toBe('delivered');
     expect(landing('Hold that, scope changed.')).toBe('withdrawn');
     expect(landing('Also add the list of gaps.')).toBe('typed');
     expect(link('Withdraw', msg('Also add the list of gaps.')!)).toBeUndefined(); // the chat has no Withdraw button
@@ -149,9 +149,9 @@ describe('the Chat tab', () => {
     await mount(ARCH, t);
     await until(() => $$('[data-kind="session"]').some((c) => /Handoff/.test(text(c))), 'the boundary');
     const line = $$('[data-kind="session"]').find((c) => /Handoff/.test(text(c)))!;
-    expect(text(line)).toContain('Started again from a handoff');
+    expect(text(line)).toMatch(/New session at .*: from a handoff/);
     expect($('.handoff-full')).toBeNull();
-    await click([...line.querySelectorAll('button')].find((b) => /Handoff/.test(text(b)))!);
+    await click([...line.querySelectorAll('button')].find((b) => /Handoff note/.test(text(b)))!);
     await until(() => $('.handoff-full'), 'the dialog');
     expect($('.handoff-full')?.textContent).toBe('line one\nline two');
   });
@@ -178,8 +178,8 @@ describe('the Chat tab', () => {
     t.daemon.chat.tick();
     await until(() => $('.working')?.getAttribute('title')?.includes('Reading the code'), 'the working line');
     t.daemon.chat.tick();
-    await until(() => landing('ship it') === 'answered', 'answered');
-    expect($('.working')).toBeNull();
+    await until(() => !$('.working'), 'the turn over');
+    expect(landing('ship it')).toBe('delivered');
     await until(() => text($('.stream')).includes('Got it: "ship it"'), 'the reply');
     expect(storage.data.get(`handline.draft.${ARCH}`)).toBe('');
   });
@@ -210,7 +210,7 @@ describe('the Chat tab', () => {
     await other.call('chat.send', { agent: ARCH, body: 'from elsewhere' });
     await until(() => msg('from elsewhere'), 'the message from the other screen');
     for (let i = 0; i < 4; i++) t.daemon.chat.tick();
-    await until(() => landing('from elsewhere') === 'answered', 'answered');
+    await until(() => landing('from elsewhere') === 'delivered', 'delivered');
     other.close();
   });
 
@@ -256,6 +256,20 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect($('.compose-ref')).toBeNull();
     await until(() => msg('and the transcripts')?.querySelector('.msg-ref'), 'the reference on the new message');
     expect(text(msg('and the transcripts')!.querySelector('.msg-ref'))).toContain('Use the contract fixtures.');
+  });
+
+  it("a reply quoting another agent's message goes to this chat's agent, with the quote as its parent", async () => {
+    const s = setup();
+    s.daemon.chat.seed(ARCH, { from: 'handline.pr', to: ARCH, body: 'PR note from elsewhere' });
+    const t = await mount(ARCH, s);
+    await until(() => msg('PR note from elsewhere'), 'the quoted row');
+    await click(msg('PR note from elsewhere')!.querySelector('.msg-body')!);
+    await typeInto(compose(), 'answer here');
+    await press(compose(), 'Enter');
+    await until(() => sentMsgs(t).some((m) => m.body === 'answer here'), 'the daemon got it');
+    const m = sentMsgs(t).find((x) => x.body === 'answer here')!;
+    expect(m.to).toBe(ARCH);
+    expect(m.parent).toBe(idOf('PR note from elsewhere'));
   });
 
   it("a reply to the agent's open question is a linked message, never an answer", async () => {
@@ -365,12 +379,9 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
   });
 });
 
-describe('the bridge items: message numbers, new, menus, seen, strip, HR', () => {
+describe('the bridge items: message numbers, new, menus, seen, strip', () => {
   const chatOf = (t: { daemon: unknown }) =>
     (t.daemon as { chat: { messages: { id: number; body: string; landing: string }[]; seenUpTo: Map<string, number> } }).chat;
-  const hrOf = (t: { daemon: unknown }) => (t.daemon as { script: { hr: { raise: (p: object) => unknown } } }).script.hr;
-  const labelled = (within: Element | null | undefined, label: string) =>
-    [...(within ?? box).querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label);
 
   it("nothing the task board sent is in the agent's own chat", async () => {
     const s = setup();
@@ -419,15 +430,32 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     expect($('.latest')).toBeNull();
   });
 
-  it('the working indicator follows the agent being busy, also on a message from another agent', async () => {
-    const t = await mount(ARCH);
-    await until(() => msg('Which gap list'), 'history');
-    expect($('.working')).toBeNull();
-    t.daemon.chat.seed(ARCH, { from: 'handline.auditor', to: ARCH, body: 'rebase the pane branch' });
-    t.daemon.chat.setWorking(ARCH, true, 'Finding large disk users');
-    await until(() => $('.working')?.getAttribute('title') === 'Finding large disk users', 'the indicator for a busy agent');
-    t.daemon.chat.setWorking(ARCH, false);
-    await until(() => $('.working') === null, 'the indicator gone');
+  it('in the desktop app an agent name opens that agent, and a repo path asks the shell with the branches named', async () => {
+    const calls: unknown[] = [];
+    Object.assign(window, {
+      handline: {
+        api: 1,
+        openPath: async (a: unknown) => (calls.push(['path', a]), { ok: true, how: 'branch' }),
+      },
+    });
+    try {
+      const s = setup();
+      s.daemon.chat.seed(ARCH, {
+        from: ARCH,
+        to: 'human',
+        body: `on branch feat-docs file docs/x.md by ${ARCH}`,
+        at: '2031-02-01T00:00:00Z',
+      });
+      await mount(ARCH, s);
+      await until(() => msg('on branch feat-docs'), 'the message');
+      const m = msg('on branch feat-docs')!;
+      await click(m.querySelector('.path')!);
+      await click(m.querySelector('.agent-link')!);
+      expect(calls).toEqual([['path', { path: 'docs/x.md', agent: ARCH, branches: ['feat-docs', 'docs/x.md'] }]]);
+      expect(location.hash).toBe(`#/agents/${encodeURIComponent(ARCH)}`);
+    } finally {
+      delete (window as { handline?: unknown }).handline;
+    }
   });
 
   it('new messages while scrolled up are counted in a pill that takes you down', async () => {
@@ -503,39 +531,6 @@ describe('the bridge items: message numbers, new, menus, seen, strip, HR', () =>
     expect($('.chat-strip a')!.getAttribute('href')).toMatch(/^#\/tasks\/\d+/);
     expect($('.chat-banner')).toBeNull();
     void t;
-  });
-
-  it('an open HR proposal about the agent is a card in the chat with approve and reject as icons', async () => {
-    const s = setup();
-    hrOf(s).raise({ id: 41, title: 'link handline.architect -> handline.auditor', diff: 'link', agent: ARCH });
-    await mount(ARCH, s);
-    await until(() => $('.card-hr'), 'the HR card');
-    expect(text($('.card-hr'))).toContain('link handline.architect');
-    expect(labelled($('.card-hr'), 'Approve')).toBeDefined();
-    expect(labelled($('.card-hr'), 'Reject')).toBeDefined();
-    await click(labelled($('.card-hr'), 'Reject')!);
-    await typeInto($('.ui-dialog input') as HTMLInputElement, 'not now');
-    await click($('.ui-dialog .ui-btn.solid')!);
-    await until(() => $('.card-hr')?.getAttribute('data-state') === 'rejected', 'the same card showing the outcome');
-    expect(text($('.card-hr'))).toContain('Rejected');
-    expect(labelled($('.card-hr'), 'Reject')!.getAttribute('aria-pressed')).toBe('true');
-    expect((labelled($('.card-hr'), 'Approve') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('an approved HR proposal stays as the same card saying Applied, with what changed, the Approve button pressed and a banner', async () => {
-    const s = setup();
-    hrOf(s).raise({ id: 42, title: 'link handline.architect -> handline.auditor', diff: 'link architect to auditor', agent: ARCH });
-    await mount(ARCH, s);
-    await until(() => $('.card-hr'), 'the HR card');
-    await click(labelled($('.card-hr'), 'Approve')!);
-    await until(() => $('.card-hr')?.getAttribute('data-state') === 'approved', 'the card showing Applied');
-    expect(text($('.card-hr'))).toContain('Applied');
-    expect(text($('.card-hr'))).toContain('link architect to auditor');
-    await until(() => $('.card-hr .banner'), 'the banner');
-    expect(text($('.card-hr .banner'))).toBe('Applied');
-    expect(labelled($('.card-hr'), 'Approve')!.getAttribute('aria-pressed')).toBe('true');
-    expect((labelled($('.card-hr'), 'Reject') as HTMLButtonElement).disabled).toBe(true);
-    expect($$('.msg').some((m) => /applied/i.test(text(m)))).toBe(false); // the app posts nothing in the chat
   });
 });
 

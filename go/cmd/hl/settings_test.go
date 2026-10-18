@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/protected"
@@ -24,7 +23,7 @@ func founderRig(t *testing.T) *rig {
 	return r
 }
 
-const settingsGot = `{"values":{"park_timeout_s":600,"bg_notice_s":600,"bg_grace_s":300,"bg_check_s":600,"notice_digest_s":900,
+const settingsGot = `{"values":{"park_timeout_s":600,"bg_notice_s":600,"bg_grace_s":300,"bg_check_s":600,"notice_digest_s":300,
 	"ignore_cache_expiry":false,"auto_accept_dialogs":true},"overrides":{"park_timeout_s":0,"notice_digest_s":120,"ignore_cache_expiry":true}}`
 
 func TestSettingsWriteThenPrintWhatTheDaemonHolds(t *testing.T) {
@@ -42,11 +41,11 @@ func TestSettingsWriteThenPrintWhatTheDaemonHolds(t *testing.T) {
 			[]string{`settings.set {"agent":"b.two","changes":{"park_timeout_s":300}}`, `settings.get {"agent":"b.two"}`}},
 		{[]string{"idle-timeout", "300", "--agent", "b.two", "--clear"}, "b.two: never closes while idle\n",
 			[]string{`settings.set {"agent":"b.two","changes":{"park_timeout_s":null}}`, `settings.get {"agent":"b.two"}`}},
-		{[]string{"notice-digest", "2m", "--agent", "b.two"}, "b.two: results of work it opened are told in one digest 2m after " +
-			"the first (sooner with any message); a failure, block or FATAL at once\n",
+		{[]string{"notice-digest", "2m", "--agent", "b.two"}, "b.two: notices are told in one digest at its prompt, from 2m after " +
+			"the first and never mid-turn (sooner with any message); a failure, block or FATAL at once\n",
 			[]string{`settings.set {"agent":"b.two","changes":{"notice_digest_s":120}}`, `settings.get {"agent":"b.two"}`}},
-		{[]string{"notice-digest"}, "default: results of work it opened are told in one digest 15m after the first (sooner with " +
-			"any message); a failure, block or FATAL at once\n", []string{`settings.get {}`}},
+		{[]string{"notice-digest"}, "default: notices are told in one digest at its prompt, from 5m after the first and never " +
+			"mid-turn (sooner with any message); a failure, block or FATAL at once\n", []string{`settings.get {}`}},
 		{[]string{"ignore-cache-expiry", "--agent", "b.two", "--clear"}, "b.two: a resume may reuse its session however long it has been closed\n",
 			[]string{`settings.set {"agent":"b.two","changes":{"ignore_cache_expiry":null}}`, `settings.get {"agent":"b.two"}`}},
 		{[]string{"ignore-cache-expiry", "on"}, "default: a resume starts fresh once its prompt cache has expired (today's behaviour)\n",
@@ -92,7 +91,7 @@ func TestIdleBackgroundSaysNeverToldWhenIdleNeverCloses(t *testing.T) {
 	}
 }
 
-func TestSettingsAnAgentOrAKeylessTerminalAndWhatIsNotParsedArePythons(t *testing.T) {
+func TestSettingsAnAgentOrAKeylessTerminalAndWhatIsNotParsedAreRefused(t *testing.T) {
 	keyless := agentsRig(t)
 	keyless.daemon(nil)
 	r := founderRig(t)
@@ -112,7 +111,7 @@ func TestSettingsAnAgentOrAKeylessTerminalAndWhatIsNotParsedArePythons(t *testin
 	}
 	for _, c := range cases {
 		out, _, code := c.r.run(c.env, c.args...)
-		if code != 0 || !strings.HasPrefix(out, "python ") || !strings.HasSuffix(out, " "+strings.Join(c.args, " ")+"\n") {
+		if code != 2 || out != "" {
 			t.Errorf("%v: %q %d", c.args, out, code)
 		}
 	}
@@ -133,7 +132,7 @@ func TestDevModeShowsAndSetsThroughSettings(t *testing.T) {
 	if got := sent(calls()); !reflect.DeepEqual(got, []string{`settings.get {}`, `settings.set {"changes":{"dev_mode":false}}`}) {
 		t.Fatalf("calls %v", got)
 	}
-	if out, _, _ := r.run(asAgent, "dev-mode", "on", "--why", "w"); !strings.HasPrefix(out, "python ") {
-		t.Errorf("an agent's proposal went to Go: %q", out)
+	if out, _, _ := r.run(asAgent, "dev-mode", "on", "--why", "w"); out != "" {
+		t.Errorf("an agent's proposal was not refused: %q", out)
 	}
 }

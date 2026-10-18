@@ -67,7 +67,7 @@ export class Store {
     const hello = await this.client.start();
     this.conn = this.client.state;
     this.me = hello.caller.name;
-    this.served = new Set(hello.methods.filter((m) => m.allowed).map((m) => m.name));
+    this.served = new Set([...hello.methods.filter((m) => m.allowed).map((m) => m.name), ...this.client.relayed]);
     this.emit();
     await this.client.subscribe(['agents', 'notifications']);
   }

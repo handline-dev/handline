@@ -38,6 +38,8 @@ const click = (el: Element) =>
     (el as HTMLElement).click();
   });
 const text = (el: Element | null) => el?.textContent ?? '';
+const openMore = () => click($('.rail-nav [aria-label^="More"]')!);
+const moreItem = (label: string) => [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((b) => text(b).includes(label))!;
 // The row's context menu is Radix's, in a portal: it opens on the row's contextmenu event.
 const menuItems = () => [...document.querySelectorAll('[role=menuitem]')].map((b) => text(b));
 const termTab = `[data-tab="terminal:term:${ARCH}"]`;
@@ -108,8 +110,11 @@ describe('the workspace', () => {
     expect($('.side')).toBeNull();
     const top = $$('.rail-top button').map((b) => b.getAttribute('aria-label') ?? '');
     expect(top.slice(0, 3)).toEqual(['Hide the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']);
-    expect(text($('.rail-nav'))).toMatch(/My turn.*Inbox.*Tasks.*Team.*Worktrees.*Accounts.*Stats/);
-    expect($$('.rail-nav .nav svg').length).toBe(7);
+    expect(text($('.rail-nav'))).toMatch(/My turn.*Inbox.*Tasks.*More/);
+    expect($$('.rail-nav .nav svg').length).toBe(4);
+    await openMore();
+    expect(menuItems().map((t) => t.trim().split(' ')[0])).toEqual(['Team', 'Worktrees', 'Usage']);
+    await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
     expect($$('.rail-foot button').map((b) => b.getAttribute('aria-label'))).toEqual(['Settings', 'Keys (?)']);
     expect($('.rail-status')).toBeNull();
     const bar = $('.statusbar')!;
@@ -120,15 +125,26 @@ describe('the workspace', () => {
     expect($('.rail input[type=search]')).not.toBeNull();
   });
 
+  it('the list is under team headings with the task under each name, and the view menu switches the groups off', async () => {
+    await mount(ARCH);
+    await until(() => $('.rail-list [data-agent]'), 'the rows');
+    expect($$('.team-head').length).toBeGreaterThan(0);
+    expect(text($('.team-head'))).toMatch(/\w+ \d+/);
+    expect($$('.row-sub').some((r) => text(r).includes('Web UI design'))).toBe(true);
+    await click($('.rail-opts [aria-label^="View"]')!);
+    await click([...document.querySelectorAll<HTMLElement>('[role=menuitemcheckbox]')].find((b) => text(b).includes('Group by team'))!);
+    expect($$('.team-head')).toHaveLength(0);
+  });
+
   it('the nav rows go to their pages, Back and Forward use the history, and ⌘B hides and shows the sidebar', async () => {
     await mount(ARCH);
     await until(() => $('.rail'), 'sidebar');
-    const nav = (label: string) => $$('.rail-nav .nav').find((b) => text(b).includes(label))!;
-    await click(nav('Stats'));
-    expect(location.hash).toBe('#/stats');
-    await click(nav('Accounts'));
+    await click($$('.rail-nav .nav').find((b) => text(b).trim().startsWith('Inbox'))!);
+    expect(location.hash).toBe('#/inbox');
+    await openMore();
+    await click(moreItem('Usage'));
     expect(location.hash).toBe('#/accounts');
-    expect(nav('Accounts').classList.contains('on')).toBe(true);
+    expect($('.rail-nav .nav-more')!.classList.contains('on')).toBe(true);
     const back = vi.spyOn(history, 'back').mockImplementation(() => undefined);
     const forward = vi.spyOn(history, 'forward').mockImplementation(() => undefined);
     await click($('.rail-top [aria-label="Back (⌘[)"]')!);
@@ -260,7 +276,7 @@ describe('the workspace', () => {
     expect($$('.pane')).toHaveLength(2);
     expect($('.dz')).toBeNull(); // the drag ended
     await click($('.pane[data-group="g1"] [aria-label="Add a tab"]')!);
-    await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => text(b).trim() === 'Claude Code')!);
+    expect([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((b) => text(b).trim())).not.toContain('Claude Code');
     expect($$('[data-tab^="terminal:"]')).toHaveLength(1);
   });
 
@@ -333,7 +349,7 @@ describe('the sidebar', () => {
     await until(() => $('.row-wrap.on'), 'the selected row');
     expect($('.row-detail')).toBeNull();
     const r = text($('.row-wrap.on'));
-    expect(r).not.toMatch(/opus|alpha|buddyron/);
+    expect(r).not.toMatch(/opus|alpha|yourname/);
     expect($('.row-wrap.on .name')?.textContent).toBe('architect'); // the team prefix is the group's title
     await until(() => $('.terminal-tab'), 'terminal tab');
     expect($('.row-actions .ui-btn.solid')).toBeNull();

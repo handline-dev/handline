@@ -1,14 +1,20 @@
 // Runs in the sandboxed window before the page: the only thing the page gets from the shell is window.handline, and the device token
 // the shell paired for it, put where the page keeps one (the page reads it from its own storage, as after a manual pairing).
-import { contextBridge, ipcRenderer, webFrame } from 'electron';
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron';
 import { makeApi } from './api.ts';
 import { CHANNELS } from './bridge.ts';
 import type { Grant } from './grant.ts';
 
-contextBridge.exposeInMainWorld(
-  'handline',
-  makeApi(ipcRenderer, () => webFrame.getZoomFactor()),
-);
+contextBridge.exposeInMainWorld('handline', {
+  ...makeApi(ipcRenderer, () => webFrame.getZoomFactor()),
+  pathOf: (file: File): string => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return '';
+    }
+  },
+});
 try {
   const given = ipcRenderer.sendSync(CHANNELS.token) as Grant | null;
   const daemon = new URLSearchParams(location.search).get('daemon');

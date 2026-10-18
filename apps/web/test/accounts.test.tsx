@@ -62,7 +62,7 @@ describe('the list', () => {
     await until(() => $('.accounts .skeleton'), 'the skeleton');
     expect($('.accounts .skeleton')!.getAttribute('aria-busy')).toBe('true');
     await until(() => $$('.acct-row').length === 3, 'the rows', 600);
-    expect($('.accounts .skeleton')).toBeNull();
+    await until(() => !$('.accounts .skeleton'), 'the Stats section below them to load too', 600);
     expect(text(card('alpha').querySelector('.acct-state'))).toBe('in use');
     expect(text(card('beta').querySelector('strong'))).toBe('review');
     expect(text(card('gamma').querySelector('.acct-state'))).toBe('login needed');
@@ -132,7 +132,6 @@ describe('the usage popup', () => {
     expect(text($$('.usage-row')[1])).not.toContain('agents stop at'); // the window resets in 1 h, before the stop at 2 h
     expect($$('.usage-row')[1]!.getAttribute('data-tone')).toBe('ok');
     expect(text($$('.usage-row')[0])).not.toContain('agents stop at');
-    expect($('.usage-stats')!.getAttribute('href')).toBe('#/stats');
     expect(rows[1]!.getAttribute('href')).toBe('#/accounts/beta');
     await click($('.usage-all'));
     expect(location.hash).toBe('#/accounts');

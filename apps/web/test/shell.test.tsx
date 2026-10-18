@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV, type NavigateTo, type ShellApi } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
-import { shell } from '../src/shell.ts';
+import { settingsRelay, shell } from '../src/shell.ts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -46,7 +46,7 @@ let root: Root | null = null;
 let box: HTMLElement;
 async function mount(agent: string) {
   const s = setup();
-  location.hash = `#/agents/${agent}`;
+  location.hash = agent === 'settings' ? '#/settings' : `#/agents/${agent}`;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
   await act(async () => {
@@ -157,14 +157,13 @@ describe('Pair a phone', () => {
     vi.stubGlobal('handline', api);
     Object.assign(window, { handline: api });
   };
-  const button = () =>
-    [...box.querySelectorAll('.rail-nav button')].find((b) => b.textContent?.includes('Pair a phone')) as HTMLElement | undefined;
+  const button = () => [...box.querySelectorAll('button')].find((b) => b.textContent?.includes('Pair a phone')) as HTMLElement | undefined;
 
-  it('is a row in the sidebar that opens the QR, and shows why when it cannot', async () => {
+  it('is a button under Settings > Paired devices that opens the QR, and shows why when it cannot', async () => {
     let n = 0;
     withMode(true, async () => (n++ ? { ok: false, code: 'cannot_pair', message: 'no network listener' } : { ok: true }));
-    await mount(ARCH);
-    await until(button, 'the Pair a phone row');
+    await mount('settings');
+    await until(button, 'the Pair a phone button');
     await act(async () => button()!.click());
     expect(n).toBe(1);
     expect(box.querySelector('[role=alert]')).toBeNull();
@@ -174,10 +173,31 @@ describe('Pair a phone', () => {
 
   it('is absent when the app is paired with another device, and in a plain browser', async () => {
     withMode(false, async () => ({ ok: true }));
-    await mount(ARCH);
-    await until(() => box.querySelector('.rail-list'), 'the page');
+    await mount('settings');
+    await until(() => box.querySelector('#set-devices .devices'), 'the devices');
     await wait(50);
     expect(button()).toBeUndefined();
+  });
+});
+
+describe('settings through the shell', () => {
+  it('answers settings.get and settings.set from the shell, and throws a refusal as a daemon refusal', async () => {
+    expect(settingsRelay()).toBeUndefined(); // a plain browser
+    const calls: unknown[] = [];
+    const api = {
+      api: 1,
+      settingsGet: async (a: unknown) => (calls.push(a), { ok: true as const, result: { values: { active_cap: 2 } } }),
+      settingsSet: async (a: unknown) => (calls.push(a), { ok: false as const, code: 'refused', message: 'no' }),
+    };
+    vi.stubGlobal('handline', api);
+    Object.assign(window, { handline: api });
+    const relay = settingsRelay()!;
+    expect(await relay['settings.get']!({})).toEqual({ values: { active_cap: 2 } });
+    await expect(relay['settings.set']!({ changes: { active_cap: 3 }, request_id: 'r' })).rejects.toMatchObject({
+      code: 'refused',
+      message: 'no',
+    });
+    expect(calls).toEqual([{}, { changes: { active_cap: 3 }, agent: undefined }]);
   });
 });
 

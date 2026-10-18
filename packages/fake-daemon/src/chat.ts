@@ -1,5 +1,5 @@
 // The fake daemon's chat: messages with landing state, the transcript and the working line, on the chat topic.
-// A sent message lands one tick at a time (typed, delivered, working, answered) so a UI sees every state; `tick` is driven by the daemon's own.
+// A sent message lands one tick at a time (typed, delivered, then the agent's turn and its reply) so a UI sees every state; `tick` is driven by the daemon's own.
 import { Failure, invalidParams, refused, storeFailure } from './errors.ts';
 import type { Attachment, ChatMessage, ImagePart, Landing, TextPart, TranscriptItem, Working } from '@handline/contract';
 import { deliveryOf, receiptPatch, uuidFor, type Msg } from './delivery.ts';
@@ -22,7 +22,7 @@ export function chatCall<T>(fn: () => T): T {
 /** What a message carries: FakeAttachments.message. */
 type Images = (body: string, ids: unknown, task: unknown) => { attachments: Attachment[]; parts?: (TextPart | ImagePart)[] };
 
-/** One chat method. `checkAgent` throws for an agent that does not exist; `inboxDismiss` takes an inbox item off its list when the id is one. */
+/** One chat method. `checkAgent` throws for an agent that does not exist. */
 export function chatMethod(
   chat: FakeChat,
   method: string,
@@ -30,7 +30,6 @@ export function chatMethod(
   person: string,
   checkAgent: () => unknown,
   ok: (said: string, extra?: object) => object,
-  inboxDismiss: (id: unknown) => boolean,
   attachments: { message: Images } = { message: () => ({ attachments: [] }) },
 ): unknown {
   switch (method) {
@@ -49,9 +48,6 @@ export function chatMethod(
     case 'chat.send':
       checkAgent();
       return chatCall(() => ok('Sent.', chat.send(p, person, attachments.message)));
-    case 'chat.dismiss':
-      if (inboxDismiss(p.request)) return ok('Dismissed.');
-      return chatCall(() => (chat.dismiss(p), ok('Dismissed.')));
     case 'chat.send_now':
       return chatCall(() => ok('Typed.', chat.sendNow(p)));
     case 'chat.cancel':
@@ -146,20 +142,16 @@ export class FakeChat {
       state: m.landing ?? 'delivered',
       landing: 'delivered' as Landing,
       sending_reason: null,
-      answer: null,
-      dismissed: false,
       delivered_at: at,
       typed_at: at,
       landed_at: at,
       parent: null,
       kind: 'message',
       tasks: [],
-      is_task_question: false,
       ...m,
       agent,
     } as ChatMessage & { agent: string };
-    // Like the daemon: an agent's question to the person stays queued until it is answered.
-    msg.state = msg.from === agent && msg.landing === 'delivered_unanswered' ? 'queued' : msg.landing;
+    msg.state = msg.landing;
     this.messages.push(msg);
     return msg.id;
   }
@@ -176,8 +168,6 @@ export class FakeChat {
       to: person,
       at,
       kind: 'question',
-      is_task_question: true,
-      landing: 'delivered_unanswered',
     });
     this.emit('chat.message', agent, this.view(this.find(id)));
     return id;
@@ -291,7 +281,7 @@ export class FakeChat {
     this.emit('chat.working', m.agent, t.working);
     this.item(m.agent, { kind: 'tool', tool: 'Read', text: 'src/main.ts' });
   }
-  /** The turn ends with a reply, and the message counts as answered. */
+  /** The turn ends with a reply. */
   private reply(id: number) {
     const m = this.live(id);
     if (!m) return;
@@ -299,7 +289,6 @@ export class FakeChat {
     const t = this.thread(m.agent);
     t.working = { ...IDLE };
     this.emit('chat.working', m.agent, t.working);
-    this.change(m, { landing: 'answered', state: 'answered' });
   }
   private item(agent: string, item: Omit<TranscriptItem, 'id' | 'at'>) {
     const t = this.thread(agent);
@@ -308,11 +297,6 @@ export class FakeChat {
     this.emit('chat.transcript', agent, full);
   }
 
-  dismiss(p: Record<string, unknown>) {
-    const m = this.find(p.request);
-    if (m.answer || m.dismissed) throw new ChatFailure('refused', 'that message is already closed', 'state');
-    this.change(m, { landing: 'dismissed', state: 'dismissed', dismissed: true });
-  }
   /** Types a queued message now, ahead of the scripted order. */
   sendNow(p: Record<string, unknown>) {
     const m = this.find(p.request);
@@ -325,10 +309,10 @@ export class FakeChat {
   cancel(p: Record<string, unknown>) {
     const m = this.find(p.request);
     if (this.sessions.has(m.from) || m.from === m.to) throw new ChatFailure('refused', 'that message is not yours', 'state');
-    if (m.landing === 'withdrawn' || m.landing === 'dismissed' || m.landing === 'answered')
+    if (m.landing === 'withdrawn')
       throw new ChatFailure('refused', 'that message is closed', 'state');
     // The agent already has it: closing it tells the agent to stop, so the caller must say it knows.
-    const written = m.receipt ? m.receipt.state !== 'queued' : m.landing === 'delivered' || m.landing === 'delivered_unanswered';
+    const written = m.receipt ? m.receipt.state !== 'queued' : m.landing === 'delivered';
     if (written && p.confirm !== true)
       throw new ChatFailure('refused', 'the agent already has this message; cancelling tells it to stop', 'confirm');
     this.change(m, { landing: 'withdrawn', state: 'withdrawn' });

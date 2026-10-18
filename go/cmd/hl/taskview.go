@@ -83,6 +83,9 @@ func memoList(c *hlclient.Client, tid int) int {
 			edited = ", edited " + stamp(m["edited_at"])
 		}
 		fmt.Printf("memo %s  %s  %s%s\n  %s\n", str(m, "id"), str(m, "author"), stamp(m["at"]), edited, str(m, "text"))
+		for _, l := range fileLines(list(m, "files"), "  ") {
+			fmt.Println(l)
+		}
 	}
 	if len(memos) == 0 {
 		fmt.Printf("T%d has no memos\n", tid)
@@ -119,6 +122,9 @@ func detailLines(t obj, now float64, home string) []string {
 	if given(t, "parent") {
 		head += fmt.Sprintf("   parent T%d", num(t, "parent"))
 	}
+	if tags := tagsOf(t); tags != "" {
+		head += "   " + tags
+	}
 	out := []string{fmt.Sprintf("T%d  %s", num(t, "id"), str(t, "title")), head + "   created " + stamp(t["created"])}
 	if box, ok := t["time"].(obj); ok {
 		out = append(out, timeoutLines(box, now, waitsOn(t))...)
@@ -150,6 +156,7 @@ func detailLines(t obj, now float64, home string) []string {
 		for _, m := range memos {
 			out = append(out, fmt.Sprintf("  memo %s  %s  %s\n    %s", str(m, "id"), str(m, "author"), stamp(m["at"]), str(m, "text")))
 			out = append(out, pathLines(list(m, "parts"), "    ")...)
+			out = append(out, fileLines(list(m, "files"), "    ")...)
 		}
 	}
 	var rejects []string
@@ -198,6 +205,22 @@ func pathLines(parts []obj, indent string) []string {
 		if path := str(p, "path"); path != "" && img != nil {
 			out = append(out, indent+attachments.Line(len(out)+1, path, str(img, "mime"), num(img, "bytes")))
 		}
+	}
+	return out
+}
+
+func fileLines(files []obj, indent string) []string {
+	out := make([]string, len(files))
+	for i, f := range files {
+		where := str(f, "path")
+		if where == "" {
+			where = str(f, "name")
+		}
+		if f["gone"] == true {
+			out[i] = fmt.Sprintf("%s[file %d: %s (gone)]", indent, i+1, str(f, "name"))
+			continue
+		}
+		out[i] = indent + attachments.FileLine(i+1, where, str(f, "mime"), num(f, "bytes"))
 	}
 	return out
 }
@@ -275,8 +298,18 @@ func timeoutLines(box obj, now float64, waits string) []string {
 	return []string{line, second}
 }
 
+// tagsOf is a task's tags as hl prints them ("#fe #be"), "" for none.
+func tagsOf(t obj) string {
+	tags, _ := t["tags"].([]any)
+	out := make([]string, len(tags))
+	for i, tag := range tags {
+		out[i] = "#" + fmt.Sprint(tag)
+	}
+	return strings.Join(out, " ")
+}
+
 func taskList(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--assign", "--owner", "--state"}, []string{"--all", "--everyone"}, nil)
+	p, ok := parse(args, []string{"--assign", "--owner", "--state", "--tag"}, []string{"--all", "--everyone"}, nil)
 	if !ok || len(p.pos) != 0 {
 		return 0, false
 	}
@@ -289,6 +322,9 @@ func taskList(c *hlclient.Client, args []string) (int, bool) {
 	owner, hasOwner := p.opt("--owner")
 	if hasOwner {
 		params["reporter"] = owner
+	}
+	if tags := p.tags("--tag"); len(tags) > 0 { // every tag given: tasks that carry them all
+		params["tags"] = tags
 	}
 	if state, given := p.opt("--state"); given {
 		switch state {
@@ -361,6 +397,9 @@ func printBoard(tasks []obj) {
 			fmt.Fprintf(&b, "  DISCARDED by %s: %s", one(str(gone, "by")), one(str(gone, "reason")))
 		}
 		fmt.Fprintf(&b, "  P%d  owner %s", num(t, "priority"), str(t, "asker")) // [the assignee] above; the owner may reopen it
+		if tags := tagsOf(t); tags != "" {
+			b.WriteString("  " + tags)
+		}
 		if given(t, "block_reason") {
 			b.WriteString("  " + str(t, "block_reason"))
 		}

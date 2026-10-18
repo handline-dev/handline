@@ -1,12 +1,13 @@
 // My turn (#/my-turn, docs/story9-my-turn.md 9-1): everything that waits on the person as cards, most urgent first. A card has its primary
 // button(s) and a menu for the rest; a dialog the daemon does not know has only Open terminal.
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type KeyboardEvent } from 'react';
 import { ago, myTurn, type Card, type CardAction } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAgents, useInbox, useTasks, useWrite } from '@handline/app-data';
 import { goTerminal } from './route.ts';
-import { ReasonSheet } from './taskui.tsx';
-import { Button, Icon, Input } from './ui/index.ts';
+import { ReasonSheet, useWide } from './taskui.tsx';
+import { TaskDetail } from './TaskDetail.tsx';
+import { Button, Icon, Input, MenuButton, MenuItem } from './ui/index.ts';
 
 /** The cards the person's turn holds: unread items, agents that need them, reports to accept. */
 export function useMyTurn(): { cards: Card[]; loading: boolean } {
@@ -63,7 +64,7 @@ function label(a: CardAction): string {
   }
 }
 
-function CardView({ card }: { card: Card }) {
+function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; onOpen: (task: number) => void }) {
   const answer = useWrite('inbox.reply');
   const prompt = useWrite('prompt.answer');
   const accept = useWrite('task.accept');
@@ -73,11 +74,9 @@ function CardView({ card }: { card: Card }) {
   const [box, setBox] = useState(false);
   const [text, setText] = useState('');
   const [back, setBack] = useState(false);
-  const [menu, setMenu] = useState(false);
   // The daemon's own words for a refused write; the buttons stay usable.
   const refused = [answer, prompt, accept, reject, done, read].find((w) => w.isError)?.error;
   const run = (a: CardAction) => {
-    setMenu(false);
     switch (a.type) {
       case 'answer':
         return setBox(true);
@@ -91,7 +90,7 @@ function CardView({ card }: { card: Card }) {
       case 'done':
         return void (done.mutate({ task: a.item.task!, evidence: 'decided in My turn', reason: true }), read.mutate({ ids: [a.item.id] }));
       case 'open':
-        return void (location.hash = a.to);
+        return card.task != null ? onOpen(card.task) : void (location.hash = a.to);
       case 'terminal':
         return goTerminal(a.agent);
       case 'read':
@@ -102,23 +101,51 @@ function CardView({ card }: { card: Card }) {
   const rest = card.actions.slice(card.primary);
   const answerId = card.actions.find((a) => a.type === 'answer');
   return (
-    <article className="my-turn-card rounded-card border border-line bg-panel px-3 py-2.5" data-kind={card.kind} data-card={card.key}>
-      <header className="flex min-w-0 items-baseline gap-2">
-        {card.priority <= 3 ? (
-          <span className="mono text-hint text-ink-2" title="Priority">
-            P{card.priority}
-          </span>
+    <article
+      className={`my-turn-card rounded-card border bg-panel px-3 py-2.5 ${selected ? 'border-primary' : 'border-line'}`}
+      data-kind={card.kind}
+      data-card={card.key}
+      aria-current={selected || undefined}
+    >
+      {/* A row with a task opens it in the detail beside the list; a card with no task shows its whole text and has nothing to open. */}
+      <div
+        {...(card.task != null
+          ? {
+              role: 'button',
+              tabIndex: 0,
+              'aria-label': `Open T${card.task}`,
+              onClick: () => onOpen(card.task!),
+              onKeyDown: (e: KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onOpen(card.task!);
+                }
+              },
+            }
+          : {})}
+        className={`rounded-card outline-offset-2${card.task != null ? ' cursor-pointer' : ''}`}
+      >
+        <header className="flex min-w-0 items-baseline gap-2">
+          {card.priority <= 3 ? (
+            <span className="mono text-hint text-ink-2" title="Priority">
+              P{card.priority}
+            </span>
+          ) : null}
+          <span className="text-hint text-ink-2">{KIND[card.kind]}</span>
+          <h3 className="m-0 min-w-0 flex-1 truncate text-[15px] font-medium">{card.title}</h3>
+        </header>
+        <p className="muted m-0 mt-0.5 flex flex-wrap gap-x-3 text-hint">
+          {card.from ? <span>from <span className="mono">{card.from}</span></span> : null}
+          {card.task != null ? <span className="mono">T{card.task}</span> : null}
+          {card.due != null ? <span>{dueText(card.due)}</span> : null}
+          {card.since ? <span>waiting {ago(new Date(card.since).toISOString())}</span> : null}
+        </p>
+        {card.detail ? (
+          <p className={`m-0 mt-1 text-ink-2 [overflow-wrap:anywhere]${card.task != null ? ' line-clamp-3' : ' whitespace-pre-wrap'}`}>
+            {card.detail}
+          </p>
         ) : null}
-        <span className="text-hint text-ink-2">{KIND[card.kind]}</span>
-        <h3 className="m-0 min-w-0 flex-1 truncate text-[15px] font-medium">{card.title}</h3>
-      </header>
-      <p className="muted m-0 mt-0.5 flex flex-wrap gap-x-3 text-hint">
-        {card.agent ? <span className="mono">{card.agent}</span> : null}
-        {card.task != null ? <span className="mono">T{card.task}</span> : null}
-        {card.due != null ? <span>{dueText(card.due)}</span> : <span>no deadline</span>}
-        {card.since ? <span>waiting {ago(new Date(card.since).toISOString())}</span> : null}
-      </p>
-      {card.detail ? <p className="m-0 mt-1 line-clamp-3 text-ink-2 [overflow-wrap:anywhere]">{card.detail}</p> : null}
+      </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {main.map((a, i) => (
           <Button key={a.type + i} variant={i === 0 ? 'solid' : 'outline'} label={label(a)} onClick={() => run(a)}>
@@ -126,21 +153,13 @@ function CardView({ card }: { card: Card }) {
           </Button>
         ))}
         {rest.length ? (
-          <span className="relative">
-            <Button label="More" aria-haspopup="menu" aria-expanded={menu} icon="menu" onClick={() => setMenu(!menu)} />
-            {menu ? (
-              <span
-                role="menu"
-                className="absolute right-0 z-10 mt-1 flex min-w-[160px] flex-col rounded-card border border-line bg-panel py-1 shadow-[var(--shadow-pop)]"
-              >
-                {rest.map((a, i) => (
-                  <button key={a.type + i} role="menuitem" className="h-8 px-3 text-left text-body hover:bg-raised" onClick={() => run(a)}>
-                    {label(a)}
-                  </button>
-                ))}
-              </span>
-            ) : null}
-          </span>
+          <MenuButton label="More" icon="menu">
+            {rest.map((a, i) => (
+              <MenuItem key={a.type + i} onSelect={() => run(a)}>
+                {label(a)}
+              </MenuItem>
+            ))}
+          </MenuButton>
         ) : null}
       </div>
       {refused ? (
@@ -159,7 +178,7 @@ function CardView({ card }: { card: Card }) {
             setText('');
           }}
         >
-          <Input grow autoFocus aria-label="Your reply" value={text} onChange={(e) => setText(e.target.value)} />
+          <Input grow autoFocus aria-label="Your reply" placeholder={card.from ? `Reply to ${card.from}` : 'Reply'} value={text} onChange={(e) => setText(e.target.value)} />
           <Button label="Send reply" type="submit" disabled={!text.trim()}>
             <Icon name="reply" aria-hidden /> Send
           </Button>
@@ -182,8 +201,15 @@ function CardView({ card }: { card: Card }) {
 
 export function MyTurnPage() {
   const { cards, loading } = useMyTurn();
-  return (
-    <section className="my-turn mx-auto h-full max-w-[760px] overflow-auto px-4 pb-6" aria-label="My turn">
+  const wide = useWide(1100);
+  const [open, setOpen] = useState<number | null>(null);
+  // Narrow: the task takes the page, with Back. Wide: it opens beside the list, as on the Tasks page.
+  if (open !== null && !wide) return <TaskDetail id={open} onBack={() => setOpen(null)} />;
+  const list = (
+    <section
+      className={`my-turn h-full min-w-0 flex-1 overflow-auto px-4 pb-6${open === null ? ' mx-auto max-w-[760px]' : ''}`}
+      aria-label="My turn"
+    >
       <header className="sticky top-0 z-1 bg-canvas py-3">
         <h2 className="m-0 text-[18px]">
           My turn <span className="muted">{cards.length}</span>
@@ -194,7 +220,7 @@ export function MyTurnPage() {
       ) : cards.length ? (
         <div className="flex flex-col gap-2">
           {cards.map((c) => (
-            <CardView key={c.key} card={c} />
+            <CardView key={c.key} card={c} selected={c.task != null && c.task === open} onOpen={setOpen} />
           ))}
         </div>
       ) : (
@@ -204,5 +230,14 @@ export function MyTurnPage() {
         </div>
       )}
     </section>
+  );
+  if (open === null) return list;
+  return (
+    <div className="my-turn-split flex h-full min-h-0 min-w-0 flex-1">
+      {list}
+      <div className="flex min-h-0 w-[min(520px,45%)] flex-none border-l border-line">
+        <TaskDetail id={open} onBack={() => setOpen(null)} embedded />
+      </div>
+    </div>
   );
 }

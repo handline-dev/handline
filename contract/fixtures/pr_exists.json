@@ -1,0 +1,87 @@
+{
+ "fixtures": [
+  {
+   "name": "pr_exists.needs_an_agent",
+   "spec": "pr.exists",
+   "about": "A call without an agent is -32602 bad_request naming the field.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "pr.exists",
+      "params": {
+       "numbers": [
+        1
+       ]
+      }
+     },
+     "error": {
+      "code": -32602,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "bad_request",
+       "field": "agent"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "pr_exists.unknown_agent_is_not_found",
+   "spec": "pr.exists",
+   "about": "An agent that does not exist is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "pr.exists",
+      "params": {
+       "agent": "no-such-agent",
+       "numbers": [
+        1
+       ]
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

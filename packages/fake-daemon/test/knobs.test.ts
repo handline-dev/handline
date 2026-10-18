@@ -67,7 +67,7 @@ test('chat: messages come back newest first with a flag for more, and the transc
   client.close();
 });
 
-test('chat: a send lands one step at a time on the chat topic, and ends answered', async () => {
+test('chat: a send lands one step at a time on the chat topic', async () => {
   const { client, daemon } = setup();
   await client.start();
   await client.subscribe(['chat']);
@@ -77,21 +77,9 @@ test('chat: a send lands one step at a time on the chat topic, and ends answered
   });
   const { request } = await client.call('chat.send', { agent: ARCH, body: 'hi' });
   daemon.settle();
-  await until(() => seen.includes('answered'), 'the answer');
-  assert.deepEqual(seen, ['queued', 'typed', 'delivered', 'answered']);
+  await until(() => seen.includes('delivered'), 'the landing');
+  assert.deepEqual(seen, ['queued', 'typed', 'delivered']);
   assert.ok(request > 0);
-  client.close();
-});
-
-test('chat: dismiss only once', async () => {
-  const { client, daemon } = setup();
-  await client.start();
-  daemon.chat.ask(ARCH, 'which?', 'web-test');
-  const ask = (await client.call('chat.messages', { agent: ARCH, scope: 'mine' })).messages.find(
-    (x) => x.kind === 'question' && !x.answer,
-  )!;
-  await client.call('chat.dismiss', { request: ask.id });
-  await assert.rejects(client.call('chat.dismiss', { request: ask.id }), (e: RpcError) => e.code === 'refused');
   client.close();
 });
 

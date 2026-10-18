@@ -1,0 +1,140 @@
+package main
+
+import (
+	"os"
+	"reflect"
+	"strings"
+	"testing"
+)
+
+func TestWithdrawReadAndInboxAnswerWithoutPython(t *testing.T) {
+	r := agentsRig(t)
+	calls := r.daemon(map[string]string{
+		"request.withdraw": `{"accepted":true,"said":"#7 withdrawn"}`,
+		"request.read": `{"id":7,"requester":"a.one","target":"b.two","kind":"say","state":"landed","created":"2026-10-16T00:00:00Z","parent":null,
+			"relation":"peer","response":"fire_and_forget","chain_depth":0,"body":"hello","answer":"fine","dismissal":null,"parts":[]}`,
+		"inbox.queue": `{"newest":9,"head":{"id":9,"requester":"a.one","chain_depth":1,"body":"do it","more_waiting_line":"","how_to_close":"answer with hl say"},"history":[]}`,
+	})
+	if out, _, code := r.run(asAgent, "withdraw", "7", "--reason", "oops"); code != 0 || out != "#7 withdrawn\n" {
+		t.Errorf("withdraw: %d %q", code, out)
+	}
+	out, _, code := r.run(asAgent, "read", "7")
+	if code != 0 || !strings.Contains(out, "#7  a.one → b.two  say  landed") || !strings.Contains(out, "hello") ||
+		!strings.Contains(out, "--- answered by b.two ---\nfine") {
+		t.Errorf("read: %d %q", code, out)
+	}
+	out, _, code = r.run(asAgent, "inbox")
+	if code != 0 || !strings.Contains(out, "#9 from a.one  depth=1\n\ndo it\n") {
+		t.Errorf("inbox: %d %q", code, out)
+	}
+	want := []string{`request.withdraw {"id":7,"reason":"oops"}`, `request.read {"id":7,"wait_s":0}`,
+		`inbox.queue {"all":false,"whose":"a.one"}`, `inbox.mark_read {"ids":[9]}`}
+	if got := sent(calls()); !reflect.DeepEqual(got, want) {
+		t.Errorf("calls\n got  %v\n want %v", got, want)
+	}
+}
+
+func TestHrProposesThroughTheDaemonAndTakesOneBack(t *testing.T) {
+	r := agentsRig(t)
+	calls := r.daemon(map[string]string{"hr.propose": `{"accepted":true,"proposal":3,"said":"proposal 00000003 raised."}`,
+		"hr.withdraw": `{"accepted":true,"said":"proposal 0000000a withdrawn"}`})
+	file := r.home + "/role.md"
+	if err := os.WriteFile(file, []byte("the role"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"hr", "add", "c.three", "--why", "w", "--repo", "/r", "--effort", "high"},
+		{"hr", "retire", "c.three", "--why", "w"},
+		{"hr", "link", "a.one", "b.two", "--why", "w"},
+		{"hr", "context", "b.two", "--role-file", file, "--why", "w"},
+		{"hr", "withdraw", "a"},
+	} {
+		if out, errs, code := r.run(asAgent, args...); code != 0 || errs != "" || out == "" {
+			t.Errorf("%v: %d %q %q", args, code, out, errs)
+		}
+	}
+	want := []string{
+		`hr.propose {"args":{"effort":"high","name":"c.three","repo":"/r"},"kind":"add","why":"w"}`,
+		`hr.propose {"args":{"name":"c.three"},"kind":"retire","why":"w"}`,
+		`hr.propose {"args":{"name":"a.one","to":"b.two"},"kind":"link","why":"w"}`,
+		`hr.propose {"args":{"name":"b.two","sets":{"ROLE.md":"the role"}},"kind":"context","why":"w"}`,
+		`hr.withdraw {"proposal":10}`,
+	}
+	if got := sent(calls()); !reflect.DeepEqual(got, want) {
+		t.Errorf("calls\n got  %v\n want %v", got, want)
+	}
+}
+
+func TestAPortedVerbRefusesWhatItDoesNotParseInsteadOfRunningPython(t *testing.T) {
+	r := agentsRig(t)
+	r.daemon(nil)
+	for _, args := range [][]string{{"say", "--bogus"}, {"task"}, {"task", "new", "--bogus"}, {"read"}, {"hr", "approve"}, {"team", "extra"}} {
+		out, errs, code := r.run(asAgent, args...)
+		if code != 2 || strings.Contains(out+errs, "python") || !strings.Contains(errs, "arguments not understood") {
+			t.Errorf("%v: %d %q %q", args, code, out, errs)
+		}
+	}
+}
+
+func TestHrRenameTeamAndDiffGoThroughTheDaemon(t *testing.T) {
+	r := agentsRig(t)
+	calls := r.daemon(map[string]string{"hr.propose": `{"accepted":true,"proposal":3,"said":"proposal 00000003 raised."}`})
+	if err := os.WriteFile(r.home+"/role.md", []byte("the role"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diff := "changes:\n  - kind: rename\n    name: a.one\n    to: a.uno\n  - kind: context\n    name: b.two\n    role_file: " + r.home + "/role.md\n"
+	if err := os.WriteFile(r.home+"/diff.yaml", []byte(diff), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"hr", "rename", "a.one", "--to", "a.uno", "--why", "w"},
+		{"hr", "team", "zed", "--member", "sea=/s", "--member", "air", "--repo", "/r", "--why", "w"},
+		{"hr", "diff", "--file", r.home + "/diff.yaml", "--why", "w"},
+	} {
+		if out, errs, code := r.run(asAgent, args...); code != 0 || errs != "" || out == "" {
+			t.Errorf("%v: %d %q %q", args, code, out, errs)
+		}
+	}
+	want := []string{
+		`hr.propose {"args":{"name":"a.one","to":"a.uno"},"kind":"rename","why":"w"}`,
+		`hr.propose {"args":{"members":["sea","air"],"name":"zed","repo":"/r","repos":{"zed":"/r","zed.sea":"/s"}},"kind":"team","why":"w"}`,
+		`hr.propose {"args":{"changes":[{"kind":"rename","name":"a.one","to":"a.uno"},{"kind":"context","name":"b.two","sets":{"ROLE.md":"the role"}}],"name":"2 changes"},"kind":"bundle","why":"w"}`,
+	}
+	if got := sent(calls()); !reflect.DeepEqual(got, want) {
+		t.Errorf("calls\n got  %v\n want %v", got, want)
+	}
+	for _, args := range [][]string{{"hr", "rename", "a.one", "--why", "w"}, {"hr", "team", "zed", "--why", "w"}} {
+		if _, errs, code := r.run(asAgent, args...); code != 2 || !strings.Contains(errs, "arguments not understood") {
+			t.Errorf("%v: %d %q", args, code, errs)
+		}
+	}
+}
+
+// The founder approves a proposal with the subject hr.list showed, and rejects one with a reason; an agent's session is refused and calls
+// nothing.
+func TestHrApproveAndRejectAreTheFoundersAndRefusedToAnAgent(t *testing.T) {
+	r := agentsRig(t)
+	calls := r.daemon(map[string]string{"hr.list": `{"proposals":[{"id":4085,"subject":"d1g3st","state":"open"}]}`,
+		"hr.decide": `{"accepted":true,"said":"proposal 00000ff5 applied"}`})
+	if out, errs, code := r.run(nil, "hr", "approve", "ff5"); code != 0 || errs != "" || out != "proposal 00000ff5 applied\n" {
+		t.Errorf("approve: %d %q %q", code, out, errs)
+	}
+	if _, errs, code := r.run(nil, "hr", "reject", "ff5", "not", "now"); code != 0 || errs != "" {
+		t.Errorf("reject: %d %q", code, errs)
+	}
+	if out, _, code := r.run(nil, "hr", "approve", "abc"); code != 1 || out != "no proposal abc waits on you\n" {
+		t.Errorf("unknown: %d %q", code, out)
+	}
+	want := []string{`hr.list {}`, `hr.decide {"decision":"approve","proposal":4085,"subject":"d1g3st"}`,
+		`hr.decide {"decision":"reject","note":"not now","proposal":4085}`, `hr.list {}`}
+	if got := sent(calls()); !reflect.DeepEqual(got, want) {
+		t.Errorf("calls\n got  %v\n want %v", got, want)
+	}
+	out, _, code := r.run(asAgent, "hr", "approve", "ff5")
+	if code != 1 || !strings.HasPrefix(out, "refused: proposal ff5 is the founder's to decide, in the app's HR tab or with `hl hr approve ff5`") {
+		t.Errorf("agent: %d %q", code, out)
+	}
+	if got := sent(calls()); len(got) != len(want) {
+		t.Errorf("an agent's approve calls nothing: %v", got)
+	}
+}

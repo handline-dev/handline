@@ -37,6 +37,8 @@ export function makeApi(ipc: Ipc, zoom: () => number = () => 1): ShellApi {
     openPath: (a) => call(CHANNELS.openPath, a),
     compose: (a) => call(CHANNELS.compose, a ?? {}),
     cancelCompose: () => call(CHANNELS.cancelCompose),
+    captureWindows: () => call(CHANNELS.captureWindows),
+    captureWindow: (a) => call(CHANNELS.captureWindow, a),
     mode: () => call(CHANNELS.mode),
     setMode: (m) => call(CHANNELS.setMode, m),
     phone: () => call(CHANNELS.phone),
@@ -46,6 +48,8 @@ export function makeApi(ipc: Ipc, zoom: () => number = () => 1): ShellApi {
       cb(full);
       return () => void fullListeners.delete(cb);
     },
+    settingsGet: (a) => call(CHANNELS.settingsGet, a ?? {}),
+    settingsSet: (a) => call(CHANNELS.settingsSet, a),
     onNavigate(cb) {
       listener = cb;
       if (waiting) {

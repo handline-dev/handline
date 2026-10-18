@@ -2,13 +2,19 @@ package lifecycle
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
+	"github.com/handline/handline/go/internal/term"
 )
 
 func TestStartForWorkNeedsARepoARoomAndCountsFailuresUntilItStalls(t *testing.T) {
@@ -59,6 +65,10 @@ func TestWakeAgentLockedWakesWithoutTakingTheTerminal(t *testing.T) {
 	ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true})
 	if err != nil || !ok || said != "relaunched with the wake prompt" || len(tm.relaunched) != 1 {
 		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	// The relaunch typed into the pane marks the worktree trusted too.
+	if sp := m.Spawn.(*fakeSpawn); !slices.Equal(sp.trusted, []string{"a@/wt"}) {
+		t.Fatalf("trusted %v", sp.trusted)
 	}
 }
 
@@ -320,6 +330,26 @@ func TestAColdResumeOntoAFullAccountMovesToTheSlowestPacedOne(t *testing.T) {
 	}
 }
 
+func TestAColdWakeIsHandedWhatWokeItAsItsFirstPrompt(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1") // no activity on record: its cache is cold
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if len(tm.relaunched) != 1 || strings.Contains(tm.relaunched[0], "--resume") {
+		t.Fatalf("one fresh launch: %q", tm.relaunched)
+	}
+	text, _ := os.ReadFile(filepath.Join(m.Home, "wake", "a.txt"))
+	if !strings.HasSuffix(string(text), "\n\nHere is your request.") {
+		t.Fatalf("not left for a first turn spent on the handoff: %q", text)
+	}
+	if len(d.told) != 1 || d.told[0] != "" {
+		t.Fatalf("told once, to the new session: %q", d.told)
+	}
+}
+
 func TestAColdResumeWithNowhereToGoWaitsForItsSlot(t *testing.T) {
 	m, d, tm := newManager(t)
 	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
@@ -429,5 +459,168 @@ func TestAResumeThatComesUpAfterTheWaitIsNotLaunchedOverFresh(t *testing.T) {
 	ok, said, _ := m.WakeAgent("a", WakeOpts{Force: true})
 	if !ok || len(tm.relaunched) != 1 {
 		t.Fatalf("%v %q launches %v", ok, said, tm.relaunched)
+	}
+}
+
+func TestARelaunchIsToldAsALaunchOnceItsLineIsTyped(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	var told []string
+	m.OnLaunch = func(agent string) {
+		if _, _, ok, _ := db.LastEvent(m.Q, agent, "launching"); !ok {
+			t.Error("told before the launching event was recorded")
+		}
+		told = append(told, agent)
+	}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if len(told) != 1 || told[0] != "a" {
+		t.Fatalf("told %q", told)
+	}
+}
+
+// firstTurn is a terminal host where a launch typed at a shell draws a session that is mid-turn until done closes: the turn a woken
+// session runs on its wake prompt.
+type firstTurn struct {
+	mu       sync.Mutex
+	launched map[string]bool
+	done     chan struct{}
+}
+
+func (*firstTurn) Name() string                   { return "fake" }
+func (*firstTurn) Available() bool                { return true }
+func (*firstTurn) ListTerminals() map[string]bool { return map[string]bool{"t1": true, "t2": true} }
+func (f *firstTurn) ReadScreen(handle string, _ int) *term.Screen {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.launched[handle] {
+		return &term.Screen{Tail: []string{"~/work $ "}, Source: "screen"}
+	}
+	rule := strings.Repeat("─", 60)
+	return &term.Screen{Tail: []string{"✻ Working… (esc to interrupt)", rule, "│ > │", rule}, Source: "screen"}
+}
+func (f *firstTurn) Send(handle, _ string, enter bool) (bool, string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if enter {
+		f.launched[handle] = true
+	}
+	return true, ""
+}
+func (f *firstTurn) WaitIdle(string, int, func([]string) bool) bool { <-f.done; return true }
+
+// hostRelaunch is fakeTerm with the real Relaunch, over a host of the test's own.
+type hostRelaunch struct {
+	*fakeTerm
+	t *term.Term
+}
+
+func (h hostRelaunch) Relaunch(handle, cmd string, started func() bool) (bool, string) {
+	return h.t.Relaunch(handle, cmd, started)
+}
+
+func TestASecondClosedAgentIsWokenWhileTheFirstOnesFirstTurnRuns(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt = "Here is your request.", true
+	host := &firstTurn{launched: map[string]bool{}, done: make(chan struct{})}
+	defer close(host.done)
+	tt := term.New(host, nil)
+	tt.Sleep = func(time.Duration) {}
+	m.Term = hostRelaunch{tm, tt}
+	db.SetTerminal(m.Q, "a", "t1", "/wt/a")
+	db.SetTerminal(m.Q, "b", "t2", "/wt/b")
+	db.SetClosed(m.Q, "a", "sess-a")
+	db.SetClosed(m.Q, "b", "sess-b")
+	woke := make(chan string, 2)
+	go func() {
+		for _, agent := range []string{"a", "b"} {
+			if ok, said, err := m.WakeAgentLocked(agent, WakeOpts{Force: true}); !ok || err != nil {
+				woke <- agent + ": " + said
+				return
+			}
+			woke <- agent
+		}
+	}()
+	for _, want := range []string{"a", "b"} {
+		select {
+		case got := <-woke:
+			if got != want {
+				t.Fatalf("woke %q, want %q", got, want)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s's wake waited on a first turn", want)
+		}
+	}
+	if len(d.told) != 2 {
+		t.Fatalf("each told once: %q", d.told)
+	}
+}
+
+// tryTyping is the terminal lock as it is: whoever holds it, nobody else gets it until it is released.
+type tryTyping struct{ mu sync.Mutex }
+
+func (l *tryTyping) TakeTerminal(string) (func(), bool) {
+	if !l.mu.TryLock() {
+		return nil, false
+	}
+	return l.mu.Unlock, true
+}
+
+// slowSpawn opens a terminal whose session is slow to come up: StartIn waits on up, then says no session ran in time.
+type slowSpawn struct {
+	fakeSpawn
+	q      db.Q
+	up     chan struct{}
+	mu     sync.Mutex
+	opened []string
+}
+
+func (s *slowSpawn) StartIn(agent, wt, _ string) (bool, string, error) {
+	s.mu.Lock()
+	handle := "%" + strconv.Itoa(len(s.opened)+1)
+	s.opened = append(s.opened, handle)
+	s.mu.Unlock()
+	db.SetTerminal(s.q, agent, handle, wt)
+	<-s.up
+	return false, agent + ": started in " + wt + " (terminal " + handle + ")\n  but no session is running in it after 20s", nil
+}
+
+// Seen live: every message waiting for a closed agent asked for a start while the first one's session was still coming up, each opened a
+// terminal of its own, and three slow starts stalled an agent that came up after all.
+func TestASlowStartOpensOneTerminalWhoeverElseAsksMeanwhile(t *testing.T) {
+	m, _, _ := newManager(t)
+	m.Agents = fakeAgents{repo: "/repo"}
+	sp := &slowSpawn{q: m.Q, up: make(chan struct{})}
+	m.Spawn, m.Typing = sp, &tryTyping{}
+	db.AddPending(m.Q, "a", "x", 1)
+	db.SetAgentState(m.Q, "a", states.Idle, 0, "")
+	db.SetTerminal(m.Q, "a", "", "/wt-a")
+	first := make(chan string)
+	go func() { said, _ := m.StartForWork("a"); first <- said }()
+	for {
+		sp.mu.Lock()
+		n := len(sp.opened)
+		sp.mu.Unlock()
+		if n == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	for range 2 {
+		if said, _ := m.StartForWork("a"); said != "a: a start or wake is under way - not starting twice" {
+			t.Fatalf("a second start while the first comes up: %q", said)
+		}
+	}
+	close(sp.up)
+	<-first
+	if said, _ := m.StartForWork("a"); said != "a: started already - not starting twice" {
+		t.Fatalf("a start after the first opened its terminal: %q", said)
+	}
+	row, _ := db.GetAgentState(m.Q, "a")
+	if len(sp.opened) != 1 || row.State == states.Stalled || row.WakeFailures != 1 {
+		t.Fatalf("one terminal and no stall: %v %+v", sp.opened, row)
 	}
 }

@@ -10,7 +10,6 @@ import { MyTurnPage } from './MyTurn.tsx';
 import { SettingsPage } from './Settings.tsx';
 import { AdminPage } from './Admin.tsx';
 import { DebugTerminals } from './debug/DebugTerminals.tsx';
-import { StatsPage } from './Stats.tsx';
 import {
   useAccountsRoute,
   useDebugRoute,
@@ -36,6 +35,7 @@ import { DaemonDown } from './DaemonDown.tsx';
 import { HrBanner } from './HrBanner.tsx';
 import { terminalOwnsKey } from './terminal/core.ts';
 import { StatusBar } from './StatusBar.tsx';
+import { CaptureHost } from './Capture.tsx';
 import { TasksPage } from './Tasks.tsx';
 import { AgentWorkspace } from './Workspace.tsx';
 
@@ -124,6 +124,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   return (
     <FoldedControls.Provider value={railOpen ? null : { show: toggle }}>
     <div className="frame flex h-screen flex-col">
+      <CaptureHost />
       <div id="app" data-rail={railOpen ? 'open' : 'closed'} style={{ '--rail-w': `${railW}px` } as React.CSSProperties}>
         {railOpen ? (
           <>
@@ -154,16 +155,14 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             <Worktrees path={worktrees.path} storage={storage} />
           ) : inbox.open ? (
             <InboxPage item={inbox.item} />
-          ) : accounts.open ? (
+          ) : accounts.open || page === 'stats' ? (
             <AccountsPage name={accounts.name} />
           ) : tasks !== null ? (
-            <TasksPage storage={storage} route={tasks} />
+            <TasksPage route={tasks} />
           ) : page === 'my-turn' ? (
             <MyTurnPage />
-          ) : page === 'stats' ? (
-            <StatsPage />
           ) : page === 'settings' ? (
-            <SettingsPage />
+            <SettingsPage storage={storage} />
           ) : page === 'admin' ? (
             <AdminPage />
           ) : agent && settings ? (

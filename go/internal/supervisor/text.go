@@ -47,6 +47,14 @@ func taskOf(q db.Q, r *db.Request) *db.Task {
 	return nil
 }
 
+// emptyBody stands in for a request with no body: a task shows its title, anything else "(empty)".
+func emptyBody(q db.Q, r *db.Request) string {
+	if t := taskOf(q, r); t != nil && r.Kind.String == "task" {
+		return fmt.Sprintf("T%d (no body) Title: %s", t.ID, t.Title)
+	}
+	return "(empty)"
+}
+
 // AnswerVerb is how the agent answers what it was just told: a task is handed on or finished; the founder is answered through ocp;
 // another agent's request by a reply that names it; a say or a report asks nothing.
 func answerVerb(q db.Q, head *db.Request) string {
@@ -152,7 +160,7 @@ func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 	var shown string
 	tid, _, title, note, isHandoff := HandoffParts(head.Body)
 	if head.Kind.String == "task" && isHandoff {
-		note = textsafe.Oneline(note)
+		note = textsafe.Lines(note)
 		if note == "" {
 			note = "(no note)"
 		}
@@ -160,14 +168,26 @@ func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 		if utf8.RuneCountInString(title) > TitleShown {
 			title = strings.TrimRight(string([]rune(title)[:TitleShown]), " \t\n\r\v\f") + "…"
 		}
-		shown = fmt.Sprintf("T%d handed to you. Note: %s Title: %s", tid, note, title)
+		sep := " " // after a note of several lines, the title gets a line of its own
+		if strings.Contains(note, "\n") {
+			sep = "\n"
+		}
+		shown = fmt.Sprintf("T%d handed to you. Note: %s%sTitle: %s", tid, note, sep, title)
 	} else {
-		body := strings.TrimSpace(textsafe.Oneline(head.Body))
+		body := strings.TrimSpace(textsafe.Lines(head.Body))
 		if body == "" && images == "" {
-			body = "(empty)"
+			body = emptyBody(q, head)
+		}
+		digest := head.Requester == db.NoticeRequester && strings.HasPrefix(body, db.DigestHead)
+		if digest { // a line per notice, as DigestText wrote it
+			lines := strings.Split(strings.TrimSpace(head.Body), "\n")
+			for i, l := range lines {
+				lines[i] = textsafe.Oneline(l)
+			}
+			body = strings.Join(lines, "\n")
 		}
 		// A reply to an earlier request is a verdict or an answer: cut, it hides the verdict.
-		whole := head.ParentID.Valid || (head.Requester == db.NoticeRequester && strings.HasPrefix(body, db.DigestHead))
+		whole := head.ParentID.Valid || digest
 		shown = body
 		if !whole && utf8.RuneCountInString(body) > 400 {
 			shown = string([]rune(body)[:400]) + "…"
@@ -222,8 +242,8 @@ func batchText(q db.Q, batch []*db.Request, folded []*db.Request, aheadOf *db.Re
 			text = fmt.Sprintf("T%d handed to you: %s - %s", tid, title, note)
 		} else {
 			text = r.Body
-			if text == "" {
-				text = "(empty)"
+			if strings.TrimSpace(text) == "" {
+				text = emptyBody(q, r)
 			}
 		}
 		text = strings.TrimSpace(textsafe.Oneline(text))
