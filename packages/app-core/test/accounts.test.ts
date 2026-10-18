@@ -60,9 +60,12 @@ test('headroom: amber from 90% or a stop before the reset, red from 95% or under
   assert.equal(headroom(null, null, now).tone, 'ok');
 });
 
-test('capacity averages the room left on accounts that can run, and is short with none', () => {
+test('capacity averages the room left on accounts that can run, is short with none, and says nothing without a reading', () => {
   const w = (used_pct: number) => ({ used_pct, resets_at: null, source: 'measured' });
-  assert.deepEqual(capacityOf([acct({ five_hour: w(13) })]), { word: 'plenty', left: 87 });
-  assert.equal(capacityOf([acct({ five_hour: w(70) }), acct({ five_hour: w(60) })]).word, 'tight');
-  assert.equal(capacityOf([acct({ five_hour: w(100) }), acct({ login_state: 'needs_login' })]).word, 'short');
+  const word = (list: Account[]) => capacityOf(list)?.word;
+  assert.equal(capacityOf([acct({ five_hour: w(13) })])?.left, 87);
+  assert.equal(word([acct({ five_hour: w(13) })]), 'plenty');
+  assert.equal(word([acct({ five_hour: w(70) }), acct({ five_hour: w(60) })]), 'tight');
+  assert.equal(word([acct({ five_hour: w(100) }), acct({ login_state: 'needs_login' })]), 'short');
+  assert.equal(capacityOf([acct()]), null);
 });
