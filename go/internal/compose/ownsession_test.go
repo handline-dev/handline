@@ -43,4 +43,14 @@ func TestAnAgentFindsOnlyTheSessionInItsOwnPane(t *testing.T) {
 	if rec, _, found := p.terminalSession("bob", nil); found != sessionFound || rec.SessionID != "bob-session" {
 		t.Fatalf("bob found %q (%v)", rec.SessionID, found)
 	}
+	// Whose a session is cannot be told (the host names no pane process): in a shared worktree that is unknown, never the newest there.
+	ft.panePid = map[string]int{}
+	if rec, _, found := p.terminalSession("alice", nil); found != sessionUnknown {
+		t.Fatalf("with no pane to tell by, alice found %q (%v)", rec.SessionID, found)
+	}
+	// Alone in its worktree, the worktree still decides.
+	p.db.Exec("UPDATE agent_state SET worktree = ? WHERE agent = 'bob'", t.TempDir())
+	if rec, _, found := p.terminalSession("alice", nil); found != sessionFound || rec.SessionID != "bob-session" {
+		t.Fatalf("alone in its worktree: %q (%v)", rec.SessionID, found)
+	}
 }

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -76,7 +75,15 @@ func (p *Parts) terminalSession(agent string, live map[string]bool) (sessionRec,
 	if row.Account.String != "" { // the recorded account first: a session found there is the expected one
 		accts = append([]string{row.Account.String}, accts...)
 	}
-	result, mine := sessionNone, p.inPane(row.Terminal.String)
+	result := sessionNone
+	var mine func(pid int) bool
+	if p.worktreeShared(agent, wt) {
+		// Another agent works here too: a session counts only when it is told to be this agent's own.
+		var known bool
+		if mine, known = p.inPane(row.Terminal.String); !known {
+			return sessionRec{}, "", sessionUnknown
+		}
+	}
 	for _, acct := range accts {
 		dir, err := team.AccountConfigDir(p.home, acct)
 		if err != nil {
@@ -105,25 +112,38 @@ func alive(pid int) bool {
 	return err == nil || err == syscall.EPERM
 }
 
-// inPane is whether a process runs inside the terminal handle, read from the process table once, when first asked; nil when the host
-// cannot name the pane's process or the table cannot be read, and then the worktree alone decides.
-func (p *Parts) inPane(handle string) func(pid int) bool {
+// worktreeShared is whether another agent's row records wt as its worktree too.
+func (p *Parts) worktreeShared(agent, wt string) bool {
+	rows, err := db.AllAgentStates(p.db)
+	if err != nil {
+		return true // cannot tell: ownership is then required
+	}
+	for _, r := range rows {
+		if r.Agent != agent && sameDir(lifecycle.WorktreePath(r.Worktree.String), wt) {
+			return true
+		}
+	}
+	return false
+}
+
+// inPane is whether a process runs inside the terminal handle; known false when the host cannot name the pane's process or the process
+// table cannot be read.
+func (p *Parts) inPane(handle string) (mine func(pid int) bool, known bool) {
 	root := p.panePid(handle)
 	if root <= 0 {
-		return nil
+		return nil, false
 	}
-	var parent map[int]int
-	var once sync.Once
-	return func(pid int) bool {
-		once.Do(func() { parent = parents() })
-		return parent == nil || under(parent, pid, root)
+	parent := parents()
+	if parent == nil {
+		return nil, false
 	}
+	return func(pid int) bool { return under(parent, pid, root) }, true
 }
 
 // sessionIn is the running session whose working directory is wt and, given mine, whose process is the agent's own; of several the newest
-// by updatedAt. Agents can share a worktree, and without mine one agent would take another's session for its own (and resume it). A
-// directory that cannot be listed, or a file under a live pid that cannot be read or parsed, makes the answer unknown unless a session is
-// found beside it.
+// by updatedAt. In a worktree agents share, mine keeps one agent from taking another's session for its own (and resuming it). A directory
+// that cannot be listed, or a file under a live pid that cannot be read or parsed, makes the answer unknown unless a session is found
+// beside it.
 func sessionIn(dir, wt string, mine func(pid int) bool) (sessionRec, lookup) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
