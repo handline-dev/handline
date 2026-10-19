@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { type RpcError } from '@handline/client';
 import { setup } from '../src/helpers.ts';
 
 test('chat.locate takes a msg_ name or a bare hash and returns the transcript of its window', async () => {
@@ -21,4 +22,20 @@ test('chat.locate takes a msg_ name or a bare hash and returns the transcript of
     assert.equal(got.transcript_more_older, false);
     assert.equal(got.transcript_more_newer, false);
   }
+});
+
+test('chat.locate refuses a # name, a hash shorter than 6, and a hash two messages begin', async () => {
+  const { daemon, client } = setup();
+  await client.start();
+  const agent = 'locate.probe';
+  for (const ref of ['abcdef000001', 'abcdef000002']) daemon.chat.seed(agent, { body: ref, from: 'human', to: agent, ref });
+  for (const request of ['#12', 'msg_abcde', 'abcdef']) {
+    await assert.rejects(
+      client.call('chat.locate', { request }),
+      (e: RpcError) => /pull request|hex characters|ambiguous/.test(e.message),
+      request,
+    );
+  }
+  const got = await client.call('chat.locate', { request: 'msg_abcdef000002' });
+  assert.equal(got.message.body, 'abcdef000002');
 });

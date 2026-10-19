@@ -119,12 +119,18 @@ export class FakeChat {
     if (!t) this.threads.set(agent, (t = { items: [], working: { ...IDLE } }));
     return t;
   }
-  /** A message by its number, its msg_ name or a bare hash (a prefix of its ref). */
+  /** A message by its number, its msg_ name or a bare hash (6 to 12 hex characters of its ref), as requestref.Resolve reads them. */
   find(id: unknown): ChatMessage & { agent: string } {
-    const hash = typeof id === 'string' ? id.trim().toLowerCase().replace(/^msg_/, '') : '';
-    const m = this.messages.find((x) => x.id === id || (hash !== '' && x.ref?.startsWith(hash)));
-    if (!m) throw new ChatFailure('not_found', `no message ${String(id)}`);
-    return m;
+    let found = this.messages.filter((x) => x.id === id);
+    if (typeof id === 'string') {
+      const hash = id.trim().toLowerCase().replace(/^msg_/, '');
+      if (hash.startsWith('#')) throw new ChatFailure('bad_request', `${hash} is a pull request; a message is msg_<hash>`);
+      if (!/^[0-9a-f]{6,12}$/.test(hash)) throw new ChatFailure('bad_request', 'a message is msg_<hash>, or 6 to 12 hex characters of it');
+      found = this.messages.filter((x) => x.ref?.startsWith(hash));
+      if (found.length > 1) throw new ChatFailure('bad_request', `msg_${hash} is ambiguous: give more of the hash`);
+    }
+    if (!found.length) throw new ChatFailure('not_found', `no message ${String(id)}`);
+    return found[0];
   }
   change(m: ChatMessage & { agent: string }, patch: Partial<ChatMessage>) {
     Object.assign(m, patch, { state_at: this.now() });
