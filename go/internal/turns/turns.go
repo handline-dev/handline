@@ -44,12 +44,13 @@ func (t *Tracker) OnChange(f func(agent string)) {
 	t.mu.Unlock()
 }
 
-// Launched is told when a launch has begun at the agent's terminal: a session ended before it no longer says none runs there. Its view
-// is told, as Refresh tells it.
+// Launched is told when a launch has begun at the agent's terminal: a session ended before it no longer says none runs there, and the
+// old process's exit no longer ends it. Its view is told, as Refresh tells it.
 func (t *Tracker) Launched(agent string) {
 	t.mu.Lock()
 	if tr := t.agents[agent]; tr != nil {
 		tr.ended = false
+		tr.stopPid()
 	}
 	t.mu.Unlock()
 	t.Refresh(agent)
@@ -201,12 +202,12 @@ func (t *Tracker) hook(tr *turn, agent, event string, raw map[string]any, at int
 	if at < tr.at {
 		return
 	}
+	tr.ended = event == "SessionEnd" // any other hook is a session speaking
 	switch event {
 	case "SessionStart", "SessionEnd":
 		tr.stopWatch()
 		tr.at, tr.background, tr.bgKnown = at, nil, false
 		tr.set(Unknown)
-		tr.ended = event == "SessionEnd"
 	case "UserPromptSubmit":
 		tr.at = at
 		tr.set(Working)
@@ -326,8 +327,9 @@ func (t *Tracker) Settled(handle string) bool {
 	return tr != nil && tr.settled
 }
 
-// Session is whether a session runs at handle: known once SessionEnd or its process's exit said it ended, or while its process is
-// watched (whose exit is told at once). Otherwise known is false and the caller reads the screen.
+// Session is whether a session runs at handle: known while its process is watched (whose exit is told at once), or once SessionEnd or
+// that exit said it ended; a process that lives on after SessionEnd (/clear) still runs. Otherwise known is false and the caller reads
+// the screen.
 func (t *Tracker) Session(handle string) (running, known bool) {
 	agent := t.Agent(handle)
 	if agent == "" {
@@ -338,10 +340,10 @@ func (t *Tracker) Session(handle string) (running, known bool) {
 	switch tr := t.agents[agent]; {
 	case tr == nil:
 		return false, false
-	case tr.ended:
-		return false, true
 	case tr.pid != 0:
 		return true, true
+	case tr.ended:
+		return false, true
 	}
 	return false, false
 }
