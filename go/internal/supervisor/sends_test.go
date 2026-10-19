@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/db"
 )
@@ -275,5 +276,32 @@ func TestMemoEditAndDeleteAreForTheAuthorOrTheFounder(t *testing.T) {
 	}
 	if m, _ := db.GetMemo(r.DB, mid); m != nil {
 		t.Fatal("memo kept")
+	}
+}
+
+// The daemon closes the database, and a test its home, only once a telling started off the caller has ended.
+func TestWaitReturnsOnceTheTellingsOffTheCallerHaveEnded(t *testing.T) {
+	RunInline = false
+	t.Cleanup(func() { RunInline = true })
+	e := &Env{}
+	release, ended := make(chan struct{}), make(chan bool, 1)
+	e.background("a telling", func() {
+		<-release
+		ended <- true
+	})
+	waited := make(chan struct{})
+	go func() {
+		e.Wait()
+		close(waited)
+	}()
+	select {
+	case <-waited:
+		t.Fatal("Wait returned while the telling still ran")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	<-waited
+	if len(ended) != 1 {
+		t.Fatal("Wait returned before the telling ended")
 	}
 }

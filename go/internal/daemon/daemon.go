@@ -600,6 +600,9 @@ func (d *Daemon) Close() {
 		d.logins.Close()
 	}
 	d.wg.Wait()
+	if d.envMade != nil {
+		d.envMade.Wait()
+	}
 	d.pidFile.remove()
 	if d.single != nil {
 		d.single.Release()
