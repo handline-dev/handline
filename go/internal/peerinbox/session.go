@@ -1,6 +1,7 @@
 // Package peerinbox delivers a message to a running Claude Code terminal session through its peer inbox, a unix socket, without
 // typing into the terminal. The socket gives no reply and drops a message silently (a body equal to the last within 30 s, more
-// than a burst of 30, a refill of 0.5/s), so a send is only believed once the receiver's transcript shows it.
+// than a burst of 30, a refill of 0.5/s), so a send is only believed once the receiver's transcript shows it. Type, for the person's own
+// words, is the one delivery typed into the terminal, believed the same way.
 //
 // The session's key authenticates one line on the socket. It is read into memory for that line and is in no struct, error or log.
 package peerinbox

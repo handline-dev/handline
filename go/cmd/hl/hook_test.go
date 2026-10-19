@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/protected"
 	"github.com/handline/handline/go/internal/store"
@@ -119,6 +120,33 @@ func TestStopIsRefusedOncePerSessionWhileTheCurrentTaskHasNoWait(t *testing.T) {
 	}
 	if recorded != 1 {
 		t.Fatalf("the stop let through is recorded, the refused one is not: %d", recorded)
+	}
+}
+
+// The founder's message is reminded of at a stop, unless it was typed at the agent: then the daemon reads its reply from the transcript.
+func TestStopRemindsOfTheFoundersMessageUnlessItWasTyped(t *testing.T) {
+	r := hookRig(t, false)
+	r.daemon(nil)
+	d, err := store.Open(paths.DBFile(r.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Exec("INSERT INTO requests(id, ts, requester, target, body, kind, delivered_at) VALUES(5, 1, 'human', 'a.one', 'the code', 'say', 1)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetCursor(d, db.FounderTypedCursor(5), 1); err != nil {
+		t.Fatal(err)
+	}
+	stop := `{"hook_event_name": "Stop", "session_id": "s1"}`
+	if out, _, _ := r.runIn(stop, asAgent, "hook", "Stop"); out != "{}\n" {
+		t.Fatalf("a typed message is not reminded of: %q", out)
+	}
+	if _, err := d.Exec("INSERT INTO requests(id, ts, requester, target, body, kind, delivered_at) VALUES(6, 2, 'human', 'a.one', 'and this', 'say', 2)"); err != nil {
+		t.Fatal(err)
+	}
+	if out, _, _ := r.runIn(stop, asAgent, "hook", "Stop"); !strings.Contains(out, "may be waiting for an answer") {
+		t.Fatalf("one sent to the inbox is: %q", out)
 	}
 }
 
