@@ -48,6 +48,8 @@ type TimeboxPorts interface {
 	TaskDoing(q db.Q, t *db.Task) bool
 	// SupervisorOf is actions.supervisor_of(routing(), agent), "" when it has none.
 	SupervisorOf(agent string) string
+	// LeadOf is team.LeadOf: who a task in review waits on, "" when its assignee has no lead.
+	LeadOf(agent string) string
 	// StopWaitReason is actions.stop_wait_reason ("" for none).
 	StopWaitReason(q db.Q, agent string) string
 	// SendNotice is delivery.type_notice, sent through the session: true when the line was sent.
@@ -198,18 +200,22 @@ func shortTitle(title string) string {
 	return title
 }
 
-// remindReported is the clock of a task whose done waits on acceptance: it runs on from where the doing left it, and past it whoever the task
-// answers to is reminded, again every stretch until they accept or reject it. A task reported with its clock not running (before its
-// first tick, or paused on a wait) has it started here, so it is reminded too.
+// remindReported is the clock of a task in review: it runs on from where the doing left it, and past it who the review waits on (its
+// assignee's lead, else whoever it answers to) is reminded, again every stretch until they accept or reject it. A task reported with its
+// clock not running (before its first tick, or paused on a wait) has it started here, so it is reminded too. One accepted waits on its
+// PR's merge, not on anyone's accept: it is not reminded.
 func (b *Timebox) remindReported(t *Tick, row *db.Task, now int64) {
 	if !row.TimeoutAt.Valid {
 		check(db.AdvanceTaskTimeout(t.Q, row.ID, now, db.DefaultTaskTimeoutS))
 		return
 	}
-	if row.TimeoutAt.Int64 > now {
+	if row.TimeoutAt.Int64 > now || row.AcceptedBy.String != "" {
 		return
 	}
-	to := row.AnswersTo()
+	to := b.Ports.LeadOf(row.Owner)
+	if to == "" {
+		to = row.AnswersTo()
+	}
 	text := fmt.Sprintf("T%d (%s) was answered by %s and waits on you: accept it (`hl task accept T%d`), send it back (`hl task reject T%d \"<note>\"`) "+
 		"or take it back (`hl task handoff T%d %s \"<note>\"`).", row.ID, shortTitle(row.Title), row.Owner, row.ID, row.ID, row.ID, to)
 	b.note(t, to, text)

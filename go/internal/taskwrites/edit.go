@@ -250,6 +250,31 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 	return "", fmt.Sprintf("task T%d edited by %s: %s", tid, by, strings.Join(said, ", ")), nil
 }
 
+// setPR names the pull request an open task's work merges in: accepted, the task then waits on that PR's merge (acceptForMerge).
+func setPR(tx *sql.Tx, tid int64, by string, pr int64) (string, string, error) {
+	t, err := getTask(tx, tid)
+	if err != nil || t == nil {
+		return fmt.Sprintf("no task T%d", tid), "", err
+	}
+	if t.done() || t.DiscardedBy.String != "" {
+		return fmt.Sprintf("task T%d is already finished - its PR no longer matters", tid), "", nil
+	}
+	if t.PR.Int64 == pr {
+		return fmt.Sprintf("task T%d already names PR #%d - nothing to edit", tid, pr), "", nil
+	}
+	old := ""
+	if t.PR.Valid {
+		old = fmt.Sprintf("#%d", t.PR.Int64)
+	}
+	if _, err := tx.Exec("UPDATE tasks SET pr = ?, edited_by = ?, edited_at = ? WHERE id = ?", pr, by, db.Now(), tid); err != nil {
+		return "", "", err
+	}
+	if err := addEvent(tx, by, "edit_task", kv{"task_id", tid}, kv{"pr", rpc.Pairs{{K: "old", V: old}, {K: "new", V: fmt.Sprintf("#%d", pr)}}}); err != nil {
+		return "", "", err
+	}
+	return "", fmt.Sprintf("task T%d edited by %s: pr %s -> '#%d'", tid, by, pyRepr(old), pr), nil
+}
+
 // saidAs is how an edit's reply names a field: the owner column holds who works the task (its assignee), the reporter who answers for it
 // (its owner). The event keeps the column names.
 func saidAs(key string) string {
@@ -323,9 +348,17 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			return nil, err
 		}
 		hasTags := len(addTags) > 0 || len(removeTags) > 0
+		var pr int64
+		if p["pr"] != nil {
+			n, ok := rpc.AsInt(p["pr"])
+			if !ok || n <= 0 {
+				return nil, badParam("pr is a pull request number", "pr")
+			}
+			pr = n
+		}
 		fields := owner != nil || reporter != nil || title != nil || body != nil || timeoutS != nil || priority != nil
-		if !fields && !hasBlocker && !hasUnblock && !hasTags {
-			return nil, badParam("edit needs an owner, a reporter, a title, a priority, a body, a time_box, blocked_by, unblock, add_tags or remove_tags", "")
+		if !fields && !hasBlocker && !hasUnblock && !hasTags && pr == 0 {
+			return nil, badParam("edit needs an owner, a reporter, a title, a priority, a body, a time_box, blocked_by, unblock, add_tags, remove_tags or pr", "")
 		}
 		for _, who := range []*string{owner, reporter} {
 			if who != nil && *who != human && !contains(paths.ListAgents(home), *who) {
@@ -365,6 +398,17 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 					return nil, refusal(why)
 				}
 				msgs = append(msgs, msg)
+			}
+			if pr != 0 {
+				why, msg, err := setPR(tx, tid, me, pr)
+				if err != nil {
+					return nil, err
+				}
+				if why != "" {
+					return nil, refusal(why)
+				}
+				msgs = append(msgs, msg)
+				tellMsgs = append(tellMsgs, msg)
 			}
 			if hasBlocker {
 				why, err := recordBlock(tx, tid, blocker, me)

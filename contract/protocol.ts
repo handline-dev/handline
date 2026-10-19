@@ -275,7 +275,7 @@ export type Task = {
   from: string;
   to: string;
   title: string;
-  /** draft, queued, doing, answered (its owner's done waits on task.accept, task.reject or a reassign), done or discarded. */
+  /** draft, queued, doing, review (its assignee's done waits on task.accept, task.reject or a reassign, or, accepted with a PR, on that PR's merge), done or discarded. */
   state: string;
   time_box: Duration | null;
   parent: number | null;
@@ -327,12 +327,21 @@ export type Task = {
   waiting?: TaskWaiting | null;
   /** The task's clock, the same object task.get gives; null once it is done or discarded. Absent from a daemon that does not send it. */
   time?: TaskClock | null;
-  /** The done that waits on acceptance while the task is answered; null otherwise. Absent from a daemon that does not send it. */
+  /** The done in review while the task's state is review; null otherwise. Absent from a daemon that does not send it. */
   report?: {
     by: string;
     evidence: string;
     at: Timestamp;
+    /** Who the review waits on: the assignee's lead, else whoever it answers to; human once it is accepted with a PR (the founder's merge OK). Absent from a daemon that does not send it. */
+    waits_on?: string;
+    /** The accept of a task with a PR, which then waits on that PR's merge; null until then. Absent from a daemon that does not send it. */
+    accepted?: {
+      by: string;
+      at: Timestamp;
+    } | null;
   } | null;
+  /** The pull request its work merges in (task.edit pr); an accepted task with one closes at that merge. Absent from a daemon that does not send it. */
+  pr?: number | null;
 };
 
 /** Why a task waits (Task.waiting). */
@@ -858,7 +867,7 @@ export type ChatMessage = {
   } | null;
   /** Only on the message that tells an agent how the founder decided its HR proposal: that proposal's id, as hr.list gives it. A client that draws the decided proposal as a card can leave this line out. */
   proposal?: number;
-  /** One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task's state asks for one: answered, and it answers to the founder (Accept, Send back), or owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb. */
+  /** One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task's state asks for one: in review, and it answers to the founder (Accept, Send back), or owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb. */
   actions?: ChatAction[];
 };
 
@@ -1421,7 +1430,7 @@ export type HistoryRow = {
   at: Timestamp;
   /** Who made the change: an agent, or human. */
   by: string;
-  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, answered, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
+  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, review, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
   field: "title" | "assignee" | "owner" | "body" | "priority" | "timeout" | "state" | "tag" | "blocked_by" | "merged_into" | "memo";
   /** The value before; empty when there was none (a task just opened, a wait just added, a memo just added). */
   was: string;
@@ -1470,7 +1479,7 @@ export type Tag = string;
 export type TaskFilter = {
   /** Tasks that carry every one of these tags. */
   tags?: Tag[];
-  state?: "draft" | "queued" | "doing" | "answered" | "done" | "discarded";
+  state?: "draft" | "queued" | "doing" | "review" | "done" | "discarded";
   /** Who works the task (its assignee). */
   owner?: string;
   /** Who the task answers to (its asker: hl's --owner). */
@@ -2098,7 +2107,7 @@ export interface Methods {
   all?: boolean;
   /** Every team's tasks, not only the caller's and its reports'. */
   everyone?: boolean;
-  /** Only the tasks the caller holds that wait on it: queued or doing, never draft, answered or ended; the founder's are the ones assigned to human. One row per task. It takes no owner. */
+  /** Only the tasks the caller holds that wait on it: queued or doing, never draft, in review or ended; the founder's are the ones assigned to human. One row per task. It takes no owner. */
   my_turn?: boolean;
   /** Also count, over the last 30 days, the requests that ended with no reason and how tasks were closed (the `reason_gaps` of the result). It costs seconds on a large database: a screen that polls never asks. */
   reason_gaps?: boolean;
@@ -2337,6 +2346,8 @@ export interface Methods {
   /** Tags to remove; one it has not got is left as it is. */
   remove_tags?: Tag[];
   request_id: RequestId;
+  /** The pull request the task's work merges in (`hl task edit T<n> --pr <n>`), on an open task. Accepted, the task then waits on that PR's merge. */
+  pr?: number;
 }; result: Accepted };
   "task.ask": { params: {
   task: number;

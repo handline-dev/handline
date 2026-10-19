@@ -15,7 +15,7 @@ func TestTheFoundersDoneOnATaskSomeoneElseAskedLeavesItAnsweredWithThem(t *testi
 	if got := said(t, run("", "task.done", "d1", `,"task":1,"evidence":"merged"`)); got != "task T1 answered (merged); it stays with human until boss accepts it or takes it back" {
 		t.Fatal(got)
 	}
-	if st := taskState(t, sdb, 1); st != "answered" {
+	if st := taskState(t, sdb, 1); st != "review" {
 		t.Fatalf("state %s", st)
 	}
 	if count(t, sdb, "SELECT COUNT(*) FROM tasks WHERE id = 1 AND owner = 'human' AND report = 'merged' AND done_evidence IS NULL") != 1 {
@@ -32,7 +32,7 @@ func TestTheFoundersDoneOnATaskSomeoneElseAskedLeavesItAnsweredWithThem(t *testi
 	if count(t, sdb, "SELECT COUNT(*) FROM tasks WHERE id = 1 AND owner = 'boss' AND reported_at IS NULL AND report IS NULL") != 1 {
 		t.Fatal("the reassign clears the answer")
 	}
-	if st := taskState(t, sdb, 1); st == "answered" {
+	if st := taskState(t, sdb, 1); st == "review" {
 		t.Fatal("a task taken back is no longer answered")
 	}
 	if count(t, sdb, "SELECT COUNT(*) FROM events WHERE kind = 'task_handoff' AND agent = 'boss' AND json_extract(payload, '$.from') = 'human'") != 1 {

@@ -148,7 +148,7 @@ func TestTaskRefusalsBeforeAnyCall(t *testing.T) {
 		{asAgent, []string{"task", "handoff", "T3", "b.two", "n", "--file", "f"}, "give note inline or with --file, not both\n"},
 		{asAgent, []string{"task", "edit", "T3", "--owner", "b.two"}, "--owner is who answers for a task, not who works it, so it needs --assign too. To move the work:\n" +
 			"  hl task edit T3 --assign b.two\nTo change only who answers for it, name the assignee it keeps:\n  hl task edit T3 --owner b.two --assign <its assignee>\n"},
-		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, --timeout, --tag or --untag\n"},
+		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, --timeout, --tag, --untag or --pr\n"},
 		{asAgent, []string{"task", "memo", "T3", "add"}, "add takes the memo text\n"},
 		{asAgent, []string{"task", "memo", "T3", "delete", "4", "--now"}, "--now goes with add\n"},
 		{asAgent, []string{"task", "memo", "T3", "edit", "4"}, "edit takes the memo id, then the new text\n"},
@@ -186,25 +186,35 @@ func TestWhatTheTaskPortDoesNotParseIsRefused(t *testing.T) {
 	}
 }
 
-func TestAReportedTaskReadsAsAwaitingWhoItAnswersTo(t *testing.T) {
+func TestATaskInReviewReadsAsAwaitingWhoItWaitsOn(t *testing.T) {
 	r := agentsRig(t)
-	task := `"id":7,"title":"Fix it","state":"answered","to":"b.two","from":"a.one","asker":"c","priority":2,"parent":null,"hold_reason":"","mismatch":""`
+	task := `"id":7,"title":"Fix it","state":"review","to":"b.two","from":"a.one","asker":"c","priority":2,"parent":null,"hold_reason":"","mismatch":"","pr":12`
+	report := `"report":{"by":"b.two","evidence":"built","at":"2026-10-02T11:30:00Z","waits_on":"lead","accepted":null}`
+	get := func(report string) string {
+		return `{` + task + `,"created":"2026-10-01T10:00:00Z","time":null,"evidence":null,"done":null,"discarded":null,"body":"",` + report + `,"memos":[]}`
+	}
 	r.daemon(map[string]string{
-		"task.get": `{` + task + `,"created":"2026-10-01T10:00:00Z","time":null,"evidence":null,"done":null,"discarded":null,"body":"",
-			"report":{"by":"b.two","evidence":"built","at":"2026-10-02T11:30:00Z"},"memos":[]}`,
-		"tasks.list": `{"items":[{` + task + `,"evidence":null,"block_reason":"","last_activity":"2026-10-01T10:00:00Z","requests":[]}],"more":false}`,
-		"task.board": `{"mine":[{"task":{` + task + `},"now":{"kind":"none","tasks":[],"agents":[]}}],"reports":[]}`,
+		"task.get":   get(report),
+		"tasks.list": `{"items":[{` + task + `,` + report + `,"evidence":null,"block_reason":"","last_activity":"2026-10-01T10:00:00Z","requests":[]}],"more":false}`,
+		"task.board": `{"mine":[{"task":{` + task + `,` + report + `},"now":{"kind":"none","tasks":[],"agents":[]}}],"reports":[]}`,
 	})
-	show := "T7  Fix it\nstate answered, awaiting c   assignee b.two   owner c   opened by a.one   P2   created 2026-10-01 10:00\n" +
+	show := "T7  Fix it\nstate review, awaiting lead   assignee b.two   owner c   opened by a.one   P2   created 2026-10-01 10:00\n" +
 		"answered 2026-10-02 11:30: built\n\nbrief\n(none)\n"
 	if out, _, code := r.run(asAgent, "task", "show", "T7"); code != 0 || out != show {
 		t.Errorf("show: %d\n%q", code, out)
 	}
-	if out, _, _ := r.run(asAgent, "task", "list"); !strings.HasPrefix(out, "T7    Fix it  [b.two] answered, awaiting c  P2") {
+	if out, _, _ := r.run(asAgent, "task", "list"); !strings.HasPrefix(out, "T7    Fix it  [b.two] review, awaiting lead  P2") {
 		t.Errorf("list: %q", out)
 	}
-	if out, _, _ := r.run(asAgent, "task", "board"); out != "T7    Fix it\n      assignee b.two  owner c  now: answered, awaiting c\n" {
+	if out, _, _ := r.run(asAgent, "task", "board"); out != "T7    Fix it\n      assignee b.two  owner c  now: review, awaiting lead\n" {
 		t.Errorf("board: %q", out)
+	}
+	r.daemon(map[string]string{"task.get": get(`"report":{"by":"b.two","evidence":"built","at":"2026-10-02T11:30:00Z","waits_on":"human",` +
+		`"accepted":{"by":"lead","at":"2026-10-02T12:00:00Z"}}`)})
+	show = "T7  Fix it\nstate review, awaiting human   assignee b.two   owner c   opened by a.one   P2   created 2026-10-01 10:00\n" +
+		"answered 2026-10-02 11:30: built\naccepted 2026-10-02 12:00 by lead: closes when PR #12 merges\n\nbrief\n(none)\n"
+	if out, _, code := r.run(asAgent, "task", "show", "T7"); code != 0 || out != show {
+		t.Errorf("show accepted: %d\n%q", code, out)
 	}
 }
 
@@ -219,7 +229,7 @@ func TestTaskShowReadsAPausedClock(t *testing.T) {
 		{obj{"subtasks": held["subtasks"]}, "timeout paused: waiting on T8"},
 		{obj{}, "paused, 1h20m left"},
 		{obj{"to": "human"}, "timeout paused: waiting on human"},
-		{obj{"state": "answered", "from": "human"}, "timeout paused: waiting on human"},
+		{obj{"state": "review", "report": obj{"waits_on": "human"}}, "timeout paused: waiting on human"},
 		{obj{"blockers": []any{obj{"task": float64(9), "owner": "human"}}}, "timeout paused: waiting on T9 (human)"},
 	} {
 		if got := timeoutLines(box, 0, waitsOn(c.task)); len(got) != 2 || got[0] != "timeout 2h00m" || got[1] != c.want {

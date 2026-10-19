@@ -18,7 +18,7 @@ import (
 var shaLike = regexp.MustCompile(`^[0-9a-fA-F]{4,40}$`)
 
 // doneMethod is task.done (actions.mark_task_done): the owner's or the founder's call, with exactly one of a merge sha on main, a
-// request already answered, or a one-line fact. An assignee the task does not answer to, the founder included, files it as an answer for
+// request already answered, or a one-line fact. A done that needs a review (reviewer), the founder's included, files it as an answer for
 // task.accept.
 func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
@@ -179,11 +179,22 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		}
 		return nil, refusal(fmt.Sprintf("task T%d is already done (%s)", tid, t.DoneEvidence.String))
 	}
-	if by != t.Owner && by != human {
+	merged := t.AcceptedBy.String != "" && sha != "" // an accepted task closes at its PR's merge, by anyone who may review it
+	if merged && by != t.Owner && by != human {
+		ok, err := mayReview(home, by, t)
+		if err != nil {
+			return nil, err
+		}
+		merged = ok
+	}
+	if by != t.Owner && by != human && !merged {
 		return nil, refusal(fmt.Sprintf("task T%d can only be marked done by its owner (%s) or the founder", tid, t.Owner))
 	}
-	if t.reported() && by != human {
-		return nil, refusal(fmt.Sprintf("task T%d is already answered (%s) and waits on %s to accept, reject or take it back", tid, t.Report.String, t.reporter()))
+	if t.reported() && by != human && !merged {
+		if t.AcceptedBy.String != "" {
+			return nil, refusal(fmt.Sprintf("task T%d is accepted by %s and closes when PR #%d merges: mark it done with the merge sha", tid, t.AcceptedBy.String, t.PR.Int64))
+		}
+		return nil, refusal(fmt.Sprintf("task T%d is already answered (%s) and is in review - accept, reject or take it back", tid, t.Report.String))
 	}
 	var mark, via string
 	switch {
@@ -237,9 +248,14 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The founder's done on a task they hold that someone else asked is an answer too; on any other task it is the founder's close.
-	if by != t.reporter() && by != t.OpenedBy && (by != human || t.Owner == human && !t.reported() && !in.Close) {
-		return fileReport(tx, by, t, mark, via, from, result, finalize)
+	if !merged {
+		to, err := reviewer(home, by, t, in.Close)
+		if err != nil {
+			return nil, err
+		}
+		if to != "" {
+			return fileReport(tx, by, to, t, mark, via, from, result, finalize)
+		}
 	}
 	won, err := db.MarkTaskDone(tx, tid, mark, via)
 	if err != nil {

@@ -417,6 +417,30 @@ func (t *Team) ManagerOf(agent string) string {
 	return ""
 }
 
+// LeadOf is who agent answers to: its team's manager, else its supervisor; "" for none.
+func (t *Team) LeadOf(agent string) string {
+	if t == nil {
+		return ""
+	}
+	if m := t.ManagerOf(agent); m != "" {
+		return m
+	}
+	return t.SupervisorOf(agent)
+}
+
+// AuditorOf is the auditor of agent's team, the member named like the team plus ".auditor"; "" when it has none.
+func (t *Team) AuditorOf(agent string) string {
+	if t == nil {
+		return ""
+	}
+	for _, name := range t.teamOrder {
+		if a := name + ".auditor"; contains(t.Teams[name], agent) && contains(t.Teams[name], a) {
+			return a
+		}
+	}
+	return ""
+}
+
 func sp(s string) *string { return &s }
 
 // DefaultLink is the link the default links give this pair, or nil.

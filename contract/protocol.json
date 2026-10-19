@@ -4675,7 +4675,7 @@
      "required": false,
      "schema": {
       "type": "boolean",
-      "description": "Only the tasks the caller holds that wait on it: queued or doing, never draft, answered or ended; the founder's are the ones assigned to human. One row per task. It takes no owner."
+      "description": "Only the tasks the caller holds that wait on it: queued or doing, never draft, in review or ended; the founder's are the ones assigned to human. One row per task. It takes no owner."
      }
     },
     {
@@ -5091,7 +5091,7 @@
      "$ref": "#/components/errors/not_found"
     }
    ],
-   "description": "Anyone may hand an open task on, not only its owner (the asker takes an answered task back so); the move clears an answer, and task.history's row names who made it (by)."
+   "description": "Anyone may hand an open task on, not only its owner (the asker takes a task in review back so); the move clears an answer and an accept, and task.history's row names who made it (by)."
   },
   {
    "name": "task.done",
@@ -5189,7 +5189,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner, when the task answers to someone else (its reporter, or its opener), does not close it: the task turns answered, stays with its owner, and waits for task.accept, task.reject or a reassign by anyone (task.handoff, task.edit). The founder's done on a task they hold that someone else asked is an answer too. A done by an owner the task answers to, or the founder's on a task they do not hold (or one already answered), closes it at once. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`."
+   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner goes to review when the task answers to someone else (its reporter, or its opener) and the owner has a lead (its team's manager, else its supervisor): the task turns review, stays with its owner, and waits for task.accept, task.reject or a reassign by anyone (task.handoff, task.edit), its lead told. A done by an owner the task answers to, by its team's auditor (named like the team plus .auditor) or by an owner with no lead closes it at once; so does the founder's, except on a task they hold that someone else asked, which waits on that asker. A task accepted with a PR closes with a done whose evidence is the merge sha on main, by its owner, the founder or anyone who may accept it. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`."
   },
   {
    "name": "task.accept",
@@ -5239,7 +5239,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "The task must be answered (an owner it does not answer to ran task.done). Only whoever it answers to, its opener or the founder may accept. It closes with the report as its evidence; the owner is told. With by_founder a lead records the founder's chat OK instead of asking for a second tap (`hl task accept T<n> --by-founder <message id>`); the message id is kept in the task's accept_task event."
+   "description": "The task must be in review. Its assignee's lead or its team's auditor, its reporter, its opener or the founder may accept. It closes with the report as its evidence and the owner is told; a task with a PR (task.edit pr) is accepted instead and stays in review, waiting on that PR's merge (a second accept is refused). With by_founder the founder's chat OK is checked and kept in the task's accept_task event (`hl task accept T<n> --by-founder <message id>`)."
   },
   {
    "name": "task.reject",
@@ -5289,7 +5289,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "The task must be answered. Only whoever it answers to, its opener or the founder may reject. The report and its commit and shots are dropped, the task is queued again for its owner, and the note is told to the owner."
+   "description": "The task must be in review, accepted or not. Its assignee's lead or its team's auditor, its reporter, its opener or the founder may reject. The report (and an accept) and its commit and shots are dropped, the task is queued again for its owner, and the note is told to the owner."
   },
   {
    "name": "task.reopen",
@@ -6410,6 +6410,14 @@
      "required": true,
      "schema": {
       "$ref": "#/components/schemas/RequestId"
+     }
+    },
+    {
+     "name": "pr",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "The pull request the task's work merges in (`hl task edit T<n> --pr <n>`), on an open task. Accepted, the task then waits on that PR's merge."
      }
     }
    ],
@@ -9914,7 +9922,7 @@
      },
      "state": {
       "type": "string",
-      "description": "draft, queued, doing, answered (its owner's done waits on task.accept, task.reject or a reassign), done or discarded."
+      "description": "draft, queued, doing, review (its assignee's done waits on task.accept, task.reject or a reassign, or, accepted with a PR, on that PR's merge), done or discarded."
      },
      "time_box": {
       "oneOf": [
@@ -10176,6 +10184,33 @@
          },
          "at": {
           "$ref": "#/components/schemas/Timestamp"
+         },
+         "waits_on": {
+          "type": "string",
+          "description": "Who the review waits on: the assignee's lead, else whoever it answers to; human once it is accepted with a PR (the founder's merge OK). Absent from a daemon that does not send it."
+         },
+         "accepted": {
+          "oneOf": [
+           {
+            "type": "object",
+            "properties": {
+             "by": {
+              "type": "string"
+             },
+             "at": {
+              "$ref": "#/components/schemas/Timestamp"
+             }
+            },
+            "required": [
+             "by",
+             "at"
+            ]
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "description": "The accept of a task with a PR, which then waits on that PR's merge; null until then. Absent from a daemon that does not send it."
          }
         },
         "required": [
@@ -10188,7 +10223,18 @@
         "type": "null"
        }
       ],
-      "description": "The done that waits on acceptance while the task is answered; null otherwise. Absent from a daemon that does not send it."
+      "description": "The done in review while the task's state is review; null otherwise. Absent from a daemon that does not send it."
+     },
+     "pr": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The pull request its work merges in (task.edit pr); an accepted task with one closes at that merge. Absent from a daemon that does not send it."
      }
     },
     "required": [
@@ -12494,7 +12540,7 @@
      },
      "actions": {
       "type": "array",
-      "description": "One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task's state asks for one: answered, and it answers to the founder (Accept, Send back), or owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb.",
+      "description": "One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task's state asks for one: in review, and it answers to the founder (Accept, Send back), or owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb.",
       "items": {
        "$ref": "#/components/schemas/ChatAction"
       }
@@ -14655,7 +14701,7 @@
        "merged_into",
        "memo"
       ],
-      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, answered, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty)."
+      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, review, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty)."
      },
      "was": {
       "type": "string",
@@ -14820,7 +14866,7 @@
        "draft",
        "queued",
        "doing",
-       "answered",
+       "review",
        "done",
        "discarded"
       ]

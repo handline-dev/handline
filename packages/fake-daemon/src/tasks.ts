@@ -265,7 +265,7 @@ export class FakeTasks {
     const waitOn = typeof p.blocked_by === 'number' ? this.find(p.blocked_by).id : null;
     this.change(t, {
       ...(waitOn !== null && !t.blockers.some((b) => b.task === waitOn) ? { blockers: [...t.blockers, { task: waitOn, reason: '', at: this.now() }] } : {}),
-      ...(p.owner !== undefined ? { to: String(p.owner), ...(t.state === 'answered' ? { state: 'queued', report: null } : {}) } : {}),
+      ...(p.owner !== undefined ? { to: String(p.owner), ...(t.state === 'review' ? { state: 'queued', report: null } : {}) } : {}),
       ...(p.title !== undefined ? { title: String(p.title) } : {}),
       ...(p.body !== undefined ? { body: String(p.body) } : {}),
       ...(p.time_box !== undefined ? { time_box: String(p.time_box) } : {}),
@@ -285,14 +285,15 @@ export class FakeTasks {
 
   // ---- the verbs of the daemon's task plan (D3), served only when the fake is asked to ----
 
-  /** A done by the holder (the founder too) of a task someone else asked is an answer: it stays theirs until accept, reject or a reassign. */
+  /** A done by the holder (the founder too) of a task someone else asked is an answer in review: it stays theirs until accept, reject or a
+   * reassign. The fake has no teams, so the review waits on whoever asked. */
   done(p: Record<string, unknown>, person: string): string {
     const t = this.find(p.task);
     if (t.state !== 'doing' && t.state !== 'queued') throw new TaskFailure('refused', `task ${t.id} is ${t.state}, not open`);
     const evidence = String(p.evidence ?? '') || null;
     // a person who is no agent is the founder, who holds what is assigned to human
     if (t.from !== person && (person === t.to || (t.to === 'human' && !this.isAgent(person) && this.isAgent(t.from)))) {
-      this.change(t, { state: 'answered', report: { by: t.to, evidence: evidence ?? '', at: this.now() } });
+      this.change(t, { state: 'review', report: { by: t.to, evidence: evidence ?? '', at: this.now(), waits_on: t.from, accepted: null } });
       return `task T${t.id} answered (${evidence ?? ''}); it stays with ${t.to} until ${t.from} accepts it or takes it back`;
     }
     this.change(t, { state: 'done', done: this.now(), evidence });
@@ -301,7 +302,7 @@ export class FakeTasks {
   /** The report a person may accept or reject: only the task's opener or the founder. */
   private reportFor(p: Record<string, unknown>, person: string, verb: string): Row {
     const t = this.find(p.task);
-    if (t.state !== 'answered' || !t.report) throw new TaskFailure('refused', `task ${t.id} has no answer waiting: nothing to ${verb}`);
+    if (t.state !== 'review' || !t.report) throw new TaskFailure('refused', `task ${t.id} has no answer waiting: nothing to ${verb}`);
     if (person !== t.from && person !== 'founder') throw new TaskFailure('refused', `task ${t.id}'s answer can only be ${verb}ed by whoever it answers to`);
     return t;
   }
