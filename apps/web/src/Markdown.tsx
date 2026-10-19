@@ -52,18 +52,18 @@ export function parseBlocks(text: string): Block[] {
 const INLINE = /(`[^`\n]+`|\*\*[^*\n]+\*\*)/;
 const CODE = 'rounded-sm bg-black/10 px-1 font-mono text-[0.92em]';
 
-function Inline({ text, agent, onRef }: { text: string; agent?: string; onRef?: (id: number) => void }) {
+function Inline({ text, agent }: { text: string; agent?: string }) {
   const parts: ReactNode[] = text.split(INLINE).map((s, i) => {
-    if (i % 2 === 0) return s ? <RichText key={i} text={s} agent={agent} onRef={onRef} /> : null;
+    if (i % 2 === 0) return s ? <RichText key={i} text={s} agent={agent} /> : null;
     if (s.startsWith('`'))
       return (
         <code key={i} className={CODE}>
-          <RichText text={s.slice(1, -1)} agent={agent} onRef={onRef} />
+          <RichText text={s.slice(1, -1)} agent={agent} />
         </code>
       );
     return (
       <strong key={i}>
-        <Inline text={s.slice(2, -2)} agent={agent} onRef={onRef} />
+        <Inline text={s.slice(2, -2)} agent={agent} />
       </strong>
     );
   });
@@ -72,15 +72,15 @@ function Inline({ text, agent, onRef }: { text: string; agent?: string; onRef?: 
 
 const HEADINGS = ['text-[1.15em]', 'text-[1.08em]', 'text-[1em]', 'text-[1em]'];
 
-export function Markdown({ text, agent, onRef }: { text: string; agent?: string; onRef?: (id: number) => void }) {
-  const inline = (t: string) => <Inline text={t} agent={agent} onRef={onRef} />;
+export function Markdown({ text, agent }: { text: string; agent?: string }) {
+  const inline = (t: string) => <Inline text={t} agent={agent} />;
   return (
     <>
       {parseBlocks(text).map((b, i) =>
         b.kind === 'code' ? (
           <pre key={i} className={`${CODE} my-1 block overflow-x-auto whitespace-pre p-2 first:mt-0 last:mb-0`}>
             <code>
-              <RichText text={b.text} agent={agent} onRef={onRef} />
+              <RichText text={b.text} agent={agent} />
             </code>
           </pre>
         ) : b.kind === 'heading' ? (
