@@ -28,7 +28,7 @@ agents:
   alice: {}
   bob: {}
 edges:
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "human", to: "*" }
 limits:
   max_chain_depth: 4
   ask_rate_per_hour: 5
@@ -215,7 +215,7 @@ func TestApproveNeedsTheSubjectTheFounderReadAndAppliesALink(t *testing.T) {
 	if !strings.HasPrefix(res["said"].(string), "alice may now ask bob. team.yaml updated") {
 		t.Fatalf("%v", res)
 	}
-	if !strings.Contains(r.file("team.yaml"), `{ from: "alice", to: "bob", response: async }`) || r.state("aaaa0002") != "applied" {
+	if !strings.Contains(r.file("team.yaml"), `{ from: "alice", to: "bob" }`) || r.state("aaaa0002") != "applied" {
 		t.Fatalf("the edge is in team.yaml and the proposal applied:\n%s", r.file("team.yaml"))
 	}
 	if !strings.Contains(r.file("team.yaml.bak"), "limits") {

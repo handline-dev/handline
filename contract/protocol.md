@@ -134,6 +134,7 @@ A method marked write takes a required `request_id`.
 | `tasks.list` | agent |  | `owner?`, `reporter?`, `from?`, `state?`, `tags?`, `parent?`, `under?`, `before?`, `limit?`, `all?`, `everyone?`, `my_turn?`, `reason_gaps?` | `{items, more, reason_gaps}` |  |  |
 | `task.get` | agent |  | `task` | `TaskDetail` | `not_found` |  |
 | `task.history` | agent |  | `task` | `{task, rows}` | `not_found`, `bad_request` |  |
+| `task.time` | agent |  | `task` | `{task, start, end, segments}` | `not_found`, `bad_request` |  |
 | `task.shot` | member |  | `task`, `n`, `offset?` | `{mime, bytes, offset, data, done}` | `not_found`, `bad_request` |  |
 | `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box?`, `parent?`, `duplicate_ok?`, `blocked_by?`, `priority?`, `tags?`, `expects?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` | duplicate_title |
 | `task.handoff` | agent | yes | `task`, `to`, `note?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -177,6 +178,7 @@ A method marked write takes a required `request_id`.
 | `accounts.list` | agent |  | `roster?`, `usage?` | `{accounts}` | `bad_request` |  |
 | `status.pick` | agent |  | none | `{picked, candidates, agent_costs}` |  |  |
 | `account.set` | founder | yes | `account`, `label?`, `cap?`, `recover?`, `cycle?`, `cycle_end?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `account.wake` | founder | yes | `account`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | state |
 | `account.add` | founder | yes | `account`, `vendor?`, `request_id` | `Accepted & {account}` | `refused`, `bad_request` | role, state |
 | `account.login` | founder | yes | `account`, `request_id` | `Accepted & {login_id, state, url}` | `refused`, `not_found` | role, state |
 | `account.login_cancel` | founder | yes | `login_id`, `request_id` | `Accepted` | `refused`, `not_found` | role |
@@ -467,6 +469,10 @@ One task with body, delivery history and linked events.
 
 Every change to a task, newest first: one row per field changed, with who made it, the value before and after, and when. It is read from the events each task write keeps in its own transaction, so it is never edited or deleted; a fix is a later row. A deleted memo's words stay in it. Anyone may edit a task (task.edit); this history is what makes that safe to undo by hand.
 
+### `task.time`
+
+Where a task's time went, from its opening to its end (or now): segments in order that cover it with no gap or overlap. Read from what the daemon already records (the task's state events, its blockers, its asks of the founder, its holder's parks and starts); nothing is timed twice. Where two causes overlap, the stretch shows one, in this order: waiting on the founder, blocked by a task, waiting on another agent, queued, at an account's wall, starting, working.
+
 ### `task.shot`
 
 A screenshot kept with a finished task. One screenshot of a task whose end recorded it, in chunks. A task or number the result does not hold is not_found.
@@ -638,6 +644,10 @@ Which account the next agent would be placed on, each account's reason, and what
 ### `account.set`
 
 The account Settings form in one call: alias, cap, usage recovery and the month cycle; nothing is written if any is refused. Fields not given are left alone. Chosen over set_cycle_on/set_cycle_end methods because the UI saves these together and the CLI twins (cap, cycle, recover, alias) each write one of these fields.
+
+### `account.wake`
+
+Wake a STALLED account: its stall ends, agents may be placed on it again and the agents stalled with it are released, as session.wake clears a stalled agent (hl account wake). A login on the account, or a turn that ends well there, ends the stall too. Refused (gate state) when the account is not stalled.
 
 ### `account.add`
 
@@ -812,7 +822,7 @@ Every `hl` command an agent runs today and the method that serves it.
 
 Agent commands the spec does not keep at agent role, for the founder to decide. Each is founder-only or a person's act today, or is not a daemon call.
 
-- **Founder only today:** `hl cancel`; `hl unstall`; `hl team seal`; `hl hr approve|reject|apply|relabel|rehome|links`; `hl trust remove|apply|mcp`; `hl schedule add|edit|remove`; `hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)`; `hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)`; `hl dev-mode`; `hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)`; `hl service ...`
+- **Founder only today:** `hl cancel`; `hl unstall`; `hl team seal`; `hl hr approve|reject|apply|relabel|rehome|links`; `hl trust remove|apply|mcp`; `hl schedule add|edit|remove`; `hl account add|remove|register|cap|cycle|recover|wake (set; the billing-cycle and cap reads are for the next spec task)`; `hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)`; `hl dev-mode`; `hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)`; `hl service ...`
 - **Needs a decision:** `hl spawn (a founder's act; it calls session.start, and agent.create serves it to the founder's apps)`; `hl agent register (a roster change, founder)`
 - **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl go`; `hl sandbox-repo`; `hl install-hooks`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl withdraw`; `hl memory migrate`; `hl task note (suppressed)`
 
@@ -864,6 +874,44 @@ What the daemon sends for each of its own states:
 | no state row or no terminal, and nothing waiting for it (checked before IDLE) | `no_terminal` |
 
 PENDING is two words, by what it waits for: `queued` when nothing but the next tick stands between it and a start, `parked` when it waits for a time. A client draws both as waiting its turn, and the clock in state_detail tells them apart. MOVING is `parked` with state_detail `moving`.
+
+## Status
+
+Every agent (AgentView.status) and every task (Task.status) carries one status: a state, the reason for it, and the line a client shows as it is. Both lists are closed for the daemon and open for a client: a word it does not know is drawn from `text`. The daemon fills it from the facts it acts on (the state row, the wake gate, the account it would wake on, the board), never from free text, and never sends a bare queued or an unknown where it knows the cause. state, state_detail, hold_reason, block_reason and waiting stay until the apps read status.
+
+| State | Meaning |
+|---|---|
+| `preparing` | Has work and the daemon starts or sends it at its next tick; nothing stands in the way. Reasons: work, restart, retry. |
+| `starting` | A launch is in progress (agents). Reason: launch. |
+| `running` | Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, handoff, background. |
+| `waiting` | Held by something the daemon names: a person, another task, the owner, a clock, an account move. Reasons: you, review, opener, task, owner, clock, move. |
+| `stopped` | Will not go on by itself: no account has room (until the reset when it is known) or a person must unstall it. Reasons: wall, cap, stalled. |
+| `idle` | At its prompt with nothing to do (agents). Reason: none. |
+| `off` | Registered with no terminal and nothing waiting for it (agents). Reason: none. |
+| `done` | Closed (tasks). Reasons: done (its owner finished it), discarded. |
+
+| Reason | Meaning |
+|---|---|
+| `work` | Work waits for it and nothing is in the way: the next tick types or starts it. |
+| `restart` | Between two sessions of a restart; the next one begins at the next tick. |
+| `retry` | A failed start is retried; text says which attempt. |
+| `launch` | Its terminal is starting. |
+| `turn` | A turn is running (agents); the owner has the task (tasks). |
+| `handoff` | A hand-off to a new session is moving. |
+| `background` | Background work runs while the agent sits at its prompt. |
+| `you` | A person must answer: a dialog or prompt on the agent, an open request to the founder on the task, or a task the founder owns. |
+| `review` | Answered: waits on its asker's accept or reject. |
+| `opener` | A draft: waits on its opener to queue it. |
+| `task` | Waits on other tasks; tasks lists them. |
+| `owner` | Waits on its owner, busy with something text names. |
+| `clock` | Waits for a time: until says when. |
+| `move` | An account move is settling. |
+| `wall` | The account it would run on is at a usage limit; until is when the window rolls over, null when not known. |
+| `cap` | No account has a free slot; it starts when a running turn ends. |
+| `stalled` | Stopped until a person unstalls it; text says why it stopped. |
+| `none` | Nothing to say beyond the state. |
+| `done` | Its owner finished it. |
+| `discarded` | Thrown away; text says why. |
 
 ## Notifications
 

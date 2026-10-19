@@ -146,6 +146,8 @@ type LaunchPorts struct {
 	McpApproved func(cwd string) []string
 	// TerminalHandle and WorktreeID are what the host puts in the environment of every terminal it launches.
 	TerminalHandle, WorktreeID func() string
+	// PaneAgent is the agent the daemon stamped the pane with ("" for a pane it did not open for an agent); nil: no pane is stamped.
+	PaneAgent func(handle string) string
 	// RegisterWorker joins the agent's terminal to the team's Run.
 	RegisterWorker func(agent, handle string) error
 	Warn           func(string)

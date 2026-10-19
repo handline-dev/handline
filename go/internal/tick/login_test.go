@@ -1,40 +1,61 @@
 package tick
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
 )
 
-// loginWorld is a world whose account "acct" is marked (or not) and whose agent's last turn did (or did not) end on a refused login.
-func loginWorld(t *testing.T, marked, failed bool) (*Tick, *world, *[]string) {
+// loginWorld is a world whose account "acct" is stalled (or not) and whose agent's last turn did (or did not) end on a refused login.
+func loginWorld(t *testing.T, stalled, failed bool) (*Tick, *world, *[]string) {
+	failure := ""
+	if failed {
+		failure = "authentication_failed"
+	}
+	return failureWorld(t, stalled, failure, 1)
+}
+
+// failureWorld is loginWorld with the agent's last turn ended on failure ("" for none), seen repeats times on the account.
+func failureWorld(t *testing.T, stalled bool, failure string, repeats int) (*Tick, *world, *[]string) {
 	tk, w := newWorld(t)
 	setState(t, tk, "a", states.Idle, 0)
 	w.reading = &AccountReading{Account: "acct", Source: "recorded"}
-	var marks []string
+	var stalls []string
 	tk.Login = Login{
-		Expired:    func(string) (string, bool) { return "was marked", marked },
-		AuthFailed: func(db.Q, string, string) (string, int64, bool) { return ": 401", 1000, failed },
-		Mark:       func(_ db.Q, agent, acct, why string, _ int64) bool { marks = append(marks, acct+" "+why); return true },
+		Stalled: func(db.Q, string) (string, string, bool) { return "was stalled", "", stalled },
+		Failed: func(db.Q, string, string) (string, string, int64, bool) {
+			return failure, "401", 1000, failure != ""
+		},
+		Repeats: func(_ db.Q, _, errType string) int {
+			if errType != failure {
+				t.Fatalf("counted %s", errType)
+			}
+			return repeats
+		},
+		Stall: func(_ db.Q, agent, acct, errType, why string, _ int64) bool {
+			stalls = append(stalls, acct+" "+errType+" "+why)
+			return true
+		},
 	}
-	return tk, w, &marks
+	return tk, w, &stalls
 }
 
-func TestAnAuthFailedTurnMarksTheAccountAndMovesTheAgentOff(t *testing.T) {
-	tk, w, marks := loginWorld(t, false, true)
+func TestAnAuthFailedTurnStallsTheAccountAndMovesTheAgentOff(t *testing.T) {
+	tk, w, stalls := loginWorld(t, false, true)
 	w.movePlan, w.performOK = "other", true
 	actions := supervise(tk, "a")
-	if len(*marks) != 1 || !w.did("handoff a login") || !has(actions, "a: handoff (login)") || has(actions, "degraded") {
-		t.Fatalf("%v %v %v", *marks, w.calls, actions)
+	if len(*stalls) != 1 || !w.did("handoff a login") || !has(actions, "a: handoff (login)") || has(actions, "degraded") {
+		t.Fatalf("%v %v %v", *stalls, w.calls, actions)
 	}
 }
 
-func TestAMarkedAccountMovesItsAgentsWithoutAnotherSighting(t *testing.T) {
-	tk, w, marks := loginWorld(t, true, false)
+func TestAStalledAccountMovesItsAgentsWithoutAnotherSighting(t *testing.T) {
+	tk, w, stalls := loginWorld(t, true, false)
 	w.movePlan, w.performOK = "other", true
-	if actions := supervise(tk, "a"); len(*marks) != 0 || !w.did("handoff a login") || !has(actions, "handoff (login)") {
-		t.Fatalf("%v %v %v", *marks, w.calls, actions)
+	if actions := supervise(tk, "a"); len(*stalls) != 0 || !w.did("handoff a login") || !has(actions, "handoff (login)") {
+		t.Fatalf("%v %v %v", *stalls, w.calls, actions)
 	}
 }
 
@@ -48,27 +69,72 @@ func TestWithNowhereToMoveTheAgentIsStalledForAPerson(t *testing.T) {
 	}
 }
 
-func TestAnAccountNobodyMarkedAndNoRefusedTurnLeavesTheAgentAlone(t *testing.T) {
-	tk, w, marks := loginWorld(t, false, false)
+func TestAnAccountNobodyStalledAndNoRefusedTurnLeavesTheAgentAlone(t *testing.T) {
+	tk, w, stalls := loginWorld(t, false, false)
 	w.movePlan = "other"
-	if actions := supervise(tk, "a"); len(*marks) != 0 || w.did("handoff a login") || has(actions, "login") {
-		t.Fatalf("%v %v %v", *marks, w.calls, actions)
+	if actions := supervise(tk, "a"); len(*stalls) != 0 || w.did("handoff a login") || has(actions, "login") {
+		t.Fatalf("%v %v %v", *stalls, w.calls, actions)
 	}
 }
 
 func TestAnAgentOnNoKnownAccountIsNotJudgedForItsLogin(t *testing.T) {
-	tk, w, marks := loginWorld(t, true, true)
+	tk, w, stalls := loginWorld(t, true, true)
 	w.reading = nil
 	w.movePlan = "other"
-	if supervise(tk, "a"); len(*marks) != 0 || w.did("handoff a login") {
-		t.Fatalf("%v %v", *marks, w.calls)
+	if supervise(tk, "a"); len(*stalls) != 0 || w.did("handoff a login") {
+		t.Fatalf("%v %v", *stalls, w.calls)
 	}
 }
 
-func TestAnAgentWithNoSessionOnAMarkedAccountIsLeftToTheStartPath(t *testing.T) {
-	tk, w, marks := loginWorld(t, true, true)
+func TestAnAgentWithNoSessionOnAStalledAccountIsLeftToTheStartPath(t *testing.T) {
+	tk, w, stalls := loginWorld(t, true, true)
 	w.alive["a"], w.movePlan, w.performOK = false, "other", true
-	if actions := supervise(tk, "a"); len(*marks) != 0 || w.did("handoff a login") || has(actions, "login") {
-		t.Fatalf("a handoff has nothing to end, and it would return before the start: %v %v %v", *marks, w.calls, actions)
+	if actions := supervise(tk, "a"); len(*stalls) != 0 || w.did("handoff a login") || has(actions, "login") {
+		t.Fatalf("a handoff has nothing to end, and it would return before the start: %v %v %v", *stalls, w.calls, actions)
+	}
+}
+
+func TestAnOrgThatRefusesOAuthStallsTheAccountAtOnceAndMovesTheAgentOff(t *testing.T) {
+	tk, w, stalls := failureWorld(t, false, "oauth_org_not_allowed", 1)
+	w.movePlan, w.performOK = "other", true
+	actions := supervise(tk, "a")
+	if len(*stalls) != 1 || !strings.Contains((*stalls)[0], "acct oauth_org_not_allowed a's turn ended on oauth_org_not_allowed") ||
+		!w.did("handoff a login") || !has(actions, "a: handoff (login)") {
+		t.Fatalf("%v %v %v", *stalls, w.calls, actions)
+	}
+}
+
+func TestErrorsThatAreNotTheAccountsNeverStallIt(t *testing.T) {
+	for _, e := range []string{"rate_limit", "server_error", "overloaded", "invalid_request", "max_output_tokens"} {
+		tk, w, stalls := failureWorld(t, false, e, 50)
+		w.movePlan, w.performOK = "other", true
+		if actions := supervise(tk, "a"); len(*stalls) != 0 || w.did("handoff a login") || has(actions, "login") {
+			t.Errorf("%s: %v %v %v", e, *stalls, w.calls, actions)
+		}
+	}
+}
+
+func TestAnUnseenErrorOnlyRetriesUntilItRepeats(t *testing.T) {
+	tk, w, stalls := failureWorld(t, false, "brand_new_error", RepeatN-1)
+	w.movePlan, w.performOK = "other", true
+	if actions := supervise(tk, "a"); len(*stalls) != 0 || w.did("handoff a login") || has(actions, "login") {
+		t.Fatalf("below the repeat count: %v %v %v", *stalls, w.calls, actions)
+	}
+	tk, w, stalls = failureWorld(t, false, "brand_new_error", RepeatN)
+	w.movePlan, w.performOK = "other", true
+	actions := supervise(tk, "a")
+	if len(*stalls) != 1 || !strings.Contains((*stalls)[0], "4 times on acct") || !w.did("handoff a login") || !has(actions, "a: handoff (login)") {
+		t.Fatalf("%v %v %v", *stalls, w.calls, actions)
+	}
+}
+
+func TestAStallNamesTheErrorAndBothWaysOut(t *testing.T) {
+	tk, w, _ := failureWorld(t, false, "account_on_hold", 1)
+	w.movePlan = ""
+	actions := supervise(tk, "a")
+	row, _ := db.GetAgentState(tk.Q, "a")
+	if !has(actions, "a: STALLED, account_on_hold on acct") || !strings.Contains(row.Detail.String, LoginStall) ||
+		!strings.Contains(row.Detail.String, "hl account wake acct") {
+		t.Fatalf("%v %+v", actions, row)
 	}
 }

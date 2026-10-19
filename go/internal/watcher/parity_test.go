@@ -115,7 +115,7 @@ func sameRow(t *testing.T, i int, want map[string]any, e *stream.Event) {
 }
 
 // sinceRecorded are the Task fields Go added after the Python rows were recorded.
-var sinceRecorded = map[string]bool{"waits": true, "waiting": true, "tags": true, "pr": true}
+var sinceRecorded = map[string]bool{"waits": true, "waiting": true, "tags": true, "pr": true, "status": true}
 
 func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 	py, events := parity(t, func(d *sql.DB) Detector { return &Tasks{Reads: &reads.Env{DB: d}} },

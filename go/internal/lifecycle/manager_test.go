@@ -71,15 +71,18 @@ func (f *fakeTerm) ResumeWith(_, p string) (bool, string) {
 	f.resumedWith = append(f.resumedWith, p)
 	return true, "typed the pointer"
 }
-func (*fakeTerm) Available() bool                       { return true }
-func (*fakeTerm) WaitIdle(string) bool                  { return true }
-func (*fakeTerm) WaitDrawn(string) bool                 { return true }
-func (*fakeTerm) ScreenBlocker(string) *term.Blocker    { return nil }
-func (*fakeTerm) BackgroundWork(string) (string, bool)  { return "", true }
-func (*fakeTerm) CloseSession(string) (bool, string)    { return true, "" }
-func (*fakeTerm) TrustPromptShowing(string) bool        { return false }
-func (*fakeTerm) DriverScope() func()                   { return func() {} }
-func (f *fakeTerm) CloseTerminal(string) (bool, string) { f.closedPane = true; return true, "" }
+func (*fakeTerm) Available() bool                      { return true }
+func (f *fakeTerm) WaitIdle(string) bool               { return !f.busy }
+func (*fakeTerm) WaitDrawn(string) bool                { return true }
+func (*fakeTerm) ScreenBlocker(string) *term.Blocker   { return nil }
+func (*fakeTerm) BackgroundWork(string) (string, bool) { return "", true }
+func (*fakeTerm) CloseSession(string) (bool, string)   { return true, "" }
+func (*fakeTerm) TrustPromptShowing(string) bool       { return false }
+func (*fakeTerm) DriverScope() func()                  { return func() {} }
+func (f *fakeTerm) CloseTerminal(string) (bool, string) {
+	f.closedPane, f.busy = true, false
+	return true, ""
+}
 func (f *fakeTerm) Relaunch(_, cmd string, started func() bool) (bool, string) {
 	f.relaunched = append(f.relaunched, cmd)
 	if f.launchOK && started() {
@@ -106,6 +109,7 @@ func (fakeLaunch) CommandFor(agent, _, why, _ string) (string, error) {
 type fakeSpawn struct {
 	Spawner
 	startedIn, spawned []string
+	cmds               []string // the command each start ran, or the why a spawn was given
 	trusted            []string
 	ok                 bool
 	err                error
@@ -113,12 +117,14 @@ type fakeSpawn struct {
 
 func (*fakeSpawn) WorktreePath(w string) string { return w }
 func (f *fakeSpawn) Trust(agent, wt string)     { f.trusted = append(f.trusted, agent+"@"+wt) }
-func (f *fakeSpawn) StartIn(agent, wt, _ string) (bool, string, error) {
+func (f *fakeSpawn) StartIn(agent, wt, cmd string) (bool, string, error) {
 	f.startedIn = append(f.startedIn, agent+"@"+wt)
+	f.cmds = append(f.cmds, cmd)
 	return f.ok, "start-in said", f.err
 }
-func (f *fakeSpawn) Spawn(agent, repo string) (bool, string, error) {
+func (f *fakeSpawn) SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error) {
 	f.spawned = append(f.spawned, agent+"@"+repo)
+	f.cmds = append(f.cmds, "why "+o.Why)
 	return f.ok, "spawn said\nmore", f.err
 }
 

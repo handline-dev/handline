@@ -25,7 +25,7 @@ func TestQueueAndDraftAreAllOrNone(t *testing.T) {
 		os.WriteFile(filepath.Join(home, "agents", a, "agent.yaml"), nil, 0o644)
 	}
 	os.MkdirAll(filepath.Join(home, "agents"), 0o755)
-	os.WriteFile(filepath.Join(home, "team.yaml"), []byte("agents:\n  manager: {}\n  worker: {}\n  other: {}\nedges:\n  - {from: manager, to: worker, relation: supervisor, response: async}\n"), 0o644)
+	os.WriteFile(filepath.Join(home, "team.yaml"), []byte("agents:\n  manager: {}\n  worker: {}\n  other: {}\nedges:\n  - {from: manager, to: worker}\n"), 0o644)
 	for _, q := range []string{
 		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'a', 'worker', 'manager', 1), (2, 'b', 'worker', 'manager', 1), (3, 'c', 'worker', 'manager', 1)",
 		"UPDATE tasks SET done_evidence = 'x', done_at = 2 WHERE id = 3",

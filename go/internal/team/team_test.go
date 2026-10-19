@@ -24,33 +24,29 @@ func parseTeam(t *testing.T, text string) *Team {
 	return tm
 }
 
-func str(s string) *string { return &s }
-
 // The expected decisions are what the Python team.route answers for the same policy.
 func TestRouteAnswersAsThePythonPolicyDoes(t *testing.T) {
 	type want struct {
-		allowed        bool
-		reason         string
-		relation, kind *string
-		response       string
+		allowed bool
+		reason  string
 	}
 	starter := parseTeam(t, StarterTeam)
 	for _, c := range []struct {
 		from, to string
 		want
 	}{
-		{"backend", "reviewer", want{true, "edge * -> reviewer", nil, nil, "async"}},
-		{"reviewer", "backend", want{true, "edge reviewer -> *", nil, nil, "async"}},
-		{"backend", "archivist", want{true, "edge * -> archivist", nil, nil, "async"}},
-		{"backend", "human", want{true, "edge * -> human", nil, nil, "async"}},
-		{"human", "backend", want{true, "edge human -> *", nil, nil, "async"}},
-		{"backend", "backend", want{false, "an agent cannot ask itself", nil, nil, "async"}},
-		{"backend", "ghost", want{false, "unknown target 'ghost'", nil, nil, "async"}},
-		{"harbor.sea", "harbor", want{false, "unknown target 'harbor'", nil, nil, "async"}},
-		{"harbor.sea", "human", want{true, "edge * -> human", nil, nil, "async"}},
+		{"backend", "reviewer", want{true, "edge * -> reviewer"}},
+		{"reviewer", "backend", want{true, "edge reviewer -> *"}},
+		{"backend", "archivist", want{true, "edge * -> archivist"}},
+		{"backend", "human", want{true, "edge * -> human"}},
+		{"human", "backend", want{true, "edge human -> *"}},
+		{"backend", "backend", want{false, "an agent cannot ask itself"}},
+		{"backend", "ghost", want{false, "unknown target 'ghost'"}},
+		{"harbor.sea", "harbor", want{false, "unknown target 'harbor'"}},
+		{"harbor.sea", "human", want{true, "edge * -> human"}},
 	} {
-		d := starter.Route(c.from, c.to, 0, false)
-		got := want{d.Allowed, d.Reason, d.Relation, d.Kind, d.Response}
+		d := starter.Route(c.from, c.to, 0)
+		got := want{d.Allowed, d.Reason}
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s -> %s: %+v, want %+v", c.from, c.to, got, c.want)
 		}
@@ -69,25 +65,23 @@ limits:
 	for _, c := range []struct {
 		from, to string
 		depth    int
-		reply    bool
 		want
 	}{
-		{"backend", "harbor", 0, false, want{true, "edge eng.* -> harbor", nil, nil, "async"}},
-		{"front?end", "harbor", 0, false, want{false, "denied: front?end -> harbor: no way", nil, nil, "async"}},
-		{"harbor.sea", "harbor", 2, false, want{false, "chain depth 2 reached the limit 2 (loop guard)", nil, nil, "async"}},
-		{"backend", "human", 0, false, want{true, "edge bac* -> human", nil, nil, "async"}},
-		{"harbor", "human", 0, false, want{true, "default link: harbor may ask the founder", nil, str("task"), "async"}},
-		{"zzz", "backend", 0, true, want{true, "reply: backend asked zzz", nil, nil, "fire_and_forget"}},
-		{"zzz", "backend", 0, false, want{false, "denied: no edge declares zzz -> backend (unlisted edges are denied by default)", nil, nil, "async"}},
-		{"backend", "front?end", 0, false, want{false, "denied: no edge declares backend -> front?end (unlisted edges are denied by default)", nil, nil, "async"}},
+		{"backend", "harbor", 0, want{true, "edge eng.* -> harbor"}},
+		{"front?end", "harbor", 0, want{false, "denied: front?end -> harbor: no way"}},
+		{"harbor.sea", "harbor", 2, want{false, "chain depth 2 reached the limit 2 (loop guard)"}},
+		{"backend", "human", 0, want{true, "edge bac* -> human"}},
+		{"harbor", "human", 0, want{true, "default link: harbor may ask the founder"}},
+		{"zzz", "backend", 0, want{false, "denied: no edge declares zzz -> backend (unlisted edges are denied by default)"}},
+		{"backend", "front?end", 0, want{false, "denied: no edge declares backend -> front?end (unlisted edges are denied by default)"}},
 	} {
-		d := second.Route(c.from, c.to, c.depth, c.reply)
-		got := want{d.Allowed, d.Reason, d.Relation, d.Kind, d.Response}
+		d := second.Route(c.from, c.to, c.depth)
+		got := want{d.Allowed, d.Reason}
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s -> %s: %+v, want %+v", c.from, c.to, got, c.want)
 		}
 	}
-	if d := second.Route("harbor.sea", "harbor", 0, false); !d.Allowed || d.Reason != "default link: harbor.sea is harbor's child" {
+	if d := second.Route("harbor.sea", "harbor", 0); !d.Allowed || d.Reason != "default link: harbor.sea is harbor's child" {
 		t.Errorf("a child may ask its parent: %+v", d)
 	}
 	if got := second.TeamOf("front?end"); got != "eng" {
@@ -114,7 +108,6 @@ func TestADenyOrEdgeThatCouldSilentlyAllowIsRefusedAtLoad(t *testing.T) {
 }
 
 // The answer-model removal drops these keys from team.yaml last, so until then a table with them routes as one without.
-// SupervisorOf still reads a supervisor edge's relation.
 func TestAnEdgesRelationResponseAndKindAreIgnored(t *testing.T) {
 	const roster = "teams:\n  eng: [eng, lead, dev]\nagents:\n  lead: {}\n  dev: {}\nedges:\n"
 	old := parseTeam(t, roster+`  - { from: lead, to: dev, relation: peer, response: blocking }
@@ -130,13 +123,10 @@ func TestAnEdgesRelationResponseAndKindAreIgnored(t *testing.T) {
 	names := []string{"lead", "dev", "eng", "human"}
 	for _, a := range names {
 		for _, b := range names {
-			if got, want := old.Route(a, b, 0, false), bare.Route(a, b, 0, false); !reflect.DeepEqual(got, want) {
+			if got, want := old.Route(a, b, 0), bare.Route(a, b, 0); !reflect.DeepEqual(got, want) {
 				t.Errorf("%s -> %s: %+v, want %+v", a, b, got, want)
 			}
 		}
-	}
-	if d := old.Route("eng", "human", 0, false); d.Kind != nil || d.Response != "async" {
-		t.Errorf("an edge's kind is not read: %+v", d)
 	}
 }
 

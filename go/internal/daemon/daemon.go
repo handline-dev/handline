@@ -103,6 +103,9 @@ type Config struct {
 	Session func() *sessionrpc.Env
 	// OnOpen is given the database once it is open, for the parts built before it was (the supervisor's ports, the tick).
 	OnOpen func(db *sql.DB, env *supervisor.Env)
+	// BeforeClose is called by Close once the connections have ended, before the database closes, to wait for work the parts run off
+	// the caller (the heal steps).
+	BeforeClose func()
 }
 
 // Daemon is a running daemon. Close stops the listeners and waits for the connections to end.
@@ -600,6 +603,12 @@ func (d *Daemon) Close() {
 		d.logins.Close()
 	}
 	d.wg.Wait()
+	if d.envMade != nil {
+		d.envMade.Wait()
+	}
+	if d.cfg.BeforeClose != nil {
+		d.cfg.BeforeClose()
+	}
 	d.pidFile.remove()
 	if d.single != nil {
 		d.single.Release()

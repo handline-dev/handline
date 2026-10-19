@@ -77,7 +77,7 @@ func undeliverable(tx *sql.Tx, t *task, to, home string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if d := tm.Route(asker, to, 0, false); !d.Allowed {
+	if d := tm.Route(asker, to, 0); !d.Allowed {
 		return fmt.Sprintf("T%d cannot go to %s: its brief is sent on %s's behalf, and %s", t.ID, to, asker, d.Reason), nil
 	}
 	return "", nil

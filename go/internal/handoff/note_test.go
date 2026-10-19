@@ -401,32 +401,55 @@ func TestEachBadByteIsOneReplacementCharacter(t *testing.T) {
 	}
 }
 
-func TestAuthFailedIsALoginTheLastTurnWasRefusedOnByTheCLIsOwnErrorOnThatAccount(t *testing.T) {
+func TestLastFailureIsTheCLIsOwnErrorTheLastTurnEndedOnOnThatAccount(t *testing.T) {
 	w := newWorld(t)
-	failed := func(acct, payload string) {
+	on := func(acct, kind, payload string) {
 		t.Helper()
-		if _, err := w.DB.Exec("INSERT INTO events(ts, agent, account, kind, payload) VALUES(?,?,?,?,?)", w.now, "a", acct, "StopFailure", payload); err != nil {
+		if _, err := w.DB.Exec("INSERT INTO events(ts, agent, account, kind, payload) VALUES(?,?,?,?,?)", w.now, "a", acct, kind, nullable(payload)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, _, _, ok, err := AuthFailed(w.DB, "a", "A"); ok || err != nil {
+	if _, ok, err := LastFailure(w.DB, "a", "A"); ok || err != nil {
 		t.Fatalf("no events: %v %v", ok, err)
 	}
-	failed("A", `{"error": "rate_limit"}`)
-	if _, _, _, ok, _ := AuthFailed(w.DB, "a", "A"); ok {
-		t.Error("a usage limit is not a refused login")
+	on("A", "StopFailure", `{"error": "rate_limit"}`)
+	if f, ok, _ := LastFailure(w.DB, "a", "A"); !ok || f.Error != "rate_limit" {
+		t.Errorf("%+v %v", f, ok)
 	}
-	failed("A", `{"error": "authentication_failed", "error_details": "401"}`)
-	id, _, details, ok, _ := AuthFailed(w.DB, "a", "A")
-	if !ok || id == 0 || details != "401" {
-		t.Fatalf("%v %v %v", id, details, ok)
+	on("A", "StopFailure", `{"error": "authentication_failed", "error_details": "401"}`)
+	f, ok, _ := LastFailure(w.DB, "a", "A")
+	if !ok || f.ID == 0 || f.Error != "authentication_failed" || f.Details != "401" {
+		t.Fatalf("%+v %v", f, ok)
 	}
 	// The agent moved to B and has not been prompted there: A's refusal is still its last event, and says nothing of B.
-	if _, _, _, ok, _ := AuthFailed(w.DB, "a", "B"); ok {
-		t.Error("a refusal on A marked B")
+	if _, ok, _ := LastFailure(w.DB, "a", "B"); ok {
+		t.Error("a refusal on A stalled B")
+	}
+	if got, _ := Failures(w.DB, "A", "authentication_failed"); len(got) != 1 {
+		t.Errorf("%v", got)
+	}
+	if _, err := w.DB.Exec("INSERT INTO events(ts, agent, account, kind) VALUES(?, 'b', 'A', 'Stop')", w.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := LastFailure(w.DB, "a", "A"); ok {
+		t.Error("another agent's Stop on A says A works")
+	}
+	if got, _ := Failures(w.DB, "A", "authentication_failed"); len(got) != 0 {
+		t.Errorf("a failure before the Stop counted: %v", got)
+	}
+	on("A", "StopFailure", `{"error": "oauth_org_not_allowed"}`)
+	if _, ok, _ := LastFailure(w.DB, "a", "A"); !ok {
+		t.Fatal("a failure after the Stop is the account's")
+	}
+	on("A", "account_woken", `{"account": "A"}`)
+	if _, ok, _ := LastFailure(w.DB, "a", "A"); ok {
+		t.Error("a failure before hl account wake stalled A again")
+	}
+	if got, _ := Failures(w.DB, "A", "oauth_org_not_allowed"); len(got) != 0 {
+		t.Errorf("a failure before the wake counted: %v", got)
 	}
 	w.event("a", "UserPromptSubmit", "")
-	if _, _, _, ok, _ := AuthFailed(w.DB, "a", "A"); ok {
+	if _, ok, _ := LastFailure(w.DB, "a", "A"); ok {
 		t.Error("a prompt after the failure means it works again")
 	}
 }

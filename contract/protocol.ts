@@ -187,6 +187,8 @@ export type AgentView = {
     phase: "writing" | "starting";
     since: Timestamp;
   } | null;
+  /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
+  status?: Status;
 };
 
 export type AgentDetail = AgentView & {
@@ -342,6 +344,8 @@ export type Task = {
   } | null;
   /** The pull request its work merges in (task.edit pr); an accepted task with one closes at that merge. Absent from a daemon that does not send it. */
   pr?: number | null;
+  /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
+  status?: Status;
 };
 
 /** Why a task waits (Task.waiting). */
@@ -353,6 +357,22 @@ export type TaskWaiting = {
   /** The tasks it waits on, for on task (by id, also one outside the caller's scope); empty otherwise. */
   tasks: number[];
   since: Timestamp;
+};
+
+/** What an agent or task is doing and why (x-status). */
+export type Status = {
+  /** One of x-status states. */
+  state: string;
+  /** One of x-status reasons. */
+  reason: string;
+  /** The line every view shows for it, as it is. */
+  text: string;
+  /** When it ends by itself (a clock, a wall's reset); null when nothing says. */
+  until: Timestamp | null;
+  /** Since when it has been so; null when not known. */
+  since: Timestamp | null;
+  /** The tasks it waits on, for reason task; empty otherwise. */
+  tasks: number[];
 };
 
 export type TaskDetail = Task & {
@@ -457,6 +477,8 @@ export type InboxItem = {
   created: Timestamp;
   read: boolean;
   prompt: Prompt | null;
+  /** Only on a card the daemon raised after its own recovery failed: the action to offer as a button. open_terminal opens the item's agent's terminal, since every step the daemon could take was taken. */
+  fix?: "open_terminal";
 };
 
 export type Event = {
@@ -567,6 +589,16 @@ export type Account = {
   assignable?: boolean;
   /** Only with accounts.list `usage: true`. Why assignable is what it is. */
   assign_reason?: string;
+  /** Set while the account is STALLED: a turn on it ended on an error that says the account itself cannot be used (a refused login, an org that disallows it, a hold or billing problem), or on one error the daemon does not name four times with no good turn between. No agent is placed on it; account.wake, a login or a good turn there ends it. null while it is usable. Absent from a daemon that does not send it. */
+  stalled?: {
+    /** The line a row shows beside STALLED, as an agent's stall does: `login expired` for authentication_failed, else the error itself. */
+    reason: string;
+    /** The StopFailure error that stalled it, as the CLI gave it. */
+    error: string;
+    /** The turn that showed it, in words. */
+    detail: string;
+    since: Timestamp;
+  } | null;
 };
 
 export type DaemonStatus = {
@@ -1497,6 +1529,20 @@ export type TaskView = {
   at: Timestamp;
 };
 
+/** One stretch of a task's time: one block of the bar under its title, sized by seconds. */
+export type TimeSegment = {
+  /** queued: not yet with its holder. waiting: held up, on says by what. starting: its holder's session is being launched, woken or handed off. working: its holder has it and nothing holds it up. */
+  kind: "queued" | "waiting" | "starting" | "working";
+  on: ("founder" | "task" | "agent" | "account") | null;
+  /** The reason as shown: `waiting on you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working. */
+  text: string;
+  task: number | null;
+  from: Timestamp;
+  to: Timestamp;
+  /** to less from. */
+  seconds: number;
+};
+
 export type ChatAction = {
   key: "accept" | "send_back" | "ok" | "no";
   label: string;
@@ -2132,6 +2178,14 @@ export interface Methods {
     task: number;
     rows: HistoryRow[];
   } };
+  "task.time": { params: {
+  task: number;
+}; result: {
+    task: number;
+    start: Timestamp;
+    end: Timestamp | null;
+    segments: TimeSegment[];
+  } };
   "task.shot": { params: {
   task: number;
   /** The screenshot's number in the task's result, from 1. */
@@ -2489,6 +2543,10 @@ export interface Methods {
   cycle_end?: string | null;
   request_id: RequestId;
 }; result: Accepted };
+  "account.wake": { params: {
+  account: string;
+  request_id: RequestId;
+}; result: Accepted };
   "account.add": { params: {
   /** The new account's name: one plain line, no slash, not starting with a dot. */
   account: string;
@@ -2745,6 +2803,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.get": { role: "agent", callers: null, write: false, since: 1 },
   "task.history": { role: "agent", callers: null, write: false, since: 1 },
+  "task.time": { role: "agent", callers: null, write: false, since: 1 },
   "task.shot": { role: "member", callers: null, write: false, since: 1 },
   "task.new": { role: "agent", callers: null, write: true, since: 1 },
   "task.handoff": { role: "agent", callers: null, write: true, since: 1 },
@@ -2788,6 +2847,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "accounts.list": { role: "agent", callers: null, write: false, since: 1 },
   "status.pick": { role: "agent", callers: null, write: false, since: 1 },
   "account.set": { role: "founder", callers: null, write: true, since: 1 },
+  "account.wake": { role: "founder", callers: null, write: true, since: 1 },
   "account.add": { role: "founder", callers: null, write: true, since: 1 },
   "account.login": { role: "founder", callers: null, write: true, since: 1 },
   "account.login_cancel": { role: "founder", callers: null, write: true, since: 1 },
@@ -2898,5 +2958,9 @@ export interface Notifications {
 
 /** The state words the daemon sends; an open set, so a client keeps a fallback. */
 export const STATE_WORDS = ["running", "idle", "queued", "starting", "parked", "waiting", "stalled", "blocked", "no_terminal"] as const;
+
+/** x-status: the state and reason every agent and task carries; open sets for a client, which shows `text` for a word it does not know. */
+export const STATUS_STATES = ["preparing", "starting", "running", "waiting", "stopped", "idle", "off", "done"] as const;
+export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "handoff", "background", "you", "review", "opener", "task", "owner", "clock", "move", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];

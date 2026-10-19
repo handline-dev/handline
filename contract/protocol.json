@@ -136,7 +136,7 @@
    "hl hr approve|reject|apply|relabel|rehome|links",
    "hl trust remove|apply|mcp",
    "hl schedule add|edit|remove",
-   "hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)",
+   "hl account add|remove|register|cap|cycle|recover|wake (set; the billing-cycle and cap reads are for the next spec task)",
    "hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)",
    "hl dev-mode",
    "hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)",
@@ -268,6 +268,41 @@
    "no state row or no terminal, and nothing waiting for it (checked before IDLE)": "no_terminal"
   },
   "pending": "PENDING is two words, by what it waits for: `queued` when nothing but the next tick stands between it and a start, `parked` when it waits for a time. A client draws both as waiting its turn, and the clock in state_detail tells them apart. MOVING is `parked` with state_detail `moving`."
+ },
+ "x-status": {
+  "rule": "Every agent (AgentView.status) and every task (Task.status) carries one status: a state, the reason for it, and the line a client shows as it is. Both lists are closed for the daemon and open for a client: a word it does not know is drawn from `text`. The daemon fills it from the facts it acts on (the state row, the wake gate, the account it would wake on, the board), never from free text, and never sends a bare queued or an unknown where it knows the cause. state, state_detail, hold_reason, block_reason and waiting stay until the apps read status.",
+  "states": {
+   "preparing": "Has work and the daemon starts or sends it at its next tick; nothing stands in the way. Reasons: work, restart, retry.",
+   "starting": "A launch is in progress (agents). Reason: launch.",
+   "running": "Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, handoff, background.",
+   "waiting": "Held by something the daemon names: a person, another task, the owner, a clock, an account move. Reasons: you, review, opener, task, owner, clock, move.",
+   "stopped": "Will not go on by itself: no account has room (until the reset when it is known) or a person must unstall it. Reasons: wall, cap, stalled.",
+   "idle": "At its prompt with nothing to do (agents). Reason: none.",
+   "off": "Registered with no terminal and nothing waiting for it (agents). Reason: none.",
+   "done": "Closed (tasks). Reasons: done (its owner finished it), discarded."
+  },
+  "reasons": {
+   "work": "Work waits for it and nothing is in the way: the next tick types or starts it.",
+   "restart": "Between two sessions of a restart; the next one begins at the next tick.",
+   "retry": "A failed start is retried; text says which attempt.",
+   "launch": "Its terminal is starting.",
+   "turn": "A turn is running (agents); the owner has the task (tasks).",
+   "handoff": "A hand-off to a new session is moving.",
+   "background": "Background work runs while the agent sits at its prompt.",
+   "you": "A person must answer: a dialog or prompt on the agent, an open request to the founder on the task, or a task the founder owns.",
+   "review": "Answered: waits on its asker's accept or reject.",
+   "opener": "A draft: waits on its opener to queue it.",
+   "task": "Waits on other tasks; tasks lists them.",
+   "owner": "Waits on its owner, busy with something text names.",
+   "clock": "Waits for a time: until says when.",
+   "move": "An account move is settling.",
+   "wall": "The account it would run on is at a usage limit; until is when the window rolls over, null when not known.",
+   "cap": "No account has a free slot; it starts when a running turn ends.",
+   "stalled": "Stopped until a person unstalls it; text says why it stopped.",
+   "none": "Nothing to say beyond the state.",
+   "done": "Its owner finished it.",
+   "discarded": "Thrown away; text says why."
+  }
  },
  "x-dialogs": {
   "rule": "A dialog in an agent's terminal is routine, a human's or unknown. The daemon answers only the routine ones, and only at launch, once, from what the founder already decided; it never answers any other (no key into a pane after launch). A human's dialog and an unknown one are `needs_you` on the agent (AgentView), and the person answers them at the terminal terminal.open points to. Unknown is a person: a dialog the table does not name is class human, kind dialog. The class is decided from the hook or session file that reported it, never from the screen, except the launch's folder-trust screen, which the launch reads once.",
@@ -4816,6 +4851,69 @@
    ]
   },
   {
+   "name": "task.time",
+   "summary": "Where a task's time went, from its opening to its end (or now): segments in order that cover it with no gap or overlap. Read from what the daemon already records (the task's state events, its blockers, its asks of the founder, its holder's parks and starts); nothing is timed twice. Where two causes overlap, the stretch shows one, in this order: waiting on the founder, blocked by a task, waiting on another agent, queued, at an account's wall, starting, working.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "task": {
+       "type": "integer"
+      },
+      "start": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "end": {
+       "oneOf": [
+        {
+         "$ref": "#/components/schemas/Timestamp",
+         "description": "When it was done, discarded or closed."
+        },
+        {
+         "type": "null",
+         "description": "Still open: the last segment runs to now."
+        }
+       ]
+      },
+      "segments": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/TimeSegment"
+       }
+      }
+     },
+     "required": [
+      "task",
+      "start",
+      "end",
+      "segments"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "task.shot",
    "summary": "A screenshot kept with a finished task.",
    "paramStructure": "by-name",
@@ -7405,6 +7503,50 @@
    "description": "Fields not given are left alone. Chosen over set_cycle_on/set_cycle_end methods because the UI saves these together and the CLI twins (cap, cycle, recover, alias) each write one of these fields."
   },
   {
+   "name": "account.wake",
+   "summary": "Wake a STALLED account: its stall ends, agents may be placed on it again and the agents stalled with it are released, as session.wake clears a stalled agent (hl account wake). A login on the account, or a turn that ends well there, ends the stall too. Refused (gate state) when the account is not stalled.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "account",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
+    "state"
+   ]
+  },
+  {
    "name": "account.add",
    "summary": "Register an account on this machine; it is not logged in until account.login runs.",
    "paramStructure": "by-name",
@@ -9483,6 +9625,10 @@
        }
       ],
       "description": "Set while a session hands off, so a chat that sits still can say why. Cleared when the new session's start item appears. Every change is an agent.changed. A handoff that waits for a usage window to reset shows `writing` only; it is not `starting` until a launch is due. null when none. Absent from a daemon that does not serve it."
+     },
+     "status": {
+      "$ref": "#/components/schemas/Status",
+      "description": "What it is doing and why (x-status). Absent from a daemon that does not send it."
      }
     },
     "required": [
@@ -10235,6 +10381,10 @@
        }
       ],
       "description": "The pull request its work merges in (task.edit pr); an accepted task with one closes at that merge. Absent from a daemon that does not send it."
+     },
+     "status": {
+      "$ref": "#/components/schemas/Status",
+      "description": "What it is doing and why (x-status). Absent from a daemon that does not send it."
      }
     },
     "required": [
@@ -10283,6 +10433,61 @@
      "since"
     ],
     "description": "Why a task waits (Task.waiting)."
+   },
+   "Status": {
+    "type": "object",
+    "description": "What an agent or task is doing and why (x-status).",
+    "properties": {
+     "state": {
+      "type": "string",
+      "description": "One of x-status states."
+     },
+     "reason": {
+      "type": "string",
+      "description": "One of x-status reasons."
+     },
+     "text": {
+      "type": "string",
+      "description": "The line every view shows for it, as it is."
+     },
+     "until": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "When it ends by itself (a clock, a wall's reset); null when nothing says."
+     },
+     "since": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Since when it has been so; null when not known."
+     },
+     "tasks": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "description": "The tasks it waits on, for reason task; empty otherwise."
+     }
+    },
+    "required": [
+     "state",
+     "reason",
+     "text",
+     "until",
+     "since",
+     "tasks"
+    ]
    },
    "TaskDetail": {
     "allOf": [
@@ -10759,6 +10964,13 @@
         "type": "null"
        }
       ]
+     },
+     "fix": {
+      "type": "string",
+      "enum": [
+       "open_terminal"
+      ],
+      "description": "Only on a card the daemon raised after its own recovery failed: the action to offer as a button. open_terminal opens the item's agent's terminal, since every step the daemon could take was taken."
      }
     },
     "required": [
@@ -11257,6 +11469,40 @@
      "assign_reason": {
       "type": "string",
       "description": "Only with accounts.list `usage: true`. Why assignable is what it is."
+     },
+     "stalled": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "reason": {
+          "type": "string",
+          "description": "The line a row shows beside STALLED, as an agent's stall does: `login expired` for authentication_failed, else the error itself."
+         },
+         "error": {
+          "type": "string",
+          "description": "The StopFailure error that stalled it, as the CLI gave it."
+         },
+         "detail": {
+          "type": "string",
+          "description": "The turn that showed it, in words."
+         },
+         "since": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "reason",
+         "error",
+         "detail",
+         "since"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Set while the account is STALLED: a turn on it ended on an error that says the account itself cannot be used (a refused login, an org that disallows it, a hold or billing problem), or on one error the daemon does not name four times with no good turn between. No agent is placed on it; account.wake, a login or a good turn there ends it. null while it is usable. Absent from a daemon that does not send it."
      }
     },
     "required": [
@@ -14909,6 +15155,73 @@
      "filter",
      "by",
      "at"
+    ]
+   },
+   "TimeSegment": {
+    "type": "object",
+    "description": "One stretch of a task's time: one block of the bar under its title, sized by seconds.",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "queued",
+       "waiting",
+       "starting",
+       "working"
+      ],
+      "description": "queued: not yet with its holder. waiting: held up, on says by what. starting: its holder's session is being launched, woken or handed off. working: its holder has it and nothing holds it up."
+     },
+     "on": {
+      "oneOf": [
+       {
+        "type": "string",
+        "enum": [
+         "founder",
+         "task",
+         "agent",
+         "account"
+        ],
+        "description": "What a waiting segment waits on: the founder's answer or acceptance, another task, another agent's acceptance of a report, an account's plan or usage limit."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "text": {
+      "type": "string",
+      "description": "The reason as shown: `waiting on you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working."
+     },
+     "task": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "description": "The task it is blocked by."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "from": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "to": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "seconds": {
+      "type": "integer",
+      "description": "to less from."
+     }
+    },
+    "required": [
+     "kind",
+     "on",
+     "text",
+     "task",
+     "from",
+     "to",
+     "seconds"
     ]
    },
    "ChatAction": {

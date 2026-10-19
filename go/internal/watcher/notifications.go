@@ -9,9 +9,10 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/stream"
+	"github.com/handline/handline/go/internal/team"
 )
 
-// Notifications is the notifications topic, from what the other writers leave: a task marked done and a login that expired (the events
+// Notifications is the notifications topic, from what the other writers leave: a task marked done and an account stalled (the events
 // table) and a prompt an agent opened (prompt_blocks). The places reached are cursors in the database, so what happened while the daemon was
 // down is said when it is back, and one set before the stream existed starts at the newest row: history is not news. The stall
 // notification is the agents detector's.
@@ -104,8 +105,13 @@ func (n *Notifications) Scan(q *sql.DB, emit Emit) error {
 			if acct == "" {
 				acct = e.account.String
 			}
+			// A refused login keeps Python's words (the parity test holds both daemons to them); any other stall says its reason.
+			title := acct + " needs logging in"
+			if why, _ := payload["error"].(string); why != "" && why != "authentication_failed" {
+				title = acct + " stalled: " + team.StallWord(why)
+			}
 			if _, err := emit(stream.Entry{Topic: "notifications", Type: "account_out", Data: map[string]any{"account": acct}, Agent: e.agent,
-				Title: acct + " needs logging in", Target: map[string]any{"screen": "account", "id": acct}}); err != nil {
+				Title: title, Target: map[string]any{"screen": "account", "id": acct}}); err != nil {
 				return err
 			}
 		}
