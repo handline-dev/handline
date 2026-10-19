@@ -320,6 +320,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'agent.fold': 'fold',
     'agent.move': 'move',
     'agent.unstall': 'clear stall',
+    'agent.force_start': 'force start',
     'agent.create': 'create',
     'agent.retire': 'retire',
     'worktree.set_status': 'set status',

@@ -1077,6 +1077,12 @@ export type SettingsValues = {
   push_stall?: boolean;
   /** Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
   push_account_out?: boolean;
+  /** Most agents mid-turn at once on this machine, over every account; 0 is no limit. Over it the daemon starts no new work (status reason load). */
+  host_active_cap?: number;
+  /** Most 1-minute load per core, in percent (150 is 1.5 per core); 0 is off. Over it the daemon starts no new work. */
+  load_per_core_pct?: number;
+  /** Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. */
+  ram_free_min_pct?: number;
 };
 
 /** settings.set's changes: any of SettingsValues' keys; null removes one. */
@@ -1115,6 +1121,12 @@ export type SettingsChanges = {
   push_stall?: boolean | null;
   /** Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default). */
   push_account_out?: boolean | null;
+  /** Most agents mid-turn at once on this machine, over every account; 0 is no limit. Over it the daemon starts no new work (status reason load). null removes the key (back to the default). */
+  host_active_cap?: number | null;
+  /** Most 1-minute load per core, in percent (150 is 1.5 per core); 0 is off. Over it the daemon starts no new work. null removes the key (back to the default). */
+  load_per_core_pct?: number | null;
+  /** Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. null removes the key (back to the default). */
+  ram_free_min_pct?: number | null;
 };
 
 /** One method as a daemon lists it: its role and whether this caller may call it. */
@@ -1683,6 +1695,10 @@ export interface Methods {
   request_id: RequestId;
 }; result: Accepted };
   "agent.unstall": { params: {
+  agent: AgentName;
+  request_id: RequestId;
+}; result: Accepted };
+  "agent.force_start": { params: {
   agent: AgentName;
   request_id: RequestId;
 }; result: Accepted };
@@ -2811,6 +2827,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "agent.fold": { role: "agent", callers: null, write: true, since: 1 },
   "agent.move": { role: "agent", callers: null, write: true, since: 1 },
   "agent.unstall": { role: "founder", callers: null, write: true, since: 1 },
+  "agent.force_start": { role: "founder", callers: null, write: true, since: 1 },
   "agent.retire": { role: "founder", callers: null, write: true, since: 1 },
   "agent.create": { role: "founder", callers: null, write: true, since: 1 },
   "session.start": { role: "agent", callers: null, write: true, since: 1 },
@@ -3018,6 +3035,6 @@ export const STATE_WORDS = ["running", "idle", "queued", "starting", "parked", "
 
 /** x-status: the state and reason every agent and task carries; open sets for a client, which shows `text` for a word it does not know. */
 export const STATUS_STATES = ["preparing", "starting", "running", "waiting", "stopped", "idle", "off", "done"] as const;
-export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "handoff", "background", "you", "review", "opener", "task", "owner", "clock", "move", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
+export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "handoff", "background", "you", "review", "opener", "task", "owner", "clock", "move", "load", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];

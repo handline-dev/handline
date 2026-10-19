@@ -87,6 +87,8 @@ type Env struct {
 	DropGone bool
 	// Walled is what holds back a wake of agent that is due, nil when nothing does or nothing would wake it. Nil is never.
 	Walled func(agent string, row *db.AgentState) *Wall
+	// LoadHeld is why the machine's load holds the start of agent's waiting work, "" when it does not. Nil is never.
+	LoadHeld func(agent string) string
 }
 
 func (e *Env) now() int64 {

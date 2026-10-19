@@ -75,6 +75,8 @@ type Env struct {
 	Emit   func(topic, typ string, data any, agent string)
 	// Move is handoff.force_move: the agent's session to another account now, a closed agent's next wake there; nil serves no agent.move.
 	Move func(call Call, agent, account string) (ok bool, said string, err error)
+	// ForceStart lets an agent's work the machine's load holds go past the limits once; nil serves no agent.force_start.
+	ForceStart func(agent string) (ok bool, said string, err error)
 }
 
 // Register adds the methods the Env has the ports for.
@@ -94,6 +96,9 @@ func Register(s *rpc.Server, e *Env) {
 	}
 	if e.DB != nil {
 		s.Register("agent.unstall", rpc.Method{Role: "founder", Write: true, Handler: e.unstall})
+	}
+	if e.ForceStart != nil {
+		s.Register("agent.force_start", rpc.Method{Role: "founder", Write: true, Handler: e.forceStart})
 	}
 	if e.Fold != nil {
 		s.Register("agent.fold", rpc.Method{Role: "agent", Write: true, Handler: e.fold})
@@ -294,6 +299,13 @@ func (e *Env) unstall(c *rpc.Conn, params map[string]any) (any, error) {
 	return e.run(c, "agent.unstall", params, true, func(_ Call, agent string) (map[string]any, error) {
 		cleared, said, err := e.Unstall(agent)
 		return done(err == nil && cleared, said, err)
+	})
+}
+
+// forceStart is agent.force_start: refused with the action's own words unless the load is what holds the agent.
+func (e *Env) forceStart(c *rpc.Conn, params map[string]any) (any, error) {
+	return e.run(c, "agent.force_start", params, false, func(_ Call, agent string) (map[string]any, error) {
+		return done(e.ForceStart(agent))
 	})
 }
 

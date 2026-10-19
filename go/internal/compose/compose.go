@@ -14,6 +14,7 @@ import (
 	"github.com/handline/handline/go/internal/heal"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/sysres"
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/turns"
 )
@@ -36,6 +37,8 @@ type Config struct {
 	Turns *turns.Tracker
 	// DiskFree is the free and total bytes of the volume holding a path, for the disk watch; nil is statfs. Tests give a low one.
 	DiskFree func(path string) (free, total int64, err error)
+	// Machine is the machine's latest measure for the load gate (sysres.Sampler.LatestMachine); nil checks only the agent cap.
+	Machine func() *sysres.Machine
 	// NotifiedNeedsYou has an unanswered prompt that Claude Code's Notification hook reports raise the needs-you card.
 	NotifiedNeedsYou bool
 }
