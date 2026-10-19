@@ -6,7 +6,7 @@ import { clockTime, sessionLine } from '@handline/app-core';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Icon, iconLabel, type IconName } from './Icon.tsx';
-import { Markdown } from './Markdown.tsx';
+import { PrBody } from './PrBody.tsx';
 import { Sheet } from './TaskActions.tsx';
 
 /** The time of a message and, for the person's own, how far it got, as a small column beside its bubble. */
@@ -31,14 +31,14 @@ export function useBubbleWidth(): number {
 }
 
 /** A transcript line that is not a message. */
-export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: TranscriptItem) => void }) {
+export function Line({ i, agent, onReply }: { i: TranscriptItem; agent: string; onReply?: (i: TranscriptItem) => void }) {
   const c = usePalette();
   const small = { color: c.muted, fontSize: 12 } as const;
   if (i.kind === 'reply')
     return (
       <View testID={`reply-${i.id}`} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.xs }}>
         <View style={{ flex: 1, padding: space.md }}>
-          <Markdown text={i.text ?? ''} breaks />
+          <PrBody id={`reply-${i.id}`} agent={agent} body={i.text ?? ''} />
           {onReply && (
             <Pressable
               testID={`reply-to-${i.id}`}

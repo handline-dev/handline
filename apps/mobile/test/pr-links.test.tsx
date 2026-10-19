@@ -18,4 +18,19 @@ describe('#N in a message', () => {
     expect(link.textContent).toBe('#306');
     expect(document.querySelectorAll('[data-testid^="pr-"]').length).toBe(1);
   });
+
+  it('links in the agent reply lines too', async () => {
+    await mount(
+      (s) => {
+        s.daemon.pullRequests.add(307);
+        s.daemon.chat.seedItem(ARCH, { kind: 'reply', text: 'merged #307' });
+      },
+      undefined,
+      'founder',
+    );
+    await until(() => $(`agent-${ARCH}`), 'the rows');
+    await press($(`agent-${ARCH}`));
+    await until(() => document.querySelector('[data-testid^="pr-reply"]'), 'the pull request link in the reply');
+    expect(document.querySelector('[data-testid^="pr-reply"]')!.textContent).toBe('#307');
+  });
 });
