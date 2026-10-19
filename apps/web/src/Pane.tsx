@@ -26,6 +26,7 @@ import { ActivityTab } from './ActivityTab.tsx';
 import { Badges } from './Badges.tsx';
 import { DropZones } from './DropZones.tsx';
 import { ChangesTab } from './ChangesTab.tsx';
+import { FileTab } from './FileTab.tsx';
 import { BytesTab } from './BytesTab.tsx';
 import { wantsBytes } from './terminal/choose.ts';
 import { Watch } from './TranscriptTab.tsx';
@@ -49,12 +50,14 @@ const label = (t: Tab, structured = false): string =>
         ? 'Timeline'
         : t.kind === 'changes'
           ? 'Changes'
+          : t.kind === 'file'
+            ? String(t.params.path ?? 'File').split('/').pop()!
           : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
           ? 'Transcript'
           : t.kind === 'terminal'
             ? 'Claude Code'
             : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
-const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history', activity: 'team', changes: 'changes', new: 'plus' };
+const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history', activity: 'team', changes: 'changes', file: 'reference', new: 'plus' };
 
 const TAB_KEYS: KeyRows = [
   ['Alt+Left Alt+Right', 'move the focused tab along the strip'],
@@ -75,6 +78,7 @@ export function Pane({ group }: { group: Group }) {
     { kind: 'activity', params: {}, label: 'Activity', icon: 'team' },
     { kind: 'timeline', params: {}, label: 'Timeline', icon: 'history' },
     { kind: 'changes', params: {}, label: 'Changes', icon: 'changes', disabled: !detail.worktree },
+    { kind: 'file', params: { id: 'new' }, label: 'File', icon: 'reference', disabled: !detail.worktree },
   ];
   const structured = detail.structured === true;
   // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.
@@ -224,6 +228,8 @@ export function Pane({ group }: { group: Group }) {
           <TimelineTab agent={agent} />
         ) : tab.kind === 'changes' ? (
           <ChangesTab agent={agent} detail={detail} />
+        ) : tab.kind === 'file' ? (
+          <FileTab agent={agent} detail={detail} path={typeof tab.params.path === 'string' ? tab.params.path : ''} onPath={(p) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, path: p } } } }))} />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (
           <Watch
             agent={agent}

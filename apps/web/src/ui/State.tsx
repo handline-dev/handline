@@ -15,7 +15,7 @@ const GLYPH: Record<StateKind, { icon: IconName; label: string }> = {
   parked: { icon: 'asleep', label: 'Sleeping' },
   done: { icon: 'done', label: 'Done' },
   rejected: { icon: 'dismissed', label: 'Rejected' },
-  noTerminal: { icon: 'noTerminal', label: 'No terminal' },
+  noTerminal: { icon: 'noTerminal', label: 'Idle' },
 };
 
 // The hue repeats the glyph; booting keeps the ink (the pulse says starting).
