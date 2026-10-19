@@ -76,6 +76,8 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "draft", "T1"}, []string{`task.draft {"tasks":[1]}`}},
 		{"", []string{"task", "edit", "T3", "--title", "t", "--priority", "3", "--timeout", "2h", "--unblock", "T4"},
 			[]string{`task.edit {"priority":3,"task":3,"time_box":"7200s","title":"t","unblock":4}`}},
+		// past the daemon's limit: it is the daemon's to refuse, with the limit named, not a parse failure here
+		{"", []string{"task", "edit", "T3", "--timeout", "6h"}, []string{`task.edit {"task":3,"time_box":"21600s"}`}},
 		{"new brief", []string{"task", "edit", "T3", "--body", "-", "--assign", "b.two", "--owner", "a.one", "--blocked-by", "T9"},
 			[]string{`task.edit {"blocked_by":9,"body":"new brief","owner":"b.two","reporter":"a.one","task":3}`}},
 		{"", []string{"task", "edit", "T3", "--tag", "fe", "--untag", "be"}, []string{`task.edit {"add_tags":["fe"],"remove_tags":["be"],"task":3}`}},
@@ -176,7 +178,7 @@ func TestWhatTheTaskPortDoesNotParseIsRefused(t *testing.T) {
 	calls := r.daemon(nil)
 	for _, args := range [][]string{
 		{"task"}, {"task", "frob"}, {"task", "show", "12"}, {"task", "show", "T1", "x"}, {"task", "show", "T1", "-h"},
-		{"task", "new", "--assi", "b.two", "-t", "1h", "x"}, {"task", "new", "--assign", "b", "-t", "5h", "x"},
+		{"task", "new", "--assi", "b.two", "-t", "1h", "x"}, {"task", "new", "--assign", "b", "-t", "five", "x"},
 		{"task", "new", "--assign", "b", "-t", "1h", "x", "--reply", "1", "hi"}, {"task", "new", "--assign", "b", "-t", "1h", "x", "--", "y"},
 		{"task", "list", "--state", "nope"}, {"task", "begin", "x", "--chat", "a", "--why", "w"}, {"task", "begin", "x", "--why", "w"}, {"task", "begin", "x"},
 		{"task", "memo", "T1", "bogus"}, {"task", "memo", "T1", "delete", "abc"}, {"task", "done", "T1", "--request", "x"},
