@@ -14,6 +14,7 @@ type tbPorts struct {
 	TimeboxPorts
 	doing      map[int64]bool
 	boss       string
+	lead       string
 	stopWait   string
 	sendOK     bool
 	sent       []string // "who: text", typed at once
@@ -35,7 +36,7 @@ type tbPorts struct {
 
 func (p *tbPorts) TaskDoing(_ db.Q, t *db.Task) bool           { return p.doing[t.ID] }
 func (p *tbPorts) SupervisorOf(string) string                  { return p.boss }
-func (p *tbPorts) LeadOf(string) string                        { return "" }
+func (p *tbPorts) LeadOf(string) string                        { return p.lead }
 func (p *tbPorts) StopWaitReason(db.Q, string) string          { return p.stopWait }
 func (p *tbPorts) BgStale(db.Q, string, int64) bool            { return p.bgStale }
 func (p *tbPorts) BgOwesNothing(db.Q, string) bool             { return p.bgOwes }
@@ -130,6 +131,25 @@ func TestAReportedTasksClockRunsOnAndRemindsWhoeverItAnswersTo(t *testing.T) {
 	}
 	if len(p.sent) != 0 {
 		t.Fatalf("the reminder is typed at once: %v", p.sent)
+	}
+}
+
+func TestAReportedTaskRemindsTheAssigneesLeadAndAnAcceptedOneNoOne(t *testing.T) {
+	tk, _, b, p := timebox(t)
+	p.lead = "lead"
+	tid := newTask(t, tk, "a", "boss", 100)
+	report(t, tk, tid)
+	b.SweepTaskTimeouts(tk, 1000)
+	b.SweepTaskTimeouts(tk, 1200)
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "lead: T") || !strings.Contains(p.batched[0], "hl task handoff T1 lead") {
+		t.Fatalf("the lead is reminded, not whoever the task answers to: %v", p.batched)
+	}
+	if _, err := tk.Q.Exec("UPDATE tasks SET accepted_by = 'lead', accepted_at = 1250 WHERE id = ?", tid); err != nil {
+		t.Fatal(err)
+	}
+	b.SweepTaskTimeouts(tk, 1400)
+	if len(p.batched) != 1 {
+		t.Fatalf("an accepted task waits on its merge and is reminded to no one: %v", p.batched)
 	}
 }
 
