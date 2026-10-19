@@ -7314,6 +7314,14 @@
      }
     },
     {
+     "name": "unmark",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "true lifts the mark a StopFailure left on the account (hl account unmark), so agents may be placed on it again; false does nothing."
+     }
+    },
+    {
      "name": "request_id",
      "required": true,
      "schema": {

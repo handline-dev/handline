@@ -2439,6 +2439,8 @@ export interface Methods {
   cycle?: boolean;
   /** Last usable day YYYY-MM-DD; a date alone turns the cycle on, as `hl account cycle --end` does; null clears it. */
   cycle_end?: string | null;
+  /** true lifts the mark a StopFailure left on the account (hl account unmark), so agents may be placed on it again; false does nothing. */
+  unmark?: boolean;
   request_id: RequestId;
 }; result: Accepted };
   "account.add": { params: {

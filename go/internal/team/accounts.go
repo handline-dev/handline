@@ -84,10 +84,12 @@ func claudeCredentialModified(configDir string) *float64 {
 	return &v
 }
 
-// Expired is why and when an account was found with an expired login, until a login after that time.
+// Expired is why and when an account was found unusable, until a login after that time. Error is the StopFailure error that marked
+// it; empty is authentication_failed (a mark written before the field).
 type Expired struct {
-	Why string
-	At  float64
+	Why   string
+	Error string
+	At    float64
 }
 
 // LoginExpired is the mark, when there is one. The credential is still there, so its presence says nothing; its modification
@@ -98,8 +100,9 @@ func (a Accounts) LoginExpired(acct string) *Expired {
 		return nil
 	}
 	var data struct {
-		Why any      `json:"why"`
-		At  *float64 `json:"at"`
+		Why   any      `json:"why"`
+		Error string   `json:"error"`
+		At    *float64 `json:"at"`
 	}
 	if json.Unmarshal(b, &data) != nil || data.At == nil {
 		return nil
@@ -108,7 +111,7 @@ func (a Accounts) LoginExpired(acct string) *Expired {
 		a.ClearLoginExpired(acct)
 		return nil
 	}
-	return &Expired{Why: pyStr(data.Why), At: *data.At}
+	return &Expired{Why: pyStr(data.Why), Error: data.Error, At: *data.At}
 }
 
 // LoggedInSince is whether the account's credential changed after the refusal that happened in epoch second at: a login made since
@@ -118,9 +121,9 @@ func (a Accounts) LoggedInSince(acct string, at int64) bool {
 	return changed != nil && *changed > float64(at+1)
 }
 
-// MarkLoginExpired records that an account's login expired at the given time (the refusal's, not the sighting's, so a login made
-// between the two drops the mark at once). False when it already is marked: the first sighting stands.
-func (a Accounts) MarkLoginExpired(acct, why string, now time.Time) (bool, error) {
+// MarkLoginExpired records that an account was found unusable, on errType, at the given time (the refusal's, not the sighting's, so a
+// login made between the two drops the mark at once). False when it already is marked: the first sighting stands.
+func (a Accounts) MarkLoginExpired(acct, errType, why string, now time.Time) (bool, error) {
 	if a.LoginExpired(acct) != nil {
 		return false, nil
 	}
@@ -129,7 +132,8 @@ func (a Accounts) MarkLoginExpired(acct, why string, now time.Time) (bool, error
 		return false, err
 	}
 	whyJSON, _ := json.Marshal(why)
-	text := fmt.Sprintf(`{"why": %s, "at": %s}`, whyJSON, yamlFloat(float64(now.UnixNano())/1e9))
+	errJSON, _ := json.Marshal(errType)
+	text := fmt.Sprintf(`{"why": %s, "error": %s, "at": %s}`, whyJSON, errJSON, yamlFloat(float64(now.UnixNano())/1e9))
 	return true, os.WriteFile(f, []byte(text), 0o644)
 }
 

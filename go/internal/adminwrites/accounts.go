@@ -6,13 +6,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
 	"github.com/handline/handline/go/internal/weblogin"
 )
 
-// account.set: an account's cap, alias, usage recovery and month cycle, in config.yaml. It writes what a retry writes
-// again. settings.trust stays with the Python daemon; account.add and account.remove are in accountadmin.go.
+// account.set: an account's cap, alias, usage recovery and month cycle, in config.yaml, and lifting its StopFailure mark. It
+// writes what a retry writes again. settings.trust stays with the Python daemon; account.add and account.remove are in accountadmin.go.
 
 const labelMax = 40
 
@@ -52,6 +54,10 @@ func (e *Env) accountSet(c *rpc.Conn, p map[string]any) (any, error) {
 		return nil, err
 	}
 	cycleOn, hasCycle, err := flagParam(p, "cycle")
+	if err != nil {
+		return nil, err
+	}
+	unmark, _, err := flagParam(p, "unmark")
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +126,14 @@ func (e *Env) accountSet(c *rpc.Conn, p map[string]any) (any, error) {
 		if err := cfg.save(); err != nil {
 			return nil, refused(err.Error(), "")
 		}
+	}
+	if accounts := (team.Accounts{Home: e.Home}); unmark && accounts.LoginExpired(acct) != nil {
+		accounts.ClearLoginExpired(acct)
+		// The failures before it say nothing of the account now (handoff.LastFailure).
+		if _, err := db.AddEventFor(e.DB, db.Human, acct, "account_unmarked", db.KV{K: "account", V: acct}); err != nil {
+			return nil, refused(err.Error(), "")
+		}
+		said = append(said, acct+": mark lifted")
 	}
 	out := strings.Join(said, "; ")
 	if out == "" {

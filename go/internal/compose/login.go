@@ -12,7 +12,7 @@ import (
 	"github.com/handline/handline/go/internal/tick"
 )
 
-// loginLifted is the cursor holding the id of the authentication_failed turn a lift has passed. That turn stays the agent's last event
+// loginLifted is the cursor holding the id of the failed turn a lift has passed. That turn stays the agent's last event
 // until it is prompted again, and without this it would mark the account a second time.
 // It is the Go daemon's own: Python's "login_lifted:<agent>" holds a session row id, and one name for both would be read as the other's.
 func loginLifted(agent string) string { return "login_lifted_event:" + agent }
@@ -24,57 +24,81 @@ func pythonLifted(q db.Q, agent string) int64 {
 	return at
 }
 
+// lifted is whether a lift has passed a failure on acct: the agent's own lift cursor, Python's lift, or a login since.
+func lifted(q db.Q, accounts team.Accounts, agent, acct string, f handoff.Failure) bool {
+	cursor, _ := db.Cursor(q, loginLifted(agent))
+	return f.ID <= cursor || f.TS <= pythonLifted(q, agent) || accounts.LoggedInSince(acct, f.TS)
+}
+
+// marked is the account's mark, unless a Stop on the account since it was set says the account works again: that drops it.
+func marked(q db.Q, accounts team.Accounts, acct string) *team.Expired {
+	e := accounts.LoginExpired(acct)
+	if e == nil {
+		return nil
+	}
+	var stop int64
+	if q.QueryRow("SELECT COALESCE(MAX(ts), 0) FROM events WHERE account = ? AND kind = 'Stop'", acct).Scan(&stop) == nil && float64(stop) >= e.At {
+		accounts.ClearLoginExpired(acct)
+		return nil
+	}
+	return e
+}
+
 // loginPorts is tick.Login over the account marks and the events table.
 func loginPorts(accounts team.Accounts) tick.Login {
 	return tick.Login{
-		Expired: func(acct string) (string, bool) {
-			e := accounts.LoginExpired(acct)
+		Expired: func(q db.Q, acct string) (string, string, bool) {
+			e := marked(q, accounts, acct)
 			if e == nil {
-				return "", false
+				return "", "", false
 			}
-			return e.Why, true
+			return e.Why, e.Error, true
 		},
-		AuthFailed: func(q db.Q, agent, acct string) (string, int64, bool) {
-			id, ts, details, ok, err := handoff.AuthFailed(q, agent, acct)
-			if err != nil || !ok {
-				return "", 0, false
+		Failed: func(q db.Q, agent, acct string) (string, string, int64, bool) {
+			f, ok, err := handoff.LastFailure(q, agent, acct)
+			if err != nil || !ok || lifted(q, accounts, agent, acct, f) {
+				return "", "", 0, false
 			}
-			if lifted, _ := db.Cursor(q, loginLifted(agent)); id <= lifted || ts <= pythonLifted(q, agent) || accounts.LoggedInSince(acct, ts) {
-				return "", 0, false
-			}
-			if details != "" {
-				details = ": " + details
-			}
-			return details, ts, true
+			return f.Error, f.Details, f.TS, true
 		},
-		Mark: func(q db.Q, agent, acct, why string, at int64) bool {
-			// Stamped at the end of the second the refusal is dated in, which is as late as it could have been.
-			if first, err := accounts.MarkLoginExpired(acct, why, time.Unix(at+1, 0)); err != nil || !first {
+		Repeats: func(q db.Q, acct, errType string) int {
+			times, _ := handoff.Failures(q, acct, errType)
+			n := 0
+			for _, ts := range times {
+				if !accounts.LoggedInSince(acct, ts) {
+					n++
+				}
+			}
+			return n
+		},
+		Mark: func(q db.Q, agent, acct, errType, why string, at int64) bool {
+			// Stamped at the end of the second the failure is dated in, which is as late as it could have been.
+			if first, err := accounts.MarkLoginExpired(acct, errType, why, time.Unix(at+1, 0)); err != nil || !first {
 				return false
 			}
-			_, _ = db.AddEventFor(q, agent, acct, "login_expired", db.KV{K: "account", V: acct}, db.KV{K: "why", V: why})
+			_, _ = db.AddEventFor(q, agent, acct, "login_expired", db.KV{K: "account", V: acct}, db.KV{K: "error", V: errType}, db.KV{K: "why", V: why})
 			return true
 		},
 	}
 }
 
-// liftLogin is login_expired.lift: a stall raised for an expired login ends once the agent's account is logged in again.
+// liftLogin is login_expired.lift: a stall raised for an unusable account ends once the account's mark is lifted.
 func liftLogin(accounts team.Accounts) func(db.Q, string, *db.AgentState, *[]string) {
 	return func(q db.Q, agent string, row *db.AgentState, actions *[]string) {
 		if row.State != states.Stalled || !strings.Contains(row.Detail.String, tick.LoginStall) {
 			return
 		}
 		acct, _ := team.CurrentAccount(q, agent)
-		if acct != "" && accounts.LoginExpired(acct) != nil {
+		if acct != "" && marked(q, accounts, acct) != nil {
 			return
 		}
-		if id, _, _, ok, _ := handoff.AuthFailed(q, agent, acct); ok {
-			_ = db.SetCursor(q, loginLifted(agent), id)
+		if f, ok, _ := handoff.LastFailure(q, agent, acct); ok {
+			_ = db.SetCursor(q, loginLifted(agent), f.ID)
 		}
 		if acct == "" {
 			acct = "its account"
 		}
-		_ = db.SetAgentState(q, agent, states.Idle, 0, acct+" is logged in again; the stall is lifted")
-		*actions = append(*actions, fmt.Sprintf("%s: STALLED -> IDLE (%s logged in again)", agent, acct))
+		_ = db.SetAgentState(q, agent, states.Idle, 0, acct+" is usable again; the stall is lifted")
+		*actions = append(*actions, fmt.Sprintf("%s: STALLED -> IDLE (%s usable again)", agent, acct))
 	}
 }

@@ -171,15 +171,15 @@ func TestAnExpiredLoginIsMarkedAndGoesWithANewerCredential(t *testing.T) {
 	old := time.Now().Add(-time.Hour)
 	os.Chtimes(cred, old, old)
 	now := time.Now()
-	if ok, err := a.MarkLoginExpired("alpha", "401 on refresh", now); !ok || err != nil {
+	if ok, err := a.MarkLoginExpired("alpha", "authentication_failed", "401 on refresh", now); !ok || err != nil {
 		t.Fatalf("%v %v", ok, err)
 	}
-	if ok, _ := a.MarkLoginExpired("alpha", "second sighting", now); ok {
+	if ok, _ := a.MarkLoginExpired("alpha", "authentication_failed", "second sighting", now); ok {
 		t.Fatal("the first sighting stands")
 	}
 	time.Sleep(10 * time.Millisecond)
 	m := a.LoginExpired("alpha")
-	if m == nil || m.Why != "401 on refresh" {
+	if m == nil || m.Why != "401 on refresh" || m.Error != "authentication_failed" {
 		t.Fatalf("%+v", m)
 	}
 	if in, known := a.LoginState("alpha"); !known || in {

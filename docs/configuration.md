@@ -105,11 +105,14 @@ hl team seal
 ```bash
 hl account list              # usage windows, agents per account, whether it takes work
 hl account cap alpha 3       # how many agents may be mid-turn on alpha at once (default 2)
+hl account unmark alpha      # lift the mark a refused turn left on alpha (a login or a Stop there lifts it too)
 hl status                    # why the daemon picked the account it did
 ```
 
 An agent's account is a preference. A session goes there unless the account is at its limit, at
-its cap, or filling too fast. See [how it works](how-it-works.md) for the rules.
+its cap, or filling too fast, or is marked: a turn on it ended on an error that says the account
+itself cannot be used (a refused login, an org that disallows it, a hold or billing problem), or on
+an unrecognized error four times with no successful turn between. See [how it works](how-it-works.md) for the rules.
 
 ## Shared settings
 

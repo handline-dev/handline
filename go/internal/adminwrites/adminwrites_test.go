@@ -15,6 +15,7 @@ import (
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/team"
 )
 
 type auth struct{}
@@ -214,3 +215,28 @@ func TestAccountSetWritesConfigAndRefusesWhatNeedsTheProfile(t *testing.T) {
 }
 
 func (auth) SessionsReadable() error { return nil }
+
+func TestAccountSetUnmarkLiftsTheMarkAndSaysTheFailuresBeforeItAreOld(t *testing.T) {
+	r := newRig(t)
+	dir := filepath.Join(r.home, "accounts", "main", ".claude")
+	os.MkdirAll(dir, 0o755)
+	cred := filepath.Join(dir, ".credentials.json")
+	os.WriteFile(cred, []byte("c"), 0o600)
+	old := time.Now().Add(-time.Hour)
+	os.Chtimes(cred, old, old)
+	accounts := team.Accounts{Home: r.home}
+	if r.result(r.one("account.set", `{"account":"main","unmark":true,"request_id":"u1"}`))["said"] != "nothing changed" {
+		t.Fatal("an account with no mark has nothing to lift")
+	}
+	if _, err := accounts.MarkLoginExpired("main", "oauth_org_not_allowed", "refused", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if res := r.result(r.one("account.set", `{"account":"main","unmark":true,"request_id":"u2"}`)); res["said"] != "main: mark lifted" {
+		t.Fatalf("%v", res)
+	}
+	var n int
+	r.e.DB.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'account_unmarked' AND account = 'main'").Scan(&n)
+	if accounts.LoginExpired("main") != nil || n != 1 {
+		t.Fatalf("mark still there, or %d account_unmarked events", n)
+	}
+}
