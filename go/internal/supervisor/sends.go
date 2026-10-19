@@ -46,8 +46,15 @@ func (e *Env) background(name string, fn func()) {
 		run()
 		return
 	}
-	go run()
+	e.bg.Add(1)
+	go func() {
+		defer e.bg.Done()
+		run()
+	}()
 }
+
+// Wait returns once every telling started off the caller has ended: the daemon closes the database, and a test its home, only after.
+func (e *Env) Wait() { e.bg.Wait() }
 
 func (e *Env) after(rid int64, target string) {
 	if rid == 0 || target == db.Human {
@@ -114,6 +121,8 @@ type SayVerbIn struct {
 	Parent    int64
 	// Effect is the daemon's record of the write, made in the transaction that writes the message and what is written with it.
 	Effect func(q db.Q, message string, rid int64) error
+	// MemoEffect is the same for a say that became a memo of the task it names: mid is the memo.
+	MemoEffect func(q db.Q, mid int64) error
 }
 
 // SayVerbOut is the verb's answer; After runs once the writes have committed (the telling, the settled request's tell, the memo holder's say).
@@ -255,12 +264,12 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 		if row.Owner != target {
 			return fail(fmt.Sprintf("T%d is with %s, not %s. Try:\n  %s", task, row.Owner, target, sayCmd(row.Owner, body, in.Parent, fmt.Sprintf("--task T%d", task))))
 		}
-		ok, msg, _, merr := e.MemoAdd(q, task, me, body)
+		ok, msg, mid, merr := e.MemoAdd(q, task, me, body)
 		if merr != nil {
 			return nil, merr
 		}
-		if ok && in.Effect != nil {
-			if err := in.Effect(q, msg, 0); err != nil {
+		if ok && in.MemoEffect != nil {
+			if err := in.MemoEffect(q, mid); err != nil {
 				return nil, err
 			}
 		}

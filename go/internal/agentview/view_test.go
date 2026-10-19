@@ -322,11 +322,18 @@ func TestAHandoffShowsFromTheNoteWaitThroughTheLaunchUntilTheNewSessionBegins(t 
 		t.Fatalf("a restart reads %v %q", v["state"], v["state_detail"])
 	}
 
+	// One restart is one state: the line stays until the chat can show the New session line, which needs the session's id.
 	if _, err := db.NoteSessionStart(r.env.Q, "a", "context_full", false, "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
+	if h := handoff(); h == nil {
+		t.Fatal("a launch with no session id yet has no New session line, so the restart is still on")
+	}
+	if _, err := r.env.Q.Exec("UPDATE session_starts SET session_id = 's2' WHERE agent = 'a'"); err != nil {
+		t.Fatal(err)
+	}
 	if h := handoff(); h != nil {
-		t.Fatalf("the new session began, got %v", h)
+		t.Fatalf("the new session is shown, got %v", h)
 	}
 }
 

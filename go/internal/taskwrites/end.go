@@ -158,7 +158,7 @@ func addSay(tx *sql.Tx, from, to, body string, notice bool) (int64, error) {
 		noticeCol = 1
 	}
 	res, err := tx.Exec("INSERT INTO requests(ts, requester, target, body, files, relation, response, kind, chain_depth, parent_id, "+
-		"state, chain_id, edge_ok, landed_at, state_at, notice) VALUES(?,?,?,?,NULL,NULL,'fire_and_forget','say',0,NULL,?,NULL,1,?,?,?)",
+		"state, chain_id, edge_ok, landed_at, state_at, notice) VALUES(?,?,?,?,NULL,NULL,NULL,'say',0,NULL,?,NULL,1,?,?,?)",
 		now, from, to, body, state, landedAt, now, noticeCol)
 	if err != nil {
 		return 0, err

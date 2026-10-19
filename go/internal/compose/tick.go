@@ -169,7 +169,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 
 // tellFounder writes a message from the task board to the founder's inbox, as a delivery that cannot be confirmed is told.
 func tellFounder(q db.Q, text string) error {
-	_, err := db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: db.Human, Body: text, Response: "fire_and_forget", Kind: "say"})
+	_, err := db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: db.Human, Body: text, Kind: "say"})
 	return err
 }
 

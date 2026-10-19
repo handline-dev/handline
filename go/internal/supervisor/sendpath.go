@@ -316,7 +316,7 @@ func (e *Env) deliveryUnknown(q db.Q, agent, op, outcome, advice string) {
 		told[row.Requester] = true
 		text := fmt.Sprintf("#%d to %s %s. It is not sent again; %s.", rid, agent, outcome, advice)
 		if row.Requester == db.Human {
-			must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: db.Human, Body: text, Response: "fire_and_forget", Kind: "say"}))
+			must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: db.Human, Body: text, Kind: "say"}))
 			continue
 		}
 		must(e.Notice(q, row.Requester, text, "delivery unknown"))
