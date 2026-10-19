@@ -6,7 +6,6 @@ import { dateTime, taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
-import { canCapture, requestCapture } from './Capture.tsx';
 import { Button, MenuButton, MenuItem, MenuSeparator } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
@@ -54,11 +53,6 @@ export function TaskDetail({
       aria-label={`Task ${taskRef(id)}`}
     >
       <div className="mb-4 flex items-center justify-end gap-2">
-        {canCapture() ? (
-          <Button label="Capture a window" title="Capture a window (⌘⇧C)" onClick={requestCapture}>
-            Capture
-          </Button>
-        ) : null}
         <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
           Back
         </Button>

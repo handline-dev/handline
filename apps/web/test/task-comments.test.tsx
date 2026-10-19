@@ -86,6 +86,13 @@ describe('Comments on a task', () => {
     expect(box.querySelector('[aria-label="Message about this task"]')).toBeNull(); // no separate reply box
   });
 
+  it('offers a picture to mark, and no window capture, in the task detail', async () => {
+    await mount();
+    const labels = [...box.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent);
+    expect(labels).toContain('Add picture');
+    expect(labels).not.toContain('Capture a window');
+  });
+
   it('keeps the text and says why when the daemon refuses', async () => {
     const s = await mount();
     s.daemon.knobs.refuse('task.memo.add', 'state', 'the task is closed', undefined, 1);
