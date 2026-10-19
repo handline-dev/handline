@@ -444,3 +444,88 @@ func TestAMessageToTheFounderCarriesTheButtonsItsTaskStateAsksFor(t *testing.T) 
 		t.Fatalf("a closed task keeps its buttons: %s", b)
 	}
 }
+
+func TestChatLocateTakesAMessageNameAndReturnsTheTranscriptOfItsWindow(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for _, q := range []string{
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, ref) VALUES(1, 1000, 'human', 'bob', 'first', 'queued', 'say', 'aaaa11112222')",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, ref) VALUES(2, 2000, 'human', 'bob', 'second', 'queued', 'say', 'bbbb33334444')",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, ref) VALUES(3, 3000, 'human', 'bob', 'third', 'queued', 'say', 'cccc55556666')",
+	} {
+		if _, err := e.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, at := range []int64{500, 1500, 2000, 2500, 3500} {
+		body := fmt.Sprintf(`{"tool_use":{"id":"u%d","tool":"Bash","input":{"command":"at %d"}}}`, i, at)
+		if _, err := e.DB.Exec(`INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('bob', ?, 's', NULL, ?, 'tool_use', NULL, ?)`, i+1, at, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tools := func(got any) []string {
+		var out []string
+		for _, it := range got.(map[string]any)["transcript"].([]any) {
+			out = append(out, it.(map[string]any)["text"].(string))
+		}
+		return out
+	}
+	for _, name := range []string{"msg_bbbb333", "bbbb33334444"} {
+		got, err := e.chatLocate(nil, map[string]any{"request": name})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		m := got.(map[string]any)
+		if m["message"].(map[string]any)["id"] != int64(2) || len(m["messages"].([]any)) != 3 {
+			t.Fatalf("%s locates message 2: %v", name, m)
+		}
+		// From the oldest message's second on to now, as nothing is newer than the window
+		if strings.Join(tools(got), ",") != "at 1500,at 2000,at 2500,at 3500" || m["transcript_more_older"] != false || m["transcript_more_newer"] != false {
+			t.Fatalf("%s: %v", name, tools(got))
+		}
+	}
+	got, err := e.chatLocate(nil, map[string]any{"request": "msg_bbbb333", "limit": json.Number("1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := got.(map[string]any); m["more_newer"] != true || strings.Join(tools(got), ",") != "at 2000" {
+		t.Fatalf("a window of one ends with its message's second: %v", tools(got))
+	}
+}
+
+func TestChatLocateKeepsAPageOfTheTranscriptAroundTheMessage(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for _, q := range []string{
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, ref) VALUES(1, 1000, 'human', 'bob', 'first', 'queued', 'say', 'aaaa11112222')",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, ref) VALUES(2, 1200, 'human', 'bob', 'second', 'queued', 'say', 'bbbb33334444')",
+	} {
+		if _, err := e.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 2*maxLimit; i++ {
+		at := int64(1000 + i)
+		body := fmt.Sprintf(`{"tool_use":{"id":"u%d","tool":"Bash","input":{"command":"at %d"}}}`, i, at)
+		if _, err := e.DB.Exec(`INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('bob', ?, 's', NULL, ?, 'tool_use', NULL, ?)`, i+1, at, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := e.chatLocate(nil, map[string]any{"request": "msg_aaaa111"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := got.(map[string]any)
+	items := m["transcript"].([]any)
+	first, last := items[0].(map[string]any)["text"], items[len(items)-1].(map[string]any)["text"]
+	// message 1 is at the span's start, so the page starts there and the newer end is cut
+	if len(items) != maxLimit || first != "at 1000" || last != fmt.Sprintf("at %d", 1000+maxLimit-1) || m["transcript_more_older"] != false || m["transcript_more_newer"] != true {
+		t.Fatalf("%d items, %v .. %v, older %v newer %v", len(items), first, last, m["transcript_more_older"], m["transcript_more_newer"])
+	}
+	got, _ = e.chatLocate(nil, map[string]any{"request": "msg_bbbb333"})
+	m = got.(map[string]any)
+	items = m["transcript"].([]any)
+	if mid := items[maxLimit/2].(map[string]any)["text"]; len(items) != maxLimit || mid != "at 1200" || m["transcript_more_older"] != true || m["transcript_more_newer"] != true {
+		t.Fatalf("centred on message 2: %d items, middle %v", len(items), mid)
+	}
+}

@@ -237,6 +237,93 @@
    ]
   },
   {
+   "name": "chat.locate.by_msg_name_with_the_transcript_span",
+   "spec": "chat.locate",
+   "about": "A message is located by its msg_ name as by its number, and the answer carries the transcript of the window's span.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "locate me",
+       "request_id": "conf-loc-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$save": "rid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.locate",
+      "params": {
+       "request": "{{rid}}"
+      }
+     },
+     "result": {
+      "agent": "{{ask_agent}}",
+      "message": {
+       "id": "{{rid}}",
+       "ref": {
+        "$regex": "^[0-9a-f]{12}$",
+        "$save": "ref"
+       }
+      },
+      "transcript": {
+       "$type": "array"
+      },
+      "transcript_more_older": {
+       "$type": "boolean"
+      },
+      "transcript_more_newer": {
+       "$type": "boolean"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.locate",
+      "params": {
+       "request": "msg_{{ref}}"
+      }
+     },
+     "result": {
+      "agent": "{{ask_agent}}",
+      "message": {
+       "id": "{{rid}}"
+      },
+      "transcript": {
+       "$type": "array"
+      }
+     }
+    }
+   ]
+  },
+  {
    "name": "chat.search.query_is_not_empty",
    "spec": "chat.search",
    "about": "A query of nothing is bad_request naming it.",

@@ -2568,7 +2568,7 @@
   },
   {
    "name": "chat.locate",
-   "summary": "Where a message number sits: its conversation, scope, and the page of messages around it.",
+   "summary": "Where a message sits (its msg_ name, a bare hash or its number): its conversation, scope, the page of messages around it and the transcript of the same span.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2605,7 +2605,10 @@
       "message",
       "messages",
       "more_older",
-      "more_newer"
+      "more_newer",
+      "transcript",
+      "transcript_more_older",
+      "transcript_more_newer"
      ],
      "properties": {
       "agent": {
@@ -2635,6 +2638,21 @@
       },
       "more_newer": {
        "type": "boolean"
+      },
+      "transcript": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/TranscriptItem"
+       },
+       "description": "chat.transcript's items for the agent from the second of the page's oldest message to the end of its newest's (on to now when more_newer is false), oldest first: up to 200, kept around message."
+      },
+      "transcript_more_older": {
+       "type": "boolean",
+       "description": "The span has older items than transcript holds; continue with chat.transcript before the first item's id."
+      },
+      "transcript_more_newer": {
+       "type": "boolean",
+       "description": "The span has newer items than transcript holds; continue with chat.transcript since the last item's id."
       }
      }
     }
@@ -15175,10 +15193,10 @@
      },
      {
       "type": "string",
-      "pattern": "^#?[0-9a-fA-F]{6,12}$"
+      "pattern": "^(msg_)?[0-9a-fA-F]{6,12}$"
      }
     ],
-    "description": "A request named by its integer id, or by its ref: the 12 hex characters, with or without a leading #, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist."
+    "description": "A request named by its integer id, or by its ref: msg_ and the 12 hex characters, or the hash alone, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist."
    },
    "Resources": {
     "type": "object",

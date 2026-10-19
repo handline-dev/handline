@@ -1531,7 +1531,7 @@ export type TaskView = {
   at: Timestamp;
 };
 
-/** A request named by its integer id, or by its ref: the 12 hex characters, with or without a leading #, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist. */
+/** A request named by its integer id, or by its ref: msg_ and the 12 hex characters, or the hash alone, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist. */
 export type RequestName = number | string;
 
 /** What the machine and each agent use, measured every 15 s: one ps read for every agent. A figure the daemon could not read is 0. */
@@ -1848,6 +1848,12 @@ export interface Methods {
     messages: ChatMessage[];
     more_older: boolean;
     more_newer: boolean;
+    /** chat.transcript's items for the agent from the second of the page's oldest message to the end of its newest's (on to now when more_newer is false), oldest first: up to 200, kept around message. */
+    transcript: TranscriptItem[];
+    /** The span has older items than transcript holds; continue with chat.transcript before the first item's id. */
+    transcript_more_older: boolean;
+    /** The span has newer items than transcript holds; continue with chat.transcript since the last item's id. */
+    transcript_more_newer: boolean;
   } };
   "agent.strip": { params: {
   agent: AgentName;
