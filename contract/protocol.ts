@@ -580,6 +580,16 @@ export type Account = {
   assignable?: boolean;
   /** Only with accounts.list `usage: true`. Why assignable is what it is. */
   assign_reason?: string;
+  /** Set while the account is STALLED: a turn on it ended on an error that says the account itself cannot be used (a refused login, an org that disallows it, a hold or billing problem), or on one error the daemon does not name four times with no good turn between. No agent is placed on it; account.wake, a login or a good turn there ends it. null while it is usable. Absent from a daemon that does not send it. */
+  stalled?: {
+    /** The line a row shows beside STALLED, as an agent's stall does: `login expired` for authentication_failed, else the error itself. */
+    reason: string;
+    /** The StopFailure error that stalled it, as the CLI gave it. */
+    error: string;
+    /** The turn that showed it, in words. */
+    detail: string;
+    since: Timestamp;
+  } | null;
 };
 
 export type DaemonStatus = {
@@ -2500,6 +2510,10 @@ export interface Methods {
   cycle_end?: string | null;
   request_id: RequestId;
 }; result: Accepted };
+  "account.wake": { params: {
+  account: string;
+  request_id: RequestId;
+}; result: Accepted };
   "account.add": { params: {
   /** The new account's name: one plain line, no slash, not starting with a dot. */
   account: string;
@@ -2799,6 +2813,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "accounts.list": { role: "agent", callers: null, write: false, since: 1 },
   "status.pick": { role: "agent", callers: null, write: false, since: 1 },
   "account.set": { role: "founder", callers: null, write: true, since: 1 },
+  "account.wake": { role: "founder", callers: null, write: true, since: 1 },
   "account.add": { role: "founder", callers: null, write: true, since: 1 },
   "account.login": { role: "founder", callers: null, write: true, since: 1 },
   "account.login_cancel": { role: "founder", callers: null, write: true, since: 1 },

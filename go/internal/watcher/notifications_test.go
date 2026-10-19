@@ -141,3 +141,21 @@ func TestGoAndPythonWriteTheSameNotifications(t *testing.T) {
 		}
 	}
 }
+
+func TestAnAccountStalledOnAnotherErrorSaysTheErrorNotALogin(t *testing.T) {
+	d, l := rig(t)
+	emit := func(e stream.Entry) (*stream.Event, error) { return l.Append(e) }
+	n := &Notifications{Reads: &reads.Env{DB: d}}
+	if err := n.Scan(d, emit); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, d, "INSERT INTO events(ts, agent, account, kind, payload) VALUES(1, 'amy', 'gamma', 'login_expired', '{\"account\": \"gamma\", \"error\": \"oauth_org_not_allowed\"}')")
+	exec(t, d, "INSERT INTO events(ts, agent, account, kind, payload) VALUES(2, 'bob', 'main', 'login_expired', '{\"account\": \"main\", \"error\": \"authentication_failed\"}')")
+	if err := n.Scan(d, emit); err != nil {
+		t.Fatal(err)
+	}
+	got := notes(t, l)
+	if len(got) != 2 || *got[0].Title != "gamma stalled: oauth_org_not_allowed" || *got[1].Title != "main needs logging in" {
+		t.Fatalf("%+v", got)
+	}
+}

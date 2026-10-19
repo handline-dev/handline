@@ -249,8 +249,8 @@ func TestARefusedLoginOnATerminalAgentsAccountMarksItAndMovesTheAgent(t *testing
 		t.Fatal(err)
 	}
 	acc := team.Accounts{Home: p.home}
-	if acc.LoginExpired("a1") == nil || acc.LoginExpired("a2") != nil {
-		t.Fatalf("a1 is marked and a2 is not: %v", res.Actions)
+	if acc.Stalled("a1") == nil || acc.Stalled("a2") != nil {
+		t.Fatalf("a1 is stalled and a2 is not: %v", res.Actions)
 	}
 	found := false
 	for _, a := range res.Actions {
@@ -260,7 +260,7 @@ func TestARefusedLoginOnATerminalAgentsAccountMarksItAndMovesTheAgent(t *testing
 		t.Fatalf("the agent is handed off: %v", res.Actions)
 	}
 	if _, _, ok, _ := dbpkg.LastEvent(d, "bob", "login_expired"); !ok {
-		t.Fatal("the mark is on record")
+		t.Fatal("the stall is on record")
 	}
 }
 
@@ -282,8 +282,8 @@ func TestARefusalLeftOnTheAccountATerminalAgentWasMovedFromMarksNothing(t *testi
 		t.Fatal(err)
 	}
 	acc := team.Accounts{Home: p.home}
-	if acc.LoginExpired("a1") != nil || acc.LoginExpired("a2") != nil {
-		t.Fatal("a refusal on the account it left marked an account")
+	if acc.Stalled("a1") != nil || acc.Stalled("a2") != nil {
+		t.Fatal("a refusal on the account it left stalled an account")
 	}
 }
 
@@ -296,8 +296,8 @@ func TestAPromptAfterARefusalClearsItForATerminalAgent(t *testing.T) {
 	if _, err := tk.Tick.Run(nil); err != nil {
 		t.Fatal(err)
 	}
-	if (team.Accounts{Home: p.home}).LoginExpired("a1") != nil {
-		t.Fatal("a turn that began after the refusal marked the account")
+	if (team.Accounts{Home: p.home}).Stalled("a1") != nil {
+		t.Fatal("a turn that began after the refusal stalled the account")
 	}
 }
 
@@ -312,12 +312,12 @@ func TestARefusalOlderThanTheAccountsLastLoginMarksNothing(t *testing.T) {
 	if _, err := tk.Tick.Run(nil); err != nil {
 		t.Fatal(err)
 	}
-	if (team.Accounts{Home: p.home}).LoginExpired("a1") != nil {
-		t.Fatal("a refusal from before the login marked the account")
+	if (team.Accounts{Home: p.home}).Stalled("a1") != nil {
+		t.Fatal("a refusal from before the login stalled the account")
 	}
 }
 
-func TestARefusalThePythonDaemonAlreadyLiftedIsNotMarkedAgain(t *testing.T) {
+func TestARefusalThePythonDaemonAlreadyLiftedIsNotStalledAgain(t *testing.T) {
 	p, tk, _ := loginRig(t)
 	d := p.db
 	authFailed(t, p, "a1")
@@ -329,8 +329,8 @@ func TestARefusalThePythonDaemonAlreadyLiftedIsNotMarkedAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	acc := team.Accounts{Home: p.home}
-	if acc.LoginExpired("a1") != nil {
-		t.Fatal("the refusal that daemon lifted marked the account")
+	if acc.Stalled("a1") != nil {
+		t.Fatal("the refusal that daemon lifted stalled the account")
 	}
 	if _, err := d.Exec("UPDATE cursors SET updated = updated - 100 WHERE name = 'login_lifted:bob'"); err != nil { // a lift from before the refusal
 		t.Fatal(err)
@@ -338,7 +338,7 @@ func TestARefusalThePythonDaemonAlreadyLiftedIsNotMarkedAgain(t *testing.T) {
 	if _, err := tk.Tick.Run(nil); err != nil {
 		t.Fatal(err)
 	}
-	if acc.LoginExpired("a1") == nil {
+	if acc.Stalled("a1") == nil {
 		t.Fatal("a refusal after the last lift is the account's")
 	}
 }

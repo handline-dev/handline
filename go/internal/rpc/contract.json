@@ -17,6 +17,9 @@
  "account.set": {
   "role": "founder"
  },
+ "account.wake": {
+  "role": "founder"
+ },
  "accounts.list": {
   "role": "agent"
  },

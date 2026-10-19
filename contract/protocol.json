@@ -136,7 +136,7 @@
    "hl hr approve|reject|apply|relabel|rehome|links",
    "hl trust remove|apply|mcp",
    "hl schedule add|edit|remove",
-   "hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)",
+   "hl account add|remove|register|cap|cycle|recover|wake (set; the billing-cycle and cap reads are for the next spec task)",
    "hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)",
    "hl dev-mode",
    "hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)",
@@ -7432,6 +7432,50 @@
    "description": "Fields not given are left alone. Chosen over set_cycle_on/set_cycle_end methods because the UI saves these together and the CLI twins (cap, cycle, recover, alias) each write one of these fields."
   },
   {
+   "name": "account.wake",
+   "summary": "Wake a STALLED account: its stall ends, agents may be placed on it again and the agents stalled with it are released, as session.wake clears a stalled agent (hl account wake). A login on the account, or a turn that ends well there, ends the stall too. Refused (gate state) when the account is not stalled.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "account",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
+    "state"
+   ]
+  },
+  {
    "name": "account.add",
    "summary": "Register an account on this machine; it is not logged in until account.login runs.",
    "paramStructure": "by-name",
@@ -11316,6 +11360,40 @@
      "assign_reason": {
       "type": "string",
       "description": "Only with accounts.list `usage: true`. Why assignable is what it is."
+     },
+     "stalled": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "reason": {
+          "type": "string",
+          "description": "The line a row shows beside STALLED, as an agent's stall does: `login expired` for authentication_failed, else the error itself."
+         },
+         "error": {
+          "type": "string",
+          "description": "The StopFailure error that stalled it, as the CLI gave it."
+         },
+         "detail": {
+          "type": "string",
+          "description": "The turn that showed it, in words."
+         },
+         "since": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "reason",
+         "error",
+         "detail",
+         "since"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Set while the account is STALLED: a turn on it ended on an error that says the account itself cannot be used (a refused login, an org that disallows it, a hold or billing problem), or on one error the daemon does not name four times with no good turn between. No agent is placed on it; account.wake, a login or a good turn there ends it. null while it is usable. Absent from a daemon that does not send it."
      }
     },
     "required": [
