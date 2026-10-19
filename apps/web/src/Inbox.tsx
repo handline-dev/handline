@@ -7,7 +7,7 @@ import { useConnection, useNearEnd } from '@handline/app-react';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { InboxCard, open, waits } from './InboxCard.tsx';
 import { kindIcon, kindLabel, type Verbs } from './inboxKinds.ts';
-import { Button, Icon, PageHead, ScrollPage, Kbd, Select } from './ui/index.ts';
+import { Button, Icon, PageHead, PageTitle, ScrollPage, Kbd, Select } from './ui/index.ts';
 import { View } from './View.tsx';
 
 const CONFIRM_ABOVE = 10;
@@ -19,9 +19,9 @@ const KEYS: [string, string][] = [
   ['j / k', 'next / previous'],
   ['?', 'this list'],
 ];
-// The header sticks; its agent picker takes the page's frame over the Select's own.
+// The header's agent picker takes the page's frame over the Select's own.
 const TOP =
-  'inbox-top sticky top-0 z-1 flex flex-wrap items-center gap-2 bg-canvas py-3 [&_select]:rounded-ctl [&_select]:border [&_select]:border-line [&_select]:bg-panel [&_select]:px-1.5 [&_select]:py-[5px] [&_select]:text-ink';
+  'inbox-top [&_select]:rounded-ctl [&_select]:border [&_select]:border-line [&_select]:bg-panel [&_select]:px-1.5 [&_select]:py-[5px] [&_select]:text-ink';
 // A pressed filter is shown by a frame and a heavier stroke, not by colour.
 const KIND = 'icon aria-pressed:outline-2 aria-pressed:outline-offset-1 aria-pressed:outline-current aria-pressed:[&_svg]:stroke-3';
 const GROUPS: [InboxGroup, string][] = [
@@ -143,13 +143,13 @@ export function InboxPage({ item }: { item: number | null }) {
   return (
     <ScrollPage ref={page} className="inbox" aria-label="Inbox">
       <PageHead className={TOP}>
-        <h2 className="m-0 mr-auto text-[18px] [&_svg]:align-middle" title="Inbox">
+        <PageTitle className="mr-auto [&_svg]:align-middle" title="Inbox">
           <Icon name="inbox" size={20} />
           <span className="muted" aria-label={`${unread.length} unread`}>
             {' '}
             {unread.length}
           </span>
-        </h2>
+        </PageTitle>
         <div className="inbox-kinds flex gap-1" role="group" aria-label="Kind">
           {kinds.map((k) => (
             <button
