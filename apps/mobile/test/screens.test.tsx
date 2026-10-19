@@ -11,7 +11,7 @@ describe('the agent list', () => {
     await until(() => $(`agent-${ARCH}`), 'the rows', 5000);
     await sleep(400); // the skeleton stays at least 300 ms once shown
     expect($('skeleton-agents')).toBeNull();
-    expect(rowHeightOf($(`agent-${ARCH}`))).toBe(skeletonRowHeight);
+    expect(getComputedStyle($(`agent-${ARCH}`)!).minHeight).toBe(skeletonRowHeight); // the row may grow with a larger font, never shrink below the skeleton's
     expect(text()).toContain(ARCH);
     m.store.stop();
   });
