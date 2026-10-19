@@ -1,8 +1,11 @@
 // The quiet admin page (#/admin, linked from the foot of Settings): what the daemon is doing, why agents wake, how full their memory is, and what just happened.
 // Read-only: it shows what `hl` printed for a person, in words.
-import { ago } from '@handline/app-core';
-import { useMemory, useRecentEvents, useServes, useStatus, useTriggers } from '@handline/app-data';
+import { useState } from 'react';
+import { ago, useRows, VERBS } from '@handline/app-core';
+import { useAgents, useMemory, useRecentEvents, useServes, useStatus, useTriggers } from '@handline/app-data';
 import { PageHead, PageTitle, RowTitle, ScrollPage, SectionHead, SettingsCard, SettingsRow } from './ui/index.ts';
+import { VerbSheet } from './AgentVerbs.tsx';
+import { Button } from './ui/index.ts';
 import { View } from './View.tsx';
 
 const HEALTH: Record<string, string> = { ok: 'working', degraded: 'degraded', down: 'down' };
@@ -36,6 +39,44 @@ function Daemon() {
           </SettingsCard>
         ) : null}
       </View>
+    </>
+  );
+}
+
+function Usage() {
+  const q = useStatus();
+  const agents = useAgents().data?.agents ?? [];
+  const [stopping, setStopping] = useState<string | null>(null);
+  const { rows, total } = useRows(q.data?.resources);
+  const close = VERBS.close;
+  const target = agents.find((a) => a.name === stopping);
+  return (
+    <>
+      <SectionHead>What agents use</SectionHead>
+      {!q.data?.resources ? (
+        <p className="muted">Not measured yet.</p>
+      ) : (
+        <SettingsCard as="ul" className="admin-usage">
+          {rows.map((r) => {
+            const a = agents.find((x) => x.name === r.agent);
+            return (
+              <SettingsRow as="li" key={r.agent} data-agent={r.agent}>
+                <RowTitle plain>
+                  {r.agent}{' '}
+                  <span className="muted">
+                    CPU {r.cpu} · memory {r.memory} · {a?.state ?? 'unknown'}
+                  </span>
+                </RowTitle>
+                {a ? <Button variant="outline" label="Stop" aria-label={`Stop ${r.agent}`} onClick={() => setStopping(r.agent)} /> : null}
+              </SettingsRow>
+            );
+          })}
+          <SettingsRow className="admin-usage-total">
+            <RowTitle plain>{total}</RowTitle>
+          </SettingsRow>
+        </SettingsCard>
+      )}
+      {target ? <VerbSheet a={target} verb={close} onClose={() => setStopping(null)} /> : null}
     </>
   );
 }
@@ -124,6 +165,7 @@ export function AdminPage() {
       </PageHead>
       <div className="mx-auto flex w-full max-w-[var(--w-form)] flex-col gap-4">
         <Daemon />
+        <Usage />
         <Wakes />
         <Memory />
         <Recent />
