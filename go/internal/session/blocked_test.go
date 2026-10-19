@@ -36,7 +36,7 @@ func TestADialogInTheWayOfWorkIsSaidOnceAndClearsItself(t *testing.T) {
 	b.term.blockers["h1"] = exitDialogBlocker()
 	b.sweep()
 	rec := b.block()
-	if rec == nil || rec.Kind != term.Modal || !strings.Contains(rec.Work, "request #1") {
+	if rec == nil || rec.Kind != term.Modal || !strings.Contains(rec.Work, "a message") {
 		t.Fatalf("work waiting and a dialog open is not recorded: %+v", rec)
 	}
 	if len(b.logs) != 1 {
@@ -76,7 +76,7 @@ func TestADialogInTheWayOfWorkIsSaidOnceAndClearsItself(t *testing.T) {
 		t.Fatalf("decisions %v", b.ask.decisions)
 	}
 	body := b.ask.decisions[0].text
-	for _, want := range []string{"[blocked] backend cannot be given its work (10m)", "Background work is running", "request #1", "t on the agents panel", "This closes itself"} {
+	for _, want := range []string{"[blocked] backend cannot be given its work (10m)", "Background work is running", "a message", "t on the agents panel", "This closes itself"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("request lacks %q:\n%s", want, body)
 		}
@@ -125,29 +125,29 @@ func TestWorkWaitingNamesTheRequestTheAnswersAndTheReminder(t *testing.T) {
 	b.del.answers["backend"] = []int64{4, 5, 6, 7, 8}
 	b.del.forgotten["backend"] = &Forgotten{IdleS: 700, Head: &Request{ID: 9}}
 	row, _ := b.GetAgentState("backend")
-	want := "request #1 (+2 behind); answer #4, #5, #6 (+2); reminder to resolve #9"
+	want := "a message (+2 behind); 5 answers; a reminder to resolve a message"
 	if got := b.workWaiting("backend", row, b.now); got != want {
 		t.Errorf("got %q", got)
 	}
 	b.SetCursor("notify:backend", 1)
 	b.SetCursor("nudge:backend", 9)
 	b.del.answers["backend"] = []int64{4}
-	if got := b.workWaiting("backend", row, b.now); got != "answer #4" {
+	if got := b.workWaiting("backend", row, b.now); got != "an answer" {
 		t.Errorf("a told head and a nudged reminder: %q", got)
 	}
 	b.del.changed["backend"] = true
-	if got := b.workWaiting("backend", row, b.now); got != "request #1 (+2 behind); answer #4" {
+	if got := b.workWaiting("backend", row, b.now); got != "a message (+2 behind); an answer" {
 		t.Errorf("a new session is told again: %q", got)
 	}
 	b.del.changed["backend"] = false
 	b.SetCursor("nudge:backend", 0)
 	b.del.forgotten["backend"].IdleS = 599
-	if got := b.workWaiting("backend", row, b.now); got != "answer #4" {
+	if got := b.workWaiting("backend", row, b.now); got != "an answer" {
 		t.Errorf("a reminder before NudgeAfterS: %q", got)
 	}
 	b.del.forgotten["backend"].IdleS = 600
 	b.del.taskBlock = true
-	if got := b.workWaiting("backend", row, b.now); got != "answer #4" {
+	if got := b.workWaiting("backend", row, b.now); got != "an answer" {
 		t.Errorf("a reminder for a blocked head task: %q", got)
 	}
 	b.del.head["backend"] = nil
@@ -231,7 +231,7 @@ func TestADialogIsDeclinedAfterPressAfterSAndTheFounderToldOnce(t *testing.T) {
 	}
 	if len(b.ask.reports) != 1 || b.ask.reports[0].subject != "dialog declined" ||
 		!strings.Contains(b.ask.reports[0].text, `cleared by ocp: pressed Esc on "Background work is running".`) ||
-		!strings.Contains(b.ask.reports[0].text, "could not be given its work (request #1) while it was open") {
+		!strings.Contains(b.ask.reports[0].text, "could not be given its work (a message) while it was open") {
 		t.Errorf("reports %+v", b.ask.reports)
 	}
 	var n int
@@ -608,7 +608,7 @@ func TestNoteCloseFailurePutsOcpsOwnDialogOnTheListAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := b.block()
-	if rec == nil || rec.Origin != "close" || rec.ShowAt != b.now || !strings.Contains(rec.Work, "request #1") {
+	if rec == nil || rec.Origin != "close" || rec.ShowAt != b.now || !strings.Contains(rec.Work, "a message") {
 		t.Fatalf("block %+v", rec)
 	}
 	if got := b.DialogNote("backend"); !strings.HasPrefix(got, " - a dialog is open on its screen") {

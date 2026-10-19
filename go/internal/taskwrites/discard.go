@@ -255,7 +255,7 @@ func discardOne(tx *sql.Tx, home, by string, tid int64, reason, batch string, st
 				return nil, err
 			}
 			if plan == nil {
-				return nil, refusal(fmt.Sprintf("task T%d not discarded: #%d was closed while this ran - nothing to cancel", tid, r.ID))
+				return nil, refusal(fmt.Sprintf("task T%d not discarded: %s was closed while this ran - nothing to cancel", tid, db.MsgName(tx, r.ID)))
 			}
 			withdrew = append(withdrew, r.ID)
 			if plan.RID != 0 {
@@ -267,7 +267,7 @@ func discardOne(tx *sql.Tx, home, by string, tid int64, reason, batch string, st
 	} else if len(live) > 0 {
 		var open []string
 		for _, r := range live {
-			open = append(open, fmt.Sprintf("#%d (with %s)", r.ID, r.Target))
+			open = append(open, fmt.Sprintf("%s (with %s)", db.MsgName(tx, r.ID), r.Target))
 		}
 		return nil, refusal(fmt.Sprintf("task T%d still has a request open: %s - withdraw or cancel it first (the founder's `hl cancel <id>`), "+
 			"or its target keeps working on thrown-away work", tid, strings.Join(open, ", ")))
