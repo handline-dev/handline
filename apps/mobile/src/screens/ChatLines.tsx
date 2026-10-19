@@ -16,8 +16,9 @@ export function Stamp({ m, time, ticks }: { m: { id: number }; time: string | nu
     <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
       {time ? <Text style={{ color: c.muted, fontSize: 11 }}>{time}</Text> : null}
       {ticks ? (
-        <View testID={`landing-${m.id}`} accessible accessibilityLabel={iconLabel(ticks)}>
-          <Icon name={ticks} decorative size={14} color={c.muted} />
+        <View testID={`landing-${m.id}`} accessible accessibilityLabel={iconLabel(ticks)} style={{ alignItems: 'flex-end' }}>
+          <Icon name={ticks} decorative size={16} color={c.ink} />
+          {ticks === 'withdrawn' ? <Text style={{ color: c.muted, fontSize: 11 }}>{iconLabel(ticks)}</Text> : null}
         </View>
       ) : null}
     </View>
