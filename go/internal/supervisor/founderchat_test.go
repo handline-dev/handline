@@ -51,12 +51,6 @@ func TestTheFoundersMessageIsTypedAsWrittenAndAnAgentsStillGoesToTheInbox(t *tes
 		t.Fatalf("another agent's message goes to the inbox: %q", in.texts)
 	}
 	eventually(t, func() bool { row, _ := db.GetRequest(r.DB, mine); return row.LandedAt.Valid })
-	if typedMark, _ := db.Cursor(r.DB, db.FounderTypedCursor(mine)); typedMark == 0 {
-		t.Fatal("the typed message is marked for the stop gate")
-	}
-	if inboxMark, _ := db.Cursor(r.DB, db.FounderTypedCursor(theirs)); inboxMark != 0 {
-		t.Fatal("an agent's message is not")
-	}
 }
 
 // transcriptOf writes a transcript of these records, one a line.

@@ -2,7 +2,6 @@ package db
 
 import (
 	"database/sql"
-	"strconv"
 	"strings"
 )
 
@@ -457,10 +456,6 @@ func ClearDelivered(q Q, rid int64) error {
 	_, err := q.Exec("UPDATE requests SET delivered_at = NULL WHERE id = ? AND state = 'queued'", rid)
 	return err
 }
-
-// FounderTypedCursor is the cursor set on a founder's message typed into the agent's terminal as its prompt, whose reply the daemon reads
-// from the transcript.
-func FounderTypedCursor(rid int64) string { return "founder_typed:" + strconv.FormatInt(rid, 10) }
 
 // MarkTyped is db.mark_typed: the send went through into session's terminal; not delivered until MarkLanded. The CLI's echo can land the
 // request before the send records its typing: a landed request is stamped only when it has no typing yet.
