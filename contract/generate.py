@@ -96,6 +96,9 @@ def gen_ts(spec: dict) -> str:
         out.append(f"  {n}: {ts(d['params']) if isinstance(d['params'], dict) else d['params']};")
     out += ["}", "", "/** The state words the daemon sends; an open set, so a client keeps a fallback. */",
             "export const STATE_WORDS = " + json.dumps(list(spec["x-state-words"]["words"])) + " as const;", "",
+            "/** x-status: the state and reason every agent and task carries; open sets for a client, which shows `text` for a word it does not know. */",
+            "export const STATUS_STATES = " + json.dumps(list(spec["x-status"]["states"])) + " as const;",
+            "export const STATUS_REASONS = " + json.dumps(list(spec["x-status"]["reasons"])) + " as const;", "",
             "export const ROLE_ORDER: Role[] = " + json.dumps(spec["x-roles"]["order"]) + ";", ""]
     return "\n".join(out)
 
@@ -151,6 +154,9 @@ def gen_md(spec: dict) -> str:
     o += ["", "## State words", "", sw["rule"], "", "| Word | Meaning |", "|---|---|"] + [f"| `{w}` | {cell(m)} |" for w, m in sw["words"].items()]
     o += ["", "What the daemon sends for each of its own states:", "", "| Daemon state | Word |", "|---|---|"] + [f"| {cell(k)} | `{v}` |" for k, v in sw["from_daemon"].items()]
     o += ["", sw["pending"]]
+    st = spec["x-status"]
+    o += ["", "## Status", "", st["rule"], "", "| State | Meaning |", "|---|---|"] + [f"| `{w}` | {cell(m)} |" for w, m in st["states"].items()]
+    o += ["", "| Reason | Meaning |", "|---|---|"] + [f"| `{w}` | {cell(m)} |" for w, m in st["reasons"].items()]
     o += ["", "## Notifications", ""]
     for n, d in spec["x-notifications"].items():
         o.append(f"- `{n}`: {d.get('note', '')} Params: `{ts(d['params']).replace(chr(10), ' ') if isinstance(d['params'], dict) else d['params']}`")

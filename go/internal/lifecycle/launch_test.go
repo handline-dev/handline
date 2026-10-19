@@ -2,8 +2,10 @@ package lifecycle
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -86,6 +88,7 @@ type launchRig struct {
 	l     *Launcher
 	warns []string
 	execd []string
+	argv  []string
 }
 
 func newLaunchRig(t *testing.T) *launchRig {
@@ -116,6 +119,7 @@ func newLaunchRig(t *testing.T) *launchRig {
 		Warn:           func(s string) { r.warns = append(r.warns, s) },
 		Exec: func(argv0 string, argv, env []string) error {
 			r.execd = append([]string{argv0}, env...)
+			r.argv = argv
 			return nil
 		},
 	}}
@@ -222,6 +226,35 @@ func TestExecAgentKeepsHowItStartedAndWhereItRunsThenExecs(t *testing.T) {
 	}
 	if _, err := os.Stat(pf); err == nil {
 		t.Fatal("prompt file kept")
+	}
+}
+
+func TestAHandLaunchStartsTheFirstTurnWhenThereIsWorkToPickUp(t *testing.T) {
+	r := newLaunchRig(t)
+	last := func() string { return r.argv[len(r.argv)-1] }
+	_ = db.SetHandoff(r.l.Q, "ann", "h")
+	if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(last(), "handoff is in your system prompt") {
+		t.Fatalf("with a handoff: %v", r.argv)
+	}
+	tid, _ := db.NewTask(r.l.Q, "held", "ann", "boss", 0, 2, "", 0, "")
+	if err := db.SetCurrentTask(r.l.Q, "ann", tid, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(last(), fmt.Sprintf("hl task show T%d", tid)) {
+		t.Fatalf("holding a task: %v", r.argv)
+	}
+	_ = db.SetCurrentTask(r.l.Q, "ann", 0, false)
+	if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(r.argv, "--") {
+		t.Fatalf("nothing to pick up, no prompt: %v", r.argv)
 	}
 }
 
@@ -586,7 +619,7 @@ func TestAnAgentIsToldItsTeamFromTeamYAML(t *testing.T) {
 	r := newLaunchRig(t)
 	v, err := yamlcompat.ParseOrdered(`
 teams:
-  dev: [manager, marina, keeper]
+  manager: [manager, marina, keeper]
   lone: [scout]
 agents:
   manager: {}
@@ -594,9 +627,8 @@ agents:
   keeper: {}
   scout: {}
 edges:
-  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: task }
+  - { from: "human", to: "*" }
+  - { from: "*", to: "human" }
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -640,7 +672,7 @@ edges:
 		t.Fatal(err)
 	}
 	mgr, dev, scout := context("manager"), context("marina"), context("scout")
-	rules := "# Rules for team dev\n" + strings.TrimSpace(team.DefaultRules)
+	rules := "# Rules for team manager\n" + strings.TrimSpace(team.DefaultRules)
 	for who, text := range map[string]string{"manager": mgr, "marina": dev} {
 		if !strings.Contains(text, rules) {
 			t.Errorf("%s: the seeded team file is not in the prompt:\n%s", who, text)

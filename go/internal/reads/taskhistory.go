@@ -18,8 +18,8 @@ var editFields = [][2]string{{"owner", "assignee"}, {"reporter", "owner"}, {"tit
 	{"timeout", "timeout"}}
 
 // historyState is the state an event leaves the task in: chat's stateAfter, and the three only the history shows.
-func historyState(kind string) (string, bool) {
-	if s, ok := stateAfter[kind]; ok {
+func historyState(kind string, p map[string]any) (string, bool) {
+	if s, ok := stateAfterEvent(kind, p); ok {
 		return s, true
 	}
 	s, ok := map[string]string{"task_new": "opened", "release_task": "released", "merge_task": "merged"}[kind]
@@ -61,7 +61,7 @@ func (e *Env) taskHistory(c *rpc.Conn, params map[string]any) (any, error) {
 	var rows []map[string]any
 	state := ""
 	for _, ev := range events {
-		p, kind := decodeObject(ev.str("payload")), ev.str("kind")
+		p, kind, before := decodeObject(ev.str("payload")), ev.str("kind"), len(rows)
 		add := func(field, was, now string) map[string]any {
 			r := map[string]any{"at": ts(ev["ts"]), "by": ev.str("agent"), "field": field, "was": was, "now": now}
 			rows = append(rows, r)
@@ -100,10 +100,17 @@ func (e *Env) taskHistory(c *rpc.Conn, params map[string]any) (any, error) {
 		case "memo_add", "memo_edit", "memo_delete":
 			add("memo", text(p["was"]), text(p["now"]))["memo"] = int64(seconds(p["memo"]))
 		}
-		if now, ok := historyState(kind); ok {
+		now, ok := historyState(kind, p)
+		if !ok && state == "answered" && len(rows) > before && rows[len(rows)-1]["field"] == "assignee" {
+			now, ok = "queued", true // a reassign ends an answer: the task waits on its new holder
+		}
+		if ok {
 			r := add("state", state, now)
 			for _, key := range []string{"done", "report", "reason", "note"} {
 				note(r, key)
+			}
+			if w, ok := p["withdrew"].([]any); ok && len(w) > 0 { // the requests a lead's or the founder's discard closed with it
+				r["withdrew"] = w
 			}
 			state = now
 		}

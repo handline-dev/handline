@@ -40,8 +40,8 @@ type Handover struct {
 	After        func() string
 }
 
-// handoffRefusal is why `me` may not hand the task to `to`, or "": the owner (or the founder) hands it on, with a note.
-func handoffRefusal(t *task, me, to, note string, agents []string) string {
+// handoffRefusal is why the task may not go to `to`, or "": anyone hands an open task on, with a note (its asker takes it back so).
+func handoffRefusal(t *task, to string, agents []string) string {
 	switch {
 	case t.done() || t.DiscardedBy.Valid && t.DiscardedBy.String != "":
 		return fmt.Sprintf("task T%d is already finished - nothing to hand over", t.ID)
@@ -49,8 +49,6 @@ func handoffRefusal(t *task, me, to, note string, agents []string) string {
 		return "no agent named " + to
 	case to == t.Owner:
 		return fmt.Sprintf("T%d is already %s's", t.ID, to)
-	case me != human && me != t.Owner:
-		return fmt.Sprintf("T%d is %s's: only its owner hands it on", t.ID, t.Owner)
 	}
 	return ""
 }
@@ -64,7 +62,7 @@ func contains(xs []string, x string) bool {
 	return false
 }
 
-// handoffMethod is task.handoff (actions.task_handoff): the owner passes a task along with a note. The ask to the new owner, the move and the
+// handoffMethod is task.handoff (actions.task_handoff): anyone passes a task along with a note, the history keeping who. The ask to the new owner, the move and the
 // record of the result are one transaction, so a crash between them leaves nothing half done and a retry needs no intent to find its way.
 func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
@@ -102,7 +100,7 @@ func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 			if t == nil {
 				return nil, refusal(fmt.Sprintf("no task T%d", tid))
 			}
-			if why := handoffRefusal(t, me, to, said, agents); why != "" {
+			if why := handoffRefusal(t, to, agents); why != "" {
 				return nil, refusal(why)
 			}
 			if err := claimImages(tx, home, me, said, "", "note"); err != nil {

@@ -133,7 +133,7 @@ func detailLines(t obj, now float64, home string) []string {
 		out = append(out, fmt.Sprintf("done %s: %s", stamp(t["done"]), str(t, "evidence")))
 	}
 	if r, ok := t["report"].(obj); ok {
-		out = append(out, fmt.Sprintf("reported %s: %s", stamp(r["at"]), str(r, "evidence")))
+		out = append(out, fmt.Sprintf("answered %s: %s", stamp(r["at"]), str(r, "evidence")))
 	}
 	if r, ok := t["result"].(obj); ok {
 		out = append(out, resultLines(r, num(t, "id"), home)...)
@@ -143,7 +143,11 @@ func detailLines(t obj, now float64, home string) []string {
 		if reason == "" {
 			reason = "no reason given"
 		}
-		out = append(out, fmt.Sprintf("discarded by %s: %s", str(d, "by"), reason))
+		line := fmt.Sprintf("discarded by %s: %s", str(d, "by"), reason)
+		if w, _ := d["withdrew"].([]any); len(w) > 0 {
+			line += fmt.Sprintf(" (withdrew %d open request%s)", len(w), map[bool]string{true: "s"}[len(w) > 1])
+		}
+		out = append(out, line)
 	}
 	body := str(t, "body")
 	if body == "" {
@@ -242,14 +246,14 @@ func resultLines(r obj, tid int64, home string) []string {
 	return out
 }
 
-// waitsOn is what holds a task's clock (cli/task._waits_on): the founder when they hold it or must accept it, else its open blockers and
+// waitsOn is what holds a task's clock: the founder when they hold it or must accept it, else its open blockers and
 // open children, each the founder holds marked so; "" for none.
 func waitsOn(t obj) string {
 	asker := str(t, "asker")
 	if asker == "" {
 		asker = str(t, "from")
 	}
-	if str(t, "to") == "human" || str(t, "state") == "reported" && asker == "human" {
+	if str(t, "to") == "human" || str(t, "state") == "answered" && asker == "human" {
 		return "human"
 	}
 	var on []string
@@ -328,7 +332,7 @@ func taskList(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if state, given := p.opt("--state"); given {
 		switch state {
-		case "draft", "queued", "doing", "reported", "done", "discarded":
+		case "draft", "queued", "doing", "answered", "done", "discarded":
 			params["state"] = state
 		default:
 			return 0, false
@@ -453,7 +457,7 @@ func taskBoard(c *hlclient.Client, args []string) (int, bool) {
 		}
 		fmt.Println(fit100(fmt.Sprintf("%-5s %s%s", fmt.Sprintf("T%d", num(t, "id")), textsafe.Oneline(str(t, "title")), parent)))
 		said := nowSaid(now)
-		if str(t, "state") == "reported" {
+		if str(t, "state") == "answered" {
 			said = stateSaid(t)
 		}
 		fmt.Println(fit100(fmt.Sprintf("      assignee %s  owner %s  now: %s", str(t, "to"), str(t, "asker"), said)))
@@ -467,16 +471,16 @@ func taskBoard(c *hlclient.Client, args []string) (int, bool) {
 	return 0, true
 }
 
-// stateSaid is a task's state as read: a reported one names who it waits on, its asker, else its opener (cli/task._state).
+// stateSaid is a task's state as read: an answered one names who it waits on, its asker, else its opener (cli/task._state).
 func stateSaid(t obj) string {
-	if str(t, "state") != "reported" {
+	if str(t, "state") != "answered" {
 		return str(t, "state")
 	}
 	who := str(t, "asker")
 	if who == "" {
 		who = str(t, "from")
 	}
-	return "reported, awaiting " + who
+	return "answered, awaiting " + who
 }
 
 // nowSaid is who holds a task now, in words (cli/task.cmd_task_board).

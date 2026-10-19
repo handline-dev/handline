@@ -230,7 +230,7 @@ func humanInbox(got map[string]any, showAll bool) int {
 		}
 		fmt.Printf("%s #%-5d %s %s %s%s\n", mark, anum(m["id"]), pad(text(m["from"]), 12), pad(text(m["kind"]), 9), textsafe.Oneline(text(m["line"])), behind)
 	}
-	fmt.Println("`hl say <who> --parent <id> \"<text>\"` answers one - a reply settles what it answers, and on a `<` row it goes back in that thread.")
+	fmt.Println("`hl say <who> --parent <id> \"<text>\"` replies to one, and on a `<` row it goes back in that thread.")
 	if showAll {
 		dealt := rows(got["dealt"])
 		fmt.Printf("\n%d most recent, already dealt with:\n", len(dealt))
@@ -308,7 +308,7 @@ func read(c *hlclient.Client, args []string) (int, bool) {
 		}
 		fmt.Printf("in reply to #%d%s\n", anum(parent["id"]), line)
 	}
-	fmt.Printf("relation %v   response %v   depth %d\n\n", orNone(row["relation"]), orNone(row["response"]), anum(row["chain_depth"]))
+	fmt.Printf("depth %d\n\n", anum(row["chain_depth"]))
 	body := text(row["body"])
 	if body == "" {
 		body = "(empty)"
@@ -317,32 +317,15 @@ func read(c *hlclient.Client, args []string) (int, bool) {
 	for _, l := range pathLines(rows(row["parts"]), "") {
 		fmt.Println(l)
 	}
-	if d, ok := row["dismissal"].(map[string]any); ok && d != nil {
-		by, reason := text(d["by"]), text(d["reason"])
-		head := "--- dismissed"
-		if by != "" {
-			head += " by " + textsafe.Oneline(by)
-		}
-		fmt.Printf("\n%s ---\n", head)
-		if reason != "" {
-			fmt.Println(textsafe.Text(reason))
-		}
-	} else if ans := text(row["answer"]); ans != "" {
+	if ans := text(row["answer"]); ans != "" {
 		if h, never := neverAnswered[text(row["state"])]; never {
 			fmt.Printf("\n--- %s ---\n", h)
 		} else {
-			fmt.Printf("\n--- answered by %s ---\n", text(row["target"]))
+			fmt.Printf("\n--- reply from %s ---\n", text(row["target"]))
 		}
 		fmt.Println(textsafe.Text(ans))
 	}
 	return 0, true
-}
-
-func orNone(v any) any {
-	if v == nil {
-		return "-"
-	}
-	return v
 }
 
 // teamCmd shows who the caller may ask and what they are doing (cli/team.cmd_team).
@@ -384,12 +367,12 @@ func teamCmd(c *hlclient.Client, args []string) (int, bool) {
 		if other == me {
 			continue
 		}
-		if d := t.Route(me, other, 0, false); d.Allowed {
-			outs = append(outs, mine{other, inYourWords(d.Relation, true), doing(other, lines[other])})
+		if t.Route(me, other, 0).Allowed {
+			outs = append(outs, mine{other, inYourWords(t, me, other), doing(other, lines[other])})
 			names = append(names, other)
 		}
-		if d := t.Route(other, me, 0, false); d.Allowed {
-			ins = append(ins, theirs{other, inYourWords(d.Relation, false)})
+		if t.Route(other, me, 0).Allowed {
+			ins = append(ins, theirs{other, inYourWords(t, me, other)})
 			names = append(names, other)
 		}
 	}
@@ -415,18 +398,13 @@ func teamCmd(c *hlclient.Client, args []string) (int, bool) {
 	return 0, true
 }
 
-func inYourWords(relation *string, sending bool) string {
+// inYourWords is what other is to me, read from the names: my report, my manager, or a peer.
+func inYourWords(t *team.Team, me, other string) string {
 	switch {
-	case relation != nil && *relation == "supervisor":
-		if sending {
-			return "your report"
-		}
-		return "your manager"
-	case relation != nil && *relation == "subordinate":
-		if sending {
-			return "your manager"
-		}
+	case t.SupervisorOf(other) == me:
 		return "your report"
+	case t.SupervisorOf(me) == other:
+		return "your manager"
 	}
 	return "peer"
 }

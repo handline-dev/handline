@@ -1465,7 +1465,7 @@
       "method": "task.new",
       "params": {
        "owner": "{{me}}",
-       "title": "a reported task",
+       "title": "an answered task",
        "body": "build it; done is it built and tested",
        "time_box": "1h",
        "request_id": "conf-at-26"
@@ -1493,7 +1493,7 @@
      "result": {
       "accepted": true,
       "said": {
-       "$regex": "reported done"
+       "$regex": "answered"
       }
      }
     },

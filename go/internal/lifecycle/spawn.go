@@ -401,10 +401,10 @@ func (s *Spawns) StartIn(agent, worktree, cmd string) (bool, string, error) {
 	return true, said, nil
 }
 
-// SpawnOpts say how Spawn goes.
+// SpawnOpts say how Spawn goes. Why is what the session's start is recorded as ("" for hl launch's own default).
 type SpawnOpts struct {
-	Base, Prompt string
-	DryRun       bool
+	Base, Prompt, Why string
+	DryRun            bool
 }
 
 // Spawn starts the agent in its worktree: the one it has, else a new one named after it.
@@ -443,7 +443,7 @@ func (s *Spawns) SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error
 			return false, why, nil
 		}
 	}
-	cmd, err := s.Launch.CommandFor(agent, "", "", "")
+	cmd, err := s.Launch.CommandFor(agent, "", o.Why, "")
 	if err != nil {
 		return false, "", err
 	}

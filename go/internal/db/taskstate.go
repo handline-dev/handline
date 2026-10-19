@@ -112,7 +112,7 @@ func stateOf(t *Task, doing, asked bool) string {
 	case t.DoneEvidence.String != "":
 		return "done"
 	case t.ReportedAt.Valid:
-		return "reported"
+		return "answered"
 	case doing:
 		return "doing"
 	case t.QueuedBy.Valid && t.QueuedBy.String != "" || asked:
@@ -121,7 +121,7 @@ func stateOf(t *Task, doing, asked bool) string {
 	return "draft"
 }
 
-// TaskState is actions.task_state: draft, queued, doing, reported (its done waits on acceptance), done or discarded.
+// TaskState is actions.task_state: draft, queued, doing, answered (its done waits on acceptance), done or discarded.
 func TaskState(q Q, t *Task) (string, error) {
 	if t.Ended() || t.Reported() {
 		return stateOf(t, false, false), nil

@@ -249,6 +249,19 @@ func TestAFiredTriggerHandsTheAgentOffAndDegradedOnesCountTowardsAStall(t *testi
 	}
 }
 
+func TestAHandoffThatParksWithItsWakeDueStartsTheNextSessionInTheSameTick(t *testing.T) {
+	tk, w := newWorld(t)
+	over := 250_000
+	w.status = Status{TrustedCtxUsed: &over}
+	w.performOK = true
+	w.onHandoff = func() { setState(t, tk, "a", states.Parked, 9_999) }
+	w.wakeOK = true
+	supervise(tk, "a")
+	if !w.did("handoff a context") || !w.did("wake a") {
+		t.Fatalf("the wake waits for the next poll: %v", w.calls)
+	}
+}
+
 func TestATurnThatEndedOnTheUsageLimitIsHandedOffEvenWhenTheReadingLags(t *testing.T) {
 	tk, w := newWorld(t)
 	w.atLimit = &Limit{Text: "You've hit your weekly limit", Source: "StopFailure"}

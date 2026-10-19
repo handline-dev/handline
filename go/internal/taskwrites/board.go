@@ -128,7 +128,7 @@ func state(tx *sql.Tx, t *task) (string, error) {
 	case t.done():
 		return "done", nil
 	case t.reported():
-		return "reported", nil
+		return "answered", nil
 	}
 	asked, err := readsDoing(tx, t)
 	if err != nil {
