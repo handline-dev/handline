@@ -120,6 +120,8 @@ export function goTerminal(name: string): void {
   goAgent(name);
   dispatchEvent(new Event('handline-terminal'));
 }
+/** Whether a `goTerminal` for this agent still waits. */
+export const terminalWished = (agent: string): boolean => wantsTerminal === agent;
 /** True once for the agent a `goTerminal` named. */
 export function takeTerminalWish(agent: string): boolean {
   if (wantsTerminal !== agent) return false;

@@ -23,8 +23,8 @@ import {
 } from '@handline/app-core';
 import type { AgentDetail } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
-import { classify, useAgentDetail, useAgents, useServes } from '@handline/app-data';
-import { recordHistoryValue, takeTerminalWish, useHistoryValue } from './route.ts';
+import { classify, useAgentDetail, useAgents, useServes, useWrite } from '@handline/app-data';
+import { recordHistoryValue, takeTerminalWish, terminalWished, useHistoryValue } from './route.ts';
 import { View } from './View.tsx';
 import { DropZones } from './DropZones.tsx';
 import { Pane } from './Pane.tsx';
@@ -147,16 +147,27 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     return () => removeEventListener('keydown', onKey);
   }, []);
 
-  // "Open terminal" from the My turn page: the terminal (or transcript) comes to the front once.
+  // "Open terminal" from the My turn page: the terminal (or transcript) comes to the front once. An agent with no terminal is started
+  // first, and the wish waits for the terminal to appear.
+  const { mutate: startAgent } = useWrite('session.start', agent);
+  const starting = useRef(false);
   useEffect(() => {
     const take = () => {
+      if (terminalWished(agent) && !detail.structured && !detail.terminal) {
+        if (!starting.current) {
+          starting.current = true;
+          startAgent({ agent });
+        }
+        return;
+      }
+      starting.current = false;
       if (!takeTerminalWish(agent)) return;
       setWs((w) => (detail.structured ? openTab(w, 'transcript') : detail.terminal ? openTab(w, 'terminal', { handle: detail.terminal }) : w));
     };
     take();
     addEventListener('handline-terminal', take);
     return () => removeEventListener('handline-terminal', take);
-  }, [agent, detail.structured, detail.terminal]);
+  }, [agent, detail.structured, detail.terminal, startAgent]);
 
   const value: WorkspaceCtx = {
     flip,

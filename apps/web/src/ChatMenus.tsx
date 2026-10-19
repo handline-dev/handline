@@ -5,6 +5,7 @@ import { openTab, verbsOf, type Verb, taskRef } from '@handline/app-core';
 import type { AgentDetail, ChatMessage } from '@handline/client';
 import { useAgents, useChatRefs, useServes, useTasks } from '@handline/app-data';
 import type { IconName } from './ui/index.ts';
+import { goTerminal } from './route.ts';
 import { useWorkspace } from './Workspace.tsx';
 
 export type MenuKind = 'slash' | 'hash' | 'history';
@@ -92,8 +93,11 @@ export function useEntries(
 /** Opens the agent's terminal (a structured agent's transcript) beside the chat, as the `/terminal` and `/transcript` verbs do. */
 export function useOpenTerminal(detail: AgentDetail): () => void {
   const { apply } = useWorkspace();
+  // With no terminal this is the wish the workspace answers by starting the agent, then opening its terminal.
   return () =>
     detail.structured
       ? apply((w) => openTab(w, 'transcript'))
-      : detail.terminal && apply((w) => openTab(w, 'terminal', { handle: detail.terminal! }));
+      : detail.terminal
+        ? apply((w) => openTab(w, 'terminal', { handle: detail.terminal! }))
+        : goTerminal(detail.name);
 }

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { paneKey, type AgentDetail, type ByteListener, type ByteTerminalView, type ByteViewState } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useWrite } from '@handline/app-data';
+import { StartTerminal } from './StartTerminal.tsx';
 import { keep, reclaim } from './terminal/keep.ts';
 import {
   DEFAULT_FONT,
@@ -214,7 +215,7 @@ export function BytesTab({
   }, [store, agent, key, handle, watchOnly, hasTerminal, create, attempt, take, release]);
 
   const skeleton = useSkeleton(hasTerminal && state === 'attaching' && !everLive);
-  const note = !hasTerminal ? 'No terminal. Start the agent to open one.' : state === 'failed' ? failure : NOTE[state];
+  const note = !hasTerminal ? '' : state === 'failed' ? failure : NOTE[state];
 
   return (
     <div className="terminal-tab flex min-h-0 flex-col">
@@ -238,6 +239,7 @@ export function BytesTab({
             ))}
           </div>
         )}
+        {!hasTerminal && agent ? <StartTerminal agent={agent} /> : null}
         <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">
           {note}
           {state === 'live' &&

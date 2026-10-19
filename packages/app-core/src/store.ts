@@ -10,7 +10,7 @@ export interface Note {
   actor: string | null;
 }
 export type PageTab = 'chat' | 'terminal';
-/** The agent a one-page app has open: which tab shows, and its attached terminal, null for a structured agent, which has none (its row and detail are `useAgentDetail(agent)`). */
+/** The agent a one-page app has open: which tab shows, and its attached terminal, null for a structured agent or one with no terminal (its row and detail are `useAgentDetail(agent)`). */
 export interface Page {
   agent: string;
   tab: PageTab;
@@ -125,13 +125,13 @@ export class Store {
     if (seq !== this.openSeq) return;
     let attached = false;
     try {
-      // The daemon refuses a terminal to a structured agent; a failed read is left to the attach to report.
-      const structured = await this.client.call('agent.get', { agent }).then(
-        (d) => d.structured === true,
+      // The daemon refuses a terminal to a structured agent and to one that has none (null on its detail); a failed read is left to the attach to report.
+      const noView = await this.client.call('agent.get', { agent }).then(
+        (d) => d.structured === true || d.terminal === null,
         () => false,
       );
       if (seq !== this.openSeq) throw new Superseded();
-      if (structured) {
+      if (noView) {
         this.error = null;
         this.page = { agent, tab: 'chat', view: null };
         this.emit();
@@ -162,6 +162,21 @@ export class Store {
     if (this.page) {
       this.page = { ...this.page, tab };
       this.emit();
+      if (tab === 'terminal' && !this.page.view) void this.attachLate(this.page.agent);
+    }
+  }
+  /** An agent opened with no terminal may have one by now (it was started): its Terminal tab attaches then, and stays as it was if it still has none. */
+  private async attachLate(agent: string): Promise<void> {
+    try {
+      const d = await this.client.call('agent.get', { agent });
+      if (d.structured || !d.terminal || this.page?.agent !== agent || this.page.view) return;
+      const view = await this.client.attachTerminal(agent);
+      if (this.page?.agent !== agent || this.page.view) return void (await this.client.detachTerminal(agent).catch(() => {}));
+      this.unwatchView = view.subscribe(() => this.emit());
+      this.page = { ...this.page, view };
+      this.emit();
+    } catch {
+      // still none: the tab says so
     }
   }
   loadOlder(): Promise<void> {

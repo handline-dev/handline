@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentDetail, TerminalView } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { Skeleton } from '@handline/app-data';
+import { StartTerminal } from './StartTerminal.tsx';
 import { fontFor } from './terminal/core.ts';
 import { drawRows } from './terminal/spans.ts';
 
@@ -19,7 +20,6 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
     if (!hasTerminal) {
       g.textContent = '';
       setAttaching(false);
-      setStatus('No terminal. Start the agent to open one.');
       return;
     }
     let cancelled = false,
@@ -90,6 +90,7 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
         <div className="grid-skeleton pointer-events-none absolute inset-0 overflow-hidden px-2.5 py-2 empty:hidden [&_.sk]:bg-[color-mix(in_srgb,var(--term-ink)_16%,transparent)]">
           <Skeleton shape="terminalGrid" loading={attaching} label="the terminal" />
         </div>
+        {!hasTerminal ? <StartTerminal agent={agent} /> : null}
         <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">{status}</div>
       </div>
     </div>

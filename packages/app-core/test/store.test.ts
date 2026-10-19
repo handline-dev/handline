@@ -72,6 +72,25 @@ test('a structured agent opens with no terminal view, and closing it detaches no
   client.close();
 });
 
+test('an agent with no terminal opens its page with no terminal view and no error, and attaches one once it has it', async () => {
+  const { store, daemon, client } = await open();
+  const tb = daemon.sessions.get(TB)!;
+  tb.hasTerminal = false; // no terminal, not structured: the daemon refuses an attach
+  await store.openAgent(TB);
+  assert.equal(store.page!.agent, TB);
+  assert.equal(store.page!.view, null);
+  assert.equal(store.error, null);
+  store.setTab('terminal'); // still none: the tab stays as it was
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(store.page!.view, null);
+  tb.hasTerminal = true;
+  store.setTab('chat');
+  store.setTab('terminal');
+  await until(() => store.page!.view !== null);
+  await store.closeAgent();
+  client.close();
+});
+
 test('a lost connection shows as the state and the open page stays open through the reconnect', async () => {
   const { store, daemon, net } = await open();
   await store.openAgent(ARCH);

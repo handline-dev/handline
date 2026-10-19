@@ -162,7 +162,7 @@ const ICONS = {
   asleep: [Moon, 'Sleeping'],
   context: [Database, 'Context'],
   cache: [Timer, 'Prompt cache'],
-  noTerminal: [Moon, 'No terminal'],
+  noTerminal: [Moon, 'Not running'],
   // chat: what a line is
   tool: [Wrench, 'Tool'],
   permission: [ShieldQuestion, 'Permission'],

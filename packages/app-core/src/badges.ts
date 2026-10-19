@@ -1,7 +1,7 @@
 import type { AgentDetail, AgentView } from '@handline/client';
 import { STATE_WORDS } from '@handline/client';
 
-export type BadgeKind = 'dialog' | 'stalled' | 'you' | 'held' | 'no_terminal' | 'no_session' | 'other';
+export type BadgeKind = 'dialog' | 'stalled' | 'you' | 'held' | 'no_session' | 'other';
 export interface Badge {
   kind: BadgeKind;
   label: string;
@@ -11,7 +11,7 @@ export interface Badge {
 
 /**
  * The badges of a terminal tab and its sidebar row, from the daemon's parsed facts and never from the terminal's bytes.
- * `terminal` exists only on a detail: a null one means the agent has no terminal. A state word this client does not know
+ * An agent with no terminal gets no badge: the Terminal tab offers to start it. A state word this client does not know
  * becomes a plain badge so it is still said.
  */
 export function badgesOf(a: AgentView | AgentDetail, me: string): Badge[] {
@@ -35,8 +35,7 @@ export function badgesOf(a: AgentView | AgentDetail, me: string): Badge[] {
     );
   if (a.structured) {
     if (detail.session_open === false) out.push({ kind: 'no_session', label: 'no session', tip: 'Start or resume the agent to open one' });
-  } else if (a.state === 'no_terminal' || detail.terminal === null)
-    out.push({ kind: 'no_terminal', label: 'no terminal', tip: 'Start or resume the agent to open one' });
+  }
   if (!(STATE_WORDS as readonly string[]).includes(a.state)) out.push({ kind: 'other', label: a.state, tip: `state: ${a.state}` });
   return out;
 }

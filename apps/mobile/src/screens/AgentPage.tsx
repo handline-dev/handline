@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { badgesOf, controlsOf, needsConfirm, shortName, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
@@ -219,7 +219,14 @@ function TranscriptTab(props: { detail: AgentDetail }) {
 
 function Terminal(props: { detail: AgentDetail }) {
   const view = useSelector((s) => s.page!.view);
-  if (!view) return null; // a structured agent has no terminal
+  const store = useStore();
+  const start = useWrite('session.start', props.detail.name);
+  // The agent started from this tab has a terminal by now: the page attaches it.
+  useEffect(() => {
+    if (!view && props.detail.terminal) store.setTab('terminal');
+  }, [view, props.detail.terminal, store]);
+  // A structured agent is never here; one with no terminal gets the button that starts it.
+  if (!view) return <Button label="Start" disabled={start.isPending} onPress={() => start.mutate({ agent: props.detail.name })} />;
   return <TerminalOf detail={props.detail} view={view} />;
 }
 

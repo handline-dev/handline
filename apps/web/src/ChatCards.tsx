@@ -24,7 +24,7 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
   const { apply } = useWorkspace();
   return (
     <div className="chat-strip flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-hint text-ink-2">
-      <State kind={stateOfView(detail)} label={stateWord(detail)} />
+      <State kind={stateOfView(detail)} label={none(detail) ? undefined : stateWord(detail)} />
       {detail.model ? (
         <Chip title={`Model ${detail.model}${detail.effort ? `, ${detail.effort}` : ''}`}>
           <Icon name="agent" size={13} aria-hidden />
@@ -64,11 +64,13 @@ export function ChatBanner({ detail }: { detail: AgentDetail }) {
 
 /** The state in words: a restarting agent says so (as its rail row does), else the daemon's word with why it is not running. */
 const stateWord = (d: AgentDetail) => (d.handoff ? 'Restarting…' : d.state_detail ? `${d.state}: ${d.state_detail}` : d.state);
+/** An agent with no terminal shows no word for it: nobody has to think about it. */
+const none = (d: AgentDetail) => d.state === 'no_terminal' && !d.handoff;
 
 /** The room's name over the chat, with the agent's state. */
 export const RoomTitle = ({ agent, detail }: { agent: string; detail: AgentDetail }) => (
   <h2 className="m-0 min-w-0 flex-1 truncate text-body font-medium">
-    {agent} <span className="muted text-hint font-normal">{detail.handoff ? 'Restarting…' : detail.state}</span>
+    {agent} <span className="muted text-hint font-normal">{none(detail) ? '' : detail.handoff ? 'Restarting…' : detail.state}</span>
   </h2>
 );
 
@@ -199,7 +201,6 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
     (detail.has_dialog ? { kind: 'dialog', since: detail.state_since, text: detail.state_detail || null, source: 'screen' } : null);
   const openTerminal = useOpenTerminal(detail);
   if (!need) return null;
-  const reachable = detail.structured || !!detail.terminal;
   return (
     <Card variant="chat" className="card-needs bg-surface" data-kind="needs_you" data-need={need.kind}>
       <Icon name="blocked" label="Needs you" />
@@ -208,7 +209,7 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
         {need.text ? <span className="muted">{need.text}</span> : null}
         <span className="muted">{ago(need.since)}</span>
       </CardWhat>
-      <Button icon="terminal" label="Open terminal" size="sm" disabled={!reachable} onClick={openTerminal} />
+      <Button icon="terminal" label="Open terminal" size="sm" onClick={openTerminal} />
     </Card>
   );
 }
