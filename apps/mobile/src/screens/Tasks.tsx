@@ -16,7 +16,7 @@ import { Button, ListRow, MenuItem, MenuSheet, PageHeader, Pill } from './parts.
 import { MemoBox, MemoRow } from './Memos.tsx';
 import { NewTask, TaskVerbs, useTaskPending } from './TaskActions.tsx';
 import { TaskGraph } from './TaskGraph.tsx';
-import { Markdown } from './Markdown.tsx';
+import { PrBody } from './PrBody.tsx';
 
 type Scope = 'open' | 'mine' | 'closed';
 const SCOPES: [Scope, string][] = [
@@ -205,7 +205,7 @@ function Body({ t }: { t: TaskDetail }) {
   return (
     <ScrollView testID="task-detail" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
       <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>{t.title}</Text>
-      {t.body ? <Markdown text={t.body} breaks /> : null}
+      {t.body ? <PrBody id={`task-${t.id}`} agent={t.to} body={t.body} /> : null}
       <Text style={{ color: c.muted }}>
         {[`${taskRef(t.id)}`, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, timeoutText(t, now)].filter(Boolean).join(' · ')}
       </Text>
@@ -222,7 +222,7 @@ function Body({ t }: { t: TaskDetail }) {
         <Section title="Waits on">{t.blockers.map((b, i) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`, i))}</Section>
       ) : null}
       {t.children.length ? <Section title="Subtasks">{t.children.map((k, i) => line(`${taskRef(k)}`, i))}</Section> : null}
-      {t.evidence ? <Section title="Evidence"><Markdown text={t.evidence} breaks /></Section> : null}
+      {t.evidence ? <Section title="Evidence"><PrBody id={`evidence-${t.id}`} agent={t.to} body={t.evidence} /></Section> : null}
       {t.deliveries.length ? (
         <Section title="Delivery">{line(deliverySummary(t.deliveries))}</Section>
       ) : null}
@@ -243,7 +243,7 @@ function Activity({ t }: { t: TaskDetail }) {
       {items.map((i, n) => {
         const m = i.kind === 'comment' ? memos.find((x) => x.id === i.memo) : undefined;
         return m ? (
-          <MemoRow key={`${n}-${m.id}`} task={t.id} memo={m} when={ago(m.at)} />
+          <MemoRow key={`${n}-${m.id}`} task={t.id} agent={t.to} memo={m} when={ago(m.at)} />
         ) : (
           <Text key={`${n}-${i.line}`} style={{ color: c.muted }}>{`${i.line} · ${ago(i.at)}`}</Text>
         );

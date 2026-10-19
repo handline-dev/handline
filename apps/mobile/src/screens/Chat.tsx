@@ -207,6 +207,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
             <Line
               key={`i${e.id}`}
               i={e.item}
+              agent={agent}
               onReply={
                 canSend && canReplyItem
                   ? (i) => {
