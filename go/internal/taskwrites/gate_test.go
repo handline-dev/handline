@@ -1,6 +1,7 @@
 package taskwrites
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,16 @@ func TestTaskNewOpensAGateThatWatchesAPR(t *testing.T) {
 	}
 	if count(t, sdb, "SELECT COUNT(*) FROM requests") != 0 {
 		t.Fatal("a gate asks no one")
+	}
+	// waiting on its own PR is w's own bookkeeping: its lead is not told
+	if _, err := sdb.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by) VALUES(9, 'ship', 'w', 'boss', 1, 'boss')"); err != nil {
+		t.Fatal(err)
+	}
+	if r := run("w", "task.edit", "g2", fmt.Sprintf(`,"task":9,"blocked_by":%d`, tid)); r["error"] != nil {
+		t.Fatalf("%v", r["error"])
+	}
+	if count(t, sdb, "SELECT COUNT(*) FROM requests WHERE body LIKE '%now waits on%'") != 0 {
+		t.Fatal("the lead was told of a wait on a gate")
 	}
 	for _, c := range []struct{ params, why string }{
 		{`,"owner":"gate","title":"x"`, "a gate watches something"},
