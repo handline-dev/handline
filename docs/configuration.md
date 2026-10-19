@@ -56,6 +56,9 @@ hl hr team shop --member sea=/Users/you/code/sea --member shore --why "split the
 hl hr link reviewer backend --why "backend may ask the reviewer for a second look"
 ```
 
+A link's ends are agents, `*` or `human`. `hl hr unlink` removes any edge that is in `team.yaml`,
+so an edge to a retired agent can go.
+
 An older `team.yaml` is moved onto the name links by `hl hr links` (it shows the plan; `--apply`
 writes it). `hl hr` files a proposal for you to decide. `hl hr approve <id>` applies it at once and
 tells the agent that asked; `hl hr reject <id> "why"` turns it down. `hl hr list` shows proposals
