@@ -63,7 +63,7 @@ export function AgentVerbs(props: {
       {held && (
         <Row style={{ flexWrap: 'wrap' }}>
           <Text testID="held-load" style={{ color: c.wait, flex: 1 }}>
-            Held: the machine is over its load limit.
+            {row.status?.text || 'Held: the machine is over its load limit.'}
           </Text>
           <Button testID="force-start" label={held.label} icon={VERB_ICON.force_start} onPress={() => pick(held)} />
         </Row>
